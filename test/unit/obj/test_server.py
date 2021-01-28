@@ -2629,14 +2629,15 @@ class TestObjectController(unittest.TestCase):
                 resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-    def test_EC_GET_PUT_data(self):
+    def test_EC_PUT_GET_data(self):
         for policy in self.ec_policies:
+            ts = next(self.ts)
             raw_data = (b'VERIFY' * policy.ec_segment_size)[:-432]
             frag_archives = encode_frag_archive_bodies(policy, raw_data)
             frag_index = random.randint(0, len(frag_archives) - 1)
             # put EC frag archive
             req = Request.blank('/sda1/p/a/c/o', method='PUT', headers={
-                'X-Timestamp': next(self.ts).internal,
+                'X-Timestamp': ts.internal,
                 'Content-Type': 'application/verify',
                 'Content-Length': len(frag_archives[frag_index]),
                 'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
@@ -2653,6 +2654,59 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.body, frag_archives[frag_index])
+
+            # check the diskfile is durable
+            df_mgr = diskfile.ECDiskFileManager(self.conf,
+                                                self.object_controller.logger)
+            df = df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o', policy,
+                                     frag_prefs=[])
+            with df.open():
+                self.assertEqual(ts, df.data_timestamp)
+                self.assertEqual(df.data_timestamp, df.durable_timestamp)
+
+    def test_EC_PUT_GET_data_no_commit(self):
+        for policy in self.ec_policies:
+            ts = next(self.ts)
+            raw_data = (b'VERIFY' * policy.ec_segment_size)[:-432]
+            frag_archives = encode_frag_archive_bodies(policy, raw_data)
+            frag_index = random.randint(0, len(frag_archives) - 1)
+            # put EC frag archive
+            req = Request.blank('/sda1/p/a/c/o', method='PUT', headers={
+                'X-Timestamp': ts.internal,
+                'Content-Type': 'application/verify',
+                'Content-Length': len(frag_archives[frag_index]),
+                'X-Backend-No-Commit': 'true',
+                'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+                'X-Backend-Storage-Policy-Index': int(policy),
+            })
+            req.body = frag_archives[frag_index]
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 201)
+
+            # get EC frag archive will 404 - nothing durable...
+            req = Request.blank('/sda1/p/a/c/o', headers={
+                'X-Backend-Storage-Policy-Index': int(policy),
+            })
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 404)
+
+            # ...unless we explicitly request *any* fragment...
+            req = Request.blank('/sda1/p/a/c/o', headers={
+                'X-Backend-Storage-Policy-Index': int(policy),
+                'X-Backend-Fragment-Preferences': '[]',
+            })
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, frag_archives[frag_index])
+
+            # check the diskfile is not durable
+            df_mgr = diskfile.ECDiskFileManager(self.conf,
+                                                self.object_controller.logger)
+            df = df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o', policy,
+                                     frag_prefs=[])
+            with df.open():
+                self.assertEqual(ts, df.data_timestamp)
+                self.assertIsNone(df.durable_timestamp)
 
     def test_EC_GET_quarantine_invalid_frag_archive(self):
         policy = random.choice(self.ec_policies)
@@ -7109,6 +7163,8 @@ class TestObjectController(unittest.TestCase):
                             headers={})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
+        self.assertEqual('True',
+                         resp.headers.get('X-Backend-Accept-No-Commit'))
 
     def test_PUT_with_full_drive(self):
 

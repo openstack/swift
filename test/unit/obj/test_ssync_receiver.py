@@ -772,6 +772,8 @@ class TestReceiver(unittest.TestCase):
 
     @patch_policies(with_ec_default=True)
     def test_MISSING_CHECK_missing_durable(self):
+        # check that local non-durable frag is made durable if remote sends
+        # same ts for same frag, but only if remote is durable
         self.controller.logger = mock.MagicMock()
         self.controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.controller.logger)
@@ -791,8 +793,31 @@ class TestReceiver(unittest.TestCase):
             'X-Timestamp': ts1,
             'Content-Length': '1'}
         diskfile.write_metadata(fp, metadata1)
+        self.assertEqual([ts1 + '#2.data'], os.listdir(object_dir))  # sanity
 
-        # make a request - expect no data to be wanted
+        # offer same non-durable frag - expect no data to be wanted
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + ts1 + ' durable:no\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START',
+             b':MISSING_CHECK: END',
+             b':UPDATES: START', b':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+        # the local  frag is still not durable...
+        self.assertEqual([ts1 + '#2.data'], os.listdir(object_dir))
+
+        # offer same frag but durable - expect no data to be wanted
         req = swob.Request.blank(
             '/sda1/1',
             environ={'REQUEST_METHOD': 'SSYNC',
@@ -811,6 +836,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertFalse(self.controller.logger.error.called)
         self.assertFalse(self.controller.logger.exception.called)
+        # the local frag is now durable...
+        self.assertEqual([ts1 + '#2#d.data'], os.listdir(object_dir))
 
     @patch_policies(with_ec_default=True)
     @mock.patch('swift.obj.diskfile.ECDiskFileWriter.commit')
@@ -834,6 +861,7 @@ class TestReceiver(unittest.TestCase):
             'X-Timestamp': ts1,
             'Content-Length': '1'}
         diskfile.write_metadata(fp, metadata1)
+        self.assertEqual([ts1 + '#2.data'], os.listdir(object_dir))  # sanity
 
         # make a request with commit disabled - expect data to be wanted
         req = swob.Request.blank(
@@ -880,6 +908,198 @@ class TestReceiver(unittest.TestCase):
         self.assertIn(
             'EXCEPTION in ssync.Receiver while attempting commit of',
             self.controller.logger.exception.call_args[0][0])
+
+    @patch_policies(with_ec_default=True)
+    def test_MISSING_CHECK_local_non_durable(self):
+        # check that local non-durable fragment does not prevent other frags
+        # being wanted from the sender
+        self.controller.logger = mock.MagicMock()
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+
+        ts_iter = make_timestamp_iter()
+        ts1 = next(ts_iter).internal
+        ts2 = next(ts_iter).internal
+        ts3 = next(ts_iter).internal
+        # make non-durable rx disk file at ts2
+        object_dir = utils.storage_directory(
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
+            '1', self.hash1)
+        utils.mkdirs(object_dir)
+        fp = open(os.path.join(object_dir, ts2 + '#2.data'), 'w+')
+        fp.write('1')
+        fp.flush()
+        metadata1 = {
+            'name': self.name1,
+            'X-Timestamp': ts2,
+            'Content-Length': '1'}
+        diskfile.write_metadata(fp, metadata1)
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))  # sanity
+
+        def do_check(tx_missing_line, expected_rx_missing_lines):
+            req = swob.Request.blank(
+                '/sda1/1',
+                environ={'REQUEST_METHOD': 'SSYNC',
+                         'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
+                         'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
+                body=':MISSING_CHECK: START\r\n' +
+                     tx_missing_line + '\r\n'
+                     ':MISSING_CHECK: END\r\n'
+                     ':UPDATES: START\r\n:UPDATES: END\r\n')
+            resp = req.get_response(self.controller)
+            self.assertEqual(
+                self.body_lines(resp.body),
+                [b':MISSING_CHECK: START'] +
+                [l.encode('ascii') for l in expected_rx_missing_lines] +
+                [b':MISSING_CHECK: END',
+                 b':UPDATES: START', b':UPDATES: END'])
+            self.assertEqual(resp.status_int, 200)
+            self.assertFalse(self.controller.logger.error.called)
+            self.assertFalse(self.controller.logger.exception.called)
+
+        # check remote frag is always wanted - older, newer, durable or not...
+        do_check(self.hash1 + ' ' + ts1 + ' durable:no',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts1 + ' durable:yes',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts1, [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts3 + ' durable:no',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts3 + ' durable:yes',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts3, [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        # ... except when at same timestamp
+        do_check(self.hash1 + ' ' + ts2 + ' durable:no', [])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        # durable remote frag at ts2 will make the local durable..
+        do_check(self.hash1 + ' ' + ts2 + ' durable:yes', [])
+        self.assertEqual([ts2 + '#2#d.data'], os.listdir(object_dir))
+
+    @patch_policies(with_ec_default=True)
+    def test_MISSING_CHECK_local_durable(self):
+        # check that local durable fragment does not prevent newer non-durable
+        # frags being wanted from the sender
+        self.controller.logger = mock.MagicMock()
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+
+        ts_iter = make_timestamp_iter()
+        ts1 = next(ts_iter).internal
+        ts2 = next(ts_iter).internal
+        ts3 = next(ts_iter).internal
+        # make non-durable rx disk file at ts2
+        object_dir = utils.storage_directory(
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
+            '1', self.hash1)
+        utils.mkdirs(object_dir)
+        fp = open(os.path.join(object_dir, ts2 + '#2.data'), 'w+')
+        fp.write('1')
+        fp.flush()
+        metadata1 = {
+            'name': self.name1,
+            'X-Timestamp': ts2,
+            'Content-Length': '1'}
+        diskfile.write_metadata(fp, metadata1)
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))  # sanity
+
+        def do_check(tx_missing_line, expected_rx_missing_lines):
+            req = swob.Request.blank(
+                '/sda1/1',
+                environ={'REQUEST_METHOD': 'SSYNC',
+                         'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
+                         'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
+                body=':MISSING_CHECK: START\r\n' +
+                     tx_missing_line + '\r\n'
+                     ':MISSING_CHECK: END\r\n'
+                     ':UPDATES: START\r\n:UPDATES: END\r\n')
+            resp = req.get_response(self.controller)
+            self.assertEqual(
+                self.body_lines(resp.body),
+                [b':MISSING_CHECK: START'] +
+                [l.encode('ascii') for l in expected_rx_missing_lines] +
+                [b':MISSING_CHECK: END',
+                 b':UPDATES: START', b':UPDATES: END'])
+            self.assertEqual(resp.status_int, 200)
+            self.assertFalse(self.controller.logger.error.called)
+            self.assertFalse(self.controller.logger.exception.called)
+
+        # check remote frag is always wanted - older, newer, durable or not...
+        do_check(self.hash1 + ' ' + ts1 + ' durable:no',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts1 + ' durable:yes',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts1, [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts3 + ' durable:no',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts3 + ' durable:yes',
+                 [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        do_check(self.hash1 + ' ' + ts3, [self.hash1 + ' dm'])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        # ... except when at same timestamp
+        do_check(self.hash1 + ' ' + ts2 + ' durable:no', [])
+        self.assertEqual([ts2 + '#2.data'], os.listdir(object_dir))
+        # durable remote frag at ts2 will make the local durable..
+        do_check(self.hash1 + ' ' + ts2 + ' durable:yes', [])
+        self.assertEqual([ts2 + '#2#d.data'], os.listdir(object_dir))
+
+    @patch_policies(with_ec_default=True)
+    def test_MISSING_CHECK_local_durable_older_than_remote_non_durable(self):
+        # check that newer non-durable fragment is wanted
+        self.controller.logger = mock.MagicMock()
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+
+        ts_iter = make_timestamp_iter()
+        ts1 = next(ts_iter).internal
+        ts2 = next(ts_iter).internal
+        # make durable rx disk file at ts2
+        object_dir = utils.storage_directory(
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
+            '1', self.hash1)
+        utils.mkdirs(object_dir)
+        fp = open(os.path.join(object_dir, ts1 + '#2#d.data'), 'w+')
+        fp.write('1')
+        fp.flush()
+        metadata1 = {
+            'name': self.name1,
+            'X-Timestamp': ts1,
+            'Content-Length': '1'}
+        diskfile.write_metadata(fp, metadata1)
+
+        # make a request offering non-durable at ts2
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + ts2 + ' durable:no\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START',
+             (self.hash1 + ' dm').encode('ascii'),
+             b':MISSING_CHECK: END',
+             b':UPDATES: START', b':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
 
     def test_MISSING_CHECK_storage_policy(self):
         # update router post policy patch
@@ -1499,6 +1719,7 @@ class TestReceiver(unittest.TestCase):
                      'X-Object-Meta-Test1: one\r\n'
                      'Content-Encoding: gzip\r\n'
                      'Specialty-Header: value\r\n'
+                     'X-Backend-No-Commit: True\r\n'
                      '\r\n'
                      '1')
             resp = req.get_response(self.controller)
@@ -1520,9 +1741,11 @@ class TestReceiver(unittest.TestCase):
                 'X-Object-Meta-Test1': 'one',
                 'Content-Encoding': 'gzip',
                 'Specialty-Header': 'value',
+                'X-Backend-No-Commit': 'True',
                 'Host': 'localhost:80',
                 'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
+                # note: Etag and X-Backend-No-Commit not in replication-headers
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
                     'content-encoding specialty-header')})
@@ -1530,7 +1753,8 @@ class TestReceiver(unittest.TestCase):
     def test_UPDATES_PUT_replication_headers(self):
         self.controller.logger = mock.MagicMock()
 
-        # sanity check - regular PUT will not persist Specialty-Header
+        # sanity check - regular PUT will not persist Specialty-Header or
+        # X-Backend-No-Commit
         req = swob.Request.blank(
             '/sda1/0/a/c/o1', body='1',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -1540,6 +1764,7 @@ class TestReceiver(unittest.TestCase):
                      'X-Timestamp': '1364456113.12344',
                      'X-Object-Meta-Test1': 'one',
                      'Content-Encoding': 'gzip',
+                     'X-Backend-No-Commit': 'False',
                      'Specialty-Header': 'value'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
@@ -1547,6 +1772,7 @@ class TestReceiver(unittest.TestCase):
             'sda1', '0', 'a', 'c', 'o1', POLICIES.default)
         df.open()
         self.assertFalse('Specialty-Header' in df.get_metadata())
+        self.assertFalse('X-Backend-No-Commit' in df.get_metadata())
 
         # an SSYNC request can override PUT header filtering...
         req = swob.Request.blank(
@@ -1561,6 +1787,7 @@ class TestReceiver(unittest.TestCase):
                  'X-Timestamp: 1364456113.12344\r\n'
                  'X-Object-Meta-Test1: one\r\n'
                  'Content-Encoding: gzip\r\n'
+                 'X-Backend-No-Commit: False\r\n'
                  'Specialty-Header: value\r\n'
                  '\r\n'
                  '1')
@@ -1572,7 +1799,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
 
         # verify diskfile has metadata permitted by replication headers
-        # including Specialty-Header
+        # including Specialty-Header, but not Etag or X-Backend-No-Commit
         df = self.controller.get_diskfile(
             'sda1', '0', 'a', 'c', 'o2', POLICIES.default)
         df.open()
@@ -2264,7 +2491,8 @@ class TestModuleMethods(unittest.TestCase):
         expected = dict(object_hash=object_hash,
                         ts_meta=t_data,
                         ts_data=t_data,
-                        ts_ctype=t_data)
+                        ts_ctype=t_data,
+                        durable=True)
         self.assertEqual(expected,
                          ssync_receiver.decode_missing(msg.encode('ascii')))
 
@@ -2273,7 +2501,8 @@ class TestModuleMethods(unittest.TestCase):
         expected = dict(object_hash=object_hash,
                         ts_data=t_data,
                         ts_meta=t_meta,
-                        ts_ctype=t_data)
+                        ts_ctype=t_data,
+                        durable=True)
         self.assertEqual(expected,
                          ssync_receiver.decode_missing(msg.encode('ascii')))
 
@@ -2283,7 +2512,8 @@ class TestModuleMethods(unittest.TestCase):
         expected = dict(object_hash=object_hash,
                         ts_data=t_data,
                         ts_meta=t_meta,
-                        ts_ctype=t_ctype)
+                        ts_ctype=t_ctype,
+                        durable=True)
         self.assertEqual(
             expected, ssync_receiver.decode_missing(msg.encode('ascii')))
 
@@ -2298,7 +2528,8 @@ class TestModuleMethods(unittest.TestCase):
         expected = dict(object_hash=object_hash,
                         ts_data=t_data,
                         ts_meta=t_meta,
-                        ts_ctype=t_data)
+                        ts_ctype=t_data,
+                        durable=True)
         self.assertEqual(
             expected, ssync_receiver.decode_missing(msg.encode('ascii')))
 
@@ -2307,7 +2538,8 @@ class TestModuleMethods(unittest.TestCase):
         expected = dict(object_hash=object_hash,
                         ts_meta=t_data,
                         ts_data=t_data,
-                        ts_ctype=t_data)
+                        ts_ctype=t_data,
+                        durable=True)
         self.assertEqual(expected,
                          ssync_receiver.decode_missing(msg.encode('ascii')))
 
@@ -2318,7 +2550,8 @@ class TestModuleMethods(unittest.TestCase):
         expected = dict(object_hash=object_hash,
                         ts_meta=t_meta,
                         ts_data=t_data,
-                        ts_ctype=t_data)
+                        ts_ctype=t_data,
+                        durable=True)
         self.assertEqual(
             expected, ssync_receiver.decode_missing(msg.encode('ascii')))
 
@@ -2329,9 +2562,44 @@ class TestModuleMethods(unittest.TestCase):
         expected = dict(object_hash=object_hash,
                         ts_meta=t_meta,
                         ts_data=t_data,
-                        ts_ctype=t_data)
+                        ts_ctype=t_data,
+                        durable=True)
         self.assertEqual(expected,
                          ssync_receiver.decode_missing(msg.encode('ascii')))
+
+        # not durable
+        def check_non_durable(durable_val):
+            msg = '%s %s m:%x,durable:%s' % (object_hash,
+                                             t_data.internal,
+                                             d_meta_data,
+                                             durable_val)
+            expected = dict(object_hash=object_hash,
+                            ts_meta=t_meta,
+                            ts_data=t_data,
+                            ts_ctype=t_data,
+                            durable=False)
+            self.assertEqual(
+                expected, ssync_receiver.decode_missing(msg.encode('ascii')))
+        check_non_durable('no')
+        check_non_durable('false')
+        check_non_durable('False')
+
+        # explicit durable (as opposed to True by default)
+        def check_durable(durable_val):
+            msg = '%s %s m:%x,durable:%s' % (object_hash,
+                                             t_data.internal,
+                                             d_meta_data,
+                                             durable_val)
+            expected = dict(object_hash=object_hash,
+                            ts_meta=t_meta,
+                            ts_data=t_data,
+                            ts_ctype=t_data,
+                            durable=True)
+            self.assertEqual(
+                expected, ssync_receiver.decode_missing(msg.encode('ascii')))
+        check_durable('yes')
+        check_durable('true')
+        check_durable('True')
 
     def test_encode_wanted(self):
         ts_iter = make_timestamp_iter()

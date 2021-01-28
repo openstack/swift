@@ -123,7 +123,7 @@ class TestBaseSsync(BaseTest):
         return self.obj_data[path]
 
     def _create_ondisk_files(self, df_mgr, obj_name, policy, timestamp,
-                             frag_indexes=None, commit=True):
+                             frag_indexes=None, commit=True, **kwargs):
         frag_indexes = frag_indexes or [None]
         metadata = {'Content-Type': 'plain/text'}
         diskfiles = []
@@ -136,22 +136,22 @@ class TestBaseSsync(BaseTest):
                 device=self.device, partition=self.partition, account='a',
                 container='c', obj=obj_name, body=object_data,
                 extra_metadata=metadata, timestamp=timestamp, policy=policy,
-                frag_index=frag_index, df_mgr=df_mgr, commit=commit)
+                frag_index=frag_index, df_mgr=df_mgr, commit=commit, **kwargs)
             diskfiles.append(df)
         return diskfiles
 
-    def _open_tx_diskfile(self, obj_name, policy, frag_index=None):
+    def _open_tx_diskfile(self, obj_name, policy, frag_index=None, **kwargs):
         df_mgr = self.daemon._df_router[policy]
         df = df_mgr.get_diskfile(
             self.device, self.partition, account='a', container='c',
-            obj=obj_name, policy=policy, frag_index=frag_index)
+            obj=obj_name, policy=policy, frag_index=frag_index, **kwargs)
         df.open()
         return df
 
-    def _open_rx_diskfile(self, obj_name, policy, frag_index=None):
+    def _open_rx_diskfile(self, obj_name, policy, frag_index=None, **kwargs):
         df = self.rx_controller.get_diskfile(
             self.device, self.partition, 'a', 'c', obj_name, policy=policy,
-            frag_index=frag_index, open_expired=True)
+            frag_index=frag_index, open_expired=True, **kwargs)
         df.open()
         return df
 
@@ -261,7 +261,7 @@ class TestBaseSsync(BaseTest):
         return results
 
     def _verify_ondisk_files(self, tx_objs, policy, tx_frag_index=None,
-                             rx_frag_index=None):
+                             rx_frag_index=None, **kwargs):
         """
         Verify tx and rx files that should be in sync.
         :param tx_objs: sender diskfiles
@@ -278,7 +278,7 @@ class TestBaseSsync(BaseTest):
                     # this diskfile should have been sync'd,
                     # check rx file is ok
                     rx_df = self._open_rx_diskfile(
-                        o_name, policy, rx_frag_index)
+                        o_name, policy, rx_frag_index, **kwargs)
                     # for EC revert job or replication etags should match
                     match_etag = (tx_frag_index == rx_frag_index)
                     self._verify_diskfile_sync(
@@ -453,7 +453,7 @@ class TestSsyncEC(TestBaseSsyncEC):
             rx_df_mgr, obj_name, policy, t2, (12, 13), commit=False)
         expected_subreqs['PUT'].append(obj_name)
 
-        # o3 on rx has frag at other time and non-durable - PUT required
+        # o3 on rx has frag at newer time and non-durable - PUT required
         t3 = next(self.ts_iter)
         obj_name = 'o3'
         tx_objs[obj_name] = self._create_ondisk_files(
@@ -519,6 +519,91 @@ class TestSsyncEC(TestBaseSsyncEC):
         tx_objs.pop('o4')  # o4 should not have been sync'd
         self._verify_ondisk_files(
             tx_objs, policy, frag_index, rx_node_index)
+
+    def test_handoff_non_durable_fragment(self):
+        # test that a sync_revert type job does PUT when the tx is non-durable
+        policy = POLICIES.default
+        rx_node_index = frag_index = 0
+        tx_node_index = 1
+
+        # create sender side diskfiles...
+        tx_objs = {}
+        rx_objs = {}
+        tx_df_mgr = self.daemon._df_router[policy]
+        rx_df_mgr = self.rx_controller._diskfile_router[policy]
+
+        expected_subreqs = defaultdict(list)
+
+        # o1 non-durable on tx and missing on rx
+        t1 = next(self.ts_iter)  # newer non-durable tx .data
+        obj_name = 'o1'
+        tx_objs[obj_name] = self._create_ondisk_files(
+            tx_df_mgr, obj_name, policy, t1, (tx_node_index, rx_node_index,),
+            commit=False, frag_prefs=[])
+        expected_subreqs['PUT'].append(obj_name)
+
+        # o2 non-durable on tx and rx
+        t2 = next(self.ts_iter)
+        obj_name = 'o2'
+        tx_objs[obj_name] = self._create_ondisk_files(
+            tx_df_mgr, obj_name, policy, t2, (tx_node_index, rx_node_index,),
+            commit=False, frag_prefs=[])
+        rx_objs[obj_name] = self._create_ondisk_files(
+            rx_df_mgr, obj_name, policy, t2, (rx_node_index,), commit=False,
+            frag_prefs=[])
+
+        # o3 durable on tx and missing on rx, to check the include_non_durable
+        # does not exclude durables
+        t3 = next(self.ts_iter)
+        obj_name = 'o3'
+        tx_objs[obj_name] = self._create_ondisk_files(
+            tx_df_mgr, obj_name, policy, t3, (tx_node_index, rx_node_index,))
+        expected_subreqs['PUT'].append(obj_name)
+
+        suffixes = set()
+        for diskfiles in tx_objs.values():
+            for df in diskfiles:
+                suffixes.add(os.path.basename(os.path.dirname(df._datadir)))
+
+        # create ssync sender instance...with include_non_durable
+        job = {'device': self.device,
+               'partition': self.partition,
+               'policy': policy,
+               'frag_index': frag_index}
+        node = dict(self.rx_node)
+        sender = ssync_sender.Sender(self.daemon, node, job, suffixes,
+                                     include_non_durable=True)
+        # wrap connection from tx to rx to capture ssync messages...
+        sender.connect, trace = self.make_connect_wrapper(sender)
+
+        # run the sync protocol...
+        sender()
+
+        # verify protocol
+        results = self._analyze_trace(trace)
+        self.assertEqual(3, len(results['tx_missing']))
+        self.assertEqual(2, len(results['rx_missing']))
+        self.assertEqual(2, len(results['tx_updates']))
+        self.assertFalse(results['rx_updates'])
+        for subreq in results.get('tx_updates'):
+            obj = subreq['path'].split('/')[3]
+            method = subreq['method']
+            self.assertTrue(obj in expected_subreqs[method],
+                            'Unexpected %s subreq for object %s, expected %s'
+                            % (method, obj, expected_subreqs[method]))
+            expected_subreqs[method].remove(obj)
+            if method == 'PUT':
+                expected_body = self._get_object_data(
+                    subreq['path'], frag_index=rx_node_index)
+                self.assertEqual(expected_body, subreq['body'])
+        # verify all expected subreqs consumed
+        for _method, expected in expected_subreqs.items():
+            self.assertFalse(expected)
+
+        # verify on disk files...
+        # tx_objs.pop('o4')  # o4 should not have been sync'd
+        self._verify_ondisk_files(
+            tx_objs, policy, frag_index, rx_node_index, frag_prefs=[])
 
     def test_fragment_sync(self):
         # check that a sync_only type job does call reconstructor to build a

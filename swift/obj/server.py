@@ -1048,7 +1048,9 @@ class ObjectController(BaseStorageServer):
             if multi_stage_mime_state:
                 self._send_multi_stage_continue_headers(
                     request, **multi_stage_mime_state)
-            writer.commit(request.timestamp)
+            if not config_true_value(
+                    request.headers.get('X-Backend-No-Commit', False)):
+                writer.commit(request.timestamp)
             if multi_stage_mime_state:
                 self._drain_mime_request(**multi_stage_mime_state)
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
@@ -1310,7 +1312,14 @@ class ObjectController(BaseStorageServer):
     @replication
     @timing_stats(sample_rate=0.1)
     def SSYNC(self, request):
-        return Response(app_iter=ssync_receiver.Receiver(self, request)())
+        # the ssync sender may want to send PUT subrequests for non-durable
+        # data that should not be committed; legacy behaviour has been to
+        # commit all PUTs (subject to EC footer metadata), so we need to
+        # indicate to the sender that this object server has been upgraded to
+        # understand the X-Backend-No-Commit header.
+        headers = {'X-Backend-Accept-No-Commit': True}
+        return Response(app_iter=ssync_receiver.Receiver(self, request)(),
+                        headers=headers)
 
     def __call__(self, env, start_response):
         """WSGI Application entry point for the Swift Object Server."""

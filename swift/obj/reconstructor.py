@@ -864,7 +864,7 @@ class ObjectReconstructor(Daemon):
 
             # ssync any out-of-sync suffixes with the remote node
             success, _ = ssync_sender(
-                self, node, job, suffixes)()
+                self, node, job, suffixes, include_non_durable=False)()
             # update stats for this attempt
             self.suffix_sync += len(suffixes)
             self.logger.update_stats('suffix.syncs', len(suffixes))
@@ -891,7 +891,8 @@ class ObjectReconstructor(Daemon):
                     node['backend_index'] = job['policy'].get_backend_index(
                         node['index'])
                     success, in_sync_objs = ssync_sender(
-                        self, node, job, job['suffixes'])()
+                        self, node, job, job['suffixes'],
+                        include_non_durable=True)()
                     if success:
                         syncd_with += 1
                         reverted_objs.update(in_sync_objs)

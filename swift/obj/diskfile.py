@@ -1590,6 +1590,7 @@ class BaseDiskFileManager(object):
         - ts_meta -> timestamp of meta file, if one exists
         - ts_ctype -> timestamp of meta file containing most recent
                       content-type value, if one exists
+        - durable -> True if data file at ts_data is durable, False otherwise
 
         where timestamps are instances of
         :class:`~swift.common.utils.Timestamp`
@@ -1611,11 +1612,15 @@ class BaseDiskFileManager(object):
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)
 
-        key_preference = (
+        # define keys that we need to extract the result from the on disk info
+        # data:
+        #   (x, y, z) -> result[x] should take the value of y[z]
+        key_map = (
             ('ts_meta', 'meta_info', 'timestamp'),
             ('ts_data', 'data_info', 'timestamp'),
             ('ts_data', 'ts_info', 'timestamp'),
             ('ts_ctype', 'ctype_info', 'ctype_timestamp'),
+            ('durable', 'data_info', 'durable'),
         )
 
         # cleanup_ondisk_files() will remove empty hash dirs, and we'll
@@ -1626,21 +1631,24 @@ class BaseDiskFileManager(object):
             for object_hash in self._listdir(suffix_path):
                 object_path = os.path.join(suffix_path, object_hash)
                 try:
-                    results = self.cleanup_ondisk_files(
+                    diskfile_info = self.cleanup_ondisk_files(
                         object_path, **kwargs)
-                    if results['files']:
+                    if diskfile_info['files']:
                         found_files = True
-                    timestamps = {}
-                    for ts_key, info_key, info_ts_key in key_preference:
-                        if info_key not in results:
+                    result = {}
+                    for result_key, diskfile_info_key, info_key in key_map:
+                        if diskfile_info_key not in diskfile_info:
                             continue
-                        timestamps[ts_key] = results[info_key][info_ts_key]
-                    if 'ts_data' not in timestamps:
+                        info = diskfile_info[diskfile_info_key]
+                        if info_key in info:
+                            # durable key not returned from replicated Diskfile
+                            result[result_key] = info[info_key]
+                    if 'ts_data' not in result:
                         # file sets that do not include a .data or .ts
                         # file cannot be opened and therefore cannot
                         # be ssync'd
                         continue
-                    yield (object_hash, timestamps)
+                    yield object_hash, result
                 except AssertionError as err:
                     self.logger.debug('Invalid file set in %s (%s)' % (
                         object_path, err))
@@ -3489,6 +3497,11 @@ class ECDiskFileManager(BaseDiskFileManager):
                     break
             if durable_info and durable_info['timestamp'] == timestamp:
                 durable_frag_set = frag_set
+                # a data frag filename may not have the #d part if durability
+                # is defined by a legacy .durable, so always mark all data
+                # frags as durable here
+                for frag in frag_set:
+                    frag['durable'] = True
                 break  # ignore frags that are older than durable timestamp
 
         # Choose which frag set to use
