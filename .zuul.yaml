@@ -486,65 +486,42 @@
     check:
       jobs:
         - swift-build-image:
-            irrelevant-files:
+            irrelevant-files: &docker-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
         - swift-build-image-py3:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+            irrelevant-files: *docker-irrelevant-files
 
         # Unit tests
         - swift-tox-py27:
-            irrelevant-files:
+            irrelevant-files: &unittest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
         - swift-tox-py36:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+            irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py37:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+            irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py38:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+            irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests
         - swift-tox-func-py27:
-            irrelevant-files:
+            irrelevant-files: &functest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-tox-func-encryption-py27:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-ec-py27:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
 
         # py3 functional tests
         - swift-tox-func-py37:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-encryption-py37:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-ec-py37:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
 
         # Other tests
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
@@ -556,67 +533,47 @@
               - ^test/(unit|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-probetests-centos-7:
-            irrelevant-files:
+            irrelevant-files: &probetest-irrelevant-files
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-probetests-centos-8:
-            irrelevant-files:
-              - ^(api-ref|releasenotes)/.*$
-              # Keep doc/saio -- we use those sample configs in the saio playbooks
-              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
-              - ^test/(unit|functional)/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-dsvm-functional-ipv6:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-tox-lower-constraints:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+            irrelevant-files: *unittest-irrelevant-files
         - openstack-tox-pep8:
-            irrelevant-files:
+            irrelevant-files: &pep8-irrelevant-files
               - ^(api-ref|etc|examples|releasenotes)/.*$
               # Keep doc/manpages -- we want to syntax check them
               - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
         - swift-multinode-rolling-upgrade:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
             voting: false
         - tempest-integrated-object-storage:
-            irrelevant-files:
+            irrelevant-files: &tempest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - tempest-ipv6-only:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *tempest-irrelevant-files
         - grenade:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *tempest-irrelevant-files
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
         # using irrelevant-files). Exceptions should mainly be made for
         # long-running jobs, like probetests or (once they move to
         # in-tree definitions) dsvm jobs.
-        - swift-upload-image
-        - swift-upload-image-py3
+        - swift-upload-image:
+            irrelevant-files: *docker-irrelevant-files
+        - swift-upload-image-py3:
+            irrelevant-files: *docker-irrelevant-files
         - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py37
@@ -628,53 +585,23 @@
         - swift-tox-func-encryption-py37
         - swift-tox-func-ec-py37
         - swift-probetests-centos-7:
-            irrelevant-files:
-              - ^(api-ref|releasenotes)/.*$
-              # Keep doc/saio -- we use those sample configs in the saio playbooks
-              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
-              - ^test/(unit|functional)/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *probetest-irrelevant-files
         - swift-probetests-centos-8:
-            irrelevant-files:
-              - ^(api-ref|releasenotes)/.*$
-              # Keep doc/saio -- we use those sample configs in the saio playbooks
-              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
-              - ^test/(unit|functional)/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-dsvm-functional-ipv6:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-tox-lower-constraints:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+            irrelevant-files: *unittest-irrelevant-files
         - openstack-tox-pep8:
-            irrelevant-files:
-              - ^(api-ref|etc|examples|releasenotes)/.*$
-              # Keep doc/manpages -- we want to syntax check them
-              - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
+            irrelevant-files: *pep8-irrelevant-files
         - tempest-integrated-object-storage:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *tempest-irrelevant-files
         - grenade:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *tempest-irrelevant-files
     experimental:
       jobs:
         - swift-tox-py27-centos-7
