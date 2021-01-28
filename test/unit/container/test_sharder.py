@@ -469,6 +469,12 @@ class TestSharder(BaseTestSharder):
                             for call in fake_process_broker_calls[:2]]
                 }
             })
+            fake_stats.update({
+                'shrinking_candidates': {
+                    'found': 0,
+                    'top': []
+                }
+            })
             check_recon(recon_data[0], sum(fake_periods[1:3]),
                         sum(fake_periods[:3]), fake_stats)
             # periodic stats report after first broker has been visited during
@@ -5463,6 +5469,231 @@ class TestSharder(BaseTestSharder):
 
         newish_ctx = get_context(id_newish, broker)
         self.assertEqual(newish_ctx, "")
+
+    def test_shrinking_candidate_recon_dump(self):
+        conf = {'recon_cache_path': self.tempdir,
+                'devices': self.tempdir}
+
+        shard_bounds = (
+            ('', 'd'), ('d', 'g'), ('g', 'l'), ('l', 'o'), ('o', 't'),
+            ('t', 'x'), ('x', ''))
+
+        with self._mock_sharder(conf) as sharder:
+            brokers = []
+            shard_ranges = []
+            C1, C2, C3 = 0, 1, 2
+
+            for container in ('c1', 'c2', 'c3'):
+                broker = self._make_broker(
+                    container=container, hash_=container + 'hash',
+                    device=sharder.ring.devs[0]['device'], part=0)
+                broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                        ('true', next(self.ts_iter).internal)})
+                my_sr = broker.get_own_shard_range()
+                my_sr.epoch = Timestamp.now()
+                broker.merge_shard_ranges([my_sr])
+                brokers.append(broker)
+                shard_ranges.append(self._make_shard_ranges(
+                    shard_bounds, state=ShardRange.ACTIVE,
+                    object_count=(DEFAULT_SHARD_CONTAINER_THRESHOLD / 2),
+                    timestamp=next(self.ts_iter)))
+
+            # we want c2 to have 2 shrink pairs
+            shard_ranges[C2][1].object_count = 0
+            shard_ranges[C2][3].object_count = 0
+            brokers[C2].merge_shard_ranges(shard_ranges[C2])
+            brokers[C2].set_sharding_state()
+            brokers[C2].set_sharded_state()
+
+            # we want c1 to have the same, but one can't be shrunk
+            shard_ranges[C1][1].object_count = 0
+            shard_ranges[C1][2].object_count = \
+                DEFAULT_SHARD_CONTAINER_THRESHOLD - 1
+            shard_ranges[C1][3].object_count = 0
+            brokers[C1].merge_shard_ranges(shard_ranges[C1])
+            brokers[C1].set_sharding_state()
+            brokers[C1].set_sharded_state()
+
+            # c3 we want to have more total_sharding donors then can be sharded
+            # in one go.
+            shard_ranges[C3][0].object_count = 0
+            shard_ranges[C3][1].object_count = 0
+            shard_ranges[C3][2].object_count = 0
+            shard_ranges[C3][3].object_count = 0
+            shard_ranges[C3][4].object_count = 0
+            shard_ranges[C3][5].object_count = 0
+            brokers[C3].merge_shard_ranges(shard_ranges[C3])
+            brokers[C3].set_sharding_state()
+            brokers[C3].set_sharded_state()
+
+            node = {'ip': '10.0.0.0', 'replication_ip': '10.0.1.0',
+                    'port': 1000, 'replication_port': 1100,
+                    'device': 'sda', 'zone': 0, 'region': 0, 'id': 1,
+                    'index': 0}
+
+            for broker in brokers:
+                sharder._identify_shrinking_candidate(broker, node)
+
+            sharder._report_stats()
+            expected_shrinking_candidates_data = {
+                'found': 3,
+                'top': [
+                    {
+                        'object_count': mock.ANY,
+                        'account': brokers[C3].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C3].container,
+                        'file_size': os.stat(brokers[C3].db_file).st_size,
+                        'path': brokers[C3].db_file,
+                        'root': brokers[C3].path,
+                        'node_index': 0,
+                        'compactible_ranges': 3
+                    }, {
+                        'object_count': mock.ANY,
+                        'account': brokers[C2].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C2].container,
+                        'file_size': os.stat(brokers[1].db_file).st_size,
+                        'path': brokers[C2].db_file,
+                        'root': brokers[C2].path,
+                        'node_index': 0,
+                        'compactible_ranges': 2
+                    }, {
+                        'object_count': mock.ANY,
+                        'account': brokers[C1].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C1].container,
+                        'file_size': os.stat(brokers[C1].db_file).st_size,
+                        'path': brokers[C1].db_file,
+                        'root': brokers[C1].path,
+                        'node_index': 0,
+                        'compactible_ranges': 1
+                    }
+                ]}
+            self._assert_recon_stats(expected_shrinking_candidates_data,
+                                     sharder, 'shrinking_candidates')
+
+            # check shrinking stats are reset
+            sharder._zero_stats()
+            for broker in brokers:
+                sharder._identify_shrinking_candidate(broker, node)
+            sharder._report_stats()
+            self._assert_recon_stats(expected_shrinking_candidates_data,
+                                     sharder, 'shrinking_candidates')
+
+            # set some ranges to shrinking and check that stats are updated; in
+            # this case the container C2 no longer has any shrinkable ranges
+            # and no longer appears in stats
+            def shrink_actionable_ranges(broker):
+                compactible = find_compactible_shard_sequences(
+                    broker, sharder.shrink_size, sharder.merge_size, 1, -1)
+                self.assertNotEqual([], compactible)
+                timestamp = next(self.ts_iter)
+                acceptors, donors = process_compactible_shard_sequences(
+                    compactible, timestamp)
+                finalize_shrinking(broker, acceptors, donors, timestamp)
+
+            shrink_actionable_ranges(brokers[C2])
+            sharder._zero_stats()
+            for broker in brokers:
+                sharder._identify_shrinking_candidate(broker, node)
+            sharder._report_stats()
+            expected_shrinking_candidates_data = {
+                'found': 2,
+                'top': [
+                    {
+                        'object_count': mock.ANY,
+                        'account': brokers[C3].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C3].container,
+                        'file_size': os.stat(brokers[C3].db_file).st_size,
+                        'path': brokers[C3].db_file,
+                        'root': brokers[C3].path,
+                        'node_index': 0,
+                        'compactible_ranges': 3
+                    }, {
+                        'object_count': mock.ANY,
+                        'account': brokers[C1].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C1].container,
+                        'file_size': os.stat(brokers[C1].db_file).st_size,
+                        'path': brokers[C1].db_file,
+                        'root': brokers[C1].path,
+                        'node_index': 0,
+                        'compactible_ranges': 1
+                    }
+                ]}
+            self._assert_recon_stats(expected_shrinking_candidates_data,
+                                     sharder, 'shrinking_candidates')
+
+            # set some ranges to shrinking and check that stats are updated; in
+            # this case the container C3 no longer has any actionable ranges
+            # and no longer appears in stats
+            shrink_actionable_ranges(brokers[C3])
+            sharder._zero_stats()
+            for broker in brokers:
+                sharder._identify_shrinking_candidate(broker, node)
+            sharder._report_stats()
+            expected_shrinking_candidates_data = {
+                'found': 1,
+                'top': [
+                    {
+                        'object_count': mock.ANY,
+                        'account': brokers[C1].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C1].container,
+                        'file_size': os.stat(brokers[C1].db_file).st_size,
+                        'path': brokers[C1].db_file,
+                        'root': brokers[C1].path,
+                        'node_index': 0,
+                        'compactible_ranges': 1
+                    }
+                ]}
+            self._assert_recon_stats(expected_shrinking_candidates_data,
+                                     sharder, 'shrinking_candidates')
+
+            # set some ranges to shrunk in C3 so that other sequences become
+            # compactible
+            now = next(self.ts_iter)
+            shard_ranges = brokers[C3].get_shard_ranges()
+            for (donor, acceptor) in zip(shard_ranges, shard_ranges[1:]):
+                if donor.state == ShardRange.SHRINKING:
+                    donor.update_state(ShardRange.SHRUNK, state_timestamp=now)
+                    donor.set_deleted(timestamp=now)
+                    acceptor.lower = donor.lower
+                    acceptor.timestamp = now
+            brokers[C3].merge_shard_ranges(shard_ranges)
+            sharder._zero_stats()
+            for broker in brokers:
+                sharder._identify_shrinking_candidate(broker, node)
+            sharder._report_stats()
+            expected_shrinking_candidates_data = {
+                'found': 2,
+                'top': [
+                    {
+                        'object_count': mock.ANY,
+                        'account': brokers[C3].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C3].container,
+                        'file_size': os.stat(brokers[C3].db_file).st_size,
+                        'path': brokers[C3].db_file,
+                        'root': brokers[C3].path,
+                        'node_index': 0,
+                        'compactible_ranges': 2
+                    }, {
+                        'object_count': mock.ANY,
+                        'account': brokers[C1].account,
+                        'meta_timestamp': mock.ANY,
+                        'container': brokers[C1].container,
+                        'file_size': os.stat(brokers[C1].db_file).st_size,
+                        'path': brokers[C1].db_file,
+                        'root': brokers[C1].path,
+                        'node_index': 0,
+                        'compactible_ranges': 1
+                    }
+                ]}
+            self._assert_recon_stats(expected_shrinking_candidates_data,
+                                     sharder, 'shrinking_candidates')
 
 
 class TestCleavingContext(BaseTestSharder):
