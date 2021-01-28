@@ -4699,6 +4699,46 @@ class TestSharder(BaseTestSharder):
         self.assert_no_audit_messages(sharder, mock_swift)
         self.assertTrue(broker.is_deleted())
 
+    def test_audit_deleted_root_container(self):
+        broker = self._make_broker()
+        shard_bounds = (
+            ('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'))
+        shard_ranges = self._make_shard_ranges(shard_bounds, ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        with self._mock_sharder() as sharder:
+            sharder._audit_container(broker)
+        self.assertEqual([], self.logger.get_lines_for_level('warning'))
+
+        # delete it
+        delete_ts = next(self.ts_iter)
+        broker.delete_db(delete_ts.internal)
+        with self._mock_sharder() as sharder:
+            sharder._audit_container(broker)
+        self.assertEqual([], self.logger.get_lines_for_level('warning'))
+
+        # advance time
+        with mock.patch('swift.container.sharder.time.time') as fake_time, \
+                self._mock_sharder() as sharder:
+            fake_time.return_value = 6048000 + float(delete_ts)
+            sharder._audit_container(broker)
+        message = 'Reclaimable db stuck waiting for shrinking: %s (%s)' % (
+            broker.db_file, broker.path)
+        self.assertEqual([message], self.logger.get_lines_for_level('warning'))
+
+        # delete all shard ranges
+        for sr in shard_ranges:
+            sr.update_state(ShardRange.SHRUNK, Timestamp.now())
+            sr.deleted = True
+            sr.timestamp = Timestamp.now()
+        broker.merge_shard_ranges(shard_ranges)
+
+        # no more warning
+        with mock.patch('swift.container.sharder.time.time') as fake_time, \
+                self._mock_sharder() as sharder:
+            fake_time.return_value = 6048000 + float(delete_ts)
+            sharder._audit_container(broker)
+        self.assertEqual([], self.logger.get_lines_for_level('warning'))
+
     def test_audit_old_style_shard_container(self):
         self._do_test_audit_shard_container('Root', 'a/c')
 

@@ -29,7 +29,8 @@ from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
     quorum_size, config_true_value, Timestamp, md5
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED
-from swift.container.sharder import CleavingContext
+from swift.container.sharder import CleavingContext, ContainerSharder
+from swift.container.replicator import ContainerReplicator
 from swiftclient import client, get_auth, ClientException
 
 from swift.proxy.controllers.base import get_cache_key
@@ -39,6 +40,7 @@ from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
     wait_for_server_to_hangup
+from test.debug_logger import debug_logger
 
 
 MIN_SHARD_CONTAINER_THRESHOLD = 4
@@ -1739,6 +1741,82 @@ class TestContainerSharding(BaseTestContainerSharding):
         # repeat from starting point of a collapsed and previously deleted
         # container
         do_shard_then_shrink()
+
+    def test_delete_root_reclaim(self):
+        all_obj_names = self._make_object_names(self.max_shard_size)
+        self.put_objects(all_obj_names)
+        # Shard the container
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        for n in self.brain.node_numbers:
+            self.sharders.once(
+                number=n, additional_args='--partitions=%s' % self.brain.part)
+        # sanity checks
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
+        self.assert_container_listing(all_obj_names)
+
+        # delete all objects - updates redirected to shards
+        self.delete_objects(all_obj_names)
+        self.assert_container_listing([])
+        self.assert_container_post_ok('has objects')
+        # root not yet updated with shard stats
+        self.assert_container_object_count(len(all_obj_names))
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+
+        # run sharder on shard containers to update root stats
+        shard_ranges = self.get_container_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 2)
+        self.run_sharders(shard_ranges)
+        self.assert_container_listing([])
+        self.assert_container_post_ok('empty')
+        self.assert_container_object_count(0)
+
+        # and now we can delete it!
+        client.delete_container(self.url, self.token, self.container_name)
+        self.assert_container_post_fails('deleted')
+        self.assert_container_not_found()
+
+        # see if it will reclaim
+        Manager(['container-updater']).once()
+        for conf_file in self.configs['container-replicator'].values():
+            conf = utils.readconf(conf_file, 'container-replicator')
+            conf['reclaim_age'] = 0
+            ContainerReplicator(conf).run_once()
+
+        logger = debug_logger('probe')
+
+        # not sure why this doesn't work like replicators?
+        self.assertFalse(self.configs['container-sharder'].values())
+        sharder_conf_files = []
+        for server in Manager(['container-sharder']):
+            sharder_conf_files.extend(server.conf_files())
+        # we don't expect warnings from sharder root audits
+        for conf_file in sharder_conf_files:
+            conf = utils.readconf(conf_file, 'container-sharder')
+            ContainerSharder(conf, logger=logger).run_once()
+            self.assertEqual([], logger.get_lines_for_level('warning'))
+
+        # until the root wants to start reclaiming but we haven't shrunk yet!
+        found_warning = False
+        for conf_file in sharder_conf_files:
+            conf = utils.readconf(conf_file, 'container-sharder')
+            logger = debug_logger('probe')
+            conf['reclaim_age'] = 0
+            ContainerSharder(conf, logger=logger).run_once()
+            warnings = logger.get_lines_for_level('warning')
+            if warnings:
+                self.assertTrue(warnings[0].startswith(
+                    'Reclaimable db stuck waiting for shrinking'))
+                self.assertEqual(1, len(warnings))
+                found_warning = True
+        self.assertTrue(found_warning)
+
+        # TODO: shrink empty shards and assert everything reclaims
 
     def _setup_replication_scenario(self, num_shards, extra_objs=('alpha',)):
         # Get cluster to state where 2 replicas are sharding or sharded but 3rd
