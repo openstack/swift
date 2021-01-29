@@ -25,7 +25,8 @@ from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeleted, DiskFileNotExist, \
     DiskFileQuarantined
 from swift.common.utils import replace_partition_in_path, config_true_value, \
-    audit_location_generator, get_logger, readconf, drop_privileges
+    audit_location_generator, get_logger, readconf, drop_privileges, \
+    RateLimitedIterator
 from swift.obj import diskfile
 
 
@@ -34,6 +35,13 @@ STATE_FILE = 'relink.{datadir}.json'
 STATE_TMP_FILE = '.relink.{datadir}.json.tmp'
 STEP_RELINK = 'relink'
 STEP_CLEANUP = 'cleanup'
+
+
+def non_negative_float(value):
+    value = float(value)
+    if value < 0:
+        raise ValueError
+    return value
 
 
 def devices_filter(device, _, devices):
@@ -157,7 +165,8 @@ def relink(swift_dir='/etc/swift',
            devices='/srv/node',
            skip_mount_check=False,
            logger=logging.getLogger(),
-           device=None):
+           device=None,
+           files_per_second=0):
     mount_check = not skip_mount_check
     run = False
     relinked = errors = 0
@@ -200,6 +209,8 @@ def relink(swift_dir='/etc/swift',
             hook_post_partition=relink_hook_post_partition,
             hashes_filter=relink_hashes_filter,
             logger=logger)
+        if files_per_second > 0:
+            locations = RateLimitedIterator(locations, files_per_second)
         for fname, _, _ in locations:
             newfname = replace_partition_in_path(fname, next_part_power)
             try:
@@ -223,7 +234,8 @@ def cleanup(swift_dir='/etc/swift',
             devices='/srv/node',
             skip_mount_check=False,
             logger=logging.getLogger(),
-            device=None):
+            device=None,
+            files_per_second=0):
     mount_check = not skip_mount_check
     conf = {'devices': devices, 'mount_check': mount_check}
     diskfile_router = diskfile.DiskFileRouter(conf, logger)
@@ -268,6 +280,8 @@ def cleanup(swift_dir='/etc/swift',
             hook_post_partition=cleanup_hook_post_partition,
             hashes_filter=cleanup_hashes_filter,
             logger=logger)
+        if files_per_second > 0:
+            locations = RateLimitedIterator(locations, files_per_second)
         for fname, device, partition in locations:
             expected_fname = replace_partition_in_path(fname, part_power)
             if fname == expected_fname:
@@ -340,6 +354,9 @@ def main(args):
     parser.add_argument('--skip-mount-check', default=False,
                         help='Don\'t test if disk is mounted',
                         action="store_true", dest='skip_mount_check')
+    parser.add_argument('--files-per-second', default=None,
+                        type=non_negative_float, dest='files_per_second',
+                        help='Used to limit I/O (default: no limit)')
     parser.add_argument('--logfile', default=None, dest='logfile',
                         help='Set log file name. Ignored if using conf_file.')
     parser.add_argument('--debug', default=False, action='store_true',
@@ -369,11 +386,15 @@ def main(args):
     devices = args.devices or conf.get('devices', '/srv/node')
     skip_mount_check = args.skip_mount_check or not config_true_value(
         conf.get('mount_check', 'true'))
+    files_per_second = non_negative_float(
+        args.files_per_second or conf.get('files_per_second', '0'))
 
     if args.action == 'relink':
         return relink(
-            swift_dir, devices, skip_mount_check, logger, device=args.device)
+            swift_dir, devices, skip_mount_check, logger, device=args.device,
+            files_per_second=files_per_second)
 
     if args.action == 'cleanup':
         return cleanup(
-            swift_dir, devices, skip_mount_check, logger, device=args.device)
+            swift_dir, devices, skip_mount_check, logger, device=args.device,
+            files_per_second=files_per_second)
