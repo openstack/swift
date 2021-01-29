@@ -3216,7 +3216,8 @@ def audit_location_generator(devices, datadir, suffix='',
                              hook_pre_device=None, hook_post_device=None,
                              hook_pre_partition=None, hook_post_partition=None,
                              hook_pre_suffix=None, hook_post_suffix=None,
-                             hook_pre_hash=None, hook_post_hash=None):
+                             hook_pre_hash=None, hook_post_hash=None,
+                             error_counter=None):
     """
     Given a devices path and a data directory, yield (path, device,
     partition) for all files in that directory
@@ -3238,22 +3239,24 @@ def audit_location_generator(devices, datadir, suffix='',
     :param mount_check: Flag to check if a mount check should be performed
                     on devices
     :param logger: a logger object
-    :devices_filter: a callable taking (devices, [list of devices]) as
-                     parameters and returning a [list of devices]
-    :partitions_filter: a callable taking (datadir_path, [list of parts]) as
-                        parameters and returning a [list of parts]
-    :suffixes_filter: a callable taking (part_path, [list of suffixes]) as
-                      parameters and returning a [list of suffixes]
-    :hashes_filter: a callable taking (suff_path, [list of hashes]) as
-                    parameters and returning a [list of hashes]
-    :hook_pre_device: a callable taking device_path as parameter
-    :hook_post_device: a callable taking device_path as parameter
-    :hook_pre_partition: a callable taking part_path as parameter
-    :hook_post_partition: a callable taking part_path as parameter
-    :hook_pre_suffix: a callable taking suff_path as parameter
-    :hook_post_suffix: a callable taking suff_path as parameter
-    :hook_pre_hash: a callable taking hash_path as parameter
-    :hook_post_hash: a callable taking hash_path as parameter
+    :param devices_filter: a callable taking (devices, [list of devices]) as
+                           parameters and returning a [list of devices]
+    :param partitions_filter: a callable taking (datadir_path, [list of parts])
+                              as parameters and returning a [list of parts]
+    :param suffixes_filter: a callable taking (part_path, [list of suffixes])
+                            as parameters and returning a [list of suffixes]
+    :param hashes_filter: a callable taking (suff_path, [list of hashes]) as
+                          parameters and returning a [list of hashes]
+    :param hook_pre_device: a callable taking device_path as parameter
+    :param hook_post_device: a callable taking device_path as parameter
+    :param hook_pre_partition: a callable taking part_path as parameter
+    :param hook_post_partition: a callable taking part_path as parameter
+    :param hook_pre_suffix: a callable taking suff_path as parameter
+    :param hook_post_suffix: a callable taking suff_path as parameter
+    :param hook_pre_hash: a callable taking hash_path as parameter
+    :param hook_post_hash: a callable taking hash_path as parameter
+    :param error_counter: a dictionary used to accumulate error counts; may
+                          add keys 'unmounted' and 'unlistable_partitions'
     """
     device_dir = listdir(devices)
     # randomize devices in case of process restart before sweep completed
@@ -3261,17 +3264,24 @@ def audit_location_generator(devices, datadir, suffix='',
     if devices_filter:
         device_dir = devices_filter(devices, device_dir)
     for device in device_dir:
-        if hook_pre_device:
-            hook_pre_device(os.path.join(devices, device))
         if mount_check and not ismount(os.path.join(devices, device)):
+            if error_counter is not None:
+                error_counter.setdefault('unmounted', 0)
+                error_counter['unmounted'] += 1
             if logger:
                 logger.warning(
                     _('Skipping %s as it is not mounted'), device)
             continue
+        if hook_pre_device:
+            hook_pre_device(os.path.join(devices, device))
         datadir_path = os.path.join(devices, device, datadir)
         try:
             partitions = listdir(datadir_path)
         except OSError as e:
+            # NB: listdir ignores non-existent datadir_path
+            if error_counter is not None:
+                error_counter.setdefault('unlistable_partitions', 0)
+                error_counter['unlistable_partitions'] += 1
             if logger:
                 logger.warning(_('Skipping %(datadir)s because %(err)s'),
                                {'datadir': datadir_path, 'err': e})

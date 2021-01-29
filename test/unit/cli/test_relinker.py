@@ -77,7 +77,7 @@ class TestRelinker(unittest.TestCase):
             dummy.write(b"Hello World!")
             write_metadata(dummy, {'name': '/a/c/o', 'Content-Length': '12'})
 
-        test_policies = [StoragePolicy(0, 'platin', True)]
+        test_policies = [StoragePolicy(0, 'platinum', True)]
         storage_policy._POLICIES = StoragePolicyCollection(test_policies)
 
         self.expected_dir = os.path.join(
@@ -95,6 +95,18 @@ class TestRelinker(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.testdir, ignore_errors=1)
         storage_policy.reload_storage_policies()
+
+    @contextmanager
+    def _mock_listdir(self):
+        orig_listdir = utils.listdir
+
+        def mocked(path):
+            if path == self.objects:
+                raise OSError
+            return orig_listdir(path)
+
+        with mock.patch('swift.common.utils.listdir', mocked):
+            yield
 
     def _do_test_relinker_drop_privileges(self, command):
         @contextmanager
@@ -243,6 +255,49 @@ class TestRelinker(unittest.TestCase):
         stat_new = os.stat(self.expected_file)
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
 
+    def test_relink_no_applicable_policy(self):
+        # NB do not prepare part power increase
+        self._save_ring()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(2, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+            ]))
+        self.assertEqual(self.logger.get_lines_for_level('warning'),
+                         ['No policy found to increase the partition power.'])
+
+    def test_relink_not_mounted(self):
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(1, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+            ]))
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Skipping sda1 as it is not mounted',
+            '1 disks were unmounted'])
+
+    def test_relink_listdir_error(self):
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            with self._mock_listdir():
+                self.assertEqual(1, relinker.main([
+                    'relink',
+                    '--swift-dir', self.testdir,
+                    '--devices', self.devices,
+                    '--skip-mount-check'
+                ]))
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Skipping %s because ' % self.objects,
+            'There were 1 errors listing partition directories'])
+
     def test_relink_device_filter(self):
         self.rb.prepare_increase_partition_power()
         self._save_ring()
@@ -303,6 +358,47 @@ class TestRelinker(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.expected_file))
         self.assertFalse(os.path.isfile(
             os.path.join(self.objdir, self.object_fname)))
+
+    def test_cleanup_no_applicable_policy(self):
+        # NB do not prepare part power increase
+        self._save_ring()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(2, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+            ]))
+        self.assertEqual(self.logger.get_lines_for_level('warning'),
+                         ['No policy found to increase the partition power.'])
+
+    def test_cleanup_not_mounted(self):
+        self._common_test_cleanup()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(1, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+            ]))
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Skipping sda1 as it is not mounted',
+            '1 disks were unmounted'])
+
+    def test_cleanup_listdir_error(self):
+        self._common_test_cleanup()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            with self._mock_listdir():
+                self.assertEqual(1, relinker.main([
+                    'cleanup',
+                    '--swift-dir', self.testdir,
+                    '--devices', self.devices,
+                    '--skip-mount-check'
+                ]))
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Skipping %s because ' % self.objects,
+            'There were 1 errors listing partition directories'])
 
     def test_cleanup_device_filter(self):
         self._common_test_cleanup()
@@ -621,7 +717,7 @@ class TestRelinker(unittest.TestCase):
 
     @patch_policies(
         [ECStoragePolicy(
-         0, name='platin', is_default=True, ec_type=DEFAULT_TEST_EC_TYPE,
+         0, name='platinum', is_default=True, ec_type=DEFAULT_TEST_EC_TYPE,
          ec_ndata=4, ec_nparity=2)])
     def test_cleanup_diskfile_error(self):
         self._common_test_cleanup()

@@ -6405,6 +6405,91 @@ class TestAuditLocationGenerator(unittest.TestCase):
                 hashes_filter.assert_called_once_with(suffix, ["hash1"])
                 self.assertNotIn(((hash_path,),), m_listdir.call_args_list)
 
+    @with_tempdir
+    def test_error_counter(self, tmpdir):
+        def assert_no_errors(devices, mount_check=False):
+            logger = debug_logger()
+            error_counter = {}
+            locations = utils.audit_location_generator(
+                devices, "data", mount_check=mount_check, logger=logger,
+                error_counter=error_counter
+            )
+            self.assertEqual([], list(locations))
+            self.assertEqual([], logger.get_lines_for_level('warning'))
+            self.assertEqual([], logger.get_lines_for_level('error'))
+            self.assertEqual({}, error_counter)
+
+        # no devices, no problem
+        devices = os.path.join(tmpdir, 'devices1')
+        os.makedirs(devices)
+        assert_no_errors(devices)
+
+        # empty dir under devices/
+        devices = os.path.join(tmpdir, 'devices2')
+        os.makedirs(devices)
+        dev_dir = os.path.join(devices, 'device_is_empty_dir')
+        os.makedirs(dev_dir)
+
+        def assert_listdir_error(devices):
+            logger = debug_logger()
+            error_counter = {}
+            locations = utils.audit_location_generator(
+                devices, "data", mount_check=False, logger=logger,
+                error_counter=error_counter
+            )
+            self.assertEqual([], list(locations))
+            self.assertEqual(1, len(logger.get_lines_for_level('warning')))
+            self.assertEqual({'unlistable_partitions': 1}, error_counter)
+
+        # file under devices/
+        devices = os.path.join(tmpdir, 'devices3')
+        os.makedirs(devices)
+        with open(os.path.join(devices, 'device_is_file'), 'w'):
+            pass
+        assert_listdir_error(devices)
+
+        # dir under devices/
+        devices = os.path.join(tmpdir, 'devices4')
+        device = os.path.join(devices, 'device')
+        os.makedirs(device)
+        assert_no_errors(devices)
+
+        # error for dir under devices/
+        orig_listdir = utils.listdir
+
+        def mocked(path):
+            if path.endswith('data'):
+                raise OSError
+            return orig_listdir(path)
+
+        with mock.patch('swift.common.utils.listdir', mocked):
+            assert_listdir_error(devices)
+
+        # mount check error
+        devices = os.path.join(tmpdir, 'devices5')
+        device = os.path.join(devices, 'device')
+        os.makedirs(device)
+
+        # no check
+        with mock.patch('swift.common.utils.ismount', return_value=False):
+            assert_no_errors(devices, mount_check=False)
+
+        # check passes
+        with mock.patch('swift.common.utils.ismount', return_value=True):
+            assert_no_errors(devices, mount_check=True)
+
+        # check fails
+        logger = debug_logger()
+        error_counter = {}
+        with mock.patch('swift.common.utils.ismount', return_value=False):
+            locations = utils.audit_location_generator(
+                devices, "data", mount_check=True, logger=logger,
+                error_counter=error_counter
+            )
+        self.assertEqual([], list(locations))
+        self.assertEqual(1, len(logger.get_lines_for_level('warning')))
+        self.assertEqual({'unmounted': 1}, error_counter)
+
 
 class TestGreenAsyncPile(unittest.TestCase):
 

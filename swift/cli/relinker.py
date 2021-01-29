@@ -35,6 +35,9 @@ STATE_FILE = 'relink.{datadir}.json'
 STATE_TMP_FILE = '.relink.{datadir}.json.tmp'
 STEP_RELINK = 'relink'
 STEP_CLEANUP = 'cleanup'
+EXIT_SUCCESS = 0
+EXIT_NO_APPLICABLE_POLICY = 2
+EXIT_ERROR = 1
 
 
 def non_negative_float(value):
@@ -161,6 +164,33 @@ def hashes_filter(next_part_power, suff_path, hashes):
     return hashes
 
 
+def determine_exit_code(logger, found_policy, processed, action, action_errors,
+                        error_counter):
+    if not found_policy:
+        logger.warning("No policy found to increase the partition power.")
+        return EXIT_NO_APPLICABLE_POLICY
+
+    unmounted = error_counter.pop('unmounted', 0)
+    if unmounted:
+        logger.warning('%d disks were unmounted', unmounted)
+    listdir_errors = error_counter.pop('unlistable_partitions', 0)
+    if listdir_errors:
+        logger.warning('There were %d errors listing partition directories',
+                       listdir_errors)
+    if error_counter:
+        logger.warning(
+            'There were unexpected errors while enumerating disk files: %r',
+            error_counter)
+
+    logger.info('%d diskfiles %s (%d errors)', processed, action,
+                action_errors + listdir_errors)
+    if action_errors + listdir_errors + unmounted > 0:
+        # NB: audit_location_generator logs unmounted disks as warnings,
+        # but we want to treat them as errors
+        return EXIT_ERROR
+    return EXIT_SUCCESS
+
+
 def relink(swift_dir='/etc/swift',
            devices='/srv/node',
            skip_mount_check=False,
@@ -168,8 +198,9 @@ def relink(swift_dir='/etc/swift',
            device=None,
            files_per_second=0):
     mount_check = not skip_mount_check
-    run = False
+    found_policy = False
     relinked = errors = 0
+    error_counter = {}
     for policy in POLICIES:
         policy.object_ring = None  # Ensure it will be reloaded
         policy.load_ring(swift_dir)
@@ -179,7 +210,7 @@ def relink(swift_dir='/etc/swift',
             continue
         logger.info('Relinking files for policy %s under %s',
                     policy.name, devices)
-        run = True
+        found_policy = True
         datadir = diskfile.get_data_dir(policy)
 
         locks = [None]
@@ -208,7 +239,7 @@ def relink(swift_dir='/etc/swift',
             partitions_filter=relink_partition_filter,
             hook_post_partition=relink_hook_post_partition,
             hashes_filter=relink_hashes_filter,
-            logger=logger)
+            logger=logger, error_counter=error_counter)
         if files_per_second > 0:
             locations = RateLimitedIterator(locations, files_per_second)
         for fname, _, _ in locations:
@@ -220,14 +251,13 @@ def relink(swift_dir='/etc/swift',
                 errors += 1
                 logger.warning("Relinking %s to %s failed: %s",
                                fname, newfname, exc)
-
-    if not run:
-        logger.warning("No policy found to increase the partition power.")
-        return 2
-    logger.info('Relinked %d diskfiles (%d errors)', relinked, errors)
-    if errors > 0:
-        return 1
-    return 0
+    return determine_exit_code(
+        logger=logger,
+        found_policy=found_policy,
+        processed=relinked, action='relinked',
+        action_errors=errors,
+        error_counter=error_counter,
+    )
 
 
 def cleanup(swift_dir='/etc/swift',
@@ -240,7 +270,8 @@ def cleanup(swift_dir='/etc/swift',
     conf = {'devices': devices, 'mount_check': mount_check}
     diskfile_router = diskfile.DiskFileRouter(conf, logger)
     errors = cleaned_up = 0
-    run = False
+    error_counter = {}
+    found_policy = False
     for policy in POLICIES:
         policy.object_ring = None  # Ensure it will be reloaded
         policy.load_ring(swift_dir)
@@ -250,7 +281,7 @@ def cleanup(swift_dir='/etc/swift',
             continue
         logger.info('Cleaning up files for policy %s under %s',
                     policy.name, devices)
-        run = True
+        found_policy = True
         datadir = diskfile.get_data_dir(policy)
 
         locks = [None]
@@ -279,7 +310,7 @@ def cleanup(swift_dir='/etc/swift',
             partitions_filter=cleanup_partition_filter,
             hook_post_partition=cleanup_hook_post_partition,
             hashes_filter=cleanup_hashes_filter,
-            logger=logger)
+            logger=logger, error_counter=error_counter)
         if files_per_second > 0:
             locations = RateLimitedIterator(locations, files_per_second)
         for fname, device, partition in locations:
@@ -327,14 +358,13 @@ def cleanup(swift_dir='/etc/swift',
             except OSError as exc:
                 logger.warning('Error cleaning up %s: %r', fname, exc)
                 errors += 1
-
-    if not run:
-        logger.warning("No policy found to increase the partition power.")
-        return 2
-    logger.info('Cleaned up %d diskfiles (%d errors)', cleaned_up, errors)
-    if errors > 0:
-        return 1
-    return 0
+    return determine_exit_code(
+        logger=logger,
+        found_policy=found_policy,
+        processed=cleaned_up, action='cleaned up',
+        action_errors=errors,
+        error_counter=error_counter,
+    )
 
 
 def main(args):
