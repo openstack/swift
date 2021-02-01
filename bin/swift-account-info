@@ -34,6 +34,7 @@ def run_print_info(args, opts):
             print('Account info failed: %s' % e)
             sys.exit(1)
 
+
 if __name__ == '__main__':
     parser = OptionParser('%prog [options] ACCOUNT_DB_FILE')
     parser.add_option(

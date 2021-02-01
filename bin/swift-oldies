@@ -86,4 +86,5 @@ Lists old Swift processes.
 
         print('%*s %*s %s' % (hours_len, 'Hours', pid_len, 'PID', 'Command'))
         for hours, pid, args in listing:
-            print('%*s %*s %s' % (hours_len, hours, pid_len, pid, args[:args_len]))
+            print('%*s %*s %s' % (hours_len, hours, pid_len,
+                                  pid, args[:args_len]))

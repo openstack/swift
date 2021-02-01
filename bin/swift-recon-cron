@@ -72,5 +72,6 @@ def main():
         print('%s: %s' % (msg, err))
         sys.exit(1)
 
+
 if __name__ == '__main__':
     main()
