@@ -24,8 +24,8 @@ from functools import partial
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeleted, DiskFileNotExist, \
     DiskFileQuarantined
-from swift.common.utils import replace_partition_in_path, \
-    audit_location_generator
+from swift.common.utils import replace_partition_in_path, config_true_value, \
+    audit_location_generator, get_logger, readconf
 from swift.obj import diskfile
 
 
@@ -327,35 +327,45 @@ def main(args):
     parser = argparse.ArgumentParser(
         description='Relink and cleanup objects to increase partition power')
     parser.add_argument('action', choices=['relink', 'cleanup'])
-    parser.add_argument('--swift-dir', default='/etc/swift',
+    parser.add_argument('conf_file', nargs='?', help=(
+        'Path to config file with [object-relinker] section'))
+    parser.add_argument('--swift-dir', default=None,
                         dest='swift_dir', help='Path to swift directory')
-    parser.add_argument('--devices', default='/srv/node',
+    parser.add_argument('--devices', default=None,
                         dest='devices', help='Path to swift device directory')
     parser.add_argument('--device', default=None, dest='device',
                         help='Device name to relink (default: all)')
     parser.add_argument('--skip-mount-check', default=False,
                         help='Don\'t test if disk is mounted',
                         action="store_true", dest='skip_mount_check')
-    parser.add_argument('--logfile', default=None,
-                        dest='logfile', help='Set log file name')
+    parser.add_argument('--logfile', default=None, dest='logfile',
+                        help='Set log file name. Ignored if using conf_file.')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Enable debug mode')
 
     args = parser.parse_args(args)
+    if args.conf_file:
+        conf = readconf(args.conf_file, 'object-relinker')
+        if args.debug:
+            conf['log_level'] = 'DEBUG'
+        logger = get_logger(conf)
+    else:
+        conf = {}
+        logging.basicConfig(
+            format='%(message)s',
+            level=logging.DEBUG if args.debug else logging.INFO,
+            filename=args.logfile)
+        logger = logging.getLogger()
 
-    logging.basicConfig(
-        format='%(message)s',
-        level=logging.DEBUG if args.debug else logging.INFO,
-        filename=args.logfile)
-
-    logger = logging.getLogger()
+    swift_dir = args.swift_dir or conf.get('swift_dir', '/etc/swift')
+    devices = args.devices or conf.get('devices', '/srv/node')
+    skip_mount_check = args.skip_mount_check or not config_true_value(
+        conf.get('mount_check', 'true'))
 
     if args.action == 'relink':
         return relink(
-            args.swift_dir, args.devices, args.skip_mount_check, logger,
-            device=args.device)
+            swift_dir, devices, skip_mount_check, logger, device=args.device)
 
     if args.action == 'cleanup':
         return cleanup(
-            args.swift_dir, args.devices, args.skip_mount_check, logger,
-            device=args.device)
+            swift_dir, devices, skip_mount_check, logger, device=args.device)

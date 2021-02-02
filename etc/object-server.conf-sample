@@ -602,3 +602,10 @@ use = egg:swift#xprofile
 #
 # unwind the iterator of applications
 # unwind = false
+
+[object-relinker]
+# You can override the default log routing for this app here (don't use set!):
+# log_name = object-relinker
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# log_address = /dev/log
