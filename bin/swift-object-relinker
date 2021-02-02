@@ -14,30 +14,10 @@
 # limitations under the License.
 
 
-import argparse
 import sys
 
 from swift.cli.relinker import main
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='Relink and cleanup objects to increase partition power')
-    parser.add_argument('action', choices=['relink', 'cleanup'])
-    parser.add_argument('--swift-dir', default='/etc/swift',
-                        dest='swift_dir', help='Path to swift directory')
-    parser.add_argument('--devices', default='/srv/node',
-                        dest='devices', help='Path to swift device directory')
-    parser.add_argument('--device', default=None, dest='device',
-                        help='Device name to relink (default: all)')
-    parser.add_argument('--skip-mount-check', default=False,
-                        help='Don\'t test if disk is mounted',
-                        action="store_true", dest='skip_mount_check')
-    parser.add_argument('--logfile', default=None,
-                        dest='logfile', help='Set log file name')
-    parser.add_argument('--debug', default=False, action='store_true',
-                        help='Enable debug mode')
-
-    args = parser.parse_args()
-
-    sys.exit(main(args))
+    sys.exit(main(sys.argv[1:]))

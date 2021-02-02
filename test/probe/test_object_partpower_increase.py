@@ -24,7 +24,7 @@ from uuid import uuid4
 
 from swiftclient import client
 
-from swift.cli.relinker import relink, cleanup
+from swift.cli.relinker import main as relinker_main
 from swift.common.manager import Manager
 from swift.common.ring import RingBuilder
 from swift.common.utils import replace_partition_in_path
@@ -117,7 +117,9 @@ class TestPartPowerIncrease(ProbeTest):
 
         # Relink existing objects
         for device in self.devices:
-            self.assertEqual(0, relink(skip_mount_check=True, devices=device))
+            self.assertEqual(0, relinker_main([
+                'relink', '--skip-mount-check',
+                '--devices', device]))
 
         # Create second object after relinking and ensure it is accessible
         client.put_object(self.url, self.token, container, obj2, self.data)
@@ -164,7 +166,9 @@ class TestPartPowerIncrease(ProbeTest):
 
         # Cleanup old objects in the wrong location
         for device in self.devices:
-            self.assertEqual(0, cleanup(skip_mount_check=True, devices=device))
+            self.assertEqual(0, relinker_main([
+                'cleanup', '--skip-mount-check',
+                '--devices', device]))
 
         # Ensure objects are still accessible
         client.head_object(self.url, self.token, container, obj)
