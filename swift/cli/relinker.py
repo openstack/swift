@@ -26,7 +26,7 @@ from swift.common.exceptions import DiskFileDeleted, DiskFileNotExist, \
     DiskFileQuarantined
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
-    RateLimitedIterator
+    RateLimitedIterator, lock_path
 from swift.obj import diskfile
 
 
@@ -136,19 +136,73 @@ def partitions_filter(states, part_power, next_part_power,
 
 
 # Save states when a partition is done
-def hook_post_partition(states, step,
+def hook_post_partition(states, step, policy, diskfile_manager,
                         partition_path):
-    part = os.path.basename(os.path.abspath(partition_path))
-    datadir_path = os.path.dirname(os.path.abspath(partition_path))
-    device_path = os.path.dirname(os.path.abspath(datadir_path))
-    datadir_name = os.path.basename(os.path.abspath(datadir_path))
+    datadir_path, part = os.path.split(os.path.abspath(partition_path))
+    device_path, datadir_name = os.path.split(datadir_path)
+    device = os.path.basename(device_path)
     state_tmp_file = os.path.join(device_path,
                                   STATE_TMP_FILE.format(datadir=datadir_name))
     state_file = os.path.join(device_path,
                               STATE_FILE.format(datadir=datadir_name))
 
-    if step in (STEP_RELINK, STEP_CLEANUP):
-        states["state"][part] = True
+    # We started with a partition space like
+    #   |0              N|
+    #   |ABCDEFGHIJKLMNOP|
+    #
+    # After relinking, it will be more like
+    #   |0                             2N|
+    #   |AABBCCDDEEFFGGHHIIJJKKLLMMNNOOPP|
+    #
+    # We want to hold off on rehashing until after cleanup, since that is the
+    # point at which we've finished with filesystem manipulations. But there's
+    # a slight complication: we know the upper half has nothing to clean up,
+    # so the cleanup phase only looks at
+    #   |0                             2N|
+    #   |AABBCCDDEEFFGGHH                |
+    #
+    # To ensure that the upper half gets rehashed, too, do it as part of
+    # relinking; as we finish
+    #   |0              N|
+    #   |        IJKLMNOP|
+    # shift to the new partition space and rehash
+    #   |0                             2N|
+    #   |                IIJJKKLLMMNNOOPP|
+    partition = int(part)
+    if step == STEP_RELINK and partition >= 2 ** (states['part_power'] - 1):
+        for new_part in (2 * partition, 2 * partition + 1):
+            diskfile_manager.get_hashes(device, new_part, [], policy)
+    elif step == STEP_CLEANUP:
+        hashes = diskfile_manager.get_hashes(device, partition, [], policy)
+        # In any reasonably-large cluster, we'd expect all old partitions P
+        # to be empty after cleanup (i.e., it's unlikely that there's another
+        # partition Q := P//2 that also has data on this device).
+        #
+        # Try to clean up empty partitions now, so operators can use existing
+        # rebalance-complete metrics to monitor relinking progress (provided
+        # there are few/no handoffs when relinking starts and little data is
+        # written to handoffs during the increase).
+        if not hashes:
+            with lock_path(partition_path):
+                # Same lock used by invalidate_hashes, consolidate_hashes,
+                # get_hashes
+                try:
+                    os.unlink(os.path.join(partition_path, 'hashes.pkl'))
+                    os.unlink(os.path.join(partition_path, 'hashes.invalid'))
+                    os.unlink(os.path.join(partition_path, '.lock'))
+                except OSError:
+                    pass
+            try:
+                os.rmdir(partition_path)
+            except OSError:
+                # Most likely, some data landed in here or we hit an error
+                # above. Let the replicator deal with things; it was worth
+                # a shot.
+                pass
+
+    # Then mark this part as done, in case the process is interrupted and
+    # needs to resume.
+    states["state"][part] = True
     with open(state_tmp_file, 'wt') as f:
         json.dump(states, f)
         os.fsync(f.fileno())
@@ -198,10 +252,13 @@ def relink(swift_dir='/etc/swift',
            device=None,
            files_per_second=0):
     mount_check = not skip_mount_check
+    conf = {'devices': devices, 'mount_check': mount_check}
+    diskfile_router = diskfile.DiskFileRouter(conf, logger)
     found_policy = False
     relinked = errors = 0
     error_counter = {}
     for policy in POLICIES:
+        diskfile_mgr = diskfile_router[policy]
         policy.object_ring = None  # Ensure it will be reloaded
         policy.load_ring(swift_dir)
         part_power = policy.object_ring.part_power
@@ -225,8 +282,8 @@ def relink(swift_dir='/etc/swift',
         relink_hook_post_device = partial(hook_post_device, locks)
         relink_partition_filter = partial(partitions_filter,
                                           states, part_power, next_part_power)
-        relink_hook_post_partition = partial(hook_post_partition,
-                                             states, STEP_RELINK)
+        relink_hook_post_partition = partial(
+            hook_post_partition, states, STEP_RELINK, policy, diskfile_mgr)
         relink_hashes_filter = partial(hashes_filter, next_part_power)
 
         locations = audit_location_generator(
@@ -247,6 +304,8 @@ def relink(swift_dir='/etc/swift',
             try:
                 diskfile.relink_paths(fname, newfname, check_existing=True)
                 relinked += 1
+                suffix_dir = os.path.dirname(os.path.dirname(newfname))
+                diskfile.invalidate_hash(suffix_dir)
             except OSError as exc:
                 errors += 1
                 logger.warning("Relinking %s to %s failed: %s",
@@ -273,6 +332,7 @@ def cleanup(swift_dir='/etc/swift',
     error_counter = {}
     found_policy = False
     for policy in POLICIES:
+        diskfile_mgr = diskfile_router[policy]
         policy.object_ring = None  # Ensure it will be reloaded
         policy.load_ring(swift_dir)
         part_power = policy.object_ring.part_power
@@ -296,8 +356,8 @@ def cleanup(swift_dir='/etc/swift',
         cleanup_hook_post_device = partial(hook_post_device, locks)
         cleanup_partition_filter = partial(partitions_filter,
                                            states, part_power, next_part_power)
-        cleanup_hook_post_partition = partial(hook_post_partition,
-                                              states, STEP_CLEANUP)
+        cleanup_hook_post_partition = partial(
+            hook_post_partition, states, STEP_CLEANUP, policy, diskfile_mgr)
         cleanup_hashes_filter = partial(hashes_filter, next_part_power)
 
         locations = audit_location_generator(
@@ -323,7 +383,6 @@ def cleanup(swift_dir='/etc/swift',
             # has been increased, but cleanup did not yet run)
             loc = diskfile.AuditLocation(
                 os.path.dirname(expected_fname), device, partition, policy)
-            diskfile_mgr = diskfile_router[policy]
             df = diskfile_mgr.get_diskfile_from_audit_location(loc)
             try:
                 with df.open():
@@ -355,6 +414,8 @@ def cleanup(swift_dir='/etc/swift',
                 os.remove(fname)
                 cleaned_up += 1
                 logger.debug("Removed %s", fname)
+                suffix_dir = os.path.dirname(os.path.dirname(fname))
+                diskfile.invalidate_hash(suffix_dir)
             except OSError as exc:
                 logger.warning('Error cleaning up %s: %r', fname, exc)
                 errors += 1
