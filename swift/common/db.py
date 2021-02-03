@@ -230,6 +230,8 @@ def get_db_connection(path, timeout=30, logger=None, okay_to_create=False):
 class DatabaseBroker(object):
     """Encapsulates working with a database."""
 
+    delete_meta_whitelist = []
+
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
                  stale_reads_ok=False, skip_commits=False):
@@ -366,6 +368,8 @@ class DatabaseBroker(object):
         # first, clear the metadata
         cleared_meta = {}
         for k in self.metadata:
+            if k.lower() in self.delete_meta_whitelist:
+                continue
             cleared_meta[k] = ('', timestamp)
         self.update_metadata(cleared_meta)
         # then mark the db as deleted
