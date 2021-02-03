@@ -1706,6 +1706,8 @@ class ContainerSharder(ContainerReplicator):
                               quote(broker.path))
         else:
             cleaving_context.start()
+            own_shard_range = broker.get_own_shard_range()
+            cleaving_context.cursor = own_shard_range.lower_str
             cleaving_context.ranges_todo = len(ranges_todo)
             self.logger.debug('Starting to cleave (%s todo): %s',
                               cleaving_context.ranges_todo, quote(broker.path))
@@ -1720,6 +1722,11 @@ class ContainerSharder(ContainerReplicator):
                 break
 
             if len(ranges_done) == self.cleave_batch_size:
+                break
+
+            if shard_range.lower > cleaving_context.cursor:
+                self.logger.info('Stopped cleave at gap: %r - %r' %
+                                 (cleaving_context.cursor, shard_range.lower))
                 break
 
             if shard_range.state not in (ShardRange.CREATED,

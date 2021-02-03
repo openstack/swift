@@ -1878,14 +1878,13 @@ class TestSharder(BaseTestSharder):
         do_test(ShardRange.CLEAVED, (('d', 'k'), ('k', 't')), expect_delete)
         # shrinking to incomplete acceptors, gap at start and end of namespace
         do_test(ShardRange.CREATED, (('k', 't'),), expect_delete,
-                exp_progress_bounds=(('k', 't'),))
+                exp_progress_bounds=())
         # shrinking to incomplete acceptors, gap at start of namespace
-        expect_delete = True
         do_test(ShardRange.CLEAVED, (('k', 't'), ('t', '')), expect_delete,
-                exp_progress_bounds=(('k', 't'), ('t', '')))
-        # shrinking to incomplete acceptors, gap in middle
+                exp_progress_bounds=())
+        # shrinking to incomplete acceptors, gap in middle - some progress
         do_test(ShardRange.CLEAVED, (('d', 'k'), ('t', '')), expect_delete,
-                exp_progress_bounds=(('d', 'k'), ('t', '')))
+                exp_progress_bounds=(('d', 'k'),))
 
     def test_cleave_repeated(self):
         # verify that if new objects are merged into retiring db after cleaving
