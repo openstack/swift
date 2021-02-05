@@ -332,6 +332,8 @@ class ContainerBroker(DatabaseBroker):
     db_type = 'container'
     db_contains_type = 'object'
     db_reclaim_timestamp = 'created_at'
+    delete_meta_whitelist = ['x-container-sysmeta-shard-quoted-root',
+                             'x-container-sysmeta-shard-root']
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
@@ -2127,10 +2129,13 @@ class ContainerBroker(DatabaseBroker):
         """
         _, path = self._get_root_meta()
         if path is not None:
-            # We have metadata telling us where the root is; it's authoritative
+            # We have metadata telling us where the root is; it's
+            # authoritative; shards should always have this metadata even when
+            # deleted
             return self.path == path
 
-        # Else, we're either a root or a deleted shard.
+        # Else, we're either a root or a legacy deleted shard whose sharding
+        # sysmeta was deleted
 
         # Use internal method so we don't try to update stats.
         own_shard_range = self._own_shard_range(no_default=True)

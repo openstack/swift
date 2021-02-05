@@ -209,6 +209,13 @@ class BaseTestContainerSharding(ReplProbeTest):
         return ContainerBroker(
             self.get_db_file(part, node, account, container))
 
+    def get_shard_broker(self, shard_range, node_index=0):
+        shard_part, shard_nodes = self.brain.ring.get_nodes(
+            shard_range.account, shard_range.container)
+        return self.get_broker(
+            shard_part, shard_nodes[node_index], shard_range.account,
+            shard_range.container)
+
     def categorize_container_dir_content(self, account=None, container=None):
         account = account or self.brain.account
         container = container or self.container_name
@@ -2318,6 +2325,93 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_container_listing(['beta'])
         self.assert_container_object_count(1)
         self.assert_container_delete_fails()
+
+    def test_misplaced_object_movement_from_deleted_shard(self):
+        def merge_object(shard_range, name, deleted=0):
+            # it's hard to get a test to put a misplaced object into a shard,
+            # so this hack is used force an object record directly into a shard
+            # container db. Note: the actual object won't exist, we're just
+            # using this to test object records in container dbs.
+            shard_part, shard_nodes = self.brain.ring.get_nodes(
+                shard_range.account, shard_range.container)
+            shard_broker = self.get_shard_broker(shard_range)
+            # In this test we want to merge into a deleted container shard
+            shard_broker.delete_db(Timestamp.now().internal)
+            shard_broker.merge_items(
+                [{'name': name, 'created_at': Timestamp.now().internal,
+                  'size': 0, 'content_type': 'text/plain',
+                  'etag': md5(usedforsecurity=False).hexdigest(),
+                  'deleted': deleted,
+                  'storage_policy_index': shard_broker.storage_policy_index}])
+            return shard_nodes[0]
+
+        all_obj_names = self._make_object_names(self.max_shard_size)
+        self.put_objects(all_obj_names)
+        # Shard the container
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        for n in self.brain.node_numbers:
+            self.sharders.once(
+                number=n, additional_args='--partitions=%s' % self.brain.part)
+        # sanity checks
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
+        self.assert_container_listing(all_obj_names)
+
+        # delete all objects in first shard range - updates redirected to shard
+        shard_ranges = self.get_container_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 2)
+        shard_0_objects = [name for name in all_obj_names
+                           if name in shard_ranges[0]]
+        shard_1_objects = [name for name in all_obj_names
+                           if name in shard_ranges[1]]
+        self.delete_objects(shard_0_objects)
+        self.assert_container_listing(shard_1_objects)
+        self.assert_container_post_ok('has objects')
+
+        # run sharder on first shard container to update root stats
+        self.run_sharders(shard_ranges[0])
+        self.assert_container_object_count(len(shard_1_objects))
+
+        # First, test a misplaced object moving from one shard to another.
+        # run sharder on root to discover first shrink candidate
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        # then run sharder on first shard range to shrink it
+        self.run_sharders(shard_ranges[0])
+        # force a misplaced object into the shrunken shard range to simulate
+        # a client put that was in flight when it started to shrink
+        misplaced_node = merge_object(shard_ranges[0], 'alpha', deleted=0)
+        # root sees first shard has shrunk, only second shard range used for
+        # listing so alpha object not in listing
+        self.assertLengthEqual(self.get_container_shard_ranges(), 1)
+        self.assert_container_listing(shard_1_objects)
+        self.assert_container_object_count(len(shard_1_objects))
+        # until sharder runs on that node to move the misplaced object to the
+        # second shard range
+        shard_part, shard_nodes_numbers = self.get_part_and_node_numbers(
+            shard_ranges[0])
+        self.sharders.once(additional_args='--partitions=%s' % shard_part,
+                           number=misplaced_node['id'] + 1)
+        self.assert_container_listing(['alpha'] + shard_1_objects)
+        # root not yet updated
+        self.assert_container_object_count(len(shard_1_objects))
+
+        # check the deleted shard did not push the wrong root path into the
+        # other container
+        for replica in 0, 1, 2:
+            shard_x_broker = self.get_shard_broker(shard_ranges[1], replica)
+            self.assertEqual("%s/%s" % (self.account, self.container_name),
+                             shard_x_broker.root_path)
+
+        # run the sharder of the existing shard to update the root stats
+        # to prove the misplaced object was moved to the other shard _and_
+        # the other shard still has the correct root because it updates root's
+        # stats
+        self.run_sharders(shard_ranges[1])
+        self.assert_container_object_count(len(shard_1_objects) + 1)
 
     def test_replication_to_sharded_container_from_unsharded_old_primary(self):
         primary_ids = [n['id'] for n in self.brain.nodes]

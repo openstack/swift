@@ -515,6 +515,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.initialize(next(self.ts).internal, 0)
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         self.assertFalse(broker.is_root_container())
+        self.assertEqual('a/c', broker.root_path)
 
         def check_object_counted(broker_to_test, broker_with_object):
             obj = {'name': 'o', 'created_at': next(self.ts).internal,
@@ -593,12 +594,25 @@ class TestContainerBroker(unittest.TestCase):
         own_sr.timestamp = next(self.ts)
         broker.merge_shard_ranges([own_sr])
         broker.delete_db(next(self.ts).internal)
+        self.assertFalse(broker.is_root_container())
+        self.assertEqual('a/c', broker.root_path)
 
         # Get a fresh broker, with instance cache unset
         broker = ContainerBroker(db_path, account='.shards_a', container='cc')
         self.assertTrue(broker.empty())
         self.assertTrue(broker.is_deleted())
         self.assertFalse(broker.is_root_container())
+        self.assertEqual('a/c', broker.root_path)
+
+        # older versions *did* delete sharding sysmeta when db was deleted...
+        # but still know they are not root containers
+        broker.set_sharding_sysmeta('Quoted-Root', '')
+        self.assertFalse(broker.is_root_container())
+        self.assertEqual('a/c', broker.root_path)
+        # however, they have bogus root path once instance cache is cleared...
+        broker = ContainerBroker(db_path, account='.shards_a', container='cc')
+        self.assertFalse(broker.is_root_container())
+        self.assertEqual('.shards_a/cc', broker.root_path)
 
     def test_reclaim(self):
         broker = ContainerBroker(':memory:', account='test_account',
@@ -1665,6 +1679,50 @@ class TestContainerBroker(unittest.TestCase):
         own_shard_range.epoch = Timestamp.now()
         fresh_broker.merge_shard_ranges([own_shard_range])
         self.assertEqual(fresh_broker.get_db_state(), 'unsharded')
+
+    @with_tempdir
+    def test_delete_db_does_not_clear_root_path(self, tempdir):
+        acct = '.sharded_a'
+        cont = 'c'
+        hsh = hash_path(acct, cont)
+        db_file = "%s.db" % hsh
+        db_path = os.path.join(tempdir, db_file)
+        ts = Timestamp(0).normal
+
+        broker = ContainerBroker(db_path, account=acct, container=cont)
+        broker.initialize(ts, 0)
+
+        # add some metadata but include both types of root path
+        broker.update_metadata({
+            'foo': ('bar', ts),
+            'icecream': ('sandwich', ts),
+            'X-Container-Sysmeta-Some': ('meta', ts),
+            'X-Container-Sysmeta-Shard-Quoted-Root': ('a/c', ts),
+            'X-Container-Sysmeta-Shard-Root': ('a/c', ts)})
+
+        self.assertEqual('a/c', broker.root_path)
+
+        # now let's delete the db. All meta
+        delete_ts = Timestamp(1).normal
+        broker.delete_db(delete_ts)
+
+        # ensure that metadata was cleared except for root paths
+        def check_metadata(broker):
+            meta = broker.metadata
+            self.assertEqual(meta['X-Container-Sysmeta-Some'], ['', delete_ts])
+            self.assertEqual(meta['icecream'], ['', delete_ts])
+            self.assertEqual(meta['foo'], ['', delete_ts])
+            self.assertEqual(meta['X-Container-Sysmeta-Shard-Quoted-Root'],
+                             ['a/c', ts])
+            self.assertEqual(meta['X-Container-Sysmeta-Shard-Root'],
+                             ['a/c', ts])
+            self.assertEqual('a/c', broker.root_path)
+            self.assertFalse(broker.is_root_container())
+
+        check_metadata(broker)
+        # fresh broker in case values were cached in previous instance
+        broker = ContainerBroker(db_path)
+        check_metadata(broker)
 
     @with_tempdir
     def test_db_file(self, tempdir):
@@ -4567,7 +4625,7 @@ class TestContainerBroker(unittest.TestCase):
         check_broker_info(broker.get_info())
         check_sharded_state(broker)
 
-        # delete the container - sharding sysmeta gets erased
+        # delete the container
         broker.delete_db(next(self.ts).internal)
         # but it is not considered deleted while shards have content
         self.assertFalse(broker.is_deleted())
@@ -4577,7 +4635,7 @@ class TestContainerBroker(unittest.TestCase):
                                       meta_timestamp=next(self.ts))
                               for sr in shard_ranges]
         broker.merge_shard_ranges(empty_shard_ranges)
-        # and no it is deleted
+        # and now it is deleted
         self.assertTrue(broker.is_deleted())
         check_sharded_state(broker)
 

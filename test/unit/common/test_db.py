@@ -716,12 +716,13 @@ class TestDatabaseBroker(unittest.TestCase):
                           broker.initialize, normalize_timestamp('1'))
 
     def test_delete_db(self):
+        meta = {'foo': ['bar', normalize_timestamp('0')]}
+
         def init_stub(conn, put_timestamp, **kwargs):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('''CREATE TABLE test_stat (
                 id TEXT, put_timestamp TEXT, delete_timestamp TEXT,
                 status TEXT, status_changed_at TEXT, metadata TEXT)''')
-            meta = {'foo': ('bar', normalize_timestamp('0'))}
             conn.execute(
                 '''INSERT INTO test_stat (
                     id, put_timestamp, delete_timestamp, status,
@@ -730,35 +731,63 @@ class TestDatabaseBroker(unittest.TestCase):
             conn.execute('INSERT INTO test (one) VALUES ("1")')
             conn.commit()
 
-        broker = DatabaseBroker(':memory:')
-        broker.db_type = 'test'
-        broker._initialize = init_stub
-        # Initializes a good broker for us
-        broker.initialize(normalize_timestamp('1'))
-        info = broker.get_info()
-        self.assertEqual('0', info['delete_timestamp'])
-        self.assertEqual('', info['status'])
-        self.assertIsNotNone(broker.conn)
-        broker.delete_db(normalize_timestamp('2'))
-        info = broker.get_info()
-        self.assertEqual(normalize_timestamp('2'), info['delete_timestamp'])
-        self.assertEqual('DELETED', info['status'])
+        def do_test(expected_metadata, delete_meta_whitelist=None):
+            if not delete_meta_whitelist:
+                delete_meta_whitelist = []
+            broker = DatabaseBroker(':memory:')
+            broker.delete_meta_whitelist = delete_meta_whitelist
+            broker.db_type = 'test'
+            broker._initialize = init_stub
+            # Initializes a good broker for us
+            broker.initialize(normalize_timestamp('1'))
+            info = broker.get_info()
+            self.assertEqual('0', info['delete_timestamp'])
+            self.assertEqual('', info['status'])
+            self.assertIsNotNone(broker.conn)
+            broker.delete_db(normalize_timestamp('2'))
+            info = broker.get_info()
+            self.assertEqual(normalize_timestamp('2'),
+                             info['delete_timestamp'])
+            self.assertEqual('DELETED', info['status'])
 
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
-        broker.db_type = 'test'
-        broker._initialize = init_stub
-        broker.initialize(normalize_timestamp('1'))
-        info = broker.get_info()
-        self.assertEqual('0', info['delete_timestamp'])
-        self.assertEqual('', info['status'])
-        broker.delete_db(normalize_timestamp('2'))
-        info = broker.get_info()
-        self.assertEqual(normalize_timestamp('2'), info['delete_timestamp'])
-        self.assertEqual('DELETED', info['status'])
+            # check meta
+            m2 = broker.metadata
+            self.assertEqual(m2, expected_metadata)
 
-        # ensure that metadata was cleared
-        m2 = broker.metadata
-        self.assertEqual(m2, {'foo': ['', normalize_timestamp('2')]})
+            broker = DatabaseBroker(os.path.join(self.testdir,
+                                                 '%s.db' % uuid4()))
+            broker.delete_meta_whitelist = delete_meta_whitelist
+            broker.db_type = 'test'
+            broker._initialize = init_stub
+            broker.initialize(normalize_timestamp('1'))
+            info = broker.get_info()
+            self.assertEqual('0', info['delete_timestamp'])
+            self.assertEqual('', info['status'])
+            broker.delete_db(normalize_timestamp('2'))
+            info = broker.get_info()
+            self.assertEqual(normalize_timestamp('2'),
+                             info['delete_timestamp'])
+            self.assertEqual('DELETED', info['status'])
+
+            # check meta
+            m2 = broker.metadata
+            self.assertEqual(m2, expected_metadata)
+
+        # ensure that metadata was cleared by default
+        do_test({'foo': ['', normalize_timestamp('2')]})
+
+        # If the meta is in the brokers delete_meta_whitelist it wont get
+        # cleared up
+        do_test(meta, ['foo'])
+
+        # delete_meta_whitelist things need to be in lower case, as the keys
+        # are lower()'ed before checked
+        meta["X-Container-Meta-Test"] = ['value', normalize_timestamp('0')]
+        meta["X-Something-else"] = ['other', normalize_timestamp('0')]
+        do_test({'foo': ['', normalize_timestamp('2')],
+                 'X-Container-Meta-Test': ['value', normalize_timestamp('0')],
+                 'X-Something-else': ['other', normalize_timestamp('0')]},
+                ['x-container-meta-test', 'x-something-else'])
 
     def test_get(self):
         broker = DatabaseBroker(':memory:')
