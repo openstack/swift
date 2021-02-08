@@ -388,8 +388,9 @@ use = egg:swift#tempauth
 #   user64_<account_b64>_<user_b64> = <key> [group] [group] [...] [storage_url]
 # There are special groups of:
 #   .reseller_admin = can do anything to any account for this auth
+#   .reseller_reader = can GET/HEAD anything in any account for this auth
 #   .admin = can do anything within the account
-# If neither of these groups are specified, the user can only access containers
+# If none of these groups are specified, the user can only access containers
 # that have been explicitly allowed for them by a .admin or .reseller_admin.
 # The trailing optional storage_url allows you to specify an alternate url to
 # hand back to the user upon authentication. If not specified, this defaults to
@@ -397,6 +398,7 @@ use = egg:swift#tempauth
 # to what the requester would need to use to reach this host.
 # Here are example entries, required for running the tests:
 user_admin_admin = admin .admin .reseller_admin
+user_admin_auditor = admin_ro .reseller_reader
 user_test_tester = testing .admin
 user_test_tester2 = testing2 .admin
 user_test_tester3 = testing3
