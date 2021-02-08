@@ -3974,6 +3974,12 @@ class TestContainerBroker(unittest.TestCase):
             ContainerBroker.resolve_shard_range_states(
                 ['updating', 'listing']))
 
+        self.assertEqual(
+            {ShardRange.CREATED, ShardRange.CLEAVED,
+             ShardRange.ACTIVE, ShardRange.SHARDING, ShardRange.SHARDED,
+             ShardRange.SHRINKING, ShardRange.SHRUNK},
+            ContainerBroker.resolve_shard_range_states(['auditing']))
+
         def check_bad_value(value):
             with self.assertRaises(ValueError) as cm:
                 ContainerBroker.resolve_shard_range_states(value)
@@ -4072,7 +4078,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(actual)
 
     @with_tempdir
-    def test_overloap_shard_range_order(self, tempdir):
+    def test_overlap_shard_range_order(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(self.ts).internal, 0)

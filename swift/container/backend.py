@@ -54,7 +54,13 @@ SHARD_STATS_STATES = [ShardRange.ACTIVE, ShardRange.SHARDING,
 SHARD_LISTING_STATES = SHARD_STATS_STATES + [ShardRange.CLEAVED]
 SHARD_UPDATE_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
                        ShardRange.ACTIVE, ShardRange.SHARDING]
-
+# when auditing a shard gets its own shard range, which could be in any state
+# except FOUND, and any potential acceptors excluding FOUND ranges that may be
+# unwanted overlaps
+SHARD_AUDITING_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
+                         ShardRange.ACTIVE, ShardRange.SHARDING,
+                         ShardRange.SHARDED, ShardRange.SHRINKING,
+                         ShardRange.SHRUNK]
 
 # attribute names in order used when transforming shard ranges from dicts to
 # tuples and vice-versa
@@ -1716,7 +1722,10 @@ class ContainerBroker(DatabaseBroker):
 
         The following alias values are supported: 'listing' maps to all states
         that are considered valid when listing objects; 'updating' maps to all
-        states that are considered valid for redirecting an object update.
+        states that are considered valid for redirecting an object update;
+        'auditing' maps to all states that are considered valid for a shard
+        container that is updating its own shard range table from a root (this
+        currently maps to all states except FOUND).
 
         :param states: a list of values each of which may be the name of a
             state, the number of a state, or an alias
@@ -1731,6 +1740,8 @@ class ContainerBroker(DatabaseBroker):
                     resolved_states.update(SHARD_LISTING_STATES)
                 elif state == 'updating':
                     resolved_states.update(SHARD_UPDATE_STATES)
+                elif state == 'auditing':
+                    resolved_states.update(SHARD_AUDITING_STATES)
                 else:
                     resolved_states.add(ShardRange.resolve_state(state)[0])
             return resolved_states

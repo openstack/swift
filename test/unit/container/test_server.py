@@ -3178,6 +3178,98 @@ class TestContainerController(unittest.TestCase):
 
         do_test({'states': 'bad'}, 404)
 
+    def test_GET_shard_ranges_auditing(self):
+        # verify that states=auditing causes own shard range to be included
+        def put_shard_ranges(shard_ranges):
+            headers = {'X-Timestamp': next(self.ts).normal,
+                       'X-Backend-Record-Type': 'shard'}
+            body = json.dumps([dict(sr) for sr in shard_ranges])
+            req = Request.blank(
+                '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+            self.assertEqual(202, req.get_response(self.controller).status_int)
+
+        def do_test(ts_now, extra_params):
+            headers = {'X-Backend-Record-Type': 'shard',
+                       'X-Backend-Include-Deleted': 'True'}
+            params = {'format': 'json'}
+            if extra_params:
+                params.update(extra_params)
+            req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                                headers=headers, params=params)
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+            return resp
+
+        # initially not all shards are shrinking and root is sharded
+        own_sr = ShardRange('a/c', next(self.ts), '', '',
+                            state=ShardRange.SHARDED)
+        shard_bounds = [('', 'f', ShardRange.SHRUNK, True),
+                        ('f', 't', ShardRange.SHRINKING, False),
+                        ('t', '', ShardRange.ACTIVE, False)]
+        shard_ranges = [
+            ShardRange('.shards_a/_%s' % upper, next(self.ts),
+                       lower, upper, state=state, deleted=deleted)
+            for (lower, upper, state, deleted) in shard_bounds]
+        overlap = ShardRange('.shards_a/c_bad', next(self.ts), '', 'f',
+                             state=ShardRange.FOUND)
+
+        # create container and PUT some shard ranges
+        headers = {'X-Timestamp': next(self.ts).normal}
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertIn(
+            req.get_response(self.controller).status_int, (201, 202))
+        put_shard_ranges(shard_ranges + [own_sr, overlap])
+
+        # do *not* expect own shard range in default case (no states param)
+        ts_now = next(self.ts)
+        expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in [overlap] + shard_ranges]
+        resp = do_test(ts_now, {})
+        self.assertEqual(expected, json.loads(resp.body))
+
+        # expect own shard range to be included when states=auditing
+        expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in shard_ranges + [own_sr]]
+        resp = do_test(ts_now, {'states': 'auditing'})
+        self.assertEqual(expected, json.loads(resp.body))
+
+        # expect own shard range to be included, marker/end_marker respected
+        expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in shard_ranges[1:2] + [own_sr]]
+        resp = do_test(ts_now, {'marker': 'f', 'end_marker': 't',
+                                'states': 'auditing'})
+        self.assertEqual(expected, json.loads(resp.body))
+
+        # update shards to all shrinking and root to active
+        shard_ranges[-1].update_state(ShardRange.SHRINKING, next(self.ts))
+        own_sr.update_state(ShardRange.ACTIVE, next(self.ts))
+        put_shard_ranges(shard_ranges + [own_sr])
+
+        # do *not* expect own shard range in default case (no states param)
+        ts_now = next(self.ts)
+        expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in [overlap] + shard_ranges]
+        resp = do_test(ts_now, {})
+        self.assertEqual(expected, json.loads(resp.body))
+
+        # expect own shard range to be included when states=auditing
+        expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in shard_ranges[:2] + [own_sr] + shard_ranges[2:]]
+        resp = do_test(ts_now, {'states': 'auditing'})
+        self.assertEqual(expected, json.loads(resp.body))
+
+        # expect own shard range to be included, marker/end_marker respected
+        expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in shard_ranges[1:2] + [own_sr]]
+        resp = do_test(ts_now, {'marker': 'f', 'end_marker': 't',
+                                'states': 'auditing'})
+        self.assertEqual(expected, json.loads(resp.body))
+
     def test_GET_auto_record_type(self):
         # make a container
         ts_iter = make_timestamp_iter()

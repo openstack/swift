@@ -2258,14 +2258,14 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(broker.set_sharding_state())
 
         # run cleave - first batch is cleaved, shrinking range doesn't count
-        # towards batch size of 2 but does count towards ranges_done
+        # towards batch size of 2 nor towards ranges_done
         with self._mock_sharder() as sharder:
             self.assertFalse(sharder._cleave(broker))
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
         self.assertEqual(shard_ranges[2].upper_str, context.cursor)
-        self.assertEqual(3, context.ranges_done)
+        self.assertEqual(2, context.ranges_done)
         self.assertEqual(2, context.ranges_todo)
 
         # run cleave - stops at shard range in FOUND state
@@ -2275,7 +2275,7 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
         self.assertEqual(shard_ranges[3].upper_str, context.cursor)
-        self.assertEqual(4, context.ranges_done)
+        self.assertEqual(3, context.ranges_done)
         self.assertEqual(1, context.ranges_todo)
 
         # run cleave - final shard range in CREATED state, cleaving proceeds
@@ -2288,8 +2288,148 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(context.misplaced_done)
         self.assertTrue(context.cleaving_done)
         self.assertEqual(shard_ranges[4].upper_str, context.cursor)
-        self.assertEqual(5, context.ranges_done)
+        self.assertEqual(4, context.ranges_done)
         self.assertEqual(0, context.ranges_todo)
+
+    def test_cleave_shrinking_to_active_root_range(self):
+        broker = self._make_broker(account='.shards_a', container='shard_c')
+        broker.put_object(
+            'here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0)
+        # a donor previously shrunk to own...
+        deleted_range = ShardRange(
+            '.shards/other', next(self.ts_iter), 'here', 'there', deleted=True,
+            state=ShardRange.SHRUNK, epoch=next(self.ts_iter))
+        own_shard_range = ShardRange(
+            broker.path, next(self.ts_iter), 'here', '',
+            state=ShardRange.SHRINKING, epoch=next(self.ts_iter))
+        # root is the acceptor...
+        root = ShardRange(
+            'a/c', next(self.ts_iter), '', '',
+            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+        broker.merge_shard_ranges([deleted_range, own_shard_range, root])
+        broker.set_sharding_sysmeta('Root', 'a/c')
+        self.assertFalse(broker.is_root_container())  # sanity check
+        self.assertTrue(broker.set_sharding_state())
+
+        # expect cleave to the root
+        with self._mock_sharder() as sharder:
+            self.assertTrue(sharder._cleave(broker))
+        context = CleavingContext.load(broker)
+        self.assertTrue(context.misplaced_done)
+        self.assertTrue(context.cleaving_done)
+        self.assertEqual(root.upper_str, context.cursor)
+        self.assertEqual(1, context.ranges_done)
+        self.assertEqual(0, context.ranges_todo)
+
+    def test_cleave_shrinking_to_active_acceptor_with_sharded_root_range(self):
+        broker = self._make_broker(account='.shards_a', container='shard_c')
+        broker.put_object(
+            'here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0)
+        own_shard_range = ShardRange(
+            broker.path, next(self.ts_iter), 'here', 'there',
+            state=ShardRange.SHARDING, epoch=next(self.ts_iter))
+        # the intended acceptor...
+        acceptor = ShardRange(
+            '.shards_a/shard_d', next(self.ts_iter), 'here', '',
+            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+        # root range also gets pulled from root during audit...
+        root = ShardRange(
+            'a/c', next(self.ts_iter), '', '',
+            state=ShardRange.SHARDED, epoch=next(self.ts_iter))
+        broker.merge_shard_ranges([own_shard_range, acceptor, root])
+        broker.set_sharding_sysmeta('Root', 'a/c')
+        self.assertFalse(broker.is_root_container())  # sanity check
+        self.assertTrue(broker.set_sharding_state())
+
+        # sharded root range should always sort after an active acceptor so
+        # expect cleave to acceptor first then cleaving completes
+        with self._mock_sharder() as sharder:
+            self.assertTrue(sharder._cleave(broker))
+        context = CleavingContext.load(broker)
+        self.assertTrue(context.misplaced_done)
+        self.assertTrue(context.cleaving_done)
+        self.assertEqual(acceptor.upper_str, context.cursor)
+        self.assertEqual(1, context.ranges_done)  # cleaved the acceptor
+        self.assertEqual(1, context.ranges_todo)  # never reached sharded root
+
+    def test_cleave_shrinking_to_active_root_range_with_active_acceptor(self):
+        # if shrinking shard has both active root and active other acceptor,
+        # verify that shard only cleaves to one of them;
+        # root will sort before acceptor if acceptor.upper==MAX
+        broker = self._make_broker(account='.shards_a', container='shard_c')
+        broker.put_object(
+            'here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0)
+        own_shard_range = ShardRange(
+            broker.path, next(self.ts_iter), 'here', 'there',
+            state=ShardRange.SHRINKING, epoch=next(self.ts_iter))
+        # active acceptor with upper bound == MAX
+        acceptor = ShardRange(
+            '.shards/other', next(self.ts_iter), 'here', '', deleted=False,
+            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+        # root is also active
+        root = ShardRange(
+            'a/c', next(self.ts_iter), '', '',
+            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+        broker.merge_shard_ranges([own_shard_range, acceptor, root])
+        broker.set_sharding_sysmeta('Root', 'a/c')
+        self.assertFalse(broker.is_root_container())  # sanity check
+        self.assertTrue(broker.set_sharding_state())
+
+        # expect cleave to the root
+        acceptor.upper = ''
+        acceptor.timestamp = next(self.ts_iter)
+        broker.merge_shard_ranges([acceptor])
+        with self._mock_sharder() as sharder:
+            self.assertTrue(sharder._cleave(broker))
+        context = CleavingContext.load(broker)
+        self.assertTrue(context.misplaced_done)
+        self.assertTrue(context.cleaving_done)
+        self.assertEqual(root.upper_str, context.cursor)
+        self.assertEqual(1, context.ranges_done)
+        self.assertEqual(1, context.ranges_todo)
+        info = [
+            line for line in self.logger.get_lines_for_level('info')
+            if line.startswith('Replicating new shard container a/c')
+        ]
+        self.assertEqual(1, len(info))
+
+    def test_cleave_shrinking_to_active_acceptor_with_active_root_range(self):
+        # if shrinking shard has both active root and active other acceptor,
+        # verify that shard only cleaves to one of them;
+        # root will sort after acceptor if acceptor.upper<MAX
+        broker = self._make_broker(account='.shards_a', container='shard_c')
+        broker.put_object(
+            'here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0)
+        own_shard_range = ShardRange(
+            broker.path, next(self.ts_iter), 'here', 'there',
+            state=ShardRange.SHRINKING, epoch=next(self.ts_iter))
+        # active acceptor with upper bound < MAX
+        acceptor = ShardRange(
+            '.shards/other', next(self.ts_iter), 'here', 'where',
+            deleted=False, state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+        # root is also active
+        root = ShardRange(
+            'a/c', next(self.ts_iter), '', '',
+            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+        broker.merge_shard_ranges([own_shard_range, acceptor, root])
+        broker.set_sharding_sysmeta('Root', 'a/c')
+        self.assertFalse(broker.is_root_container())  # sanity check
+        self.assertTrue(broker.set_sharding_state())
+
+        # expect cleave to the acceptor
+        with self._mock_sharder() as sharder:
+            self.assertTrue(sharder._cleave(broker))
+        context = CleavingContext.load(broker)
+        self.assertTrue(context.misplaced_done)
+        self.assertTrue(context.cleaving_done)
+        self.assertEqual(acceptor.upper_str, context.cursor)
+        self.assertEqual(1, context.ranges_done)
+        self.assertEqual(1, context.ranges_todo)
+        info = [
+            line for line in self.logger.get_lines_for_level('info')
+            if line.startswith('Replicating new shard container .shards/other')
+        ]
+        self.assertEqual(1, len(info))
 
     def _check_complete_sharding(self, account, container, shard_bounds):
         broker = self._make_sharding_broker(
@@ -4499,6 +4639,7 @@ class TestSharder(BaseTestSharder):
                 mock_response = mock.MagicMock()
                 mock_response.headers = {'x-backend-record-type':
                                          'shard'}
+                shard_ranges.sort(key=ShardRange.sort_key)
                 mock_response.body = json.dumps(
                     [dict(sr) for sr in shard_ranges])
                 mock_swift.make_request.return_value = mock_response
@@ -4520,7 +4661,8 @@ class TestSharder(BaseTestSharder):
                             'X-Newest': 'true',
                             'X-Backend-Include-Deleted': 'True',
                             'X-Backend-Override-Deleted': 'true'}
-        params = {'format': 'json', 'marker': marker, 'end_marker': end_marker}
+        params = {'format': 'json', 'marker': marker, 'end_marker': end_marker,
+                  'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
@@ -4591,7 +4733,8 @@ class TestSharder(BaseTestSharder):
                             'X-Newest': 'true',
                             'X-Backend-Include-Deleted': 'True',
                             'X-Backend-Override-Deleted': 'true'}
-        params = {'format': 'json', 'marker': 'j', 'end_marker': 'k'}
+        params = {'format': 'json', 'marker': 'j', 'end_marker': 'k',
+                  'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
@@ -4605,7 +4748,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([own_shard_range],
                          broker.get_shard_ranges(include_own=True))
 
-        # move root shard range to shrinking state
+        # move root version of own shard range to shrinking state
         root_ts = next(self.ts_iter)
         self.assertTrue(shard_ranges[1].update_state(ShardRange.SHRINKING,
                                                      state_timestamp=root_ts))
@@ -4626,7 +4769,8 @@ class TestSharder(BaseTestSharder):
                             'X-Newest': 'true',
                             'X-Backend-Include-Deleted': 'True',
                             'X-Backend-Override-Deleted': 'true'}
-        params = {'format': 'json', 'marker': 'k', 'end_marker': 't'}
+        params = {'format': 'json', 'marker': 'k', 'end_marker': 't',
+                  'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
@@ -4659,7 +4803,8 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(lines[2:])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
-        params = {'format': 'json', 'marker': 'j', 'end_marker': 'k'}
+        params = {'format': 'json', 'marker': 'j', 'end_marker': 'k',
+                  'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
@@ -4788,7 +4933,8 @@ class TestSharder(BaseTestSharder):
                                 'X-Newest': 'true',
                                 'X-Backend-Include-Deleted': 'True',
                                 'X-Backend-Override-Deleted': 'true'}
-            params = {'format': 'json', 'marker': 'k', 'end_marker': 't'}
+            params = {'format': 'json', 'marker': 'k', 'end_marker': 't',
+                      'states': 'auditing'}
             mock_swift.make_request.assert_called_once_with(
                 'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
                 params=params)
@@ -4844,6 +4990,61 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_container_merge_other_ranges(self):
         self._do_test_audit_shard_container_merge_other_ranges('Quoted-Root',
                                                                'a/c')
+
+    def _do_test_audit_shard_container_with_root_ranges(self, *args):
+        # shards may merge acceptors and the root range when shrinking; verify
+        # that shard audit is ok with merged ranges
+        def check_audit(own_state, acceptor_state, root_state):
+            broker = self._make_broker(
+                account='.shards_a',
+                container='shard_c_%s' % next(self.ts_iter).normal)
+            broker.set_sharding_sysmeta(*args)
+            own_sr = broker.get_own_shard_range().copy(
+                state=own_state, state_timestamp=next(self.ts_iter),
+                lower='a', upper='b', timestamp=next(self.ts_iter))
+            broker.merge_shard_ranges([own_sr])
+
+            # make acceptor and root ranges that overlap with the shard
+            overlaps = self._make_shard_ranges([('a', 'c'), ('', '')],
+                                               [acceptor_state, root_state])
+            sharder, mock_swift = self.call_audit_container(
+                broker, [own_sr] + overlaps)
+            expected_headers = {'X-Backend-Record-Type': 'shard',
+                                'X-Newest': 'true',
+                                'X-Backend-Include-Deleted': 'True',
+                                'X-Backend-Override-Deleted': 'true'}
+            params = {'format': 'json', 'marker': 'a', 'end_marker': 'b',
+                      'states': 'auditing'}
+            mock_swift.make_request.assert_called_once_with(
+                'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+                params=params)
+            if own_state in (ShardRange.SHRINKING, ShardRange.SHRUNK):
+                # check acceptor & root are merged into audited shard
+                self.assertEqual(
+                    [dict(sr) for sr in overlaps],
+                    [dict(sr) for sr in broker.get_shard_ranges()])
+            return sharder
+
+        def assert_ok(own_state, acceptor_state, root_state):
+            sharder = check_audit(own_state, acceptor_state, root_state)
+            expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
+            with annotate_failure('with states %s %s %s'
+                                  % (own_state, acceptor_state, root_state)):
+                self._assert_stats(expected_stats, sharder, 'audit_shard')
+                self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+                self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.STATES:
+            for acceptor_state in ShardRange.STATES:
+                for root_state in ShardRange.STATES:
+                    assert_ok(own_state, acceptor_state, root_state)
+
+    def test_audit_old_style_shard_container_with_root_ranges(self):
+        self._do_test_audit_shard_container_with_root_ranges('Root', 'a/c')
+
+    def test_audit_shard_container_with_root_ranges(self):
+        self._do_test_audit_shard_container_with_root_ranges('Quoted-Root',
+                                                             'a/c')
 
     def test_audit_deleted_range_in_root_container(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
@@ -5638,13 +5839,8 @@ class TestCleavingContext(BaseTestSharder):
         self.assertEqual(4, ctx.ranges_todo)
         self.assertEqual('b', ctx.cursor)
 
-        ctx.range_done(None)
-        self.assertEqual(2, ctx.ranges_done)
-        self.assertEqual(3, ctx.ranges_todo)
-        self.assertEqual('b', ctx.cursor)
-
         ctx.ranges_todo = 9
         ctx.range_done('c')
-        self.assertEqual(3, ctx.ranges_done)
+        self.assertEqual(2, ctx.ranges_done)
         self.assertEqual(8, ctx.ranges_todo)
         self.assertEqual('c', ctx.cursor)

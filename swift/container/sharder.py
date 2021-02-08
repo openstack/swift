@@ -317,8 +317,7 @@ class CleavingContext(object):
     def range_done(self, new_cursor):
         self.ranges_done += 1
         self.ranges_todo -= 1
-        if new_cursor is not None:
-            self.cursor = new_cursor
+        self.cursor = new_cursor
 
     def done(self):
         return all((self.misplaced_done, self.cleaving_done,
@@ -744,11 +743,18 @@ class ContainerSharder(ContainerReplicator):
         shard_ranges = own_shard_range_from_root = None
         if own_shard_range:
             # Get the root view of the world, at least that part of the world
-            # that overlaps with this shard's namespace
+            # that overlaps with this shard's namespace. The
+            # 'states=auditing' parameter will cause the root to include
+            # its own shard range in the response, which is necessary for the
+            # particular case when this shard should be shrinking to the root
+            # container; when not shrinking to root, but to another acceptor,
+            # the root range should be in sharded state and will not interfere
+            # with cleaving, listing or updating behaviour.
             shard_ranges = self._fetch_shard_ranges(
                 broker, newest=True,
                 params={'marker': str_to_wsgi(own_shard_range.lower_str),
-                        'end_marker': str_to_wsgi(own_shard_range.upper_str)},
+                        'end_marker': str_to_wsgi(own_shard_range.upper_str),
+                        'states': 'auditing'},
                 include_deleted=True)
             if shard_ranges:
                 for shard_range in shard_ranges:
@@ -1394,10 +1400,17 @@ class ContainerSharder(ContainerReplicator):
                               quote(broker.path))
             return cleaving_context.misplaced_done
 
-        ranges_todo = broker.get_shard_ranges(marker=cleaving_context.marker)
+        shard_ranges = broker.get_shard_ranges(marker=cleaving_context.marker)
+        # Ignore shrinking shard ranges: we never want to cleave objects to a
+        # shrinking shard. Shrinking shard ranges are to be expected in a root;
+        # shrinking shard ranges (other than own shard range) are not normally
+        # expected in a shard but can occur if there is an overlapping shard
+        # range that has been discovered from the root.
+        ranges_todo = [sr for sr in shard_ranges
+                       if sr.state != ShardRange.SHRINKING]
         if cleaving_context.cursor:
-            # always update ranges_todo in case more ranges have been found
-            # since last visit
+            # always update ranges_todo in case shard ranges have changed since
+            # last visit
             cleaving_context.ranges_todo = len(ranges_todo)
             self.logger.debug('Continuing to cleave (%s done, %s todo): %s',
                               cleaving_context.ranges_done,
@@ -1411,36 +1424,36 @@ class ContainerSharder(ContainerReplicator):
 
         ranges_done = []
         for shard_range in ranges_todo:
-            if shard_range.state == ShardRange.SHRINKING:
-                # Ignore shrinking shard ranges: we never want to cleave
-                # objects to a shrinking shard. Shrinking shard ranges are to
-                # be expected in a root; shrinking shard ranges (other than own
-                # shard range) are not normally expected in a shard but can
-                # occur if there is an overlapping shard range that has been
-                # discovered from the root.
-                cleaving_context.range_done(None)  # don't move the cursor
-                continue
-            elif shard_range.state in (ShardRange.CREATED,
-                                       ShardRange.CLEAVED,
-                                       ShardRange.ACTIVE):
-                cleave_result = self._cleave_shard_range(
-                    broker, cleaving_context, shard_range)
-                if cleave_result == CLEAVE_SUCCESS:
-                    ranges_done.append(shard_range)
-                    if len(ranges_done) == self.cleave_batch_size:
-                        break
-                elif cleave_result == CLEAVE_FAILED:
-                    break
-                # else, no errors, but no rows found either. keep going,
-                # and don't count it against our batch size
-            else:
+            if cleaving_context.cleaving_done:
+                # note: there may still be ranges_todo, for example: if this
+                # shard is shrinking and has merged a root shard range in
+                # sharded state along with an active acceptor shard range, but
+                # the root range is irrelevant
+                break
+
+            if len(ranges_done) == self.cleave_batch_size:
+                break
+
+            if shard_range.state not in (ShardRange.CREATED,
+                                         ShardRange.CLEAVED,
+                                         ShardRange.ACTIVE):
                 self.logger.info('Stopped cleave at unready %s', shard_range)
                 break
 
-        if not ranges_done:
-            # _cleave_shard_range always store()s the context on success; make
-            # sure we *also* do that if we hit a failure right off the bat
-            cleaving_context.store(broker)
+            cleave_result = self._cleave_shard_range(
+                broker, cleaving_context, shard_range)
+
+            if cleave_result == CLEAVE_SUCCESS:
+                ranges_done.append(shard_range)
+            elif cleave_result == CLEAVE_FAILED:
+                break
+            # else: CLEAVE_EMPTY: no errors, but no rows found either. keep
+            # going, and don't count it against our batch size
+
+        # _cleave_shard_range always store()s the context on success; *also* do
+        # that here in case we hit a failure right off the bat or ended loop
+        # with skipped ranges
+        cleaving_context.store(broker)
         self.logger.debug(
             'Cleaved %s shard ranges for %s',
             len(ranges_done), quote(broker.path))

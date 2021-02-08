@@ -1450,14 +1450,32 @@ class TestContainerSharding(BaseTestContainerSharding):
     def test_shrinking(self):
         int_client = self.make_internal_client()
 
-        def check_node_data(node_data, exp_hdrs, exp_obj_count, exp_shards):
+        def check_node_data(node_data, exp_hdrs, exp_obj_count, exp_shards,
+                            exp_sharded_root_range=False):
             hdrs, range_data = node_data
             self.assert_dict_contains(exp_hdrs, hdrs)
-            self.assert_shard_ranges_contiguous(exp_shards, range_data)
-            self.assert_total_object_count(exp_obj_count, range_data)
+            sharded_root_range = False
+            other_range_data = []
+            for data in range_data:
+                sr = ShardRange.from_dict(data)
+                if (sr.account == self.account and
+                        sr.container == self.container_name and
+                        sr.state == ShardRange.SHARDED):
+                    # only expect one root range
+                    self.assertFalse(sharded_root_range, range_data)
+                    sharded_root_range = True
+                    self.assertEqual(ShardRange.MIN, sr.lower, sr)
+                    self.assertEqual(ShardRange.MAX, sr.upper, sr)
+                else:
+                    # include active root range in further assertions
+                    other_range_data.append(data)
+            self.assertEqual(exp_sharded_root_range, sharded_root_range)
+            self.assert_shard_ranges_contiguous(exp_shards, other_range_data)
+            self.assert_total_object_count(exp_obj_count, other_range_data)
 
         def check_shard_nodes_data(node_data, expected_state='unsharded',
-                                   expected_shards=0, exp_obj_count=0):
+                                   expected_shards=0, exp_obj_count=0,
+                                   exp_sharded_root_range=False):
             # checks that shard range is consistent on all nodes
             root_path = '%s/%s' % (self.account, self.container_name)
             exp_shard_hdrs = {
@@ -1469,7 +1487,7 @@ class TestContainerSharding(BaseTestContainerSharding):
                 with annotate_failure('Node id %s.' % node_id):
                     check_node_data(
                         node_data, exp_shard_hdrs, exp_obj_count,
-                        expected_shards)
+                        expected_shards, exp_sharded_root_range)
                 hdrs = node_data[0]
                 object_counts.append(int(hdrs['X-Container-Object-Count']))
                 bytes_used.append(int(hdrs['X-Container-Bytes-Used']))
@@ -1668,10 +1686,13 @@ class TestContainerSharding(BaseTestContainerSharding):
             donor = orig_shard_ranges[0]
             shard_nodes_data = self.direct_get_container_shard_ranges(
                 donor.account, donor.container)
-            # the donor's shard range will have the acceptor's projected stats
+            # the donor's shard range will have the acceptor's projected stats;
+            # donor also has copy of root shard range that will be ignored;
+            # note: expected_shards does not include the sharded root range
             obj_count, bytes_used = check_shard_nodes_data(
                 shard_nodes_data, expected_state='sharded', expected_shards=1,
-                exp_obj_count=len(second_shard_objects) + 1)
+                exp_obj_count=len(second_shard_objects) + 1,
+                exp_sharded_root_range=True)
             # but the donor is empty and so reports zero stats
             self.assertEqual(0, obj_count)
             self.assertEqual(0, bytes_used)
@@ -2698,6 +2719,29 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assert_container_state(self.brain.nodes[0], 'sharded', 2)
         self.assert_container_state(self.brain.nodes[1], 'sharded', 2)
         self.assert_container_state(self.brain.nodes[2], 'sharded', 2)
+        self.assert_container_listing(obj_names)
+
+        # Let's pretend that some actor in the system has determined that all
+        # the shard ranges should shrink back to root
+        # TODO: replace this db manipulation if/when manage_shard_ranges can
+        # manage shrinking...
+        broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+        shard_ranges = broker.get_shard_ranges()
+        self.assertEqual(2, len(shard_ranges))
+        for sr in shard_ranges:
+            self.assertTrue(sr.update_state(ShardRange.SHRINKING))
+            sr.epoch = sr.state_timestamp = Timestamp.now()
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.ACTIVE, state_timestamp=Timestamp.now())
+        broker.merge_shard_ranges(shard_ranges + [own_sr])
+
+        # replicate and run sharders
+        self.replicators.once()
+        self.sharders_once()
+
+        self.assert_container_state(self.brain.nodes[0], 'collapsed', 0)
+        self.assert_container_state(self.brain.nodes[1], 'collapsed', 0)
+        self.assert_container_state(self.brain.nodes[2], 'collapsed', 0)
         self.assert_container_listing(obj_names)
 
     def test_manage_shard_ranges_used_poorly(self):
