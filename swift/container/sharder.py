@@ -124,6 +124,12 @@ def is_sharding_candidate(shard_range, threshold):
             shard_range.object_count >= threshold)
 
 
+def is_shrinking_candidate(shard_range, shrink_threshold, states=None):
+    states = states or (ShardRange.ACTIVE,)
+    return (shard_range.state in states and
+            shard_range.object_count < shrink_threshold)
+
+
 def find_sharding_candidates(broker, threshold, shard_ranges=None):
     # this should only execute on root containers; the goal is to find
     # large shard containers that should be sharded.
@@ -148,7 +154,8 @@ def find_shrinking_candidates(broker, shrink_threshold, merge_size):
     merge_pairs = {}
     # restrict search to sequences with one donor
     results = find_compactible_shard_sequences(broker, shrink_threshold,
-                                               merge_size, 1, -1)
+                                               merge_size, 1, -1,
+                                               include_shrinking=True)
     for sequence in results:
         # map acceptor -> donor list
         merge_pairs[sequence[-1]] = sequence[-2]
@@ -159,7 +166,8 @@ def find_compactible_shard_sequences(broker,
                                      shrink_threshold,
                                      merge_size,
                                      max_shrinking,
-                                     max_expanding):
+                                     max_expanding,
+                                     include_shrinking=False):
     """
     Find sequences of shard ranges that could be compacted into a single
     acceptor shard range.
@@ -201,11 +209,18 @@ def find_compactible_shard_sequences(broker,
         #  - the total number of objects in the sequence has reached the
         #    merge_size
         if (sequence and
-                (sequence[-1].object_count >= shrink_threshold or
+                (not is_shrinking_candidate(
+                    sequence[-1], shrink_threshold,
+                    states=(ShardRange.ACTIVE, ShardRange.SHRINKING)) or
                  0 < max_shrinking < len(sequence) or
                  sequence.object_count >= merge_size)):
             return True
         return False
+
+    def sequence_shrinking(sequence):
+        # check for sequence that ia already shrinking
+        return (sequence and any([sr.state == ShardRange.SHRINKING
+                                  for sr in sequence]))
 
     def find_compactible_sequence(shard_ranges_todo):
         compactible_sequence = ShardRangeList()
@@ -237,8 +252,8 @@ def find_compactible_shard_sequences(broker,
 
     compactible_sequences = []
     index = 0
-    while ((max_expanding < 0 or
-            len(compactible_sequences) < max_expanding) and
+    expanding = 0
+    while ((max_expanding < 0 or expanding < max_expanding) and
            index < len(shard_ranges)):
         sequence, consumed = find_compactible_sequence(shard_ranges[index:])
         index += consumed
@@ -254,10 +269,17 @@ def find_compactible_shard_sequences(broker,
             # when *all* the remaining shard ranges can be simultaneously
             # shrunk to the root.
             sequence.append(own_shard_range)
+
+        if len(sequence) < 2 or sequence[-1].state not in (ShardRange.ACTIVE,
+                                                           ShardRange.SHARDED):
+            # this sequence doesn't end with a suitable acceptor shard range
+            continue
+
+        # all valid sequences are counted against the max_expanding allowance
+        # even if the sequence is already shrinking
+        expanding += 1
+        if not sequence_shrinking(sequence) or include_shrinking:
             compactible_sequences.append(sequence)
-        elif len(sequence) > 1 and sequence[-1].state == ShardRange.ACTIVE:
-            compactible_sequences.append(sequence)
-        # else: this sequence doesn't end with a suitable acceptor shard range
 
     return compactible_sequences
 
@@ -1627,7 +1649,8 @@ class ContainerSharder(ContainerReplicator):
             return
 
         compactible_sequences = find_compactible_shard_sequences(
-            broker, self.shrink_size, self.merge_size, 1, -1)
+            broker, self.shrink_size, self.merge_size, 1, -1,
+            include_shrinking=True)
         self.logger.debug('Found %s compactible sequences of length(s) %s' %
                           (len(compactible_sequences),
                            [len(s) for s in compactible_sequences]))
