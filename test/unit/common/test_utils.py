@@ -3048,6 +3048,30 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertIn('greater than %s' % minimum, cm.exception.args[0])
             self.assertIn('less than %s' % maximum, cm.exception.args[0])
 
+    def test_config_percent_value(self):
+        for arg, expected in (
+                (99, 0.99),
+                (25.5, 0.255),
+                ('99', 0.99),
+                ('25.5', 0.255),
+                (0, 0.0),
+                ('0', 0.0),
+                ('100', 1.0),
+                (100, 1.0),
+                (1, 0.01),
+                ('1', 0.01),
+                (25, 0.25)):
+            actual = utils.config_percent_value(arg)
+            self.assertEqual(expected, actual)
+
+        # bad values
+        for val in (-1, '-1', 101, '101'):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_percent_value(val)
+            self.assertIn('Config option must be a number, greater than 0, '
+                          'less than 100, not "{}"'.format(val),
+                          cm.exception.args[0])
+
     def test_config_auto_int_value(self):
         expectations = {
             # (value, default) : expected,

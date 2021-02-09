@@ -326,7 +326,7 @@ shard_container_threshold         1000000             When auto-sharding is
                                                       shrinking and merging
                                                       shard containers.
 
-shard_shrink_point                5                   When auto-sharding is
+shard_shrink_point                10                  When auto-sharding is
                                                       enabled this defines the
                                                       object count below which
                                                       a 'donor' shard container
@@ -338,7 +338,7 @@ shard_shrink_point                5                   When auto-sharding is
                                                       percentage of
                                                       shard_container_threshold
                                                       e.g. the default value of
-                                                      5 means 5% of the
+                                                      10 means 10% of the
                                                       shard_container_threshold.
 
 shard_shrink_merge_point          75                  When auto-sharding is

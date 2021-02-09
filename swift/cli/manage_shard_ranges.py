@@ -164,16 +164,19 @@ import time
 
 from six.moves import input
 
-from swift.common.utils import Timestamp, get_logger, ShardRange
+from swift.common.utils import Timestamp, get_logger, ShardRange, readconf, \
+    config_percent_value, config_positive_int_value
 from swift.container.backend import ContainerBroker, UNSHARDED
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
     CleavingContext, process_compactible_shard_sequences, \
-    find_compactible_shard_sequences, find_overlapping_ranges
+    find_compactible_shard_sequences, find_overlapping_ranges, \
+    DEFAULT_MAX_SHRINKING, DEFAULT_MAX_EXPANDING, \
+    DEFAULT_SHARD_CONTAINER_THRESHOLD, DEFAULT_SHARD_SHRINK_POINT, \
+    DEFAULT_SHARD_MERGE_POINT
 
-DEFAULT_ROWS_PER_SHARD = 500000
-DEFAULT_SHRINK_THRESHOLD = 10000
-DEFAULT_MAX_SHRINKING = 1
-DEFAULT_MAX_EXPANDING = -1
+DEFAULT_ROWS_PER_SHARD = DEFAULT_SHARD_CONTAINER_THRESHOLD // 2
+DEFAULT_SHRINK_THRESHOLD = DEFAULT_SHARD_CONTAINER_THRESHOLD * \
+    config_percent_value(DEFAULT_SHARD_SHRINK_POINT)
 
 
 def _print_shard_range(sr, level=0):
@@ -489,7 +492,7 @@ def _positive_int(arg):
 
 def _add_find_args(parser):
     parser.add_argument('rows_per_shard', nargs='?', type=int,
-                        default=DEFAULT_ROWS_PER_SHARD)
+                        default=None)
 
 
 def _add_replace_args(parser):
@@ -516,6 +519,9 @@ def _add_enable_args(parser):
 def _make_parser():
     parser = argparse.ArgumentParser(description='Manage shard ranges')
     parser.add_argument('container_db')
+    parser.add_argument('--config', dest='conf_file', required=False,
+                        help='Path to config file with [container-sharder] '
+                             'section')
     parser.add_argument('--verbose', '-v', action='count', default=0,
                         help='Increase output verbosity')
     subparsers = parser.add_subparsers(
@@ -589,13 +595,13 @@ def _make_parser():
         help='Apply shard range changes to broker without prompting.')
     compact_parser.add_argument('--shrink-threshold', nargs='?',
                                 type=_positive_int,
-                                default=DEFAULT_SHRINK_THRESHOLD,
+                                default=None,
                                 help='The number of rows below which a shard '
                                      'can qualify for shrinking. Defaults to '
                                      '%d' % DEFAULT_SHRINK_THRESHOLD)
     compact_parser.add_argument('--expansion-limit', nargs='?',
                                 type=_positive_int,
-                                default=DEFAULT_ROWS_PER_SHARD,
+                                default=None,
                                 help='Maximum number of rows for an expanding '
                                      'shard to have after compaction has '
                                      'completed. Defaults to %d' %
@@ -608,7 +614,7 @@ def _make_parser():
     # temporary gap(s) in object listings where the shrunk donors are missing.
     compact_parser.add_argument('--max-shrinking', nargs='?',
                                 type=_positive_int,
-                                default=DEFAULT_MAX_SHRINKING,
+                                default=None,
                                 help='Maximum number of shards that should be '
                                      'shrunk into each expanding shard. '
                                      'Defaults to 1. Using values greater '
@@ -617,7 +623,7 @@ def _make_parser():
                                      'shards have shrunk.')
     compact_parser.add_argument('--max-expanding', nargs='?',
                                 type=_positive_int,
-                                default=DEFAULT_MAX_EXPANDING,
+                                default=None,
                                 help='Maximum number of shards that should be '
                                      'expanded. Defaults to unlimited.')
     compact_parser.set_defaults(func=compact_shard_ranges)
@@ -637,7 +643,47 @@ def main(args=None):
         parser.print_help()
         print('\nA sub-command is required.')
         return 1
-    logger = get_logger({}, name='ContainerBroker', log_to_console=True)
+    conf = {}
+    rows_per_shard = DEFAULT_ROWS_PER_SHARD
+    shrink_threshold = DEFAULT_SHRINK_THRESHOLD
+    expansion_limit = DEFAULT_ROWS_PER_SHARD
+    if args.conf_file:
+        try:
+            conf = readconf(args.conf_file, 'container-sharder')
+            shard_container_threshold = config_positive_int_value(conf.get(
+                'shard_container_threshold',
+                DEFAULT_SHARD_CONTAINER_THRESHOLD))
+            if shard_container_threshold:
+                rows_per_shard = shard_container_threshold // 2
+                shrink_threshold = int(
+                    shard_container_threshold * config_percent_value(
+                        conf.get('shard_shrink_point',
+                                 DEFAULT_SHARD_SHRINK_POINT)))
+                expansion_limit = int(
+                    shard_container_threshold * config_percent_value(
+                        conf.get('shard_shrink_merge_point',
+                                 DEFAULT_SHARD_MERGE_POINT)))
+        except Exception as exc:
+            print('Error opening config file %s: %s' % (args.conf_file, exc),
+                  file=sys.stderr)
+            return 2
+
+    # seems having sub parsers mean sometimes an arg wont exist in the args
+    # namespace. But we can check if it is with the 'in' statement.
+    if "max_shrinking" in args and args.max_shrinking is None:
+        args.max_shrinking = int(conf.get(
+            "max_shrinking", DEFAULT_MAX_SHRINKING))
+    if "max_expanding" in args and args.max_expanding is None:
+        args.max_expanding = int(conf.get(
+            "max_expanding", DEFAULT_MAX_EXPANDING))
+    if "shrink_threshold" in args and args.shrink_threshold is None:
+        args.shrink_threshold = shrink_threshold
+    if "expansion_limit" in args and args.expansion_limit is None:
+        args.expansion_limit = expansion_limit
+    if "rows_per_shard" in args and args.rows_per_shard is None:
+        args.rows_per_shard = rows_per_shard
+
+    logger = get_logger(conf, name='ContainerBroker', log_to_console=True)
     broker = ContainerBroker(os.path.realpath(args.container_db),
                              logger=logger, skip_commits=True)
     try:
