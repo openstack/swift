@@ -94,6 +94,25 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
+    name: swift-tox-py39
+    parent: swift-tox-base
+    nodeset: ubuntu-focal
+    description: |
+      Run unit-tests for swift under cPython version 3.9.
+
+      Uses tox with the ``py39`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py39
+      bindep_profile: test py39
+      python_version: 3.9
+      tox_environment:
+        NOSE_COVER_HTML: 1
+        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
+    post-run: tools/playbooks/common/cover-post.yaml
+
+- job:
     name: swift-tox-func-py27
     parent: swift-tox-base
     description: |
@@ -503,6 +522,8 @@
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py38:
             irrelevant-files: *unittest-irrelevant-files
+        - swift-tox-py39:
+            irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests
         - swift-tox-func-py27:
@@ -578,6 +599,7 @@
         - swift-tox-py36
         - swift-tox-py37
         - swift-tox-py38
+        - swift-tox-py39
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
         - swift-tox-func-ec-py27
