@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import argparse
 import errno
 import fcntl
 import json
@@ -24,7 +25,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeleted, DiskFileNotExist, \
     DiskFileQuarantined
 from swift.common.utils import replace_partition_in_path, \
-    audit_location_generator, get_logger
+    audit_location_generator
 from swift.obj import diskfile
 
 
@@ -225,7 +226,7 @@ def cleanup(swift_dir='/etc/swift',
             device=None):
     mount_check = not skip_mount_check
     conf = {'devices': devices, 'mount_check': mount_check}
-    diskfile_router = diskfile.DiskFileRouter(conf, get_logger(conf))
+    diskfile_router = diskfile.DiskFileRouter(conf, logger)
     errors = cleaned_up = 0
     run = False
     for policy in POLICIES:
@@ -323,6 +324,25 @@ def cleanup(swift_dir='/etc/swift',
 
 
 def main(args):
+    parser = argparse.ArgumentParser(
+        description='Relink and cleanup objects to increase partition power')
+    parser.add_argument('action', choices=['relink', 'cleanup'])
+    parser.add_argument('--swift-dir', default='/etc/swift',
+                        dest='swift_dir', help='Path to swift directory')
+    parser.add_argument('--devices', default='/srv/node',
+                        dest='devices', help='Path to swift device directory')
+    parser.add_argument('--device', default=None, dest='device',
+                        help='Device name to relink (default: all)')
+    parser.add_argument('--skip-mount-check', default=False,
+                        help='Don\'t test if disk is mounted',
+                        action="store_true", dest='skip_mount_check')
+    parser.add_argument('--logfile', default=None,
+                        dest='logfile', help='Set log file name')
+    parser.add_argument('--debug', default=False, action='store_true',
+                        help='Enable debug mode')
+
+    args = parser.parse_args(args)
+
     logging.basicConfig(
         format='%(message)s',
         level=logging.DEBUG if args.debug else logging.INFO,

@@ -15,6 +15,7 @@ import binascii
 import errno
 import fcntl
 import json
+import mock
 import os
 import shutil
 import struct
@@ -94,7 +95,12 @@ class TestRelinker(unittest.TestCase):
     def test_relink(self):
         self.rb.prepare_increase_partition_power()
         self._save_ring()
-        relinker.relink(self.testdir, self.devices, True)
+        self.assertEqual(0, relinker.main([
+            'relink',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+        ]))
 
         self.assertTrue(os.path.isdir(self.expected_dir))
         self.assertTrue(os.path.isfile(self.expected_file))
@@ -106,8 +112,13 @@ class TestRelinker(unittest.TestCase):
     def test_relink_device_filter(self):
         self.rb.prepare_increase_partition_power()
         self._save_ring()
-        relinker.relink(self.testdir, self.devices, True,
-                        device=self.existing_device)
+        self.assertEqual(0, relinker.main([
+            'relink',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+            '--device', self.existing_device,
+        ]))
 
         self.assertTrue(os.path.isdir(self.expected_dir))
         self.assertTrue(os.path.isfile(self.expected_file))
@@ -119,7 +130,13 @@ class TestRelinker(unittest.TestCase):
     def test_relink_device_filter_invalid(self):
         self.rb.prepare_increase_partition_power()
         self._save_ring()
-        relinker.relink(self.testdir, self.devices, True, device='none')
+        self.assertEqual(0, relinker.main([
+            'relink',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+            '--device', 'none',
+        ]))
 
         self.assertFalse(os.path.isdir(self.expected_dir))
         self.assertFalse(os.path.isfile(self.expected_file))
@@ -140,7 +157,12 @@ class TestRelinker(unittest.TestCase):
 
     def test_cleanup(self):
         self._common_test_cleanup()
-        self.assertEqual(0, relinker.cleanup(self.testdir, self.devices, True))
+        self.assertEqual(0, relinker.main([
+            'cleanup',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+        ]))
 
         # Old objectname should be removed, new should still exist
         self.assertTrue(os.path.isdir(self.expected_dir))
@@ -150,8 +172,13 @@ class TestRelinker(unittest.TestCase):
 
     def test_cleanup_device_filter(self):
         self._common_test_cleanup()
-        self.assertEqual(0, relinker.cleanup(self.testdir, self.devices, True,
-                                             device=self.existing_device))
+        self.assertEqual(0, relinker.main([
+            'cleanup',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+            '--device', self.existing_device,
+        ]))
 
         # Old objectname should be removed, new should still exist
         self.assertTrue(os.path.isdir(self.expected_dir))
@@ -161,8 +188,13 @@ class TestRelinker(unittest.TestCase):
 
     def test_cleanup_device_filter_invalid(self):
         self._common_test_cleanup()
-        self.assertEqual(0, relinker.cleanup(self.testdir, self.devices, True,
-                                             device='none'))
+        self.assertEqual(0, relinker.main([
+            'cleanup',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+            '--device', 'none',
+        ]))
 
         # Old objectname should still exist, new should still exist
         self.assertTrue(os.path.isdir(self.expected_dir))
@@ -176,7 +208,12 @@ class TestRelinker(unittest.TestCase):
 
         self.rb.prepare_increase_partition_power()
         self._save_ring()
-        relinker.relink(self.testdir, self.devices, True)
+        self.assertEqual(0, relinker.main([
+            'relink',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+        ]))
         with open(state_file, 'rt') as f:
             orig_inode = os.stat(state_file).st_ino
             self.assertEqual(json.load(f), {
@@ -191,7 +228,12 @@ class TestRelinker(unittest.TestCase):
             # Keep the state file open during cleanup so the inode can't be
             # released/re-used when it gets unlinked
             self.assertEqual(orig_inode, os.stat(state_file).st_ino)
-            relinker.cleanup(self.testdir, self.devices, True)
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
             self.assertNotEqual(orig_inode, os.stat(state_file).st_ino)
         with open(state_file, 'rt') as f:
             # NB: part_power/next_part_power tuple changed, so state was reset
@@ -401,7 +443,12 @@ class TestRelinker(unittest.TestCase):
 
     def test_cleanup_not_yet_relinked(self):
         self._common_test_cleanup(relink=False)
-        self.assertEqual(1, relinker.cleanup(self.testdir, self.devices, True))
+        self.assertEqual(1, relinker.main([
+            'cleanup',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+        ]))
 
         self.assertTrue(os.path.isfile(
             os.path.join(self.objdir, self.object_fname)))
@@ -413,7 +460,12 @@ class TestRelinker(unittest.TestCase):
         fname_ts = self.expected_file[:-4] + "ts"
         os.rename(self.expected_file, fname_ts)
 
-        self.assertEqual(0, relinker.cleanup(self.testdir, self.devices, True))
+        self.assertEqual(0, relinker.main([
+            'cleanup',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+        ]))
 
     def test_cleanup_doesnotexist(self):
         self._common_test_cleanup()
@@ -421,8 +473,14 @@ class TestRelinker(unittest.TestCase):
         # Pretend the file in the new place got deleted inbetween
         os.remove(self.expected_file)
 
-        self.assertEqual(
-            1, relinker.cleanup(self.testdir, self.devices, True, self.logger))
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(1, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
         self.assertEqual(self.logger.get_lines_for_level('warning'),
                          ['Error cleaning up %s: %s' % (self.objname,
                           repr(exceptions.DiskFileNotExist()))])
@@ -431,17 +489,22 @@ class TestRelinker(unittest.TestCase):
         [ECStoragePolicy(
          0, name='platin', is_default=True, ec_type=DEFAULT_TEST_EC_TYPE,
          ec_ndata=4, ec_nparity=2)])
-    def test_cleanup_non_durable_fragment(self):
+    def test_cleanup_diskfile_error(self):
         self._common_test_cleanup()
 
-        # Switch the policy type so that actually all fragments are non-durable
-        # and raise a DiskFileNotExist in EC in this test. However, if the
-        # counterpart exists in the new location, this is ok - it will be fixed
-        # by the reconstructor later on
-        self.assertEqual(
-            0, relinker.cleanup(self.testdir, self.devices, True,
-                                self.logger))
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        # Switch the policy type so all fragments raise DiskFileError.
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+        log_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(log_lines),
+                         'Expected 1 log line, got %r' % log_lines)
+        self.assertIn('Bad fragment index: None', log_lines[0])
 
     def test_cleanup_quarantined(self):
         self._common_test_cleanup()
@@ -449,11 +512,21 @@ class TestRelinker(unittest.TestCase):
         with open(self.expected_file, "wb") as obj:
             obj.write(b'trash')
 
-        self.assertEqual(
-            1, relinker.cleanup(self.testdir, self.devices, True, self.logger))
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(1, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
 
-        self.assertIn('failed audit and was quarantined',
-                      self.logger.get_lines_for_level('warning')[0])
+        log_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(2, len(log_lines),
+                         'Expected 2 log lines, got %r' % log_lines)
+        self.assertIn('metadata content-length 12 does not match '
+                      'actual object size 5', log_lines[0])
+        self.assertIn('failed audit and was quarantined', log_lines[1])
 
 
 if __name__ == '__main__':
