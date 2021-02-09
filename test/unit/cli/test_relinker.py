@@ -15,6 +15,9 @@ import binascii
 import errno
 import fcntl
 import json
+import logging
+from textwrap import dedent
+
 import mock
 import os
 import shutil
@@ -91,6 +94,81 @@ class TestRelinker(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.testdir, ignore_errors=1)
         storage_policy.reload_storage_policies()
+
+    def test_conf_file(self):
+        config = """
+        [DEFAULT]
+        swift_dir = test/swift/dir
+        devices = /test/node
+        mount_check = false
+
+        [object-relinker]
+        log_level = WARNING
+        log_name = test-relinker
+        """
+        conf_file = os.path.join(self.testdir, 'relinker.conf')
+        with open(conf_file, 'w') as f:
+            f.write(dedent(config))
+
+        # cite conf file on command line
+        with mock.patch('swift.cli.relinker.relink') as mock_relink:
+            relinker.main(['relink', conf_file, '--device', 'sdx', '--debug'])
+        mock_relink.assert_called_once_with(
+            'test/swift/dir', '/test/node', True, mock.ANY, device='sdx')
+        logger = mock_relink.call_args[0][3]
+        # --debug overrides conf file
+        self.assertEqual(logging.DEBUG, logger.getEffectiveLevel())
+        self.assertEqual('test-relinker', logger.logger.name)
+
+        # flip mount_check, no --debug...
+        config = """
+        [DEFAULT]
+        swift_dir = test/swift/dir
+        devices = /test/node
+        mount_check = true
+
+        [object-relinker]
+        log_level = WARNING
+        log_name = test-relinker
+        """
+        with open(conf_file, 'w') as f:
+            f.write(dedent(config))
+        with mock.patch('swift.cli.relinker.relink') as mock_relink:
+            relinker.main(['relink', conf_file, '--device', 'sdx'])
+        mock_relink.assert_called_once_with(
+            'test/swift/dir', '/test/node', False, mock.ANY, device='sdx')
+        logger = mock_relink.call_args[0][3]
+        self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
+        self.assertEqual('test-relinker', logger.logger.name)
+
+        # override with cli options...
+        with mock.patch('swift.cli.relinker.relink') as mock_relink:
+            relinker.main(['relink', conf_file, '--device', 'sdx', '--debug',
+                           '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
+                           '--skip-mount-check'])
+        mock_relink.assert_called_once_with(
+            'cli-dir', 'cli-devs', True, mock.ANY, device='sdx')
+
+        with mock.patch('swift.cli.relinker.relink') as mock_relink, \
+                mock.patch('logging.basicConfig') as mock_logging_config:
+            relinker.main(['relink', '--device', 'sdx',
+                           '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
+                           '--skip-mount-check'])
+        mock_relink.assert_called_once_with(
+            'cli-dir', 'cli-devs', True, mock.ANY, device='sdx')
+        mock_logging_config.assert_called_once_with(
+            format='%(message)s', level=logging.INFO, filename=None)
+
+        with mock.patch('swift.cli.relinker.relink') as mock_relink, \
+                mock.patch('logging.basicConfig') as mock_logging_config:
+            relinker.main(['relink', '--device', 'sdx', '--debug',
+                           '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
+                           '--skip-mount-check'])
+        mock_relink.assert_called_once_with(
+            'cli-dir', 'cli-devs', True, mock.ANY, device='sdx')
+        # --debug is now effective
+        mock_logging_config.assert_called_once_with(
+            format='%(message)s', level=logging.DEBUG, filename=None)
 
     def test_relink(self):
         self.rb.prepare_increase_partition_power()

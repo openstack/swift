@@ -25,7 +25,7 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.cli.relinker import main as relinker_main
-from swift.common.manager import Manager
+from swift.common.manager import Manager, Server
 from swift.common.ring import RingBuilder
 from swift.common.utils import replace_partition_in_path
 from swift.obj.diskfile import get_data_dir
@@ -49,10 +49,7 @@ class TestPartPowerIncrease(ProbeTest):
         # Ensure the test object will be erasure coded
         self.data = ' ' * getattr(self.policy, 'ec_segment_size', 1)
 
-        self.devices = [
-            self.device_dir({'ip': ip, 'port': port, 'device': ''})
-            for ip, port in {(dev['ip'], dev['port'])
-                             for dev in self.object_ring.devs}]
+        self.conf_files = Server('object').conf_files()
 
     def tearDown(self):
         # Keep a backup copy of the modified .builder file
@@ -116,10 +113,8 @@ class TestPartPowerIncrease(ProbeTest):
         client.head_object(self.url, self.token, container, obj)
 
         # Relink existing objects
-        for device in self.devices:
-            self.assertEqual(0, relinker_main([
-                'relink', '--skip-mount-check',
-                '--devices', device]))
+        for conf in self.conf_files:
+            self.assertEqual(0, relinker_main(['relink', conf]))
 
         # Create second object after relinking and ensure it is accessible
         client.put_object(self.url, self.token, container, obj2, self.data)
@@ -165,10 +160,8 @@ class TestPartPowerIncrease(ProbeTest):
         client.put_object(self.url, self.token, container, obj, self.data)
 
         # Cleanup old objects in the wrong location
-        for device in self.devices:
-            self.assertEqual(0, relinker_main([
-                'cleanup', '--skip-mount-check',
-                '--devices', device]))
+        for conf in self.conf_files:
+            self.assertEqual(0, relinker_main(['cleanup', conf]))
 
         # Ensure objects are still accessible
         client.head_object(self.url, self.token, container, obj)
