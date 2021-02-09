@@ -181,6 +181,9 @@ class KeystoneAuth(object):
                                               service_roles=[]))
         self.reseller_admin_role = conf.get('reseller_admin_role',
                                             'ResellerAdmin').lower()
+        self.system_reader_roles = {role.lower() for role in list_from_csv(
+            conf.get('system_reader_roles', ''))}
+
         config_is_admin = conf.get('is_admin', "false").lower()
         if swift_utils.config_true_value(config_is_admin):
             self.logger.warning("The 'is_admin' option for keystoneauth is no "
@@ -422,6 +425,19 @@ class KeystoneAuth(object):
             self.logger.debug(msg, tenant_id)
             req.environ['swift_owner'] = True
             return
+
+        # The system_reader_role is almost as good as reseller_admin.
+        if self.system_reader_roles.intersection(user_roles):
+            # Note that if a system reader is trying to write, we're letting
+            # the request fall on other access checks below. This way,
+            # a compliance auditor can write a log file as a normal member.
+            if req.method in ('GET', 'HEAD'):
+                msg = 'User %s has system reader authorizing'
+                self.logger.debug(msg, tenant_id)
+                # We aren't setting 'swift_owner' nor 'reseller_request'
+                # because they are only ever used for something that modifies
+                # the contents of the cluster (setting ACL, deleting accounts).
+                return
 
         # If we are not reseller admin and user is trying to delete its own
         # account then deny it.
