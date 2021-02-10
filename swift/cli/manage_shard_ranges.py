@@ -167,7 +167,14 @@ from six.moves import input
 from swift.common.utils import Timestamp, get_logger, ShardRange
 from swift.container.backend import ContainerBroker, UNSHARDED
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
-    CleavingContext
+    CleavingContext, process_compactable_shard_sequences, \
+    find_compactable_shard_sequences, find_overlapping_ranges, \
+    finalize_shrinking
+
+DEFAULT_ROWS_PER_SHARD = 500000
+DEFAULT_SHRINK_THRESHOLD = 10000
+DEFAULT_MAX_SHRINKING = 1
+DEFAULT_MAX_EXPANDING = -1
 
 
 def _load_and_validate_shard_data(args):
@@ -289,6 +296,7 @@ def db_info(broker, args):
     print('Metadata:')
     for k, (v, t) in broker.metadata.items():
         print('  %s = %s' % (k, v))
+    return 0
 
 
 def delete_shard_ranges(broker, args):
@@ -410,8 +418,76 @@ def enable_sharding(broker, args):
     return 0
 
 
+def compact_shard_ranges(broker, args):
+    if not broker.is_root_container():
+        print('WARNING: Shard containers cannot be compacted.')
+        print('This command should be used on a root container.')
+        return 2
+
+    if not broker.is_sharded():
+        print('WARNING: Container is not yet sharded so cannot be compacted.')
+        return 2
+
+    shard_ranges = broker.get_shard_ranges()
+    if find_overlapping_ranges([sr for sr in shard_ranges if
+                                sr.state != ShardRange.SHRINKING]):
+        print('WARNING: Container has overlapping shard ranges so cannot be '
+              'compacted.')
+        return 2
+
+    compactable = find_compactable_shard_sequences(broker,
+                                                   args.shrink_threshold,
+                                                   args.expansion_limit,
+                                                   args.max_shrinking,
+                                                   args.max_expanding)
+    if not compactable:
+        print('No shards identified for compaction.')
+        return 0
+
+    for sequence in compactable:
+        if sequence[-1].state not in (ShardRange.ACTIVE, ShardRange.SHARDED):
+            print('ERROR: acceptor not in correct state: %s' % sequence[-1],
+                  file=sys.stderr)
+            return 1
+
+    if not args.yes:
+        for sequence in compactable:
+            acceptor = sequence[-1]
+            donors = sequence[:-1]
+            print('Shard %s (object count %d) can expand to accept %d objects '
+                  'from:' %
+                  (acceptor, acceptor.object_count, donors.object_count))
+            for donor in donors:
+                print('    shard %s (object count %d)' %
+                      (donor, donor.object_count))
+        print('Once applied to the broker these changes will result in shard '
+              'range compaction the next time the sharder runs.')
+        choice = input('Do you want to apply these changes? [y/N]')
+        if choice != 'y':
+            print('No changes applied')
+            return 0
+
+    timestamp = Timestamp.now()
+    acceptor_ranges, shrinking_ranges = process_compactable_shard_sequences(
+        compactable, timestamp)
+    finalize_shrinking(broker, acceptor_ranges, shrinking_ranges, timestamp)
+    print('Updated %s shard sequences for compaction.' % len(compactable))
+    print('Run container-replicator to replicate the changes to other '
+          'nodes.')
+    print('Run container-sharder on all nodes to compact shards.')
+    return 0
+
+
+def _positive_int(arg):
+    val = int(arg)
+    if val <= 0:
+        raise argparse.ArgumentTypeError('must be > 0')
+    return val
+
+
 def _add_find_args(parser):
-    parser.add_argument('rows_per_shard', nargs='?', type=int, default=500000)
+    parser.add_argument('rows_per_shard', nargs='?', type=int,
+                        default=DEFAULT_ROWS_PER_SHARD)
 
 
 def _add_replace_args(parser):
@@ -500,6 +576,50 @@ def _make_parser():
     _add_enable_args(enable_parser)
     enable_parser.set_defaults(func=enable_sharding)
     _add_replace_args(enable_parser)
+
+    # compact
+    compact_parser = subparsers.add_parser(
+        'compact',
+        help='Compact shard ranges with less than the shrink-threshold number '
+             'of rows. This command only works on root containers.')
+    compact_parser.add_argument(
+        '--yes', '-y', action='store_true', default=False,
+        help='Apply shard range changes to broker without prompting.')
+    compact_parser.add_argument('--shrink-threshold', nargs='?',
+                                type=_positive_int,
+                                default=DEFAULT_SHRINK_THRESHOLD,
+                                help='The number of rows below which a shard '
+                                     'can qualify for shrinking. Defaults to '
+                                     '%d' % DEFAULT_SHRINK_THRESHOLD)
+    compact_parser.add_argument('--expansion-limit', nargs='?',
+                                type=_positive_int,
+                                default=DEFAULT_ROWS_PER_SHARD,
+                                help='Maximum number of rows for an expanding '
+                                     'shard to have after compaction has '
+                                     'completed. Defaults to %d' %
+                                     DEFAULT_ROWS_PER_SHARD)
+    # If just one donor shard is chosen to shrink to an acceptor then the
+    # expanded acceptor will handle object listings as soon as the donor shard
+    # has shrunk. If more than one donor shard are chosen to shrink to an
+    # acceptor then the acceptor may not handle object listings for some donor
+    # shards that have shrunk until *all* donors have shrunk, resulting in
+    # temporary gap(s) in object listings where the shrunk donors are missing.
+    compact_parser.add_argument('--max-shrinking', nargs='?',
+                                type=_positive_int,
+                                default=DEFAULT_MAX_SHRINKING,
+                                help='Maximum number of shards that should be '
+                                     'shrunk into each expanding shard. '
+                                     'Defaults to 1. Using values greater '
+                                     'than 1 may result in temporary gaps in '
+                                     'object listings until all selected '
+                                     'shards have shrunk.')
+    compact_parser.add_argument('--max-expanding', nargs='?',
+                                type=_positive_int,
+                                default=DEFAULT_MAX_EXPANDING,
+                                help='Maximum number of shards that should be '
+                                     'expanded. Defaults to unlimited.')
+    compact_parser.set_defaults(func=compact_shard_ranges)
+
     return parser
 
 

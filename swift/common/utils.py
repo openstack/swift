@@ -82,6 +82,7 @@ from six.moves.configparser import (ConfigParser, NoSectionError,
 from six.moves import range, http_client
 from six.moves.urllib.parse import quote as _quote, unquote
 from six.moves.urllib.parse import urlparse
+from six.moves import UserList
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -5485,6 +5486,105 @@ class ShardRange(object):
             params['meta_timestamp'], params['deleted'], params['state'],
             params['state_timestamp'], params['epoch'],
             params.get('reported', 0))
+
+    def expand(self, donors):
+        """
+        Expands the bounds as necessary to match the minimum and maximum bounds
+        of the given donors.
+
+        :param donors: A list of :class:`~swift.common.utils.ShardRange`
+        :return: True if the bounds have been modified, False otherwise.
+        """
+        modified = False
+        new_lower = self.lower
+        new_upper = self.upper
+        for donor in donors:
+            new_lower = min(new_lower, donor.lower)
+            new_upper = max(new_upper, donor.upper)
+        if self.lower > new_lower or self.upper < new_upper:
+            self.lower = new_lower
+            self.upper = new_upper
+            modified = True
+        return modified
+
+
+class ShardRangeList(UserList):
+    """
+    This class provides some convenience functions for working with lists of
+    :class:`~swift.common.utils.ShardRange`.
+
+    This class does not enforce ordering or continuity of the list items:
+    callers should ensure that items are added in order as appropriate.
+    """
+    def __getitem__(self, index):
+        # workaround for py3 - not needed for py2.7,py3.8
+        result = self.data[index]
+        return ShardRangeList(result) if type(result) == list else result
+
+    @property
+    def lower(self):
+        """
+        Returns the lower bound of the first item in the list. Note: this will
+        only be equal to the lowest bound of all items in the list if the list
+        contents has been sorted.
+
+        :return: lower bound of first item in the list, or ShardRange.MIN
+                 if the list is empty.
+        """
+        if not self:
+            # empty list has range MIN->MIN
+            return ShardRange.MIN
+        return self[0].lower
+
+    @property
+    def upper(self):
+        """
+        Returns the upper bound of the first item in the list. Note: this will
+        only be equal to the uppermost bound of all items in the list if the
+        list has previously been sorted.
+
+        :return: upper bound of first item in the list, or ShardRange.MIN
+                 if the list is empty.
+        """
+        if not self:
+            # empty list has range MIN->MIN
+            return ShardRange.MIN
+        return self[-1].upper
+
+    @property
+    def object_count(self):
+        """
+        Returns the total number of objects of all items in the list.
+
+        :return: total object count
+        """
+        return sum(sr.object_count for sr in self)
+
+    @property
+    def bytes_used(self):
+        """
+        Returns the total number of bytes in all items in the list.
+
+        :return: total bytes used
+        """
+        return sum(sr.bytes_used for sr in self)
+
+    def includes(self, other):
+        """
+        Check if another ShardRange namespace is enclosed between the list's
+        ``lower`` and ``upper`` properties. Note: the list's ``lower`` and
+        ``upper`` properties will only equal the outermost bounds of all items
+        in the list if the list has previously been sorted.
+
+        Note: the list does not need to contain an item matching ``other`` for
+        this method to return True, although if the list has been sorted and
+        does contain an item matching ``other`` then the method will return
+        True.
+
+        :param other: an instance of :class:`~swift.common.utils.ShardRange`
+        :return: True if other's namespace is enclosed, False otherwise.
+        """
+        return self.lower <= other.lower and self.upper >= other.upper
 
 
 def find_shard_range(item, ranges):

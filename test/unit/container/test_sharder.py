@@ -39,7 +39,8 @@ from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED, DATADIR
 from swift.container.sharder import ContainerSharder, sharding_enabled, \
     CleavingContext, DEFAULT_SHARD_SHRINK_POINT, \
-    DEFAULT_SHARD_CONTAINER_THRESHOLD
+    DEFAULT_SHARD_CONTAINER_THRESHOLD, finalize_shrinking, \
+    find_shrinking_candidates, process_compactable_shard_sequences
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
@@ -5186,7 +5187,9 @@ class TestSharder(BaseTestSharder):
                 DEFAULT_SHARD_CONTAINER_THRESHOLD / 100)
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.ACTIVE, object_count=size)
-        broker.merge_shard_ranges(shard_ranges)
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDED, Timestamp.now())
+        broker.merge_shard_ranges(shard_ranges + [own_sr])
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
         with self._mock_sharder() as sharder:
@@ -5278,6 +5281,53 @@ class TestSharder(BaseTestSharder):
             [mock.call(final_donor.account, final_donor.container,
                        [final_donor, broker.get_own_shard_range()])]
         )
+
+    def test_find_and_enable_multiple_shrinking_candidates(self):
+        broker = self._make_broker()
+        broker.enable_sharding(next(self.ts_iter))
+        shard_bounds = (('', 'a'), ('a', 'b'), ('b', 'c'),
+                        ('c', 'd'), ('d', 'e'), ('e', ''))
+        size = (DEFAULT_SHARD_SHRINK_POINT *
+                DEFAULT_SHARD_CONTAINER_THRESHOLD / 100)
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE, object_count=size)
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDED, Timestamp.now())
+        broker.merge_shard_ranges(shard_ranges + [own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        self.assertTrue(broker.set_sharded_state())
+        with self._mock_sharder() as sharder:
+            sharder._find_and_enable_shrinking_candidates(broker)
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+
+        # three ranges just below threshold
+        shard_ranges = broker.get_shard_ranges()  # get timestamps updated
+        shard_ranges[0].update_meta(size - 1, 0)
+        shard_ranges[1].update_meta(size - 1, 0)
+        shard_ranges[3].update_meta(size - 1, 0)
+        broker.merge_shard_ranges(shard_ranges)
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._send_shard_ranges = mock.MagicMock()
+                sharder._find_and_enable_shrinking_candidates(broker)
+        # 0 shrinks into 1 (only one donor per acceptor is allowed)
+        shard_ranges[0].update_state(ShardRange.SHRINKING, state_timestamp=now)
+        shard_ranges[0].epoch = now
+        shard_ranges[1].lower = shard_ranges[0].lower
+        shard_ranges[1].timestamp = now
+        # 3 shrinks into 4
+        shard_ranges[3].update_state(ShardRange.SHRINKING, state_timestamp=now)
+        shard_ranges[3].epoch = now
+        shard_ranges[4].lower = shard_ranges[3].lower
+        shard_ranges[4].timestamp = now
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+        for donor, acceptor in (shard_ranges[:2], shard_ranges[3:5]):
+            sharder._send_shard_ranges.assert_has_calls(
+                [mock.call(acceptor.account, acceptor.container, [acceptor]),
+                 mock.call(donor.account, donor.container, [donor, acceptor])]
+            )
 
     def test_partition_and_device_filters(self):
         # verify partitions and devices kwargs result in filtering of processed
@@ -5844,3 +5894,135 @@ class TestCleavingContext(BaseTestSharder):
         self.assertEqual(2, ctx.ranges_done)
         self.assertEqual(8, ctx.ranges_todo)
         self.assertEqual('c', ctx.cursor)
+
+
+class TestSharderFunctions(BaseTestSharder):
+    def test_find_shrinking_candidates(self):
+        broker = self._make_broker()
+        shard_bounds = (('', 'a'), ('a', 'b'), ('b', 'c'), ('c', 'd'))
+        threshold = (DEFAULT_SHARD_SHRINK_POINT *
+                     DEFAULT_SHARD_CONTAINER_THRESHOLD / 100)
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE, object_count=threshold)
+        broker.merge_shard_ranges(shard_ranges)
+        pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
+        self.assertEqual({}, pairs)
+
+        # one range just below threshold
+        shard_ranges[0].update_meta(threshold - 1, 0)
+        broker.merge_shard_ranges(shard_ranges[0])
+        pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
+        self.assertEqual(1, len(pairs), pairs)
+        for acceptor, donor in pairs.items():
+            self.assertEqual(shard_ranges[1], acceptor)
+            self.assertEqual(shard_ranges[0], donor)
+
+        # two ranges just below threshold
+        shard_ranges[2].update_meta(threshold - 1, 0)
+        broker.merge_shard_ranges(shard_ranges[2])
+        pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
+        # shenanigans to work around dicts with ShardRanges keys not comparing
+        acceptors = []
+        donors = []
+        for acceptor, donor in pairs.items():
+            acceptors.append(acceptor)
+            donors.append(donor)
+        acceptors.sort(key=ShardRange.sort_key)
+        donors.sort(key=ShardRange.sort_key)
+        self.assertEqual([shard_ranges[1], shard_ranges[3]], acceptors)
+        self.assertEqual([shard_ranges[0], shard_ranges[2]], donors)
+
+    def test_finalize_shrinking(self):
+        broker = self._make_broker()
+        broker.enable_sharding(next(self.ts_iter))
+        shard_bounds = (('', 'here'), ('here', 'there'), ('there', ''))
+        ts_0 = next(self.ts_iter)
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE, timestamp=ts_0)
+        self.assertTrue(broker.set_sharding_state())
+        self.assertTrue(broker.set_sharded_state())
+        ts_1 = next(self.ts_iter)
+        finalize_shrinking(broker, shard_ranges[2:], shard_ranges[:2], ts_1)
+        updated_ranges = broker.get_shard_ranges()
+        self.assertEqual(
+            [ShardRange.SHRINKING, ShardRange.SHRINKING, ShardRange.ACTIVE],
+            [sr.state for sr in updated_ranges]
+        )
+        # acceptor is not updated...
+        self.assertEqual(ts_0, updated_ranges[2].timestamp)
+        # donors are updated...
+        self.assertEqual([ts_1] * 2,
+                         [sr.state_timestamp for sr in updated_ranges[:2]])
+        self.assertEqual([ts_1] * 2,
+                         [sr.epoch for sr in updated_ranges[:2]])
+        # check idempotency
+        ts_2 = next(self.ts_iter)
+        finalize_shrinking(broker, shard_ranges[2:], shard_ranges[:2], ts_2)
+        updated_ranges = broker.get_shard_ranges()
+        self.assertEqual(
+            [ShardRange.SHRINKING, ShardRange.SHRINKING, ShardRange.ACTIVE],
+            [sr.state for sr in updated_ranges]
+        )
+        # acceptor is not updated...
+        self.assertEqual(ts_0, updated_ranges[2].timestamp)
+        # donors are not updated...
+        self.assertEqual([ts_1] * 2,
+                         [sr.state_timestamp for sr in updated_ranges[:2]])
+        self.assertEqual([ts_1] * 2,
+                         [sr.epoch for sr in updated_ranges[:2]])
+
+    def test_process_compactable(self):
+        ts_0 = next(self.ts_iter)
+        # no sequences...
+        acceptors, donors = process_compactable_shard_sequences([], ts_0)
+        self.assertEqual([], acceptors)
+        self.assertEqual([], donors)
+
+        # two sequences with acceptor bounds needing to be updated
+        sequence_1 = self._make_shard_ranges(
+            (('a', 'b'), ('b', 'c'), ('c', 'd')),
+            state=ShardRange.ACTIVE, timestamp=ts_0)
+        sequence_2 = self._make_shard_ranges(
+            (('x', 'y'), ('y', 'z')),
+            state=ShardRange.ACTIVE, timestamp=ts_0)
+        ts_1 = next(self.ts_iter)
+        acceptors, donors = process_compactable_shard_sequences(
+            [sequence_1, sequence_2], ts_1)
+        expected_donors = sequence_1[:-1] + sequence_2[:-1]
+        expected_acceptors = [sequence_1[-1].copy(lower='a', timestamp=ts_1),
+                              sequence_2[-1].copy(lower='x', timestamp=ts_1)]
+        self.assertEqual([dict(sr) for sr in expected_acceptors],
+                         [dict(sr) for sr in acceptors])
+        self.assertEqual([dict(sr) for sr in expected_donors],
+                         [dict(sr) for sr in donors])
+
+        # sequences have already been processed - acceptors expanded
+        sequence_1 = self._make_shard_ranges(
+            (('a', 'b'), ('b', 'c'), ('a', 'd')),
+            state=ShardRange.ACTIVE, timestamp=ts_0)
+        sequence_2 = self._make_shard_ranges(
+            (('x', 'y'), ('x', 'z')),
+            state=ShardRange.ACTIVE, timestamp=ts_0)
+        acceptors, donors = process_compactable_shard_sequences(
+            [sequence_1, sequence_2], ts_1)
+        expected_donors = sequence_1[:-1] + sequence_2[:-1]
+        expected_acceptors = [sequence_1[-1], sequence_2[-1]]
+        self.assertEqual([dict(sr) for sr in expected_acceptors],
+                         [dict(sr) for sr in acceptors])
+        self.assertEqual([dict(sr) for sr in expected_donors],
+                         [dict(sr) for sr in donors])
+
+        # acceptor is root - needs state to be updated, but not bounds
+        sequence_1 = self._make_shard_ranges(
+            (('a', 'b'), ('b', 'c'), ('a', 'd'), ('d', ''), ('', '')),
+            state=[ShardRange.ACTIVE] * 4 + [ShardRange.SHARDED],
+            timestamp=ts_0)
+        acceptors, donors = process_compactable_shard_sequences(
+            [sequence_1], ts_1)
+        expected_donors = sequence_1[:-1]
+        expected_acceptors = [sequence_1[-1].copy(state=ShardRange.ACTIVE,
+                                                  state_timestamp=ts_1)]
+        self.assertEqual([dict(sr) for sr in expected_acceptors],
+                         [dict(sr) for sr in acceptors])
+        self.assertEqual([dict(sr) for sr in expected_donors],
+                         [dict(sr) for sr in donors])

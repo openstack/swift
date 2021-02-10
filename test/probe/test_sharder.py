@@ -2721,28 +2721,79 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assert_container_state(self.brain.nodes[2], 'sharded', 2)
         self.assert_container_listing(obj_names)
 
-        # Let's pretend that some actor in the system has determined that all
-        # the shard ranges should shrink back to root
-        # TODO: replace this db manipulation if/when manage_shard_ranges can
-        # manage shrinking...
-        broker = self.get_broker(self.brain.part, self.brain.nodes[0])
-        shard_ranges = broker.get_shard_ranges()
-        self.assertEqual(2, len(shard_ranges))
-        for sr in shard_ranges:
-            self.assertTrue(sr.update_state(ShardRange.SHRINKING))
-            sr.epoch = sr.state_timestamp = Timestamp.now()
-        own_sr = broker.get_own_shard_range()
-        own_sr.update_state(ShardRange.ACTIVE, state_timestamp=Timestamp.now())
-        broker.merge_shard_ranges(shard_ranges + [own_sr])
+    def test_manage_shard_ranges_compact(self):
+        # verify shard range compaction using swift-manage-shard-ranges
+        obj_names = self._make_object_names(8)
+        self.put_objects(obj_names)
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        # run replicators first time to get sync points set, and get container
+        # sharded into 4 shards
+        self.replicators.once()
+        subprocess.check_output([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '2', '--enable'], stderr=subprocess.STDOUT)
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 4)
+        self.replicators.once()
+        # run sharders twice to cleave all 4 shard ranges
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(self.brain.nodes[0], 'sharded', 4)
+        self.assert_container_state(self.brain.nodes[1], 'sharded', 4)
+        self.assert_container_state(self.brain.nodes[2], 'sharded', 4)
+        self.assert_container_listing(obj_names)
 
-        # replicate and run sharders
+        # now compact some ranges; use --max-shrinking to allow 2 shrinking
+        # shards
+        subprocess.check_output([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'compact', '--max-expanding', '1', '--max-shrinking', '2',
+            '--yes'],
+            stderr=subprocess.STDOUT)
+        shard_ranges = self.assert_container_state(
+            self.brain.nodes[0], 'sharded', 4)
+        self.assertEqual([ShardRange.SHRINKING] * 2 + [ShardRange.ACTIVE] * 2,
+                         [sr.state for sr in shard_ranges])
         self.replicators.once()
         self.sharders_once()
+        # check there's now just 2 remaining shard ranges
+        shard_ranges = self.assert_container_state(
+            self.brain.nodes[0], 'sharded', 2)
+        self.assertEqual([ShardRange.ACTIVE] * 2,
+                         [sr.state for sr in shard_ranges])
+        self.assert_container_listing(obj_names, req_hdrs={'X-Newest': 'True'})
 
+        # root container own shard range should still be SHARDED
+        for i, node in enumerate(self.brain.nodes):
+            with annotate_failure('node[%d]' % i):
+                broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+                self.assertEqual(ShardRange.SHARDED,
+                                 broker.get_own_shard_range().state)
+
+        # now compact the final two shard ranges to the root; use
+        # --max-shrinking to allow 2 shrinking shards
+        subprocess.check_output([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'compact', '--yes', '--max-shrinking', '2'],
+            stderr=subprocess.STDOUT)
+        shard_ranges = self.assert_container_state(
+            self.brain.nodes[0], 'sharded', 2)
+        self.assertEqual([ShardRange.SHRINKING] * 2,
+                         [sr.state for sr in shard_ranges])
+        self.replicators.once()
+        self.sharders_once()
         self.assert_container_state(self.brain.nodes[0], 'collapsed', 0)
-        self.assert_container_state(self.brain.nodes[1], 'collapsed', 0)
-        self.assert_container_state(self.brain.nodes[2], 'collapsed', 0)
-        self.assert_container_listing(obj_names)
+        self.assert_container_listing(obj_names, req_hdrs={'X-Newest': 'True'})
+
+        # root container own shard range should now be ACTIVE
+        for i, node in enumerate(self.brain.nodes):
+            with annotate_failure('node[%d]' % i):
+                broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+                self.assertEqual(ShardRange.ACTIVE,
+                                 broker.get_own_shard_range().state)
 
     def test_manage_shard_ranges_used_poorly(self):
         obj_names = self._make_object_names(8)

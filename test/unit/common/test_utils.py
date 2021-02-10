@@ -74,7 +74,7 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     MimeInvalid
 from swift.common import utils
 from swift.common.utils import is_valid_ip, is_valid_ipv4, is_valid_ipv6, \
-    set_swift_dir, md5
+    set_swift_dir, md5, ShardRangeList
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
@@ -8322,6 +8322,135 @@ class TestShardRange(unittest.TestCase):
         actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 'foo')
         self.assertEqual('a/root-%s-%s-foo' % (parent_hash, ts.internal),
                          actual)
+
+    def test_expand(self):
+        bounds = (('', 'd'), ('d', 'k'), ('k', 't'), ('t', ''))
+        donors = [
+            utils.ShardRange('a/c-%d' % i, utils.Timestamp.now(), b[0], b[1])
+            for i, b in enumerate(bounds)
+        ]
+        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
+        self.assertTrue(acceptor.expand(donors[:1]))
+        self.assertEqual((utils.ShardRange.MIN, 's'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
+        self.assertTrue(acceptor.expand(donors[:2]))
+        self.assertEqual((utils.ShardRange.MIN, 's'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
+        self.assertTrue(acceptor.expand(donors[1:3]))
+        self.assertEqual(('d', 't'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
+        self.assertTrue(acceptor.expand(donors))
+        self.assertEqual((utils.ShardRange.MIN, utils.ShardRange.MAX),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
+        self.assertTrue(acceptor.expand(donors[1:2] + donors[3:]))
+        self.assertEqual(('d', utils.ShardRange.MAX),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), '', 'd')
+        self.assertFalse(acceptor.expand(donors[:1]))
+        self.assertEqual((utils.ShardRange.MIN, 'd'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'b', 'v')
+        self.assertFalse(acceptor.expand(donors[1:3]))
+        self.assertEqual(('b', 'v'),
+                         (acceptor.lower, acceptor.upper))
+
+
+class TestShardRangeList(unittest.TestCase):
+    def setUp(self):
+        self.shard_ranges = [
+            utils.ShardRange('a/b', utils.Timestamp.now(), 'a', 'b',
+                             object_count=2, bytes_used=22),
+            utils.ShardRange('b/c', utils.Timestamp.now(), 'b', 'c',
+                             object_count=4, bytes_used=44),
+            utils.ShardRange('x/y', utils.Timestamp.now(), 'x', 'y',
+                             object_count=6, bytes_used=66),
+        ]
+
+    def test_init(self):
+        srl = ShardRangeList()
+        self.assertEqual(0, len(srl))
+        self.assertEqual(utils.ShardRange.MIN, srl.lower)
+        self.assertEqual(utils.ShardRange.MIN, srl.upper)
+        self.assertEqual(0, srl.object_count)
+        self.assertEqual(0, srl.bytes_used)
+
+    def test_init_with_list(self):
+        srl = ShardRangeList(self.shard_ranges[:2])
+        self.assertEqual(2, len(srl))
+        self.assertEqual('a', srl.lower)
+        self.assertEqual('c', srl.upper)
+        self.assertEqual(6, srl.object_count)
+        self.assertEqual(66, srl.bytes_used)
+
+        srl.append(self.shard_ranges[2])
+        self.assertEqual(3, len(srl))
+        self.assertEqual('a', srl.lower)
+        self.assertEqual('y', srl.upper)
+        self.assertEqual(12, srl.object_count)
+        self.assertEqual(132, srl.bytes_used)
+
+    def test_pop(self):
+        srl = ShardRangeList(self.shard_ranges[:2])
+        srl.pop()
+        self.assertEqual(1, len(srl))
+        self.assertEqual('a', srl.lower)
+        self.assertEqual('b', srl.upper)
+        self.assertEqual(2, srl.object_count)
+        self.assertEqual(22, srl.bytes_used)
+
+    def test_slice(self):
+        srl = ShardRangeList(self.shard_ranges)
+        sublist = srl[:1]
+        self.assertIsInstance(sublist, ShardRangeList)
+        self.assertEqual(1, len(sublist))
+        self.assertEqual('a', sublist.lower)
+        self.assertEqual('b', sublist.upper)
+        self.assertEqual(2, sublist.object_count)
+        self.assertEqual(22, sublist.bytes_used)
+
+        sublist = srl[1:]
+        self.assertIsInstance(sublist, ShardRangeList)
+        self.assertEqual(2, len(sublist))
+        self.assertEqual('b', sublist.lower)
+        self.assertEqual('y', sublist.upper)
+        self.assertEqual(10, sublist.object_count)
+        self.assertEqual(110, sublist.bytes_used)
+
+    def test_includes(self):
+        srl = ShardRangeList(self.shard_ranges)
+
+        for sr in self.shard_ranges:
+            self.assertTrue(srl.includes(sr))
+
+        self.assertTrue(srl.includes(srl))
+
+        sr = utils.ShardRange('a/a', utils.Timestamp.now(), '', 'a')
+        self.assertFalse(srl.includes(sr))
+        sr = utils.ShardRange('a/a', utils.Timestamp.now(), '', 'b')
+        self.assertFalse(srl.includes(sr))
+        sr = utils.ShardRange('a/z', utils.Timestamp.now(), 'x', 'z')
+        self.assertFalse(srl.includes(sr))
+        sr = utils.ShardRange('a/z', utils.Timestamp.now(), 'y', 'z')
+        self.assertFalse(srl.includes(sr))
+        sr = utils.ShardRange('a/entire', utils.Timestamp.now(), '', '')
+        self.assertFalse(srl.includes(sr))
+
+        # entire range
+        srl_entire = ShardRangeList([sr])
+        self.assertFalse(srl.includes(srl_entire))
+        # make a fresh instance
+        sr = utils.ShardRange('a/entire', utils.Timestamp.now(), '', '')
+        self.assertTrue(srl_entire.includes(sr))
 
 
 @patch('ctypes.get_errno')
