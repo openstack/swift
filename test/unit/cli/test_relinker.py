@@ -15,6 +15,7 @@ import binascii
 import errno
 import fcntl
 import json
+from contextlib import contextmanager
 import logging
 from textwrap import dedent
 
@@ -94,6 +95,54 @@ class TestRelinker(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.testdir, ignore_errors=1)
         storage_policy.reload_storage_policies()
+
+    def _do_test_relinker_drop_privileges(self, command):
+        @contextmanager
+        def do_mocks():
+            # attach mocks to call_capture so that call order can be asserted
+            call_capture = mock.Mock()
+            with mock.patch('swift.cli.relinker.drop_privileges') as mock_dp:
+                with mock.patch('swift.cli.relinker.' + command,
+                                return_value=0) as mock_command:
+                    call_capture.attach_mock(mock_dp, 'drop_privileges')
+                    call_capture.attach_mock(mock_command, command)
+                    yield call_capture
+
+        # no user option
+        with do_mocks() as capture:
+            self.assertEqual(0, relinker.main([command]))
+        self.assertEqual([(command, mock.ANY, mock.ANY)],
+                         capture.method_calls)
+
+        # cli option --user
+        with do_mocks() as capture:
+            self.assertEqual(0, relinker.main([command, '--user', 'cli_user']))
+        self.assertEqual([('drop_privileges', ('cli_user',), {}),
+                          (command, mock.ANY, mock.ANY)],
+                         capture.method_calls)
+
+        # cli option --user takes precedence over conf file user
+        with do_mocks() as capture:
+            with mock.patch('swift.cli.relinker.readconf',
+                            return_value={'user': 'conf_user'}):
+                self.assertEqual(0, relinker.main([command, 'conf_file',
+                                                   '--user', 'cli_user']))
+        self.assertEqual([('drop_privileges', ('cli_user',), {}),
+                          (command, mock.ANY, mock.ANY)],
+                         capture.method_calls)
+
+        # conf file user
+        with do_mocks() as capture:
+            with mock.patch('swift.cli.relinker.readconf',
+                            return_value={'user': 'conf_user'}):
+                self.assertEqual(0, relinker.main([command, 'conf_file']))
+        self.assertEqual([('drop_privileges', ('conf_user',), {}),
+                          (command, mock.ANY, mock.ANY)],
+                         capture.method_calls)
+
+    def test_relinker_drop_privileges(self):
+        self._do_test_relinker_drop_privileges('relink')
+        self._do_test_relinker_drop_privileges('cleanup')
 
     def test_conf_file(self):
         config = """
