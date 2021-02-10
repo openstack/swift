@@ -5588,10 +5588,8 @@ class TestSharder(BaseTestSharder):
                 compactible = find_compactible_shard_sequences(
                     broker, sharder.shrink_size, sharder.merge_size, 1, -1)
                 self.assertNotEqual([], compactible)
-                timestamp = next(self.ts_iter)
-                acceptors, donors = process_compactible_shard_sequences(
-                    compactible, timestamp)
-                finalize_shrinking(broker, acceptors, donors, timestamp)
+                with mock_timestamp_now(next(self.ts_iter)):
+                    process_compactible_shard_sequences(broker, compactible)
 
             shrink_actionable_ranges(brokers[C2])
             sharder._zero_stats()
@@ -6223,29 +6221,34 @@ class TestSharderFunctions(BaseTestSharder):
                          [sr.epoch for sr in updated_ranges[:2]])
 
     def test_process_compactible(self):
-        ts_0 = next(self.ts_iter)
         # no sequences...
-        acceptors, donors = process_compactible_shard_sequences([], ts_0)
-        self.assertEqual([], acceptors)
-        self.assertEqual([], donors)
+        broker = self._make_broker()
+        with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
+            with mock_timestamp_now(next(self.ts_iter)) as now:
+                process_compactible_shard_sequences(broker, [])
+        fs.assert_called_once_with(broker, [], [], now)
 
         # two sequences with acceptor bounds needing to be updated
+        ts_0 = next(self.ts_iter)
         sequence_1 = self._make_shard_ranges(
             (('a', 'b'), ('b', 'c'), ('c', 'd')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
         sequence_2 = self._make_shard_ranges(
             (('x', 'y'), ('y', 'z')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
-        ts_1 = next(self.ts_iter)
-        acceptors, donors = process_compactible_shard_sequences(
-            [sequence_1, sequence_2], ts_1)
+        with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
+            with mock_timestamp_now(next(self.ts_iter)) as now:
+                process_compactible_shard_sequences(
+                    broker, [sequence_1, sequence_2])
         expected_donors = sequence_1[:-1] + sequence_2[:-1]
-        expected_acceptors = [sequence_1[-1].copy(lower='a', timestamp=ts_1),
-                              sequence_2[-1].copy(lower='x', timestamp=ts_1)]
+        expected_acceptors = [sequence_1[-1].copy(lower='a', timestamp=now),
+                              sequence_2[-1].copy(lower='x', timestamp=now)]
+        fs.assert_called_once_with(
+            broker, expected_acceptors, expected_donors, now)
         self.assertEqual([dict(sr) for sr in expected_acceptors],
-                         [dict(sr) for sr in acceptors])
+                         [dict(sr) for sr in fs.call_args[0][1]])
         self.assertEqual([dict(sr) for sr in expected_donors],
-                         [dict(sr) for sr in donors])
+                         [dict(sr) for sr in fs.call_args[0][2]])
 
         # sequences have already been processed - acceptors expanded
         sequence_1 = self._make_shard_ranges(
@@ -6254,29 +6257,38 @@ class TestSharderFunctions(BaseTestSharder):
         sequence_2 = self._make_shard_ranges(
             (('x', 'y'), ('x', 'z')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
-        acceptors, donors = process_compactible_shard_sequences(
-            [sequence_1, sequence_2], ts_1)
+        with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
+            with mock_timestamp_now(next(self.ts_iter)) as now:
+                process_compactible_shard_sequences(
+                    broker, [sequence_1, sequence_2])
         expected_donors = sequence_1[:-1] + sequence_2[:-1]
         expected_acceptors = [sequence_1[-1], sequence_2[-1]]
+        fs.assert_called_once_with(
+            broker, expected_acceptors, expected_donors, now)
+
         self.assertEqual([dict(sr) for sr in expected_acceptors],
-                         [dict(sr) for sr in acceptors])
+                         [dict(sr) for sr in fs.call_args[0][1]])
         self.assertEqual([dict(sr) for sr in expected_donors],
-                         [dict(sr) for sr in donors])
+                         [dict(sr) for sr in fs.call_args[0][2]])
 
         # acceptor is root - needs state to be updated, but not bounds
         sequence_1 = self._make_shard_ranges(
             (('a', 'b'), ('b', 'c'), ('a', 'd'), ('d', ''), ('', '')),
             state=[ShardRange.ACTIVE] * 4 + [ShardRange.SHARDED],
             timestamp=ts_0)
-        acceptors, donors = process_compactible_shard_sequences(
-            [sequence_1], ts_1)
+        with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
+            with mock_timestamp_now(next(self.ts_iter)) as now:
+                process_compactible_shard_sequences(broker, [sequence_1])
         expected_donors = sequence_1[:-1]
         expected_acceptors = [sequence_1[-1].copy(state=ShardRange.ACTIVE,
-                                                  state_timestamp=ts_1)]
+                                                  state_timestamp=now)]
+        fs.assert_called_once_with(
+            broker, expected_acceptors, expected_donors, now)
+
         self.assertEqual([dict(sr) for sr in expected_acceptors],
-                         [dict(sr) for sr in acceptors])
+                         [dict(sr) for sr in fs.call_args[0][1]])
         self.assertEqual([dict(sr) for sr in expected_donors],
-                         [dict(sr) for sr in donors])
+                         [dict(sr) for sr in fs.call_args[0][2]])
 
     def test_find_compactible_shard_ranges_in_found_state(self):
         broker = self._make_broker()

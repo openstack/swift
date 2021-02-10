@@ -305,18 +305,18 @@ def finalize_shrinking(broker, acceptor_ranges, donor_ranges, timestamp):
     broker.merge_shard_ranges(acceptor_ranges + donor_ranges)
 
 
-def process_compactible_shard_sequences(sequences, timestamp):
+def process_compactible_shard_sequences(broker, sequences):
     """
     Transform the given sequences of shard ranges into a list of acceptors and
     a list of shrinking donors. For each given sequence the final ShardRange in
     the sequence (the acceptor) is expanded to accommodate the other
-    ShardRanges in the sequence (the donors).
+    ShardRanges in the sequence (the donors). The donors and acceptors are then
+    merged into the broker.
 
+    :param broker: A :class:`~swift.container.backend.ContainerBroker`.
     :param sequences: A list of :class:`~swift.common.utils.ShardRangeList`
-    :param timestamp: an instance of :class:`~swift.common.utils.Timestamp`
-        that is used when updating acceptor range bounds or state
-    :return: a tuple (acceptor_ranges, shrinking_ranges)
     """
+    timestamp = Timestamp.now()
     acceptor_ranges = []
     shrinking_ranges = []
     for sequence in sequences:
@@ -333,7 +333,7 @@ def process_compactible_shard_sequences(sequences, timestamp):
             # Ensure acceptor state is ACTIVE (when acceptor is root)
             acceptor.state_timestamp = timestamp
         acceptor_ranges.append(acceptor)
-    return acceptor_ranges, shrinking_ranges
+    finalize_shrinking(broker, acceptor_ranges, shrinking_ranges, timestamp)
 
 
 class CleavingContext(object):
@@ -622,8 +622,8 @@ class ContainerSharder(ContainerReplicator):
         sequences = find_compactible_shard_sequences(
             broker, self.shrink_size, self.merge_size,
             1, -1)
-        _, compactible_ranges = process_compactible_shard_sequences(
-            sequences, Timestamp.now())
+        # compactible_ranges are all apart from final acceptor in each sequence
+        compactible_ranges = sum(len(seq) - 1 for seq in sequences)
 
         if compactible_ranges:
             own_shard_range = broker.get_own_shard_range()
@@ -632,7 +632,7 @@ class ContainerSharder(ContainerReplicator):
             # The number of ranges/donors that can be shrunk if the
             # tool is used with the current max_shrinking, max_expanding
             # settings.
-            shrink_candidate['compactible_ranges'] = len(compactible_ranges)
+            shrink_candidate['compactible_ranges'] = compactible_ranges
             self.shrinking_candidates.append(shrink_candidate)
 
     def _transform_candidate_stats(self, category, candidates, sort_keys):
@@ -1681,10 +1681,7 @@ class ContainerSharder(ContainerReplicator):
         self.logger.debug('Found %s compactible sequences of length(s) %s' %
                           (len(compactible_sequences),
                            [len(s) for s in compactible_sequences]))
-        timestamp = Timestamp.now()
-        acceptors, donors = process_compactible_shard_sequences(
-            compactible_sequences, timestamp)
-        finalize_shrinking(broker, acceptors, donors, timestamp)
+        process_compactible_shard_sequences(broker, compactible_sequences)
         own_shard_range = broker.get_own_shard_range()
         for sequence in compactible_sequences:
             acceptor = sequence[-1]

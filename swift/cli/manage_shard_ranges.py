@@ -168,8 +168,7 @@ from swift.common.utils import Timestamp, get_logger, ShardRange
 from swift.container.backend import ContainerBroker, UNSHARDED
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
     CleavingContext, process_compactible_shard_sequences, \
-    find_compactible_shard_sequences, find_overlapping_ranges, \
-    finalize_shrinking
+    find_compactible_shard_sequences, find_overlapping_ranges
 
 DEFAULT_ROWS_PER_SHARD = 500000
 DEFAULT_SHRINK_THRESHOLD = 10000
@@ -473,10 +472,7 @@ def compact_shard_ranges(broker, args):
             print('No changes applied')
             return 0
 
-    timestamp = Timestamp.now()
-    acceptor_ranges, shrinking_ranges = process_compactible_shard_sequences(
-        compactible, timestamp)
-    finalize_shrinking(broker, acceptor_ranges, shrinking_ranges, timestamp)
+    process_compactible_shard_sequences(broker, compactible)
     print('Updated %s shard sequences for compaction.' % len(compactible))
     print('Run container-replicator to replicate the changes to other '
           'nodes.')
