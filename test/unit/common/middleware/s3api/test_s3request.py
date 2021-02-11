@@ -396,8 +396,10 @@ class TestRequest(S3ApiTestCase):
 
         if 'X-Amz-Date' in date_header:
             included_header = 'x-amz-date'
+            scope_date = date_header['X-Amz-Date'].split('T', 1)[0]
         elif 'Date' in date_header:
             included_header = 'date'
+            scope_date = self.get_v4_amz_date_header().split('T', 1)[0]
         else:
             self.fail('Invalid date header specified as test')
 
@@ -407,7 +409,7 @@ class TestRequest(S3ApiTestCase):
                 'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=%s,'
                 'Signature=X' % (
-                    self.get_v4_amz_date_header().split('T', 1)[0],
+                    scope_date,
                     ';'.join(sorted(['host', included_header]))),
             'X-Amz-Content-SHA256': '0123456789'}
 
