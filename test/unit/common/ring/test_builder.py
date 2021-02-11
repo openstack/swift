@@ -73,6 +73,11 @@ class TestRingBuilder(unittest.TestCase):
         self.assertFalse(rb.devs_changed)
         self.assertEqual(rb.version, 0)
         self.assertIsNotNone(rb._last_part_moves)
+        rd = rb.get_ring()
+        self.assertEqual(rd.devs, [])
+        self.assertEqual(rd.version, 0)
+        self.assertIsNone(rd.next_part_power)
+        self.assertEqual(rd.replica_count, 0)
 
     def test_overlarge_part_powers(self):
         expected_msg = 'part_power must be at most 32 (was 33)'
