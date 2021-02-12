@@ -722,7 +722,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(dict(own_sr), dict(updated_own_sr))
 
     def test_compact_no_gaps(self):
-        # verify that compactable sequences do not include gaps
+        # verify that compactible sequences do not include gaps
         broker = self._make_broker()
         shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
         for i, sr in enumerate(shard_ranges):
