@@ -156,6 +156,62 @@ class TestRelinker(unittest.TestCase):
         self._do_test_relinker_drop_privileges('relink')
         self._do_test_relinker_drop_privileges('cleanup')
 
+    def _do_test_relinker_files_per_second(self, command):
+        # no files per second
+        with mock.patch('swift.cli.relinker.RateLimitedIterator') as it:
+            self.assertEqual(0, relinker.main([
+                command,
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+        it.assert_not_called()
+
+        # zero files per second
+        with mock.patch('swift.cli.relinker.RateLimitedIterator') as it:
+            self.assertEqual(0, relinker.main([
+                command,
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--files-per-second', '0'
+            ]))
+        it.assert_not_called()
+
+        # positive files per second
+        locations = iter([])
+        with mock.patch('swift.cli.relinker.audit_location_generator',
+                        return_value=locations):
+            with mock.patch('swift.cli.relinker.RateLimitedIterator') as it:
+                self.assertEqual(0, relinker.main([
+                    command,
+                    '--swift-dir', self.testdir,
+                    '--devices', self.devices,
+                    '--skip-mount',
+                    '--files-per-second', '1.23'
+                ]))
+        it.assert_called_once_with(locations, 1.23)
+
+        # negative files per second
+        with self.assertRaises(SystemExit) as cm:
+            relinker.main([
+                command,
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--files-per-second', '-1'
+            ])
+        self.assertEqual(2, cm.exception.code)  # NB exit code 2 from argparse
+
+    def test_relink_files_per_second(self):
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+        self._do_test_relinker_files_per_second('relink')
+
+    def test_cleanup_files_per_second(self):
+        self._common_test_cleanup()
+        self._do_test_relinker_files_per_second('cleanup')
+
     def test_conf_file(self):
         config = """
         [DEFAULT]
