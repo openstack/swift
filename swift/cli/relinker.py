@@ -356,7 +356,8 @@ def main(args):
                         action="store_true", dest='skip_mount_check')
     parser.add_argument('--files-per-second', default=None,
                         type=non_negative_float, dest='files_per_second',
-                        help='Used to limit I/O (default: no limit)')
+                        help='Used to limit I/O. Zero implies no limit '
+                             '(default: no limit).')
     parser.add_argument('--logfile', default=None, dest='logfile',
                         help='Set log file name. Ignored if using conf_file.')
     parser.add_argument('--debug', default=False, action='store_true',
