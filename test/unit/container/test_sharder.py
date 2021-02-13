@@ -40,7 +40,7 @@ from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
 from swift.container.sharder import ContainerSharder, sharding_enabled, \
     CleavingContext, DEFAULT_SHARD_SHRINK_POINT, \
     DEFAULT_SHARD_CONTAINER_THRESHOLD, finalize_shrinking, \
-    find_shrinking_candidates, process_compactable_shard_sequences
+    find_shrinking_candidates, process_compactible_shard_sequences
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
@@ -5971,10 +5971,10 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertEqual([ts_1] * 2,
                          [sr.epoch for sr in updated_ranges[:2]])
 
-    def test_process_compactable(self):
+    def test_process_compactible(self):
         ts_0 = next(self.ts_iter)
         # no sequences...
-        acceptors, donors = process_compactable_shard_sequences([], ts_0)
+        acceptors, donors = process_compactible_shard_sequences([], ts_0)
         self.assertEqual([], acceptors)
         self.assertEqual([], donors)
 
@@ -5986,7 +5986,7 @@ class TestSharderFunctions(BaseTestSharder):
             (('x', 'y'), ('y', 'z')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
         ts_1 = next(self.ts_iter)
-        acceptors, donors = process_compactable_shard_sequences(
+        acceptors, donors = process_compactible_shard_sequences(
             [sequence_1, sequence_2], ts_1)
         expected_donors = sequence_1[:-1] + sequence_2[:-1]
         expected_acceptors = [sequence_1[-1].copy(lower='a', timestamp=ts_1),
@@ -6003,7 +6003,7 @@ class TestSharderFunctions(BaseTestSharder):
         sequence_2 = self._make_shard_ranges(
             (('x', 'y'), ('x', 'z')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
-        acceptors, donors = process_compactable_shard_sequences(
+        acceptors, donors = process_compactible_shard_sequences(
             [sequence_1, sequence_2], ts_1)
         expected_donors = sequence_1[:-1] + sequence_2[:-1]
         expected_acceptors = [sequence_1[-1], sequence_2[-1]]
@@ -6017,7 +6017,7 @@ class TestSharderFunctions(BaseTestSharder):
             (('a', 'b'), ('b', 'c'), ('a', 'd'), ('d', ''), ('', '')),
             state=[ShardRange.ACTIVE] * 4 + [ShardRange.SHARDED],
             timestamp=ts_0)
-        acceptors, donors = process_compactable_shard_sequences(
+        acceptors, donors = process_compactible_shard_sequences(
             [sequence_1], ts_1)
         expected_donors = sequence_1[:-1]
         expected_acceptors = [sequence_1[-1].copy(state=ShardRange.ACTIVE,

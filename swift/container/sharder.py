@@ -148,10 +148,10 @@ def find_sharding_candidates(broker, threshold, shard_ranges=None):
 
 def find_shrinking_candidates(broker, shrink_threshold, merge_size):
     # this is only here to preserve a legacy public function signature;
-    # superseded by find_compactable_shard_sequences
+    # superseded by find_compactible_shard_sequences
     merge_pairs = {}
     # restrict search to sequences with one donor
-    results = find_compactable_shard_sequences(broker, shrink_threshold,
+    results = find_compactible_shard_sequences(broker, shrink_threshold,
                                                merge_size, 1, -1)
     for sequence in results:
         # map acceptor -> donor list
@@ -159,7 +159,7 @@ def find_shrinking_candidates(broker, shrink_threshold, merge_size):
     return merge_pairs
 
 
-def find_compactable_shard_sequences(broker,
+def find_compactible_shard_sequences(broker,
                                      shrink_threshold,
                                      merge_size,
                                      max_shrinking,
@@ -211,13 +211,13 @@ def find_compactable_shard_sequences(broker,
             return True
         return False
 
-    def find_compactable_sequence(shard_ranges_todo):
-        compactable_sequence = ShardRangeList()
+    def find_compactible_sequence(shard_ranges_todo):
+        compactible_sequence = ShardRangeList()
         object_count = 0
         consumed = 0
         for shard_range in shard_ranges_todo:
-            if (compactable_sequence and
-                    compactable_sequence.upper < shard_range.lower):
+            if (compactible_sequence and
+                    compactible_sequence.upper < shard_range.lower):
                 # found a gap! break before consuming this range because it
                 # could become the first in the next sequence
                 break
@@ -230,23 +230,23 @@ def find_compactable_shard_sequences(broker,
             proposed_object_count = object_count + shard_range.object_count
             if (shard_range.state == ShardRange.SHRINKING or
                     proposed_object_count <= merge_size):
-                compactable_sequence.append(shard_range)
+                compactible_sequence.append(shard_range)
                 object_count += shard_range.object_count
                 if shard_range.state == ShardRange.SHRINKING:
                     continue
-            if sequence_complete(compactable_sequence):
+            if sequence_complete(compactible_sequence):
                 break
-        return compactable_sequence, consumed
+        return compactible_sequence, consumed
 
-    compactable_sequences = []
+    compactible_sequences = []
     index = 0
     while ((max_expanding < 0 or
-            len(compactable_sequences) < max_expanding) and
+            len(compactible_sequences) < max_expanding) and
            index < len(shard_ranges)):
-        sequence, consumed = find_compactable_sequence(shard_ranges[index:])
+        sequence, consumed = find_compactible_sequence(shard_ranges[index:])
         index += consumed
         if (index == len(shard_ranges) and
-                not compactable_sequences and
+                not compactible_sequences and
                 not sequence_complete(sequence) and
                 sequence.includes(own_shard_range)):
             # special case: only one sequence has been found, which encompasses
@@ -257,12 +257,12 @@ def find_compactable_shard_sequences(broker,
             # when *all* the remaining shard ranges can be simultaneously
             # shrunk to the root.
             sequence.append(own_shard_range)
-            compactable_sequences.append(sequence)
+            compactible_sequences.append(sequence)
         elif len(sequence) > 1 and sequence[-1].state == ShardRange.ACTIVE:
-            compactable_sequences.append(sequence)
+            compactible_sequences.append(sequence)
         # else: this sequence doesn't end with a suitable acceptor shard range
 
-    return compactable_sequences
+    return compactible_sequences
 
 
 def finalize_shrinking(broker, acceptor_ranges, donor_ranges, timestamp):
@@ -285,7 +285,7 @@ def finalize_shrinking(broker, acceptor_ranges, donor_ranges, timestamp):
     broker.merge_shard_ranges(acceptor_ranges + donor_ranges)
 
 
-def process_compactable_shard_sequences(sequences, timestamp):
+def process_compactible_shard_sequences(sequences, timestamp):
     """
     Transform the given sequences of shard ranges into a list of acceptors and
     a list of shrinking donors. For each given sequence the final ShardRange in
@@ -1629,17 +1629,17 @@ class ContainerSharder(ContainerReplicator):
                                 quote(broker.path))
             return
 
-        compactable_sequences = find_compactable_shard_sequences(
+        compactible_sequences = find_compactible_shard_sequences(
             broker, self.shrink_size, self.merge_size, 1, -1)
-        self.logger.debug('Found %s compactable sequences of length(s) %s' %
-                          (len(compactable_sequences),
-                           [len(s) for s in compactable_sequences]))
+        self.logger.debug('Found %s compactible sequences of length(s) %s' %
+                          (len(compactible_sequences),
+                           [len(s) for s in compactible_sequences]))
         timestamp = Timestamp.now()
-        acceptors, donors = process_compactable_shard_sequences(
-            compactable_sequences, timestamp)
+        acceptors, donors = process_compactible_shard_sequences(
+            compactible_sequences, timestamp)
         finalize_shrinking(broker, acceptors, donors, timestamp)
         own_shard_range = broker.get_own_shard_range()
-        for sequence in compactable_sequences:
+        for sequence in compactible_sequences:
             acceptor = sequence[-1]
             donors = ShardRangeList(sequence[:-1])
             self.logger.debug(

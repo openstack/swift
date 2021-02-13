@@ -167,8 +167,8 @@ from six.moves import input
 from swift.common.utils import Timestamp, get_logger, ShardRange
 from swift.container.backend import ContainerBroker, UNSHARDED
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
-    CleavingContext, process_compactable_shard_sequences, \
-    find_compactable_shard_sequences, find_overlapping_ranges, \
+    CleavingContext, process_compactible_shard_sequences, \
+    find_compactible_shard_sequences, find_overlapping_ranges, \
     finalize_shrinking
 
 DEFAULT_ROWS_PER_SHARD = 500000
@@ -435,23 +435,23 @@ def compact_shard_ranges(broker, args):
               'compacted.')
         return 2
 
-    compactable = find_compactable_shard_sequences(broker,
+    compactible = find_compactible_shard_sequences(broker,
                                                    args.shrink_threshold,
                                                    args.expansion_limit,
                                                    args.max_shrinking,
                                                    args.max_expanding)
-    if not compactable:
+    if not compactible:
         print('No shards identified for compaction.')
         return 0
 
-    for sequence in compactable:
+    for sequence in compactible:
         if sequence[-1].state not in (ShardRange.ACTIVE, ShardRange.SHARDED):
             print('ERROR: acceptor not in correct state: %s' % sequence[-1],
                   file=sys.stderr)
             return 1
 
     if not args.yes:
-        for sequence in compactable:
+        for sequence in compactible:
             acceptor = sequence[-1]
             donors = sequence[:-1]
             print('Shard %s (object count %d) can expand to accept %d objects '
@@ -468,10 +468,10 @@ def compact_shard_ranges(broker, args):
             return 0
 
     timestamp = Timestamp.now()
-    acceptor_ranges, shrinking_ranges = process_compactable_shard_sequences(
-        compactable, timestamp)
+    acceptor_ranges, shrinking_ranges = process_compactible_shard_sequences(
+        compactible, timestamp)
     finalize_shrinking(broker, acceptor_ranges, shrinking_ranges, timestamp)
-    print('Updated %s shard sequences for compaction.' % len(compactable))
+    print('Updated %s shard sequences for compaction.' % len(compactible))
     print('Run container-replicator to replicate the changes to other '
           'nodes.')
     print('Run container-sharder on all nodes to compact shards.')
