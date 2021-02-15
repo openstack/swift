@@ -20,6 +20,7 @@ import uuid
 
 from nose import SkipTest
 import six
+from six.moves.urllib.parse import quote
 
 from swift.common import direct_client, utils
 from swift.common.manager import Manager
@@ -57,6 +58,7 @@ class ShardCollector(object):
 
 
 class BaseTestContainerSharding(ReplProbeTest):
+    DELIM = '-'
 
     def _maybe_skip_test(self):
         try:
@@ -101,10 +103,10 @@ class BaseTestContainerSharding(ReplProbeTest):
         self._maybe_skip_test()
 
     def _make_object_names(self, number):
-        return ['obj-%04d' % x for x in range(number)]
+        return ['obj%s%04d' % (self.DELIM, x) for x in range(number)]
 
     def _setup_container_name(self):
-        self.container_name = 'container-%s' % uuid.uuid4()
+        self.container_name = 'container%s%s' % (self.DELIM, uuid.uuid4())
 
     def setUp(self):
         client.logger.setLevel(client.logging.WARNING)
@@ -415,7 +417,8 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
                                         self.max_shard_size // 2)]
 
         def check_listing(objects, **params):
-            qs = '&'.join(['%s=%s' % param for param in params.items()])
+            qs = '&'.join('%s=%s' % (k, quote(str(v)))
+                          for k, v in params.items())
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name, query_string=qs)
             listing = [x['name'].encode('utf-8') if six.PY2 else x['name']
@@ -468,12 +471,12 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
             # delimiter
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name,
-                query_string='delimiter=-')
-            self.assertEqual([{'subdir': 'obj-'}], listing)
+                query_string='delimiter=' + quote(self.DELIM))
+            self.assertEqual([{'subdir': 'obj' + self.DELIM}], listing)
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name,
-                query_string='delimiter=j-')
-            self.assertEqual([{'subdir': 'obj-'}], listing)
+                query_string='delimiter=j' + quote(self.DELIM))
+            self.assertEqual([{'subdir': 'obj' + self.DELIM}], listing)
 
             limit = self.cluster_info['swift']['container_listing_limit']
             exc = check_listing_fails(412, limit=limit + 1)
@@ -546,13 +549,23 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
         self.assert_container_post_ok('sharded')
 
 
+class TestContainerShardingFunkyNames(TestContainerShardingNonUTF8):
+    DELIM = '\n'
+
+    def _make_object_names(self, number):
+        return ['obj\n%04d%%Ff' % x for x in range(number)]
+
+    def _setup_container_name(self):
+        self.container_name = 'container\n%%Ff\n%s' % uuid.uuid4()
+
+
 class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
     def _make_object_names(self, number):
         # override default with names that include non-ascii chars
         name_length = self.cluster_info['swift']['max_object_name_length']
         obj_names = []
         for x in range(number):
-            name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
+            name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234-%04d' % x)
             name = name.encode('utf8').ljust(name_length, b'o')
             if not six.PY2:
                 name = name.decode('utf8')
@@ -563,10 +576,11 @@ class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
         # override default with max length name that includes non-ascii chars
         super(TestContainerShardingUTF8, self)._setup_container_name()
         name_length = self.cluster_info['swift']['max_container_name_length']
-        cont_name = self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb'
-        self.conainer_name = cont_name.ljust(name_length, 'x')
-        if six.PY2:
-            self.conainer_name = self.container_name.encode('utf8')
+        cont_name = \
+            self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234'
+        self.container_name = cont_name.encode('utf8').ljust(name_length, b'x')
+        if not six.PY2:
+            self.container_name = self.container_name.decode('utf8')
 
 
 class TestContainerSharding(BaseTestContainerSharding):
@@ -1114,7 +1128,9 @@ class TestContainerSharding(BaseTestContainerSharding):
             shard_listings = self.direct_get_container(sr.account,
                                                        sr.container)
             for node, (hdrs, listing) in shard_listings.items():
-                shard_listing_names = [o['name'] for o in listing]
+                shard_listing_names = [
+                    o['name'].encode('utf-8') if six.PY2 else o['name']
+                    for o in listing]
                 for obj in obj_names[4::5]:
                     if obj in sr:
                         self.assertIn(obj, shard_listing_names)
@@ -1178,8 +1194,9 @@ class TestContainerSharding(BaseTestContainerSharding):
                                    expected_shards=0, exp_obj_count=0):
             # checks that shard range is consistent on all nodes
             root_path = '%s/%s' % (self.account, self.container_name)
-            exp_shard_hdrs = {'X-Container-Sysmeta-Shard-Root': root_path,
-                              'X-Backend-Sharding-State': expected_state}
+            exp_shard_hdrs = {
+                'X-Container-Sysmeta-Shard-Quoted-Root': quote(root_path),
+                'X-Backend-Sharding-State': expected_state}
             object_counts = []
             bytes_used = []
             for node_id, node_data in node_data.items():
@@ -2178,3 +2195,27 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assertEqual(2, int(metadata.get('x-account-container-count')))
         self.assertEqual(0, int(metadata.get('x-account-object-count')))
         self.assertEqual(0, int(metadata.get('x-account-bytes-used')))
+
+
+class TestContainerShardingMoreUTF8(TestContainerSharding):
+    def _make_object_names(self, number):
+        # override default with names that include non-ascii chars
+        name_length = self.cluster_info['swift']['max_object_name_length']
+        obj_names = []
+        for x in range(number):
+            name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
+            name = name.encode('utf8').ljust(name_length, b'o')
+            if not six.PY2:
+                name = name.decode('utf8')
+            obj_names.append(name)
+        return obj_names
+
+    def _setup_container_name(self):
+        # override default with max length name that includes non-ascii chars
+        super(TestContainerShardingMoreUTF8, self)._setup_container_name()
+        name_length = self.cluster_info['swift']['max_container_name_length']
+        cont_name = \
+            self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234'
+        self.container_name = cont_name.encode('utf8').ljust(name_length, b'x')
+        if not six.PY2:
+            self.container_name = self.container_name.decode('utf8')
