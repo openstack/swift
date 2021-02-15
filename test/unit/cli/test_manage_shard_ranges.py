@@ -358,6 +358,23 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(['Loaded db broker for a/c.'],
                          err.getvalue().splitlines())
         self._assert_enabled(broker, now)
+        found_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(
             [(data['lower'], data['upper']) for data in self.shard_data],
-            [(sr.lower_str, sr.upper_str) for sr in broker.get_shard_ranges()])
+            [(sr.lower_str, sr.upper_str) for sr in found_shard_ranges])
+
+        # Do another find & replace but quit when prompted about existing
+        # shard ranges
+        out = StringIO()
+        err = StringIO()
+        to_patch = 'swift.cli.manage_shard_ranges.input'
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock_timestamp_now() as now, \
+                mock.patch(to_patch, return_value='q'):
+            main([broker.db_file, 'find_and_replace', '10'])
+        # Shard ranges haven't changed at all
+        self.assertEqual(found_shard_ranges, broker.get_shard_ranges())
+        expected = ['This will delete existing 10 shard ranges.']
+        self.assertEqual(expected, out.getvalue().splitlines())
+        self.assertEqual(['Loaded db broker for a/c.'],
+                         err.getvalue().splitlines())
