@@ -671,6 +671,10 @@ use = egg:swift#memcache
 # Sets the maximum number of connections to each memcached server per worker
 # memcache_max_connections = 2
 #
+# (Optional) Global toggle for TLS usage when comunicating with
+# the caching servers.
+# tls_enabled =
+#
 # More options documented in memcache.conf-sample
 
 [filter:ratelimit]
