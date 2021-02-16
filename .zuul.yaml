@@ -273,6 +273,7 @@
     nodeset: centos-7
     description: |
       Setup a SAIO dev environment and run ceph-s3tests
+    timeout: 2400
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
