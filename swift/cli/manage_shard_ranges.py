@@ -177,6 +177,12 @@ DEFAULT_MAX_SHRINKING = 1
 DEFAULT_MAX_EXPANDING = -1
 
 
+def _print_shard_range(sr, level=0):
+    indent = '  ' * level
+    print(indent + 'objects: %-9d lower: %r' % (sr.object_count, sr.lower_str))
+    print(indent + '  state: %-9s upper: %r' % (sr.state_text, sr.upper_str))
+
+
 def _load_and_validate_shard_data(args):
     try:
         with open(args.input, 'r') as fd:
@@ -454,12 +460,12 @@ def compact_shard_ranges(broker, args):
         for sequence in compactible:
             acceptor = sequence[-1]
             donors = sequence[:-1]
-            print('Shard %s (object count %d) can expand to accept %d objects '
-                  'from:' %
-                  (acceptor, acceptor.object_count, donors.object_count))
+            print('Donor shard range(s) with total of %d objects:'
+                  % donors.object_count)
             for donor in donors:
-                print('    shard %s (object count %d)' %
-                      (donor, donor.object_count))
+                _print_shard_range(donor, level=1)
+            print('can be compacted into acceptor shard range:')
+            _print_shard_range(acceptor, level=1)
         print('Once applied to the broker these changes will result in shard '
               'range compaction the next time the sharder runs.')
         choice = input('Do you want to apply these changes? [y/N]')
