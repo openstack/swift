@@ -245,14 +245,7 @@ def determine_exit_code(logger, found_policy, processed, action, action_errors,
     return EXIT_SUCCESS
 
 
-def relink(swift_dir='/etc/swift',
-           devices='/srv/node',
-           skip_mount_check=False,
-           logger=logging.getLogger(),
-           device=None,
-           files_per_second=0):
-    mount_check = not skip_mount_check
-    conf = {'devices': devices, 'mount_check': mount_check}
+def relink(conf, logger, device):
     diskfile_router = diskfile.DiskFileRouter(conf, logger)
     found_policy = False
     relinked = errors = 0
@@ -260,13 +253,13 @@ def relink(swift_dir='/etc/swift',
     for policy in POLICIES:
         diskfile_mgr = diskfile_router[policy]
         policy.object_ring = None  # Ensure it will be reloaded
-        policy.load_ring(swift_dir)
+        policy.load_ring(conf['swift_dir'])
         part_power = policy.object_ring.part_power
         next_part_power = policy.object_ring.next_part_power
         if not next_part_power or next_part_power == part_power:
             continue
         logger.info('Relinking files for policy %s under %s',
-                    policy.name, devices)
+                    policy.name, conf['devices'])
         found_policy = True
         datadir = diskfile.get_data_dir(policy)
 
@@ -287,9 +280,9 @@ def relink(swift_dir='/etc/swift',
         relink_hashes_filter = partial(hashes_filter, next_part_power)
 
         locations = audit_location_generator(
-            devices,
+            conf['devices'],
             datadir,
-            mount_check=mount_check,
+            mount_check=conf['mount_check'],
             devices_filter=relink_devices_filter,
             hook_pre_device=relink_hook_pre_device,
             hook_post_device=relink_hook_post_device,
@@ -297,8 +290,9 @@ def relink(swift_dir='/etc/swift',
             hook_post_partition=relink_hook_post_partition,
             hashes_filter=relink_hashes_filter,
             logger=logger, error_counter=error_counter)
-        if files_per_second > 0:
-            locations = RateLimitedIterator(locations, files_per_second)
+        if conf['files_per_second'] > 0:
+            locations = RateLimitedIterator(
+                locations, conf['files_per_second'])
         for fname, _, _ in locations:
             newfname = replace_partition_in_path(fname, next_part_power)
             try:
@@ -319,14 +313,7 @@ def relink(swift_dir='/etc/swift',
     )
 
 
-def cleanup(swift_dir='/etc/swift',
-            devices='/srv/node',
-            skip_mount_check=False,
-            logger=logging.getLogger(),
-            device=None,
-            files_per_second=0):
-    mount_check = not skip_mount_check
-    conf = {'devices': devices, 'mount_check': mount_check}
+def cleanup(conf, logger, device):
     diskfile_router = diskfile.DiskFileRouter(conf, logger)
     errors = cleaned_up = 0
     error_counter = {}
@@ -334,13 +321,13 @@ def cleanup(swift_dir='/etc/swift',
     for policy in POLICIES:
         diskfile_mgr = diskfile_router[policy]
         policy.object_ring = None  # Ensure it will be reloaded
-        policy.load_ring(swift_dir)
+        policy.load_ring(conf['swift_dir'])
         part_power = policy.object_ring.part_power
         next_part_power = policy.object_ring.next_part_power
         if not next_part_power or next_part_power != part_power:
             continue
         logger.info('Cleaning up files for policy %s under %s',
-                    policy.name, devices)
+                    policy.name, conf['devices'])
         found_policy = True
         datadir = diskfile.get_data_dir(policy)
 
@@ -361,9 +348,9 @@ def cleanup(swift_dir='/etc/swift',
         cleanup_hashes_filter = partial(hashes_filter, next_part_power)
 
         locations = audit_location_generator(
-            devices,
+            conf['devices'],
             datadir,
-            mount_check=mount_check,
+            mount_check=conf['mount_check'],
             devices_filter=cleanup_devices_filter,
             hook_pre_device=cleanup_hook_pre_device,
             hook_post_device=cleanup_hook_post_device,
@@ -371,8 +358,9 @@ def cleanup(swift_dir='/etc/swift',
             hook_post_partition=cleanup_hook_post_partition,
             hashes_filter=cleanup_hashes_filter,
             logger=logger, error_counter=error_counter)
-        if files_per_second > 0:
-            locations = RateLimitedIterator(locations, files_per_second)
+        if conf['files_per_second'] > 0:
+            locations = RateLimitedIterator(
+                locations, conf['files_per_second'])
         for fname, device, partition in locations:
             expected_fname = replace_partition_in_path(fname, part_power)
             if fname == expected_fname:
@@ -464,29 +452,29 @@ def main(args):
             drop_privileges(user)
         logger = get_logger(conf)
     else:
-        conf = {}
+        conf = {'log_level': 'DEBUG' if args.debug else 'INFO'}
         if args.user:
             # Drop privs before creating log file
             drop_privileges(args.user)
+            conf['user'] = args.user
         logging.basicConfig(
             format='%(message)s',
             level=logging.DEBUG if args.debug else logging.INFO,
             filename=args.logfile)
         logger = logging.getLogger()
 
-    swift_dir = args.swift_dir or conf.get('swift_dir', '/etc/swift')
-    devices = args.devices or conf.get('devices', '/srv/node')
-    skip_mount_check = args.skip_mount_check or not config_true_value(
-        conf.get('mount_check', 'true'))
-    files_per_second = non_negative_float(
-        args.files_per_second or conf.get('files_per_second', '0'))
+    conf.update({
+        'swift_dir': args.swift_dir or conf.get('swift_dir', '/etc/swift'),
+        'devices': args.devices or conf.get('devices', '/srv/node'),
+        'mount_check': (config_true_value(conf.get('mount_check', 'true'))
+                        and not args.skip_mount_check),
+        'files_per_second': (
+            args.files_per_second if args.files_per_second is not None
+            else non_negative_float(conf.get('files_per_second', '0'))),
+    })
 
     if args.action == 'relink':
-        return relink(
-            swift_dir, devices, skip_mount_check, logger, device=args.device,
-            files_per_second=files_per_second)
+        return relink(conf, logger, device=args.device)
 
     if args.action == 'cleanup':
-        return cleanup(
-            swift_dir, devices, skip_mount_check, logger, device=args.device,
-            files_per_second=files_per_second)
+        return cleanup(conf, logger, device=args.device)
