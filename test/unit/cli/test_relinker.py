@@ -21,10 +21,12 @@ from textwrap import dedent
 
 import mock
 import os
+import pickle
 import shutil
 import struct
 import tempfile
 import unittest
+import uuid
 
 from swift.cli import relinker
 from swift.common import exceptions, ring, utils
@@ -32,7 +34,7 @@ from swift.common import storage_policy
 from swift.common.storage_policy import (
     StoragePolicy, StoragePolicyCollection, POLICIES, ECStoragePolicy)
 
-from swift.obj.diskfile import write_metadata
+from swift.obj.diskfile import write_metadata, DiskFileRouter, DiskFileManager
 
 from test.unit import FakeLogger, skip_if_no_xattrs, DEFAULT_TEST_EC_TYPE, \
     patch_policies
@@ -64,18 +66,24 @@ class TestRelinker(unittest.TestCase):
         self.objects = os.path.join(self.devices, self.existing_device,
                                     'objects')
         os.mkdir(self.objects)
-        self._hash = utils.hash_path('a/c/o')
-        digest = binascii.unhexlify(self._hash)
-        self.part = struct.unpack_from('>I', digest)[0] >> 24
-        self.next_part = struct.unpack_from('>I', digest)[0] >> 23
+        for _ in range(10):
+            obj_path = '/a/c/o-' + str(uuid.uuid4())
+            self._hash = utils.hash_path(obj_path[1:])
+            digest = binascii.unhexlify(self._hash)
+            self.part = struct.unpack_from('>I', digest)[0] >> 24
+            self.next_part = struct.unpack_from('>I', digest)[0] >> 23
+            # There's 1/512 chance that both old and new parts will be 0;
+            # that's not a terribly interesting case, as there's nothing to do
+            if self.part != self.next_part:
+                break
         self.objdir = os.path.join(
             self.objects, str(self.part), self._hash[-3:], self._hash)
         os.makedirs(self.objdir)
-        self.object_fname = "1278553064.00000.data"
+        self.object_fname = utils.Timestamp.now().internal + ".data"
         self.objname = os.path.join(self.objdir, self.object_fname)
         with open(self.objname, "wb") as dummy:
             dummy.write(b"Hello World!")
-            write_metadata(dummy, {'name': '/a/c/o', 'Content-Length': '12'})
+            write_metadata(dummy, {'name': obj_path, 'Content-Length': '12'})
 
         test_policies = [StoragePolicy(0, 'platinum', True)]
         storage_policy._POLICIES = StoragePolicyCollection(test_policies)
@@ -311,6 +319,23 @@ class TestRelinker(unittest.TestCase):
         stat_new = os.stat(self.expected_file)
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
 
+        if self.next_part < 2 ** PART_POWER:
+            # Invalidated now, rehashed during cleanup
+            with open(os.path.join(self.objects, str(self.next_part),
+                                   'hashes.invalid')) as fp:
+                self.assertEqual(fp.read(), self._hash[-3:] + '\n')
+        else:
+            # Invalidated and rehashed during relinking
+            with open(os.path.join(self.objects, str(self.next_part),
+                                   'hashes.invalid')) as fp:
+                self.assertEqual(fp.read(), '')
+            with open(os.path.join(self.objects, str(self.next_part),
+                                   'hashes.pkl'), 'rb') as fp:
+                self.assertIn(self._hash[-3:], pickle.load(fp))
+
+        self.assertFalse(os.path.exists(os.path.join(
+            self.objects, str(self.part), 'hashes.invalid')))
+
     def test_relink_no_applicable_policy(self):
         # NB do not prepare part power increase
         self._save_ring()
@@ -414,6 +439,8 @@ class TestRelinker(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.expected_file))
         self.assertFalse(os.path.isfile(
             os.path.join(self.objdir, self.object_fname)))
+        self.assertFalse(os.path.exists(
+            os.path.join(self.objects, str(self.part))))
 
     def test_cleanup_no_applicable_policy(self):
         # NB do not prepare part power increase
@@ -500,12 +527,13 @@ class TestRelinker(unittest.TestCase):
             '--devices', self.devices,
             '--skip-mount',
         ]))
+        state = {str(self.part): True}
         with open(state_file, 'rt') as f:
             orig_inode = os.stat(state_file).st_ino
             self.assertEqual(json.load(f), {
                 "part_power": PART_POWER,
                 "next_part_power": PART_POWER + 1,
-                "state": {str(self.part): True}})
+                "state": state})
 
         self.rb.increase_partition_power()
         self.rb._ring = None  # Force builder to reload ring
@@ -521,6 +549,8 @@ class TestRelinker(unittest.TestCase):
                 '--skip-mount',
             ]))
             self.assertNotEqual(orig_inode, os.stat(state_file).st_ino)
+        if self.next_part < 2 ** PART_POWER:
+            state[str(self.next_part)] = True
         with open(state_file, 'rt') as f:
             # NB: part_power/next_part_power tuple changed, so state was reset
             # (though we track prev_part_power for an efficient clean up)
@@ -528,8 +558,7 @@ class TestRelinker(unittest.TestCase):
                 "prev_part_power": PART_POWER,
                 "part_power": PART_POWER + 1,
                 "next_part_power": PART_POWER + 1,
-                "state": {str(self.part): True,
-                          str(self.next_part): True}})
+                "state": state})
 
     def test_devices_filter_filtering(self):
         # With no filtering, returns all devices
@@ -602,8 +631,12 @@ class TestRelinker(unittest.TestCase):
                                                 'auditor_status.json']))
         self.assertEqual(states["state"], {'96': False, '227': False})
 
+        pol = POLICIES[0]
+        mgr = DiskFileRouter({'devices': self.devices,
+                              'mount_check': False}, self.logger)[pol]
+
         # Ack partition 96
-        relinker.hook_post_partition(states, relinker.STEP_RELINK,
+        relinker.hook_post_partition(states, relinker.STEP_RELINK, pol, mgr,
                                      os.path.join(datadir_path, '96'))
         self.assertEqual(states["state"], {'96': True, '227': False})
         with open(state_file, 'rt') as f:
@@ -619,7 +652,7 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(states["state"], {'96': True, '227': False})
 
         # Ack partition 227
-        relinker.hook_post_partition(states, relinker.STEP_RELINK,
+        relinker.hook_post_partition(states, relinker.STEP_RELINK, pol, mgr,
                                      os.path.join(datadir_path, '227'))
         self.assertEqual(states["state"], {'96': True, '227': True})
         with open(state_file, 'rt') as f:
@@ -661,7 +694,7 @@ class TestRelinker(unittest.TestCase):
                          call_partition_filter(PART_POWER + 1, PART_POWER + 1,
                                                ['96', '227', '312']))
         # Ack partition 227
-        relinker.hook_post_partition(states, relinker.STEP_CLEANUP,
+        relinker.hook_post_partition(states, relinker.STEP_CLEANUP, pol, mgr,
                                      os.path.join(datadir_path, '227'))
         self.assertEqual(states["state"],
                          {'96': False, '227': True})
@@ -680,7 +713,7 @@ class TestRelinker(unittest.TestCase):
                          {'96': False, '227': True})
 
         # Ack partition 96
-        relinker.hook_post_partition(states, relinker.STEP_CLEANUP,
+        relinker.hook_post_partition(states, relinker.STEP_CLEANUP, pol, mgr,
                                      os.path.join(datadir_path, '96'))
         self.assertEqual(states["state"],
                          {'96': True, '227': True})
@@ -788,9 +821,12 @@ class TestRelinker(unittest.TestCase):
                 '--skip-mount',
             ]))
         log_lines = self.logger.get_lines_for_level('warning')
-        self.assertEqual(1, len(log_lines),
-                         'Expected 1 log line, got %r' % log_lines)
+        self.assertEqual(2, len(log_lines),
+                         'Expected 2 log lines, got %r' % log_lines)
+        # Once for the cleanup...
         self.assertIn('Bad fragment index: None', log_lines[0])
+        # ... then again for the rehash
+        self.assertIn('Bad fragment index: None', log_lines[1])
 
     def test_cleanup_quarantined(self):
         self._common_test_cleanup()
@@ -813,6 +849,72 @@ class TestRelinker(unittest.TestCase):
         self.assertIn('metadata content-length 12 does not match '
                       'actual object size 5', log_lines[0])
         self.assertIn('failed audit and was quarantined', log_lines[1])
+
+    def test_rehashing(self):
+        calls = []
+
+        @contextmanager
+        def do_mocks():
+            orig_invalidate = relinker.diskfile.invalidate_hash
+            orig_get_hashes = DiskFileManager.get_hashes
+
+            def mock_invalidate(suffix_dir):
+                calls.append(('invalidate', suffix_dir))
+                return orig_invalidate(suffix_dir)
+
+            def mock_get_hashes(self, *args):
+                calls.append(('get_hashes', ) + args)
+                return orig_get_hashes(self, *args)
+
+            with mock.patch.object(relinker.diskfile, 'invalidate_hash',
+                                   mock_invalidate), \
+                    mock.patch.object(DiskFileManager, 'get_hashes',
+                                      mock_get_hashes):
+                yield
+
+        old_suffix_dir = os.path.join(
+            self.objects, str(self.part), self._hash[-3:])
+        new_suffix_dir = os.path.join(
+            self.objects, str(self.next_part), self._hash[-3:])
+
+        with do_mocks():
+            self.rb.prepare_increase_partition_power()
+            self._save_ring()
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+            expected = [('invalidate', new_suffix_dir)]
+            if self.part >= 2 ** (PART_POWER - 1):
+                expected.extend([
+                    ('get_hashes', self.existing_device, self.next_part & ~1,
+                     [], POLICIES[0]),
+                    ('get_hashes', self.existing_device, self.next_part | 1,
+                     [], POLICIES[0]),
+                ])
+
+            self.assertEqual(calls, expected)
+            # Depending on partition, there may or may not be a get_hashes here
+            self.rb._ring = None  # Force builder to reload ring
+            self.rb.increase_partition_power()
+            self._save_ring()
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+            if self.part < 2 ** (PART_POWER - 1):
+                expected.append(('get_hashes', self.existing_device,
+                                 self.next_part, [], POLICIES[0]))
+            expected.extend([
+                ('invalidate', old_suffix_dir),
+                ('get_hashes', self.existing_device, self.part, [],
+                 POLICIES[0]),
+            ])
+            self.assertEqual(calls, expected)
 
 
 if __name__ == '__main__':

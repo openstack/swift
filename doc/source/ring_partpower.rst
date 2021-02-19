@@ -30,16 +30,21 @@ Caveats
 Before increasing the partition power, consider the possible drawbacks.
 There are a few caveats when increasing the partition power:
 
-* All hashes.pkl files will become invalid once hard links are created, and the
-  replicators will need significantly more time on the first run after finishing
-  the partition power increase.
-* Object replicators will skip partitions during the partition power increase.
-  Replicators are not aware of hard-links, and would simply copy the content;
-  this would result in heavy data movement and the worst case would be that all
-  data is stored twice.
+* Almost all diskfiles in the cluster need to be relinked then cleaned up,
+  and all partition directories need to be rehashed. This imposes significant
+  I/O load on object servers, which may impact client requests. Consider using
+  cgroups, ``ionice``, or even just the built-in ``--files-per-second``
+  rate-limiting to reduce client impact.
+* Object replicators and reconstructors will skip affected policies during the
+  partition power increase. Replicators are not aware of hard-links, and would
+  simply copy the content; this would result in heavy data movement and the
+  worst case would be that all data is stored twice.
 * Due to the fact that each object will now be hard linked from two locations,
-  many more inodes will be used - expect around twice the amount. You need to
-  check the free inode count *before* increasing the partition power.
+  many more inodes will be used temporarily - expect around twice the amount.
+  You need to check the free inode count *before* increasing the partition
+  power. Even after the increase is complete and extra hardlinks are cleaned
+  up, expect increased inode usage since there will be twice as many partition
+  and suffix directories.
 * Also, object auditors might read each object twice before cleanup removes the
   second hard link.
 * Due to the new inodes more memory is needed to cache them, and your
@@ -76,13 +81,14 @@ on all object servers in this phase::
     which normally happens within 15 seconds after writing a modified ring.
     Also, make sure the modified rings are pushed to all nodes running object
     services (replicators, reconstructors and reconcilers)- they have to skip
-    partitions during relinking.
+    the policy during relinking.
 
 .. note::
 
     The relinking command must run as the same user as the daemon processes
     (usually swift). It will create files and directories that must be
     manipulable by the daemon processes (server, auditor, replicator, ...).
+    If necessary, the ``--user`` option may be used to drop privileges.
 
 Relinking might take some time; while there is no data copied or actually
 moved, the tool still needs to walk the whole file system and create new hard
@@ -131,10 +137,11 @@ is provided to do this. Run the following command on each storage node::
 
 .. note::
 
-    The cleanup must be finished within your object servers reclaim_age period
-    (which is by default 1 week). Otherwise objects that have been overwritten
-    between step #1 and step #2 and deleted afterwards can't be cleaned up
-    anymore.
+    The cleanup must be finished within your object servers ``reclaim_age``
+    period (which is by default 1 week). Otherwise objects that have been
+    overwritten between step #1 and step #2 and deleted afterwards can't be
+    cleaned up anymore. You may want to increase your ``reclaim_age`` before
+    or during relinking.
 
 Afterwards it is required to update the rings one last
 time to inform servers that all steps to increase the partition power are done,
