@@ -223,7 +223,7 @@ class TestRelinker(unittest.TestCase):
     def test_conf_file(self):
         config = """
         [DEFAULT]
-        swift_dir = test/swift/dir
+        swift_dir = %s
         devices = /test/node
         mount_check = false
         reclaim_age = 5184000
@@ -231,7 +231,7 @@ class TestRelinker(unittest.TestCase):
         [object-relinker]
         log_level = WARNING
         log_name = test-relinker
-        """
+        """ % self.testdir
         conf_file = os.path.join(self.testdir, 'relinker.conf')
         with open(conf_file, 'w') as f:
             f.write(dedent(config))
@@ -239,20 +239,28 @@ class TestRelinker(unittest.TestCase):
         # cite conf file on command line
         with mock.patch('swift.cli.relinker.relink') as mock_relink:
             relinker.main(['relink', conf_file, '--device', 'sdx', '--debug'])
-        mock_relink.assert_called_once_with({
+        exp_conf = {
             '__file__': mock.ANY,
-            'swift_dir': 'test/swift/dir',
+            'swift_dir': self.testdir,
             'devices': '/test/node',
             'mount_check': False,
             'reclaim_age': '5184000',
             'files_per_second': 0.0,
             'log_name': 'test-relinker',
             'log_level': 'DEBUG',
-        }, mock.ANY, device='sdx')
+        }
+        mock_relink.assert_called_once_with(exp_conf, mock.ANY, device='sdx')
         logger = mock_relink.call_args[0][1]
         # --debug overrides conf file
         self.assertEqual(logging.DEBUG, logger.getEffectiveLevel())
         self.assertEqual('test-relinker', logger.logger.name)
+
+        # check the conf is passed to DiskFileRouter
+        self._save_ring()
+        with mock.patch('swift.cli.relinker.diskfile.DiskFileRouter',
+                        side_effect=DiskFileRouter) as mock_dfr:
+            relinker.main(['relink', conf_file, '--device', 'sdx', '--debug'])
+        mock_dfr.assert_called_once_with(exp_conf, mock.ANY)
 
         # flip mount_check, no --debug...
         config = """
