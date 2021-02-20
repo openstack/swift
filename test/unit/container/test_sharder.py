@@ -40,7 +40,8 @@ from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
 from swift.container.sharder import ContainerSharder, sharding_enabled, \
     CleavingContext, DEFAULT_SHARD_SHRINK_POINT, \
     DEFAULT_SHARD_CONTAINER_THRESHOLD, finalize_shrinking, \
-    find_shrinking_candidates, process_compactible_shard_sequences
+    find_shrinking_candidates, process_compactible_shard_sequences, \
+    find_compactible_shard_sequences
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
@@ -6026,3 +6027,133 @@ class TestSharderFunctions(BaseTestSharder):
                          [dict(sr) for sr in acceptors])
         self.assertEqual([dict(sr) for sr in expected_donors],
                          [dict(sr) for sr in donors])
+
+    def test_find_compactible_shard_ranges_in_found_state(self):
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.FOUND)
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([], sequences)
+
+    def test_find_compactible_four_donors_two_acceptors(self):
+        small_ranges = (2, 3, 4, 7)
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE)
+        for i, sr in enumerate(shard_ranges):
+            if i not in small_ranges:
+                sr.object_count = 100
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges[2:6], shard_ranges[7:9]], sequences)
+
+    def test_find_compactible_all_donors_shrink_to_root(self):
+        # by default all shard ranges are small enough to shrink so the root
+        # becomes the acceptor
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDED)
+        broker.merge_shard_ranges(own_sr)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges + [own_sr]], sequences)
+
+    def test_find_compactible_single_donor_shrink_to_root(self):
+        # single shard range small enough to shrink so the root becomes the
+        # acceptor
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', ''),),
+            state=ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDED)
+        broker.merge_shard_ranges(own_sr)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges + [own_sr]], sequences)
+
+    def test_find_compactible_donors_but_no_suitable_acceptor(self):
+        # if shard ranges are already shrinking, check that the final one is
+        # not made into an acceptor if a suitable adjacent acceptor is not
+        # found (unexpected scenario but possible in an overlap situation)
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=([ShardRange.SHRINKING] * 3 +
+                   [ShardRange.SHARDING] +
+                   [ShardRange.ACTIVE] * 6))
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges[4:]], sequences)
+
+    def test_find_compactible_no_gaps(self):
+        # verify that compactible sequences do not include gaps
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('e', 'f'),  # gap d - e
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDED)
+        broker.merge_shard_ranges(own_sr)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges[:3], shard_ranges[3:]], sequences)
+
+    def test_find_compactible_max_shrinking(self):
+        # verify option to limit the number of shrinking shards per acceptor
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        # limit to 1 donor per acceptor
+        sequences = find_compactible_shard_sequences(broker, 10, 999, 1, -1)
+        self.assertEqual([shard_ranges[n:n + 2] for n in range(0, 9, 2)],
+                         sequences)
+
+    def test_find_compactible_max_expanding(self):
+        # verify option to limit the number of expanding shards per acceptor
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        # note: max_shrinking is set to 3 so that there is opportunity for more
+        # than 2 acceptors
+        sequences = find_compactible_shard_sequences(broker, 10, 999, 3, 2)
+        self.assertEqual([shard_ranges[:4], shard_ranges[4:8]], sequences)
+        # relax max_expanding
+        sequences = find_compactible_shard_sequences(broker, 10, 999, 3, 3)
+        self.assertEqual(
+            [shard_ranges[:4], shard_ranges[4:8], shard_ranges[8:]], sequences)
+
+    def test_find_compactible_shrink_threshold(self):
+        # verify option to set the shrink threshold for compaction;
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE, object_count=10)
+        # (n-2)th shard range has one extra object
+        shard_ranges[-2].object_count = 11
+        broker.merge_shard_ranges(shard_ranges)
+        # with threshold set to 10 no shard ranges can be shrunk
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([], sequences)
+        # with threshold == 11 all but the final 2 shard ranges can be shrunk;
+        # note: the (n-1)th shard range is NOT shrunk to root
+        sequences = find_compactible_shard_sequences(broker, 11, 999, -1, -1)
+        self.assertEqual([shard_ranges[:9]], sequences)
