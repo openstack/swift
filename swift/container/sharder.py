@@ -17,6 +17,7 @@ import errno
 import json
 import time
 from collections import defaultdict
+from operator import itemgetter
 from random import random
 
 import os
@@ -514,6 +515,7 @@ class ContainerSharder(ContainerReplicator):
             conf.get('cleave_row_batch_size', 10000))
         self.auto_shard = config_true_value(conf.get('auto_shard', False))
         self.sharding_candidates = []
+        self.shrinking_candidates = []
         self.recon_candidates_limit = int(
             conf.get('recon_candidates_limit', 5))
         self.broker_timeout = config_positive_int_value(
@@ -567,6 +569,7 @@ class ContainerSharder(ContainerReplicator):
         # stats are maintained under the 'sharding' key in self.stats
         self.stats['sharding'] = defaultdict(lambda: defaultdict(int))
         self.sharding_candidates = []
+        self.shrinking_candidates = []
 
     def _append_stat(self, category, key, value):
         if not self.stats['sharding'][category][key]:
@@ -615,11 +618,26 @@ class ContainerSharder(ContainerReplicator):
             self.sharding_candidates.append(
                 self._make_stats_info(broker, node, own_shard_range))
 
-    def _transform_sharding_candidate_stats(self):
-        category = self.stats['sharding']['sharding_candidates']
-        candidates = self.sharding_candidates
+    def _identify_shrinking_candidate(self, broker, node):
+        sequences = find_compactible_shard_sequences(
+            broker, self.shrink_size, self.merge_size,
+            1, -1)
+        _, compactible_ranges = process_compactible_shard_sequences(
+            sequences, Timestamp.now())
+
+        if compactible_ranges:
+            own_shard_range = broker.get_own_shard_range()
+            shrink_candidate = self._make_stats_info(
+                broker, node, own_shard_range)
+            # The number of ranges/donors that can be shrunk if the
+            # tool is used with the current max_shrinking, max_expanding
+            # settings.
+            shrink_candidate['compactible_ranges'] = len(compactible_ranges)
+            self.shrinking_candidates.append(shrink_candidate)
+
+    def _transform_candidate_stats(self, category, candidates, sort_keys):
         category['found'] = len(candidates)
-        candidates.sort(key=lambda c: c['object_count'], reverse=True)
+        candidates.sort(key=itemgetter(*sort_keys), reverse=True)
         if self.recon_candidates_limit >= 0:
             category['top'] = candidates[:self.recon_candidates_limit]
         else:
@@ -667,7 +685,16 @@ class ContainerSharder(ContainerReplicator):
             msg = ' '.join(['%s:%s' % (k, str(stats[k])) for k in keys])
             self.logger.info('Since %s %s - %s', last_report, category, msg)
 
-        self._transform_sharding_candidate_stats()
+        # transform the sharding and shrinking candidate states
+        # first sharding
+        category = self.stats['sharding']['sharding_candidates']
+        self._transform_candidate_stats(category, self.sharding_candidates,
+                                        sort_keys=('object_count',))
+
+        # next shrinking
+        category = self.stats['sharding']['shrinking_candidates']
+        self._transform_candidate_stats(category, self.shrinking_candidates,
+                                        sort_keys=('compactible_ranges',))
 
         dump_recon_cache(
             {'sharding_stats': self.stats,
@@ -1770,6 +1797,8 @@ class ContainerSharder(ContainerReplicator):
                                       quote(broker.path))
 
         if state == SHARDED and broker.is_root_container():
+            # look for shrink stats
+            self._identify_shrinking_candidate(broker, node)
             if is_leader:
                 self._find_and_enable_shrinking_candidates(broker)
                 self._find_and_enable_sharding_candidates(broker)
