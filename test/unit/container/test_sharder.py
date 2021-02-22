@@ -41,7 +41,8 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     CleavingContext, DEFAULT_SHARD_SHRINK_POINT, \
     DEFAULT_SHARD_CONTAINER_THRESHOLD, finalize_shrinking, \
     find_shrinking_candidates, process_compactible_shard_sequences, \
-    find_compactible_shard_sequences
+    find_compactible_shard_sequences, is_shrinking_candidate, \
+    is_sharding_candidate
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
@@ -5904,13 +5905,15 @@ class TestSharderFunctions(BaseTestSharder):
         threshold = (DEFAULT_SHARD_SHRINK_POINT *
                      DEFAULT_SHARD_CONTAINER_THRESHOLD / 100)
         shard_ranges = self._make_shard_ranges(
-            shard_bounds, state=ShardRange.ACTIVE, object_count=threshold)
+            shard_bounds, state=ShardRange.ACTIVE, object_count=threshold,
+            timestamp=next(self.ts_iter))
         broker.merge_shard_ranges(shard_ranges)
         pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
         self.assertEqual({}, pairs)
 
         # one range just below threshold
-        shard_ranges[0].update_meta(threshold - 1, 0)
+        shard_ranges[0].update_meta(threshold - 1, 0,
+                                    meta_timestamp=next(self.ts_iter))
         broker.merge_shard_ranges(shard_ranges[0])
         pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
         self.assertEqual(1, len(pairs), pairs)
@@ -5919,19 +5922,35 @@ class TestSharderFunctions(BaseTestSharder):
             self.assertEqual(shard_ranges[0], donor)
 
         # two ranges just below threshold
-        shard_ranges[2].update_meta(threshold - 1, 0)
+        shard_ranges[2].update_meta(threshold - 1, 0,
+                                    meta_timestamp=next(self.ts_iter))
         broker.merge_shard_ranges(shard_ranges[2])
         pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
+
         # shenanigans to work around dicts with ShardRanges keys not comparing
-        acceptors = []
-        donors = []
-        for acceptor, donor in pairs.items():
-            acceptors.append(acceptor)
-            donors.append(donor)
-        acceptors.sort(key=ShardRange.sort_key)
-        donors.sort(key=ShardRange.sort_key)
-        self.assertEqual([shard_ranges[1], shard_ranges[3]], acceptors)
-        self.assertEqual([shard_ranges[0], shard_ranges[2]], donors)
+        def check_pairs(pairs):
+            acceptors = []
+            donors = []
+            for acceptor, donor in pairs.items():
+                acceptors.append(acceptor)
+                donors.append(donor)
+            acceptors.sort(key=ShardRange.sort_key)
+            donors.sort(key=ShardRange.sort_key)
+            self.assertEqual([shard_ranges[1], shard_ranges[3]], acceptors)
+            self.assertEqual([shard_ranges[0], shard_ranges[2]], donors)
+
+        check_pairs(pairs)
+
+        # repeat call after broker is updated and expect same pairs
+        shard_ranges[0].update_state(ShardRange.SHRINKING, next(self.ts_iter))
+        shard_ranges[2].update_state(ShardRange.SHRINKING, next(self.ts_iter))
+        shard_ranges[1].lower = shard_ranges[0].lower
+        shard_ranges[1].timestamp = next(self.ts_iter)
+        shard_ranges[3].lower = shard_ranges[2].lower
+        shard_ranges[3].timestamp = next(self.ts_iter)
+        broker.merge_shard_ranges(shard_ranges)
+        pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
+        check_pairs(pairs)
 
     def test_finalize_shrinking(self):
         broker = self._make_broker()
@@ -6072,13 +6091,24 @@ class TestSharderFunctions(BaseTestSharder):
         # acceptor
         broker = self._make_broker()
         shard_ranges = self._make_shard_ranges(
-            (('', ''),),
-            state=ShardRange.ACTIVE)
+            (('', ''),), state=ShardRange.ACTIVE, timestamp=next(self.ts_iter))
         broker.merge_shard_ranges(shard_ranges)
         own_sr = broker.get_own_shard_range()
-        own_sr.update_state(ShardRange.SHARDED)
+        own_sr.update_state(ShardRange.SHARDED, next(self.ts_iter))
         broker.merge_shard_ranges(own_sr)
         sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges + [own_sr]], sequences)
+
+        # update broker with donor/acceptor
+        shard_ranges[0].update_state(ShardRange.SHRINKING, next(self.ts_iter))
+        own_sr.update_state(ShardRange.ACTIVE, next(self.ts_iter))
+        broker.merge_shard_ranges([shard_ranges[0], own_sr])
+        # we don't find the same sequence again...
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([], sequences)
+        # ...unless explicitly requesting it
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1,
+                                                     include_shrinking=True)
         self.assertEqual([shard_ranges + [own_sr]], sequences)
 
     def test_find_compactible_donors_but_no_suitable_acceptor(self):
@@ -6140,6 +6170,26 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertEqual(
             [shard_ranges[:4], shard_ranges[4:8], shard_ranges[8:]], sequences)
 
+        # commit the first two sequences to the broker
+        for sr in shard_ranges[:3] + shard_ranges[4:7]:
+            sr.update_state(ShardRange.SHRINKING,
+                            state_timestamp=next(self.ts_iter))
+        shard_ranges[3].lower = shard_ranges[0].lower
+        shard_ranges[3].timestamp = next(self.ts_iter)
+        shard_ranges[7].lower = shard_ranges[4].lower
+        shard_ranges[7].timestamp = next(self.ts_iter)
+        broker.merge_shard_ranges(shard_ranges)
+        # we don't find them again...
+        sequences = find_compactible_shard_sequences(broker, 10, 999, 3, 2)
+        self.assertEqual([], sequences)
+        # ...unless requested explicitly
+        sequences = find_compactible_shard_sequences(broker, 10, 999, 3, 2,
+                                                     include_shrinking=True)
+        self.assertEqual([shard_ranges[:4], shard_ranges[4:8]], sequences)
+        # we could find another if max_expanding is increased
+        sequences = find_compactible_shard_sequences(broker, 10, 999, 3, 3)
+        self.assertEqual([shard_ranges[8:]], sequences)
+
     def test_find_compactible_shrink_threshold(self):
         # verify option to set the shrink threshold for compaction;
         broker = self._make_broker()
@@ -6173,3 +6223,34 @@ class TestSharderFunctions(BaseTestSharder):
         broker.merge_shard_ranges(shard_ranges)
         sequences = find_compactible_shard_sequences(broker, 10, 33, -1, -1)
         self.assertEqual([shard_ranges[:4], shard_ranges[7:]], sequences)
+
+    def test_is_sharding_candidate(self):
+        for state in ShardRange.STATES:
+            for object_count in (9, 10, 11):
+                sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+                                state=state, object_count=object_count)
+                with annotate_failure('%s %s' % (state, object_count)):
+                    if state == ShardRange.ACTIVE and object_count >= 10:
+                        self.assertTrue(is_sharding_candidate(sr, 10))
+                    else:
+                        self.assertFalse(is_sharding_candidate(sr, 10))
+
+    def test_is_shrinking_candidate(self):
+        states = (ShardRange.ACTIVE, ShardRange.SHRINKING)
+
+        def do_check(state, object_count):
+            sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+                            state=state, object_count=object_count)
+            if object_count < 10:
+                if state == ShardRange.ACTIVE and object_count < 10:
+                    self.assertTrue(is_shrinking_candidate(sr, 10))
+                if state in states:
+                    self.assertTrue(is_shrinking_candidate(sr, 10, states))
+            else:
+                self.assertFalse(is_shrinking_candidate(sr, 10))
+                self.assertFalse(is_shrinking_candidate(sr, 10, states))
+
+        for state in ShardRange.STATES:
+            for object_count in (9, 10, 11):
+                with annotate_failure('%s %s' % (state, object_count)):
+                    do_check(state, object_count)

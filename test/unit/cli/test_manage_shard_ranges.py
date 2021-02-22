@@ -759,7 +759,7 @@ class TestManageShardRanges(unittest.TestCase):
         broker.merge_shard_ranges(shard_ranges)
         self._move_broker_to_sharded_state(broker)
 
-        def do_compact():
+        def do_compact(expect_msg):
             out = StringIO()
             err = StringIO()
             with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
@@ -768,12 +768,11 @@ class TestManageShardRanges(unittest.TestCase):
             err_lines = err.getvalue().split('\n')
             self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
             out_lines = out.getvalue().split('\n')
-            self.assertEqual(
-                ['Updated 5 shard sequences for compaction.'],
-                out_lines[:1])
+            self.assertEqual([expect_msg], out_lines[:1])
             return broker.get_shard_ranges()
 
-        updated_ranges = do_compact()
+        updated_ranges = do_compact(
+            'Updated 5 shard sequences for compaction.')
         for acceptor in (1, 3, 5, 7, 9):
             shard_ranges[acceptor].lower = shard_ranges[acceptor - 1].lower
         self.assertEqual(shard_ranges, updated_ranges)
@@ -781,7 +780,7 @@ class TestManageShardRanges(unittest.TestCase):
                          [sr.state for sr in updated_ranges])
 
         # check idempotency
-        updated_ranges = do_compact()
+        updated_ranges = do_compact('No shards identified for compaction.')
         self.assertEqual(shard_ranges, updated_ranges)
         self.assertEqual([ShardRange.SHRINKING, ShardRange.ACTIVE] * 5,
                          [sr.state for sr in updated_ranges])
@@ -795,7 +794,7 @@ class TestManageShardRanges(unittest.TestCase):
         broker.merge_shard_ranges(shard_ranges)
         self._move_broker_to_sharded_state(broker)
 
-        def do_compact():
+        def do_compact(expect_msg):
             out = StringIO()
             err = StringIO()
             with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
@@ -805,12 +804,11 @@ class TestManageShardRanges(unittest.TestCase):
             err_lines = err.getvalue().split('\n')
             self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
             out_lines = out.getvalue().split('\n')
-            self.assertEqual(
-                ['Updated 2 shard sequences for compaction.'],
-                out_lines[:1])
+            self.assertEqual([expect_msg], out_lines[:1])
             return broker.get_shard_ranges()
 
-        updated_ranges = do_compact()
+        updated_ranges = do_compact(
+            'Updated 2 shard sequences for compaction.')
         shard_ranges[7].lower = shard_ranges[0].lower
         shard_ranges[9].lower = shard_ranges[8].lower
         self.assertEqual(shard_ranges, updated_ranges)
@@ -819,7 +817,7 @@ class TestManageShardRanges(unittest.TestCase):
                          [sr.state for sr in updated_ranges])
 
         # check idempotency
-        updated_ranges = do_compact()
+        updated_ranges = do_compact('No shards identified for compaction.')
         self.assertEqual(shard_ranges, updated_ranges)
         self.assertEqual([ShardRange.SHRINKING] * 7 + [ShardRange.ACTIVE] +
                          [ShardRange.SHRINKING] + [ShardRange.ACTIVE],
@@ -833,23 +831,34 @@ class TestManageShardRanges(unittest.TestCase):
             sr.update_state(ShardRange.ACTIVE)
         broker.merge_shard_ranges(shard_ranges)
         self._move_broker_to_sharded_state(broker)
-        out = StringIO()
-        err = StringIO()
-        # note: max_shrinking is set to 3 so that there is opportunity for more
-        # than 2 acceptors
-        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            ret = main([broker.db_file, 'compact', '--yes',
-                        '--max-shrinking', '3', '--max-expanding', '2'])
-        self.assertEqual(0, ret)
-        err_lines = err.getvalue().split('\n')
-        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
-        out_lines = out.getvalue().split('\n')
-        self.assertEqual(
-            ['Updated 2 shard sequences for compaction.'],
-            out_lines[:1])
-        updated_ranges = broker.get_shard_ranges()
+
+        def do_compact(expect_msg):
+            out = StringIO()
+            err = StringIO()
+            # note: max_shrinking is set to 3 so that there is opportunity for
+            # more than 2 acceptors
+            with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+                ret = main([broker.db_file, 'compact', '--yes',
+                            '--max-shrinking', '3', '--max-expanding', '2'])
+            self.assertEqual(0, ret)
+            err_lines = err.getvalue().split('\n')
+            self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+            out_lines = out.getvalue().split('\n')
+            self.assertEqual([expect_msg], out_lines[:1])
+            return broker.get_shard_ranges()
+
+        updated_ranges = do_compact(
+            'Updated 2 shard sequences for compaction.')
         shard_ranges[3].lower = shard_ranges[0].lower
         shard_ranges[7].lower = shard_ranges[4].lower
+        self.assertEqual(shard_ranges, updated_ranges)
+        self.assertEqual([ShardRange.SHRINKING] * 3 + [ShardRange.ACTIVE] +
+                         [ShardRange.SHRINKING] * 3 + [ShardRange.ACTIVE] * 3,
+                         [sr.state for sr in updated_ranges])
+
+        # check idempotency - no more sequences found while existing sequences
+        # are shrinking
+        updated_ranges = do_compact('No shards identified for compaction.')
         self.assertEqual(shard_ranges, updated_ranges)
         self.assertEqual([ShardRange.SHRINKING] * 3 + [ShardRange.ACTIVE] +
                          [ShardRange.SHRINKING] * 3 + [ShardRange.ACTIVE] * 3,
