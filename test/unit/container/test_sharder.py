@@ -6157,3 +6157,19 @@ class TestSharderFunctions(BaseTestSharder):
         # note: the (n-1)th shard range is NOT shrunk to root
         sequences = find_compactible_shard_sequences(broker, 11, 999, -1, -1)
         self.assertEqual([shard_ranges[:9]], sequences)
+
+    def test_find_compactible_expansion_limit(self):
+        # verify option to limit the size of each acceptor after compaction
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE, object_count=6)
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 33, -1, -1)
+        self.assertEqual([shard_ranges[:5], shard_ranges[5:]], sequences)
+        shard_ranges[4].update_meta(20, 2000)
+        shard_ranges[6].update_meta(28, 2700)
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 33, -1, -1)
+        self.assertEqual([shard_ranges[:4], shard_ranges[7:]], sequences)

@@ -129,10 +129,6 @@ def find_sharding_candidates(broker, threshold, shard_ranges=None):
     # large shard containers that should be sharded.
     # First cut is simple: assume root container shard usage stats are good
     # enough to make decision.
-    # TODO: object counts may well not be the appropriate metric for
-    # deciding to shrink because a shard with low object_count may have a
-    # large number of deleted object rows that will need to be merged with
-    # a neighbour. We may need to expose row count as well as object count.
     if shard_ranges is None:
         shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
     candidates = []
@@ -221,17 +217,18 @@ def find_compactible_shard_sequences(broker,
                 # found a gap! break before consuming this range because it
                 # could become the first in the next sequence
                 break
-            consumed += 1
             if (shard_range.name != own_shard_range.name and
                     shard_range.state not in (ShardRange.ACTIVE,
                                               ShardRange.SHRINKING)):
                 # found? created? sharded? don't touch it
+                consumed += 1
                 break
             proposed_object_count = object_count + shard_range.object_count
             if (shard_range.state == ShardRange.SHRINKING or
                     proposed_object_count <= merge_size):
+                consumed += 1
                 compactible_sequence.append(shard_range)
-                object_count += shard_range.object_count
+                object_count = proposed_object_count
                 if shard_range.state == ShardRange.SHRINKING:
                     continue
             if sequence_complete(compactible_sequence):

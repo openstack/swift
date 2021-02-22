@@ -554,7 +554,7 @@ class TestManageShardRanges(unittest.TestCase):
             else:
                 self.assertEqual(ShardRange.ACTIVE, sr.state)
 
-    def test_compact_three_donors_two_acceptors(self):
+    def test_compact_four_donors_two_acceptors(self):
         small_ranges = (2, 3, 4, 7)
         broker = self._make_broker()
         shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
