@@ -29,5 +29,9 @@ if __name__ == '__main__':
                       help='Shard containers only in given partitions. '
                            'Comma-separated list. '
                            'Only has effect if --once is used.')
+    parser.add_option('--no-auto-shard', action='store_false',
+                      dest='auto_shard', default=None,
+                      help='Disable auto-sharding. Overrides the auto_shard '
+                           'value in the config file.')
     conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ContainerSharder, conf_file, **options)
