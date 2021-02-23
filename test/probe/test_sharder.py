@@ -147,25 +147,24 @@ class BaseTestContainerSharding(ReplProbeTest):
             wait_for_server_to_hangup(ipport)
 
     def put_objects(self, obj_names, contents=None):
+        conn = client.Connection(preauthurl=self.url, preauthtoken=self.token)
         results = []
         for obj in obj_names:
             rdict = {}
-            client.put_object(self.url, token=self.token,
-                              container=self.container_name, name=obj,
-                              contents=contents, response_dict=rdict)
+            conn.put_object(self.container_name, obj,
+                            contents=contents, response_dict=rdict)
             results.append((obj, rdict['headers'].get('x-object-version-id')))
         return results
 
     def delete_objects(self, obj_names_and_versions):
+        conn = client.Connection(preauthurl=self.url, preauthtoken=self.token)
         for obj in obj_names_and_versions:
             if isinstance(obj, tuple):
                 obj, version = obj
-                client.delete_object(
-                    self.url, self.token, self.container_name, obj,
-                    query_string='version-id=%s' % version)
+                conn.delete_object(self.container_name, obj,
+                                   query_string='version-id=%s' % version)
             else:
-                client.delete_object(
-                    self.url, self.token, self.container_name, obj)
+                conn.delete_object(self.container_name, obj)
 
     def get_container_shard_ranges(self, account=None, container=None):
         account = account if account else self.account
