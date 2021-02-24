@@ -135,6 +135,12 @@ class ReconMiddleware(object):
         return self._from_recon_cache(['drive_audit_errors'],
                                       self.drive_recon_cache)
 
+    def get_sharding_info(self):
+        """get sharding info"""
+        return self._from_recon_cache(["sharding_stats",
+                                       "sharding_last"],
+                                      self.container_recon_cache)
+
     def get_replication_info(self, recon_type):
         """get replication info"""
         replication_list = ['replication_time',
@@ -372,6 +378,8 @@ class ReconMiddleware(object):
             content = self.get_driveaudit_error()
         elif rcheck == "time":
             content = self.get_time()
+        elif rcheck == "sharding":
+            content = self.get_sharding_info()
         else:
             content = "Invalid path: %s" % req.path
             return Response(request=req, status="404 Not Found",
