@@ -382,6 +382,8 @@ class ContainerSharder(ContainerReplicator):
         self.sharding_candidates = []
         self.recon_candidates_limit = int(
             conf.get('recon_candidates_limit', 5))
+        self.recon_sharded_timeout = int(
+            conf.get('recon_sharded_timeout', 43200))
         self.broker_timeout = config_positive_int_value(
             conf.get('broker_timeout', 60))
         replica_count = self.ring.replica_count
@@ -493,9 +495,19 @@ class ContainerSharder(ContainerReplicator):
 
     def _record_sharding_progress(self, broker, node, error):
         own_shard_range = broker.get_own_shard_range()
-        if (broker.get_db_state() in (UNSHARDED, SHARDING) and
-                own_shard_range.state in (ShardRange.SHARDING,
-                                          ShardRange.SHARDED)):
+        db_state = broker.get_db_state()
+        if (db_state in (UNSHARDED, SHARDING, SHARDED)
+                and own_shard_range.state in (ShardRange.SHARDING,
+                                              ShardRange.SHARDED)):
+            if db_state == SHARDED:
+                context_ts = max([float(ts) for c, ts in
+                                  CleavingContext.load_all(broker)]) or None
+                if not context_ts or (context_ts + self.recon_sharded_timeout
+                                      < Timestamp.now().timestamp):
+                    # not contexts or last context timestamp too old for the
+                    # broker to be recorded
+                    return
+
             info = self._make_stats_info(broker, node, own_shard_range)
             info['state'] = own_shard_range.state_text
             info['db_state'] = broker.get_db_state()
@@ -834,8 +846,11 @@ class ContainerSharder(ContainerReplicator):
     def _audit_cleave_contexts(self, broker):
         now = Timestamp.now()
         for context, last_mod in CleavingContext.load_all(broker):
-            if Timestamp(last_mod).timestamp + self.reclaim_age < \
-                    now.timestamp:
+            last_mod = Timestamp(last_mod)
+            is_done = context.done() and last_mod.timestamp + \
+                self.recon_sharded_timeout < now.timestamp
+            is_stale = last_mod.timestamp + self.reclaim_age < now.timestamp
+            if is_done or is_stale:
                 context.delete(broker)
 
     def _audit_container(self, broker):
@@ -1485,7 +1500,6 @@ class ContainerSharder(ContainerReplicator):
             modified_shard_ranges.append(own_shard_range)
             broker.merge_shard_ranges(modified_shard_ranges)
             if broker.set_sharded_state():
-                cleaving_context.delete(broker)
                 return True
             else:
                 self.logger.warning(

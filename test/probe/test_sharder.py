@@ -41,6 +41,7 @@ from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
     wait_for_server_to_hangup
 from test.debug_logger import debug_logger
+import mock
 
 
 MIN_SHARD_CONTAINER_THRESHOLD = 4
@@ -888,8 +889,10 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_shard_ranges_contiguous(2, orig_root_shard_ranges)
         self.assertEqual([ShardRange.ACTIVE, ShardRange.ACTIVE],
                          [sr['state'] for sr in orig_root_shard_ranges])
-        contexts = list(CleavingContext.load_all(broker))
-        self.assertEqual([], contexts)  # length check
+        # Contexts should still be there, and should be complete
+        contexts = set([ctx.done()
+                        for ctx, _ in CleavingContext.load_all(broker)])
+        self.assertEqual({True}, contexts)
         self.direct_delete_container(expect_failure=True)
 
         self.assertLengthEqual(found['normal_dbs'], 2)
@@ -939,9 +942,10 @@ class TestContainerSharding(BaseTestContainerSharding):
                                         orig['state_timestamp'])
                 self.assertGreaterEqual(updated.meta_timestamp,
                                         orig['meta_timestamp'])
-
-            contexts = list(CleavingContext.load_all(broker))
-            self.assertEqual([], contexts)  # length check
+            # Contexts should still be there, and should be complete
+            contexts = set([ctx.done()
+                            for ctx, _ in CleavingContext.load_all(broker)])
+            self.assertEqual({True}, contexts)
 
         # Check that entire listing is available
         headers, actual_listing = self.assert_container_listing(obj_names)
@@ -1197,9 +1201,11 @@ class TestContainerSharding(BaseTestContainerSharding):
                     [ShardRange.ACTIVE] * 3,
                     [sr.state for sr in broker.get_shard_ranges()])
 
-                # Make sure our cleaving contexts got cleaned up
-                contexts = list(CleavingContext.load_all(broker))
-                self.assertEqual([], contexts)
+                # Contexts should still be there, and should be complete
+                contexts = set([ctx.done()
+                                for ctx, _
+                                in CleavingContext.load_all(broker)])
+                self.assertEqual({True}, contexts)
 
         # check root shard ranges
         root_shard_ranges = self.direct_get_container_shard_ranges()
@@ -2021,6 +2027,26 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assertEqual([ShardRange.CLEAVED] * 2 + [ShardRange.CREATED] * 2,
                          [sr.state for sr in shard_ranges])
 
+        # Check the current progress. It shouldn't be complete.
+        recon = direct_client.direct_get_recon(leader_node, "sharding")
+        expected_in_progress = {'all': [{'account': 'AUTH_test',
+                                         'active': 0,
+                                         'cleaved': 2,
+                                         'created': 2,
+                                         'found': 0,
+                                         'db_state': 'sharding',
+                                         'state': 'sharding',
+                                         'error': None,
+                                         'file_size': mock.ANY,
+                                         'meta_timestamp': mock.ANY,
+                                         'node_index': 0,
+                                         'object_count': len(obj_names),
+                                         'container': mock.ANY,
+                                         'path': mock.ANY,
+                                         'root': mock.ANY}]}
+        actual = recon['sharding_stats']['sharding']['sharding_in_progress']
+        self.assertEqual(expected_in_progress, actual)
+
         # stop *all* container servers for third shard range
         sr_part, sr_node_nums = self.get_part_and_node_numbers(shard_ranges[2])
         for node_num in sr_node_nums:
@@ -2077,6 +2103,26 @@ class TestContainerSharding(BaseTestContainerSharding):
         shard_ranges = self.assert_container_state(leader_node, 'sharded', 4)
         self.assertEqual([ShardRange.ACTIVE] * 4,
                          [sr.state for sr in shard_ranges])
+
+        # Check the leader's progress again, this time is should be complete
+        recon = direct_client.direct_get_recon(leader_node, "sharding")
+        expected_in_progress = {'all': [{'account': 'AUTH_test',
+                                         'active': 4,
+                                         'cleaved': 0,
+                                         'created': 0,
+                                         'found': 0,
+                                         'db_state': 'sharded',
+                                         'state': 'sharded',
+                                         'error': None,
+                                         'file_size': mock.ANY,
+                                         'meta_timestamp': mock.ANY,
+                                         'node_index': 0,
+                                         'object_count': len(obj_names),
+                                         'container': mock.ANY,
+                                         'path': mock.ANY,
+                                         'root': mock.ANY}]}
+        actual = recon['sharding_stats']['sharding']['sharding_in_progress']
+        self.assertEqual(expected_in_progress, actual)
 
     def test_sharded_delete(self):
         all_obj_names = self._make_object_names(self.max_shard_size)
