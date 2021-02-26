@@ -125,10 +125,13 @@ def is_sharding_candidate(shard_range, threshold):
             shard_range.object_count >= threshold)
 
 
-def is_shrinking_candidate(shard_range, shrink_threshold, states=None):
+def is_shrinking_candidate(shard_range, shrink_threshold, merge_size,
+                           states=None):
+    # typically shrink_threshold < merge_size but check both just in case
     states = states or (ShardRange.ACTIVE,)
     return (shard_range.state in states and
-            shard_range.object_count < shrink_threshold)
+            shard_range.object_count < shrink_threshold and
+            shard_range.object_count <= merge_size)
 
 
 def find_sharding_candidates(broker, threshold, shard_ranges=None):
@@ -211,53 +214,53 @@ def find_compactible_shard_sequences(broker,
         #    merge_size
         if (sequence and
                 (not is_shrinking_candidate(
-                    sequence[-1], shrink_threshold,
+                    sequence[-1], shrink_threshold, merge_size,
                     states=(ShardRange.ACTIVE, ShardRange.SHRINKING)) or
                  0 < max_shrinking < len(sequence) or
                  sequence.object_count >= merge_size)):
             return True
         return False
 
-    def sequence_shrinking(sequence):
-        # check for sequence that ia already shrinking
-        return (sequence and any([sr.state == ShardRange.SHRINKING
-                                  for sr in sequence]))
-
-    def find_compactible_sequence(shard_ranges_todo):
-        compactible_sequence = ShardRangeList()
-        object_count = 0
-        consumed = 0
-        for shard_range in shard_ranges_todo:
-            if (compactible_sequence and
-                    compactible_sequence.upper < shard_range.lower):
-                # found a gap! break before consuming this range because it
-                # could become the first in the next sequence
-                break
-            if (shard_range.name != own_shard_range.name and
-                    shard_range.state not in (ShardRange.ACTIVE,
-                                              ShardRange.SHRINKING)):
-                # found? created? sharded? don't touch it
-                consumed += 1
-                break
-            proposed_object_count = object_count + shard_range.object_count
-            if (shard_range.state == ShardRange.SHRINKING or
-                    proposed_object_count <= merge_size):
-                consumed += 1
-                compactible_sequence.append(shard_range)
-                object_count = proposed_object_count
-                if shard_range.state == ShardRange.SHRINKING:
-                    continue
-            if sequence_complete(compactible_sequence):
-                break
-        return compactible_sequence, consumed
-
     compactible_sequences = []
     index = 0
     expanding = 0
     while ((max_expanding < 0 or expanding < max_expanding) and
            index < len(shard_ranges)):
-        sequence, consumed = find_compactible_sequence(shard_ranges[index:])
-        index += consumed
+        if not is_shrinking_candidate(
+                shard_ranges[index], shrink_threshold, merge_size,
+                states=(ShardRange.ACTIVE, ShardRange.SHRINKING)):
+            # this shard range cannot be the start of a new or existing
+            # compactible sequence, move on
+            index += 1
+            continue
+
+        # start of a *possible* sequence
+        sequence = ShardRangeList([shard_ranges[index]])
+        for shard_range in shard_ranges[index + 1:]:
+            # attempt to add contiguous shard ranges to the sequence
+            if sequence.upper < shard_range.lower:
+                # found a gap! break before consuming this range because it
+                # could become the first in the next sequence
+                break
+
+            if shard_range.state not in (ShardRange.ACTIVE,
+                                         ShardRange.SHRINKING):
+                # found? created? sharded? don't touch it
+                break
+
+            if shard_range.state == ShardRange.SHRINKING:
+                # already shrinking: add to sequence unconditionally
+                sequence.append(shard_range)
+            elif (sequence.object_count + shard_range.object_count
+                  <= merge_size):
+                # add to sequence: could be a donor or acceptor
+                sequence.append(shard_range)
+                if sequence_complete(sequence):
+                    break
+            else:
+                break
+
+        index += len(sequence)
         if (index == len(shard_ranges) and
                 not compactible_sequences and
                 not sequence_complete(sequence) and
@@ -279,7 +282,8 @@ def find_compactible_shard_sequences(broker,
         # all valid sequences are counted against the max_expanding allowance
         # even if the sequence is already shrinking
         expanding += 1
-        if not sequence_shrinking(sequence) or include_shrinking:
+        if (all([sr.state != ShardRange.SHRINKING for sr in sequence]) or
+                include_shrinking):
             compactible_sequences.append(sequence)
 
     return compactible_sequences
