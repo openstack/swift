@@ -942,6 +942,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual('', context.cursor)
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
@@ -964,6 +965,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual('', context.cursor)
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
@@ -1021,6 +1023,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual('here', context.cursor)
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
@@ -1057,6 +1060,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual('here', context.cursor)
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
@@ -1121,6 +1125,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual('where', context.cursor)
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
@@ -1176,6 +1181,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual('yonder', context.cursor)
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
@@ -1240,6 +1246,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertTrue(context.cleaving_done)
+        self.assertTrue(context.done())
         self.assertEqual('', context.cursor)
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
@@ -1302,6 +1309,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual(shard_ranges[1].upper_str, context.cursor)
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
@@ -1335,6 +1343,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual(shard_ranges[1].upper_str, context.cursor)
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
@@ -1367,6 +1376,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertTrue(context.cleaving_done)
+        self.assertTrue(context.done())
         self.assertEqual(shard_ranges[2].upper_str, context.cursor)
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
@@ -1704,6 +1714,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertFalse(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
+        self.assertFalse(context.done())
         self.assertEqual('', context.cursor)
         self.assertEqual(10, context.cleave_to_row)
         self.assertEqual(12, context.max_row)  # note that max row increased
@@ -6125,6 +6136,24 @@ class TestCleavingContext(BaseTestSharder):
         self.assertEqual(2, ctx.ranges_done)
         self.assertEqual(8, ctx.ranges_todo)
         self.assertEqual('c', ctx.cursor)
+
+    def test_done(self):
+        ctx = CleavingContext(
+            'test', '', max_row=12, cleave_to_row=12, last_cleave_to_row=2,
+            cleaving_done=True, misplaced_done=True)
+        self.assertTrue(ctx.done())
+        ctx = CleavingContext(
+            'test', '', max_row=12, cleave_to_row=11, last_cleave_to_row=2,
+            cleaving_done=True, misplaced_done=True)
+        self.assertFalse(ctx.done())
+        ctx = CleavingContext(
+            'test', '', max_row=12, cleave_to_row=12, last_cleave_to_row=2,
+            cleaving_done=True, misplaced_done=False)
+        self.assertFalse(ctx.done())
+        ctx = CleavingContext(
+            'test', '', max_row=12, cleave_to_row=12, last_cleave_to_row=2,
+            cleaving_done=False, misplaced_done=True)
+        self.assertFalse(ctx.done())
 
 
 class TestSharderFunctions(BaseTestSharder):
