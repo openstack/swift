@@ -27,7 +27,7 @@ import six
 import six.moves.cPickle as pickle
 from six.moves.http_client import HTTPException
 
-from swift.common.bufferedhttp import http_connect
+from swift.common.bufferedhttp import http_connect, http_connect_raw
 from swift.common.exceptions import ClientException
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER, \
     get_ip_port
@@ -54,6 +54,20 @@ class DirectClientException(ClientException):
             msg, http_host=host['ip'], http_port=host['port'],
             http_device=node['device'], http_status=resp.status,
             http_reason=resp.reason, http_headers=headers)
+
+
+class DirectClientReconException(ClientException):
+
+    def __init__(self, method, node, path, resp):
+        if not isinstance(path, six.text_type):
+            path = path.decode("utf-8")
+        msg = 'server %s:%s direct %s %r gave status %s' % (
+            node['ip'], node['port'], method, path, resp.status)
+        headers = HeaderKeyDict(resp.getheaders())
+        super(DirectClientReconException, self).__init__(
+            msg, http_host=node['ip'], http_port=node['port'],
+            http_status=resp.status, http_reason=resp.reason,
+            http_headers=headers)
 
 
 def _make_path(*components):
@@ -640,3 +654,31 @@ def retry(func, *args, **kwargs):
                               http_device=args[0]['device'])
     else:
         raise ClientException('Raise too many retries')
+
+
+def direct_get_recon(node, recon_command, conn_timeout=5, response_timeout=15,
+                     headers=None):
+    """
+    Get recon json directly from the storage server.
+
+    :param node: node dictionary from the ring
+    :param recon_command: recon string (post /recon/)
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :param headers: dict to be passed into HTTPConnection headers
+    :returns: deserialized json response
+    :raises DirectClientReconException: HTTP GET request failed
+    """
+    if headers is None:
+        headers = {}
+
+    ip, port = get_ip_port(node, headers)
+    path = '/recon/%s' % recon_command
+    with Timeout(conn_timeout):
+        conn = http_connect_raw(ip, port, 'GET', path,
+                                headers=gen_headers(headers))
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+    if not is_success(resp.status):
+        raise DirectClientReconException('GET', node, path, resp)
+    return json.loads(resp.read())

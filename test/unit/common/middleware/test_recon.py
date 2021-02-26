@@ -157,6 +157,9 @@ class FakeRecon(object):
         self.fake_replication_rtype = recon_type
         return {'replicationtest': "1"}
 
+    def fake_sharding(self):
+        return {"sharding_stats": "1"}
+
     def fake_updater(self, recon_type):
         self.fake_updater_rtype = recon_type
         return {'updatertest': "1"}
@@ -1107,6 +1110,84 @@ class TestReconSuccess(TestCase):
             rv = self.app.get_time()
             self.assertEqual(rv, now)
 
+    def test_get_sharding_info(self):
+        from_cache_response = {
+            "sharding_stats": {
+                "attempted": 0,
+                "deferred": 0,
+                "diff": 0,
+                "diff_capped": 0,
+                "empty": 0,
+                "failure": 0,
+                "hashmatch": 0,
+                "no_change": 0,
+                "remote_merge": 0,
+                "remove": 0,
+                "rsync": 0,
+                "start": 1614136398.5729735,
+                "success": 0,
+                "ts_repl": 0,
+                "sharding": {
+                    "audit_root": {
+                        "attempted": 0,
+                        "failure": 0,
+                        "success": 0,
+                    },
+                    "audit_shard": {
+                        "attempted": 0,
+                        "failure": 0,
+                        "success": 0,
+                    },
+                    "cleaved": {
+                        "attempted": 0,
+                        "failure": 0,
+                        "max_time": 0,
+                        "min_time": 0,
+                        "success": 0,
+                    },
+                    "created": {
+                        "attempted": 0,
+                        "failure": 0,
+                        "success": 0,
+                    },
+                    "misplaced": {
+                        "attempted": 0,
+                        "failure": 0,
+                        "found": 0,
+                        "placed": 0,
+                        "success": 0,
+                        "unplaced": 0,
+                    },
+                    "scanned": {
+                        "attempted": 0,
+                        "failure": 0,
+                        "found": 0,
+                        "max_time": 0,
+                        "min_time": 0,
+                        "success": 0,
+                    },
+                    "sharding_candidates": {
+                        "found": 0,
+                        "top": [],
+                    },
+                    "visited": {
+                        "attempted": 0,
+                        "completed": 0,
+                        "failure": 0,
+                        "skipped": 6,
+                        "success": 0,
+                    }
+                },
+            },
+            "sharding_last": 1614136398.6680582}
+        self.fakecache.fakeout_calls = []
+        self.fakecache.fakeout = from_cache_response
+        rv = self.app.get_sharding_info()
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['sharding_stats', 'sharding_last'],
+                             '/var/cache/swift/container.recon'), {})])
+        self.assertEqual(rv, from_cache_response)
+
 
 class TestReconMiddleware(unittest.TestCase):
 
@@ -1139,6 +1220,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.app.get_socket_info = self.frecon.fake_sockstat
         self.app.get_driveaudit_error = self.frecon.fake_driveaudit
         self.app.get_time = self.frecon.fake_time
+        self.app.get_sharding_info = self.frecon.fake_sharding
 
     def test_recon_get_mem(self):
         get_mem_resp = [b'{"memtest": "1"}']
@@ -1405,6 +1487,14 @@ class TestReconMiddleware(unittest.TestCase):
                         side_effect=IOError):
             resp = self.real_app_get_swift_conf_md5()
         self.assertIsNone(resp['/etc/swift/swift.conf'])
+
+    def test_recon_get_sharding(self):
+        get_sharding_resp = [
+            b'{"sharding_stats": "1"}']
+        req = Request.blank('/recon/sharding',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, get_sharding_resp)
 
 
 if __name__ == '__main__':

@@ -86,11 +86,11 @@ class FakeConn(object):
 
 @contextmanager
 def mocked_http_conn(*args, **kwargs):
+    mocked = kwargs.pop('mocked', 'swift.common.bufferedhttp.http_connect_raw')
     fake_conn = FakeConn(*args, **kwargs)
     mock_http_conn = lambda *args, **kwargs: \
         fake_conn._update_raw_call_args(*args, **kwargs)
-    with mock.patch('swift.common.bufferedhttp.http_connect_raw',
-                    new=mock_http_conn):
+    with mock.patch(mocked, new=mock_http_conn):
         yield fake_conn
 
 
@@ -978,6 +978,36 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(3, len(error_lines))
         for line in error_lines:
             self.assertIn('Kaboom!', line)
+
+    def test_direct_get_recon(self):
+        data = {
+            "/etc/swift/account.ring.gz": "de7316d2809205fa13ebfc747566260c",
+            "/etc/swift/container.ring.gz": "8e63c916fec81825cc40940eefe1d058",
+            "/etc/swift/object.ring.gz": "a77f51c14bbf7075bb7be0c27fd00dc4",
+            "/etc/swift/object-1.ring.gz": "f0222326f80ee5cb34b7546b18727923",
+            "/etc/swift/object-2.ring.gz": "2228dc8a7ff1cf2eb89b116653ac6191"}
+        body = json.dumps(data)
+        with mocked_http_conn(
+                200, {}, body,
+                mocked='swift.common.direct_client.http_connect_raw') as conn:
+            resp = direct_client.direct_get_recon(self.node, "ringmd5")
+        self.assertEqual(conn.method, 'GET')
+        self.assertEqual(conn.path, '/recon/ringmd5')
+        self.assertEqual(conn.host, self.node['ip'])
+        self.assertEqual(conn.port, self.node['port'])
+        self.assertEqual(data, resp)
+
+        # Now check failure
+        with mocked_http_conn(
+                500,
+                mocked='swift.common.direct_client.http_connect_raw') as conn:
+            with self.assertRaises(ClientException) as raised:
+                resp = direct_client.direct_get_recon(self.node, "ringmd5")
+        self.assertEqual(conn.host, self.node['ip'])
+        self.assertEqual(conn.port, self.node['port'])
+        self.assertEqual(conn.method, 'GET')
+        self.assertEqual(conn.path, '/recon/ringmd5')
+        self.assertEqual(raised.exception.http_status, 500)
 
 
 class TestUTF8DirectClient(TestDirectClient):
