@@ -40,3 +40,4 @@
         - nose
         - pyeclib
         - python-swiftclient
+        - mock

@@ -440,6 +440,17 @@ use = egg:swift#xprofile
 # integer value. A negative value implies no limit.
 # recon_candidates_limit = 5
 #
+# As the sharder visits each container that's currently sharding it dumps to
+# recon their current progress. To be able to mark their progress as completed
+# this in-progress check will need to monitor containers that have just
+# completed sharding. The recon_sharded_timeout parameter says for how long a
+# container whose just finished sharding should be checked by the in-progress
+# check. This is to allow anything monitoring the sharding recon dump to have
+# enough time to collate and see things complete. The time is capped at
+# reclaim_age, so this parameter should be less than or equal to reclaim_age.
+# The default is 12 hours (12 x 60 x 60)
+# recon_sharded_timeout = 43200
+#
 # Large databases tend to take a while to work with, but we want to make sure
 # we write down our progress. Use a larger-than-normal broker timeout to make
 # us less likely to bomb out on a LockTimeout.

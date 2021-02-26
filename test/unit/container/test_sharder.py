@@ -170,6 +170,7 @@ class TestSharder(BaseTestSharder):
             'shards_account_prefix': '.shards_',
             'auto_shard': False,
             'recon_candidates_limit': 5,
+            'recon_sharded_timeout': 43200,
             'shard_replication_quorum': 2,
             'existing_shard_replication_quorum': 2
         }
@@ -201,6 +202,7 @@ class TestSharder(BaseTestSharder):
             'auto_create_account_prefix': '...',
             'auto_shard': 'yes',
             'recon_candidates_limit': 10,
+            'recon_sharded_timeout': 7200,
             'shard_replication_quorum': 1,
             'existing_shard_replication_quorum': 0
         }
@@ -223,6 +225,7 @@ class TestSharder(BaseTestSharder):
             'shards_account_prefix': '...shards_',
             'auto_shard': True,
             'recon_candidates_limit': 10,
+            'recon_sharded_timeout': 7200,
             'shard_replication_quorum': 1,
             'existing_shard_replication_quorum': 0
         }
@@ -693,6 +696,114 @@ class TestSharder(BaseTestSharder):
             self._assert_recon_stats(
                 expected_candidate_stats, sharder, 'sharding_candidates')
             self._assert_recon_stats(None, sharder, 'sharding_progress')
+
+            # let's progress broker 1 (broker[0])
+            brokers[0].enable_sharding(next(self.ts_iter))
+            brokers[0].set_sharding_state()
+            shard_ranges = brokers[0].get_shard_ranges()
+            for sr in shard_ranges[:-1]:
+                sr.update_state(ShardRange.CLEAVED)
+            brokers[0].merge_shard_ranges(shard_ranges)
+
+            with mock.patch('eventlet.sleep'), mock.patch.object(
+                    sharder, '_process_broker'
+            ) as mock_process_broker:
+                sharder._local_device_ids = {999}
+                sharder._one_shard_cycle(Everything(), Everything())
+
+            expected_in_progress_stats = {
+                'all': [{'object_count': 0, 'account': 'a', 'container': 'c0',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[0].db_file).st_size,
+                         'path': brokers[0].db_file, 'root': 'a/c0',
+                         'node_index': 0,
+                         'found': 1, 'created': 0, 'cleaved': 3, 'active': 1,
+                         'state': 'sharding', 'db_state': 'sharding',
+                         'error': None},
+                        {'object_count': 0, 'account': 'a', 'container': 'c1',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[1].db_file).st_size,
+                         'path': brokers[1].db_file, 'root': 'a/c1',
+                         'node_index': 1,
+                         'found': 0, 'created': 2, 'cleaved': 1, 'active': 2,
+                         'state': 'sharding', 'db_state': 'unsharded',
+                         'error': None}]}
+            self._assert_stats(
+                expected_in_progress_stats, sharder, 'sharding_in_progress')
+
+            # Now complete sharding broker 1.
+            shard_ranges[-1].update_state(ShardRange.CLEAVED)
+            own_sr = brokers[0].get_own_shard_range()
+            own_sr.update_state(ShardRange.SHARDED)
+            brokers[0].merge_shard_ranges(shard_ranges + [own_sr])
+            # make and complete a cleave context, this is used for the
+            # recon_sharded_timeout timer.
+            cxt = CleavingContext.load(brokers[0])
+            cxt.misplaced_done = cxt.cleaving_done = True
+            ts_now = next(self.ts_iter)
+            with mock_timestamp_now(ts_now):
+                cxt.store(brokers[0])
+            self.assertTrue(brokers[0].set_sharded_state())
+
+            with mock.patch('eventlet.sleep'), \
+                    mock.patch.object(sharder, '_process_broker') \
+                    as mock_process_broker, mock_timestamp_now(ts_now):
+                sharder._local_device_ids = {999}
+                sharder._one_shard_cycle(Everything(), Everything())
+
+            expected_in_progress_stats = {
+                'all': [{'object_count': 0, 'account': 'a', 'container': 'c0',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[0].db_file).st_size,
+                         'path': brokers[0].db_file, 'root': 'a/c0',
+                         'node_index': 0,
+                         'found': 0, 'created': 0, 'cleaved': 4, 'active': 1,
+                         'state': 'sharded', 'db_state': 'sharded',
+                         'error': None},
+                        {'object_count': 0, 'account': 'a', 'container': 'c1',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[1].db_file).st_size,
+                         'path': brokers[1].db_file, 'root': 'a/c1',
+                         'node_index': 1,
+                         'found': 0, 'created': 2, 'cleaved': 1, 'active': 2,
+                         'state': 'sharding', 'db_state': 'unsharded',
+                         'error': None}]}
+            self._assert_stats(
+                expected_in_progress_stats, sharder, 'sharding_in_progress')
+
+            # one more cycle at recon_sharded_timeout seconds into the
+            # future to check that the completed broker is still reported
+            ts_now = Timestamp(ts_now.timestamp +
+                               sharder.recon_sharded_timeout)
+            with mock.patch('eventlet.sleep'), \
+                    mock.patch.object(sharder, '_process_broker') \
+                    as mock_process_broker, mock_timestamp_now(ts_now):
+                sharder._local_device_ids = {999}
+                sharder._one_shard_cycle(Everything(), Everything())
+            self._assert_stats(
+                expected_in_progress_stats, sharder, 'sharding_in_progress')
+
+            # when we move recon_sharded_timeout + 1 seconds into the future,
+            # broker 1 will be removed from the progress report
+            ts_now = Timestamp(ts_now.timestamp +
+                               sharder.recon_sharded_timeout + 1)
+            with mock.patch('eventlet.sleep'), \
+                    mock.patch.object(sharder, '_process_broker') \
+                    as mock_process_broker, mock_timestamp_now(ts_now):
+                sharder._local_device_ids = {999}
+                sharder._one_shard_cycle(Everything(), Everything())
+
+            expected_in_progress_stats = {
+                'all': [{'object_count': 0, 'account': 'a', 'container': 'c1',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[1].db_file).st_size,
+                         'path': brokers[1].db_file, 'root': 'a/c1',
+                         'node_index': 1,
+                         'found': 0, 'created': 2, 'cleaved': 1, 'active': 2,
+                         'state': 'sharding', 'db_state': 'unsharded',
+                         'error': None}]}
+            self._assert_stats(
+                expected_in_progress_stats, sharder, 'sharding_in_progress')
 
     def test_ratelimited_roundrobin(self):
         n_databases = 100
@@ -5426,21 +5537,21 @@ class TestSharder(BaseTestSharder):
 
     def test_audit_cleave_contexts(self):
 
-        def add_cleave_context(id, last_modified):
+        def add_cleave_context(id, last_modified, cleaving_done):
             params = {'ref': id,
                       'cursor': 'curs',
                       'max_row': 2,
                       'cleave_to_row': 2,
                       'last_cleave_to_row': 1,
-                      'cleaving_done': False,
+                      'cleaving_done': cleaving_done,
                       'misplaced_done': True,
                       'ranges_done': 2,
                       'ranges_todo': 4}
             key = 'X-Container-Sysmeta-Shard-Context-%s' % id
-            with mock_timestamp_now(Timestamp(last_modified)):
+            with mock_timestamp_now(last_modified):
                 broker.update_metadata(
                     {key: (json.dumps(params),
-                           Timestamp(last_modified).internal)})
+                           last_modified.internal)})
 
         def get_context(id, broker):
             data = broker.get_sharding_sysmeta().get('Context-%s' % id)
@@ -5449,6 +5560,7 @@ class TestSharder(BaseTestSharder):
             return data
 
         reclaim_age = 100
+        recon_sharded_timeout = 50
         broker = self._make_broker()
 
         # sanity check
@@ -5456,25 +5568,43 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(UNSHARDED, broker.get_db_state())
 
         # Setup some cleaving contexts
-        id_old, id_newish = [str(uuid4()) for _ in range(2)]
-        contexts = ((id_old, 1),
-                    (id_newish, reclaim_age // 2))
-        for id, last_modified in contexts:
-            add_cleave_context(id, last_modified)
+        id_old, id_newish, id_complete = [str(uuid4()) for _ in range(3)]
+        ts_old, ts_newish, ts_complete = (
+            Timestamp(1),
+            Timestamp(reclaim_age // 2),
+            Timestamp(reclaim_age - recon_sharded_timeout))
+        contexts = ((id_old, ts_old, False),
+                    (id_newish, ts_newish, False),
+                    (id_complete, ts_complete, True))
+        for id, last_modified, cleaving_done in contexts:
+            add_cleave_context(id, last_modified, cleaving_done)
 
-        with self._mock_sharder({'reclaim_age': str(reclaim_age)}) as sharder:
+        sharder_conf = {'reclaim_age': str(reclaim_age),
+                        'recon_sharded_timeout': str(recon_sharded_timeout)}
+
+        with self._mock_sharder(sharder_conf) as sharder:
             with mock_timestamp_now(Timestamp(reclaim_age + 2)):
                 sharder._audit_cleave_contexts(broker)
 
+        # old context is stale, ie last modified reached reclaim_age and was
+        # never completed (done).
         old_ctx = get_context(id_old, broker)
         self.assertEqual(old_ctx, "")
 
+        # Newish context is almost stale, as in it's been 1/2 reclaim age since
+        # it was last modified yet it's not completed. So it haven't been
+        # cleaned up.
         newish_ctx = get_context(id_newish, broker)
         self.assertEqual(newish_ctx.ref, id_newish)
 
-        # If we push time another reclaim age later, and they all be removed
-        # minus id_missing_lm as it has a later last_modified.
-        with self._mock_sharder({'reclaim_age': str(reclaim_age)}) as sharder:
+        # Complete context is complete (done) and it's been
+        # recon_sharded_timeout time since it was marked completed so it's
+        # been removed
+        complete_ctx = get_context(id_complete, broker)
+        self.assertEqual(complete_ctx, "")
+
+        # If we push time another reclaim age later, they are all removed
+        with self._mock_sharder(sharder_conf) as sharder:
             with mock_timestamp_now(Timestamp(reclaim_age * 2)):
                 sharder._audit_cleave_contexts(broker)
 
@@ -5853,6 +5983,7 @@ class TestCleavingContext(BaseTestSharder):
         # Now let's delete it. When deleted the metadata key will exist, but
         # the value will be "" as this means it'll be reaped later.
         ctx.delete(broker)
+
         sysmeta = broker.get_sharding_sysmeta()
         for key, val in sysmeta.items():
             if key == "Context-%s" % db_id:
