@@ -1,0 +1,235 @@
+---
+features:
+  - |
+    Added "audit watcher" hooks to allow operators to run arbitrary code
+    against every diskfile in a cluster. For more information, see `the documentation
+    <https://docs.openstack.org/swift/latest/development_watchers.html>`__.
+
+  - |
+    Added support for system-scoped "reader" roles when authenticating using
+    Keystone. Operators may configure this using the ``system_reader_roles``
+    option in the ``[filter:keystoneauth]`` section of their proxy-server.conf.
+
+    A comparable group, ``.reseller_reader``, is now available for development
+    purposes when authenticating using tempauth.
+
+  - |
+    Allow static large object segments to be deleted asynchronously.
+    Operators may opt into this new behavior by enabling the new
+    ``allow_async_delete`` option in the ``[filter:slo]`` section
+    in their proxy-server.conf. For more information, see `the documentation
+    <https://docs.openstack.org/swift/latest/overview_large_objects.html#deleting-a-large-object>`__.
+
+  - |
+    Added the ability to connect to memcached over TLS. See the
+    ``tls_*`` options in etc/memcache.conf-sample
+
+  - |
+    The proxy-server now caches 'listing' shards, improving listing
+    performance for sharded containers. A new config option,
+    ``recheck_listing_shard_ranges``, controls the cache time and defaults to
+    10 minutes; set it to 0 to disable caching (the previous behavior).
+
+  - |
+    Added a new optional proxy-logging field ``{wire_status_int}`` for the
+    status code returned to the client. For more information, see `the documentation
+    <https://docs.openstack.org/swift/latest/logs.html#proxy-logs>`__.
+
+  - |
+    Memcache client error-limiting is now configurable. See the
+    ``error_suppression_*`` options in etc/memcache.conf-sample
+
+  - |
+    Added ``tasks_per_second`` option to rate-limit the object-expirer.
+
+  - |
+    Added ``usedforsecurity`` annotations for use on FIPS-compliant systems.
+
+  - |
+    S3 API improvements:
+
+    * Make allowable clock skew configurable, with a default value of
+      15 minutes to match AWS. Note that this was previously hardcoded at
+      5 minutes; operators may want to preserve the prior behavior by setting
+      ``allowable_clock_skew = 300`` in the ``[filter:s3api]`` section of their
+      proxy-server.conf.
+
+    * Container ACLs are now cloned to the ``+segments`` container when it is
+      created.
+
+    * Added the ability to configure auth region in s3token middleware.
+
+    * CORS-related headers are now passed through appropriately when using
+      the S3 API. Note that allowed origins and other container metadata
+      must still be `configured through the Swift API
+      <https://docs.openstack.org/swift/latest/cors.html>`__.
+
+      Preflight requests do not contain enough information to map a
+      bucket to an account/container pair; a new cluster-wide option
+      ``cors_preflight_allow_origin`` may be configured for such OPTIONS
+      requests. The default (blank) rejects all S3 preflight requests.
+
+  - |
+    Sharding improvements:
+
+    * A ``--no-auto-shard`` option has been added to ``swift-container-sharder``.
+
+    * The sharder daemon has been enhanced to better support the shrinking
+      of shards that are no longer required. Shard containers will now
+      discover from their root container if they should be shrinking. They
+      will also discover the shards into which they should shrink, which may
+      include the root container itself.
+
+    * A 'compact' command has been added to ``swift-manage-shard-ranges`` that
+      enables sequences of contiguous shards with low object counts to be
+      compacted into another existing shard, or into the root container.
+
+    * ``swift-manage-shard-ranges`` can now accept a config file; this
+      may be used to ensure consistency of threshold values with the
+      container-sharder config.
+
+    * The sharding progress reports in recon cache now continue to be included
+      for a period of time after sharding has completed. The time period
+      may be configured using the ``recon_sharded_timeout`` option in the
+      ``[container-sharder]`` section of container-server.conf, and defaults
+      to 12 hours.
+
+    * Add root containers with compactible ranges to recon cache.
+
+    * Expose sharding statistics in the backend recon middleware.
+
+  - |
+    Replication improvements:
+
+    * The post-rsync REPLICATE call no longer recalculates hashes immediately.
+
+    * Hashes are no longer invalidated after a successful ssync; they were
+      already invalidated during the data transfer.
+
+  - |
+    Added support for Python 3.9.
+
+  - |
+    Partition power increase improvements:
+
+    * Fixed a bug where stale state files would cause misplaced data during
+      multiple partition power increases.
+
+    * Removed a race condition that could cause newly-written data to not be
+      linked into the new partition for the new partition power.
+
+    * Improved safety during cleanup to ensure files have been relinked
+      appropriately before unlinking.
+
+    * Added an option to drop privileges when running the relinker as root.
+
+    * Added an option to rate-limit how quickly data files are relinked or
+      cleaned up. This may be used to reduce I/O load during partition power
+      increases, improving end-user performance.
+
+    * Rehash partitions during the partition power increase. Previously, we
+      relied on the replication engine to perform the rehash, which could
+      cause an unexpected I/O spike after a partition power increase.
+
+    * Warn when relinking/cleaning up and any disks are unmounted.
+
+    * Log progress per partition when relinking/cleaning up.
+
+    * During clean-up, stop warning about tombstones that got reaped from
+      the new location but not the old.
+
+    * Added the ability to read options from object-server.conf, similar to
+      background daemons.
+
+issues:
+  - |
+    Operators should verify that encryption is not enabled in their reconciler
+    pipelines; having it enabled there may harm data durability. For more
+    information, see `bug 1910804 <https://launchpad.net/bugs/1910804>`__.
+
+upgrade:
+  - |
+    Added an option to write EC fragments with legacy CRC to ensure a smooth
+    upgrade from liberasurecode<=1.5.0 to >=1.6.2. For more information, see
+    `bug 1886088 <https://bugs.launchpad.net/liberasurecode/+bug/1886088>`__.
+
+fixes:
+  - |
+    Errors downloading a Static Large Object that cause a shorter-than-expected
+    response are now logged as 500s.
+
+  - |
+    S3 API fixes:
+
+    * Fixed a bug that prevented the s3api pipeline validation described in
+      proxy-server.conf-sample from being performed. As documented, operators
+      can disable this via the ``auth_pipeline_check`` option if proxy startup
+      fails with validation errors.
+
+    * Fixed an issue where SHA mismatches in client XML payloads would cause
+      a server error. Swift now correctly responds with a client error about
+      the bad digest.
+
+    * Fixed an issue where non-base64 signatures would cause a server error.
+      Swift now correctly responds with a client error about the invalid
+      digest.
+
+    * The correct storage policy is now logged for S3 requests.
+
+  - |
+    Sharding fixes:
+
+    * Prevent shard databases from losing track of their root database when
+      deleted.
+
+    * Prevent sharded root databases from being reclaimed to ensure that
+      shards can detect that they have been deleted.
+
+    * Overlapping shrinking shards no longer generate audit warnings; these
+      are expected to sometimes overlap.
+
+  - |
+    Replication fixes:
+
+    * Fixed a race condition in ssync that could lead to a loss of data
+      durability (or even loss of data, for two-replica policies) when some
+      object servers have outdated rings. Replication via rsync is likely
+      still affected by a similar bug.
+
+    * Non-durable fragments can now be reverted from handoffs.
+
+    * Reduced log noise for common ssync errors.
+
+  - |
+    Python 3 fixes:
+
+    * Staticweb correctly handles listings when paths include non-ASCII
+      characters.
+
+    * S3 API now allows multipart uploads with non-ASCII characters in the
+      object name.
+
+    * Fixed an import-ordering issue in ``swift-dispersion-populate``.
+
+  - |
+    Turned off thread-logging when monkey-patching with eventlet. This
+    addresses a potential hang in the proxy-server while logging client
+    disconnects.
+
+  - |
+    Fixed a bug that could cause EC GET responses to return a server error.
+
+  - |
+    Fixed an issue with ``swift-drive-audit`` when run around New Year's.
+
+  - |
+    Server errors encountered when validating the first segment of a Static or
+    Dynamic Large Object now return a 503 to the client, rather than a 409.
+
+  - |
+    Errors when setting keys in memcached are now logged. This helps
+    operators detect when shard ranges for caching have gotten too large to
+    be stored, for example.
+
+  - |
+    Various other minor bug fixes and improvements.
