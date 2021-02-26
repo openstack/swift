@@ -16,6 +16,7 @@
 from __future__ import print_function
 
 import errno
+import gc
 import json
 import os
 from subprocess import Popen, PIPE
@@ -371,6 +372,10 @@ class ProbeTest(unittest.TestCase):
                 self.configs['proxy-server'] = conf
 
     def setUp(self):
+        # previous test may have left DatabaseBroker instances in garbage with
+        # open connections to db files which will prevent unmounting devices in
+        # resetswift, so collect garbage now
+        gc.collect()
         resetswift()
         kill_orphans()
         self._load_rings_and_configs()
