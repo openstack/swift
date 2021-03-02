@@ -805,6 +805,29 @@ class TestSharder(BaseTestSharder):
             self._assert_stats(
                 expected_in_progress_stats, sharder, 'sharding_in_progress')
 
+    def test_one_shard_cycle_no_containers(self):
+        conf = {'recon_cache_path': self.tempdir,
+                'devices': self.tempdir,
+                'mount_check': False}
+
+        with self._mock_sharder(conf) as sharder:
+            for dev in sharder.ring.devs:
+                os.mkdir(os.path.join(self.tempdir, dev['device']))
+            with mock.patch('swift.container.sharder.is_local_device',
+                            return_value=True):
+                sharder._one_shard_cycle(Everything(), Everything())
+        self.assertEqual([], sharder.logger.get_lines_for_level('warning'))
+        self.assertIn('Found no containers directories',
+                      sharder.logger.get_lines_for_level('info'))
+        with self._mock_sharder(conf) as sharder:
+            os.mkdir(os.path.join(self.tempdir, dev['device'], 'containers'))
+            with mock.patch('swift.container.sharder.is_local_device',
+                            return_value=True):
+                sharder._one_shard_cycle(Everything(), Everything())
+        self.assertEqual([], sharder.logger.get_lines_for_level('warning'))
+        self.assertNotIn('Found no containers directories',
+                         sharder.logger.get_lines_for_level('info'))
+
     def test_ratelimited_roundrobin(self):
         n_databases = 100
 

@@ -1876,7 +1876,7 @@ class ContainerSharder(ContainerReplicator):
                     partitions_to_shard)
                 dirs.append((datadir, node, part_filt))
         if not dirs:
-            self.logger.warning('Found no data dirs!')
+            self.logger.info('Found no containers directories')
         for part, path, node in self.roundrobin_datadirs(dirs):
             # NB: get_part_nodes always provides an 'index' key;
             # this will be used in leader selection
