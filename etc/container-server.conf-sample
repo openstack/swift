@@ -375,7 +375,7 @@ use = egg:swift#xprofile
 # When auto-sharding is enabled shard_shrink_point defines the object count
 # below which a 'donor' shard container will be considered for shrinking into
 # another 'acceptor' shard container. shard_shrink_point is a percentage of
-# shard_container_threshold e.g. the default value of 5 means 5% of the
+# shard_container_threshold e.g. the default value of 10 means 10% of the
 # shard_container_threshold.
 # shard_shrink_point = 10
 #
@@ -387,8 +387,8 @@ use = egg:swift#xprofile
 # for the donor to be allowed to merge into the acceptor.
 #
 # For example, if the shard_container_threshold is 1 million,
-# shard_shrink_point is 5, and shard_shrink_merge_point is 75 then a shard will
-# be considered for shrinking if it has less than or equal to 50 thousand
+# shard_shrink_point is 10, and shard_shrink_merge_point is 75 then a shard will
+# be considered for shrinking if it has less than or equal to 100 thousand
 # objects but will only merge into an acceptor if the combined object count
 # would be less than or equal to 750 thousand objects.
 # shard_shrink_merge_point = 75

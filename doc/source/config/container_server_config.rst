@@ -363,12 +363,12 @@ shard_shrink_merge_point          75                  When auto-sharding is
                                                       For example, if
                                                       shard_container_threshold
                                                       is 1 million,
-                                                      shard_shrink_point is 5,
+                                                      shard_shrink_point is 10,
                                                       and shard_shrink_merge_point
                                                       is 75 then a shard will
                                                       be considered for
                                                       shrinking if it has less
-                                                      than or equal to 50
+                                                      than or equal to 100
                                                       thousand objects but will
                                                       only merge into an
                                                       acceptor if the combined
