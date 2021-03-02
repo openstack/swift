@@ -901,6 +901,60 @@ class TestManageShardRanges(unittest.TestCase):
                          [ShardRange.SHRINKING] + [ShardRange.ACTIVE],
                          [sr.state for sr in updated_ranges])
 
+    def test_compact_expansion_limit_less_than_shrink_threshold(self):
+        broker = self._make_broker()
+        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
+        for i, sr in enumerate(shard_ranges):
+            if i % 2:
+                sr.object_count = 25
+            else:
+                sr.object_count = 3
+            sr.update_state(ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        self._move_broker_to_sharded_state(broker)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'compact', '--yes',
+                        '--shrink-threshold', '10',
+                        '--expansion-limit', '5'])
+        self.assertEqual(0, ret)
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['No shards identified for compaction.'],
+            out_lines[:1])
+
+    def test_compact_nothing_to_do(self):
+        broker = self._make_broker()
+        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
+        for i, sr in enumerate(shard_ranges):
+            sr.update_state(ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        self._move_broker_to_sharded_state(broker)
+        out = StringIO()
+        err = StringIO()
+        # all shards are too big to shrink
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'compact', '--yes',
+                        '--shrink-threshold', '5',
+                        '--expansion-limit', '8'])
+        self.assertEqual(0, ret)
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['No shards identified for compaction.'],
+            out_lines[:1])
+
+        # all shards could shrink but acceptors would be too large
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'compact', '--yes',
+                        '--shrink-threshold', '11',
+                        '--expansion-limit', '12'])
+        self.assertEqual(0, ret)
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['No shards identified for compaction.'],
+            out_lines[:1])
+
     def test_compact_shrink_threshold(self):
         # verify option to set the shrink threshold for compaction;
         broker = self._make_broker()

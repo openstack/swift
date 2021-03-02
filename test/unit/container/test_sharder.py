@@ -6460,6 +6460,36 @@ class TestSharderFunctions(BaseTestSharder):
         sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
         self.assertEqual([], sequences)
 
+    def test_find_compactible_no_donors(self):
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE, object_count=10)
+        broker.merge_shard_ranges(shard_ranges)
+        # shards exceed shrink threshold
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([], sequences)
+        # compacted shards would exceed merge size
+        sequences = find_compactible_shard_sequences(broker, 11, 19, -1, -1)
+        self.assertEqual([], sequences)
+        # shards exceed merge size
+        sequences = find_compactible_shard_sequences(broker, 11, 9, -1, -1)
+        self.assertEqual([], sequences)
+        # shards exceed merge size and shrink threshold
+        sequences = find_compactible_shard_sequences(broker, 10, 9, -1, -1)
+        self.assertEqual([], sequences)
+        # shards exceed *zero'd* merge size and shrink threshold
+        sequences = find_compactible_shard_sequences(broker, 0, 0, -1, -1)
+        self.assertEqual([], sequences)
+        # shards exceed *negative* merge size and shrink threshold
+        sequences = find_compactible_shard_sequences(broker, -1, -2, -1, -1)
+        self.assertEqual([], sequences)
+        # weird case: shards object count less than threshold but compacted
+        # shards would exceed merge size
+        sequences = find_compactible_shard_sequences(broker, 20, 19, -1, -1)
+        self.assertEqual([], sequences)
+
     def test_find_compactible_four_donors_two_acceptors(self):
         small_ranges = (2, 3, 4, 7)
         broker = self._make_broker()
@@ -6542,6 +6572,28 @@ class TestSharderFunctions(BaseTestSharder):
         broker.merge_shard_ranges(own_sr)
         sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
         self.assertEqual([shard_ranges[:3], shard_ranges[3:]], sequences)
+
+    def test_find_compactible_eligible_states(self):
+        # verify that compactible sequences only include shards in valid states
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=[ShardRange.SHRINKING, ShardRange.ACTIVE,  # ok, shrinking
+                   ShardRange.CREATED,  # ineligible state
+                   ShardRange.ACTIVE, ShardRange.ACTIVE,  # ok
+                   ShardRange.FOUND,  # ineligible state
+                   ShardRange.SHARDED,  # ineligible state
+                   ShardRange.ACTIVE, ShardRange.SHRINKING,  # ineligible state
+                   ShardRange.SHARDING,  # ineligible state
+                   ])
+        broker.merge_shard_ranges(shard_ranges)
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDED)
+        broker.merge_shard_ranges(own_sr)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1,
+                                                     include_shrinking=True)
+        self.assertEqual([shard_ranges[:2], shard_ranges[3:5], ], sequences)
 
     def test_find_compactible_max_shrinking(self):
         # verify option to limit the number of shrinking shards per acceptor
@@ -6639,21 +6691,31 @@ class TestSharderFunctions(BaseTestSharder):
                         self.assertFalse(is_sharding_candidate(sr, 10))
 
     def test_is_shrinking_candidate(self):
-        states = (ShardRange.ACTIVE, ShardRange.SHRINKING)
+        def do_check_true(state, ok_states):
+            # shard range has 9 objects
+            sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+                            state=state, object_count=9)
+            self.assertTrue(is_shrinking_candidate(sr, 10, 9, ok_states))
 
-        def do_check(state, object_count):
+        do_check_true(ShardRange.ACTIVE, (ShardRange.ACTIVE,))
+        do_check_true(ShardRange.ACTIVE,
+                      (ShardRange.ACTIVE, ShardRange.SHRINKING))
+        do_check_true(ShardRange.SHRINKING,
+                      (ShardRange.ACTIVE, ShardRange.SHRINKING))
+
+        def do_check_false(state, object_count):
+            states = (ShardRange.ACTIVE, ShardRange.SHRINKING)
+            # shard range has 10 objects
             sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
                             state=state, object_count=object_count)
-            if object_count < 10:
-                if state == ShardRange.ACTIVE and object_count < 10:
-                    self.assertTrue(is_shrinking_candidate(sr, 10))
-                if state in states:
-                    self.assertTrue(is_shrinking_candidate(sr, 10, states))
-            else:
-                self.assertFalse(is_shrinking_candidate(sr, 10))
-                self.assertFalse(is_shrinking_candidate(sr, 10, states))
+            self.assertFalse(is_shrinking_candidate(sr, 10, 20))
+            self.assertFalse(is_shrinking_candidate(sr, 10, 20, states))
+            self.assertFalse(is_shrinking_candidate(sr, 10, 9))
+            self.assertFalse(is_shrinking_candidate(sr, 10, 9, states))
+            self.assertFalse(is_shrinking_candidate(sr, 20, 9))
+            self.assertFalse(is_shrinking_candidate(sr, 20, 9, states))
 
         for state in ShardRange.STATES:
-            for object_count in (9, 10, 11):
+            for object_count in (10, 11):
                 with annotate_failure('%s %s' % (state, object_count)):
-                    do_check(state, object_count)
+                    do_check_false(state, object_count)
