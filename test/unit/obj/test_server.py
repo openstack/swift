@@ -2921,12 +2921,61 @@ class TestObjectController(unittest.TestCase):
         self.assertFalse(os.path.isfile(data_file(new_part, ts_1)))
         self.assertFalse(os.path.isfile(data_file(old_part, ts_1)))
         error_lines = self.logger.get_lines_for_level('error')
-        # the older request's data file in the old partition will have been
-        # cleaned up by the newer request, so it's attempt to relink will fail
-        self.assertEqual(1, len(error_lines))
-        self.assertIn(ts_1.internal + '.data failed: '
-                                      '[Errno 2] No such file or directory',
-                      error_lines[0])
+        self.assertEqual([], error_lines)
+
+    def test_PUT_next_part_power_races_around_makedirs_enoent(self):
+        hash_path_ = hash_path('a', 'c', 'o')
+        part_power = 10
+        old_part = utils.get_partition_for_hash(hash_path_, part_power)
+        new_part = utils.get_partition_for_hash(hash_path_, part_power + 1)
+        policy = POLICIES.default
+
+        def make_request(timestamp):
+            headers = {'X-Timestamp': timestamp.internal,
+                       'Content-Length': '6',
+                       'Content-Type': 'application/octet-stream',
+                       'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Next-Part-Power': part_power + 1}
+            req = Request.blank(
+                '/sda1/%s/a/c/o' % old_part, method='PUT',
+                headers=headers, body=b'VERIFY')
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 201)
+
+        def data_file(part, timestamp):
+            return os.path.join(
+                self.testdir, 'sda1',
+                storage_directory(diskfile.get_data_dir(int(policy)),
+                                  part, hash_path_),
+                timestamp.internal + '.data')
+
+        ts_1 = next(self.ts)
+        ts_2 = next(self.ts)
+        calls = []
+        orig_makedirs = os.makedirs
+
+        def mock_makedirs(path, *args, **kwargs):
+            # let another request race ahead just as the first is about to
+            # create the next part power object dir
+            if path == os.path.dirname(data_file(new_part, ts_1)):
+                calls.append(path)
+                if len(calls) == 1:
+                    # pretend 'yield' to other request process
+                    make_request(ts_2)
+            return orig_makedirs(path, *args, **kwargs)
+
+        with mock.patch('swift.obj.diskfile.os.makedirs', mock_makedirs):
+            make_request(ts_1)
+
+        self.assertEqual(
+            [os.path.dirname(data_file(new_part, ts_1)),
+             os.path.dirname(data_file(new_part, ts_1))], calls)
+        self.assertTrue(os.path.isfile(data_file(old_part, ts_2)))
+        self.assertTrue(os.path.isfile(data_file(new_part, ts_2)))
+        self.assertFalse(os.path.isfile(data_file(new_part, ts_1)))
+        self.assertFalse(os.path.isfile(data_file(old_part, ts_1)))
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual([], error_lines)
 
     def test_HEAD(self):
         # Test swift.obj.server.ObjectController.HEAD

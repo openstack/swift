@@ -300,7 +300,8 @@ def relink(conf, logger, device):
         for fname, _, _ in locations:
             newfname = replace_partition_in_path(fname, next_part_power)
             try:
-                diskfile.relink_paths(fname, newfname, check_existing=True)
+                logger.debug('Relinking %s to %s', fname, newfname)
+                diskfile.relink_paths(fname, newfname)
                 relinked += 1
                 suffix_dir = os.path.dirname(os.path.dirname(newfname))
                 diskfile.invalidate_hash(suffix_dir)
