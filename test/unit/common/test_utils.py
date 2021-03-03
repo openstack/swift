@@ -4328,6 +4328,14 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))
 
+    def test_get_partition_for_hash(self):
+        hex_hash = 'af088baea4806dcaba30bf07d9e64c77'
+        self.assertEqual(43, utils.get_partition_for_hash(hex_hash, 6))
+        self.assertEqual(87, utils.get_partition_for_hash(hex_hash, 7))
+        self.assertEqual(350, utils.get_partition_for_hash(hex_hash, 9))
+        self.assertEqual(700, utils.get_partition_for_hash(hex_hash, 10))
+        self.assertEqual(1400, utils.get_partition_for_hash(hex_hash, 11))
+
     def test_replace_partition_in_path(self):
         # Check for new part = part * 2
         old = '/s/n/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77/f'

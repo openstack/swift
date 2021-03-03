@@ -262,6 +262,29 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         with open(new_target_path_2, 'r') as fd:
             self.assertEqual(target_path_2, fd.read())
 
+    def test_relink_paths_object_dir_exists_but_not_dir(self):
+        target_dir = os.path.join(self.testdir, 'd1')
+        os.mkdir(target_dir)
+        target_path = os.path.join(target_dir, 't1.data')
+        with open(target_path, 'w') as fd:
+            fd.write(target_path)
+        # make a file where the new object dir should be
+        new_target_dir = os.path.join(self.testdir, 'd2')
+        with open(new_target_dir, 'w') as fd:
+            fd.write(new_target_dir)
+        new_target_path = os.path.join(new_target_dir, 't1.data')
+
+        with self.assertRaises(OSError) as cm:
+            diskfile.relink_paths(target_path, new_target_path)
+        self.assertEqual(errno.ENOTDIR, cm.exception.errno)
+
+        # make a symlink to target where the new object dir should be
+        os.unlink(new_target_dir)
+        os.symlink(target_path, new_target_dir)
+        with self.assertRaises(OSError) as cm:
+            diskfile.relink_paths(target_path, new_target_path)
+        self.assertEqual(errno.ENOTDIR, cm.exception.errno)
+
     def test_extract_policy(self):
         # good path names
         pn = 'objects/0/606/1984527ed7ef6247c78606/1401379842.14643.data'
