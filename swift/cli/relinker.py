@@ -362,6 +362,29 @@ def cleanup(conf, logger, device):
             locations = RateLimitedIterator(
                 locations, conf['files_per_second'])
         for fname, device, partition in locations:
+            # Relinking will take a while; we'll likely have some tombstones
+            # transition to being reapable during the process. When we open
+            # them in the new partition space, they'll get cleaned up and
+            # raise DiskFileNotExist. Without replicators running, this is
+            # likely the first opportunity for clean-up. To avoid a false-
+            # positive error below, open up in the old space *first* -- if
+            # that raises DiskFileNotExist, ignore it and move on.
+            loc = diskfile.AuditLocation(
+                os.path.dirname(fname), device, partition, policy)
+            df = diskfile_mgr.get_diskfile_from_audit_location(loc)
+            try:
+                with df.open():
+                    pass
+            except DiskFileQuarantined as exc:
+                logger.warning('ERROR Object %(obj)s failed audit and was'
+                               ' quarantined: %(err)r',
+                               {'obj': loc, 'err': exc})
+                errors += 1
+                continue
+            except DiskFileNotExist:
+                logger.debug('Found reapable on-disk file: %s', fname)
+                continue
+
             expected_fname = replace_partition_in_path(fname, part_power)
             if fname == expected_fname:
                 continue

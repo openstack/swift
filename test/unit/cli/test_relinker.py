@@ -933,7 +933,7 @@ class TestRelinker(unittest.TestCase):
     def test_cleanup_deleted(self):
         self._common_test_cleanup()
 
-        # Pretend the object got deleted inbetween and there is a tombstone
+        # Pretend the object got deleted in between and there is a tombstone
         fname_ts = self.expected_file[:-4] + "ts"
         os.rename(self.expected_file, fname_ts)
 
@@ -943,6 +943,35 @@ class TestRelinker(unittest.TestCase):
             '--devices', self.devices,
             '--skip-mount',
         ]))
+
+    def test_cleanup_reapable(self):
+        # relink a tombstone
+        fname_ts = self.objname[:-4] + "ts"
+        os.rename(self.objname, fname_ts)
+        self.objname = fname_ts
+        self.expected_file = self.expected_file[:-4] + "ts"
+        self._common_test_cleanup()
+        self.assertTrue(os.path.exists(self.expected_file))  # sanity check
+
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger), \
+                mock.patch('time.time', return_value=1e11):  # far, far future
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+        self.assertEqual(self.logger.get_lines_for_level('error'), [])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIn(
+            "Found reapable on-disk file: %s" % self.objname,
+            self.logger.get_lines_for_level('debug'))
+        # self.expected_file may or may not exist; it depends on whether the
+        # object was in the upper-half of the partition space. ultimately,
+        # that part doesn't really matter much -- but we definitely *don't*
+        # want self.objname around polluting the old partition space.
+        self.assertFalse(os.path.exists(self.objname))
 
     def test_cleanup_doesnotexist(self):
         self._common_test_cleanup()
@@ -979,11 +1008,13 @@ class TestRelinker(unittest.TestCase):
                 '--skip-mount',
             ]))
         log_lines = self.logger.get_lines_for_level('warning')
-        self.assertEqual(2, len(log_lines),
-                         'Expected 2 log lines, got %r' % log_lines)
-        # Once for the cleanup...
+        self.assertEqual(3, len(log_lines),
+                         'Expected 3 log lines, got %r' % log_lines)
+        # Once to check the old partition space...
         self.assertIn('Bad fragment index: None', log_lines[0])
-        # ... then again for the rehash
+        # ... again for the new partition ...
+        self.assertIn('Bad fragment index: None', log_lines[0])
+        # ... and one last time for the rehash
         self.assertIn('Bad fragment index: None', log_lines[1])
 
     def test_cleanup_quarantined(self):
