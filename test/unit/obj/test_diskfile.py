@@ -200,6 +200,68 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                                         '0', 'a', 'c', 'o',
                                         policy=policy)
 
+    def test_relink_paths(self):
+        target_dir = os.path.join(self.testdir, 'd1')
+        os.mkdir(target_dir)
+        target_path = os.path.join(target_dir, 'f1')
+        with open(target_path, 'w') as fd:
+            fd.write('junk')
+        new_target_path = os.path.join(self.testdir, 'd2', 'f1')
+        diskfile.relink_paths(target_path, new_target_path)
+        self.assertTrue(os.path.isfile(new_target_path))
+        with open(new_target_path, 'r') as fd:
+            self.assertEqual('junk', fd.read())
+
+    def test_relink_paths_makedirs_error(self):
+        target_dir = os.path.join(self.testdir, 'd1')
+        os.mkdir(target_dir)
+        target_path = os.path.join(target_dir, 'f1')
+        with open(target_path, 'w') as fd:
+            fd.write('junk')
+        new_target_path = os.path.join(self.testdir, 'd2', 'f1')
+        with mock.patch('swift.obj.diskfile.os.makedirs',
+                        side_effect=Exception('oops')):
+            with self.assertRaises(Exception) as cm:
+                diskfile.relink_paths(target_path, new_target_path)
+        self.assertEqual('oops', str(cm.exception))
+
+    def test_relink_paths_race(self):
+        # test two concurrent relinks of the same object hash dir
+        target_dir = os.path.join(self.testdir, 'd1')
+        # target dir exists
+        os.mkdir(target_dir)
+        target_path_1 = os.path.join(target_dir, 't1.data')
+        target_path_2 = os.path.join(target_dir, 't2.data')
+        # new target dir and files do not exist
+        new_target_dir = os.path.join(self.testdir, 'd2')
+        new_target_path_1 = os.path.join(new_target_dir, 't1.data')
+        new_target_path_2 = os.path.join(new_target_dir, 't2.data')
+
+        def write_and_relink(target_path, new_target_path):
+            with open(target_path, 'w') as fd:
+                fd.write(target_path)
+            diskfile.relink_paths(target_path, new_target_path)
+
+        calls = []
+        orig_makedirs = os.makedirs
+
+        def mock_makedirs(path):
+            calls.append(path)
+            if len(calls) == 1:
+                # pretend another process jumps in here and relinks same dirs
+                write_and_relink(target_path_2, new_target_path_2)
+            return orig_makedirs(path)
+
+        with mock.patch('swift.obj.diskfile.os.makedirs', mock_makedirs):
+            write_and_relink(target_path_1, new_target_path_1)
+
+        self.assertTrue(os.path.isfile(new_target_path_1))
+        with open(new_target_path_1, 'r') as fd:
+            self.assertEqual(target_path_1, fd.read())
+        self.assertTrue(os.path.isfile(new_target_path_2))
+        with open(new_target_path_2, 'r') as fd:
+            self.assertEqual(target_path_2, fd.read())
+
     def test_extract_policy(self):
         # good path names
         pn = 'objects/0/606/1984527ed7ef6247c78606/1401379842.14643.data'

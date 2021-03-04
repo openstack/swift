@@ -458,8 +458,11 @@ def relink_paths(target_path, new_target_path, check_existing=False):
         logging.debug('Relinking %s to %s due to next_part_power set',
                       target_path, new_target_path)
         new_target_dir = os.path.dirname(new_target_path)
-        if not os.path.isdir(new_target_dir):
+        try:
             os.makedirs(new_target_dir)
+        except OSError as err:
+            if err.errno != errno.EEXIST:
+                raise
 
         link_exists = False
         if check_existing:
