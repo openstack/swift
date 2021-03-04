@@ -1,0 +1,30 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: install virtual frame buffer
+      yum:
+        name: xorg-x11-server-Xvfb
+        state: present
+    - name: install selenium
+      pip:
+        name: selenium
+        state: present
+    - name: install firefox
+      yum:
+        name: firefox
+        state: present
+    - name: fetch firefox driver
+      get_url:
+        url: https://github.com/mozilla/geckodriver/releases/download/v0.26.0/geckodriver-v0.26.0-linux64.tar.gz
+        dest: /tmp/geckodriver.tar.gz
+    - name: unpack firefox driver
+      unarchive:
+        src: /tmp/geckodriver.tar.gz
+        dest: /usr/local/bin
+        remote_src: true
+    - name: check firefox version
+      command: firefox --version
+    #- name: install chromium
+    #  yum:
+    #    name: chromium-headless
+    #    state: present

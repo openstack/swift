@@ -1,0 +1,25 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Copy geckodriver log from worker nodes to executor node
+      synchronize:
+        src: '{{ ansible_env.HOME }}/geckodriver.log'
+        dest: '{{ zuul.executor.log_root }}'
+        mode: pull
+        copy_links: true
+        verify_host: true
+
+    - name: Copy CORS tests output from worker nodes to executor node
+      synchronize:
+        src: '{{ ansible_env.HOME }}/cors-test-results.txt'
+        dest: '{{ zuul.executor.log_root }}'
+        mode: pull
+        copy_links: true
+        verify_host: true
+
+    - zuul_return:
+        data:
+          zuul:
+            artifacts:
+              - name: CORS test results
+                url: cors-test-results.txt
