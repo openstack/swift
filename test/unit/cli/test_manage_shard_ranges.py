@@ -136,8 +136,8 @@ class TestManageShardRanges(unittest.TestCase):
 
         conf = """
         [container-sharder]
-        shard_shrink_point = 15
-        shard_shrink_merge_point = 65
+        shrink_threshold = 150
+        expansion_limit = 650
         shard_container_threshold = 1000
         max_shrinking = 33
         max_expanding = 31
@@ -227,39 +227,6 @@ class TestManageShardRanges(unittest.TestCase):
                              dry_run=False)
         mocked.assert_called_once_with(mock.ANY, expected)
 
-        # conf file - small percentages resulting in zero absolute values
-        # should be respected rather than falling back to defaults, to avoid
-        # nasty surprises
-        conf = """
-        [container-sharder]
-        shard_shrink_point = 1
-        shard_shrink_merge_point = 2
-        shard_container_threshold = 10
-        max_shrinking = 33
-        max_expanding = 31
-        """
-        conf_file = os.path.join(self.testdir, 'sharder.conf')
-        with open(conf_file, 'w') as fd:
-            fd.write(dedent(conf))
-
-        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges',
-                        return_value=0) as mocked:
-            ret = main([db_file, '--config', conf_file, 'compact'])
-        self.assertEqual(0, ret)
-        expected = Namespace(conf_file=conf_file,
-                             path_to_file=mock.ANY,
-                             func=mock.ANY,
-                             subcommand='compact',
-                             force_commits=False,
-                             verbose=0,
-                             max_expanding=31,
-                             max_shrinking=33,
-                             shrink_threshold=0,
-                             expansion_limit=0,
-                             yes=False,
-                             dry_run=False)
-        mocked.assert_called_once_with(mock.ANY, expected)
-
         # cli options
         with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges',
                         return_value=0) as mocked:
@@ -283,6 +250,108 @@ class TestManageShardRanges(unittest.TestCase):
                              dry_run=False)
         mocked.assert_called_once_with(mock.ANY, expected)
 
+    def test_conf_file_deprecated_options(self):
+        # verify that deprecated percent-based do get applied
+        db_file = os.path.join(self.testdir, 'hash.db')
+        broker = ContainerBroker(db_file, account='a', container='c')
+        broker.initialize()
+
+        conf = """
+        [container-sharder]
+        shard_shrink_point = 15
+        shard_shrink_merge_point = 65
+        shard_container_threshold = 1000
+        max_shrinking = 33
+        max_expanding = 31
+        """
+
+        conf_file = os.path.join(self.testdir, 'sharder.conf')
+        with open(conf_file, 'w') as fd:
+            fd.write(dedent(conf))
+
+        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, '--config', conf_file, 'compact'])
+        self.assertEqual(0, ret)
+        expected = Namespace(conf_file=conf_file,
+                             path_to_file=mock.ANY,
+                             func=mock.ANY,
+                             subcommand='compact',
+                             force_commits=False,
+                             verbose=0,
+                             max_expanding=31,
+                             max_shrinking=33,
+                             shrink_threshold=150,
+                             expansion_limit=650,
+                             yes=False,
+                             dry_run=False)
+        mocked.assert_called_once_with(mock.ANY, expected)
+
+        # absolute value options take precedence if specified in the conf file
+        conf = """
+        [container-sharder]
+        shard_shrink_point = 15
+        shrink_threshold = 123
+        shard_shrink_merge_point = 65
+        expansion_limit = 456
+        shard_container_threshold = 1000
+        max_shrinking = 33
+        max_expanding = 31
+        """
+
+        conf_file = os.path.join(self.testdir, 'sharder.conf')
+        with open(conf_file, 'w') as fd:
+            fd.write(dedent(conf))
+
+        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges') \
+                as mocked:
+            main([db_file, '--config', conf_file, 'compact'])
+        expected = Namespace(conf_file=conf_file,
+                             path_to_file=mock.ANY,
+                             func=mock.ANY,
+                             subcommand='compact',
+                             force_commits=False,
+                             verbose=0,
+                             max_expanding=31,
+                             max_shrinking=33,
+                             shrink_threshold=123,
+                             expansion_limit=456,
+                             yes=False,
+                             dry_run=False)
+        mocked.assert_called_once_with(mock.ANY, expected)
+
+        # conf file - small percentages resulting in zero absolute values
+        # should be respected rather than falling back to defaults, to avoid
+        # nasty surprises
+        conf = """
+        [container-sharder]
+        shard_shrink_point = 1
+        shard_shrink_merge_point = 2
+        shard_container_threshold = 10
+        max_shrinking = 33
+        max_expanding = 31
+        """
+        conf_file = os.path.join(self.testdir, 'sharder.conf')
+        with open(conf_file, 'w') as fd:
+            fd.write(dedent(conf))
+
+        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges') \
+                as mocked:
+            main([db_file, '--config', conf_file, 'compact'])
+        expected = Namespace(conf_file=conf_file,
+                             path_to_file=mock.ANY,
+                             func=mock.ANY,
+                             subcommand='compact',
+                             force_commits=False,
+                             verbose=0,
+                             max_expanding=31,
+                             max_shrinking=33,
+                             shrink_threshold=0,
+                             expansion_limit=0,
+                             yes=False,
+                             dry_run=False)
+        mocked.assert_called_once_with(mock.ANY, expected)
+
     def test_conf_file_invalid(self):
         db_file = os.path.join(self.testdir, 'hash.db')
         broker = ContainerBroker(db_file, account='a', container='c')
@@ -291,8 +360,8 @@ class TestManageShardRanges(unittest.TestCase):
         # conf file - invalid value for shard_container_threshold
         conf = """
         [container-sharder]
-        shard_shrink_point = 1
-        shard_shrink_merge_point = 2
+        shrink_threshold = 1
+        expansion_limit = 2
         shard_container_threshold = 0
         max_shrinking = 33
         max_expanding = 31
@@ -309,6 +378,32 @@ class TestManageShardRanges(unittest.TestCase):
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Error loading config file')
         self.assertIn('shard_container_threshold', err_lines[0])
+
+    def test_conf_file_invalid_deprecated_options(self):
+        db_file = os.path.join(self.testdir, 'hash.db')
+        broker = ContainerBroker(db_file, account='a', container='c')
+        broker.initialize()
+
+        # conf file - invalid value for shard_container_threshold
+        conf = """
+        [container-sharder]
+        shard_shrink_point = -1
+        shard_shrink_merge_point = 2
+        shard_container_threshold = 1000
+        max_shrinking = 33
+        max_expanding = 31
+        """
+        conf_file = os.path.join(self.testdir, 'sharder.conf')
+        with open(conf_file, 'w') as fd:
+            fd.write(dedent(conf))
+
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            main([db_file, '--config', conf_file, 'compact'])
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Error loading config file')
+        self.assertIn('shard_shrink_point', err_lines[0])
 
     def test_conf_file_does_not_exist(self):
         db_file = os.path.join(self.testdir, 'hash.db')
