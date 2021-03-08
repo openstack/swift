@@ -4358,6 +4358,14 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(utils.replace_partition_in_path(old, 10), old)
         self.assertEqual(utils.replace_partition_in_path(new, 11), new)
 
+        # check hash_dir option
+        old = '/s/n/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77'
+        exp = '/s/n/d/o/1400/c77/af088baea4806dcaba30bf07d9e64c77'
+        actual = utils.replace_partition_in_path(old, 11, is_hash_dir=True)
+        self.assertEqual(exp, actual)
+        actual = utils.replace_partition_in_path(exp, 11, is_hash_dir=True)
+        self.assertEqual(exp, actual)
+
     def test_round_robin_iter(self):
         it1 = iter([1, 2, 3])
         it2 = iter([4, 5])

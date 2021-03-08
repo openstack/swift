@@ -935,7 +935,9 @@ class BaseDiskFileManager(object):
         valid fileset, or None.
 
         :param files: a list of file names.
-        :param datadir: directory name files are from.
+        :param datadir: directory name files are from; this is used to
+                        construct file paths in the results, but the datadir is
+                        not modified by this method.
         :param verify: if True verify that the ondisk file contract has not
                        been violated, otherwise do not verify.
         :param policy: storage policy used to store the files. Used to

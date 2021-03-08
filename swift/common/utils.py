@@ -3217,7 +3217,7 @@ def audit_location_generator(devices, datadir, suffix='',
                              hook_pre_partition=None, hook_post_partition=None,
                              hook_pre_suffix=None, hook_post_suffix=None,
                              hook_pre_hash=None, hook_post_hash=None,
-                             error_counter=None):
+                             error_counter=None, yield_hash_dirs=False):
     """
     Given a devices path and a data directory, yield (path, device,
     partition) for all files in that directory
@@ -3236,6 +3236,7 @@ def audit_location_generator(devices, datadir, suffix='',
                     one of the DATADIR constants defined in the account,
                     container, and object servers.
     :param suffix: path name suffix required for all names returned
+                   (ignored if yield_hash_dirs is True)
     :param mount_check: Flag to check if a mount check should be performed
                     on devices
     :param logger: a logger object
@@ -3257,6 +3258,8 @@ def audit_location_generator(devices, datadir, suffix='',
     :param hook_post_hash: a callable taking hash_path as parameter
     :param error_counter: a dictionary used to accumulate error counts; may
                           add keys 'unmounted' and 'unlistable_partitions'
+    :param yield_hash_dirs: if True, yield hash dirs instead of individual
+                            files
     """
     device_dir = listdir(devices)
     # randomize devices in case of process restart before sweep completed
@@ -3316,17 +3319,21 @@ def audit_location_generator(devices, datadir, suffix='',
                     hash_path = os.path.join(suff_path, hsh)
                     if hook_pre_hash:
                         hook_pre_hash(hash_path)
-                    try:
-                        files = sorted(listdir(hash_path), reverse=True)
-                    except OSError as e:
-                        if e.errno != errno.ENOTDIR:
-                            raise
-                        continue
-                    for fname in files:
-                        if suffix and not fname.endswith(suffix):
+                    if yield_hash_dirs:
+                        if os.path.isdir(hash_path):
+                            yield hash_path, device, partition
+                    else:
+                        try:
+                            files = sorted(listdir(hash_path), reverse=True)
+                        except OSError as e:
+                            if e.errno != errno.ENOTDIR:
+                                raise
                             continue
-                        path = os.path.join(hash_path, fname)
-                        yield path, device, partition
+                        for fname in files:
+                            if suffix and not fname.endswith(suffix):
+                                continue
+                            path = os.path.join(hash_path, fname)
+                            yield path, device, partition
                     if hook_post_hash:
                         hook_post_hash(hash_path)
                 if hook_post_suffix:
@@ -5792,19 +5799,21 @@ def get_partition_for_hash(hex_hash, part_power):
     return struct.unpack_from('>I', raw_hash)[0] >> part_shift
 
 
-def replace_partition_in_path(path, part_power):
+def replace_partition_in_path(path, part_power, is_hash_dir=False):
     """
-    Takes a full path to a file and a partition power and returns
-    the same path, but with the correct partition number. Most useful when
-    increasing the partition power.
+    Takes a path and a partition power and returns the same path, but with the
+    correct partition number. Most useful when increasing the partition power.
 
     :param path: full path to a file, for example object .data file
     :param part_power: partition power to compute correct partition number
+    :param is_hash_dir: if True then ``path`` is the path to a hash dir,
+        otherwise ``path`` is the path to a file in a hash dir.
     :returns: Path with re-computed partition power
     """
     path_components = path.split(os.sep)
-    part = get_partition_for_hash(path_components[-2], part_power)
-    path_components[-4] = "%d" % part
+    part = get_partition_for_hash(path_components[-1 if is_hash_dir else -2],
+                                  part_power)
+    path_components[-3 if is_hash_dir else -4] = "%d" % part
     return os.sep.join(path_components)
 
 
