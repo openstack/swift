@@ -5780,6 +5780,18 @@ def md5_hash_for_file(fname):
     return md5sum.hexdigest()
 
 
+def get_partition_for_hash(hex_hash, part_power):
+    """
+    Return partition number for given hex hash and partition power.
+    :param hex_hash: A hash string
+    :param part_power: partition power
+    :returns: partition number
+    """
+    raw_hash = binascii.unhexlify(hex_hash)
+    part_shift = 32 - int(part_power)
+    return struct.unpack_from('>I', raw_hash)[0] >> part_shift
+
+
 def replace_partition_in_path(path, part_power):
     """
     Takes a full path to a file and a partition power and returns
@@ -5790,15 +5802,9 @@ def replace_partition_in_path(path, part_power):
     :param part_power: partition power to compute correct partition number
     :returns: Path with re-computed partition power
     """
-
     path_components = path.split(os.sep)
-    digest = binascii.unhexlify(path_components[-2])
-
-    part_shift = 32 - int(part_power)
-    part = struct.unpack_from('>I', digest)[0] >> part_shift
-
+    part = get_partition_for_hash(path_components[-2], part_power)
     path_components[-4] = "%d" % part
-
     return os.sep.join(path_components)
 
 
