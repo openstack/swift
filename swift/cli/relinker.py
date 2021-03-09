@@ -237,35 +237,20 @@ class Relinker(object):
 
     def _zero_stats(self):
         self.stats = {
-            'ok': 0,
+            'hash_dirs': 0,
+            'files': 0,
+            'linked': 0,
+            'removed': 0,
             'errors': 0,
             'policies': 0,
         }
 
-    def relink(self, fname):
-        newfname = replace_partition_in_path(self.conf['devices'], fname,
-                                             self.next_part_power)
-        try:
-            self.logger.debug('Relinking %s to %s', fname, newfname)
-            diskfile.relink_paths(fname, newfname)
-            self.stats['ok'] += 1
-            suffix_dir = os.path.dirname(os.path.dirname(newfname))
-            diskfile.invalidate_hash(suffix_dir)
-        except OSError as exc:
-            self.stats['errors'] += 1
-            self.logger.warning("Relinking %s to %s failed: %s",
-                                fname, newfname, exc)
-
-    def cleanup(self, hash_path):
+    def process_location(self, hash_path, new_hash_path):
         # Compare the contents of each hash dir with contents of same hash
         # dir in its new partition to verify that the new location has the
         # most up to date set of files. The new location may have newer
         # files if it has been updated since relinked.
-        new_hash_path = replace_partition_in_path(
-            self.conf['devices'], hash_path, self.part_power)
-
-        if new_hash_path == hash_path:
-            return
+        self.stats['hash_dirs'] += 1
 
         # Get on disk data for new and old locations, cleaning up any
         # reclaimable or obsolete files in each. The new location is
@@ -312,23 +297,27 @@ class Relinker(object):
             #    assuming that a non-existent file that *was* required is
             #    no longer required. The new file will eventually be
             #    cleaned up again.
+            self.stats['files'] += 1
             old_file = os.path.join(hash_path, filename)
             new_file = os.path.join(new_hash_path, filename)
             try:
                 if diskfile.relink_paths(old_file, new_file):
                     self.logger.debug(
-                        "Relinking (cleanup) created link: %s to %s",
+                        "Relinking%s created link: %s to %s",
+                        ' (cleanup)' if self.do_cleanup else '',
                         old_file, new_file)
                     created_links += 1
+                    self.stats['linked'] += 1
             except OSError as exc:
                 self.logger.warning(
-                    "Error relinking (cleanup): failed to relink %s to "
-                    "%s: %s", old_file, new_file, exc)
+                    "Error relinking%s: failed to relink %s to "
+                    "%s: %s", ' (cleanup)' if self.do_cleanup else '',
+                    old_file, new_file, exc)
                 self.stats['errors'] += 1
                 missing_links += 1
         if created_links:
             diskfile.invalidate_hash(os.path.dirname(new_hash_path))
-        if missing_links:
+        if missing_links or not self.do_cleanup:
             return
 
         # the new partition hash dir has the most up to date set of on
@@ -344,7 +333,7 @@ class Relinker(object):
                 self.stats['errors'] += 1
             else:
                 rehash = True
-                self.stats['ok'] += 1
+                self.stats['removed'] += 1
                 self.logger.debug("Removed %s", old_file)
 
         if rehash:
@@ -395,16 +384,18 @@ class Relinker(object):
             hashes_filter=run_hashes_filter,
             logger=self.logger,
             error_counter=self.stats,
-            yield_hash_dirs=self.do_cleanup
+            yield_hash_dirs=True
         )
         if self.conf['files_per_second'] > 0:
             locations = RateLimitedIterator(
                 locations, self.conf['files_per_second'])
-        for location, device, partition in locations:
-            if self.do_cleanup:
-                self.cleanup(location)
-            else:
-                self.relink(location)
+        for hash_path, device, partition in locations:
+            # note, in cleanup step next_part_power == part_power
+            new_hash_path = replace_partition_in_path(
+                self.conf['devices'], hash_path, self.next_part_power)
+            if new_hash_path == hash_path:
+                continue
+            self.process_location(hash_path, new_hash_path)
 
     def run(self):
         self._zero_stats()
@@ -427,7 +418,10 @@ class Relinker(object):
                 "No policy found to increase the partition power.")
             return EXIT_NO_APPLICABLE_POLICY
 
-        processed = self.stats.pop('ok')
+        hash_dirs = self.stats.pop('hash_dirs')
+        files = self.stats.pop('files')
+        linked = self.stats.pop('linked')
+        removed = self.stats.pop('removed')
         action_errors = self.stats.pop('errors')
         unmounted = self.stats.pop('unmounted', 0)
         if unmounted:
@@ -443,8 +437,9 @@ class Relinker(object):
                 'files: %r', self.stats)
 
         self.logger.info(
-            '%d diskfiles processed (cleanup=%s) (%d errors)',
-            processed, self.do_cleanup, action_errors + listdir_errors)
+            '%d hash dirs processed (cleanup=%s) (%d files, %d linked, '
+            '%d removed, %d errors)', hash_dirs, self.do_cleanup, files,
+            linked, removed, action_errors + listdir_errors)
         if action_errors + listdir_errors + unmounted > 0:
             # NB: audit_location_generator logs unmounted disks as warnings,
             # but we want to treat them as errors
