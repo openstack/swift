@@ -136,7 +136,7 @@ def partitions_filter(states, part_power, next_part_power,
 
 
 # Save states when a partition is done
-def hook_post_partition(states, step, policy, diskfile_manager,
+def hook_post_partition(logger, states, step, policy, diskfile_manager,
                         partition_path):
     datadir_path, part = os.path.split(os.path.abspath(partition_path))
     device_path, datadir_name = os.path.split(datadir_path)
@@ -207,6 +207,9 @@ def hook_post_partition(states, step, policy, diskfile_manager,
         json.dump(states, f)
         os.fsync(f.fileno())
     os.rename(state_tmp_file, state_file)
+    num_parts_done = sum(1 for part in states["state"].values() if part)
+    logger.info("Device: %s Step: %s Partitions: %d/%d" % (
+        device, step, num_parts_done, len(states["state"])))
 
 
 def hashes_filter(next_part_power, suff_path, hashes):
@@ -275,8 +278,9 @@ def relink(conf, logger, device):
         relink_hook_post_device = partial(hook_post_device, locks)
         relink_partition_filter = partial(partitions_filter,
                                           states, part_power, next_part_power)
-        relink_hook_post_partition = partial(
-            hook_post_partition, states, STEP_RELINK, policy, diskfile_mgr)
+        relink_hook_post_partition = partial(hook_post_partition, logger,
+                                             states, STEP_RELINK, policy,
+                                             diskfile_mgr)
         relink_hashes_filter = partial(hashes_filter, next_part_power)
 
         locations = audit_location_generator(
@@ -343,8 +347,9 @@ def cleanup(conf, logger, device):
         cleanup_hook_post_device = partial(hook_post_device, locks)
         cleanup_partition_filter = partial(partitions_filter,
                                            states, part_power, next_part_power)
-        cleanup_hook_post_partition = partial(
-            hook_post_partition, states, STEP_CLEANUP, policy, diskfile_mgr)
+        cleanup_hook_post_partition = partial(hook_post_partition, logger,
+                                              states, STEP_CLEANUP, policy,
+                                              diskfile_mgr)
         cleanup_hashes_filter = partial(hashes_filter, next_part_power)
 
         locations = audit_location_generator(

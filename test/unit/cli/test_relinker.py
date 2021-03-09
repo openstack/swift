@@ -794,9 +794,12 @@ class TestRelinker(unittest.TestCase):
                               'mount_check': False}, self.logger)[pol]
 
         # Ack partition 96
-        relinker.hook_post_partition(states, relinker.STEP_RELINK, pol, mgr,
+        relinker.hook_post_partition(self.logger, states,
+                                     relinker.STEP_RELINK, pol, mgr,
                                      os.path.join(datadir_path, '96'))
         self.assertEqual(states["state"], {'96': True, '227': False})
+        self.assertIn("Device: sda1 Step: relink Partitions: 1/2",
+                      self.logger.get_lines_for_level("info"))
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
                 "part_power": PART_POWER,
@@ -810,8 +813,11 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(states["state"], {'96': True, '227': False})
 
         # Ack partition 227
-        relinker.hook_post_partition(states, relinker.STEP_RELINK, pol, mgr,
-                                     os.path.join(datadir_path, '227'))
+        relinker.hook_post_partition(
+            self.logger, states, relinker.STEP_RELINK, pol,
+            mgr, os.path.join(datadir_path, '227'))
+        self.assertIn("Device: sda1 Step: relink Partitions: 2/2",
+                      self.logger.get_lines_for_level("info"))
         self.assertEqual(states["state"], {'96': True, '227': True})
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
@@ -852,8 +858,11 @@ class TestRelinker(unittest.TestCase):
                          call_partition_filter(PART_POWER + 1, PART_POWER + 1,
                                                ['96', '227', '312']))
         # Ack partition 227
-        relinker.hook_post_partition(states, relinker.STEP_CLEANUP, pol, mgr,
-                                     os.path.join(datadir_path, '227'))
+        relinker.hook_post_partition(
+            self.logger, states, relinker.STEP_CLEANUP, pol, mgr,
+            os.path.join(datadir_path, '227'))
+        self.assertIn("Device: sda1 Step: cleanup Partitions: 1/2",
+                      self.logger.get_lines_for_level("info"))
         self.assertEqual(states["state"],
                          {'96': False, '227': True})
         with open(state_file, 'rt') as f:
@@ -871,8 +880,11 @@ class TestRelinker(unittest.TestCase):
                          {'96': False, '227': True})
 
         # Ack partition 96
-        relinker.hook_post_partition(states, relinker.STEP_CLEANUP, pol, mgr,
+        relinker.hook_post_partition(self.logger, states,
+                                     relinker.STEP_CLEANUP, pol, mgr,
                                      os.path.join(datadir_path, '96'))
+        self.assertIn("Device: sda1 Step: cleanup Partitions: 2/2",
+                      self.logger.get_lines_for_level("info"))
         self.assertEqual(states["state"],
                          {'96': True, '227': True})
         with open(state_file, 'rt') as f:
