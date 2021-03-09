@@ -67,6 +67,8 @@ class TestRelinker(unittest.TestCase):
         os.mkdir(os.path.join(self.devices, self.existing_device))
         self.objects = os.path.join(self.devices, self.existing_device,
                                     'objects')
+        self.policy = StoragePolicy(0, 'platinum', True)
+        storage_policy._POLICIES = StoragePolicyCollection([self.policy])
         self._setup_object()
 
     def _setup_object(self, condition=None):
@@ -103,9 +105,6 @@ class TestRelinker(unittest.TestCase):
             write_metadata(dummy,
                            {'name': self.obj_path, 'Content-Length': '12'})
 
-        self.policy = StoragePolicy(0, 'platinum', True)
-        storage_policy._POLICIES = StoragePolicyCollection([self.policy])
-
         self.part_dir = os.path.join(self.objects, str(self.part))
         self.suffix = self._hash[-3:]
         self.suffix_dir = os.path.join(self.part_dir, self.suffix)
@@ -114,10 +113,10 @@ class TestRelinker(unittest.TestCase):
         self.expected_dir = os.path.join(self.next_suffix_dir, self._hash)
         self.expected_file = os.path.join(self.expected_dir, self.object_fname)
 
-    def _save_ring(self):
+    def _save_ring(self, policies=POLICIES):
         self.rb._ring = None
         rd = self.rb.get_ring()
-        for policy in POLICIES:
+        for policy in policies:
             rd.save(os.path.join(
                 self.testdir, '%s.ring.gz' % policy.ring_name))
             # Enforce ring reloading in relinker
@@ -550,6 +549,111 @@ class TestRelinker(unittest.TestCase):
 
         self.assertFalse(os.path.isdir(self.expected_dir))
         self.assertFalse(os.path.isfile(self.expected_file))
+
+    @patch_policies(
+        [StoragePolicy(0, name='gold', is_default=True),
+         ECStoragePolicy(1, name='platinum', ec_type=DEFAULT_TEST_EC_TYPE,
+                         ec_ndata=4, ec_nparity=2)])
+    def test_relink_all_policies(self):
+        # verify that only policies in appropriate state are processed
+        def do_relink():
+            with mock.patch(
+                    'swift.cli.relinker.Relinker.process_policy') as mocked:
+                res = relinker.main([
+                    'relink',
+                    '--swift-dir', self.testdir,
+                    '--skip-mount',
+                    '--devices', self.devices,
+                    '--device', self.existing_device,
+                ])
+            return res, mocked
+
+        self._save_ring(POLICIES)  # no ring prepared for increase
+        res, mocked = do_relink()
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
+        self._save_ring([POLICIES[0]])  # not prepared for increase
+        self.rb.prepare_increase_partition_power()
+        self._save_ring([POLICIES[1]])  # prepared for increase
+        res, mocked = do_relink()
+        self.assertEqual([mock.call(POLICIES[1])], mocked.call_args_list)
+        self.assertEqual(0, res)
+
+        self._save_ring([POLICIES[0]])  # prepared for increase
+        res, mocked = do_relink()
+        self.assertEqual([mock.call(POLICIES[0]), mock.call(POLICIES[1])],
+                         mocked.call_args_list)
+        self.assertEqual(0, res)
+
+        self.rb.increase_partition_power()
+        self._save_ring([POLICIES[0]])  # increased
+        res, mocked = do_relink()
+        self.assertEqual([mock.call(POLICIES[1])], mocked.call_args_list)
+        self.assertEqual(0, res)
+
+        self._save_ring([POLICIES[1]])  # increased
+        res, mocked = do_relink()
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
+        self.rb.finish_increase_partition_power()
+        self._save_ring(POLICIES)  # all rings finished
+        res, mocked = do_relink()
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
+    @patch_policies(
+        [StoragePolicy(0, name='gold', is_default=True),
+         ECStoragePolicy(1, name='platinum', ec_type=DEFAULT_TEST_EC_TYPE,
+                         ec_ndata=4, ec_nparity=2)])
+    def test_cleanup_all_policies(self):
+        # verify that only policies in appropriate state are processed
+        def do_cleanup():
+            with mock.patch(
+                    'swift.cli.relinker.Relinker.process_policy') as mocked:
+                res = relinker.main([
+                    'cleanup',
+                    '--swift-dir', self.testdir,
+                    '--skip-mount',
+                    '--devices', self.devices,
+                    '--device', self.existing_device,
+                ])
+            return res, mocked
+
+        self._save_ring(POLICIES)  # no ring prepared for increase
+        res, mocked = do_cleanup()
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
+        self.rb.prepare_increase_partition_power()
+        self._save_ring(POLICIES)  # all rings prepared for increase
+        res, mocked = do_cleanup()
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
+        self.rb.increase_partition_power()
+        self._save_ring([POLICIES[0]])  # increased
+        res, mocked = do_cleanup()
+        self.assertEqual([mock.call(POLICIES[0])], mocked.call_args_list)
+        self.assertEqual(0, res)
+
+        self._save_ring([POLICIES[1]])  # increased
+        res, mocked = do_cleanup()
+        self.assertEqual([mock.call(POLICIES[0]), mock.call(POLICIES[1])],
+                         mocked.call_args_list)
+        self.assertEqual(0, res)
+
+        self.rb.finish_increase_partition_power()
+        self._save_ring([POLICIES[1]])  # finished
+        res, mocked = do_cleanup()
+        self.assertEqual([mock.call(POLICIES[0])], mocked.call_args_list)
+        self.assertEqual(0, res)
+
+        self._save_ring([POLICIES[0]])  # finished
+        res, mocked = do_cleanup()
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
 
     def _common_test_cleanup(self, relink=True):
         # Create a ring that has prev_part_power set
