@@ -424,6 +424,35 @@ def backward(f, blocksize=4096):
 TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
 
 
+def non_negative_float(value):
+    """
+    Check that the value casts to a float and is non-negative.
+
+    :param value: value to check
+    :raises ValueError: if the value cannot be cast to a float or is negative.
+    :return: a float
+    """
+    value = float(value)
+    if value < 0:
+        raise ValueError
+    return value
+
+
+def non_negative_int(value):
+    """
+    Check that the value casts to an int and is a whole number.
+
+    :param value: value to check
+    :raises ValueError: if the value cannot be cast to an int or does not
+        represent a whole number.
+    :return: an int
+    """
+    int_value = int(value)
+    if int_value != non_negative_float(value):
+        raise ValueError
+    return int_value
+
+
 def config_true_value(value):
     """
     Returns True if the value is either True or a string in TRUE_VALUES.

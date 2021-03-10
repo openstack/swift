@@ -246,6 +246,10 @@ class TestRelinker(unittest.TestCase):
         self._common_test_cleanup()
         self._do_test_relinker_files_per_second('cleanup')
 
+    @patch_policies(
+        [StoragePolicy(0, name='gold', is_default=True),
+         ECStoragePolicy(1, name='platinum', ec_type=DEFAULT_TEST_EC_TYPE,
+                         ec_ndata=4, ec_nparity=2)])
     def test_conf_file(self):
         config = """
         [DEFAULT]
@@ -274,6 +278,7 @@ class TestRelinker(unittest.TestCase):
             'files_per_second': 0.0,
             'log_name': 'test-relinker',
             'log_level': 'DEBUG',
+            'policies': POLICIES
         }
         mock_relink.assert_called_once_with(exp_conf, mock.ANY, device='sdx')
         logger = mock_relink.call_args[0][1]
@@ -312,6 +317,7 @@ class TestRelinker(unittest.TestCase):
             'files_per_second': 11.1,
             'log_name': 'test-relinker',
             'log_level': 'WARNING',
+            'policies': POLICIES
         }, mock.ANY, device='sdx')
         logger = mock_relink.call_args[0][1]
         self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
@@ -322,7 +328,8 @@ class TestRelinker(unittest.TestCase):
             relinker.main([
                 'relink', conf_file, '--device', 'sdx', '--debug',
                 '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
-                '--skip-mount-check', '--files-per-second', '2.2'])
+                '--skip-mount-check', '--files-per-second', '2.2',
+                '--policy', '1'])
         mock_relink.assert_called_once_with({
             '__file__': mock.ANY,
             'swift_dir': 'cli-dir',
@@ -331,6 +338,7 @@ class TestRelinker(unittest.TestCase):
             'files_per_second': 2.2,
             'log_level': 'DEBUG',
             'log_name': 'test-relinker',
+            'policies': [POLICIES[1]]
         }, mock.ANY, device='sdx')
 
         with mock.patch('swift.cli.relinker.relink') as mock_relink, \
@@ -344,6 +352,7 @@ class TestRelinker(unittest.TestCase):
             'mount_check': False,
             'files_per_second': 0.0,
             'log_level': 'INFO',
+            'policies': POLICIES
         }, mock.ANY, device='sdx')
         mock_logging_config.assert_called_once_with(
             format='%(message)s', level=logging.INFO, filename=None)
@@ -359,6 +368,7 @@ class TestRelinker(unittest.TestCase):
             'mount_check': False,
             'files_per_second': 0.0,
             'log_level': 'DEBUG',
+            'policies': POLICIES
         }, mock.ANY, device='sdx')
         # --debug is now effective
         mock_logging_config.assert_called_once_with(
@@ -554,9 +564,87 @@ class TestRelinker(unittest.TestCase):
         [StoragePolicy(0, name='gold', is_default=True),
          ECStoragePolicy(1, name='platinum', ec_type=DEFAULT_TEST_EC_TYPE,
                          ec_ndata=4, ec_nparity=2)])
+    def test_relink_policy_option(self):
+        self._setup_object()
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+
+        # invalid policy
+        with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as cm:
+                self.assertEqual(0, relinker.main([
+                    'relink',
+                    '--swift-dir', self.testdir,
+                    '--policy', '9',
+                    '--skip-mount',
+                    '--devices', self.devices,
+                    '--device', self.existing_device,
+                ]))
+        self.assertEqual(2, cm.exception.code)
+
+        # policy must be index not name
+        with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as cm:
+                self.assertEqual(0, relinker.main([
+                    'relink',
+                    '--swift-dir', self.testdir,
+                    '--policy', 'gold',
+                    '--skip-mount',
+                    '--devices', self.devices,
+                    '--device', self.existing_device,
+                ]))
+            self.assertEqual(2, cm.exception.code)
+
+        # policy with no object
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--policy', '1',
+                '--skip-mount',
+                '--devices', self.devices,
+                '--device', self.existing_device,
+            ]))
+        self.assertFalse(os.path.isdir(self.expected_dir))
+        self.assertEqual(
+            ['Processing files for policy platinum under %s/%s (cleanup=False)'
+             % (self.devices, self.existing_device),
+             '0 diskfiles processed (cleanup=False) (0 errors)'],
+            self.logger.get_lines_for_level('info'))
+
+        # policy with object
+        self.logger.clear()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--policy', '0',
+                '--skip-mount',
+                '--devices', self.devices,
+                '--device', self.existing_device,
+            ]))
+        self.assertTrue(os.path.isdir(self.expected_dir))
+        self.assertTrue(os.path.isfile(self.expected_file))
+        stat_old = os.stat(os.path.join(self.objdir, self.object_fname))
+        stat_new = os.stat(self.expected_file)
+        self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        self.assertEqual(
+            ['Processing files for policy gold under %s/%s (cleanup=False)'
+             % (self.devices, self.existing_device),
+             'Device: sda1 Step: relink Partitions: 1/1',
+             '1 diskfiles processed (cleanup=False) (0 errors)'],
+            self.logger.get_lines_for_level('info'))
+
+    @patch_policies(
+        [StoragePolicy(0, name='gold', is_default=True),
+         ECStoragePolicy(1, name='platinum', ec_type=DEFAULT_TEST_EC_TYPE,
+                         ec_ndata=4, ec_nparity=2)])
     def test_relink_all_policies(self):
         # verify that only policies in appropriate state are processed
-        def do_relink():
+        def do_relink(options=None):
+            options = [] if options is None else options
             with mock.patch(
                     'swift.cli.relinker.Relinker.process_policy') as mocked:
                 res = relinker.main([
@@ -565,7 +653,7 @@ class TestRelinker(unittest.TestCase):
                     '--skip-mount',
                     '--devices', self.devices,
                     '--device', self.existing_device,
-                ])
+                ] + options)
             return res, mocked
 
         self._save_ring(POLICIES)  # no ring prepared for increase
@@ -579,6 +667,10 @@ class TestRelinker(unittest.TestCase):
         res, mocked = do_relink()
         self.assertEqual([mock.call(POLICIES[1])], mocked.call_args_list)
         self.assertEqual(0, res)
+
+        res, mocked = do_relink(['--policy', 0])
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
 
         self._save_ring([POLICIES[0]])  # prepared for increase
         res, mocked = do_relink()
@@ -597,6 +689,10 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual([], mocked.call_args_list)
         self.assertEqual(2, res)
 
+        res, mocked = do_relink(['--policy', '0'])
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
         self.rb.finish_increase_partition_power()
         self._save_ring(POLICIES)  # all rings finished
         res, mocked = do_relink()
@@ -609,7 +705,8 @@ class TestRelinker(unittest.TestCase):
                          ec_ndata=4, ec_nparity=2)])
     def test_cleanup_all_policies(self):
         # verify that only policies in appropriate state are processed
-        def do_cleanup():
+        def do_cleanup(options=None):
+            options = [] if options is None else options
             with mock.patch(
                     'swift.cli.relinker.Relinker.process_policy') as mocked:
                 res = relinker.main([
@@ -618,7 +715,7 @@ class TestRelinker(unittest.TestCase):
                     '--skip-mount',
                     '--devices', self.devices,
                     '--device', self.existing_device,
-                ])
+                ] + options)
             return res, mocked
 
         self._save_ring(POLICIES)  # no ring prepared for increase
@@ -638,6 +735,10 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual([mock.call(POLICIES[0])], mocked.call_args_list)
         self.assertEqual(0, res)
 
+        res, mocked = do_cleanup(['--policy', '1'])
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
         self._save_ring([POLICIES[1]])  # increased
         res, mocked = do_cleanup()
         self.assertEqual([mock.call(POLICIES[0]), mock.call(POLICIES[1])],
@@ -655,6 +756,10 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual([], mocked.call_args_list)
         self.assertEqual(2, res)
 
+        res, mocked = do_cleanup(['--policy', '1'])
+        self.assertEqual([], mocked.call_args_list)
+        self.assertEqual(2, res)
+
     def _common_test_cleanup(self, relink=True):
         # Create a ring that has prev_part_power set
         self.rb.prepare_increase_partition_power()
@@ -664,7 +769,8 @@ class TestRelinker(unittest.TestCase):
             conf = {'swift_dir': self.testdir,
                     'devices': self.devices,
                     'mount_check': False,
-                    'files_per_second': 0}
+                    'files_per_second': 0,
+                    'policies': POLICIES}
             self.assertEqual(0, relinker.relink(
                 conf, logger=self.logger, device=self.existing_device))
         self.rb.increase_partition_power()

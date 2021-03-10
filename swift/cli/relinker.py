@@ -24,7 +24,7 @@ from functools import partial
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
-    RateLimitedIterator, lock_path
+    RateLimitedIterator, lock_path, non_negative_float, non_negative_int
 from swift.obj import diskfile
 
 
@@ -38,9 +38,10 @@ EXIT_NO_APPLICABLE_POLICY = 2
 EXIT_ERROR = 1
 
 
-def non_negative_float(value):
-    value = float(value)
-    if value < 0:
+def policy(policy_index):
+    value = non_negative_int(policy_index)
+    value = POLICIES.get_by_index(value)
+    if value is None:
         raise ValueError
     return value
 
@@ -407,7 +408,7 @@ class Relinker(object):
 
     def run(self):
         self._zero_stats()
-        for policy in POLICIES:
+        for policy in self.conf['policies']:
             policy.object_ring = None  # Ensure it will be reloaded
             policy.load_ring(self.conf['swift_dir'])
             ring = policy.object_ring
@@ -467,6 +468,9 @@ def main(args):
         'Path to config file with [object-relinker] section'))
     parser.add_argument('--swift-dir', default=None,
                         dest='swift_dir', help='Path to swift directory')
+    parser.add_argument('--policy', default=None, dest='policy',
+                        type=policy,
+                        help='Policy to relink (default: all)')
     parser.add_argument('--devices', default=None,
                         dest='devices', help='Path to swift device directory')
     parser.add_argument('--user', default=None, dest='user',
@@ -514,6 +518,7 @@ def main(args):
         'files_per_second': (
             args.files_per_second if args.files_per_second is not None
             else non_negative_float(conf.get('files_per_second', '0'))),
+        'policies': POLICIES if args.policy is None else [args.policy],
     })
 
     if args.action == 'relink':
