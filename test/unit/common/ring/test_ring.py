@@ -113,6 +113,27 @@ class TestRingData(unittest.TestCase):
         rd2 = ring.RingData.load(ring_fname)
         self.assert_ring_data_equal(rd, rd2)
 
+    def test_load_closes_file(self):
+        ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
+        rd = ring.RingData(
+            [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])],
+            [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
+        rd.save(ring_fname)
+
+        class MockReader(ring.ring.RingReader):
+            calls = []
+
+            def close(self):
+                self.calls.append(('close', self.fp))
+                return super(MockReader, self).close()
+
+        with mock.patch('swift.common.ring.ring.RingReader',
+                        MockReader) as mock_reader:
+            ring.RingData.load(ring_fname)
+
+        self.assertEqual([('close', mock.ANY)], mock_reader.calls)
+        self.assertTrue(mock_reader.calls[0][1].closed)
+
     def test_byteswapped_serialization(self):
         # Manually byte swap a ring and write it out, claiming it was written
         # on a different endian machine. Then read it back in and see if it's
