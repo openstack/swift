@@ -1859,7 +1859,7 @@ class BaseDiskFileWriter(object):
         new_target_path = None
         if self.next_part_power:
             new_target_path = replace_partition_in_path(
-                target_path, self.next_part_power)
+                self.manager.devices, target_path, self.next_part_power)
             if target_path != new_target_path:
                 try:
                     fsync_dir(os.path.dirname(target_path))
@@ -1959,7 +1959,7 @@ class BaseDiskFileWriter(object):
         else:
             prev_part_power = int(self.next_part_power) - 1
             old_target_path = replace_partition_in_path(
-                cur_path, prev_part_power)
+                self.manager.devices, cur_path, prev_part_power)
             old_target_dir = os.path.dirname(old_target_path)
             try:
                 self.manager.cleanup_ondisk_files(old_target_dir)
@@ -3095,9 +3095,10 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         new_data_file_path = new_durable_data_file_path = None
         if self.next_part_power:
             new_data_file_path = replace_partition_in_path(
-                data_file_path, self.next_part_power)
+                self.manager.devices, data_file_path, self.next_part_power)
             new_durable_data_file_path = replace_partition_in_path(
-                durable_data_file_path, self.next_part_power)
+                self.manager.devices, durable_data_file_path,
+                self.next_part_power)
         try:
             try:
                 os.rename(data_file_path, durable_data_file_path)

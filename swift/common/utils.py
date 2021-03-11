@@ -5799,21 +5799,27 @@ def get_partition_for_hash(hex_hash, part_power):
     return struct.unpack_from('>I', raw_hash)[0] >> part_shift
 
 
-def replace_partition_in_path(path, part_power, is_hash_dir=False):
+def replace_partition_in_path(devices, path, part_power):
     """
     Takes a path and a partition power and returns the same path, but with the
     correct partition number. Most useful when increasing the partition power.
 
-    :param path: full path to a file, for example object .data file
+    :param devices: directory where devices are mounted (e.g. /srv/node)
+    :param path: full path to a object file or hashdir
     :param part_power: partition power to compute correct partition number
     :param is_hash_dir: if True then ``path`` is the path to a hash dir,
         otherwise ``path`` is the path to a file in a hash dir.
     :returns: Path with re-computed partition power
     """
+    offset_parts = devices.rstrip(os.sep).split(os.sep)
     path_components = path.split(os.sep)
-    part = get_partition_for_hash(path_components[-1 if is_hash_dir else -2],
-                                  part_power)
-    path_components[-3 if is_hash_dir else -4] = "%d" % part
+    if offset_parts == path_components[:len(offset_parts)]:
+        offset = len(offset_parts)
+    else:
+        raise ValueError('Path %r is not under device dir %r' % (
+            path, devices))
+    part = get_partition_for_hash(path_components[offset + 4], part_power)
+    path_components[offset + 2] = "%d" % part
     return os.sep.join(path_components)
 
 

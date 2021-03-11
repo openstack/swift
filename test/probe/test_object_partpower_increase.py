@@ -27,7 +27,7 @@ from swiftclient import client
 from swift.cli.relinker import main as relinker_main
 from swift.common.manager import Manager, Server
 from swift.common.ring import RingBuilder
-from swift.common.utils import replace_partition_in_path
+from swift.common.utils import replace_partition_in_path, readconf
 from swift.obj.diskfile import get_data_dir
 from test.probe.common import ECProbeTest, ProbeTest, ReplProbeTest
 
@@ -50,6 +50,8 @@ class TestPartPowerIncrease(ProbeTest):
         self.data = ' ' * getattr(self.policy, 'ec_segment_size', 1)
 
         self.conf_files = Server('object').conf_files()
+        self.devices = [readconf(conf_file)['app:object-server']['devices']
+                        for conf_file in self.conf_files]
 
     def tearDown(self):
         # Keep a backup copy of the modified .builder file
@@ -127,8 +129,13 @@ class TestPartPowerIncrease(ProbeTest):
         # Remember the new object locations
         new_locations = []
         for loc in org_locations:
+            for dev_root in self.devices:
+                if loc.startswith(dev_root):
+                    break
+            else:
+                self.fail('Unable to find device for %s' % loc)
             new_locations.append(replace_partition_in_path(
-                str(loc), self.object_ring.part_power + 1))
+                dev_root, str(loc), self.object_ring.part_power + 1))
 
         # Overwrite existing object - to ensure that older timestamp files
         # will be cleaned up properly later

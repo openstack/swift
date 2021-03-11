@@ -187,9 +187,9 @@ shows the mapping between old and new location::
 
     >>> from swift.common.utils import replace_partition_in_path
     >>> old='objects/16003/a38/fa0fcec07328d068e24ccbf2a62f2a38/1467658208.57179.data'
-    >>> replace_partition_in_path(old, 14)
+    >>> replace_partition_in_path('', '/sda/' + old, 14)
     'objects/16003/a38/fa0fcec07328d068e24ccbf2a62f2a38/1467658208.57179.data'
-    >>> replace_partition_in_path(old, 15)
+    >>> replace_partition_in_path('', '/sda/' + old, 15)
     'objects/32007/a38/fa0fcec07328d068e24ccbf2a62f2a38/1467658208.57179.data'
 
 Using the original partition power (14) it returned the same path; however
