@@ -22,6 +22,7 @@ import os.path
 import sys
 import threading
 import time
+import traceback
 
 from six.moves import urllib
 from six.moves import socketserver
@@ -101,7 +102,7 @@ def setup(args):
         ENV['OS_AUTH_URL'],
         ENV['OS_USERNAME'],
         ENV['OS_PASSWORD'],
-        timeout=5)
+        timeout=30)  # We've seen request times as high as 7-8s in the gate
     cluster_info = conn.get_capabilities()
     conn.put_container('private', {
         'X-Container-Read': '',
@@ -180,6 +181,9 @@ def run(args, url):
         try:
             browser = driver()
         except Exception as e:
+            if not ('needs to be in PATH' in str(e) or
+                    'SafariDriver was not found' in str(e)):
+                traceback.print_exc()
             results.append(('SKIP', browser_name, str(e).strip()))
             continue
         ran_one = True
