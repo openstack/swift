@@ -41,6 +41,16 @@ environment variables to determine how to connect to Swift:
 * ``OS_PASSWORD`` (or ``ST_KEY``)
 * ``OS_STORAGE_URL`` (optional)
 
+There are additional environment variables to exercise the S3 API:
+
+* ``S3_ENDPOINT``
+* ``S3_USER``
+* ``S3_KEY``
+
+.. note::
+   It is necessary to set `s3_acl = False` in the `[filter:s3api]` section of
+   your `proxy-server.conf` for all the s3 object tests to pass.
+
 ..
    TODO: verify that this works with Keystone
 
@@ -54,7 +64,7 @@ To inspect the test results in your local browser, run::
 This will create some test containers and object in Swift, start a simple
 static site, and emit a URL to visit to run the tests, like::
 
-   Serving test at http://localhost:8000/#OS_AUTH_URL=http://saio/auth/v1.0&OS_USERNAME=test:tester&OS_PASSWORD=testing&OS_STORAGE_URL=http://saio/v1/AUTH_test
+   Serving test at http://localhost:8000/#OS_AUTH_URL=http://saio/auth/v1.0&OS_USERNAME=test:tester&OS_PASSWORD=testing&OS_STORAGE_URL=http://saio/v1/AUTH_test&S3_ENDPOINT=http://saio&S3_USER=test%3Atester&S3_KEY=testing
 
 .. note::
    You can use ``--hostname`` and ``--port`` to adjust the origin used.
@@ -95,3 +105,18 @@ for the Python bindings for more information about setting this up.
 When using selenium, the test runner will try to run tests in Firefox, Chrome,
 Safari, Edge, and IE if available; if a browser seems to not be available, its
 tests will be skipped.
+
+Updating aws-sdk-js
+-------------------
+
+There are tests that exercise CORS over the S3 API; these use a vendored
+version of `aws-sdk-js <https://github.com/aws/aws-sdk-js/>`__ that only
+covers the S3 service. The current version used is 2.829.0, built on
+2021-01-21 by
+
+* visiting https://sdk.amazonaws.com/builder/js/,
+* clearing all services,
+* explicitly adding AWS.S3,
+* clicking "Build" to download,
+* saving in the ``test/cors/vendor`` directory, and finally
+* updating the version number in ``test/cors/test-s3*.js``.

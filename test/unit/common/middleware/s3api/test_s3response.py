@@ -39,6 +39,7 @@ class TestResponse(unittest.TestCase):
         resp = Response(headers={
             'X-Object-Meta-Foo': 'Bar',
             'X-Object-Meta-Non-\xdcnicode-Value': '\xff',
+            'X-Object-Meta-With=5FUnderscore': 'underscored',
             'X-Object-Sysmeta-Baz': 'quux',
             'Etag': 'unquoted',
             'Content-type': 'text/plain',
@@ -48,6 +49,7 @@ class TestResponse(unittest.TestCase):
         self.assertEqual(dict(s3resp.headers), {
             'x-amz-meta-foo': 'Bar',
             'x-amz-meta-non-\xdcnicode-value': '\xff',
+            'x-amz-meta-with_underscore': 'underscored',
             'ETag': '"unquoted"',
             'Content-Type': 'text/plain',
             'Content-Length': '0',
