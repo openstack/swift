@@ -182,9 +182,9 @@ DEFAULT_SHRINK_THRESHOLD = DEFAULT_SHARD_CONTAINER_THRESHOLD * \
 def _print_shard_range(sr, level=0):
     indent = '  ' * level
     print(indent + '%r' % sr.name)
-    print(indent + '  objects: %-9d lower: %r' % (sr.object_count,
+    print(indent + '  objects: %9d  lower: %r' % (sr.object_count,
                                                   sr.lower_str))
-    print(indent + '  state: %-9s   upper: %r' % (sr.state_text, sr.upper_str))
+    print(indent + '    state: %9s  upper: %r' % (sr.state_text, sr.upper_str))
 
 
 def _load_and_validate_shard_data(args):

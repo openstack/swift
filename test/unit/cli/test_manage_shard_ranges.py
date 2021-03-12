@@ -693,17 +693,43 @@ class TestManageShardRanges(unittest.TestCase):
             err_lines = err.getvalue().split('\n')
             self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
             out_lines = out.getvalue().split('\n')
-            self.assertIn('total of 20 objects', out_lines[0])
-            self.assertIn('.shards_a', out_lines[1])
-            self.assertIn('objects: 10', out_lines[2])
-            self.assertIn('state: active', out_lines[3])
-            self.assertIn('.shards_a', out_lines[4])
-            self.assertIn('objects: 10', out_lines[5])
-            self.assertIn('state: active', out_lines[6])
-            self.assertIn('can be compacted into', out_lines[7])
-            self.assertIn('.shards_a', out_lines[8])
-            self.assertIn('objects: 10', out_lines[9])
-            self.assertIn('state: active', out_lines[10])
+            expected = [
+                'Donor shard range(s) with total of 20 objects:',
+                "  '.shards_a",
+                "    objects:        10  lower: 'obj29'",
+                "      state:    active  upper: 'obj39'",
+                "  '.shards_a",
+                "    objects:        10  lower: 'obj39'",
+                "      state:    active  upper: 'obj49'",
+                'can be compacted into acceptor shard range:',
+                "  '.shards_a",
+                "    objects:    100001  lower: 'obj49'",
+                "      state:    active  upper: 'obj59'",
+                'Donor shard range(s) with total of 10 objects:',
+                "  '.shards_a",
+                "    objects:        10  lower: 'obj69'",
+                "      state:    active  upper: 'obj79'",
+                'can be compacted into acceptor shard range:',
+                "  '.shards_a",
+                "    objects:    100001  lower: 'obj79'",
+                "      state:    active  upper: 'obj89'",
+                'Once applied to the broker these changes will result in '
+                'shard range compaction the next time the sharder runs.',
+            ]
+            if user_input == 'y':
+                expected.extend([
+                    'Updated 2 shard sequences for compaction.',
+                    'Run container-replicator to replicate the changes to '
+                    'other nodes.',
+                    'Run container-sharder on all nodes to compact shards.',
+                    '',
+                ])
+            else:
+                expected.extend([
+                    'No changes applied',
+                    '',
+                ])
+            self.assertEqual(expected, [l.split('/', 1)[0] for l in out_lines])
             return broker.get_shard_ranges()
 
         broker_ranges = do_compact('n')
