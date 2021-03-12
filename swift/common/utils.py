@@ -479,6 +479,13 @@ def config_auto_int_value(value, default):
     return value
 
 
+def config_percent_value(value):
+    try:
+        return config_float_value(value, 0, 100) / 100.0
+    except ValueError as err:
+        raise ValueError("%s: %s" % (str(err), value))
+
+
 def append_underscore(prefix):
     if prefix and not prefix.endswith('_'):
         prefix += '_'
