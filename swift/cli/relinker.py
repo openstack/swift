@@ -397,6 +397,8 @@ def cleanup(conf, logger, device):
                 union_files, '', verify=False)
             obsolete_files = set(info['filename']
                                  for info in union_data.get('obsolete', []))
+            # drop 'obsolete' files but retain 'unexpected' files which might
+            # be misplaced diskfiles from another policy
             required_files = union_files.difference(obsolete_files)
             required_links = required_files.intersection(old_files)
 
@@ -445,16 +447,18 @@ def cleanup(conf, logger, device):
             # the new partition hash dir has the most up to date set of on
             # disk files so it is safe to delete the old location...
             rehash = False
-            try:
-                for filename in old_files:
-                    os.remove(os.path.join(hash_path, filename))
+            # use the sorted list to help unit testing
+            for filename in old_df_data['files']:
+                old_file = os.path.join(hash_path, filename)
+                try:
+                    os.remove(old_file)
+                except OSError as exc:
+                    logger.warning('Error cleaning up %s: %r', old_file, exc)
+                    errors += 1
+                else:
                     rehash = True
-            except OSError as exc:
-                logger.warning('Error cleaning up %s: %r', hash_path, exc)
-                errors += 1
-            else:
-                cleaned_up += 1
-                logger.debug("Removed %s", hash_path)
+                    cleaned_up += 1
+                    logger.debug("Removed %s", old_file)
 
             if rehash:
                 try:
