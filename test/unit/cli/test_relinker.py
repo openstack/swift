@@ -37,7 +37,8 @@ from swift.common.exceptions import PathNotDir
 from swift.common.storage_policy import (
     StoragePolicy, StoragePolicyCollection, POLICIES, ECStoragePolicy)
 
-from swift.obj.diskfile import write_metadata, DiskFileRouter, DiskFileManager
+from swift.obj.diskfile import write_metadata, DiskFileRouter, \
+    DiskFileManager, relink_paths
 
 from test.unit import FakeLogger, skip_if_no_xattrs, DEFAULT_TEST_EC_TYPE, \
     patch_policies
@@ -423,6 +424,58 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual('foo', hashes[self._hash[-3:]])
         self.assertFalse(os.path.exists(
             os.path.join(self.part_dir, 'hashes.invalid')))
+
+    def test_relink_link_already_exists(self):
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+        orig_relink_paths = relink_paths
+
+        def mock_relink_paths(target_path, new_target_path):
+            # pretend another process has created the link before this one
+            os.makedirs(self.expected_dir)
+            os.link(target_path, new_target_path)
+            orig_relink_paths(target_path, new_target_path)
+
+        with mock.patch('swift.cli.relinker.diskfile.relink_paths',
+                        mock_relink_paths):
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+
+        self.assertTrue(os.path.isdir(self.expected_dir))
+        self.assertTrue(os.path.isfile(self.expected_file))
+        stat_old = os.stat(os.path.join(self.objdir, self.object_fname))
+        stat_new = os.stat(self.expected_file)
+        self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+
+    def test_relink_link_target_disappears(self):
+        # we need object name in lower half of current part so that there is no
+        # rehash of the new partition which wold erase the empty new partition
+        # - we want to assert it was created
+        self._setup_object(lambda part: part < 2 ** (PART_POWER - 1))
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+        orig_relink_paths = relink_paths
+
+        def mock_relink_paths(target_path, new_target_path):
+            # pretend another process has cleaned up the target path
+            os.unlink(target_path)
+            orig_relink_paths(target_path, new_target_path)
+
+        with mock.patch('swift.cli.relinker.diskfile.relink_paths',
+                        mock_relink_paths):
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+
+        self.assertTrue(os.path.isdir(self.expected_dir))
+        self.assertFalse(os.path.isfile(self.expected_file))
 
     def test_relink_no_applicable_policy(self):
         # NB do not prepare part power increase

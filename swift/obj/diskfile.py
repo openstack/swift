@@ -443,20 +443,20 @@ def invalidate_hash(suffix_dir):
         inv_fh.write(suffix + b"\n")
 
 
-def relink_paths(target_path, new_target_path, check_existing=False):
+def relink_paths(target_path, new_target_path):
     """
     Hard-links a file located in target_path using the second path
     new_target_path. Creates intermediate directories if required.
 
     :param target_path: current absolute filename
     :param new_target_path: new absolute filename for the hardlink
-    :param check_existing: if True, check whether the link is already present
-                           before attempting to create a new one
+    :raises: OSError if the hard link could not be created, unless the intended
+        hard link already exists or the target_path does not exist.
+    :returns: True if the link was created by the call to this method, False
+        otherwise.
     """
-
+    link_created = False
     if target_path != new_target_path:
-        logging.debug('Relinking %s to %s due to next_part_power set',
-                      target_path, new_target_path)
         new_target_dir = os.path.dirname(new_target_path)
         try:
             os.makedirs(new_target_dir)
@@ -464,17 +464,33 @@ def relink_paths(target_path, new_target_path, check_existing=False):
             if err.errno != errno.EEXIST:
                 raise
 
-        link_exists = False
-        if check_existing:
-            try:
-                new_stat = os.stat(new_target_path)
-                orig_stat = os.stat(target_path)
-                link_exists = (new_stat.st_ino == orig_stat.st_ino)
-            except OSError:
-                pass  # if anything goes wrong, try anyway
-
-        if not link_exists:
+        try:
             os.link(target_path, new_target_path)
+            link_created = True
+        except OSError as err:
+            # there are some circumstances in which it may be ok that the
+            # attempted link failed
+            ok = False
+            if err.errno == errno.ENOENT:
+                # this is ok if the *target* path doesn't exist anymore
+                ok = not os.path.exists(target_path)
+            if err.errno == errno.EEXIST:
+                # this is ok *if* the intended link has already been made
+                try:
+                    orig_stat = os.stat(target_path)
+                except OSError as sub_err:
+                    # this is ok: the *target* path doesn't exist anymore
+                    ok = sub_err.errno == errno.ENOENT
+                else:
+                    try:
+                        new_stat = os.stat(new_target_path)
+                        ok = new_stat.st_ino == orig_stat.st_ino
+                    except OSError:
+                        # squash this exception; the original will be raised
+                        pass
+            if not ok:
+                raise err
+    return link_created
 
 
 def get_part_path(dev_path, policy, partition):
@@ -1845,6 +1861,9 @@ class BaseDiskFileWriter(object):
             if target_path != new_target_path:
                 try:
                     fsync_dir(os.path.dirname(target_path))
+                    self.manager.logger.debug(
+                        'Relinking %s to %s due to next_part_power set',
+                        target_path, new_target_path)
                     relink_paths(target_path, new_target_path)
                 except OSError as exc:
                     self.manager.logger.exception(
