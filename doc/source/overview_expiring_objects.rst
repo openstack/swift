@@ -62,20 +62,20 @@ The expirer daemon will be moving to a new general task-queue based design that
 will divide the work across all object servers, as such only expirers defined
 in the object-server config will be able to use the new system.
 The parameters in both files are identical except for a new option in the
-object-server ``[object-expirer]`` section, ``dequeue_from_legacy_queue``
+object-server ``[object-expirer]`` section, ``dequeue_from_legacy``
 which when set to ``True`` will tell the expirer that in addition to using
 the new task queueing system to also check the legacy (soon to be deprecated)
 queue.
 
 .. note::
     The new task-queue system has not been completed yet. So an expirer's with
-    ``dequeue_from_legacy_queue`` set to ``False`` will currently do nothing.
+    ``dequeue_from_legacy`` set to ``False`` will currently do nothing.
 
-By default ``dequeue_from_legacy_queue`` will be ``False``, it is necessary to
+By default ``dequeue_from_legacy`` will be ``False``, it is necessary to
 be set to ``True`` explicitly while migrating from the old expiring queue.
 
 Any expirer using the old config ``/etc/swift/object-expirer.conf`` will not
-use the new general task queue. It'll ignore the ``dequeue_from_legacy_queue``
+use the new general task queue. It'll ignore the ``dequeue_from_legacy``
 and will only check the legacy queue. Meaning it'll run as a legacy expirer.
 
 Why is this important? If you are currently running object-expirers on nodes
@@ -91,7 +91,7 @@ However, if your old expirers are running on the object-servers, the most
 common topology, then you would add the new section to all object servers, to
 deal the new queue. In order to maintain the same number of expirers checking
 the legacy queue, pick the same number of nodes as you previously had and turn
-on ``dequeue_from_legacy_queue`` on those nodes only. Also note on these nodes
+on ``dequeue_from_legacy`` on those nodes only. Also note on these nodes
 you'd need to keep the legacy ``process`` and ``processes`` options to maintain
 the concurrency level for the legacy queue.
 
@@ -113,10 +113,10 @@ Here is a quick sample of the ``object-expirer`` section required in the
     interval = 300
 
     # If this true, expirer execute tasks in legacy expirer task queue
-    dequeue_from_legacy_queue = false
+    dequeue_from_legacy = false
 
-    # processes can only be used in conjunction with `dequeue_from_legacy_queue`.
-    # So this option is ignored if dequeue_from_legacy_queue=false.
+    # processes can only be used in conjunction with `dequeue_from_legacy`.
+    # So this option is ignored if dequeue_from_legacy=false.
     # processes is how many parts to divide the legacy work into, one part per
     # process that will be doing the work
     # processes set 0 means that a single legacy process will be doing all the work
@@ -124,8 +124,8 @@ Here is a quick sample of the ``object-expirer`` section required in the
     # config value
     # processes = 0
 
-    # process can only be used in conjunction with `dequeue_from_legacy_queue`.
-    # So this option is ignored if dequeue_from_legacy_queue=false.
+    # process can only be used in conjunction with `dequeue_from_legacy`.
+    # So this option is ignored if dequeue_from_legacy=false.
     # process is which of the parts a particular legacy process will work on
     # process can also be specified on the command line and will override the config
     # value
