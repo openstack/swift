@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import array
+import contextlib
+
 import six.moves.cPickle as pickle
 import json
 from collections import defaultdict
@@ -173,22 +175,21 @@ class RingData(object):
         :param bool metadata_only: If True, only load `devs` and `part_shift`.
         :returns: A RingData instance containing the loaded data.
         """
-        gz_file = RingReader(filename)
-
-        # See if the file is in the new format
-        magic = gz_file.read(4)
-        if magic == b'R1NG':
-            format_version, = struct.unpack('!H', gz_file.read(2))
-            if format_version == 1:
-                ring_data = cls.deserialize_v1(
-                    gz_file, metadata_only=metadata_only)
+        with contextlib.closing(RingReader(filename)) as gz_file:
+            # See if the file is in the new format
+            magic = gz_file.read(4)
+            if magic == b'R1NG':
+                format_version, = struct.unpack('!H', gz_file.read(2))
+                if format_version == 1:
+                    ring_data = cls.deserialize_v1(
+                        gz_file, metadata_only=metadata_only)
+                else:
+                    raise Exception('Unknown ring format version %d' %
+                                    format_version)
             else:
-                raise Exception('Unknown ring format version %d' %
-                                format_version)
-        else:
-            # Assume old-style pickled ring
-            gz_file.seek(0)
-            ring_data = pickle.load(gz_file)
+                # Assume old-style pickled ring
+                gz_file.seek(0)
+                ring_data = pickle.load(gz_file)
 
         if not hasattr(ring_data, 'devs'):
             ring_data = RingData(ring_data['replica2part2dev_id'],
