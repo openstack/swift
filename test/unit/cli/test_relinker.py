@@ -71,25 +71,33 @@ class TestRelinker(unittest.TestCase):
         storage_policy._POLICIES = StoragePolicyCollection([self.policy])
         self._setup_object()
 
-    def _setup_object(self, condition=None):
+    def _get_object_name(self, condition=None):
         attempts = []
         for _ in range(50):
             account = 'a'
             container = 'c'
             obj = 'o-' + str(uuid.uuid4())
-            self._hash = utils.hash_path(account, container, obj)
-            self.part = utils.get_partition_for_hash(self._hash, 8)
-            self.next_part = utils.get_partition_for_hash(self._hash, 9)
-            self.obj_path = os.path.join(os.path.sep, account, container, obj)
+            _hash = utils.hash_path(account, container, obj)
+            part = utils.get_partition_for_hash(_hash, 8)
+            next_part = utils.get_partition_for_hash(_hash, 9)
+            obj_path = os.path.join(os.path.sep, account, container, obj)
             # There's 1/512 chance that both old and new parts will be 0;
             # that's not a terribly interesting case, as there's nothing to do
-            attempts.append((self.part, self.next_part, 2**PART_POWER))
-            if (self.part != self.next_part and
-                    (condition(self.part) if condition else True)):
+            attempts.append((part, next_part, 2**PART_POWER))
+            if (part != next_part and
+                    (condition(part) if condition else True)):
                 break
         else:
             self.fail('Failed to setup object satisfying test preconditions %s'
                       % attempts)
+        return _hash, part, next_part, obj_path
+
+    def _setup_object(self, condition=None):
+        _hash, part, next_part, obj_path = self._get_object_name(condition)
+        self._hash = _hash
+        self.part = part
+        self.next_part = next_part
+        self.obj_path = obj_path
 
         shutil.rmtree(self.objects, ignore_errors=True)
         os.mkdir(self.objects)
@@ -278,7 +286,8 @@ class TestRelinker(unittest.TestCase):
             'files_per_second': 0.0,
             'log_name': 'test-relinker',
             'log_level': 'DEBUG',
-            'policies': POLICIES
+            'policies': POLICIES,
+            'partitions': set(),
         }
         mock_relink.assert_called_once_with(exp_conf, mock.ANY, device='sdx')
         logger = mock_relink.call_args[0][1]
@@ -317,7 +326,8 @@ class TestRelinker(unittest.TestCase):
             'files_per_second': 11.1,
             'log_name': 'test-relinker',
             'log_level': 'WARNING',
-            'policies': POLICIES
+            'policies': POLICIES,
+            'partitions': set(),
         }, mock.ANY, device='sdx')
         logger = mock_relink.call_args[0][1]
         self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
@@ -329,7 +339,8 @@ class TestRelinker(unittest.TestCase):
                 'relink', conf_file, '--device', 'sdx', '--debug',
                 '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
                 '--skip-mount-check', '--files-per-second', '2.2',
-                '--policy', '1'])
+                '--policy', '1', '--partition', '123',
+                '--partition', '123', '--partition', '456'])
         mock_relink.assert_called_once_with({
             '__file__': mock.ANY,
             'swift_dir': 'cli-dir',
@@ -338,7 +349,8 @@ class TestRelinker(unittest.TestCase):
             'files_per_second': 2.2,
             'log_level': 'DEBUG',
             'log_name': 'test-relinker',
-            'policies': [POLICIES[1]]
+            'policies': [POLICIES[1]],
+            'partitions': {123, 456},
         }, mock.ANY, device='sdx')
 
         with mock.patch('swift.cli.relinker.relink') as mock_relink, \
@@ -352,7 +364,8 @@ class TestRelinker(unittest.TestCase):
             'mount_check': False,
             'files_per_second': 0.0,
             'log_level': 'INFO',
-            'policies': POLICIES
+            'policies': POLICIES,
+            'partitions': set(),
         }, mock.ANY, device='sdx')
         mock_logging_config.assert_called_once_with(
             format='%(message)s', level=logging.INFO, filename=None)
@@ -368,7 +381,8 @@ class TestRelinker(unittest.TestCase):
             'mount_check': False,
             'files_per_second': 0.0,
             'log_level': 'DEBUG',
-            'policies': POLICIES
+            'policies': POLICIES,
+            'partitions': set(),
         }, mock.ANY, device='sdx')
         # --debug is now effective
         mock_logging_config.assert_called_once_with(
@@ -802,6 +816,132 @@ class TestRelinker(unittest.TestCase):
 
         self.assertFalse(os.path.isdir(self.expected_dir))
         self.assertFalse(os.path.isfile(self.expected_file))
+
+    def test_relink_partition_filter(self):
+        # ensure partitions are in second quartile so that new partitions are
+        # not included in the relinked partitions when the relinker is re-run:
+        # this makes the number of partitions visited predictable (i.e. 3)
+        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
+        # create some other test files in different partitions
+        other_objs = []
+        used_parts = [self.part, self.part + 1]
+        for i in range(2):
+            _hash, part, next_part, obj = self._get_object_name(
+                lambda part:
+                part >= 2 ** (PART_POWER - 1) and part not in used_parts)
+            obj_dir = os.path.join(self.objects, str(part), _hash[-3:], _hash)
+            os.makedirs(obj_dir)
+            obj_file = os.path.join(obj_dir, self.object_fname)
+            with open(obj_file, 'w'):
+                pass
+            other_objs.append((part, obj_file))
+            used_parts.append(part)
+
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+
+        # invalid partition
+        with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as cm:
+                self.assertEqual(0, relinker.main([
+                    'relink',
+                    '--swift-dir', self.testdir,
+                    '--devices', self.devices,
+                    '--skip-mount',
+                    '--partition', '-1'
+                ]))
+        self.assertEqual(2, cm.exception.code)
+
+        with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as cm:
+                self.assertEqual(0, relinker.main([
+                    'relink',
+                    '--swift-dir', self.testdir,
+                    '--devices', self.devices,
+                    '--skip-mount',
+                    '--partition', 'abc'
+                ]))
+        self.assertEqual(2, cm.exception.code)
+
+        # restrict to a partition with no test object
+        self.logger.clear()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--partition', str(self.part + 1)
+            ]))
+        self.assertFalse(os.path.isdir(self.expected_dir))
+        self.assertEqual(
+            ['Processing files for policy platinum under %s (cleanup=False)'
+             % self.devices,
+             '0 hash dirs processed (cleanup=False) (0 files, 0 linked, '
+             '0 removed, 0 errors)'],
+            self.logger.get_lines_for_level('info')
+        )
+
+        # restrict to one partition with a test object
+        self.logger.clear()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--partition', str(self.part)
+            ]))
+        self.assertTrue(os.path.isdir(self.expected_dir))
+        self.assertTrue(os.path.isfile(self.expected_file))
+        stat_old = os.stat(os.path.join(self.objdir, self.object_fname))
+        stat_new = os.stat(self.expected_file)
+        self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        self.assertEqual(
+            ['Processing files for policy platinum under %s (cleanup=False)'
+             % self.devices,
+             'Device: sda1 Step: relink Partitions: 1/3',
+             '1 hash dirs processed (cleanup=False) (1 files, 1 linked, '
+             '0 removed, 0 errors)'],
+            self.logger.get_lines_for_level('info')
+        )
+
+        # restrict to two partitions with test objects
+        self.logger.clear()
+        with mock.patch.object(relinker.logging, 'getLogger',
+                               return_value=self.logger):
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--partition', str(other_objs[0][0]),
+                '-p', str(other_objs[0][0]),  # duplicates should be ignored
+                '-p', str(other_objs[1][0])
+            ]))
+        expected_file = utils.replace_partition_in_path(
+            self.devices, other_objs[0][1], PART_POWER + 1)
+        self.assertTrue(os.path.isfile(expected_file))
+        stat_old = os.stat(other_objs[0][1])
+        stat_new = os.stat(expected_file)
+        self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        expected_file = utils.replace_partition_in_path(
+            self.devices, other_objs[1][1], PART_POWER + 1)
+        self.assertTrue(os.path.isfile(expected_file))
+        stat_old = os.stat(other_objs[1][1])
+        stat_new = os.stat(expected_file)
+        self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        self.assertEqual(
+            ['Processing files for policy platinum under %s (cleanup=False)'
+             % self.devices,
+             'Device: sda1 Step: relink Partitions: 2/3',
+             'Device: sda1 Step: relink Partitions: 3/3',
+             '2 hash dirs processed (cleanup=False) (2 files, 2 linked, '
+             '0 removed, 0 errors)'],
+            self.logger.get_lines_for_level('info')
+        )
 
     @patch_policies(
         [StoragePolicy(0, name='gold', is_default=True),
