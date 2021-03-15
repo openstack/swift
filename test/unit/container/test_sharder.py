@@ -6517,11 +6517,23 @@ class TestSharderFunctions(BaseTestSharder):
         sequences = find_compactible_shard_sequences(broker, 20, 19, -1, -1)
         self.assertEqual([], sequences)
 
+    def test_find_compactible_nine_donors_one_acceptor(self):
+        # one sequence that spans entire namespace but does not shrink to root
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE)
+        shard_ranges[9].object_count = 11  # final shard too big to shrink
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges], sequences)
+
     def test_find_compactible_four_donors_two_acceptors(self):
         small_ranges = (2, 3, 4, 7)
         broker = self._make_broker()
         shard_ranges = self._make_shard_ranges(
-            (('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
              ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
             state=ShardRange.ACTIVE)
         for i, sr in enumerate(shard_ranges):
@@ -6570,6 +6582,31 @@ class TestSharderFunctions(BaseTestSharder):
         sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1,
                                                      include_shrinking=True)
         self.assertEqual([shard_ranges + [own_sr]], sequences)
+
+    def test_find_compactible_overlapping_ranges(self):
+        # unexpected case: all shrinkable, two overlapping sequences, one which
+        # spans entire namespace; should not shrink to root
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'),  # overlaps form one sequence
+             ('', 'j'), ('j', '')),  # second sequence spans entire namespace
+            state=ShardRange.ACTIVE)
+        shard_ranges[1].object_count = 11  # cannot shrink, so becomes acceptor
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges[:2], shard_ranges[2:]], sequences)
+
+    def test_find_compactible_overlapping_ranges_with_ineligible_state(self):
+        # unexpected case: one ineligible state shard range overlapping one
+        # sequence which spans entire namespace; should not shrink to root
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'),  # overlap in ineligible state
+             ('', 'j'), ('j', '')),  # sequence spans entire namespace
+            state=[ShardRange.CREATED, ShardRange.ACTIVE, ShardRange.ACTIVE])
+        broker.merge_shard_ranges(shard_ranges)
+        sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
+        self.assertEqual([shard_ranges[1:]], sequences)
 
     def test_find_compactible_donors_but_no_suitable_acceptor(self):
         # if shard ranges are already shrinking, check that the final one is

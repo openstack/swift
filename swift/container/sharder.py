@@ -261,16 +261,16 @@ def find_compactible_shard_sequences(broker,
 
         index += len(sequence)
         if (index == len(shard_ranges) and
-                not compactible_sequences and
+                len(shard_ranges) == len(sequence) and
                 not sequence_complete(sequence) and
                 sequence.includes(own_shard_range)):
-            # special case: only one sequence has been found, which encompasses
-            # the entire namespace, has no more than merge_size records and
-            # whose shard ranges are all shrinkable; all the shards in the
-            # sequence can be shrunk to the root, so append own_shard_range to
-            # the sequence to act as an acceptor; note: only shrink to the root
-            # when *all* the remaining shard ranges can be simultaneously
-            # shrunk to the root.
+            # special case: only one sequence has been found, which consumes
+            # all shard ranges, encompasses the entire namespace, has no more
+            # than merge_size records and whose shard ranges are all
+            # shrinkable; all the shards in the sequence can be shrunk to the
+            # root, so append own_shard_range to the sequence to act as an
+            # acceptor; note: only shrink to the root when *all* the remaining
+            # shard ranges can be simultaneously shrunk to the root.
             sequence.append(own_shard_range)
 
         if len(sequence) < 2 or sequence[-1].state not in (ShardRange.ACTIVE,
