@@ -1752,7 +1752,8 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(sio.getvalue(),
                          'test1\ntest3\ntest4\ntest6\n')
 
-    def test_get_logger_sysloghandler_plumbing(self):
+    @with_tempdir
+    def test_get_logger_sysloghandler_plumbing(self, tempdir):
         orig_sysloghandler = utils.ThreadSafeSysLogHandler
         syslog_handler_args = []
 
@@ -1773,6 +1774,7 @@ class TestUtils(unittest.TestCase):
         with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
                                syslog_handler_catcher), \
                 mock.patch.object(socket, 'getaddrinfo', fake_getaddrinfo):
+            # default log_address
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
@@ -1783,19 +1785,51 @@ class TestUtils(unittest.TestCase):
                     os.path.isdir('/dev/log'):
                 # Since socket on OSX is in /var/run/syslog, there will be
                 # a fallback to UDP.
-                expected_args.append(
-                    ((), {'facility': orig_sysloghandler.LOG_LOCAL3}))
+                expected_args = [
+                    ((), {'facility': orig_sysloghandler.LOG_LOCAL3})]
             self.assertEqual(expected_args, syslog_handler_args)
 
+            # custom log_address - file doesn't exist: fallback to UDP
+            log_address = os.path.join(tempdir, 'foo')
             syslog_handler_args = []
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
-                'log_address': '/foo/bar',
+                'log_address': log_address,
             }, 'server', log_route='server')
+            expected_args = [
+                ((), {'facility': orig_sysloghandler.LOG_LOCAL3})]
             self.assertEqual(
-                ((), {'address': '/foo/bar',
-                      'facility': orig_sysloghandler.LOG_LOCAL3}),
-                syslog_handler_args[0])
+                expected_args, syslog_handler_args)
+
+            # custom log_address - file exists, not a socket: fallback to UDP
+            with open(log_address, 'w'):
+                pass
+            syslog_handler_args = []
+            utils.get_logger({
+                'log_facility': 'LOG_LOCAL3',
+                'log_address': log_address,
+            }, 'server', log_route='server')
+            expected_args = [
+                ((), {'facility': orig_sysloghandler.LOG_LOCAL3})]
+            self.assertEqual(
+                expected_args, syslog_handler_args)
+
+            # custom log_address - file exists, is a socket: use it
+            os.unlink(log_address)
+            with contextlib.closing(
+                    socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)) as sock:
+                sock.settimeout(5)
+                sock.bind(log_address)
+                syslog_handler_args = []
+                utils.get_logger({
+                    'log_facility': 'LOG_LOCAL3',
+                    'log_address': log_address,
+                }, 'server', log_route='server')
+            expected_args = [
+                ((), {'address': log_address,
+                      'facility': orig_sysloghandler.LOG_LOCAL3})]
+            self.assertEqual(
+                expected_args, syslog_handler_args)
 
             # Using UDP with default port
             syslog_handler_args = []
@@ -1818,6 +1852,15 @@ class TestUtils(unittest.TestCase):
                 ((), {'address': ('syslog.funtimes.com', 2123),
                       'facility': orig_sysloghandler.LOG_LOCAL0})],
                 syslog_handler_args)
+
+        with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
+                               side_effect=OSError(errno.EPERM, 'oops')):
+            with self.assertRaises(OSError) as cm:
+                utils.get_logger({
+                    'log_facility': 'LOG_LOCAL3',
+                    'log_address': 'log_address',
+                }, 'server', log_route='server')
+        self.assertEqual(errno.EPERM, cm.exception.errno)
 
     @reset_logger_state
     def test_clean_logger_exception(self):

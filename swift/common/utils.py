@@ -2373,13 +2373,19 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                                           facility=facility)
     else:
         log_address = conf.get('log_address', '/dev/log')
+        handler = None
         try:
-            handler = ThreadSafeSysLogHandler(address=log_address,
-                                              facility=facility)
-        except socket.error as e:
-            # Either /dev/log isn't a UNIX socket or it does not exist at all
+            mode = os.stat(log_address).st_mode
+            if stat.S_ISSOCK(mode):
+                handler = ThreadSafeSysLogHandler(address=log_address,
+                                                  facility=facility)
+        except (OSError, socket.error) as e:
+            # If either /dev/log isn't a UNIX socket or it does not exist at
+            # all then py2 would raise an error
             if e.errno not in [errno.ENOTSOCK, errno.ENOENT]:
                 raise
+        if handler is None:
+            # fallback to default UDP
             handler = ThreadSafeSysLogHandler(facility=facility)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
