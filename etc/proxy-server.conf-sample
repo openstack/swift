@@ -629,6 +629,12 @@ use = egg:swift#s3api
 # AWS allows clock skew up to 15 mins; note that older versions of swift/swift3
 # allowed at most 5 mins.
 # allowable_clock_skew = 900
+#
+# CORS preflight requests don't contain enough information for us to
+# identify the account that should be used for the real request, so
+# the allowed origins must be set cluster-wide. (default: blank; all
+# preflight requests will be denied)
+# cors_preflight_allow_origin =
 
 # You can override the default log routing for this filter here:
 # log_name = s3api

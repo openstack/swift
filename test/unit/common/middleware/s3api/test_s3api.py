@@ -118,6 +118,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'min_segment_size': 5242880,
             'multi_delete_concurrency': 2,
             's3_acl': False,
+            'cors_preflight_allow_origin': [],
         })
         s3api = S3ApiMiddleware(None, {})
         self.assertEqual(expected, s3api.conf)
@@ -140,9 +141,37 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'min_segment_size': 1000000,
             'multi_delete_concurrency': 1,
             's3_acl': True,
+            'cors_preflight_allow_origin': 'foo.example.com,bar.example.com',
         }
         s3api = S3ApiMiddleware(None, conf)
+        conf['cors_preflight_allow_origin'] = \
+            conf['cors_preflight_allow_origin'].split(',')
         self.assertEqual(conf, s3api.conf)
+
+        # test allow_origin list with a '*' fails.
+        conf = {
+            'storage_domain': 'somewhere',
+            'location': 'us-west-1',
+            'force_swift_request_proxy_log': True,
+            'dns_compliant_bucket_names': False,
+            'allow_multipart_uploads': False,
+            'allow_no_owner': True,
+            'allowable_clock_skew': 300,
+            'auth_pipeline_check': False,
+            'check_bucket_owner': True,
+            'max_bucket_listing': 500,
+            'max_multi_delete_objects': 600,
+            'max_parts_listing': 70,
+            'max_upload_part_num': 800,
+            'min_segment_size': 1000000,
+            'multi_delete_concurrency': 1,
+            's3_acl': True,
+            'cors_preflight_allow_origin': 'foo.example.com,bar.example.com,*',
+        }
+        with self.assertRaises(ValueError) as ex:
+            S3ApiMiddleware(None, conf)
+        self.assertIn("if cors_preflight_allow_origin should include all "
+                      "domains, * must be the only entry", str(ex.exception))
 
         def check_bad_positive_ints(**kwargs):
             bad_conf = dict(conf, **kwargs)

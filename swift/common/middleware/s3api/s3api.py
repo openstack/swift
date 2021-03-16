@@ -157,7 +157,7 @@ from swift.common.middleware.s3api.s3response import ErrorResponse, \
     InternalError, MethodNotAllowed, S3ResponseBase, S3NotImplemented
 from swift.common.utils import get_logger, register_swift_info, \
     config_true_value, config_positive_int_value, split_path, \
-    closing_if_possible
+    closing_if_possible, list_from_csv
 from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 
@@ -277,12 +277,43 @@ class S3ApiMiddleware(object):
             wsgi_conf.get('min_segment_size', 5242880))
         self.conf.allowable_clock_skew = config_positive_int_value(
             wsgi_conf.get('allowable_clock_skew', 15 * 60))
+        self.conf.cors_preflight_allow_origin = list_from_csv(wsgi_conf.get(
+            'cors_preflight_allow_origin', ''))
+        if '*' in self.conf.cors_preflight_allow_origin and \
+                len(self.conf.cors_preflight_allow_origin) > 1:
+            raise ValueError('if cors_preflight_allow_origin should include '
+                             'all domains, * must be the only entry')
 
         self.logger = get_logger(
             wsgi_conf, log_route=wsgi_conf.get('log_name', 's3api'))
         self.check_pipeline(wsgi_conf)
 
     def __call__(self, env, start_response):
+        origin = env.get('HTTP_ORIGIN')
+        acrh = env.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS', '').lower()
+        if self.conf.cors_preflight_allow_origin and origin and \
+                env['REQUEST_METHOD'] == 'OPTIONS' and \
+                'authorization' in acrh and \
+                not env['PATH_INFO'].startswith(('/v1/', '/v1.0/')):
+            # I guess it's likely going to be an S3 request? *shrug*
+            if self.conf.cors_preflight_allow_origin != ['*'] and \
+                    origin not in self.conf.cors_preflight_allow_origin:
+                start_response('401 Unauthorized', [
+                    ('Allow', 'GET, HEAD, PUT, POST, DELETE, OPTIONS'),
+                ])
+                return [b'']
+
+            start_response('200 OK', [
+                ('Allow', 'GET, HEAD, PUT, POST, DELETE, OPTIONS'),
+                ('Access-Control-Allow-Origin', origin),
+                ('Access-Control-Allow-Methods',
+                 'GET, HEAD, PUT, POST, DELETE, OPTIONS'),
+                ('Access-Control-Allow-Headers',
+                 ', '.join(set(list_from_csv(acrh)))),
+                ('Vary', 'Origin, Access-Control-Request-Headers'),
+            ])
+            return [b'']
+
         try:
             req_class = get_request_class(env, self.conf.s3_acl)
             req = req_class(env, self.app, self.conf)
