@@ -29,7 +29,6 @@ import uuid
 import xattr
 import re
 import six
-import struct
 from collections import defaultdict
 from random import shuffle, randint
 from shutil import rmtree
@@ -4791,9 +4790,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # DiskFile: first cleanup the current directory, but also cleanup the
         # previous old directory
         for policy in POLICIES:
-            digest = utils.hash_path(
-                'a', 'c', 'o_%s' % policy, raw_digest=True)
-            partition = struct.unpack_from('>I', digest)[0] >> (32 - 10)
+            hash_path = utils.hash_path('a', 'c', 'o_%s' % policy)
+            partition = utils.get_partition_for_hash(hash_path, 10)
             timestamp = Timestamp(time()).internal
             df_dir = self._create_diskfile_dir(
                 timestamp, policy, partition=partition, next_part_power=10)
@@ -4814,9 +4812,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_killed_before_cleanup(self, mock_cleanup):
         for policy in POLICIES:
             timestamp = Timestamp(time()).internal
-            digest = utils.hash_path(
-                'a', 'c', 'o_%s' % policy, raw_digest=True)
-            partition = struct.unpack_from('>I', digest)[0] >> (32 - 10)
+            hash_path = utils.hash_path('a', 'c', 'o_%s' % policy)
+            partition = utils.get_partition_for_hash(hash_path, 10)
             df_dir = self._create_diskfile_dir(timestamp, policy,
                                                partition=partition,
                                                next_part_power=11,
