@@ -4780,9 +4780,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             mock_cleanup.assert_any_call(df_dir)
 
             # Make sure the translated path is also cleaned up
-            expected_fname = utils.replace_partition_in_path(
-                os.path.join(df_dir, "dummy"), 11)
-            expected_dir = os.path.dirname(expected_fname)
+            expected_dir = utils.replace_partition_in_path(
+                self.conf['devices'], df_dir, 11)
             mock_cleanup.assert_any_call(expected_dir)
 
             mock_cleanup.reset_mock()
@@ -4802,9 +4801,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             mock_cleanup.assert_any_call(df_dir)
 
             # Make sure the path using the old part power is also cleaned up
-            expected_fname = utils.replace_partition_in_path(
-                os.path.join(df_dir, "dummy"), 9)
-            expected_dir = os.path.dirname(expected_fname)
+            expected_dir = utils.replace_partition_in_path(
+                self.conf['devices'], df_dir, 9)
             mock_cleanup.assert_any_call(expected_dir)
 
             mock_cleanup.reset_mock()
@@ -4821,9 +4819,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                                partition=partition,
                                                next_part_power=11,
                                                expect_error=True)
-            expected_fname = utils.replace_partition_in_path(
-                os.path.join(df_dir, "dummy"), 11)
-            expected_dir = os.path.dirname(expected_fname)
+            expected_dir = utils.replace_partition_in_path(
+                self.conf['devices'], df_dir, 11)
 
             self.assertEqual(os.listdir(df_dir), os.listdir(expected_dir))
 

@@ -4408,30 +4408,65 @@ cluster_dfw1 = http://dfw1.host/v1/
         old = '/s/n/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77/f'
         new = '/s/n/d/o/1400/c77/af088baea4806dcaba30bf07d9e64c77/f'
         # Expected outcome
-        self.assertEqual(utils.replace_partition_in_path(old, 11), new)
+        self.assertEqual(utils.replace_partition_in_path('/s/n/', old, 11),
+                         new)
 
         # Make sure there is no change if the part power didn't change
-        self.assertEqual(utils.replace_partition_in_path(old, 10), old)
-        self.assertEqual(utils.replace_partition_in_path(new, 11), new)
+        self.assertEqual(utils.replace_partition_in_path('/s/n', old, 10), old)
+        self.assertEqual(utils.replace_partition_in_path('/s/n/', new, 11),
+                         new)
 
         # Check for new part = part * 2 + 1
         old = '/s/n/d/o/693/c77/ad708baea4806dcaba30bf07d9e64c77/f'
         new = '/s/n/d/o/1387/c77/ad708baea4806dcaba30bf07d9e64c77/f'
 
         # Expected outcome
-        self.assertEqual(utils.replace_partition_in_path(old, 11), new)
+        self.assertEqual(utils.replace_partition_in_path('/s/n', old, 11), new)
 
         # Make sure there is no change if the part power didn't change
-        self.assertEqual(utils.replace_partition_in_path(old, 10), old)
-        self.assertEqual(utils.replace_partition_in_path(new, 11), new)
+        self.assertEqual(utils.replace_partition_in_path('/s/n', old, 10), old)
+        self.assertEqual(utils.replace_partition_in_path('/s/n/', new, 11),
+                         new)
 
-        # check hash_dir option
+        # check hash_dir
         old = '/s/n/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77'
         exp = '/s/n/d/o/1400/c77/af088baea4806dcaba30bf07d9e64c77'
-        actual = utils.replace_partition_in_path(old, 11, is_hash_dir=True)
+        actual = utils.replace_partition_in_path('/s/n', old, 11)
         self.assertEqual(exp, actual)
-        actual = utils.replace_partition_in_path(exp, 11, is_hash_dir=True)
+        actual = utils.replace_partition_in_path('/s/n', exp, 11)
         self.assertEqual(exp, actual)
+
+        # check longer devices path
+        old = '/s/n/1/2/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77'
+        exp = '/s/n/1/2/d/o/1400/c77/af088baea4806dcaba30bf07d9e64c77'
+        actual = utils.replace_partition_in_path('/s/n/1/2', old, 11)
+        self.assertEqual(exp, actual)
+        actual = utils.replace_partition_in_path('/s/n/1/2', exp, 11)
+        self.assertEqual(exp, actual)
+
+        # check empty devices path
+        old = '/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77'
+        exp = '/d/o/1400/c77/af088baea4806dcaba30bf07d9e64c77'
+        actual = utils.replace_partition_in_path('', old, 11)
+        self.assertEqual(exp, actual)
+        actual = utils.replace_partition_in_path('', exp, 11)
+        self.assertEqual(exp, actual)
+
+        # check path validation
+        path = '/s/n/d/o/693/c77/ad708baea4806dcaba30bf07d9e64c77/f'
+        with self.assertRaises(ValueError) as cm:
+            utils.replace_partition_in_path('/s/n1', path, 11)
+        self.assertEqual(
+            "Path '/s/n/d/o/693/c77/ad708baea4806dcaba30bf07d9e64c77/f' "
+            "is not under device dir '/s/n1'", str(cm.exception))
+
+        # check path validation - path lacks leading /
+        path = 's/n/d/o/693/c77/ad708baea4806dcaba30bf07d9e64c77/f'
+        with self.assertRaises(ValueError) as cm:
+            utils.replace_partition_in_path('/s/n', path, 11)
+        self.assertEqual(
+            "Path 's/n/d/o/693/c77/ad708baea4806dcaba30bf07d9e64c77/f' "
+            "is not under device dir '/s/n'", str(cm.exception))
 
     def test_round_robin_iter(self):
         it1 = iter([1, 2, 3])

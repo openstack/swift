@@ -210,12 +210,12 @@ def hook_post_partition(logger, states, step, policy, diskfile_manager,
         device, step, num_parts_done, len(states["state"])))
 
 
-def hashes_filter(next_part_power, suff_path, hashes):
+def hashes_filter(devices, next_part_power, suff_path, hashes):
     hashes = list(hashes)
     for hsh in hashes:
         fname = os.path.join(suff_path, hsh)
         if fname == replace_partition_in_path(
-                fname, next_part_power, is_hash_dir=True):
+                devices, fname, next_part_power):
             hashes.remove(hsh)
     return hashes
 
@@ -280,7 +280,8 @@ def relink(conf, logger, device):
         relink_hook_post_partition = partial(hook_post_partition, logger,
                                              states, STEP_RELINK, policy,
                                              diskfile_mgr)
-        relink_hashes_filter = partial(hashes_filter, next_part_power)
+        relink_hashes_filter = partial(hashes_filter, conf['devices'],
+                                       next_part_power)
 
         locations = audit_location_generator(
             conf['devices'],
@@ -297,7 +298,8 @@ def relink(conf, logger, device):
             locations = RateLimitedIterator(
                 locations, conf['files_per_second'])
         for fname, _, _ in locations:
-            newfname = replace_partition_in_path(fname, next_part_power)
+            newfname = replace_partition_in_path(conf['devices'], fname,
+                                                 next_part_power)
             try:
                 logger.debug('Relinking %s to %s', fname, newfname)
                 diskfile.relink_paths(fname, newfname)
@@ -350,7 +352,8 @@ def cleanup(conf, logger, device):
         cleanup_hook_post_partition = partial(hook_post_partition, logger,
                                               states, STEP_CLEANUP, policy,
                                               diskfile_mgr)
-        cleanup_hashes_filter = partial(hashes_filter, next_part_power)
+        cleanup_hashes_filter = partial(hashes_filter, conf['devices'],
+                                        next_part_power)
 
         locations = audit_location_generator(
             conf['devices'],
@@ -375,8 +378,7 @@ def cleanup(conf, logger, device):
             # most up to date set of files. The new location may have newer
             # files if it has been updated since relinked.
             new_hash_path = replace_partition_in_path(
-                hash_path, part_power, is_hash_dir=True)
-
+                conf['devices'], hash_path, part_power)
             if new_hash_path == hash_path:
                 continue
 

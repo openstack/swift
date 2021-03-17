@@ -601,7 +601,7 @@ class TestRelinker(unittest.TestCase):
         # partition!
         self._setup_object(lambda part: part < 2 ** (PART_POWER - 1))
         with mock.patch('swift.cli.relinker.replace_partition_in_path',
-                        lambda *args, **kwargs: args[0]):
+                        lambda *args, **kwargs: args[1]):
             self.assertEqual(0, relinker.main([
                 'cleanup',
                 '--swift-dir', self.testdir,
