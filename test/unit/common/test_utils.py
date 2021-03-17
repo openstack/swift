@@ -6346,6 +6346,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
     def test_find_objects(self):
         with temptree([]) as tmpdir:
             expected_objs = list()
+            expected_dirs = list()
             logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
@@ -6357,6 +6358,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             os.makedirs(suffix)
             hash_path = os.path.join(suffix, "hash")
             os.makedirs(hash_path)
+            expected_dirs.append((hash_path, 'drive', 'partition1'))
             obj_path = os.path.join(hash_path, "obj1.db")
             with open(obj_path, "w"):
                 pass
@@ -6367,6 +6369,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             os.makedirs(suffix)
             hash_path = os.path.join(suffix, "hash2")
             os.makedirs(hash_path)
+            expected_dirs.append((hash_path, 'drive', 'partition2'))
             obj_path = os.path.join(hash_path, "obj2.db")
             with open(obj_path, "w"):
                 pass
@@ -6378,6 +6381,14 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertEqual(len(got_objs), len(expected_objs))
             self.assertEqual(sorted(got_objs), sorted(expected_objs))
             self.assertEqual(1, len(logger.get_lines_for_level('warning')))
+
+            # check yield_hash_dirs option
+            locations = utils.audit_location_generator(
+                tmpdir, "data", mount_check=False, logger=logger,
+                yield_hash_dirs=True,
+            )
+            got_dirs = list(locations)
+            self.assertEqual(sorted(got_dirs), sorted(expected_dirs))
 
     def test_ignore_metadata(self):
         with temptree([]) as tmpdir:
