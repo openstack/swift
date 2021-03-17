@@ -11,7 +11,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import binascii
 import errno
 import fcntl
 import json
@@ -23,7 +22,6 @@ import mock
 import os
 import pickle
 import shutil
-import struct
 import tempfile
 import unittest
 import uuid
@@ -78,9 +76,8 @@ class TestRelinker(unittest.TestCase):
             container = 'c'
             obj = 'o-' + str(uuid.uuid4())
             self._hash = utils.hash_path(account, container, obj)
-            digest = binascii.unhexlify(self._hash)
-            self.part = struct.unpack_from('>I', digest)[0] >> 24
-            self.next_part = struct.unpack_from('>I', digest)[0] >> 23
+            self.part = utils.get_partition_for_hash(self._hash, 8)
+            self.next_part = utils.get_partition_for_hash(self._hash, 9)
             self.obj_path = os.path.join(os.path.sep, account, container, obj)
             # There's 1/512 chance that both old and new parts will be 0;
             # that's not a terribly interesting case, as there's nothing to do
