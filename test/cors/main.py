@@ -180,9 +180,19 @@ def run(args, url):
     browsers = list(ALL_BROWSERS) if 'all' in args.browsers else args.browsers
     ran_one = False
     for browser_name in browsers:
+        kwargs = {}
+        try:
+            options = getattr(
+                selenium.webdriver, browser_name.title() + 'Options')()
+            options.headless = True
+            kwargs['options'] = options
+        except AttributeError:
+            # not all browser types have Options class
+            pass
+
         driver = getattr(selenium.webdriver, browser_name.title())
         try:
-            browser = driver()
+            browser = driver(**kwargs)
         except Exception as e:
             if not ('needs to be in PATH' in str(e) or
                     'SafariDriver was not found' in str(e)):
