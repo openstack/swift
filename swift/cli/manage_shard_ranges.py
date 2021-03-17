@@ -205,6 +205,20 @@ class InvalidSolutionException(ManageShardRangesException):
         self.overlapping_donors = overlapping_donors
 
 
+def _proceed(args):
+    if args.dry_run:
+        choice = 'no'
+    elif args.yes:
+        choice = 'yes'
+    else:
+        choice = input('Do you want to apply these changes to the container '
+                       'DB? [yes/N]')
+    if choice != 'yes':
+        print('No changes applied')
+
+    return choice == 'yes'
+
+
 def _print_shard_range(sr, level=0):
     indent = '  ' * level
     print(indent + '%r' % sr.name)
@@ -501,22 +515,20 @@ def compact_shard_ranges(broker, args):
                   file=sys.stderr)
             return EXIT_ERROR
 
-    if not args.yes:
-        for sequence in compactible:
-            acceptor = sequence[-1]
-            donors = sequence[:-1]
-            print('Donor shard range(s) with total of %d rows:'
-                  % donors.row_count)
-            for donor in donors:
-                _print_shard_range(donor, level=1)
-            print('can be compacted into acceptor shard range:')
-            _print_shard_range(acceptor, level=1)
-        print('Once applied to the broker these changes will result in shard '
-              'range compaction the next time the sharder runs.')
-        choice = input('Do you want to apply these changes? [yes/N]')
-        if choice != 'yes':
-            print('No changes applied')
-            return EXIT_USER_QUIT
+    for sequence in compactible:
+        acceptor = sequence[-1]
+        donors = sequence[:-1]
+        print('Donor shard range(s) with total of %d rows:'
+              % donors.row_count)
+        for donor in donors:
+            _print_shard_range(donor, level=1)
+        print('can be compacted into acceptor shard range:')
+        _print_shard_range(acceptor, level=1)
+    print('Once applied to the broker these changes will result in shard '
+          'range compaction the next time the sharder runs.')
+
+    if not _proceed(args):
+        return EXIT_USER_QUIT
 
     process_compactible_shard_sequences(broker, compactible)
     print('Updated %s shard sequences for compaction.' % len(compactible))
@@ -651,12 +663,8 @@ def repair_shard_ranges(broker, args):
     if not acceptor_path:
         return EXIT_SUCCESS
 
-    if not args.yes:
-        choice = input('Do you want to apply these changes to the container '
-                       'DB? [yes/N]')
-        if choice != 'yes':
-            print('No changes applied')
-            return EXIT_USER_QUIT
+    if not _proceed(args):
+        return EXIT_USER_QUIT
 
     # merge changes to the broker...
     # note: acceptors do not need to be modified since they already span the
@@ -717,10 +725,15 @@ def _add_enable_args(parser):
         help='DB timeout to use when enabling sharding.')
 
 
-def _add_yes_arg(parser):
+def _add_prompt_args(parser):
     parser.add_argument(
         '--yes', '-y', action='store_true', default=False,
-        help='Apply shard range changes to broker without prompting.')
+        help='Apply shard range changes to broker without prompting. '
+             'Cannot be used with --dry-run option.')
+    parser.add_argument(
+        '--dry-run', '-n', action='store_true', default=False,
+        help='Do not apply any shard range changes to broker. '
+             'Cannot be used with --yes option.')
 
 
 def _make_parser():
@@ -808,7 +821,7 @@ def _make_parser():
         'compact',
         help='Compact shard ranges with less than the shrink-threshold number '
              'of rows. This command only works on root containers.')
-    _add_yes_arg(compact_parser)
+    _add_prompt_args(compact_parser)
     compact_parser.add_argument('--shrink-threshold', nargs='?',
                                 type=_positive_int,
                                 default=None,
@@ -849,7 +862,7 @@ def _make_parser():
         'repair',
         help='Repair overlapping shard ranges. No action will be taken '
              'without user confirmation unless the -y option is used.')
-    _add_yes_arg(repair_parser)
+    _add_prompt_args(repair_parser)
     repair_parser.set_defaults(func=repair_shard_ranges)
 
     # analyze
@@ -873,6 +886,10 @@ def main(args=None):
         # out if not.
         parser.print_help()
         print('\nA sub-command is required.', file=sys.stderr)
+        return EXIT_INVALID_ARGS
+
+    if getattr(args, 'yes', False) and getattr(args, 'dry_run', False):
+        print('--yes and --dry-run cannot both be set.', file=sys.stderr)
         return EXIT_INVALID_ARGS
 
     conf = {}
