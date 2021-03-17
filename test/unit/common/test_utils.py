@@ -4578,7 +4578,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.load_pkg_resource(*args)
         self.assertEqual("Unhandled URI scheme: 'nog'", str(cm.exception))
 
-    def test_systemd_notify(self):
+    @with_tempdir
+    def test_systemd_notify(self, tempdir):
         m_sock = mock.Mock(connect=mock.Mock(), sendall=mock.Mock())
         with mock.patch('swift.common.utils.socket.socket',
                         return_value=m_sock) as m_socket:
@@ -4631,15 +4632,23 @@ cluster_dfw1 = http://dfw1.host/v1/
                 "Systemd notification failed", exc_info=True)
 
         # Test it for real
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        sock.settimeout(5)
-        sock.bind('\0foobar')
-        os.environ['NOTIFY_SOCKET'] = '@foobar'
-        utils.systemd_notify()
-        msg = sock.recv(512)
-        sock.close()
-        self.assertEqual(msg, b'READY=1')
-        self.assertNotIn('NOTIFY_SOCKET', os.environ)
+        def do_test_real_socket(socket_address, notify_socket):
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            sock.settimeout(5)
+            sock.bind(socket_address)
+            os.environ['NOTIFY_SOCKET'] = notify_socket
+            utils.systemd_notify()
+            msg = sock.recv(512)
+            sock.close()
+            self.assertEqual(msg, b'READY=1')
+            self.assertNotIn('NOTIFY_SOCKET', os.environ)
+
+        # test file socket address
+        socket_path = os.path.join(tempdir, 'foobar')
+        do_test_real_socket(socket_path, socket_path)
+        if sys.platform.startswith('linux'):
+            # test abstract socket address
+            do_test_real_socket('\0foobar', '@foobar')
 
     def test_md5_with_data(self):
         if not self.fips_enabled:
