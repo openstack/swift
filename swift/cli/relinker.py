@@ -216,7 +216,11 @@ class Relinker(object):
                     # get_hashes
                     try:
                         for f in ('hashes.pkl', 'hashes.invalid', '.lock'):
-                            os.unlink(os.path.join(partition_path, f))
+                            try:
+                                os.unlink(os.path.join(partition_path, f))
+                            except OSError as e:
+                                if e.errno != errno.ENOENT:
+                                    raise
                     except OSError:
                         pass
                 try:
