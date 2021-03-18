@@ -47,28 +47,28 @@ class TestRequestHelpers(unittest.TestCase):
         actual = rh.validate_params(req, ('limit', 'marker', 'end_marker'))
         self.assertEqual({}, actual)
 
-        req = Request.blank('', query_string='limit=1;junk=here;marker=foo')
+        req = Request.blank('', query_string='limit=1&junk=here&marker=foo')
         actual = rh.validate_params(req, ())
         self.assertEqual({}, actual)
 
-        req = Request.blank('', query_string='limit=1;junk=here;marker=foo')
+        req = Request.blank('', query_string='limit=1&junk=here&marker=foo')
         actual = rh.validate_params(req, ('limit', 'marker', 'end_marker'))
         expected = {'limit': '1', 'marker': 'foo'}
         self.assertEqual(expected, actual)
 
-        req = Request.blank('', query_string='limit=1;junk=here;marker=')
+        req = Request.blank('', query_string='limit=1&junk=here&marker=')
         actual = rh.validate_params(req, ('limit', 'marker', 'end_marker'))
         expected = {'limit': '1', 'marker': ''}
         self.assertEqual(expected, actual)
 
         # ignore bad junk
-        req = Request.blank('', query_string='limit=1;junk=%ff;marker=foo')
+        req = Request.blank('', query_string='limit=1&junk=%ff&marker=foo')
         actual = rh.validate_params(req, ('limit', 'marker', 'end_marker'))
         expected = {'limit': '1', 'marker': 'foo'}
         self.assertEqual(expected, actual)
 
         # error on bad wanted parameter
-        req = Request.blank('', query_string='limit=1;junk=here;marker=%ff')
+        req = Request.blank('', query_string='limit=1&junk=here&marker=%ff')
         with self.assertRaises(HTTPException) as raised:
             rh.validate_params(req, ('limit', 'marker', 'end_marker'))
         self.assertEqual(raised.exception.status_int, 400)
@@ -78,24 +78,24 @@ class TestRequestHelpers(unittest.TestCase):
         actual = rh.validate_container_params(req)
         self.assertEqual({'limit': 10000}, actual)
 
-        req = Request.blank('', query_string='limit=1;junk=here;marker=foo')
+        req = Request.blank('', query_string='limit=1&junk=here&marker=foo')
         actual = rh.validate_container_params(req)
         expected = {'limit': 1, 'marker': 'foo'}
         self.assertEqual(expected, actual)
 
-        req = Request.blank('', query_string='limit=1;junk=here;marker=')
+        req = Request.blank('', query_string='limit=1&junk=here&marker=')
         actual = rh.validate_container_params(req)
         expected = {'limit': 1, 'marker': ''}
         self.assertEqual(expected, actual)
 
         # ignore bad junk
-        req = Request.blank('', query_string='limit=1;junk=%ff;marker=foo')
+        req = Request.blank('', query_string='limit=1&junk=%ff&marker=foo')
         actual = rh.validate_container_params(req)
         expected = {'limit': 1, 'marker': 'foo'}
         self.assertEqual(expected, actual)
 
         # error on bad wanted parameter
-        req = Request.blank('', query_string='limit=1;junk=here;marker=%ff')
+        req = Request.blank('', query_string='limit=1&junk=here&marker=%ff')
         with self.assertRaises(HTTPException) as raised:
             rh.validate_container_params(req)
         self.assertEqual(raised.exception.status_int, 400)
