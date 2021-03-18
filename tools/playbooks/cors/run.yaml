@@ -9,7 +9,7 @@
 
     - name: Run CORS tests
       shell: >
-        xvfb-run python
+        python
         {{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/cors/main.py
         --output {{ ansible_env.HOME }}/cors-test-results.txt
         all
