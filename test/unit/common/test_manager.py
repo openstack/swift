@@ -1725,10 +1725,11 @@ class TestManager(unittest.TestCase):
             self.assertTrue(server.server in servers[:2])
 
     def test_iter(self):
-        m = manager.Manager(['all'])
-        self.assertEqual(len(list(m)), len(manager.ALL_SERVERS))
-        for server in m:
-            self.assertTrue(server.server in manager.ALL_SERVERS)
+        with mock.patch.object(manager, 'find_executable', lambda x: x):
+            m = manager.Manager(['all'])
+            self.assertEqual(len(list(m)), len(manager.ALL_SERVERS))
+            for server in m:
+                self.assertTrue(server.server in manager.ALL_SERVERS)
 
     def test_default_strict(self):
         # test default strict
@@ -2329,8 +2330,8 @@ class TestManager(unittest.TestCase):
                 return 0
 
             m = manager.Manager(['*-server'])
-            self.assertEqual(len(m.servers), 4)
             expected_servers = set([server.server for server in m.servers])
+            self.assertEqual(len(expected_servers), 4)
             for server in expected_servers:
                 self.assertIn(server, manager.GRACEFUL_SHUTDOWN_SERVERS)
 
@@ -2347,8 +2348,9 @@ class TestManager(unittest.TestCase):
                 actual_servers.update([server.server for server in m.servers])
             self.assertEqual(expected_servers, actual_servers)
 
-        do_test(graceful=True)
-        do_test(graceful=False)  # graceful is forced regardless of the kwarg
+        with mock.patch.object(manager, 'find_executable', lambda x: x):
+            do_test(graceful=True)
+            do_test(graceful=False)  # graceful is forced regardless
 
     @mock.patch.object(manager, 'verify_server',
                        side_effect=lambda server: 'error' not in server)
