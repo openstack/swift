@@ -1668,7 +1668,7 @@ class TestContainerController(TestRingBase):
 
     def _build_request(self, headers, params, infocache=None):
         # helper to make a GET request with caches set in environ
-        query_string = '?' + ';'.join('%s=%s' % (k, v)
+        query_string = '?' + '&'.join('%s=%s' % (k, v)
                                       for k, v in params.items())
         container_path = '/v1/a/c' + query_string
         request = Request.blank(container_path, headers=headers)
