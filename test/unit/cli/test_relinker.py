@@ -422,6 +422,11 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual('foo', hashes[self._hash[-3:]])
         self.assertFalse(os.path.exists(
             os.path.join(self.part_dir, 'hashes.invalid')))
+        # Check that only the dirty partition in upper half of next part power
+        # has been created and rehashed
+        other_next_part = self.next_part ^ 1
+        other_next_part_dir = os.path.join(self.objects, str(other_next_part))
+        self.assertFalse(os.path.exists(other_next_part_dir))
 
     def test_relink_link_already_exists(self):
         self.rb.prepare_increase_partition_power()
