@@ -367,6 +367,25 @@ class TestStoragePolicies(unittest.TestCase):
             self.assertEqual(pol1, policies.get_by_name(name))
             self.assertEqual(policies.get_by_name(name).name, 'One')
 
+    def test_wacky_int_names(self):
+        # checking duplicate on insert
+        test_policies = [StoragePolicy(0, '1', True, aliases='-1'),
+                         StoragePolicy(1, '0', False)]
+        policies = StoragePolicyCollection(test_policies)
+
+        with self.assertRaises(PolicyError):
+            policies.get_by_name_or_index('0')
+        self.assertEqual(policies.get_by_name('1'), test_policies[0])
+        self.assertEqual(policies.get_by_index(0), test_policies[0])
+
+        with self.assertRaises(PolicyError):
+            policies.get_by_name_or_index('1')
+        self.assertEqual(policies.get_by_name('0'), test_policies[1])
+        self.assertEqual(policies.get_by_index(1), test_policies[1])
+
+        self.assertIsNone(policies.get_by_index(-1))
+        self.assertEqual(policies.get_by_name_or_index('-1'), test_policies[0])
+
     def test_multiple_names(self):
         # checking duplicate on insert
         test_policies = [StoragePolicy(0, 'zero', True),

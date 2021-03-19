@@ -819,6 +819,15 @@ class StoragePolicyCollection(object):
                 return None
         return self.by_index.get(index)
 
+    def get_by_name_or_index(self, name_or_index):
+        by_name = self.get_by_name(name_or_index)
+        by_index = self.get_by_index(name_or_index)
+        if by_name and by_index and by_name != by_index:
+            raise PolicyError(
+                "Found different polices when searching by "
+                "name (%s) and by index (%s)" % (by_name, by_index))
+        return by_name or by_index
+
     @property
     def legacy(self):
         return self.get_by_index(None)
