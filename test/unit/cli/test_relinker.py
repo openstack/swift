@@ -349,7 +349,7 @@ class TestRelinker(unittest.TestCase):
             'files_per_second': 2.2,
             'log_level': 'DEBUG',
             'log_name': 'test-relinker',
-            'policies': [POLICIES[1]],
+            'policies': {POLICIES[1]},
             'partitions': {123, 456},
         }, mock.ANY, device='sdx')
 
@@ -372,16 +372,23 @@ class TestRelinker(unittest.TestCase):
 
         with mock.patch('swift.cli.relinker.relink') as mock_relink, \
                 mock.patch('logging.basicConfig') as mock_logging_config:
-            relinker.main(['relink', '--device', 'sdx', '--debug',
-                           '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
-                           '--skip-mount-check'])
+            relinker.main([
+                'relink', '--debug',
+                '--swift-dir', 'cli-dir',
+                '--devices', 'cli-devs',
+                '--device', 'sdx',
+                '--skip-mount-check',
+                '--policy', '0',
+                '--policy', '1',
+                '--policy', '0',
+            ])
         mock_relink.assert_called_once_with({
             'swift_dir': 'cli-dir',
             'devices': 'cli-devs',
             'mount_check': False,
             'files_per_second': 0.0,
             'log_level': 'DEBUG',
-            'policies': POLICIES,
+            'policies': set(POLICIES),
             'partitions': set(),
         }, mock.ANY, device='sdx')
         # --debug is now effective

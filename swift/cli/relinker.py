@@ -463,9 +463,10 @@ def main(args):
         'Path to config file with [object-relinker] section'))
     parser.add_argument('--swift-dir', default=None,
                         dest='swift_dir', help='Path to swift directory')
-    parser.add_argument('--policy', default=None, dest='policy',
-                        type=policy,
-                        help='Policy to relink (default: all)')
+    parser.add_argument(
+        '--policy', default=[], dest='policies',
+        action='append', type=policy,
+        help='Policy to relink; may specify multiple (default: all)')
     parser.add_argument('--devices', default=None,
                         dest='devices', help='Path to swift device directory')
     parser.add_argument('--user', default=None, dest='user',
@@ -516,7 +517,7 @@ def main(args):
         'files_per_second': (
             args.files_per_second if args.files_per_second is not None
             else non_negative_float(conf.get('files_per_second', '0'))),
-        'policies': POLICIES if args.policy is None else [args.policy],
+        'policies': set(args.policies) or POLICIES,
         'partitions': set(args.partitions),
     })
 
