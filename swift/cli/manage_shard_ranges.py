@@ -273,6 +273,7 @@ def find_ranges(broker, args):
 
 def show_shard_ranges(broker, args):
     shard_ranges = broker.get_shard_ranges(
+        includes=getattr(args, 'includes', None),
         include_deleted=getattr(args, 'include_deleted', False))
     shard_data = [dict(sr, state=sr.state_text)
                   for sr in shard_ranges]
@@ -552,6 +553,8 @@ def _make_parser():
     show_parser.add_argument(
         '--brief', '-b', action='store_true', default=False,
         help='Show only shard range bounds in output.')
+    show_parser.add_argument('--includes',
+                             help='limit shard ranges to include key')
     show_parser.set_defaults(func=show_shard_ranges)
 
     # info
