@@ -3007,6 +3007,43 @@ cluster_dfw1 = http://dfw1.host/v1/
         finally:
             utils.TRUE_VALUES = orig_trues
 
+    def test_non_negative_float(self):
+        self.assertEqual(0, utils.non_negative_float('0.0'))
+        self.assertEqual(0, utils.non_negative_float(0.0))
+        self.assertEqual(1.1, utils.non_negative_float(1.1))
+        self.assertEqual(1.1, utils.non_negative_float('1.1'))
+        self.assertEqual(1.0, utils.non_negative_float('1'))
+        self.assertEqual(1, utils.non_negative_float(True))
+        self.assertEqual(0, utils.non_negative_float(False))
+
+        with self.assertRaises(ValueError):
+            utils.non_negative_float(-1.1)
+        with self.assertRaises(ValueError):
+            utils.non_negative_float('-1.1')
+        with self.assertRaises(ValueError):
+            utils.non_negative_float('one')
+
+    def test_non_negative_int(self):
+        self.assertEqual(0, utils.non_negative_int('0'))
+        self.assertEqual(0, utils.non_negative_int(0.0))
+        self.assertEqual(1, utils.non_negative_int(1))
+        self.assertEqual(1, utils.non_negative_int('1'))
+        self.assertEqual(1, utils.non_negative_int(True))
+        self.assertEqual(0, utils.non_negative_int(False))
+
+        with self.assertRaises(ValueError):
+            utils.non_negative_int(-1)
+        with self.assertRaises(ValueError):
+            utils.non_negative_int('-1')
+        with self.assertRaises(ValueError):
+            utils.non_negative_int('-1.1')
+        with self.assertRaises(ValueError):
+            utils.non_negative_int('1.1')
+        with self.assertRaises(ValueError):
+            utils.non_negative_int('1.0')
+        with self.assertRaises(ValueError):
+            utils.non_negative_int('one')
+
     def test_config_positive_int_value(self):
         expectations = {
             # value : expected,
