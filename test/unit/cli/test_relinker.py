@@ -581,6 +581,15 @@ class TestRelinker(unittest.TestCase):
         self.assertIn('1 hash dirs processed (cleanup=False) '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
+    def test_relink_data_existing_older_data_files_no_cleanup(self):
+        self._relink_test((('data', 1),),
+                          (('data', 0),),
+                          (('data', 1),),
+                          (('data', 0), ('data', 1)))
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertIn('1 hash dirs processed (cleanup=False) '
+                      '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
+
     def test_relink_data_existing_older_meta_files(self):
         self._relink_test((('data', 0), ('meta', 2)),
                           (('meta', 1),),
