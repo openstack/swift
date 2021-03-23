@@ -157,6 +157,13 @@ class Relinker(object):
         # this is avoided.
         partitions = sorted(partitions, key=int, reverse=True)
 
+        # do this last so that self.states, and thus the state file, has been
+        # initiated with *all* partitions before partitions are restricted for
+        # this particular run...
+        conf_partitions = self.conf.get('partitions')
+        if conf_partitions:
+            partitions = [p for p in partitions if int(p) in conf_partitions]
+
         return partitions
 
     # Save states when a partition is done
@@ -465,6 +472,9 @@ def main(args):
                         help='Drop privileges to this user before relinking')
     parser.add_argument('--device', default=None, dest='device',
                         help='Device name to relink (default: all)')
+    parser.add_argument('--partition', '-p', default=[], dest='partitions',
+                        type=non_negative_int, action='append',
+                        help='Partition to relink (default: all)')
     parser.add_argument('--skip-mount-check', default=False,
                         help='Don\'t test if disk is mounted',
                         action="store_true", dest='skip_mount_check')
@@ -507,6 +517,7 @@ def main(args):
             args.files_per_second if args.files_per_second is not None
             else non_negative_float(conf.get('files_per_second', '0'))),
         'policies': POLICIES if args.policy is None else [args.policy],
+        'partitions': set(args.partitions),
     })
 
     if args.action == 'relink':
