@@ -423,6 +423,47 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(['Loaded db broker for a/c.'],
                          err.getvalue().splitlines())
 
+    def test_show(self):
+        broker = self._make_broker()
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            main([broker.db_file, 'show'])
+        expected = [
+            'Loaded db broker for a/c.',
+            'No shard data found.',
+        ]
+        self.assertEqual(expected, err.getvalue().splitlines())
+        self.assertEqual('', out.getvalue())
+
+        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
+        expected_shard_ranges = [
+            dict(sr, state=ShardRange.STATES[sr.state])
+            for sr in shard_ranges
+        ]
+        broker.merge_shard_ranges(shard_ranges)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            main([broker.db_file, 'show'])
+        expected = [
+            'Loaded db broker for a/c.',
+            'Existing shard ranges:',
+        ]
+        self.assertEqual(expected, err.getvalue().splitlines())
+        self.assertEqual(expected_shard_ranges, json.loads(out.getvalue()))
+
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            main([broker.db_file, 'show', '--includes', 'foo'])
+        expected = [
+            'Loaded db broker for a/c.',
+            'Existing shard ranges:',
+        ]
+        self.assertEqual(expected, err.getvalue().splitlines())
+        self.assertEqual(expected_shard_ranges[:1], json.loads(out.getvalue()))
+
     def test_replace(self):
         broker = self._make_broker()
         broker.update_metadata({'X-Container-Sysmeta-Sharding':
