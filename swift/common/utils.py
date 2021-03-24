@@ -4970,6 +4970,29 @@ except TypeError:
         return hashlib.md5(string)  # nosec
 
 
+class ShardRangeOuterBound(object):
+    """
+    A custom singleton type used for the outer bounds of ShardRanges.
+    """
+    _singleton = None
+
+    def __new__(cls):
+        if cls._singleton is None:
+            cls._singleton = super(ShardRangeOuterBound, cls).__new__(cls)
+        return cls._singleton
+
+    def __str__(self):
+        return ''
+
+    def __repr__(self):
+        return type(self).__name__
+
+    def __bool__(self):
+        return False
+
+    __nonzero__ = __bool__
+
+
 class ShardRange(object):
     """
     A ShardRange encapsulates sharding state related to a container including
@@ -5034,31 +5057,15 @@ class ShardRange(object):
               SHRUNK: 'shrunk'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
 
-    class OuterBound(object):
-        def __eq__(self, other):
-            return isinstance(other, type(self))
-
-        def __ne__(self, other):
-            return not self.__eq__(other)
-
-        def __str__(self):
-            return ''
-
-        def __repr__(self):
-            return type(self).__name__
-
-        def __bool__(self):
-            return False
-
-        __nonzero__ = __bool__
-
     @functools.total_ordering
-    class MaxBound(OuterBound):
+    class MaxBound(ShardRangeOuterBound):
+        # singleton for maximum bound
         def __ge__(self, other):
             return True
 
     @functools.total_ordering
-    class MinBound(OuterBound):
+    class MinBound(ShardRangeOuterBound):
+        # singleton for minimum bound
         def __le__(self, other):
             return True
 
@@ -5107,7 +5114,7 @@ class ShardRange(object):
         return value
 
     def _encode_bound(self, bound):
-        if isinstance(bound, ShardRange.OuterBound):
+        if isinstance(bound, ShardRangeOuterBound):
             return bound
         if not (isinstance(bound, six.text_type) or
                 isinstance(bound, six.binary_type)):

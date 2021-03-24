@@ -7750,6 +7750,10 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse(utils.ShardRange.MAX != utils.ShardRange.MAX)
         self.assertTrue(
             utils.ShardRange.MaxBound() == utils.ShardRange.MaxBound())
+        self.assertTrue(
+            utils.ShardRange.MaxBound() is utils.ShardRange.MaxBound())
+        self.assertTrue(
+            utils.ShardRange.MaxBound() is utils.ShardRange.MAX)
         self.assertFalse(
             utils.ShardRange.MaxBound() != utils.ShardRange.MaxBound())
 
@@ -7772,6 +7776,10 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse(utils.ShardRange.MIN != utils.ShardRange.MIN)
         self.assertTrue(
             utils.ShardRange.MinBound() == utils.ShardRange.MinBound())
+        self.assertTrue(
+            utils.ShardRange.MinBound() is utils.ShardRange.MinBound())
+        self.assertTrue(
+            utils.ShardRange.MinBound() is utils.ShardRange.MIN)
         self.assertFalse(
             utils.ShardRange.MinBound() != utils.ShardRange.MinBound())
 
@@ -7779,11 +7787,20 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse(utils.ShardRange.MIN == utils.ShardRange.MAX)
         self.assertTrue(utils.ShardRange.MAX != utils.ShardRange.MIN)
         self.assertTrue(utils.ShardRange.MIN != utils.ShardRange.MAX)
+        self.assertFalse(utils.ShardRange.MAX is utils.ShardRange.MIN)
 
         self.assertEqual(utils.ShardRange.MAX,
                          max(utils.ShardRange.MIN, utils.ShardRange.MAX))
         self.assertEqual(utils.ShardRange.MIN,
                          min(utils.ShardRange.MIN, utils.ShardRange.MAX))
+
+        # check the outer bounds are hashable
+        hashmap = {utils.ShardRange.MIN: 'min',
+                   utils.ShardRange.MAX: 'max'}
+        self.assertEqual(hashmap[utils.ShardRange.MIN], 'min')
+        self.assertEqual(hashmap[utils.ShardRange.MinBound()], 'min')
+        self.assertEqual(hashmap[utils.ShardRange.MAX], 'max')
+        self.assertEqual(hashmap[utils.ShardRange.MaxBound()], 'max')
 
     def test_shard_range_initialisation(self):
         def assert_initialisation_ok(params, expected):
