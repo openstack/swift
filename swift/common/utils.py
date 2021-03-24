@@ -5042,6 +5042,8 @@ class ShardRange(object):
         sharding was enabled for a container.
     :param reported: optional indicator that this shard and its stats have
         been reported to the root container.
+    :param tombstones: the number of tombstones in the shard range; defaults to
+        -1 to indicate that the value is unknown.
     """
     FOUND = 10
     CREATED = 20
@@ -5079,7 +5081,7 @@ class ShardRange(object):
     def __init__(self, name, timestamp, lower=MIN, upper=MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=False, state=None, state_timestamp=None, epoch=None,
-                 reported=False):
+                 reported=False, tombstones=-1):
         self.account = self.container = self._timestamp = \
             self._meta_timestamp = self._state_timestamp = self._epoch = None
         self._lower = ShardRange.MIN
@@ -5099,6 +5101,7 @@ class ShardRange(object):
         self.state_timestamp = state_timestamp
         self.epoch = epoch
         self.reported = reported
+        self.tombstones = tombstones
 
     @classmethod
     def sort_key(cls, sr):
@@ -5274,6 +5277,24 @@ class ShardRange(object):
             raise ValueError('bytes_used cannot be < 0')
         self._bytes = bytes_used
 
+    @property
+    def tombstones(self):
+        return self._tombstones
+
+    @tombstones.setter
+    def tombstones(self, tombstones):
+        self._tombstones = int(tombstones)
+
+    @property
+    def row_count(self):
+        """
+        Returns the total number of rows in the shard range i.e. the sum of
+        objects and tombstones.
+
+        :return: the row count
+        """
+        return self.object_count + max(self.tombstones, 0)
+
     def update_meta(self, object_count, bytes_used, meta_timestamp=None):
         """
         Set the object stats metadata to the given values and update the
@@ -5295,6 +5316,27 @@ class ShardRange(object):
             self.bytes_used = int(bytes_used)
             self.reported = False
 
+        if meta_timestamp is None:
+            self.meta_timestamp = Timestamp.now()
+        else:
+            self.meta_timestamp = meta_timestamp
+
+    def update_tombstones(self, tombstones, meta_timestamp=None):
+        """
+        Set the tombstones metadata to the given values and update the
+        meta_timestamp to the current time.
+
+        :param tombstones: should be an integer
+        :param meta_timestamp: timestamp for metadata; if not given the
+            current time will be set.
+        :raises ValueError: if ``tombstones`` cannot be cast to an int, or
+            if meta_timestamp is neither None nor can be cast to a
+            :class:`~swift.common.utils.Timestamp`.
+        """
+        tombstones = int(tombstones)
+        if 0 <= tombstones != self.tombstones:
+            self.tombstones = tombstones
+            self.reported = False
         if meta_timestamp is None:
             self.meta_timestamp = Timestamp.now()
         else:
@@ -5518,6 +5560,7 @@ class ShardRange(object):
         yield 'state_timestamp', self.state_timestamp.internal
         yield 'epoch', self.epoch.internal if self.epoch is not None else None
         yield 'reported', 1 if self.reported else 0
+        yield 'tombstones', self.tombstones
 
     def copy(self, timestamp=None, **kwargs):
         """
@@ -5550,7 +5593,7 @@ class ShardRange(object):
             params['upper'], params['object_count'], params['bytes_used'],
             params['meta_timestamp'], params['deleted'], params['state'],
             params['state_timestamp'], params['epoch'],
-            params.get('reported', 0))
+            params.get('reported', 0), params.get('tombstones', -1))
 
     def expand(self, donors):
         """
@@ -5624,6 +5667,15 @@ class ShardRangeList(UserList):
         :return: total object count
         """
         return sum(sr.object_count for sr in self)
+
+    @property
+    def row_count(self):
+        """
+        Returns the total number of rows of all items in the list.
+
+        :return: total row count
+        """
+        return sum(sr.row_count for sr in self)
 
     @property
     def bytes_used(self):

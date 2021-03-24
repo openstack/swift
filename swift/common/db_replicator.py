@@ -566,6 +566,12 @@ class Replicator(Daemon):
         self.logger.debug('Successfully deleted db %s', broker.db_file)
         return True
 
+    def _reclaim(self, broker, now=None):
+        if not now:
+            now = time.time()
+        return broker.reclaim(now - self.reclaim_age,
+                              now - (self.reclaim_age * 2))
+
     def _replicate_object(self, partition, object_file, node_id):
         """
         Replicate the db, choosing method based on whether or not it
@@ -591,8 +597,7 @@ class Replicator(Daemon):
         try:
             broker = self.brokerclass(object_file, pending_timeout=30,
                                       logger=self.logger)
-            broker.reclaim(now - self.reclaim_age,
-                           now - (self.reclaim_age * 2))
+            self._reclaim(broker, now)
             info = broker.get_replication_info()
             bpart = self.ring.get_part(
                 info['account'], info.get('container'))

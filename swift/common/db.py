@@ -227,6 +227,82 @@ def get_db_connection(path, timeout=30, logger=None, okay_to_create=False):
     return conn
 
 
+class TombstoneReclaimer(object):
+    """Encapsulates reclamation of deleted rows in a database."""
+    def __init__(self, broker, age_timestamp):
+        """
+        Encapsulates reclamation of deleted rows in a database.
+
+        :param broker: an instance of :class:`~swift.common.db.DatabaseBroker`.
+        :param age_timestamp: a float timestamp: tombstones older than this
+            time will be deleted.
+        """
+        self.broker = broker
+        self.age_timestamp = age_timestamp
+        self.marker = ''
+        self.remaining_tombstones = self.reclaimed = 0
+        self.finished = False
+        # limit 1 offset N gives back the N+1th matching row; that row is used
+        # as an exclusive end_marker for a batch of deletes, so a batch
+        # comprises rows satisfying self.marker <= name < end_marker.
+        self.batch_query = '''
+            SELECT name FROM %s WHERE deleted = 1
+            AND name >= ?
+            ORDER BY NAME LIMIT 1 OFFSET ?
+        ''' % self.broker.db_contains_type
+        self.clean_batch_query = '''
+            DELETE FROM %s WHERE deleted = 1
+            AND name >= ? AND %s < %s
+        ''' % (self.broker.db_contains_type, self.broker.db_reclaim_timestamp,
+               self.age_timestamp)
+
+    def _reclaim(self, conn):
+        curs = conn.execute(self.batch_query, (self.marker, RECLAIM_PAGE_SIZE))
+        row = curs.fetchone()
+        end_marker = row[0] if row else ''
+        if end_marker:
+            # do a single book-ended DELETE and bounce out
+            curs = conn.execute(self.clean_batch_query + ' AND name < ?',
+                                (self.marker, end_marker))
+            self.marker = end_marker
+            self.reclaimed += curs.rowcount
+            self.remaining_tombstones += RECLAIM_PAGE_SIZE - curs.rowcount
+        else:
+            # delete off the end
+            curs = conn.execute(self.clean_batch_query, (self.marker,))
+            self.finished = True
+            self.reclaimed += curs.rowcount
+
+    def reclaim(self):
+        """
+        Perform reclaim of deleted rows older than ``age_timestamp``.
+        """
+        while not self.finished:
+            with self.broker.get() as conn:
+                self._reclaim(conn)
+                conn.commit()
+
+    def get_tombstone_count(self):
+        """
+        Return the number of remaining tombstones newer than ``age_timestamp``.
+        Executes the ``reclaim`` method if it has not already been called on
+        this instance.
+
+        :return: The number of tombstones in the ``broker`` that are newer than
+            ``age_timestamp``.
+        """
+        if not self.finished:
+            self.reclaim()
+        with self.broker.get() as conn:
+            curs = conn.execute('''
+                SELECT COUNT(*) FROM %s WHERE deleted = 1
+                AND name >= ?
+            ''' % (self.broker.db_contains_type,), (self.marker,))
+        tombstones = curs.fetchone()[0]
+        self.remaining_tombstones += tombstones
+        return self.remaining_tombstones
+
+
 class DatabaseBroker(object):
     """Encapsulates working with a database."""
 
@@ -988,46 +1064,21 @@ class DatabaseBroker(object):
             with lock_parent_directory(self.pending_file,
                                        self.pending_timeout):
                 self._commit_puts()
-        marker = ''
-        finished = False
-        while not finished:
-            with self.get() as conn:
-                marker = self._reclaim(conn, age_timestamp, marker)
-                if not marker:
-                    finished = True
-                    self._reclaim_other_stuff(
-                        conn, age_timestamp, sync_timestamp)
-                conn.commit()
+
+        tombstone_reclaimer = TombstoneReclaimer(self, age_timestamp)
+        tombstone_reclaimer.reclaim()
+        with self.get() as conn:
+            self._reclaim_other_stuff(conn, age_timestamp, sync_timestamp)
+            conn.commit()
+        return tombstone_reclaimer
 
     def _reclaim_other_stuff(self, conn, age_timestamp, sync_timestamp):
         """
-        This is only called once at the end of reclaim after _reclaim has been
-        called for each page.
+        This is only called once at the end of reclaim after tombstone reclaim
+        has been completed.
         """
         self._reclaim_sync(conn, sync_timestamp)
         self._reclaim_metadata(conn, age_timestamp)
-
-    def _reclaim(self, conn, age_timestamp, marker):
-        clean_batch_qry = '''
-            DELETE FROM %s WHERE deleted = 1
-            AND name >= ? AND %s < ?
-        ''' % (self.db_contains_type, self.db_reclaim_timestamp)
-        curs = conn.execute('''
-            SELECT name FROM %s WHERE deleted = 1
-            AND name >= ?
-            ORDER BY NAME LIMIT 1 OFFSET ?
-        ''' % (self.db_contains_type,), (marker, RECLAIM_PAGE_SIZE))
-        row = curs.fetchone()
-        if row:
-            # do a single book-ended DELETE and bounce out
-            end_marker = row[0]
-            conn.execute(clean_batch_qry + ' AND name < ?', (
-                marker, age_timestamp, end_marker))
-        else:
-            # delete off the end and reset marker to indicate we're done
-            end_marker = ''
-            conn.execute(clean_batch_qry, (marker, age_timestamp))
-        return end_marker
 
     def _reclaim_sync(self, conn, sync_timestamp):
         try:

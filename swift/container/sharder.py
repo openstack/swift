@@ -120,6 +120,8 @@ def find_overlapping_ranges(shard_ranges):
 
 
 def is_sharding_candidate(shard_range, threshold):
+    # note: use *object* count as the condition for sharding: tombstones will
+    # eventually be reclaimed so should not trigger sharding
     return (shard_range.state == ShardRange.ACTIVE and
             shard_range.object_count >= threshold)
 
@@ -127,10 +129,13 @@ def is_sharding_candidate(shard_range, threshold):
 def is_shrinking_candidate(shard_range, shrink_threshold, merge_size,
                            states=None):
     # typically shrink_threshold < merge_size but check both just in case
+    # note: use *row* count (objects plus tombstones) as the condition for
+    # shrinking to avoid inadvertently moving large numbers of tombstones into
+    # an acceptor
     states = states or (ShardRange.ACTIVE,)
     return (shard_range.state in states and
-            shard_range.object_count < shrink_threshold and
-            shard_range.object_count <= merge_size)
+            shard_range.row_count < shrink_threshold and
+            shard_range.row_count <= merge_size)
 
 
 def find_sharding_candidates(broker, threshold, shard_ranges=None):
@@ -186,6 +191,8 @@ def find_compactible_shard_sequences(broker,
         compacted into each acceptor; -1 implies unlimited.
     :param max_expanding: the maximum number of acceptors to be found (i.e. the
         maximum number of sequences to be returned); -1 implies unlimited.
+    :param include_shrinking: if True then existing compactible sequences are
+        included in the results; default is False.
     :returns: A list of :class:`~swift.common.utils.ShardRangeList` each
         containing a sequence of neighbouring shard ranges that may be
         compacted; the final shard range in the list is the acceptor
@@ -196,10 +203,6 @@ def find_compactible_shard_sequences(broker,
     # First cut is simple: assume root container shard usage stats are good
     # enough to make decision; only merge with upper neighbour so that
     # upper bounds never change (shard names include upper bound).
-    # TODO: object counts may well not be the appropriate metric for
-    # deciding to shrink because a shard with low object_count may have a
-    # large number of deleted object rows that will need to be merged with
-    # a neighbour. We may need to expose row count as well as object count.
     shard_ranges = broker.get_shard_ranges()
     own_shard_range = broker.get_own_shard_range()
 
@@ -216,7 +219,7 @@ def find_compactible_shard_sequences(broker,
                     sequence[-1], shrink_threshold, merge_size,
                     states=(ShardRange.ACTIVE, ShardRange.SHRINKING)) or
                  0 < max_shrinking < len(sequence) or
-                 sequence.object_count >= merge_size)):
+                 sequence.row_count >= merge_size)):
             return True
         return False
 
@@ -250,7 +253,7 @@ def find_compactible_shard_sequences(broker,
             if shard_range.state == ShardRange.SHRINKING:
                 # already shrinking: add to sequence unconditionally
                 sequence.append(shard_range)
-            elif (sequence.object_count + shard_range.object_count
+            elif (sequence.row_count + shard_range.row_count
                   <= merge_size):
                 # add to sequence: could be a donor or acceptor
                 sequence.append(shard_range)
@@ -1825,7 +1828,18 @@ class ContainerSharder(ContainerReplicator):
 
     def _update_root_container(self, broker):
         own_shard_range = broker.get_own_shard_range(no_default=True)
-        if not own_shard_range or own_shard_range.reported:
+        if not own_shard_range:
+            return
+
+        # do a reclaim *now* in order to get best estimate of tombstone count
+        # that is consistent with the current object_count
+        reclaimer = self._reclaim(broker)
+        tombstones = reclaimer.get_tombstone_count()
+        self.logger.debug('tombstones in %s = %d',
+                          quote(broker.path), tombstones)
+        own_shard_range.update_tombstones(tombstones)
+
+        if own_shard_range.reported:
             return
 
         # persist the reported shard metadata

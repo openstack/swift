@@ -429,6 +429,7 @@ class TestManageShardRanges(unittest.TestCase):
                     '  "state": "sharding",',
                     '  "state_timestamp": "%s",' % now.internal,
                     '  "timestamp": "%s",' % now.internal,
+                    '  "tombstones": -1,',
                     '  "upper": ""',
                     '}',
                     'db_state = sharding',
@@ -472,6 +473,7 @@ class TestManageShardRanges(unittest.TestCase):
                     '  "state": "sharding",',
                     '  "state_timestamp": "%s",' % now.internal,
                     '  "timestamp": "%s",' % now.internal,
+                    '  "tombstones": -1,',
                     '  "upper": ""',
                     '}',
                     'db_state = sharded',
@@ -861,11 +863,36 @@ class TestManageShardRanges(unittest.TestCase):
         broker = self._make_broker()
         shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
         for i, sr in enumerate(shard_ranges):
+            sr.tombstones = 999
             if i not in small_ranges:
                 sr.object_count = 100001
             sr.update_state(ShardRange.ACTIVE)
         broker.merge_shard_ranges(shard_ranges)
         self._move_broker_to_sharded_state(broker)
+
+        expected_base = [
+            'Donor shard range(s) with total of 2018 rows:',
+            "  '.shards_a",
+            "    objects:        10, tombstones:       999, lower: 'obj29'",
+            "      state:    active,                        upper: 'obj39'",
+            "  '.shards_a",
+            "    objects:        10, tombstones:       999, lower: 'obj39'",
+            "      state:    active,                        upper: 'obj49'",
+            'can be compacted into acceptor shard range:',
+            "  '.shards_a",
+            "    objects:    100001, tombstones:       999, lower: 'obj49'",
+            "      state:    active,                        upper: 'obj59'",
+            'Donor shard range(s) with total of 1009 rows:',
+            "  '.shards_a",
+            "    objects:        10, tombstones:       999, lower: 'obj69'",
+            "      state:    active,                        upper: 'obj79'",
+            'can be compacted into acceptor shard range:',
+            "  '.shards_a",
+            "    objects:    100001, tombstones:       999, lower: 'obj79'",
+            "      state:    active,                        upper: 'obj89'",
+            'Once applied to the broker these changes will result in '
+            'shard range compaction the next time the sharder runs.',
+        ]
 
         def do_compact(user_input, exit_code):
             out = StringIO()
@@ -880,29 +907,7 @@ class TestManageShardRanges(unittest.TestCase):
             err_lines = err.getvalue().split('\n')
             self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
             out_lines = out.getvalue().split('\n')
-            expected = [
-                'Donor shard range(s) with total of 20 objects:',
-                "  '.shards_a",
-                "    objects:        10  lower: 'obj29'",
-                "      state:    active  upper: 'obj39'",
-                "  '.shards_a",
-                "    objects:        10  lower: 'obj39'",
-                "      state:    active  upper: 'obj49'",
-                'can be compacted into acceptor shard range:',
-                "  '.shards_a",
-                "    objects:    100001  lower: 'obj49'",
-                "      state:    active  upper: 'obj59'",
-                'Donor shard range(s) with total of 10 objects:',
-                "  '.shards_a",
-                "    objects:        10  lower: 'obj69'",
-                "      state:    active  upper: 'obj79'",
-                'can be compacted into acceptor shard range:',
-                "  '.shards_a",
-                "    objects:    100001  lower: 'obj79'",
-                "      state:    active  upper: 'obj89'",
-                'Once applied to the broker these changes will result in '
-                'shard range compaction the next time the sharder runs.',
-            ]
+            expected = list(expected_base)
             if user_input == 'yes':
                 expected.extend([
                     'Updated 2 shard sequences for compaction.',
@@ -1334,14 +1339,12 @@ class TestManageShardRanges(unittest.TestCase):
             ['No shards identified for compaction.'],
             out_lines[:1])
 
-    def test_compact_shrink_threshold(self):
+    def _do_test_compact_shrink_threshold(self, broker, shard_ranges):
         # verify option to set the shrink threshold for compaction;
-        broker = self._make_broker()
-        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
         for i, sr in enumerate(shard_ranges):
             sr.update_state(ShardRange.ACTIVE)
         # (n-2)th shard range has one extra object
-        shard_ranges[-2].object_count = 11
+        shard_ranges[-2].object_count = shard_ranges[-2].object_count + 1
         broker.merge_shard_ranges(shard_ranges)
         self._move_broker_to_sharded_state(broker)
         # with threshold set to 10 no shard ranges can be shrunk
@@ -1383,6 +1386,19 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(shard_ranges, updated_ranges)
         self.assertEqual([ShardRange.SHRINKING] * 8 + [ShardRange.ACTIVE] * 2,
                          [sr.state for sr in updated_ranges])
+
+    def test_compact_shrink_threshold(self):
+        broker = self._make_broker()
+        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
+        self._do_test_compact_shrink_threshold(broker, shard_ranges)
+
+    def test_compact_shrink_threshold_with_tombstones(self):
+        broker = self._make_broker()
+        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
+        for i, sr in enumerate(shard_ranges):
+            sr.object_count = sr.object_count - i
+            sr.tombstones = i
+        self._do_test_compact_shrink_threshold(broker, shard_ranges)
 
     def test_repair_not_root(self):
         broker = self._make_broker()

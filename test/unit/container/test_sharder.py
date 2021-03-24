@@ -112,13 +112,13 @@ class BaseTestSharder(unittest.TestCase):
         return broker
 
     def _make_shard_ranges(self, bounds, state=None, object_count=0,
-                           timestamp=Timestamp.now()):
+                           timestamp=Timestamp.now(), **kwargs):
         if not isinstance(state, (tuple, list)):
             state = [state] * len(bounds)
         state_iter = iter(state)
         return [ShardRange('.shards_a/c_%s' % upper, timestamp,
                            lower, upper, state=next(state_iter),
-                           object_count=object_count)
+                           object_count=object_count, **kwargs)
                 for lower, upper in bounds]
 
     def ts_encoded(self):
@@ -4628,9 +4628,38 @@ class TestSharder(BaseTestSharder):
                          bytes_used=own_shard_range.bytes_used + 1)]
                 self.check_shard_ranges_sent(broker, expected_sent)
 
+        # initialise tombstones
+        with mock_timestamp_now(next(self.ts_iter)):
+            own_shard_range = broker.get_own_shard_range()
+            own_shard_range.update_tombstones(0)
+            broker.merge_shard_ranges([own_shard_range])
+
         for state in ShardRange.STATES:
             with annotate_failure(state):
                 check_only_own_shard_range_sent(state)
+
+        def check_tombstones_sent(state):
+            own_shard_range = broker.get_own_shard_range()
+            self.assertTrue(own_shard_range.update_state(
+                state, state_timestamp=next(self.ts_iter)))
+            broker.merge_shard_ranges([own_shard_range])
+            # delete an object, expect to see it reflected in the own shard
+            # range that is sent
+            broker.delete_object(str(own_shard_range.object_count),
+                                 next(self.ts_iter).internal)
+            with mock_timestamp_now() as now:
+                # force own shard range meta updates to be at fixed timestamp
+                expected_sent = [
+                    dict(own_shard_range,
+                         meta_timestamp=now.internal,
+                         object_count=own_shard_range.object_count - 1,
+                         bytes_used=own_shard_range.bytes_used - 1,
+                         tombstones=own_shard_range.tombstones + 1)]
+                self.check_shard_ranges_sent(broker, expected_sent)
+
+        for state in ShardRange.STATES:
+            with annotate_failure(state):
+                check_tombstones_sent(state)
 
     def test_update_root_container_already_reported(self):
         broker = self._make_broker()
@@ -4653,6 +4682,12 @@ class TestSharder(BaseTestSharder):
                 with mocked_http_conn() as mock_conn:
                     sharder._update_root_container(broker)
             self.assertFalse(mock_conn.requests)
+
+        # initialise tombstones
+        with mock_timestamp_now(next(self.ts_iter)):
+            own_shard_range = broker.get_own_shard_range()
+            own_shard_range.update_tombstones(0)
+            broker.merge_shard_ranges([own_shard_range])
 
         for state in ShardRange.STATES:
             with annotate_failure(state):
@@ -4685,7 +4720,8 @@ class TestSharder(BaseTestSharder):
                     own_shard_range.copy(
                         meta_timestamp=now.internal,
                         object_count=own_shard_range.object_count + 1,
-                        bytes_used=own_shard_range.bytes_used + 1)] +
+                        bytes_used=own_shard_range.bytes_used + 1,
+                        tombstones=0)] +
                     shard_ranges,
                     key=lambda sr: (sr.upper, sr.state, sr.lower))
                 self.check_shard_ranges_sent(
@@ -5360,8 +5396,11 @@ class TestSharder(BaseTestSharder):
         shard_bounds = (('', 'here'), ('here', 'there'), ('there', ''))
         size = (DEFAULT_SHARD_SHRINK_POINT *
                 DEFAULT_SHARD_CONTAINER_THRESHOLD / 100)
+
+        # all shard ranges too big to shrink
         shard_ranges = self._make_shard_ranges(
-            shard_bounds, state=ShardRange.ACTIVE, object_count=size)
+            shard_bounds, state=ShardRange.ACTIVE, object_count=size - 1,
+            tombstones=1)
         own_sr = broker.get_own_shard_range()
         own_sr.update_state(ShardRange.SHARDED, Timestamp.now())
         broker.merge_shard_ranges(shard_ranges + [own_sr])
@@ -5373,7 +5412,7 @@ class TestSharder(BaseTestSharder):
                                         broker.get_shard_ranges())
 
         # one range just below threshold
-        shard_ranges[0].update_meta(size - 1, 0)
+        shard_ranges[0].update_meta(size - 2, 0)
         broker.merge_shard_ranges(shard_ranges[0])
         with self._mock_sharder() as sharder:
             with mock_timestamp_now() as now:
@@ -6732,13 +6771,8 @@ class TestSharderFunctions(BaseTestSharder):
         sequences = find_compactible_shard_sequences(broker, 10, 999, 3, 3)
         self.assertEqual([shard_ranges[8:]], sequences)
 
-    def test_find_compactible_shrink_threshold(self):
+    def _do_test_find_compactible_shrink_threshold(self, broker, shard_ranges):
         # verify option to set the shrink threshold for compaction;
-        broker = self._make_broker()
-        shard_ranges = self._make_shard_ranges(
-            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
-             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
-            state=ShardRange.ACTIVE, object_count=10)
         # (n-2)th shard range has one extra object
         shard_ranges[-2].object_count = 11
         broker.merge_shard_ranges(shard_ranges)
@@ -6750,13 +6784,24 @@ class TestSharderFunctions(BaseTestSharder):
         sequences = find_compactible_shard_sequences(broker, 11, 999, -1, -1)
         self.assertEqual([shard_ranges[:9]], sequences)
 
-    def test_find_compactible_expansion_limit(self):
-        # verify option to limit the size of each acceptor after compaction
+    def test_find_compactible_shrink_threshold(self):
         broker = self._make_broker()
         shard_ranges = self._make_shard_ranges(
             (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
              ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
-            state=ShardRange.ACTIVE, object_count=6)
+            state=ShardRange.ACTIVE, object_count=10)
+        self._do_test_find_compactible_shrink_threshold(broker, shard_ranges)
+
+    def test_find_compactible_shrink_threshold_with_tombstones(self):
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE, object_count=7, tombstones=3)
+        self._do_test_find_compactible_shrink_threshold(broker, shard_ranges)
+
+    def _do_test_find_compactible_expansion_limit(self, broker, shard_ranges):
+        # verify option to limit the size of each acceptor after compaction
         broker.merge_shard_ranges(shard_ranges)
         sequences = find_compactible_shard_sequences(broker, 10, 33, -1, -1)
         self.assertEqual([shard_ranges[:5], shard_ranges[5:]], sequences)
@@ -6766,11 +6811,30 @@ class TestSharderFunctions(BaseTestSharder):
         sequences = find_compactible_shard_sequences(broker, 10, 33, -1, -1)
         self.assertEqual([shard_ranges[:4], shard_ranges[7:]], sequences)
 
+    def test_find_compactible_expansion_limit(self):
+        # verify option to limit the size of each acceptor after compaction
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE, object_count=6)
+        self._do_test_find_compactible_expansion_limit(broker, shard_ranges)
+
+    def test_find_compactible_expansion_limit_with_tombstones(self):
+        # verify option to limit the size of each acceptor after compaction
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges(
+            (('', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'),
+             ('f', 'g'), ('g', 'h'), ('h', 'i'), ('i', 'j'), ('j', '')),
+            state=ShardRange.ACTIVE, object_count=1, tombstones=5)
+        self._do_test_find_compactible_expansion_limit(broker, shard_ranges)
+
     def test_is_sharding_candidate(self):
         for state in ShardRange.STATES:
             for object_count in (9, 10, 11):
                 sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
-                                state=state, object_count=object_count)
+                                state=state, object_count=object_count,
+                                tombstones=100)  # tombstones not considered
                 with annotate_failure('%s %s' % (state, object_count)):
                     if state == ShardRange.ACTIVE and object_count >= 10:
                         self.assertTrue(is_sharding_candidate(sr, 10))
@@ -6783,6 +6847,10 @@ class TestSharderFunctions(BaseTestSharder):
             sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
                             state=state, object_count=9)
             self.assertTrue(is_shrinking_candidate(sr, 10, 9, ok_states))
+            # shard range has 9 rows
+            sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+                            state=state, object_count=4, tombstones=5)
+            self.assertTrue(is_shrinking_candidate(sr, 10, 9, ok_states))
 
         do_check_true(ShardRange.ACTIVE, (ShardRange.ACTIVE,))
         do_check_true(ShardRange.ACTIVE,
@@ -6790,11 +6858,12 @@ class TestSharderFunctions(BaseTestSharder):
         do_check_true(ShardRange.SHRINKING,
                       (ShardRange.ACTIVE, ShardRange.SHRINKING))
 
-        def do_check_false(state, object_count):
+        def do_check_false(state, object_count, tombstones):
             states = (ShardRange.ACTIVE, ShardRange.SHRINKING)
             # shard range has 10 objects
             sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
-                            state=state, object_count=object_count)
+                            state=state, object_count=object_count,
+                            tombstones=tombstones)
             self.assertFalse(is_shrinking_candidate(sr, 10, 20))
             self.assertFalse(is_shrinking_candidate(sr, 10, 20, states))
             self.assertFalse(is_shrinking_candidate(sr, 10, 9))
@@ -6805,7 +6874,13 @@ class TestSharderFunctions(BaseTestSharder):
         for state in ShardRange.STATES:
             for object_count in (10, 11):
                 with annotate_failure('%s %s' % (state, object_count)):
-                    do_check_false(state, object_count)
+                    do_check_false(state, object_count, 0)
+            for tombstones in (10, 11):
+                with annotate_failure('%s %s' % (state, tombstones)):
+                    do_check_false(state, 0, tombstones)
+            for tombstones in (5, 6):
+                with annotate_failure('%s %s' % (state, tombstones)):
+                    do_check_false(state, 5, tombstones)
 
     def test_find_and_rank_whole_path_split(self):
         ts_0 = next(self.ts_iter)

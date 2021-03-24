@@ -41,7 +41,7 @@ from swift.common.constraints import \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
-    GreenDBConnection, PICKLE_PROTOCOL, zero_like
+    GreenDBConnection, PICKLE_PROTOCOL, zero_like, TombstoneReclaimer
 from swift.common.utils import normalize_timestamp, mkdirs, Timestamp
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
@@ -1093,6 +1093,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker = DatabaseBroker(':memory:', account='a')
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
+        broker.db_reclaim_timestamp = 'created_at'
         broker_creation = normalize_timestamp(1)
         broker_uuid = str(uuid4())
         broker_metadata = metadata and json.dumps(
@@ -1183,7 +1184,7 @@ class TestDatabaseBroker(unittest.TestCase):
         return broker
 
     # only testing _reclaim_metadata here
-    @patch.object(DatabaseBroker, '_reclaim', return_value='')
+    @patch.object(TombstoneReclaimer, 'reclaim')
     def test_metadata(self, mock_reclaim):
         # Initializes a good broker for us
         broker = self.get_replication_info_tester(metadata=True)
@@ -1569,7 +1570,7 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertFalse(pending)
 
 
-class TestTombstoneReclaim(unittest.TestCase):
+class TestTombstoneReclaimer(unittest.TestCase):
     def _make_object(self, broker, obj_name, ts, deleted):
         if deleted:
             broker.delete_test(obj_name, ts.internal)
@@ -1586,29 +1587,32 @@ class TestTombstoneReclaim(unittest.TestCase):
         with broker.get() as conn:
             return self._count_reclaimable(conn, reclaim_age)
 
-    def _setup_reclaimable_active(self):
+    def _setup_tombstones(self, reverse_names=True):
         broker = ExampleBroker(':memory:', account='test_account',
                                container='test_container')
         broker.initialize(Timestamp('1').internal, 0)
         now = time.time()
         top_of_the_minute = now - (now % 60)
 
-        # namespace:
+        # namespace if reverse:
+        #  a-* has 70 'active' tombstones followed by 70 reclaimable
+        #  b-* has 70 'active' tombstones followed by 70 reclaimable
+        # else:
         #  a-* has 70 reclaimable followed by 70 'active' tombstones
         #  b-* has 70 reclaimable followed by 70 'active' tombstones
         for i in range(0, 560, 4):
-            self._make_object(broker, 'a_%3d' % (560 - i),
-                              Timestamp(top_of_the_minute - (i * 60)),
-                              True)
-            self._make_object(broker, 'a_%3d' % (559 - i),
-                              Timestamp(top_of_the_minute - ((i + 1) * 60)),
-                              False)
-            self._make_object(broker, 'b_%3d' % (560 - i),
-                              Timestamp(top_of_the_minute - ((i + 2) * 60)),
-                              True)
-            self._make_object(broker, 'b_%3d' % (559 - i),
-                              Timestamp(top_of_the_minute - ((i + 3) * 60)),
-                              False)
+            self._make_object(
+                broker, 'a_%3d' % (560 - i if reverse_names else i),
+                Timestamp(top_of_the_minute - (i * 60)), True)
+            self._make_object(
+                broker, 'a_%3d' % (559 - i if reverse_names else i + 1),
+                Timestamp(top_of_the_minute - ((i + 1) * 60)), False)
+            self._make_object(
+                broker, 'b_%3d' % (560 - i if reverse_names else i),
+                Timestamp(top_of_the_minute - ((i + 2) * 60)), True)
+            self._make_object(
+                broker, 'b_%3d' % (559 - i if reverse_names else i + 1),
+                Timestamp(top_of_the_minute - ((i + 3) * 60)), False)
         broker._commit_puts()
 
         # divide the set of timestamps exactly in half for reclaim
@@ -1635,11 +1639,12 @@ class TestTombstoneReclaim(unittest.TestCase):
             yield reclaimable
 
     def test_batched_reclaim_several_small_batches(self):
-        broker, totm, reclaim_age = self._setup_reclaimable_active()
+        broker, totm, reclaim_age = self._setup_tombstones()
 
         with self._mock_broker_get(broker, reclaim_age) as reclaimable:
             with patch('swift.common.db.RECLAIM_PAGE_SIZE', 50):
-                broker.reclaim(reclaim_age, reclaim_age)
+                reclaimer = TombstoneReclaimer(broker, reclaim_age)
+                reclaimer.reclaim()
 
         expected_reclaimable = [140,  # 0 rows fetched
                                 90,  # 50 rows fetched, 50 reclaimed
@@ -1652,11 +1657,12 @@ class TestTombstoneReclaim(unittest.TestCase):
         self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
 
     def test_batched_reclaim_exactly_two_batches(self):
-        broker, totm, reclaim_age = self._setup_reclaimable_active()
+        broker, totm, reclaim_age = self._setup_tombstones()
 
         with self._mock_broker_get(broker, reclaim_age) as reclaimable:
             with patch('swift.common.db.RECLAIM_PAGE_SIZE', 140):
-                broker.reclaim(reclaim_age, reclaim_age)
+                reclaimer = TombstoneReclaimer(broker, reclaim_age)
+                reclaimer.reclaim()
 
         expected_reclaimable = [140,  # 0 rows fetched
                                 70,  # 140 rows fetched, 70 reclaimed
@@ -1665,15 +1671,56 @@ class TestTombstoneReclaim(unittest.TestCase):
         self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
 
     def test_batched_reclaim_one_large_batch(self):
-        broker, totm, reclaim_age = self._setup_reclaimable_active()
+        broker, totm, reclaim_age = self._setup_tombstones()
 
         with self._mock_broker_get(broker, reclaim_age) as reclaimable:
             with patch('swift.common.db.RECLAIM_PAGE_SIZE', 1000):
-                broker.reclaim(reclaim_age, reclaim_age)
+                reclaimer = TombstoneReclaimer(broker, reclaim_age)
+                reclaimer.reclaim()
 
         expected_reclaimable = [140]  # 0 rows fetched
         self.assertEqual(expected_reclaimable, reclaimable)
         self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+
+    def test_reclaim_get_tombstone_count(self):
+        broker, totm, reclaim_age = self._setup_tombstones(reverse_names=False)
+        with patch('swift.common.db.RECLAIM_PAGE_SIZE', 122):
+            reclaimer = TombstoneReclaimer(broker, reclaim_age)
+            reclaimer.reclaim()
+        self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+        tombstones = self._get_reclaimable(broker, totm + 1)
+        self.assertEqual(140, tombstones)
+        # in this scenario the reclaim phase finds the remaining tombstone
+        # count (140)
+        self.assertEqual(140, reclaimer.remaining_tombstones)
+        self.assertEqual(140, reclaimer.get_tombstone_count())
+
+    def test_reclaim_get_tombstone_count_with_leftover(self):
+        broker, totm, reclaim_age = self._setup_tombstones()
+        with patch('swift.common.db.RECLAIM_PAGE_SIZE', 122):
+            reclaimer = TombstoneReclaimer(broker, reclaim_age)
+            reclaimer.reclaim()
+
+        self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+        tombstones = self._get_reclaimable(broker, totm + 1)
+        self.assertEqual(140, tombstones)
+        # in this scenario the reclaim phase finds a subset (104) of all
+        # tombstones (140)
+        self.assertEqual(104, reclaimer.remaining_tombstones)
+        # get_tombstone_count finds the rest
+        actual = reclaimer.get_tombstone_count()
+        self.assertEqual(140, actual)
+
+    def test_get_tombstone_count_with_leftover(self):
+        # verify that a call to get_tombstone_count() will invoke a reclaim if
+        # reclaim not already invoked
+        broker, totm, reclaim_age = self._setup_tombstones()
+        with patch('swift.common.db.RECLAIM_PAGE_SIZE', 122):
+            reclaimer = TombstoneReclaimer(broker, reclaim_age)
+            actual = reclaimer.get_tombstone_count()
+
+        self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+        self.assertEqual(140, actual)
 
 
 if __name__ == '__main__':
