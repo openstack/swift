@@ -37,9 +37,8 @@ EXIT_NO_APPLICABLE_POLICY = 2
 EXIT_ERROR = 1
 
 
-def policy(policy_index):
-    value = non_negative_int(policy_index)
-    value = POLICIES.get_by_index(value)
+def policy(policy_name_or_index):
+    value = POLICIES.get_by_name_or_index(policy_name_or_index)
     if value is None:
         raise ValueError
     return value
