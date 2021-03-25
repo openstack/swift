@@ -244,9 +244,10 @@ class Relinker(object):
         num_parts_done = sum(
             1 for part in self.states["state"].values()
             if part)
-        self.logger.info("Device: %s Step: %s Partitions: %d/%d" % (
-            device, STEP_CLEANUP if self.do_cleanup else STEP_RELINK,
-            num_parts_done, len(self.states["state"])))
+        step = STEP_CLEANUP if self.do_cleanup else STEP_RELINK
+        num_total_parts = len(self.states["state"])
+        self.logger.info("Step: %s Device: %s Policy: %s Partitions: %d/%d" % (
+            step, device, self.policy.name, num_parts_done, num_total_parts))
 
     def hashes_filter(self, suff_path, hashes):
         hashes = list(hashes)

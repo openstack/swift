@@ -954,7 +954,7 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(
             ['Processing files for policy platinum under %s (cleanup=False)'
              % self.devices,
-             'Device: sda1 Step: relink Partitions: 1/3',
+             'Step: relink Device: sda1 Policy: platinum Partitions: 1/3',
              '1 hash dirs processed (cleanup=False) (1 files, 1 linked, '
              '0 removed, 0 errors)'],
             self.logger.get_lines_for_level('info')
@@ -988,8 +988,8 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(
             ['Processing files for policy platinum under %s (cleanup=False)'
              % self.devices,
-             'Device: sda1 Step: relink Partitions: 2/3',
-             'Device: sda1 Step: relink Partitions: 3/3',
+             'Step: relink Device: sda1 Policy: platinum Partitions: 2/3',
+             'Step: relink Device: sda1 Policy: platinum Partitions: 3/3',
              '2 hash dirs processed (cleanup=False) (2 files, 2 linked, '
              '0 removed, 0 errors)'],
             self.logger.get_lines_for_level('info')
@@ -1069,7 +1069,7 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(
             ['Processing files for policy gold under %s/%s (cleanup=False)'
              % (self.devices, self.existing_device),
-             'Device: sda1 Step: relink Partitions: 1/1',
+             'Step: relink Device: sda1 Policy: gold Partitions: 1/1',
              '1 hash dirs processed (cleanup=False) (1 files, 1 linked, '
              '0 removed, 0 errors)'],
             self.logger.get_lines_for_level('info'))
@@ -1821,7 +1821,8 @@ class TestRelinker(unittest.TestCase):
         # Ack partition 96
         r.hook_post_partition(os.path.join(datadir_path, '96'))
         self.assertEqual(r.states["state"], {'96': True, '227': False})
-        self.assertIn("Device: sda1 Step: relink Partitions: 1/2",
+        self.assertIn("Step: relink Device: sda1 Policy: %s "
+                      "Partitions: 1/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
@@ -1836,7 +1837,8 @@ class TestRelinker(unittest.TestCase):
 
         # Ack partition 227
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertIn("Device: sda1 Step: relink Partitions: 2/2",
+        self.assertIn("Step: relink Device: sda1 Policy: %s "
+                      "Partitions: 2/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"], {'96': True, '227': True})
         with open(state_file, 'rt') as f:
@@ -1879,7 +1881,8 @@ class TestRelinker(unittest.TestCase):
                          r.partitions_filter("", ['96', '227', '312']))
         # Ack partition 227
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertIn("Device: sda1 Step: cleanup Partitions: 1/2",
+        self.assertIn("Step: cleanup Device: sda1 Policy: %s "
+                      "Partitions: 1/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"],
                          {'96': False, '227': True})
@@ -1897,7 +1900,8 @@ class TestRelinker(unittest.TestCase):
 
         # Ack partition 96
         r.hook_post_partition(os.path.join(datadir_path, '96'))
-        self.assertIn("Device: sda1 Step: cleanup Partitions: 2/2",
+        self.assertIn("Step: cleanup Device: sda1 Policy: %s "
+                      "Partitions: 2/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"],
                          {'96': True, '227': True})
