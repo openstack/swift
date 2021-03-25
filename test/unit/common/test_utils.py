@@ -7732,6 +7732,9 @@ class TestShardRange(unittest.TestCase):
         self.ts_iter = make_timestamp_iter()
 
     def test_min_max_bounds(self):
+        with self.assertRaises(TypeError):
+            utils.ShardRangeOuterBound()
+
         # max
         self.assertEqual(utils.ShardRange.MAX, utils.ShardRange.MAX)
         self.assertFalse(utils.ShardRange.MAX > utils.ShardRange.MAX)

@@ -4972,11 +4972,15 @@ except TypeError:
 
 class ShardRangeOuterBound(object):
     """
-    A custom singleton type used for the outer bounds of ShardRanges.
+    A custom singleton type to be subclassed for the outer bounds of
+    ShardRanges.
     """
     _singleton = None
 
     def __new__(cls):
+        if cls is ShardRangeOuterBound:
+            raise TypeError('ShardRangeOuterBound is an abstract class; '
+                            'only subclasses should be instantiated')
         if cls._singleton is None:
             cls._singleton = super(ShardRangeOuterBound, cls).__new__(cls)
         return cls._singleton
