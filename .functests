@@ -7,8 +7,8 @@ SRC_DIR=$(dirname $(realpath "$0"))
 
 cd ${SRC_DIR} > /dev/null
 export TESTS_DIR=${SRC_DIR}/test/functional
-ARGS="--concurrency 1 ${@:-"--pretty"}"
-ostestr $ARGS
+ARGS="run --concurrency 1 $@"
+stestr $ARGS || stestr run --concurrency 1 --failing
 rvalue=$?
 cd -  > /dev/null
 
