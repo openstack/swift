@@ -647,15 +647,6 @@ def clear_auditor_status(devices, datadir, auditor_type="ALL"):
         remove_file(auditor_status)
 
 
-def strip_self(f):
-    """
-    Wrapper to attach module level functions to base class.
-    """
-    def wrapper(self, *args, **kwargs):
-        return f(*args, **kwargs)
-    return wrapper
-
-
 class DiskFileRouter(object):
 
     def __init__(self, *args, **kwargs):
@@ -695,9 +686,9 @@ class BaseDiskFileManager(object):
     diskfile_cls = None  # must be set by subclasses
     policy = None  # must be set by subclasses
 
-    invalidate_hash = strip_self(invalidate_hash)
-    consolidate_hashes = strip_self(consolidate_hashes)
-    quarantine_renamer = strip_self(quarantine_renamer)
+    invalidate_hash = staticmethod(invalidate_hash)
+    consolidate_hashes = staticmethod(consolidate_hashes)
+    quarantine_renamer = staticmethod(quarantine_renamer)
 
     def __init__(self, conf, logger):
         self.logger = logger
