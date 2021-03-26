@@ -257,6 +257,29 @@ class Relinker(object):
                 hashes.remove(hsh)
         return hashes
 
+    def check_existing(self, new_file):
+        existing_link = None
+        link_created = False
+        start = self.next_part_power - 1
+        stop = max(start - self.conf['link_check_limit'], -1)
+        for check_part_power in range(start, stop, -1):
+            # Try to create the link from each of 3 previous part power
+            # locations. If an attempt succeeds then either a link was made or
+            # an existing link with the same inode as the next part power
+            # location was found: either is acceptable. The part power location
+            # that previously failed with EEXIST is included in the further
+            # attempts here for simplicity.
+            target_file = replace_partition_in_path(
+                self.conf['devices'], new_file, check_part_power)
+            try:
+                link_created = diskfile.relink_paths(target_file, new_file,
+                                                     ignore_missing=False)
+                existing_link = target_file
+                break
+            except OSError:
+                pass
+        return existing_link, link_created
+
     def process_location(self, hash_path, new_hash_path):
         # Compare the contents of each hash dir with contents of same hash
         # dir in its new partition to verify that the new location has the
@@ -288,6 +311,7 @@ class Relinker(object):
 
         missing_links = 0
         created_links = 0
+        unwanted_files = []
         for filename in required_links:
             # Before removing old files, be sure that the corresponding
             # required new files exist by calling relink_paths again. There
@@ -321,22 +345,52 @@ class Relinker(object):
                     created_links += 1
                     self.stats['linked'] += 1
             except OSError as exc:
-                self.logger.warning(
-                    "Error relinking%s: failed to relink %s to "
-                    "%s: %s", ' (cleanup)' if self.do_cleanup else '',
-                    old_file, new_file, exc)
-                self.stats['errors'] += 1
-                missing_links += 1
+                existing_link = None
+                link_created = False
+                if exc.errno == errno.EEXIST and filename.endswith('.ts'):
+                    # special case for duplicate tombstones in older partition
+                    # power locations
+                    # (https://bugs.launchpad.net/swift/+bug/1921718)
+                    existing_link, link_created = self.check_existing(new_file)
+                if existing_link:
+                    self.logger.debug(
+                        "Relinking%s: link not needed: %s to %s due to "
+                        "existing %s", ' (cleanup)' if self.do_cleanup else '',
+                        old_file, new_file, existing_link)
+                    if link_created:
+                        # uncommon case: the retry succeeded in creating a link
+                        created_links += 1
+                        self.stats['linked'] += 1
+                    wanted_file = replace_partition_in_path(
+                        self.conf['devices'], old_file, self.part_power)
+                    if old_file not in (existing_link, wanted_file):
+                        # A link exists to a different file and this file
+                        # is not the current target for client requests. If
+                        # this file is visited again it is possible that
+                        # the existing_link will have been cleaned up and
+                        # the check will fail, so clean it up now.
+                        self.logger.info(
+                            "Relinking%s: cleaning up unwanted file: %s",
+                            ' (cleanup)' if self.do_cleanup else '', old_file)
+                        unwanted_files.append(filename)
+                else:
+                    self.logger.warning(
+                        "Error relinking%s: failed to relink %s to %s: %s",
+                        ' (cleanup)' if self.do_cleanup else '',
+                        old_file, new_file, exc)
+                    self.stats['errors'] += 1
+                    missing_links += 1
         if created_links:
             diskfile.invalidate_hash(os.path.dirname(new_hash_path))
-        if missing_links or not self.do_cleanup:
-            return
+
+        if self.do_cleanup and not missing_links:
+            # use the sorted list to help unit testing
+            unwanted_files = old_df_data['files']
 
         # the new partition hash dir has the most up to date set of on
         # disk files so it is safe to delete the old location...
         rehash = False
-        # use the sorted list to help unit testing
-        for filename in old_df_data['files']:
+        for filename in unwanted_files:
             old_file = os.path.join(hash_path, filename)
             try:
                 os.remove(old_file)
@@ -487,6 +541,13 @@ def main(args):
                         help='Set log file name. Ignored if using conf_file.')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Enable debug mode')
+    parser.add_argument('--link-check-limit', type=non_negative_int,
+                        default=None, dest='link_check_limit',
+                        help='Maximum number of partition power locations to '
+                             'check for a valid link target if relink '
+                             'encounters an existing tombstone with different '
+                             'inode in the next partition power location '
+                             '(default: 2).')
 
     args = parser.parse_args(args)
     if args.conf_file:
@@ -519,6 +580,9 @@ def main(args):
             else non_negative_float(conf.get('files_per_second', '0'))),
         'policies': set(args.policies) or POLICIES,
         'partitions': set(args.partitions),
+        'link_check_limit': (
+            args.link_check_limit if args.link_check_limit is not None
+            else non_negative_int(conf.get('link_check_limit', 2))),
     })
 
     if args.action == 'relink':
