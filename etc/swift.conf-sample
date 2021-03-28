@@ -9,27 +9,37 @@
 swift_hash_path_suffix = changeme
 swift_hash_path_prefix = changeme
 
-# storage policies are defined here and determine various characteristics
-# about how objects are stored and treated.  Policies are specified by name on
-# a per container basis.  Names are case-insensitive.  The policy index is
-# specified in the section header and is used internally.  The policy with
-# index 0 is always used for legacy containers and can be given a name for use
-# in metadata however the ring file name will always be 'object.ring.gz' for
-# backwards compatibility.  If no policies are defined a policy with index 0
-# will be automatically created for backwards compatibility and given the name
-# Policy-0.  A default policy is used when creating new containers when no
-# policy is specified in the request.  If no other policies are defined the
-# policy with index 0 will be declared the default.  If multiple policies are
-# defined you must define a policy with index 0 and you must specify a
-# default.  It is recommended you always define a section for
-# storage-policy:0. Aliases are not required when defining a storage policy.
+# Storage policies are defined here and determine various characteristics
+# about how objects are stored and treated. More documentation can be found at
+# https://docs.openstack.org/swift/latest/overview_policies.html.
+
+# Client requests specify a policy on a per container basis using the policy
+# name. Internally the policy name is mapped to the policy index specified in
+# the policy's section header in this config file. Policy names are
+# case-insensitive and, to avoid confusion with indexes names, should not be
+# numbers.
+#
+# The policy with index 0 is always used for legacy containers and can be given
+# a name for use in metadata however the ring file name will always be
+# 'object.ring.gz' for backwards compatibility.  If no policies are defined a
+# policy with index 0 will be automatically created for backwards compatibility
+# and given the name Policy-0.  A default policy is used when creating new
+# containers when no policy is specified in the request.  If no other policies
+# are defined the policy with index 0 will be declared the default.  If
+# multiple policies are defined you must define a policy with index 0 and you
+# must specify a default.  It is recommended you always define a section for
+# storage-policy:0.
 #
 # A 'policy_type' argument is also supported but is not mandatory.  Default
 # policy type 'replication' is used when 'policy_type' is unspecified.
+#
 # A 'diskfile_module' optional argument lets you specify an alternate backend
 # object storage plug-in architecture. The default is
 # "egg:swift#replication.fs", or "egg:swift#erasure_coding.fs", depending on
 # the policy type.
+#
+# Aliases for the storage policy name may be defined, but are not required.
+#
 [storage-policy:0]
 name = Policy-0
 default = yes
@@ -37,7 +47,7 @@ default = yes
 #diskfile_module = egg:swift#replication.fs
 aliases = yellow, orange
 
-# the following section would declare a policy called 'silver', the number of
+# The following section would declare a policy called 'silver', the number of
 # replicas will be determined by how the ring is built.  In this example the
 # 'silver' policy could have a lower or higher # of replicas than the
 # 'Policy-0' policy above.  The ring filename will be 'object-1.ring.gz'.  You
@@ -142,7 +152,7 @@ aliases = yellow, orange
 # header line. This value may need to be increased when using identity
 # v3 API tokens including more than 7 catalog entries.
 # See also include_service_catalog in proxy-server.conf-sample
-# (documented in overview_auth.rst)
+# (documented at https://docs.openstack.org/swift/latest/overview_auth.html)
 
 #max_header_size = 8192
 

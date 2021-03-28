@@ -292,6 +292,9 @@ Each policy section contains the following options:
     - Policy names can be changed.
     - The name ``Policy-0`` can only be used for the policy with
       index ``0``.
+    - To avoid confusion with policy indexes it is strongly recommended that
+      policy names are not numbers (e.g. '1'). However, for backwards
+      compatibility, names that are numbers are supported.
 * ``aliases = <policy_name>[, <policy_name>, ...]`` (optional)
     - A comma-separated list of alternative names for the policy.
     - The default value is an empty list (i.e. no aliases).
