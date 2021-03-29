@@ -4446,6 +4446,22 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(0, utils.get_partition_for_hash(hex_hash, 0))
         self.assertEqual(0, utils.get_partition_for_hash(hex_hash, -1))
 
+    def test_get_partition_from_path(self):
+        def do_test(path):
+            self.assertEqual(utils.get_partition_from_path('/s/n', path), 70)
+            self.assertEqual(utils.get_partition_from_path('/s/n/', path), 70)
+            path += '/'
+            self.assertEqual(utils.get_partition_from_path('/s/n', path), 70)
+            self.assertEqual(utils.get_partition_from_path('/s/n/', path), 70)
+
+        do_test('/s/n/d/o/70/c77/af088baea4806dcaba30bf07d9e64c77/f')
+        # also works with a hashdir
+        do_test('/s/n/d/o/70/c77/af088baea4806dcaba30bf07d9e64c77')
+        # or suffix dir
+        do_test('/s/n/d/o/70/c77')
+        # or even the part dir itself
+        do_test('/s/n/d/o/70')
+
     def test_replace_partition_in_path(self):
         # Check for new part = part * 2
         old = '/s/n/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77/f'

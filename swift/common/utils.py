@@ -5965,6 +5965,22 @@ def get_partition_for_hash(hex_hash, part_power):
     return struct.unpack_from('>I', raw_hash)[0] >> part_shift
 
 
+def get_partition_from_path(devices, path):
+    """
+    :param devices: directory where devices are mounted (e.g. /srv/node)
+    :param path: full path to a object file or hashdir
+    :returns: the (integer) partition from the path
+    """
+    offset_parts = devices.rstrip(os.sep).split(os.sep)
+    path_components = path.split(os.sep)
+    if offset_parts == path_components[:len(offset_parts)]:
+        offset = len(offset_parts)
+    else:
+        raise ValueError('Path %r is not under device dir %r' % (
+            path, devices))
+    return int(path_components[offset + 2])
+
+
 def replace_partition_in_path(devices, path, part_power):
     """
     Takes a path and a partition power and returns the same path, but with the
@@ -5973,8 +5989,6 @@ def replace_partition_in_path(devices, path, part_power):
     :param devices: directory where devices are mounted (e.g. /srv/node)
     :param path: full path to a object file or hashdir
     :param part_power: partition power to compute correct partition number
-    :param is_hash_dir: if True then ``path`` is the path to a hash dir,
-        otherwise ``path`` is the path to a file in a hash dir.
     :returns: Path with re-computed partition power
     """
     offset_parts = devices.rstrip(os.sep).split(os.sep)
