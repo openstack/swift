@@ -1602,3 +1602,16 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(
             ['Repairs necessary to remove overlapping shard ranges.'],
             out_lines[:1])
+
+        filtered_shard_json = [{k: v for k, v in sr.items() if k != 'epoch'}
+                               for sr in shard_json]
+        with open(shard_file, 'w') as fd:
+            json.dump(filtered_shard_json, fd)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([shard_file, 'analyze'])
+        self.assertEqual(0, ret)
+        self.assertEqual('', err.getvalue())
+        new_out_lines = out.getvalue().split('\n')
+        self.assertEqual(out_lines, new_out_lines)
