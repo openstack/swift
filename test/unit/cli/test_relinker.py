@@ -2134,6 +2134,54 @@ class TestRelinker(unittest.TestCase):
         self.assertIn('1 hash dirs processed (cleanup=True) '
                       '(0 files, 0 linked, 1 removed, 0 errors)', info_lines)
 
+    def test_cleanup_old_part_careful(self):
+        self._common_test_cleanup()
+        # make some extra junk file in the part
+        extra_file = os.path.join(self.part_dir, 'extra')
+        with open(extra_file, 'w'):
+            pass
+        self.assertEqual(0, relinker.main([
+            'cleanup',
+            '--swift-dir', self.testdir,
+            '--devices', self.devices,
+            '--skip-mount',
+        ]))
+        # old partition can't be cleaned up
+        self.assertTrue(os.path.exists(self.part_dir))
+
+    def test_cleanup_old_part_robust(self):
+        self._common_test_cleanup()
+
+        orig_get_hashes = DiskFileManager.get_hashes
+        calls = []
+
+        def mock_get_hashes(mgr, device, part, suffixes, policy):
+            orig_resp = orig_get_hashes(mgr, device, part, suffixes, policy)
+            if part == self.part:
+                expected_files = ['.lock', 'hashes.pkl', 'hashes.invalid']
+                self.assertEqual(set(expected_files),
+                                 set(os.listdir(self.part_dir)))
+                # unlink a random file, should be empty
+                os.unlink(os.path.join(self.part_dir, 'hashes.pkl'))
+                calls.append(True)
+            elif part == self.next_part:
+                # sometimes our random obj needs to rehash the next part too
+                pass
+            else:
+                self.fail('Unexpected call to get_hashes for %r' % part)
+            return orig_resp
+
+        with mock.patch.object(DiskFileManager, 'get_hashes', mock_get_hashes):
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+            ]))
+        self.assertEqual([True], calls)
+        # old partition can still be cleaned up
+        self.assertFalse(os.path.exists(self.part_dir))
+
     def test_cleanup_reapable(self):
         # relink a tombstone
         fname_ts = self.objname[:-4] + "ts"
