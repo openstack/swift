@@ -7158,11 +7158,11 @@ class TestObjectController(unittest.TestCase):
         def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = diskfile.DiskFileManager._get_hashes
-        was_tpool_exe = tpool.execute
-        try:
-            diskfile.DiskFileManager._get_hashes = fake_get_hashes
-            tpool.execute = my_tpool_execute
+        with mock.patch.object(diskfile.DiskFileManager, '_get_hashes',
+                               fake_get_hashes), \
+                mock.patch.object(tpool, 'execute', my_tpool_execute), \
+                mock.patch('swift.obj.diskfile.os.path.exists',
+                           return_value=True):
             req = Request.blank('/sda1/p/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
@@ -7170,9 +7170,6 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             p_data = pickle.loads(resp.body)
             self.assertEqual(p_data, {1: 2})
-        finally:
-            tpool.execute = was_tpool_exe
-            diskfile.DiskFileManager._get_hashes = was_get_hashes
 
     def test_REPLICATE_pickle_protocol(self):
 
@@ -7182,25 +7179,22 @@ class TestObjectController(unittest.TestCase):
         def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = diskfile.DiskFileManager._get_hashes
-        was_tpool_exe = tpool.execute
-        try:
-            diskfile.DiskFileManager._get_hashes = fake_get_hashes
-            tpool.execute = my_tpool_execute
+        with mock.patch.object(diskfile.DiskFileManager, '_get_hashes',
+                               fake_get_hashes), \
+                mock.patch.object(tpool, 'execute', my_tpool_execute), \
+                mock.patch('swift.obj.server.pickle.dumps') as fake_pickle, \
+                mock.patch('swift.obj.diskfile.os.path.exists',
+                           return_value=True):
             req = Request.blank('/sda1/p/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
-            with mock.patch('swift.obj.server.pickle.dumps') as fake_pickle:
-                fake_pickle.return_value = b''
-                req.get_response(self.object_controller)
-                # This is the key assertion: starting in Python 3.0, the
-                # default protocol version is 3, but such pickles can't be read
-                # on Python 2. As long as we may need to talk to a Python 2
-                # process, we need to cap our protocol version.
-                fake_pickle.assert_called_once_with({1: 2}, protocol=2)
-        finally:
-            tpool.execute = was_tpool_exe
-            diskfile.DiskFileManager._get_hashes = was_get_hashes
+            fake_pickle.return_value = b''
+            req.get_response(self.object_controller)
+            # This is the key assertion: starting in Python 3.0, the
+            # default protocol version is 3, but such pickles can't be read
+            # on Python 2. As long as we may need to talk to a Python 2
+            # process, we need to cap our protocol version.
+            fake_pickle.assert_called_once_with({1: 2}, protocol=2)
 
     def test_REPLICATE_timeout(self):
 
@@ -7210,18 +7204,17 @@ class TestObjectController(unittest.TestCase):
         def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = diskfile.DiskFileManager._get_hashes
-        was_tpool_exe = tpool.execute
-        try:
+        with mock.patch.object(diskfile.DiskFileManager, '_get_hashes',
+                               fake_get_hashes), \
+                mock.patch.object(tpool, 'execute', my_tpool_execute), \
+                mock.patch('swift.obj.diskfile.os.path.exists',
+                           return_value=True):
             diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
             req = Request.blank('/sda1/p/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
             self.assertRaises(Timeout, self.object_controller.REPLICATE, req)
-        finally:
-            tpool.execute = was_tpool_exe
-            diskfile.DiskFileManager._get_hashes = was_get_hashes
 
     def test_REPLICATE_reclaims_tombstones(self):
         conf = {'devices': self.testdir, 'mount_check': False,

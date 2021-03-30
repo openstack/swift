@@ -341,6 +341,12 @@ def quarantine_renamer(device_path, corrupted_file_path):
     return to_dir
 
 
+def valid_suffix(value):
+    if not isinstance(value, str) or len(value) != 3:
+        return False
+    return all(c in '0123456789abcdef' for c in value)
+
+
 def read_hashes(partition_dir):
     """
     Read the existing hashes.pkl
@@ -365,9 +371,9 @@ def read_hashes(partition_dir):
             pass
 
     # Check for corrupted data that could break os.listdir()
-    for suffix in hashes.keys():
-        if not suffix.isalnum():
-            return {'valid': False}
+    if not all(valid_suffix(key) or key in ('valid', 'updated')
+               for key in hashes):
+        return {'valid': False}
 
     # hashes.pkl w/o valid updated key is "valid" but "forever old"
     hashes.setdefault('valid', True)
@@ -1292,6 +1298,8 @@ class BaseDiskFileManager(object):
             self.logger.debug('Run listdir on %s', partition_path)
         hashes.update((suffix, None) for suffix in recalculate)
         for suffix, hash_ in list(hashes.items()):
+            if suffix in ('valid', 'updated'):
+                continue
             if not hash_:
                 suffix_dir = join(partition_path, suffix)
                 try:
@@ -1539,12 +1547,14 @@ class BaseDiskFileManager(object):
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         partition_path = get_part_path(dev_path, policy, partition)
-        if not os.path.exists(partition_path):
-            mkdirs(partition_path)
+        suffixes = [suf for suf in suffixes or [] if valid_suffix(suf)]
+
         if skip_rehash:
-            for suffix in suffixes or []:
-                invalidate_hash(os.path.join(partition_path, suffix))
-            return None
+            for suffix in suffixes:
+                self.invalidate_hash(os.path.join(partition_path, suffix))
+            hashes = None
+        elif not os.path.exists(partition_path):
+            hashes = {}
         else:
             _junk, hashes = tpool.execute(
                 self._get_hashes, device, partition, policy,
