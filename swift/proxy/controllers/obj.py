@@ -3085,6 +3085,12 @@ class ECObjectController(BaseObjectController):
         if resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE:
             resp.headers['Content-Range'] = 'bytes */%s' % resp.headers[
                 'X-Object-Sysmeta-Ec-Content-Length']
+        ec_headers = [header for header in resp.headers
+                      if header.lower().startswith('x-object-sysmeta-ec-')]
+        for header in ec_headers:
+            # clients (including middlewares) shouldn't need to care about
+            # this implementation detail
+            del resp.headers[header]
 
     def _fix_ranges(self, req, resp):
         # Has to be called *before* kickoff()!
