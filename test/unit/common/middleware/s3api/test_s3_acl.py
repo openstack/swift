@@ -209,6 +209,7 @@ class TestS3ApiS3Acl(S3ApiTestCase):
                                      'x-amz-acl': 'private'})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
+        self.assertIn('REMOTE_USER', req.environ)
 
     def test_canned_acl_public_read(self):
         req = Request.blank('/bucket/object?acl',

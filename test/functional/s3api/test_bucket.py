@@ -22,6 +22,7 @@ import test.functional as tf
 from swift.common.utils import config_true_value
 from test.functional.s3api import S3ApiBaseBoto3
 from test.functional.s3api.s3_test_client import get_boto3_conn
+from test.functional.swift_test_client import Connection
 
 
 def setUpModule():
@@ -119,6 +120,29 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
 
         self.assertCommonResponseHeaders(
             resp['ResponseMetadata']['HTTPHeaders'])
+
+    def test_bucket_listing_with_staticweb(self):
+        if 'staticweb' not in tf.cluster_info:
+            raise tf.SkipTest('Staticweb not enabled')
+        bucket = 'bucket'
+
+        resp = self.conn.create_bucket(Bucket=bucket)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        resp = self.conn.list_objects(Bucket=bucket)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        # enable staticweb listings; make publicly-readable
+        conn = Connection(tf.config)
+        conn.authenticate()
+        post_status = conn.make_request('POST', [bucket], hdrs={
+            'X-Container-Read': '.r:*,.rlistings',
+            'X-Container-Meta-Web-Listings': 'true',
+        })
+        self.assertEqual(post_status, 204)
+
+        resp = self.conn.list_objects(Bucket=bucket)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
 
     def test_put_bucket_error(self):
         event_system = self.conn.meta.events
