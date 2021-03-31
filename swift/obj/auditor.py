@@ -33,6 +33,7 @@ from swift.common.utils import (
     config_auto_int_value, dump_recon_cache, get_logger, list_from_csv,
     listdir, load_pkg_resource, parse_prefixed_conf, ratelimit_sleep,
     readconf, round_robin_iter, unlink_paths_older_than, PrefixLoggerAdapter)
+from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 
 
 class AuditorWorker(object):
@@ -321,8 +322,8 @@ class ObjectAuditor(Daemon):
         self.conf_zero_byte_fps = int(
             conf.get('zero_byte_files_per_second', 50))
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.rcache = join(self.recon_cache_path, "object.recon")
+                                         DEFAULT_RECON_CACHE_PATH)
+        self.rcache = join(self.recon_cache_path, RECON_OBJECT_FILE)
         self.interval = float(conf.get('interval', 30))
 
         watcher_names = set(list_from_csv(conf.get('watchers', '')))

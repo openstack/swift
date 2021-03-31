@@ -38,6 +38,7 @@ from swift.common.utils import (
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
+from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.common.ring.utils import is_local_device
 from swift.obj.ssync_sender import Sender as ssync_sender
 from swift.common.http import HTTP_OK, HTTP_NOT_FOUND, \
@@ -202,8 +203,8 @@ class ObjectReconstructor(Daemon):
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+                                         DEFAULT_RECON_CACHE_PATH)
+        self.rcache = os.path.join(self.recon_cache_path, RECON_OBJECT_FILE)
         self._next_rcache_update = time.time() + self.stats_interval
         # defaults subject to change after beta
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))

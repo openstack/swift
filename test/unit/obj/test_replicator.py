@@ -37,6 +37,7 @@ from swift.common import utils
 from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
                                 storage_directory)
 from swift.common import ring
+from swift.common.recon import RECON_OBJECT_FILE
 from swift.obj import diskfile, replicator as object_replicator
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
@@ -385,7 +386,7 @@ class TestObjectReplicator(unittest.TestCase):
                     self.assertEqual((start + 1 + cycle) % 10,
                                      replicator.replication_cycle)
 
-        recon_fname = os.path.join(self.recon_cache, "object.recon")
+        recon_fname = os.path.join(self.recon_cache, RECON_OBJECT_FILE)
         with open(recon_fname) as cachefile:
             recon = json.loads(cachefile.read())
             self.assertEqual(1, recon.get('replication_time'))
@@ -1454,7 +1455,7 @@ class TestObjectReplicator(unittest.TestCase):
         # since we weren't operating on everything, but only a subset of
         # storage policies, we didn't dump any recon stats.
         self.assertFalse(os.path.exists(
-            os.path.join(self.recon_cache, 'object.recon')))
+            os.path.join(self.recon_cache, RECON_OBJECT_FILE)))
 
     def test_delete_partition_ssync(self):
         with mock.patch('swift.obj.replicator.http_connect',
@@ -2229,7 +2230,7 @@ class TestMultiProcessReplicator(unittest.TestCase):
         self.recon_cache = tempfile.mkdtemp()
         rmtree(self.recon_cache, ignore_errors=1)
         os.mkdir(self.recon_cache)
-        self.recon_file = os.path.join(self.recon_cache, 'object.recon')
+        self.recon_file = os.path.join(self.recon_cache, RECON_OBJECT_FILE)
 
         bind_port = 6200
 

@@ -40,6 +40,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
+from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.obj import ssync_sender
 from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter
 from swift.common.storage_policy import POLICIES, REPL_POLICY
@@ -172,8 +173,8 @@ class ObjectReplicator(Daemon):
             self.rsync_module = '{replication_ip}::object'
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+                                         DEFAULT_RECON_CACHE_PATH)
+        self.rcache = os.path.join(self.recon_cache_path, RECON_OBJECT_FILE)
         self._next_rcache_update = time.time() + self.stats_interval
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.node_timeout = float(conf.get('node_timeout', 10))

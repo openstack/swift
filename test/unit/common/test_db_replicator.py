@@ -2061,7 +2061,8 @@ class TestReplToNode(unittest.TestCase):
 
 
 class ExampleReplicator(db_replicator.Replicator):
-    server_type = 'fake'
+    # We need to have a valid server_type
+    server_type = 'object'
     brokerclass = ExampleBroker
     datadir = 'fake'
     default_port = 1000

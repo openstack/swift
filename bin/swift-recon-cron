@@ -24,6 +24,7 @@ from eventlet import Timeout
 
 from swift.common.utils import get_logger, dump_recon_cache, readconf, \
     lock_path
+from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.obj.diskfile import ASYNCDIR_BASE
 
 
@@ -57,9 +58,9 @@ def main():
         sys.exit(1)
     conf = readconf(conf_path, 'filter:recon')
     device_dir = conf.get('devices', '/srv/node')
-    recon_cache_path = conf.get('recon_cache_path', '/var/cache/swift')
+    recon_cache_path = conf.get('recon_cache_path', DEFAULT_RECON_CACHE_PATH)
     recon_lock_path = conf.get('recon_lock_path', '/var/lock')
-    cache_file = os.path.join(recon_cache_path, "object.recon")
+    cache_file = os.path.join(recon_cache_path, RECON_OBJECT_FILE)
     lock_dir = os.path.join(recon_lock_path, "swift-recon-object-cron")
     conf['log_name'] = conf.get('log_name', 'recon-cron')
     logger = get_logger(conf, log_route='recon-cron')

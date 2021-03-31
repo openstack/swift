@@ -28,6 +28,8 @@ from unittest import TestCase
 
 from swift import __version__ as swiftver
 from swift.common import ring, utils
+from swift.common.recon import RECON_RELINKER_FILE, RECON_DRIVE_FILE, \
+    DEFAULT_RECON_CACHE_PATH, server_type_to_recon_file
 from swift.common.swob import Request
 from swift.common.middleware import recon
 from swift.common.storage_policy import StoragePolicy
@@ -315,6 +317,11 @@ class TestReconSuccess(TestCase):
             ringpath = os.path.join(self.tempdir, ringfn)
             self._create_ring(ringpath, replica_map, self.ring_devs,
                               self.ring_part_shift)
+
+    def _full_recon_path(self, server_type, recon_file=None):
+        if server_type:
+            recon_file = server_type_to_recon_file(server_type)
+        return os.path.join(DEFAULT_RECON_CACHE_PATH, recon_file)
 
     @patch_policies([
         StoragePolicy(0, 'stagecoach'),
@@ -683,7 +690,7 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_async_info()
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['async_pending', 'async_pending_last'],
-                             '/var/cache/swift/object.recon'), {})])
+                             self._full_recon_path('object')), {})])
         self.assertEqual(rv, {'async_pending': 5, 'async_pending_last': now})
 
     def test_get_replication_info_account(self):
@@ -706,7 +713,7 @@ class TestReconSuccess(TestCase):
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['replication_time', 'replication_stats',
                              'replication_last'],
-                             '/var/cache/swift/account.recon'), {})])
+                             self._full_recon_path('account')), {})])
         self.assertEqual(rv, {
             "replication_stats": {
                 "attempted": 1, "diff": 0,
@@ -743,7 +750,8 @@ class TestReconSuccess(TestCase):
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['replication_time', 'replication_stats',
                              'replication_last'],
-                             '/var/cache/swift/container.recon'), {})])
+                             self._full_recon_path('container')),
+                           {})])
         self.assertEqual(rv, {
             "replication_time": 200.0,
             "replication_stats": {
@@ -780,7 +788,7 @@ class TestReconSuccess(TestCase):
                          [((['replication_time', 'replication_stats',
                              'replication_last', 'object_replication_time',
                              'object_replication_last'],
-                             '/var/cache/swift/object.recon'), {})])
+                             self._full_recon_path('object')), {})])
         self.assertEqual(rv, {
             "replication_time": 0.2615511417388916,
             "replication_stats": {
@@ -806,7 +814,7 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_updater_info('container')
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['container_updater_sweep'],
-                            '/var/cache/swift/container.recon'), {})])
+                            self._full_recon_path('container')), {})])
         self.assertEqual(rv, {"container_updater_sweep": 18.476239919662476})
 
     def test_get_updater_info_object(self):
@@ -816,7 +824,7 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_updater_info('object')
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['object_updater_sweep'],
-                            '/var/cache/swift/object.recon'), {})])
+                            self._full_recon_path('object')), {})])
         self.assertEqual(rv, {"object_updater_sweep": 0.79848217964172363})
 
     def test_get_updater_info_unrecognized(self):
@@ -831,7 +839,7 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_expirer_info('object')
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['object_expiration_pass', 'expired_last_pass'],
-                            '/var/cache/swift/object.recon'), {})])
+                            self._full_recon_path('object')), {})])
         self.assertEqual(rv, from_cache_response)
 
     def test_get_auditor_info_account(self):
@@ -847,7 +855,7 @@ class TestReconSuccess(TestCase):
                              'account_auditor_pass_completed',
                              'account_audits_since',
                              'account_audits_failed'],
-                             '/var/cache/swift/account.recon'), {})])
+                             self._full_recon_path('account')), {})])
         self.assertEqual(rv, {"account_auditor_pass_completed": 0.24,
                               "account_audits_failed": 0,
                               "account_audits_passed": 6,
@@ -866,7 +874,7 @@ class TestReconSuccess(TestCase):
                              'container_auditor_pass_completed',
                              'container_audits_since',
                              'container_audits_failed'],
-                             '/var/cache/swift/container.recon'), {})])
+                             self._full_recon_path('container')), {})])
         self.assertEqual(rv, {"container_auditor_pass_completed": 0.24,
                               "container_audits_failed": 0,
                               "container_audits_passed": 6,
@@ -894,7 +902,7 @@ class TestReconSuccess(TestCase):
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['object_auditor_stats_ALL',
                              'object_auditor_stats_ZBF'],
-                             '/var/cache/swift/object.recon'), {})])
+                             self._full_recon_path('object')), {})])
         self.assertEqual(rv, {
             "object_auditor_stats_ALL": {
                 "audit_time": 115.14418768882751,
@@ -941,7 +949,7 @@ class TestReconSuccess(TestCase):
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['object_auditor_stats_ALL',
                              'object_auditor_stats_ZBF'],
-                             '/var/cache/swift/object.recon'), {})])
+                             self._full_recon_path('object')), {})])
         self.assertEqual(rv, {
             "object_auditor_stats_ALL": {
                 'disk1': {
@@ -1130,7 +1138,8 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_driveaudit_error()
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['drive_audit_errors'],
-                            '/var/cache/swift/drive.recon'), {})])
+                            self._full_recon_path(
+                                None, recon_file=RECON_DRIVE_FILE)), {})])
         self.assertEqual(rv, {'drive_audit_errors': 7})
 
     def test_get_time(self):
@@ -1218,7 +1227,7 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_sharding_info()
         self.assertEqual(self.fakecache.fakeout_calls, [
             ((['sharding_stats', 'sharding_time', 'sharding_last'],
-              '/var/cache/swift/container.recon'), {})])
+              self._full_recon_path('container')), {})])
         self.assertEqual(rv, from_cache_response)
 
     def test_get_relinker_info(self):
@@ -1299,7 +1308,8 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_relinker_info()
         self.assertEqual(self.fakecache.fakeout_calls,
                          [((['devices', 'workers'],
-                            '/var/cache/swift/relinker.recon'),
+                            self._full_recon_path(
+                                None, recon_file=RECON_RELINKER_FILE)),
                            {'ignore_missing': True})])
         self.assertEqual(rv, from_cache_response)
 

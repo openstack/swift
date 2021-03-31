@@ -25,10 +25,18 @@ from swift.common.utils import get_logger, audit_location_generator, \
     config_true_value, dump_recon_cache, ratelimit_sleep
 from swift.common.daemon import Daemon
 from swift.common.exceptions import DatabaseAuditorException
+from swift.common.recon import DEFAULT_RECON_CACHE_PATH, \
+    server_type_to_recon_file
 
 
 class DatabaseAuditor(Daemon):
     """Base Database Auditor."""
+
+    @property
+    def rcache(self):
+        return os.path.join(
+            self.recon_cache_path,
+            server_type_to_recon_file(self.server_type))
 
     @property
     def server_type(self):
@@ -54,10 +62,7 @@ class DatabaseAuditor(Daemon):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.rcache = os.path.join(self.recon_cache_path,
-                                   "{}.recon".format(self.server_type))
-
+                                         DEFAULT_RECON_CACHE_PATH)
         self.datadir = '{}s'.format(self.server_type)
 
     def _one_audit_pass(self, reported):

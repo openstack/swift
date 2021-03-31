@@ -33,6 +33,7 @@ from swift.common.utils import get_logger, dump_recon_cache, split_path, \
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.swob import wsgi_quote, str_to_wsgi
+from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 
 from swift.container.reconciler import direct_delete_container_entry
 
@@ -103,8 +104,8 @@ class ObjectExpirer(Daemon):
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.rcache = join(self.recon_cache_path, 'object.recon')
+                                         DEFAULT_RECON_CACHE_PATH)
+        self.rcache = join(self.recon_cache_path, RECON_OBJECT_FILE)
         self.concurrency = int(conf.get('concurrency', 1))
         if self.concurrency < 1:
             raise ValueError("concurrency must be set to at least 1")

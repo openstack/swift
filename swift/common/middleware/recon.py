@@ -25,6 +25,9 @@ from swift.common.constraints import check_mount
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, Response
 from swift.common.utils import get_logger, SWIFT_CONF_FILE, md5_hash_for_file
+from swift.common.recon import RECON_OBJECT_FILE, RECON_CONTAINER_FILE, \
+    RECON_ACCOUNT_FILE, RECON_DRIVE_FILE, RECON_RELINKER_FILE, \
+    DEFAULT_RECON_CACHE_PATH
 
 
 class ReconMiddleware(object):
@@ -47,17 +50,17 @@ class ReconMiddleware(object):
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.logger = get_logger(conf, log_route='recon')
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
+                                         DEFAULT_RECON_CACHE_PATH)
         self.object_recon_cache = os.path.join(self.recon_cache_path,
-                                               'object.recon')
+                                               RECON_OBJECT_FILE)
         self.container_recon_cache = os.path.join(self.recon_cache_path,
-                                                  'container.recon')
+                                                  RECON_CONTAINER_FILE)
         self.account_recon_cache = os.path.join(self.recon_cache_path,
-                                                'account.recon')
+                                                RECON_ACCOUNT_FILE)
         self.drive_recon_cache = os.path.join(self.recon_cache_path,
-                                              'drive.recon')
+                                              RECON_DRIVE_FILE)
         self.relink_recon_cache = os.path.join(self.recon_cache_path,
-                                               "relinker.recon")
+                                               RECON_RELINKER_FILE)
         self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
 

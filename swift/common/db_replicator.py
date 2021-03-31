@@ -44,6 +44,8 @@ from swift.common.exceptions import DriveNotMounted
 from swift.common.daemon import Daemon
 from swift.common.swob import Response, HTTPNotFound, HTTPNoContent, \
     HTTPAccepted, HTTPBadRequest
+from swift.common.recon import DEFAULT_RECON_CACHE_PATH, \
+    server_type_to_recon_file
 
 
 DEBUG_TIMINGS_THRESHOLD = 10
@@ -229,8 +231,8 @@ class Replicator(Daemon):
             config_true_value(conf.get('db_query_logging', 'f'))
         self._zero_stats()
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.recon_replicator = '%s.recon' % self.server_type
+                                         DEFAULT_RECON_CACHE_PATH)
+        self.recon_replicator = server_type_to_recon_file(self.server_type)
         self.rcache = os.path.join(self.recon_cache_path,
                                    self.recon_replicator)
         self.extract_device_re = re.compile('%s%s([^%s]+)' % (

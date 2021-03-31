@@ -36,6 +36,7 @@ from swift.common.utils import get_logger, config_true_value, \
     eventlet_monkey_patch
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
+from swift.common.recon import RECON_CONTAINER_FILE, DEFAULT_RECON_CACHE_PATH
 
 
 class ContainerUpdater(Daemon):
@@ -75,8 +76,8 @@ class ContainerUpdater(Daemon):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.rcache = os.path.join(self.recon_cache_path, "container.recon")
+                                         DEFAULT_RECON_CACHE_PATH)
+        self.rcache = os.path.join(self.recon_cache_path, RECON_CONTAINER_FILE)
         self.user_agent = 'container-updater %s' % os.getpid()
 
     def get_account_ring(self):

@@ -32,6 +32,7 @@ from swift.common.utils import replace_partition_in_path, config_true_value, \
     non_negative_float, non_negative_int, config_auto_int_value, \
     dump_recon_cache, get_partition_from_path
 from swift.obj import diskfile
+from swift.common.recon import RECON_RELINKER_FILE, DEFAULT_RECON_CACHE_PATH
 
 
 LOCK_FILE = '.relink.{datadir}.lock'
@@ -42,8 +43,6 @@ STEP_CLEANUP = 'cleanup'
 EXIT_SUCCESS = 0
 EXIT_NO_APPLICABLE_POLICY = 2
 EXIT_ERROR = 1
-RECON_FILE = 'relinker.recon'
-DEFAULT_RECON_CACHE_PATH = '/var/cache/swift'
 DEFAULT_STATS_INTERVAL = 300.0
 
 
@@ -101,7 +100,7 @@ class Relinker(object):
     def __init__(self, conf, logger, device_list=None, do_cleanup=False):
         self.conf = conf
         self.recon_cache = os.path.join(self.conf['recon_cache_path'],
-                                        RECON_FILE)
+                                        RECON_RELINKER_FILE)
         self.logger = logger
         self.device_list = device_list or []
         self.do_cleanup = do_cleanup
@@ -704,7 +703,7 @@ def parallel_process(do_cleanup, conf, logger=None, device_list=None):
 
     # initialise recon dump for collection
     # Lets start by always deleting last run's stats
-    recon_cache = os.path.join(conf['recon_cache_path'], RECON_FILE)
+    recon_cache = os.path.join(conf['recon_cache_path'], RECON_RELINKER_FILE)
     _reset_recon(recon_cache, logger)
 
     device_list = sorted(set(device_list or os.listdir(conf['devices'])))

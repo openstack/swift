@@ -43,7 +43,7 @@ class FakeDatabaseBroker(object):
 
 
 class FakeDatabaseAuditor(DatabaseAuditor):
-    server_type = "test"
+    server_type = "container"
     broker_class = FakeDatabaseBroker
 
     def _audit(self, info, broker):
@@ -136,7 +136,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(test_auditor.failures, 1)
         self.assertEqual(test_auditor.passes, 3)
 
-    def test_container_auditor(self):
+    def test_database_auditor(self):
         conf = {}
         test_auditor = FakeDatabaseAuditor(conf, logger=self.logger)
         files = os.listdir(self.testdir)
