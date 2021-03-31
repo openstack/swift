@@ -1136,6 +1136,11 @@ class TestSloWithVersioningUTF8(Base2, TestSloWithVersioning):
 class TestObjectVersioningChangingMode(Base):
     env = TestObjectVersioningHistoryModeEnv
 
+    def setUp(self):
+        super(TestObjectVersioningChangingMode, self).setUp()
+        if 'versioned_writes' not in cluster_info:
+            raise SkipTest("versioned_writes not enabled")
+
     def test_delete_while_changing_mode(self):
         container = self.env.container
         versions_container = self.env.versions_container

@@ -802,6 +802,16 @@ def requires_digest(digest):
 class TestTempurlAlgorithms(Base):
     env = TestTempurlEnv
 
+    def setUp(self):
+        super(TestTempurlAlgorithms, self).setUp()
+        if self.env.tempurl_enabled is False:
+            raise SkipTest("TempURL not enabled")
+        elif self.env.tempurl_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected tempurl_enabled to be True/False, got %r" %
+                (self.env.tempurl_enabled,))
+
     def get_sig(self, expires, digest, encoding):
         path = urllib.parse.unquote(self.env.conn.make_path(self.env.obj.path))
         if six.PY2:
