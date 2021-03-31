@@ -5325,17 +5325,19 @@ class ShardRange(object):
             valid state number.
         """
         try:
-            state = state.lower()
-            state_num = cls.STATES_BY_NAME[state]
-        except (KeyError, AttributeError):
             try:
-                state_name = cls.STATES[state]
-            except KeyError:
-                raise ValueError('Invalid state %r' % state)
-            else:
-                state_num = state
-        else:
-            state_name = state
+                # maybe it's a number
+                float_state = float(state)
+                state_num = int(float_state)
+                if state_num != float_state:
+                    raise ValueError('Invalid state %r' % state)
+                state_name = cls.STATES[state_num]
+            except (ValueError, TypeError):
+                # maybe it's a state name
+                state_name = state.lower()
+                state_num = cls.STATES_BY_NAME[state_name]
+        except (KeyError, AttributeError):
+            raise ValueError('Invalid state %r' % state)
         return state_num, state_name
 
     @property
@@ -5344,14 +5346,7 @@ class ShardRange(object):
 
     @state.setter
     def state(self, state):
-        try:
-            float_state = float(state)
-            int_state = int(float_state)
-        except (ValueError, TypeError):
-            raise ValueError('Invalid state %r' % state)
-        if int_state != float_state or int_state not in self.STATES:
-            raise ValueError('Invalid state %r' % state)
-        self._state = int_state
+        self._state = self.resolve_state(state)[0]
 
     @property
     def state_text(self):
@@ -5639,6 +5634,14 @@ class ShardRangeList(UserList):
         """
         return sum(sr.bytes_used for sr in self)
 
+    @property
+    def timestamps(self):
+        return set(sr.timestamp for sr in self)
+
+    @property
+    def states(self):
+        return set(sr.state for sr in self)
+
     def includes(self, other):
         """
         Check if another ShardRange namespace is enclosed between the list's
@@ -5655,6 +5658,44 @@ class ShardRangeList(UserList):
         :return: True if other's namespace is enclosed, False otherwise.
         """
         return self.lower <= other.lower and self.upper >= other.upper
+
+    def filter(self, includes=None, marker=None, end_marker=None):
+        """
+        Filter the list for those shard ranges whose namespace includes the
+        ``includes`` name or any part of the namespace between ``marker`` and
+        ``end_marker``. If none of ``includes``, ``marker`` or ``end_marker``
+        are specified then all shard ranges will be returned.
+
+        :param includes: a string; if not empty then only the shard range, if
+            any, whose namespace includes this string will be returned, and
+            ``marker`` and ``end_marker`` will be ignored.
+        :param marker: if specified then only shard ranges whose upper bound is
+            greater than this value will be returned.
+        :param end_marker: if specified then only shard ranges whose lower
+            bound is less than this value will be returned.
+        :return: A new instance of :class:`~swift.common.utils.ShardRangeList`
+            containing the filtered shard ranges.
+        """
+        return ShardRangeList(
+            filter_shard_ranges(self, includes, marker, end_marker))
+
+    def find_lower(self, condition):
+        """
+        Finds the first shard range satisfies the given condition and returns
+        its lower bound.
+
+        :param condition: A function that must accept a single argument of type
+            :class:`~swift.common.utils.ShardRange` and return True if the
+            shard range satisfies the condition or False otherwise.
+        :return: The lower bound of the first shard range to satisfy the
+            condition, or the ``upper`` value of this list if no such shard
+            range is found.
+
+        """
+        for sr in self:
+            if condition(sr):
+                return sr.lower
+        return self.upper
 
 
 def find_shard_range(item, ranges):
@@ -5674,6 +5715,22 @@ def find_shard_range(item, ranges):
 
 
 def filter_shard_ranges(shard_ranges, includes, marker, end_marker):
+    """
+    Filter the given shard ranges to those whose namespace includes the
+    ``includes`` name or any part of the namespace between ``marker`` and
+    ``end_marker``. If none of ``includes``, ``marker`` or ``end_marker`` are
+    specified then all shard ranges will be returned.
+
+    :param shard_ranges: A list of :class:`~swift.common.utils.ShardRange`.
+    :param includes: a string; if not empty then only the shard range, if any,
+        whose namespace includes this string will be returned, and ``marker``
+        and ``end_marker`` will be ignored.
+    :param marker: if specified then only shard ranges whose upper bound is
+        greater than this value will be returned.
+    :param end_marker: if specified then only shard ranges whose lower bound is
+        less than this value will be returned.
+    :return: A filtered list of :class:`~swift.common.utils.ShardRange`.
+    """
     if includes:
         shard_range = find_shard_range(includes, shard_ranges)
         return [shard_range] if shard_range else []
@@ -5688,6 +5745,10 @@ def filter_shard_ranges(shard_ranges, includes, marker, end_marker):
 
     if marker or end_marker:
         return list(filter(shard_range_filter, shard_ranges))
+
+    if marker == ShardRange.MAX or end_marker == ShardRange.MIN:
+        # MIN and MAX are both Falsy so not handled by shard_range_filter
+        return []
 
     return shard_ranges
 

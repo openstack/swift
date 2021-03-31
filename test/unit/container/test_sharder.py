@@ -42,7 +42,7 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     DEFAULT_SHARD_CONTAINER_THRESHOLD, finalize_shrinking, \
     find_shrinking_candidates, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, is_shrinking_candidate, \
-    is_sharding_candidate
+    is_sharding_candidate, find_paths, rank_paths
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
@@ -6783,3 +6783,193 @@ class TestSharderFunctions(BaseTestSharder):
             for object_count in (10, 11):
                 with annotate_failure('%s %s' % (state, object_count)):
                     do_check_false(state, object_count)
+
+    def test_find_and_rank_whole_path_split(self):
+        ts_0 = next(self.ts_iter)
+        ts_1 = next(self.ts_iter)
+        bounds_0 = (
+            ('', 'f'),
+            ('f', 'k'),
+            ('k', 's'),
+            ('s', 'x'),
+            ('x', ''),
+        )
+        bounds_1 = (
+            ('', 'g'),
+            ('g', 'l'),
+            ('l', 't'),
+            ('t', 'y'),
+            ('y', ''),
+        )
+        # path with newer timestamp wins
+        ranges_0 = self._make_shard_ranges(bounds_0, ShardRange.ACTIVE,
+                                           timestamp=ts_0)
+        ranges_1 = self._make_shard_ranges(bounds_1, ShardRange.ACTIVE,
+                                           timestamp=ts_1)
+
+        paths = find_paths(ranges_0 + ranges_1)
+        self.assertEqual(2, len(paths))
+        self.assertIn(ranges_0, paths)
+        self.assertIn(ranges_1, paths)
+        own_sr = ShardRange('a/c', Timestamp.now())
+        self.assertEqual(
+            [
+                ranges_1,  # complete and newer timestamp
+                ranges_0,  # complete
+            ],
+            rank_paths(paths, own_sr))
+
+        # but object_count trumps matching timestamp
+        ranges_0 = self._make_shard_ranges(bounds_0, ShardRange.ACTIVE,
+                                           timestamp=ts_1, object_count=1)
+        paths = find_paths(ranges_0 + ranges_1)
+        self.assertEqual(2, len(paths))
+        self.assertIn(ranges_0, paths)
+        self.assertIn(ranges_1, paths)
+        self.assertEqual(
+            [
+                ranges_0,  # complete with more objects
+                ranges_1,  # complete
+            ],
+            rank_paths(paths, own_sr))
+
+    def test_find_and_rank_two_sub_path_splits(self):
+        ts_0 = next(self.ts_iter)
+        ts_1 = next(self.ts_iter)
+        ts_2 = next(self.ts_iter)
+        bounds_0 = (
+            ('', 'a'),
+            ('a', 'm'),
+            ('m', 'p'),
+            ('p', 't'),
+            ('t', 'x'),
+            ('x', 'y'),
+            ('y', ''),
+        )
+        bounds_1 = (
+            ('a', 'g'),  # split at 'a'
+            ('g', 'l'),
+            ('l', 'm'),  # rejoin at 'm'
+        )
+        bounds_2 = (
+            ('t', 'y'),  # split at 't', rejoin at 'y'
+        )
+        ranges_0 = self._make_shard_ranges(bounds_0, ShardRange.ACTIVE,
+                                           timestamp=ts_0)
+        ranges_1 = self._make_shard_ranges(bounds_1, ShardRange.ACTIVE,
+                                           timestamp=ts_1, object_count=1)
+        ranges_2 = self._make_shard_ranges(bounds_2, ShardRange.ACTIVE,
+                                           timestamp=ts_2, object_count=1)
+        # all paths are complete
+        mix_path_0 = ranges_0[:1] + ranges_1 + ranges_0[2:]  # 3 objects
+        mix_path_1 = ranges_0[:4] + ranges_2 + ranges_0[6:]  # 1 object
+        mix_path_2 = (ranges_0[:1] + ranges_1 + ranges_0[2:4] + ranges_2 +
+                      ranges_0[6:])  # 4 objects
+        paths = find_paths(ranges_0 + ranges_1 + ranges_2)
+        self.assertEqual(4, len(paths))
+        self.assertIn(ranges_0, paths)
+        self.assertIn(mix_path_0, paths)
+        self.assertIn(mix_path_1, paths)
+        self.assertIn(mix_path_2, paths)
+        own_sr = ShardRange('a/c', Timestamp.now())
+        self.assertEqual(
+            [
+                mix_path_2,  # has 4 objects, 3 different timestamps
+                mix_path_0,  # has 3 objects, 2 different timestamps
+                mix_path_1,  # has 1 object, 2 different timestamps
+                ranges_0,  # has 0 objects, 1 timestamp
+            ],
+            rank_paths(paths, own_sr)
+        )
+
+    def test_find_and_rank_most_cleave_progress(self):
+        ts_0 = next(self.ts_iter)
+        ts_1 = next(self.ts_iter)
+        ts_2 = next(self.ts_iter)
+        bounds_0 = (
+            ('', 'f'),
+            ('f', 'k'),
+            ('k', 'p'),
+            ('p', '')
+        )
+        bounds_1 = (
+            ('', 'g'),
+            ('g', 'l'),
+            ('l', 'q'),
+            ('q', '')
+        )
+        bounds_2 = (
+            ('', 'r'),
+            ('r', '')
+        )
+        ranges_0 = self._make_shard_ranges(
+            bounds_0, [ShardRange.CLEAVED] * 3 + [ShardRange.CREATED],
+            timestamp=ts_1, object_count=1)
+        ranges_1 = self._make_shard_ranges(
+            bounds_1, [ShardRange.CLEAVED] * 4,
+            timestamp=ts_0)
+        ranges_2 = self._make_shard_ranges(
+            bounds_2, [ShardRange.CLEAVED, ShardRange.CREATED],
+            timestamp=ts_2, object_count=1)
+        paths = find_paths(ranges_0 + ranges_1 + ranges_2)
+        self.assertEqual(3, len(paths))
+        own_sr = ShardRange('a/c', Timestamp.now())
+        self.assertEqual(
+            [
+                ranges_1,  # cleaved to end
+                ranges_2,  # cleaved to r
+                ranges_0,  # cleaved to p
+            ],
+            rank_paths(paths, own_sr)
+        )
+        ranges_2 = self._make_shard_ranges(
+            bounds_2, [ShardRange.ACTIVE] * 2,
+            timestamp=ts_2, object_count=1)
+        paths = find_paths(ranges_0 + ranges_1 + ranges_2)
+        self.assertEqual(
+            [
+                ranges_2,  # active to end, newer timestamp
+                ranges_1,  # cleaved to r
+                ranges_0,  # cleaved to p
+            ],
+            rank_paths(paths, own_sr)
+        )
+
+    def test_find_and_rank_no_complete_path(self):
+        ts_0 = next(self.ts_iter)
+        ts_1 = next(self.ts_iter)
+        ts_2 = next(self.ts_iter)
+        bounds_0 = (
+            ('', 'f'),
+            ('f', 'k'),
+            ('k', 'm'),
+        )
+        bounds_1 = (
+            ('', 'g'),
+            ('g', 'l'),
+            ('l', 'n'),
+        )
+        bounds_2 = (
+            ('', 'l'),
+        )
+        ranges_0 = self._make_shard_ranges(bounds_0, ShardRange.ACTIVE,
+                                           timestamp=ts_0)
+        ranges_1 = self._make_shard_ranges(bounds_1, ShardRange.ACTIVE,
+                                           timestamp=ts_1, object_count=1)
+        ranges_2 = self._make_shard_ranges(bounds_2, ShardRange.ACTIVE,
+                                           timestamp=ts_2, object_count=1)
+        mix_path_0 = ranges_2 + ranges_1[2:]
+        paths = find_paths(ranges_0 + ranges_1 + ranges_2)
+        self.assertEqual(3, len(paths))
+        self.assertIn(ranges_0, paths)
+        self.assertIn(ranges_1, paths)
+        self.assertIn(mix_path_0, paths)
+        own_sr = ShardRange('a/c', Timestamp.now())
+        self.assertEqual(
+            [
+                ranges_1,  # cleaved to n, one timestamp
+                mix_path_0,  # cleaved to n, has two different timestamps
+                ranges_0,  # cleaved to m
+            ],
+            rank_paths(paths, own_sr)
+        )

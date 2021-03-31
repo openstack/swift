@@ -169,13 +169,16 @@ class BaseTestContainerSharding(ReplProbeTest):
             else:
                 conn.delete_object(self.container_name, obj)
 
-    def get_container_shard_ranges(self, account=None, container=None):
+    def get_container_shard_ranges(self, account=None, container=None,
+                                   include_deleted=False):
         account = account if account else self.account
         container = container if container else self.container_to_shard
         path = self.internal_client.make_path(account, container)
+        headers = {'X-Backend-Record-Type': 'shard'}
+        if include_deleted:
+            headers['X-Backend-Include-Deleted'] = 'true'
         resp = self.internal_client.make_request(
-            'GET', path + '?format=json', {'X-Backend-Record-Type': 'shard'},
-            [200])
+            'GET', path + '?format=json', headers, [200])
         return [ShardRange.from_dict(sr) for sr in json.loads(resp.body)]
 
     def direct_get_container_shard_ranges(self, account=None, container=None,
@@ -370,6 +373,21 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.assertEqual(
             expected_state, headers['X-Backend-Sharding-State'])
         return [ShardRange.from_dict(sr) for sr in shard_ranges]
+
+    def assert_subprocess_success(self, cmd_args):
+        try:
+            subprocess.check_output(cmd_args, stderr=subprocess.STDOUT)
+        except Exception as exc:
+            # why not 'except CalledProcessError'? because in my py3.6 tests
+            # the CalledProcessError wasn't caught by that! despite type(exc)
+            # being a CalledProcessError, isinstance(exc, CalledProcessError)
+            # is False and the type has a different hash - could be
+            # related to https://github.com/eventlet/eventlet/issues/413
+            try:
+                # assume this is a CalledProcessError
+                self.fail('%s with output:\n%s' % (exc, exc.output))
+            except AttributeError:
+                raise exc
 
     def get_part_and_node_numbers(self, shard_range):
         """Return the partition and node numbers for a shard range."""
@@ -2841,7 +2859,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertEqual(ShardRange.ACTIVE,
                                  broker.get_own_shard_range().state)
 
-    def test_manage_shard_ranges_used_poorly(self):
+    def test_manage_shard_ranges_repair_root(self):
+        # provoke overlaps in root container and repair
         obj_names = self._make_object_names(8)
         self.put_objects(obj_names)
 
@@ -2917,18 +2936,12 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # horribly out of date as more objects are added
         self.assert_container_listing(obj_names)
 
-        # Let's pretend that some actor in the system has determined that the
-        # second set of 3 shard ranges (1.*) are correct and the first set of 4
-        # (0.*) are not desired, so shrink shard ranges 0.*. We've already
-        # checked they are in cleaved or created state so it's ok to move them
-        # to shrinking.
-        # TODO: replace this db manipulation if/when manage_shard_ranges can
-        # manage shrinking...
-        for sr in shard_ranges_0:
-            self.assertTrue(sr.update_state(ShardRange.SHRINKING))
-            sr.epoch = sr.state_timestamp = Timestamp.now()
-        broker = self.get_broker(self.brain.part, self.brain.nodes[0])
-        broker.merge_shard_ranges(shard_ranges_0)
+        # 'swift-manage-shard-ranges repair' will choose the second set of 3
+        # shard ranges (1.*) with newer timestamp over the first set of 4
+        # (0.*), and shrink shard ranges 0.*.
+        db_file = self.get_db_file(self.brain.part, self.brain.nodes[0])
+        self.assert_subprocess_success(
+            ['swift-manage-shard-ranges', db_file, 'repair', '--yes'])
 
         # make sure all root replicas now sync their shard ranges
         self.replicators.once()
@@ -3057,3 +3070,139 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # Finally, with all root replicas in a consistent state, the listing
         # will be be predictably correct
         self.assert_container_listing(obj_names)
+
+    def test_manage_shard_ranges_repair_shard(self):
+        # provoke overlaps in a shard container and repair them
+        obj_names = self._make_object_names(24)
+        initial_obj_names = obj_names[::2]
+        # put 12 objects in container
+        self.put_objects(initial_obj_names)
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        # run replicators first time to get sync points set
+        self.replicators.once()
+        # find 3 shard ranges on root nodes[0] and get the root sharded
+        subprocess.check_output([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '4', '--enable'], stderr=subprocess.STDOUT)
+        self.replicators.once()
+        # cleave first two shards
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        # cleave third shard
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        # ensure all shards learn their ACTIVE state from root
+        self.sharders_once()
+        for node in (0, 1, 2):
+            with annotate_failure('node %d' % node):
+                shard_ranges = self.assert_container_state(
+                    self.brain.nodes[node], 'sharded', 3)
+                for sr in shard_ranges:
+                    self.assertEqual(ShardRange.ACTIVE, sr.state)
+        self.assert_container_listing(initial_obj_names)
+
+        # add objects to second shard range so it has 8 objects ; this range
+        # has bounds (obj-0006,obj-0014]
+        root_shard_ranges = self.get_container_shard_ranges()
+        self.assertEqual(3, len(root_shard_ranges))
+        shard_1 = root_shard_ranges[1]
+        self.assertEqual(obj_names[6], shard_1.lower)
+        self.assertEqual(obj_names[14], shard_1.upper)
+        more_obj_names = obj_names[7:15:2]
+        self.put_objects(more_obj_names)
+        expected_obj_names = sorted(initial_obj_names + more_obj_names)
+        self.assert_container_listing(expected_obj_names)
+
+        shard_1_part, shard_1_nodes = self.brain.ring.get_nodes(
+            shard_1.account, shard_1.container)
+
+        # find 3 sub-shards on one shard node; use --force-commits to ensure
+        # the recently PUT objects are included when finding the shard range
+        # pivot points
+        subprocess.check_output([
+            'swift-manage-shard-ranges', '--force-commits',
+            self.get_db_file(shard_1_part, shard_1_nodes[1], shard_1.account,
+                             shard_1.container),
+            'find_and_replace', '3', '--enable'],
+            stderr=subprocess.STDOUT)
+        # ... and mistakenly find 4 shard ranges on a different shard node :(
+        subprocess.check_output([
+            'swift-manage-shard-ranges', '--force-commits',
+            self.get_db_file(shard_1_part, shard_1_nodes[2], shard_1.account,
+                             shard_1.container),
+            'find_and_replace', '2', '--enable'],
+            stderr=subprocess.STDOUT)
+        # replicate the muddle of shard ranges between shard replicas, merged
+        # result is:
+        # '' - 6  shard     ACTIVE
+        #  6 - 8  sub-shard FOUND
+        #  6 - 9  sub-shard FOUND
+        #  8 - 10 sub-shard FOUND
+        #  9 - 12 sub-shard FOUND
+        # 10 - 12 sub-shard FOUND
+        # 12 - 14 sub-shard FOUND
+        # 12 - 14 sub-shard FOUND
+        #  6 - 14 shard     SHARDING
+        # 14 - '' shard     ACTIVE
+        self.replicators.once()
+
+        # try hard to shard the shard...
+        self.sharders_once(additional_args='--partitions=%s' % shard_1_part)
+        self.sharders_once(additional_args='--partitions=%s' % shard_1_part)
+        self.sharders_once(additional_args='--partitions=%s' % shard_1_part)
+        # sharding hasn't completed and there's overlaps in the shard and root:
+        # the sub-shards will have been cleaved in the order listed above, but
+        # sub-shards (10 -12) and one of (12 - 14) will be overlooked because
+        # the cleave cursor will have moved past their namespace before they
+        # were yielded by the shard range iterator, so we now have:
+        # '' - 6  shard     ACTIVE
+        #  6 - 8  sub-shard ACTIVE
+        #  6 - 9  sub-shard ACTIVE
+        #  8 - 10 sub-shard ACTIVE
+        # 10 - 12 sub-shard CREATED
+        #  9 - 12 sub-shard ACTIVE
+        # 12 - 14 sub-shard CREATED
+        # 12 - 14 sub-shard ACTIVE
+        # 14 - '' shard     ACTIVE
+        sub_shard_ranges = self.get_container_shard_ranges(
+            shard_1.account, shard_1.container)
+        self.assertEqual(7, len(sub_shard_ranges), sub_shard_ranges)
+        root_shard_ranges = self.get_container_shard_ranges()
+        self.assertEqual(9, len(root_shard_ranges), root_shard_ranges)
+        self.assertEqual([ShardRange.ACTIVE] * 4 +
+                         [ShardRange.CREATED, ShardRange.ACTIVE] * 2 +
+                         [ShardRange.ACTIVE],
+                         [sr.state for sr in root_shard_ranges])
+
+        # fix the overlaps - a set of 3 ACTIVE sub-shards will be chosen and 4
+        # other sub-shards will be shrunk away; apply the fix at the root
+        # container
+        db_file = self.get_db_file(self.brain.part, self.brain.nodes[0])
+        self.assert_subprocess_success(
+            ['swift-manage-shard-ranges', db_file, 'repair', '--yes'])
+        self.replicators.once()
+        self.sharders_once()
+        self.sharders_once()
+
+        # check root now has just 5 shard ranges
+        root_shard_ranges = self.get_container_shard_ranges()
+        self.assertEqual(5, len(root_shard_ranges), root_shard_ranges)
+        self.assertEqual([ShardRange.ACTIVE] * 5,
+                         [sr.state for sr in root_shard_ranges])
+        # check there are 1 sharded shard and 4 shrunk sub-shard ranges in the
+        # root (note, shard_1's shard ranges aren't updated once it has sharded
+        # because the sub-shards report their state to the root; we cannot make
+        # assertions about shrunk states in shard_1's shard range table)
+        root_shard_ranges = self.get_container_shard_ranges(
+            include_deleted=True)
+        self.assertEqual(10, len(root_shard_ranges), root_shard_ranges)
+        shrunk_shard_ranges = [sr for sr in root_shard_ranges
+                               if sr.state == ShardRange.SHRUNK]
+        self.assertEqual(4, len(shrunk_shard_ranges), root_shard_ranges)
+        self.assertEqual([True] * 4,
+                         [sr.deleted for sr in shrunk_shard_ranges])
+        sharded_shard_ranges = [sr for sr in root_shard_ranges
+                                if sr.state == ShardRange.SHARDED]
+        self.assertEqual(1, len(sharded_shard_ranges), root_shard_ranges)
+
+        self.assert_container_listing(expected_obj_names)

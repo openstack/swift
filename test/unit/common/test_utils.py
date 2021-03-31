@@ -8077,8 +8077,9 @@ class TestShardRange(unittest.TestCase):
         self.assertEqual(utils.Timestamp(0), sr.state_timestamp)
 
     def test_state_setter(self):
-        for state in utils.ShardRange.STATES:
-            for test_value in (state, str(state)):
+        for state, state_name in utils.ShardRange.STATES.items():
+            for test_value in (
+                    state, str(state), state_name, state_name.upper()):
                 sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')
                 sr.state = test_value
                 actual = sr.state
@@ -8127,6 +8128,8 @@ class TestShardRange(unittest.TestCase):
                 (number, name), utils.ShardRange.resolve_state(name.title()))
             self.assertEqual(
                 (number, name), utils.ShardRange.resolve_state(number))
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(str(number)))
 
         def check_bad_value(value):
             with self.assertRaises(ValueError) as cm:
@@ -8647,12 +8650,16 @@ class TestShardRange(unittest.TestCase):
 
 class TestShardRangeList(unittest.TestCase):
     def setUp(self):
+        self.ts_iter = make_timestamp_iter()
+        self.t1 = next(self.ts_iter)
+        self.t2 = next(self.ts_iter)
+        self.ts_iter = make_timestamp_iter()
         self.shard_ranges = [
-            utils.ShardRange('a/b', utils.Timestamp.now(), 'a', 'b',
+            utils.ShardRange('a/b', self.t1, 'a', 'b',
                              object_count=2, bytes_used=22),
-            utils.ShardRange('b/c', utils.Timestamp.now(), 'b', 'c',
+            utils.ShardRange('b/c', self.t2, 'b', 'c',
                              object_count=4, bytes_used=44),
-            utils.ShardRange('x/y', utils.Timestamp.now(), 'x', 'y',
+            utils.ShardRange('c/y', self.t1, 'c', 'y',
                              object_count=6, bytes_used=66),
         ]
 
@@ -8731,6 +8738,86 @@ class TestShardRangeList(unittest.TestCase):
         # make a fresh instance
         sr = utils.ShardRange('a/entire', utils.Timestamp.now(), '', '')
         self.assertTrue(srl_entire.includes(sr))
+
+    def test_timestamps(self):
+        srl = ShardRangeList(self.shard_ranges)
+        self.assertEqual({self.t1, self.t2}, srl.timestamps)
+        t3 = next(self.ts_iter)
+        self.shard_ranges[2].timestamp = t3
+        self.assertEqual({self.t1, self.t2, t3}, srl.timestamps)
+        srl.pop(0)
+        self.assertEqual({self.t2, t3}, srl.timestamps)
+
+    def test_states(self):
+        srl = ShardRangeList()
+        self.assertEqual(set(), srl.states)
+
+        srl = ShardRangeList(self.shard_ranges)
+        self.shard_ranges[0].update_state(
+            utils.ShardRange.CREATED, next(self.ts_iter))
+        self.shard_ranges[1].update_state(
+            utils.ShardRange.CLEAVED, next(self.ts_iter))
+        self.shard_ranges[2].update_state(
+            utils.ShardRange.ACTIVE, next(self.ts_iter))
+
+        self.assertEqual({utils.ShardRange.CREATED,
+                          utils.ShardRange.CLEAVED,
+                          utils.ShardRange.ACTIVE},
+                         srl.states)
+
+    def test_filter(self):
+        srl = ShardRangeList(self.shard_ranges)
+        self.assertEqual(self.shard_ranges, srl.filter())
+        self.assertEqual(self.shard_ranges,
+                         srl.filter(marker='', end_marker=''))
+        self.assertEqual(self.shard_ranges,
+                         srl.filter(marker=utils.ShardRange.MIN,
+                                    end_marker=utils.ShardRange.MAX))
+        self.assertEqual([], srl.filter(marker=utils.ShardRange.MAX,
+                                        end_marker=utils.ShardRange.MIN))
+        self.assertEqual([], srl.filter(marker=utils.ShardRange.MIN,
+                                        end_marker=utils.ShardRange.MIN))
+        self.assertEqual([], srl.filter(marker=utils.ShardRange.MAX,
+                                        end_marker=utils.ShardRange.MAX))
+        self.assertEqual(self.shard_ranges[:1],
+                         srl.filter(marker='', end_marker='b'))
+        self.assertEqual(self.shard_ranges[1:3],
+                         srl.filter(marker='b', end_marker='y'))
+        self.assertEqual([],
+                         srl.filter(marker='y', end_marker='y'))
+        self.assertEqual([],
+                         srl.filter(marker='y', end_marker='x'))
+        # includes trumps marker & end_marker
+        self.assertEqual(self.shard_ranges[0:1],
+                         srl.filter(includes='b', marker='c', end_marker='y'))
+        self.assertEqual(self.shard_ranges[0:1],
+                         srl.filter(includes='b', marker='', end_marker=''))
+        self.assertEqual([], srl.filter(includes='z'))
+
+    def test_find_lower(self):
+        srl = ShardRangeList(self.shard_ranges)
+        self.shard_ranges[0].update_state(
+            utils.ShardRange.CREATED, next(self.ts_iter))
+        self.shard_ranges[1].update_state(
+            utils.ShardRange.CLEAVED, next(self.ts_iter))
+        self.shard_ranges[2].update_state(
+            utils.ShardRange.ACTIVE, next(self.ts_iter))
+
+        def do_test(states):
+            return srl.find_lower(lambda sr: sr.state in states)
+
+        self.assertEqual(srl.upper,
+                         do_test([utils.ShardRange.FOUND]))
+        self.assertEqual(self.shard_ranges[0].lower,
+                         do_test([utils.ShardRange.CREATED]))
+        self.assertEqual(self.shard_ranges[0].lower,
+                         do_test((utils.ShardRange.CREATED,
+                                  utils.ShardRange.CLEAVED)))
+        self.assertEqual(self.shard_ranges[1].lower,
+                         do_test((utils.ShardRange.ACTIVE,
+                                  utils.ShardRange.CLEAVED)))
+        self.assertEqual(self.shard_ranges[2].lower,
+                         do_test([utils.ShardRange.ACTIVE]))
 
 
 @patch('ctypes.get_errno')
