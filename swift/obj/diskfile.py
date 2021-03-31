@@ -342,7 +342,7 @@ def quarantine_renamer(device_path, corrupted_file_path):
 
 
 def valid_suffix(value):
-    if not isinstance(value, str) or len(value) != 3:
+    if not isinstance(value, six.string_types) or len(value) != 3:
         return False
     return all(c in '0123456789abcdef' for c in value)
 

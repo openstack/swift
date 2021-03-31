@@ -6744,6 +6744,7 @@ class TestSuffixHashes(unittest.TestCase):
                 return df2
 
     def test_valid_suffix(self):
+        self.assertTrue(diskfile.valid_suffix(u'000'))
         self.assertTrue(diskfile.valid_suffix('000'))
         self.assertTrue(diskfile.valid_suffix('123'))
         self.assertTrue(diskfile.valid_suffix('fff'))
@@ -6751,6 +6752,8 @@ class TestSuffixHashes(unittest.TestCase):
         self.assertFalse(diskfile.valid_suffix(123))
         self.assertFalse(diskfile.valid_suffix(' 12'))
         self.assertFalse(diskfile.valid_suffix('-00'))
+        self.assertFalse(diskfile.valid_suffix(u'-00'))
+        self.assertFalse(diskfile.valid_suffix('1234'))
 
     def check_cleanup_ondisk_files(self, policy, input_files, output_files):
         orig_unlink = os.unlink
@@ -8403,7 +8406,7 @@ class TestSuffixHashes(unittest.TestCase):
                                            policy)
             self.assertEqual(hashes, new_hashes)
 
-    def test_get_hashes_new_pkl_finds_new_suffix_dirs(self):
+    def _do_test_get_hashes_new_pkl_finds_new_suffix_dirs(self, device):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
             part_path = os.path.join(
@@ -8416,13 +8419,26 @@ class TestSuffixHashes(unittest.TestCase):
                                      'o', policy=policy, frag_index=4)
             timestamp = self.ts()
             df.delete(timestamp)
-            suffix = os.path.basename(os.path.dirname(df._datadir))
+            suffix_dir = os.path.dirname(df._datadir)
+            suffix = os.path.basename(suffix_dir)
             # get_hashes will find the untracked suffix dir
             self.assertFalse(os.path.exists(hashes_file))  # sanity
-            hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            hashes = df_mgr.get_hashes(device, '0', [], policy)
             self.assertIn(suffix, hashes)
             # ... and create a hashes pickle for it
             self.assertTrue(os.path.exists(hashes_file))
+            # repeat and check there is no rehashing
+            with mock.patch.object(df_mgr, '_hash_suffix',
+                                   return_value=hashes[suffix]) as mocked:
+                repeat_hashes = df_mgr.get_hashes(device, '0', [], policy)
+            self.assertEqual(hashes, repeat_hashes)
+            mocked.assert_not_called()
+
+    def test_get_hashes_new_pkl_finds_new_suffix_dirs_unicode(self):
+        self._do_test_get_hashes_new_pkl_finds_new_suffix_dirs(u'sda1')
+
+    def test_get_hashes_new_pkl_finds_new_suffix_dirs(self):
+        self._do_test_get_hashes_new_pkl_finds_new_suffix_dirs('sda1')
 
     def test_get_hashes_new_pkl_missing_invalid_finds_new_suffix_dirs(self):
         for policy in self.iter_policies():
