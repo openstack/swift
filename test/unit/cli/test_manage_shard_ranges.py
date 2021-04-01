@@ -526,6 +526,77 @@ class TestManageShardRanges(unittest.TestCase):
             [(data['lower'], data['upper']) for data in self.shard_data],
             [(sr.lower_str, sr.upper_str) for sr in broker.get_shard_ranges()])
 
+    def test_analyze_stdin(self):
+        out = StringIO()
+        err = StringIO()
+        stdin = StringIO()
+        stdin.write(json.dumps([]))  # empty but valid json
+        stdin.seek(0)
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock.patch('sys.stdin', stdin):
+            main(['-', 'analyze'])
+        expected = [
+            'Found no complete sequence of shard ranges.',
+            'Repairs necessary to fill gaps.',
+            'Gap filling not supported by this tool. No repairs performed.',
+        ]
+
+        self.assertEqual(expected, out.getvalue().splitlines())
+        broker = self._make_broker()
+        broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                (True, Timestamp.now().internal)})
+        shard_ranges = [
+            dict(sr, state=ShardRange.STATES[sr.state])
+            for sr in make_shard_ranges(broker, self.shard_data, '.shards_')
+        ]
+        out = StringIO()
+        err = StringIO()
+        stdin = StringIO()
+        stdin.write(json.dumps(shard_ranges))
+        stdin.seek(0)
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock.patch('sys.stdin', stdin):
+            main(['-', 'analyze'])
+        expected = [
+            'Found one complete sequence of 10 shard ranges '
+            'and no overlapping shard ranges.',
+            'No repairs necessary.',
+        ]
+        self.assertEqual(expected, out.getvalue().splitlines())
+
+    def test_analyze_stdin_with_overlaps(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_1 = make_shard_ranges(
+                broker, self.overlap_shard_data_1, '.shards_')
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1)
+        shard_ranges = [
+            dict(sr, state=ShardRange.STATES[sr.state])
+            for sr in broker.get_shard_ranges()
+        ]
+        out = StringIO()
+        err = StringIO()
+        stdin = StringIO()
+        stdin.write(json.dumps(shard_ranges))
+        stdin.seek(0)
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock.patch('sys.stdin', stdin):
+            main(['-', 'analyze'])
+        expected = [
+            'Repairs necessary to remove overlapping shard ranges.',
+            'Chosen a complete sequence of 10 shard ranges with '
+            'current total of 100 object records to accept object records '
+            'from 10 overlapping donor shard ranges.',
+            'Once applied to the broker these changes will result in:',
+            '    10 shard ranges being removed.',
+            '    10 object records being moved to the chosen shard ranges.',
+        ]
+        self.assertEqual(expected, out.getvalue().splitlines())
+
     def _assert_enabled(self, broker, epoch):
         own_sr = broker.get_own_shard_range()
         self.assertEqual(ShardRange.SHARDING, own_sr.state)
