@@ -23,6 +23,26 @@
 # Which is for the best, because of a large performance impact of this.
 #
 
+"""
+The name of "Dark Data" refers to the scientific hypothesis of Dark Matter,
+which supposes that the universe contains a lot of matter than we cannot
+observe. The Dark Data in Swift is the name of objects that are not
+accounted in the containers.
+
+The experience of running large scale clusters suggests that Swift does
+not have any particular bugs that trigger creation of dark data. So,
+this is an excercise in writing watchers, with a plausible function.
+
+When enabled, Dark Data watcher definitely drags down the cluster's overall
+performance. Of course, the load increase can be
+mitigated as usual, but at the expense of the total time taken by
+the pass of auditor.
+
+Finally, keep in mind that Dark Data watcher needs the container
+ring to operate, but runs on an object node. This can come up if
+cluster has nodes separated by function.
+"""
+
 import os
 import random
 import shutil

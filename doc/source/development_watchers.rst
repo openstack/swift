@@ -104,23 +104,9 @@ Dark Data Watcher
 
 The watcher API is assumed to be under development. Operators who
 need extensions are welcome to report any needs for more arguments
-to see_object(). For now, start by copying the provided template watcher
-swift/obj/watchers/dark_data.py and see if it is sufficient.
+to see_object().
 
-The name of "Dark Data" refers to the scientific hypothesis of Dark Matter,
-which supposes that the universe contains a lot of matter than we cannot
-observe. The Dark Data in Swift is the name of objects that are not
-accounted in the containers.
-
-The experience of running large scale clusters suggests that Swift does
-not have any particular bugs that trigger creation of dark data. So,
-this is an excercise in writing watchers, with a plausible function.
-
-When enabled, Dark Data watcher definitely drags down the cluster's overall
-performance, as mentioned above. Of course, the load increase can be
-mitigated as usual, but at the expense of the total time taken by
-the pass of auditor.
-
-Finally, keep in mind that Dark Data watcher needs the container
-ring to operate, but runs on an object node. This can come up if
-cluster has nodes separated by function.
+The :ref:`dark_data` watcher has been provided as an example. If an
+operator wants to create their own watcher, start by copying
+the provided example template ``swift/obj/watchers/dark_data.py`` and see
+if it is sufficient.
