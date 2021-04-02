@@ -2681,6 +2681,24 @@ class TestSharder(BaseTestSharder):
             '.shards_', 'shard_c', (('l', 'mid'), ('mid', 'u')))
         self.assertEqual(1, broker.get_own_shard_range().deleted)
 
+    def test_sharded_record_sharding_progress_missing_contexts(self):
+        broker = self._check_complete_sharding(
+            'a', 'c', (('', 'mid'), ('mid', '')))
+
+        with self._mock_sharder() as sharder:
+            with mock.patch.object(sharder, '_append_stat') as mocked:
+                sharder._record_sharding_progress(broker, {}, None)
+        mocked.assert_called_once_with('sharding_in_progress', 'all', mock.ANY)
+
+        # clear the contexts then run _record_sharding_progress
+        for context, _ in CleavingContext.load_all(broker):
+            context.delete(broker)
+
+        with self._mock_sharder() as sharder:
+            with mock.patch.object(sharder, '_append_stat') as mocked:
+                sharder._record_sharding_progress(broker, {}, None)
+        mocked.assert_not_called()
+
     def test_identify_sharding_old_style_candidate(self):
         brokers = [self._make_broker(container='c%03d' % i) for i in range(6)]
         for broker in brokers:
@@ -5987,6 +6005,11 @@ class TestCleavingContext(BaseTestSharder):
                 self.assertEqual(lm, new_timestamp.internal)
             else:
                 self.assertEqual(lm, timestamp.internal)
+
+        # delete all contexts
+        for ctx, lm in CleavingContext.load_all(broker):
+            ctx.delete(broker)
+        self.assertEqual([], CleavingContext.load_all(broker))
 
     def test_delete(self):
         broker = self._make_broker()
