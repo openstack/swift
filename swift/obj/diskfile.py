@@ -449,15 +449,19 @@ def invalidate_hash(suffix_dir):
         inv_fh.write(suffix + b"\n")
 
 
-def relink_paths(target_path, new_target_path):
+def relink_paths(target_path, new_target_path, ignore_missing=True):
     """
-    Hard-links a file located in target_path using the second path
-    new_target_path. Creates intermediate directories if required.
+    Hard-links a file located in ``target_path`` using the second path
+    ``new_target_path``. Creates intermediate directories if required.
 
     :param target_path: current absolute filename
     :param new_target_path: new absolute filename for the hardlink
+    :param ignore_missing: if True then no exception is raised if the link
+        could not be made because ``target_path`` did not exist, otherwise an
+        OSError will be raised.
     :raises: OSError if the hard link could not be created, unless the intended
-        hard link already exists or the target_path does not exist.
+        hard link already exists or the ``target_path`` does not exist and
+        ``must_exist`` if False.
     :returns: True if the link was created by the call to this method, False
         otherwise.
     """
@@ -479,14 +483,14 @@ def relink_paths(target_path, new_target_path):
             ok = False
             if err.errno == errno.ENOENT:
                 # this is ok if the *target* path doesn't exist anymore
-                ok = not os.path.exists(target_path)
+                ok = not os.path.exists(target_path) and ignore_missing
             if err.errno == errno.EEXIST:
                 # this is ok *if* the intended link has already been made
                 try:
                     orig_stat = os.stat(target_path)
                 except OSError as sub_err:
                     # this is ok: the *target* path doesn't exist anymore
-                    ok = sub_err.errno == errno.ENOENT
+                    ok = sub_err.errno == errno.ENOENT and ignore_missing
                 else:
                     try:
                         new_stat = os.stat(new_target_path)

@@ -223,7 +223,11 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                         side_effect=Exception('oops')):
             with self.assertRaises(Exception) as cm:
                 diskfile.relink_paths(target_path, new_target_path)
-        self.assertEqual('oops', str(cm.exception))
+            self.assertEqual('oops', str(cm.exception))
+            with self.assertRaises(Exception) as cm:
+                diskfile.relink_paths(target_path, new_target_path,
+                                      ignore_missing=False)
+            self.assertEqual('oops', str(cm.exception))
 
     def test_relink_paths_makedirs_race(self):
         # test two concurrent relinks of the same object hash dir with race
@@ -313,6 +317,12 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertFalse(os.path.exists(target_path))
         self.assertFalse(os.path.exists(new_target_path))
         self.assertFalse(created)
+        with self.assertRaises(OSError) as cm:
+            diskfile.relink_paths(target_path, new_target_path,
+                                  ignore_missing=False)
+        self.assertEqual(errno.ENOENT, cm.exception.errno)
+        self.assertFalse(os.path.exists(target_path))
+        self.assertFalse(os.path.exists(new_target_path))
 
     def test_relink_paths_os_link_race(self):
         # test two concurrent relinks of the same object hash dir with race

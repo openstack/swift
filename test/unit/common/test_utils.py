@@ -4439,6 +4439,8 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(350, utils.get_partition_for_hash(hex_hash, 9))
         self.assertEqual(700, utils.get_partition_for_hash(hex_hash, 10))
         self.assertEqual(1400, utils.get_partition_for_hash(hex_hash, 11))
+        self.assertEqual(0, utils.get_partition_for_hash(hex_hash, 0))
+        self.assertEqual(0, utils.get_partition_for_hash(hex_hash, -1))
 
     def test_replace_partition_in_path(self):
         # Check for new part = part * 2
