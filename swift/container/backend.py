@@ -1774,8 +1774,10 @@ class ContainerBroker(DatabaseBroker):
             names do not match the broker's path are included in the returned
             list. If True, those rows are not included, otherwise they are
             included. Default is False.
-        :param fill_gaps: if True, insert own shard range to fill any gaps in
-            at the tail of other shard ranges.
+        :param fill_gaps: if True, insert a modified copy of own shard range to
+            fill any gap between the end of any found shard ranges and the
+            upper bound of own shard range. Gaps enclosed within the found
+            shard ranges are not filled.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
         if reverse:
@@ -1796,11 +1798,14 @@ class ContainerBroker(DatabaseBroker):
                                            marker, end_marker)
 
         if not includes and fill_gaps:
+            own_shard_range = self._own_shard_range()
             if shard_ranges:
                 last_upper = shard_ranges[-1].upper
             else:
-                last_upper = marker or ShardRange.MIN
-            required_upper = end_marker or ShardRange.MAX
+                last_upper = max(marker or own_shard_range.lower,
+                                 own_shard_range.lower)
+            required_upper = min(end_marker or own_shard_range.upper,
+                                 own_shard_range.upper)
             if required_upper > last_upper:
                 filler_sr = self.get_own_shard_range()
                 filler_sr.lower = last_upper
