@@ -610,7 +610,12 @@ use = egg:swift#xprofile
 # log_level = INFO
 # log_address = /dev/log
 #
-# Target this many relinks/cleanups per second, to reduce the
+# Start up to this many sub-processes to process disks in parallel. Each disk
+# will be handled by at most one child process. By default, one process is
+# spawned per disk.
+# workers = auto
+#
+# Target this many relinks/cleanups per second for each worker, to reduce the
 # likelihood that the added I/O from a partition-power increase impacts
 # client traffic. Use zero for unlimited.
 # files_per_second = 0.0
