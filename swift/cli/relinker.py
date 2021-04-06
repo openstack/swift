@@ -267,7 +267,7 @@ class Relinker(object):
         start = self.next_part_power - 1
         stop = max(start - self.conf['link_check_limit'], -1)
         for check_part_power in range(start, stop, -1):
-            # Try to create the link from each of 3 previous part power
+            # Try to create the link from each of several previous part power
             # locations. If an attempt succeeds then either a link was made or
             # an existing link with the same inode as the next part power
             # location was found: either is acceptable. The part power location
