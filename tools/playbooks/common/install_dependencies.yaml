@@ -40,4 +40,6 @@
         - nose
         - pyeclib
         - python-swiftclient
-        - mock
+        # For some reason, pip on py2 isn't smart enough to prevent us
+        # trying to install a too-new mock??
+        - 'mock<4'
