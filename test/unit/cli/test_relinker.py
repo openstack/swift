@@ -1397,7 +1397,6 @@ class TestRelinker(unittest.TestCase):
         self.assertIn('2 hash dirs processed (cleanup=False) '
                       '(2 files, 0 linked, 1 removed, 0 errors)',
                       info_lines)
-        print(info_lines)
         with open(new_filepath, 'r') as fd:
             self.assertEqual(old_filepath, fd.read())
         self.assertFalse(os.path.exists(older_filepath))
