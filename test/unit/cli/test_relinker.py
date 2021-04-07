@@ -38,7 +38,8 @@ from swift.common.storage_policy import (
 from swift.obj.diskfile import write_metadata, DiskFileRouter, \
     DiskFileManager, relink_paths
 
-from test.unit import FakeLogger, skip_if_no_xattrs, DEFAULT_TEST_EC_TYPE, \
+from test.debug_logger import debug_logger
+from test.unit import skip_if_no_xattrs, DEFAULT_TEST_EC_TYPE, \
     patch_policies
 
 
@@ -48,7 +49,7 @@ PART_POWER = 8
 class TestRelinker(unittest.TestCase):
     def setUp(self):
         skip_if_no_xattrs()
-        self.logger = FakeLogger()
+        self.logger = debug_logger()
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')
         shutil.rmtree(self.testdir, ignore_errors=True)
