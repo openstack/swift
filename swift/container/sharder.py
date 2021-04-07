@@ -501,14 +501,16 @@ class CleavingContext(object):
         brokers = broker.get_brokers()
         sysmeta = brokers[-1].get_sharding_sysmeta_with_timestamps()
 
+        contexts = []
         for key, (val, timestamp) in sysmeta.items():
-            # If the value is of length 0, then the metadata is
+            # If the value is blank, then the metadata is
             # marked for deletion
-            if key.startswith("Context-") and len(val) > 0:
+            if key.startswith("Context-") and val:
                 try:
-                    yield cls(**json.loads(val)), timestamp
+                    contexts.append((cls(**json.loads(val)), timestamp))
                 except ValueError:
                     continue
+        return contexts
 
     @classmethod
     def load(cls, broker):
@@ -753,11 +755,13 @@ class ContainerSharder(ContainerReplicator):
                 and own_shard_range.state in (ShardRange.SHARDING,
                                               ShardRange.SHARDED)):
             if db_state == SHARDED:
-                context_ts = max([float(ts) for c, ts in
-                                  CleavingContext.load_all(broker)]) or None
-                if not context_ts or (context_ts + self.recon_sharded_timeout
-                                      < Timestamp.now().timestamp):
-                    # not contexts or last context timestamp too old for the
+                contexts = CleavingContext.load_all(broker)
+                if not contexts:
+                    return
+                context_ts = max(float(ts) for c, ts in contexts)
+                if context_ts + self.recon_sharded_timeout \
+                        < Timestamp.now().timestamp:
+                    # last context timestamp too old for the
                     # broker to be recorded
                     return
 
