@@ -4062,6 +4062,37 @@ class TestContainerBroker(unittest.TestCase):
             [dict(sr) for sr in [shard_ranges[2], shard_ranges[4]]],
             [dict(sr) for sr in actual])
 
+        # fill gaps
+        filler = own_shard_range.copy()
+        filler.lower = 'h'
+        with mock_timestamp_now() as now:
+            actual = broker.get_shard_ranges(fill_gaps=True)
+        filler.meta_timestamp = now
+        self.assertEqual([dict(sr) for sr in undeleted + [filler]],
+                         [dict(sr) for sr in actual])
+        with mock_timestamp_now() as now:
+            actual = broker.get_shard_ranges(fill_gaps=True, marker='a')
+        filler.meta_timestamp = now
+        self.assertEqual([dict(sr) for sr in undeleted + [filler]],
+                         [dict(sr) for sr in actual])
+        with mock_timestamp_now() as now:
+            actual = broker.get_shard_ranges(fill_gaps=True, end_marker='z')
+        filler.meta_timestamp = now
+        self.assertEqual([dict(sr) for sr in undeleted + [filler]],
+                         [dict(sr) for sr in actual])
+        with mock_timestamp_now() as now:
+            actual = broker.get_shard_ranges(fill_gaps=True, end_marker='k')
+        filler.meta_timestamp = now
+        filler.upper = 'k'
+        self.assertEqual([dict(sr) for sr in undeleted + [filler]],
+                         [dict(sr) for sr in actual])
+        # no filler needed...
+        actual = broker.get_shard_ranges(fill_gaps=True, end_marker='h')
+        self.assertEqual([dict(sr) for sr in undeleted],
+                         [dict(sr) for sr in actual])
+        actual = broker.get_shard_ranges(fill_gaps=True, end_marker='a')
+        self.assertEqual([], [dict(sr) for sr in actual])
+
         # get everything
         actual = broker.get_shard_ranges(include_own=True)
         self.assertEqual([dict(sr) for sr in undeleted + [own_shard_range]],

@@ -2972,6 +2972,102 @@ class TestContainerController(unittest.TestCase):
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 
+    def test_GET_shard_ranges_from_compacted_shard(self):
+        # make a shrunk shard container with two acceptors that overlap with
+        # the shard's namespace
+        shard_path = '.shards_a/c_f'
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        own_shard_range = ShardRange(shard_path, next(ts_iter),
+                                     'b', 'f', 100, 1000,
+                                     meta_timestamp=next(ts_iter),
+                                     state=ShardRange.SHRUNK,
+                                     state_timestamp=next(ts_iter),
+                                     epoch=next(ts_iter))
+        shard_ranges = []
+        for lower, upper in (('a', 'd'), ('d', 'g')):
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(ts_iter),
+                           lower, upper, 100, 1000,
+                           meta_timestamp=next(ts_iter),
+                           state=ShardRange.ACTIVE,
+                           state_timestamp=next(ts_iter)))
+
+        # create container
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank(
+            '/sda1/p/%s' % shard_path, method='PUT', headers=headers)
+        self.assertIn(
+            req.get_response(self.controller).status_int, (201, 202))
+
+        # PUT the acceptor shard ranges and own shard range
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Container-Sysmeta-Shard-Root': 'a/c',
+                   'X-Backend-Record-Type': 'shard'}
+        body = json.dumps(
+            [dict(sr) for sr in shard_ranges + [own_shard_range]])
+        req = Request.blank('/sda1/p/%s' % shard_path, method='PUT',
+                            headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+
+        def do_get(params, extra_headers, expected):
+            expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                        for sr in expected]
+            headers = {'X-Backend-Record-Type': 'shard'}
+            headers.update(extra_headers)
+            req = Request.blank('/sda1/p/%s?format=json%s' %
+                                (shard_path, params), method='GET',
+                                headers=headers)
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+            return resp
+
+        # unsharded shard container...
+        do_get('', {}, shard_ranges)
+        do_get('&marker=e', {}, shard_ranges[1:])
+        do_get('&end_marker=d', {}, shard_ranges[:1])
+        do_get('&end_marker=k', {}, shard_ranges)
+        do_get('&marker=b&end_marker=f&states=listing', {}, shard_ranges)
+        do_get('&marker=b&end_marker=c&states=listing', {}, shard_ranges[:1])
+        do_get('&marker=b&end_marker=z&states=listing', {}, shard_ranges)
+        do_get('&states=listing', {}, shard_ranges)
+
+        # send X-Backend-Override-Shard-Name-Filter, but db is not yet sharded
+        # so this has no effect
+        extra_headers = {'X-Backend-Override-Shard-Name-Filter': 'sharded'}
+        resp = do_get('', extra_headers, shard_ranges)
+        self.assertNotIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        resp = do_get('&marker=e', extra_headers, shard_ranges[1:])
+        self.assertNotIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        resp = do_get('&end_marker=d', extra_headers, shard_ranges[:1])
+        self.assertNotIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        resp = do_get('&states=listing', {}, shard_ranges)
+        self.assertNotIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+
+        # set broker to sharded state so X-Backend-Override-Shard-Name-Filter
+        # does have effect
+        shard_broker = self.controller._get_container_broker(
+            'sda1', 'p', '.shards_a', 'c_f')
+        self.assertTrue(shard_broker.set_sharding_state())
+        self.assertTrue(shard_broker.set_sharded_state())
+
+        resp = do_get('', extra_headers, shard_ranges)
+        self.assertIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        self.assertTrue(resp.headers['X-Backend-Override-Shard-Name-Filter'])
+
+        resp = do_get('&marker=e', extra_headers, shard_ranges)
+        self.assertIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        self.assertTrue(resp.headers['X-Backend-Override-Shard-Name-Filter'])
+
+        resp = do_get('&end_marker=d', extra_headers, shard_ranges)
+        self.assertIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        self.assertTrue(resp.headers['X-Backend-Override-Shard-Name-Filter'])
+
     def test_GET_shard_ranges_using_state_aliases(self):
         # make a shard container
         ts_iter = make_timestamp_iter()
