@@ -183,7 +183,10 @@ def add_ring_devs_to_ipport2server(ring, server_type, ipport2server,
 
 
 def store_config_paths(name, configs):
-    for server_name in (name, '%s-replicator' % name):
+    server_names = [name, '%s-replicator' % name]
+    if name == 'container':
+        server_names.append('container-sharder')
+    for server_name in server_names:
         for server in Manager([server_name]):
             for i, conf in enumerate(server.conf_files(), 1):
                 configs[server.server][i] = conf

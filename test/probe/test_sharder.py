@@ -66,8 +66,9 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def _maybe_skip_test(self):
         try:
-            cont_configs = [utils.readconf(p, 'container-sharder')
-                            for p in self.configs['container-server'].values()]
+            cont_configs = [
+                utils.readconf(p, 'container-sharder')
+                for p in self.configs['container-sharder'].values()]
         except ValueError:
             raise SkipTest('No [container-sharder] section found in '
                            'container-server configs')
@@ -412,6 +413,14 @@ class BaseTestContainerSharding(ReplProbeTest):
         for node_number in node_numbers:
             self.sharders.once(number=node_number,
                                additional_args='--partitions=%s' % part)
+
+    def run_custom_sharder(self, conf_index, custom_conf, **kwargs):
+        conf_file = self.configs['container-sharder'][conf_index]
+        conf = utils.readconf(conf_file, 'container-sharder')
+        conf.update(custom_conf)
+        sharder = ContainerSharder(conf, logger=debug_logger('probe'))
+        sharder.run_once(**kwargs)
+        return sharder
 
 
 class TestContainerShardingNonUTF8(BaseTestContainerSharding):
@@ -1628,6 +1637,7 @@ class TestContainerSharding(BaseTestContainerSharding):
                                     if obj_name > orig_shard_ranges[1].lower]
             self.assert_container_listing(second_shard_objects)
 
+            # put a new object 'alpha' in first shard range
             self.put_objects([alpha])
             second_shard_objects = [obj_name for obj_name in obj_names
                                     if obj_name > orig_shard_ranges[1].lower]
@@ -1840,27 +1850,16 @@ class TestContainerSharding(BaseTestContainerSharding):
             conf['reclaim_age'] = 0
             ContainerReplicator(conf).run_once()
 
-        logger = debug_logger('probe')
-
-        # not sure why this doesn't work like replicators?
-        self.assertFalse(self.configs['container-sharder'].values())
-        sharder_conf_files = []
-        for server in Manager(['container-sharder']):
-            sharder_conf_files.extend(server.conf_files())
         # we don't expect warnings from sharder root audits
-        for conf_file in sharder_conf_files:
-            conf = utils.readconf(conf_file, 'container-sharder')
-            ContainerSharder(conf, logger=logger).run_once()
-            self.assertEqual([], logger.get_lines_for_level('warning'))
+        for conf_index in self.configs['container-sharder'].keys():
+            sharder = self.run_custom_sharder(conf_index, {})
+            self.assertEqual([], sharder.logger.get_lines_for_level('warning'))
 
         # until the root wants to start reclaiming but we haven't shrunk yet!
         found_warning = False
-        for conf_file in sharder_conf_files:
-            conf = utils.readconf(conf_file, 'container-sharder')
-            logger = debug_logger('probe')
-            conf['reclaim_age'] = 0
-            ContainerSharder(conf, logger=logger).run_once()
-            warnings = logger.get_lines_for_level('warning')
+        for conf_index in self.configs['container-sharder'].keys():
+            sharder = self.run_custom_sharder(conf_index, {'reclaim_age': 0})
+            warnings = sharder.logger.get_lines_for_level('warning')
             if warnings:
                 self.assertTrue(warnings[0].startswith(
                     'Reclaimable db stuck waiting for shrinking'))
@@ -2768,10 +2767,10 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                            additional_args='--partitions=%s' % self.brain.part)
         self.assert_container_state(self.brain.nodes[0], 'unsharded', 0)
 
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
-            'find_and_replace', '2', '--enable'], stderr=subprocess.STDOUT)
+            'find_and_replace', '2', '--enable'])
         self.assert_container_state(self.brain.nodes[0], 'unsharded', 2)
 
         # "Run container-replicator to replicate them to other nodes."
@@ -2794,10 +2793,10 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # run replicators first time to get sync points set, and get container
         # sharded into 4 shards
         self.replicators.once()
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
-            'find_and_replace', '2', '--enable'], stderr=subprocess.STDOUT)
+            'find_and_replace', '2', '--enable'])
         self.assert_container_state(self.brain.nodes[0], 'unsharded', 4)
         self.replicators.once()
         # run sharders twice to cleave all 4 shard ranges
@@ -2810,12 +2809,11 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # now compact some ranges; use --max-shrinking to allow 2 shrinking
         # shards
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
             'compact', '--max-expanding', '1', '--max-shrinking', '2',
-            '--yes'],
-            stderr=subprocess.STDOUT)
+            '--yes'])
         shard_ranges = self.assert_container_state(
             self.brain.nodes[0], 'sharded', 4)
         self.assertEqual([ShardRange.SHRINKING] * 2 + [ShardRange.ACTIVE] * 2,
@@ -2838,11 +2836,10 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # now compact the final two shard ranges to the root; use
         # --max-shrinking to allow 2 shrinking shards
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
-            'compact', '--yes', '--max-shrinking', '2'],
-            stderr=subprocess.STDOUT)
+            'compact', '--yes', '--max-shrinking', '2'])
         shard_ranges = self.assert_container_state(
             self.brain.nodes[0], 'sharded', 2)
         self.assertEqual([ShardRange.SHRINKING] * 2,
@@ -2872,20 +2869,20 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # find 4 shard ranges on nodes[0] - let's denote these ranges 0.0, 0.1,
         # 0.2 and 0.3 that are installed with epoch_0
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
-            'find_and_replace', '2', '--enable'], stderr=subprocess.STDOUT)
+            'find_and_replace', '2', '--enable'])
         shard_ranges_0 = self.assert_container_state(self.brain.nodes[0],
                                                      'unsharded', 4)
 
         # *Also* go find 3 shard ranges on *another node*, like a dumb-dumb -
         # let's denote these ranges 1.0, 1.1 and 1.2 that are installed with
         # epoch_1
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[1]),
-            'find_and_replace', '3', '--enable'], stderr=subprocess.STDOUT)
+            'find_and_replace', '3', '--enable'])
         shard_ranges_1 = self.assert_container_state(self.brain.nodes[1],
                                                      'unsharded', 3)
 
@@ -3082,10 +3079,10 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # run replicators first time to get sync points set
         self.replicators.once()
         # find 3 shard ranges on root nodes[0] and get the root sharded
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
-            'find_and_replace', '4', '--enable'], stderr=subprocess.STDOUT)
+            'find_and_replace', '4', '--enable'])
         self.replicators.once()
         # cleave first two shards
         self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
@@ -3119,19 +3116,17 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # find 3 sub-shards on one shard node; use --force-commits to ensure
         # the recently PUT objects are included when finding the shard range
         # pivot points
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges', '--force-commits',
             self.get_db_file(shard_1_part, shard_1_nodes[1], shard_1.account,
                              shard_1.container),
-            'find_and_replace', '3', '--enable'],
-            stderr=subprocess.STDOUT)
+            'find_and_replace', '3', '--enable'])
         # ... and mistakenly find 4 shard ranges on a different shard node :(
-        subprocess.check_output([
+        self.assert_subprocess_success([
             'swift-manage-shard-ranges', '--force-commits',
             self.get_db_file(shard_1_part, shard_1_nodes[2], shard_1.account,
                              shard_1.container),
-            'find_and_replace', '2', '--enable'],
-            stderr=subprocess.STDOUT)
+            'find_and_replace', '2', '--enable'])
         # replicate the muddle of shard ranges between shard replicas, merged
         # result is:
         # '' - 6  shard     ACTIVE
