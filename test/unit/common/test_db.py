@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Tests for swift.common.db"""
-
+import contextlib
 import os
 import sys
 import unittest
@@ -1567,6 +1567,113 @@ class TestDatabaseBroker(unittest.TestCase):
         with open(broker.pending_file, 'rb') as fd:
             pending = fd.read()
         self.assertFalse(pending)
+
+
+class TestTombstoneReclaim(unittest.TestCase):
+    def _make_object(self, broker, obj_name, ts, deleted):
+        if deleted:
+            broker.delete_test(obj_name, ts.internal)
+        else:
+            broker.put_test(obj_name, ts.internal)
+
+    def _count_reclaimable(self, conn, reclaim_age):
+        return conn.execute(
+            "SELECT count(*) FROM test "
+            "WHERE deleted = 1 AND created_at < ?", (reclaim_age,)
+        ).fetchone()[0]
+
+    def _get_reclaimable(self, broker, reclaim_age):
+        with broker.get() as conn:
+            return self._count_reclaimable(conn, reclaim_age)
+
+    def _setup_reclaimable_active(self):
+        broker = ExampleBroker(':memory:', account='test_account',
+                               container='test_container')
+        broker.initialize(Timestamp('1').internal, 0)
+        now = time.time()
+        top_of_the_minute = now - (now % 60)
+
+        # namespace:
+        #  a-* has 70 reclaimable followed by 70 'active' tombstones
+        #  b-* has 70 reclaimable followed by 70 'active' tombstones
+        for i in range(0, 560, 4):
+            self._make_object(broker, 'a_%3d' % (560 - i),
+                              Timestamp(top_of_the_minute - (i * 60)),
+                              True)
+            self._make_object(broker, 'a_%3d' % (559 - i),
+                              Timestamp(top_of_the_minute - ((i + 1) * 60)),
+                              False)
+            self._make_object(broker, 'b_%3d' % (560 - i),
+                              Timestamp(top_of_the_minute - ((i + 2) * 60)),
+                              True)
+            self._make_object(broker, 'b_%3d' % (559 - i),
+                              Timestamp(top_of_the_minute - ((i + 3) * 60)),
+                              False)
+        broker._commit_puts()
+
+        # divide the set of timestamps exactly in half for reclaim
+        reclaim_age = top_of_the_minute + 1 - (560 / 2 * 60)
+        self.assertEqual(140, self._get_reclaimable(broker, reclaim_age))
+
+        tombstones = self._get_reclaimable(broker, top_of_the_minute + 1)
+        self.assertEqual(280, tombstones)
+        return broker, top_of_the_minute, reclaim_age
+
+    @contextlib.contextmanager
+    def _mock_broker_get(self, broker, reclaim_age):
+        # intercept broker.get() calls and capture the current reclaimable
+        # count before returning a conn
+        orig_get = broker.get
+        reclaimable = []
+
+        @contextlib.contextmanager
+        def mock_get():
+            with orig_get() as conn:
+                reclaimable.append(self._count_reclaimable(conn, reclaim_age))
+                yield conn
+        with patch.object(broker, 'get', mock_get):
+            yield reclaimable
+
+    def test_batched_reclaim_several_small_batches(self):
+        broker, totm, reclaim_age = self._setup_reclaimable_active()
+
+        with self._mock_broker_get(broker, reclaim_age) as reclaimable:
+            with patch('swift.common.db.RECLAIM_PAGE_SIZE', 50):
+                broker.reclaim(reclaim_age, reclaim_age)
+
+        expected_reclaimable = [140,  # 0 rows fetched
+                                90,  # 50 rows fetched, 50 reclaimed
+                                70,  # 100 rows fetched, 20 reclaimed
+                                60,  # 150 rows fetched, 10 reclaimed
+                                10,  # 200 rows fetched, 50 reclaimed
+                                0,  # 250 rows fetched, 10 reclaimed
+                                ]
+        self.assertEqual(expected_reclaimable, reclaimable)
+        self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+
+    def test_batched_reclaim_exactly_two_batches(self):
+        broker, totm, reclaim_age = self._setup_reclaimable_active()
+
+        with self._mock_broker_get(broker, reclaim_age) as reclaimable:
+            with patch('swift.common.db.RECLAIM_PAGE_SIZE', 140):
+                broker.reclaim(reclaim_age, reclaim_age)
+
+        expected_reclaimable = [140,  # 0 rows fetched
+                                70,  # 140 rows fetched, 70 reclaimed
+                                ]
+        self.assertEqual(expected_reclaimable, reclaimable)
+        self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+
+    def test_batched_reclaim_one_large_batch(self):
+        broker, totm, reclaim_age = self._setup_reclaimable_active()
+
+        with self._mock_broker_get(broker, reclaim_age) as reclaimable:
+            with patch('swift.common.db.RECLAIM_PAGE_SIZE', 1000):
+                broker.reclaim(reclaim_age, reclaim_age)
+
+        expected_reclaimable = [140]  # 0 rows fetched
+        self.assertEqual(expected_reclaimable, reclaimable)
+        self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
 
 
 if __name__ == '__main__':
