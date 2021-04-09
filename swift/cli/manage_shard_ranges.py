@@ -180,6 +180,11 @@ DEFAULT_ROWS_PER_SHARD = DEFAULT_SHARD_CONTAINER_THRESHOLD // 2
 DEFAULT_SHRINK_THRESHOLD = DEFAULT_SHARD_CONTAINER_THRESHOLD * \
     config_percent_value(DEFAULT_SHARD_SHRINK_POINT)
 
+EXIT_SUCCESS = 0
+EXIT_ERROR = 1
+EXIT_INVALID_ARGS = 2  # consistent with argparse exit code for invalid args
+EXIT_USER_QUIT = 3
+
 
 class ManageShardRangesException(Exception):
     pass
@@ -260,7 +265,7 @@ def _check_shard_ranges(own_shard_range, shard_ranges):
     if reasons:
         print('WARNING: invalid shard ranges: %s.' % reasons)
         print('Aborting.')
-        exit(2)
+        exit(EXIT_ERROR)
 
 
 def _check_own_shard_range(broker, args):
@@ -302,7 +307,7 @@ def find_ranges(broker, args):
           (len(shard_data), delta_t,
            sum(r['object_count'] for r in shard_data)),
           file=sys.stderr)
-    return 0
+    return EXIT_SUCCESS
 
 
 def show_shard_ranges(broker, args):
@@ -321,7 +326,7 @@ def show_shard_ranges(broker, args):
     else:
         print("Existing shard ranges:", file=sys.stderr)
         print(json.dumps(shard_data, sort_keys=True, indent=2))
-    return 0
+    return EXIT_SUCCESS
 
 
 def db_info(broker, args):
@@ -341,14 +346,14 @@ def db_info(broker, args):
     print('Metadata:')
     for k, (v, t) in broker.metadata.items():
         print('  %s = %s' % (k, v))
-    return 0
+    return EXIT_SUCCESS
 
 
 def delete_shard_ranges(broker, args):
     shard_ranges = broker.get_shard_ranges()
     if not shard_ranges:
         print("No shard ranges found to delete.")
-        return 0
+        return EXIT_SUCCESS
 
     while not args.force:
         print('This will delete existing %d shard ranges.' % len(shard_ranges))
@@ -367,7 +372,7 @@ def delete_shard_ranges(broker, args):
             show_shard_ranges(broker, args)
             continue
         elif choice == 'q':
-            return 1
+            return EXIT_USER_QUIT
         elif choice == 'yes':
             break
         else:
@@ -380,7 +385,7 @@ def delete_shard_ranges(broker, args):
         sr.timestamp = now
     broker.merge_shard_ranges(shard_ranges)
     print('Deleted %s existing shard ranges.' % len(shard_ranges))
-    return 0
+    return EXIT_SUCCESS
 
 
 def _replace_shard_ranges(broker, args, shard_data, timeout=0):
@@ -397,7 +402,7 @@ def _replace_shard_ranges(broker, args, shard_data, timeout=0):
     # Crank up the timeout in an effort to *make sure* this succeeds
     with broker.updated_timeout(max(timeout, args.replace_timeout)):
         delete_status = delete_shard_ranges(broker, args)
-        if delete_status != 0:
+        if delete_status != EXIT_SUCCESS:
             return delete_status
         broker.merge_shard_ranges(shard_ranges)
 
@@ -407,7 +412,7 @@ def _replace_shard_ranges(broker, args, shard_data, timeout=0):
         return enable_sharding(broker, args)
     else:
         print('Use the enable sub-command to enable sharding.')
-        return 0
+        return EXIT_SUCCESS
 
 
 def replace_shard_ranges(broker, args):
@@ -457,28 +462,28 @@ def enable_sharding(broker, args):
         print('WARNING: container in state %s (should be active or sharding).'
               % own_shard_range.state_text)
         print('Aborting.')
-        return 2
+        return EXIT_ERROR
 
     print('Run container-sharder on all nodes to shard the container.')
-    return 0
+    return EXIT_SUCCESS
 
 
 def compact_shard_ranges(broker, args):
     if not broker.is_root_container():
         print('WARNING: Shard containers cannot be compacted.')
         print('This command should be used on a root container.')
-        return 2
+        return EXIT_ERROR
 
     if not broker.is_sharded():
         print('WARNING: Container is not yet sharded so cannot be compacted.')
-        return 2
+        return EXIT_ERROR
 
     shard_ranges = broker.get_shard_ranges()
     if find_overlapping_ranges([sr for sr in shard_ranges if
                                 sr.state != ShardRange.SHRINKING]):
         print('WARNING: Container has overlapping shard ranges so cannot be '
               'compacted.')
-        return 2
+        return EXIT_ERROR
 
     compactible = find_compactible_shard_sequences(broker,
                                                    args.shrink_threshold,
@@ -487,13 +492,13 @@ def compact_shard_ranges(broker, args):
                                                    args.max_expanding)
     if not compactible:
         print('No shards identified for compaction.')
-        return 0
+        return EXIT_SUCCESS
 
     for sequence in compactible:
         if sequence[-1].state not in (ShardRange.ACTIVE, ShardRange.SHARDED):
             print('ERROR: acceptor not in correct state: %s' % sequence[-1],
                   file=sys.stderr)
-            return 1
+            return EXIT_ERROR
 
     if not args.yes:
         for sequence in compactible:
@@ -510,14 +515,14 @@ def compact_shard_ranges(broker, args):
         choice = input('Do you want to apply these changes? [yes/N]')
         if choice != 'yes':
             print('No changes applied')
-            return 0
+            return EXIT_USER_QUIT
 
     process_compactible_shard_sequences(broker, compactible)
     print('Updated %s shard sequences for compaction.' % len(compactible))
     print('Run container-replicator to replicate the changes to other '
           'nodes.')
     print('Run container-sharder on all nodes to compact shards.')
-    return 0
+    return EXIT_SUCCESS
 
 
 def _find_overlapping_donors(shard_ranges, own_sr, args):
@@ -628,29 +633,29 @@ def repair_shard_ranges(broker, args):
     if not broker.is_root_container():
         print('WARNING: Shard containers cannot be repaired.')
         print('This command should be used on a root container.')
-        return 2
+        return EXIT_ERROR
 
     shard_ranges = broker.get_shard_ranges()
     if not shard_ranges:
         print('No shards found, nothing to do.')
-        return 0
+        return EXIT_SUCCESS
 
     own_sr = broker.get_own_shard_range()
     try:
         acceptor_path, overlapping_donors = find_repair_solution(
             shard_ranges, own_sr, args)
     except ManageShardRangesException:
-        return 1
+        return EXIT_ERROR
 
     if not acceptor_path:
-        return 0
+        return EXIT_SUCCESS
 
     if not args.yes:
         choice = input('Do you want to apply these changes to the container '
                        'DB? [yes/N]')
         if choice != 'yes':
             print('No changes applied')
-            return 0
+            return EXIT_USER_QUIT
 
     # merge changes to the broker...
     # note: acceptors do not need to be modified since they already span the
@@ -660,7 +665,7 @@ def repair_shard_ranges(broker, args):
     print('Updated %s donor shard ranges.' % len(overlapping_donors))
     print('Run container-replicator to replicate the changes to other nodes.')
     print('Run container-sharder on all nodes to repair shards.')
-    return 0
+    return EXIT_SUCCESS
 
 
 def analyze_shard_ranges(args):
@@ -674,8 +679,8 @@ def analyze_shard_ranges(args):
     try:
         find_repair_solution(shard_ranges, whole_sr, args)
     except ManageShardRangesException:
-        return 1
-    return 0
+        return EXIT_ERROR
+    return EXIT_SUCCESS
 
 
 def _positive_int(arg):
@@ -866,8 +871,8 @@ def main(args=None):
         # the matter. So, check whether the destination was set and bomb
         # out if not.
         parser.print_help()
-        print('\nA sub-command is required.')
-        return 1
+        print('\nA sub-command is required.', file=sys.stderr)
+        return EXIT_INVALID_ARGS
 
     conf = {}
     rows_per_shard = DEFAULT_ROWS_PER_SHARD
@@ -889,10 +894,14 @@ def main(args=None):
                     shard_container_threshold * config_percent_value(
                         conf.get('shard_shrink_merge_point',
                                  DEFAULT_SHARD_MERGE_POINT)))
-        except Exception as exc:
+        except (OSError, IOError) as exc:
             print('Error opening config file %s: %s' % (args.conf_file, exc),
                   file=sys.stderr)
-            return 2
+            return EXIT_ERROR
+        except (TypeError, ValueError) as exc:
+            print('Error loading config file %s: %s' % (args.conf_file, exc),
+                  file=sys.stderr)
+            return EXIT_INVALID_ARGS
 
     # seems having sub parsers mean sometimes an arg wont exist in the args
     # namespace. But we can check if it is with the 'in' statement.
@@ -922,7 +931,7 @@ def main(args=None):
     except Exception as exc:
         print('Error opening container DB %s: %s' % (args.path_to_file, exc),
               file=sys.stderr)
-        return 2
+        return EXIT_ERROR
     print('Loaded db broker for %s' % broker.path, file=sys.stderr)
     return args.func(broker, args)
 
