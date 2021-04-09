@@ -100,8 +100,9 @@ class Auditor(object):
                     if resp.status // 100 != 2:
                         self.object_not_found += 1
                         consistent = False
-                        print('  Bad status GETting object "%s" on %s/%s'
-                              % (path, node['ip'], node['device']))
+                        print('  Bad status %s GETting object "%s" on %s/%s'
+                              % (resp.status, path,
+                                 node['ip'], node['device']))
                         continue
                     if resp.getheader('ETag').strip('"') != calc_hash:
                         self.object_checksum_mismatch += 1
@@ -116,8 +117,9 @@ class Auditor(object):
                     if resp.status // 100 != 2:
                         self.object_not_found += 1
                         consistent = False
-                        print('  Bad status HEADing object "%s" on %s/%s'
-                              % (path, node['ip'], node['device']))
+                        print('  Bad status %s HEADing object "%s" on %s/%s'
+                              % (resp.status, path,
+                                 node['ip'], node['device']))
                         continue
 
                 override_etag = resp.getheader(
