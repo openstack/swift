@@ -1010,18 +1010,18 @@ class DatabaseBroker(object):
     def _reclaim(self, conn, age_timestamp, marker):
         clean_batch_qry = '''
             DELETE FROM %s WHERE deleted = 1
-            AND name > ? AND %s < ?
+            AND name >= ? AND %s < ?
         ''' % (self.db_contains_type, self.db_reclaim_timestamp)
         curs = conn.execute('''
             SELECT name FROM %s WHERE deleted = 1
-            AND name > ?
+            AND name >= ?
             ORDER BY NAME LIMIT 1 OFFSET ?
         ''' % (self.db_contains_type,), (marker, RECLAIM_PAGE_SIZE))
         row = curs.fetchone()
         if row:
             # do a single book-ended DELETE and bounce out
             end_marker = row[0]
-            conn.execute(clean_batch_qry + ' AND name <= ?', (
+            conn.execute(clean_batch_qry + ' AND name < ?', (
                 marker, age_timestamp, end_marker))
         else:
             # delete off the end and reset marker to indicate we're done
