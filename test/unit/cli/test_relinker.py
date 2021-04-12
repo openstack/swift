@@ -215,6 +215,13 @@ class TestRelinker(unittest.TestCase):
                 'Expected log line to end with %r; got %r'
                 % (msg, warning_lines[0]))
             self.assertFalse(warning_lines[1:])
+            info_lines = self.logger.get_lines_for_level('info')
+            self.assertEqual(2, len(info_lines))
+            self.assertIn('Starting relinker (cleanup=True) using 5 workers:',
+                          info_lines[0])
+            self.assertIn('Finished relinker (cleanup=True):',
+                          info_lines[1])
+            print(info_lines)
             self.logger.clear()
 
         os.mkdir(os.path.join(self.devices, 'sda2'))
@@ -1133,13 +1140,18 @@ class TestRelinker(unittest.TestCase):
                 '--partition', str(self.part + 1),
             ]))
         self.assertFalse(os.path.isdir(self.expected_dir))
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(4, len(info_lines))
+        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+                      info_lines[0])
         self.assertEqual(
             ['Processing files for policy platinum under %s (cleanup=False)'
              % os.path.join(self.devices, 'sda1'),
              '0 hash dirs processed (cleanup=False) (0 files, 0 linked, '
-             '0 removed, 0 errors)'],
-            self.logger.get_lines_for_level('info')
+             '0 removed, 0 errors)'], info_lines[1:3]
         )
+        self.assertIn('Finished relinker (cleanup=False):',
+                      info_lines[3])
 
         # restrict to one partition with a test object
         self.logger.clear()
@@ -1157,14 +1169,19 @@ class TestRelinker(unittest.TestCase):
         stat_old = os.stat(os.path.join(self.objdir, self.object_fname))
         stat_new = os.stat(self.expected_file)
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(5, len(info_lines))
+        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+                      info_lines[0])
         self.assertEqual(
             ['Processing files for policy platinum under %s (cleanup=False)'
              % os.path.join(self.devices, 'sda1'),
              'Step: relink Device: sda1 Policy: platinum Partitions: 1/3',
              '1 hash dirs processed (cleanup=False) (1 files, 1 linked, '
-             '0 removed, 0 errors)'],
-            self.logger.get_lines_for_level('info')
+             '0 removed, 0 errors)'], info_lines[1:4]
         )
+        self.assertIn('Finished relinker (cleanup=False):',
+                      info_lines[4])
 
         # restrict to two partitions with test objects
         self.logger.clear()
@@ -1191,15 +1208,20 @@ class TestRelinker(unittest.TestCase):
         stat_old = os.stat(other_objs[1][1])
         stat_new = os.stat(expected_file)
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(6, len(info_lines))
+        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+                      info_lines[0])
         self.assertEqual(
             ['Processing files for policy platinum under %s (cleanup=False)'
              % os.path.join(self.devices, 'sda1'),
              'Step: relink Device: sda1 Policy: platinum Partitions: 2/3',
              'Step: relink Device: sda1 Policy: platinum Partitions: 3/3',
              '2 hash dirs processed (cleanup=False) (2 files, 2 linked, '
-             '0 removed, 0 errors)'],
-            self.logger.get_lines_for_level('info')
+             '0 removed, 0 errors)'], info_lines[1:5]
         )
+        self.assertIn('Finished relinker (cleanup=False):',
+                      info_lines[5])
 
     @patch_policies(
         [StoragePolicy(0, name='gold', is_default=True),
@@ -1247,12 +1269,18 @@ class TestRelinker(unittest.TestCase):
                 '--device', self.existing_device,
             ]))
         self.assertFalse(os.path.isdir(self.expected_dir))
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(4, len(info_lines))
+        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+                      info_lines[0])
         self.assertEqual(
             ['Processing files for policy platinum under %s/%s (cleanup=False)'
              % (self.devices, self.existing_device),
              '0 hash dirs processed (cleanup=False) (0 files, 0 linked, '
-             '0 removed, 0 errors)'],
-            self.logger.get_lines_for_level('info'))
+             '0 removed, 0 errors)'], info_lines[1:3]
+        )
+        self.assertIn('Finished relinker (cleanup=False):',
+                      info_lines[3])
 
         # policy with object
         self.logger.clear()
@@ -1271,13 +1299,19 @@ class TestRelinker(unittest.TestCase):
         stat_old = os.stat(os.path.join(self.objdir, self.object_fname))
         stat_new = os.stat(self.expected_file)
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(5, len(info_lines))
+        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+                      info_lines[0])
         self.assertEqual(
             ['Processing files for policy gold under %s/%s (cleanup=False)'
              % (self.devices, self.existing_device),
              'Step: relink Device: sda1 Policy: gold Partitions: 1/1',
              '1 hash dirs processed (cleanup=False) (1 files, 1 linked, '
-             '0 removed, 0 errors)'],
-            self.logger.get_lines_for_level('info'))
+             '0 removed, 0 errors)'], info_lines[1:4]
+        )
+        self.assertIn('Finished relinker (cleanup=False):',
+                      info_lines[4])
 
         # policy name works, too
         self.logger.clear()
@@ -1296,12 +1330,18 @@ class TestRelinker(unittest.TestCase):
         stat_old = os.stat(os.path.join(self.objdir, self.object_fname))
         stat_new = os.stat(self.expected_file)
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(4, len(info_lines))
+        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+                      info_lines[0])
         self.assertEqual(
             ['Processing files for policy gold under %s/%s (cleanup=False)'
              % (self.devices, self.existing_device),
              '0 hash dirs processed (cleanup=False) '
-             '(0 files, 0 linked, 0 removed, 0 errors)'],
-            self.logger.get_lines_for_level('info'))
+             '(0 files, 0 linked, 0 removed, 0 errors)'], info_lines[1:3]
+        )
+        self.assertIn('Finished relinker (cleanup=False):',
+                      info_lines[3])
 
     @patch_policies(
         [StoragePolicy(0, name='gold', is_default=True),
