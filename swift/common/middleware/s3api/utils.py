@@ -160,6 +160,7 @@ class Config(dict):
         'allow_multipart_uploads': True,
         'allow_no_owner': False,
         'allowable_clock_skew': 900,
+        'ratelimit_as_client_error': False,
     }
 
     def __init__(self, base=None):

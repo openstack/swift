@@ -16,6 +16,7 @@
 import binascii
 import unittest
 from datetime import datetime
+import functools
 from hashlib import sha256
 import os
 from os.path import join
@@ -306,6 +307,19 @@ class TestS3ApiObj(S3ApiTestCase):
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
         self.assertEqual(code, 'ServiceUnavailable')
+
+        code = self._test_method_error(
+            'GET', '/bucket/object',
+            functools.partial(swob.Response, status='498 Rate Limited'),
+            expected_status='503 Slow Down')
+        self.assertEqual(code, 'SlowDown')
+
+        with patch.object(self.s3api.conf, 'ratelimit_as_client_error', True):
+            code = self._test_method_error(
+                'GET', '/bucket/object',
+                functools.partial(swob.Response, status='498 Rate Limited'),
+                expected_status='429 Slow Down')
+            self.assertEqual(code, 'SlowDown')
 
     @s3acl
     def test_object_GET(self):

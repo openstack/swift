@@ -635,6 +635,11 @@ use = egg:swift#s3api
 # the allowed origins must be set cluster-wide. (default: blank; all
 # preflight requests will be denied)
 # cors_preflight_allow_origin =
+#
+# AWS will return a 503 Slow Down when clients are making too many requests,
+# but that can make client logs confusing if they only log/give metrics on
+# status ints. Turn this on to return 429 instead.
+# ratelimit_as_client_error = false
 
 # You can override the default log routing for this filter here:
 # log_name = s3api
