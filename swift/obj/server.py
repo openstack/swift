@@ -310,37 +310,36 @@ class ObjectController(BaseStorageServer):
             full_path = '/%s/%s/%s' % (account, container, obj)
 
         redirect_data = None
-        if all([host, partition, contdevice]):
-            try:
-                with ConnectionTimeout(self.conn_timeout):
-                    ip, port = host.rsplit(':', 1)
-                    conn = http_connect(ip, port, contdevice, partition, op,
-                                        full_path, headers_out)
-                with Timeout(self.node_timeout):
-                    response = conn.getresponse()
-                    response.read()
-                if is_success(response.status):
-                    return
+        try:
+            with ConnectionTimeout(self.conn_timeout):
+                ip, port = host.rsplit(':', 1)
+                conn = http_connect(ip, port, contdevice, partition, op,
+                                    full_path, headers_out)
+            with Timeout(self.node_timeout):
+                response = conn.getresponse()
+                response.read()
+            if is_success(response.status):
+                return
 
-                if response.status == HTTP_MOVED_PERMANENTLY:
-                    try:
-                        redirect_data = get_redirect_data(response)
-                    except ValueError as err:
-                        self.logger.error(
-                            'Container update failed for %r; problem with '
-                            'redirect location: %s' % (obj, err))
-                else:
-                    self.logger.error(_(
-                        'ERROR Container update failed '
-                        '(saving for async update later): %(status)d '
-                        'response from %(ip)s:%(port)s/%(dev)s'),
-                        {'status': response.status, 'ip': ip, 'port': port,
-                         'dev': contdevice})
-            except (Exception, Timeout):
-                self.logger.exception(_(
-                    'ERROR container update failed with '
-                    '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
-                    {'ip': ip, 'port': port, 'dev': contdevice})
+            if response.status == HTTP_MOVED_PERMANENTLY:
+                try:
+                    redirect_data = get_redirect_data(response)
+                except ValueError as err:
+                    self.logger.error(
+                        'Container update failed for %r; problem with '
+                        'redirect location: %s' % (obj, err))
+            else:
+                self.logger.error(_(
+                    'ERROR Container update failed '
+                    '(saving for async update later): %(status)d '
+                    'response from %(ip)s:%(port)s/%(dev)s'),
+                    {'status': response.status, 'ip': ip, 'port': port,
+                     'dev': contdevice})
+        except (Exception, Timeout):
+            self.logger.exception(_(
+                'ERROR container update failed with '
+                '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
+                {'ip': ip, 'port': port, 'dev': contdevice})
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
         if redirect_data:
