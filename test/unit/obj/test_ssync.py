@@ -852,6 +852,7 @@ class FakeResponse(object):
         self.obj_data = obj_data
         self.data = b''
         self.length = length
+        self.status = 200
 
     def init(self, path):
         if isinstance(self.obj_data, Exception):
