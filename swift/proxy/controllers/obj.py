@@ -1404,11 +1404,17 @@ class ECAppIter(object):
                 pass
             except ChunkReadTimeout:
                 # unable to resume in ECFragGetter
-                self.logger.exception(_("Timeout fetching fragments for %r"),
-                                      quote(self.path))
+                self.logger.exception(
+                    "ChunkReadTimeout fetching fragments for %r",
+                    quote(self.path))
+            except ChunkWriteTimeout:
+                # slow client disconnect
+                self.logger.exception(
+                    "ChunkWriteTimeout fetching fragments for %r",
+                    quote(self.path))
             except:  # noqa
-                self.logger.exception(_("Exception fetching fragments for"
-                                        " %r"), quote(self.path))
+                self.logger.exception("Exception fetching fragments for %r",
+                                      quote(self.path))
             finally:
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
@@ -1437,8 +1443,8 @@ class ECAppIter(object):
                 try:
                     segment = self.policy.pyeclib_driver.decode(fragments)
                 except ECDriverError:
-                    self.logger.exception(_("Error decoding fragments for"
-                                            " %r"), quote(self.path))
+                    self.logger.exception("Error decoding fragments for %r",
+                                          quote(self.path))
                     raise
 
                 yield segment
@@ -2522,22 +2528,21 @@ class ECFragGetter(object):
                         return (start_byte, end_byte, length, headers, part)
                     except ChunkReadTimeout:
                         new_source, new_node = self._dig_for_source_and_node()
-                        if new_source:
-                            self.app.error_occurred(
-                                self.node, _('Trying to read object during '
-                                             'GET (retrying)'))
-                            # Close-out the connection as best as possible.
-                            if getattr(self.source, 'swift_conn', None):
-                                close_swift_conn(self.source)
-                            self.source = new_source
-                            self.node = new_node
-                            # This is safe; it sets up a generator but does
-                            # not call next() on it, so no IO is performed.
-                            parts_iter[0] = http_response_to_document_iters(
-                                new_source,
-                                read_chunk_size=self.app.object_chunk_size)
-                        else:
+                        if not new_source:
                             raise
+                        self.app.error_occurred(
+                            self.node, 'Trying to read next part of '
+                            'EC multi-part GET (retrying)')
+                        # Close-out the connection as best as possible.
+                        if getattr(self.source, 'swift_conn', None):
+                            close_swift_conn(self.source)
+                        self.source = new_source
+                        self.node = new_node
+                        # This is safe; it sets up a generator but does
+                        # not call next() on it, so no IO is performed.
+                        parts_iter[0] = http_response_to_document_iters(
+                            new_source,
+                            read_chunk_size=self.app.object_chunk_size)
 
             def iter_bytes_from_response_part(part_file, nbytes):
                 nchunks = 0
@@ -2559,6 +2564,7 @@ class ECFragGetter(object):
                         try:
                             self.fast_forward(self.bytes_used_from_backend)
                         except (HTTPException, ValueError):
+                            self.app.logger.exception('Unable to fast forward')
                             six.reraise(exc_type, exc_value, exc_traceback)
                         except RangeAlreadyComplete:
                             break
@@ -2566,8 +2572,8 @@ class ECFragGetter(object):
                         new_source, new_node = self._dig_for_source_and_node()
                         if new_source:
                             self.app.error_occurred(
-                                self.node, _('Trying to read object during '
-                                             'GET (retrying)'))
+                                self.node, 'Trying to read EC fragment '
+                                'during GET (retrying)')
                             # Close-out the connection as best as possible.
                             if getattr(self.source, 'swift_conn', None):
                                 close_swift_conn(self.source)
@@ -2699,8 +2705,8 @@ class ECFragGetter(object):
                         if end - begin + 1 == self.bytes_used_from_backend:
                             warn = False
             if not req.environ.get('swift.non_client_disconnect') and warn:
-                self.app.logger.warning('Client disconnected on read of %r',
-                                        self.path)
+                self.app.logger.warning(
+                    'Client disconnected on read of EC frag %r', self.path)
             raise
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
@@ -2743,7 +2749,7 @@ class ECFragGetter(object):
         except (Exception, Timeout):
             self.app.exception_occurred(
                 node, 'Object',
-                _('Trying to %(method)s %(path)s') %
+                'Trying to %(method)s %(path)s' %
                 {'method': self.req.method, 'path': self.req.path})
             return None
 
@@ -2757,6 +2763,8 @@ class ECFragGetter(object):
                 not Timestamp(src_headers.get('x-backend-timestamp', 0)):
             # throw out 5XX and 404s from handoff nodes unless the data is
             # really on disk and had been DELETEd
+            self.app.logger.debug('Ignoring %s from handoff' %
+                                  possible_source.status)
             conn.close()
             return None
 
@@ -2778,6 +2786,10 @@ class ECFragGetter(object):
                             'From Object Server') %
                     {'status': possible_source.status,
                      'body': self.body[:1024]})
+            else:
+                self.app.logger.debug(
+                    'Ignoring %s from primary' % possible_source.status)
+
             return None
 
     @property
@@ -2803,8 +2815,14 @@ class ECFragGetter(object):
         # capture last used etag before continuation
         used_etag = self.last_headers.get('X-Object-Sysmeta-EC-ETag')
         for source, node in self.source_and_node_iter:
-            if source and is_good_source(source.status) and \
-                    source.getheader('X-Object-Sysmeta-EC-ETag') == used_etag:
+            if not source:
+                # _make_node_request only returns good sources
+                continue
+            if source.getheader('X-Object-Sysmeta-EC-ETag') != used_etag:
+                self.app.logger.warning(
+                    'Skipping source (etag mismatch: got %s, expected %s)',
+                    source.getheader('X-Object-Sysmeta-EC-ETag'), used_etag)
+            else:
                 return source, node
         return None, None
 
