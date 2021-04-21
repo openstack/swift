@@ -1246,6 +1246,14 @@ class TestParseUserCreation(unittest.TestCase):
             'user_admin_admin': 'admin .admin .reseller_admin',
         }), FakeApp())
 
+    def test_account_with_no_user(self):
+        expected_msg = 'key user_testtester was provided in an invalid format'
+        with self.assertRaises(ValueError) as ctx:
+            auth.filter_factory({
+                'user_testtester': 'testing',
+            })(FakeApp())
+        self.assertEqual(str(ctx.exception), expected_msg)
+
 
 class TestAccountAcls(unittest.TestCase):
     """
