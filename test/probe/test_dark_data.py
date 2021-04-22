@@ -173,9 +173,10 @@ class TestDarkDataQuarantining(TestDarkDataDeletion):
             self.assertPathDoesNotExist(file_path)
             # Got quarantined
             parts = file_path.split(os.path.sep)
-            quarantine_dir = parts[:parts.index('objects')] + ['quarantined']
+            policy_dir = get_policy_string('objects', self.policy)
+            quarantine_dir = parts[:parts.index(policy_dir)] + ['quarantined']
             quarantine_path = os.path.sep.join(
-                quarantine_dir + ['objects'] + parts[-2:])
+                quarantine_dir + [policy_dir] + parts[-2:])
             self.assertPathExists(quarantine_path)
 
 
