@@ -1837,7 +1837,10 @@ class BaseDiskFileWriter(object):
         """
         return self._upload_size, self._chunks_etag.hexdigest()
 
-    def _finalize_put(self, metadata, target_path, cleanup):
+    def _finalize_put(self, metadata, target_path, cleanup,
+                      logger_thread_locals):
+        if logger_thread_locals is not None:
+            self.logger.thread_locals = logger_thread_locals
         # Write the metadata before calling fsync() so that both data and
         # metadata are flushed to disk.
         write_metadata(self._fd, metadata)
@@ -1914,7 +1917,9 @@ class BaseDiskFileWriter(object):
         metadata['name'] = self._name
         target_path = join(self._datadir, filename)
 
-        tpool.execute(self._finalize_put, metadata, target_path, cleanup)
+        tpool.execute(
+            self._finalize_put, metadata, target_path, cleanup,
+            logger_thread_locals=getattr(self.logger, 'thread_locals', None))
 
     def put(self, metadata):
         """
