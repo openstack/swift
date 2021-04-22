@@ -909,7 +909,7 @@ class TestAuditor(TestAuditorBase):
         kwargs['zero_byte_fps'] = 50
         self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.isdir(quarantine_path))
-        del(kwargs['zero_byte_fps'])
+        del (kwargs['zero_byte_fps'])
         clear_auditor_status(self.devices, 'objects')
         self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
@@ -1760,7 +1760,8 @@ class TestAuditWatchers(TestAuditorBase):
             writer.commit(timestamp)
 
         def fake_direct_get_container(node, part, account, container,
-                                      prefix=None, limit=None):
+                                      prefix=None, limit=None,
+                                      extra_params=None, headers=None):
             self.assertEqual(part, 1)
             self.assertEqual(limit, 1)
 
@@ -1877,7 +1878,8 @@ class TestAuditWatchers(TestAuditorBase):
         for cur in scenario:
 
             def fake_direct_get_container(node, part, account, container,
-                                          prefix=None, limit=None):
+                                          prefix=None, limit=None,
+                                          extra_params=None, headers=None):
                 self.assertEqual(part, 1)
                 self.assertEqual(limit, 1)
 
@@ -1935,6 +1937,275 @@ class TestAuditWatchers(TestAuditorBase):
                 msg = fmt % (unk_exp, ok_exp, dark_exp,
                              ' '.join(words[3:]), cur['cr'])
                 self.fail(msg=msg)
+
+    def test_dark_data_with_sharding(self):
+
+        # We use the EC object because it's all alone in its fake container.
+        main_acc = self.disk_file_ec._account
+        shard_acc = ".shards_%s" % main_acc
+        cont = self.disk_file_ec._container
+
+        def fake_direct_get_container(node, part, account, container,
+                                      prefix=None, limit=None,
+                                      extra_params=None, headers=None):
+            self.assertEqual(part, 1)
+            self.assertEqual(limit, 1)
+            self.assertIn('X-Backend-Record-Type', headers)
+            self.assertEqual(headers['X-Backend-Record-Type'], 'auto')
+
+            if account == shard_acc:
+                # Listing shards - just shortcut with a made-up response.
+                entry = {'bytes': 30968411,
+                         'hash': '60303f4122966fe5925f045eb52d1129',
+                         'name': '%s' % prefix,
+                         'content_type': 'video/mp4',
+                         'last_modified': '2017-08-15T03:30:57.693210'}
+                return {'X-Backend-Record-Type': 'object'}, [entry]
+
+            else:
+                if account == main_acc and container == cont:
+                    # The root container has no listing but has a shard range.
+                    entry = {
+                        'name': '%s/%s' % (shard_acc, cont),
+                        'timestamp': '1630106063.23826',
+                        'lower': '',
+                        'upper': '',
+                        'object_count': 1,
+                        'bytes_used': 1024,
+                        'meta_timestamp': '1630106063.23826',
+                        'deleted': 0,
+                        'state': 'sharded',
+                        'state_timestamp': '1630106063.23826',
+                        'epoch': None,
+                        'reported': 1,
+                        'tombstones': -1}
+                    return {'X-Backend-Record-Type': 'shard'}, [entry]
+
+                else:
+                    # It's an un-sharded container, no tricks.
+                    entry = {'bytes': 30968411,
+                             'hash': '60303f4122966fe5925f045eb52d1129',
+                             'name': '%s' % prefix,
+                             'content_type': 'video/mp4',
+                             'last_modified': '2017-08-15T03:30:57.693210'}
+                    return {}, [entry]
+
+        conf = self.conf.copy()
+        conf['watchers'] = 'test_watcher1'
+        conf['__file__'] = '/etc/swift/swift.conf'
+
+        ret_config = {'test_watcher1': {'action': 'log', 'grace_age': '0'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[DarkDataWatcher]):
+            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1), \
+                mock.patch("swift.obj.watchers.dark_data.direct_get_container",
+                           fake_direct_get_container):
+            my_auditor.run_audit(mode='once')
+
+        log_lines = self.logger.get_lines_for_level('info')
+        self.assertIn(
+            '[audit-watcher test_watcher1] total unknown 0 ok 3 dark 0',
+            log_lines)
+
+    def test_dark_data_with_sharding_fallback_to_root(self):
+
+        # We use the EC object because it's all alone in its fake container.
+        main_acc = self.disk_file_ec._account
+        shard_acc = ".shards_%s" % main_acc
+        cont = self.disk_file_ec._container
+        call_stack = []
+
+        def fake_direct_get_container(node, part, account, container,
+                                      prefix=None, limit=None,
+                                      extra_params=None, headers=None):
+            self.assertEqual(part, 1)
+            self.assertEqual(limit, 1)
+            call_stack.append((account, container, headers))
+
+            if account == shard_acc:
+                # return a shard listing that actaully points to the root OSR
+                entry = {
+                    'name': '%s/%s' % (main_acc, cont),
+                    'timestamp': '1630106063.23826',
+                    'lower': '',
+                    'upper': '',
+                    'object_count': 1,
+                    'bytes_used': 1024,
+                    'meta_timestamp': '1630106063.23826',
+                    'deleted': 0,
+                    'state': 'sharded',
+                    'state_timestamp': '1630106063.23826',
+                    'epoch': None,
+                    'reported': 1,
+                    'tombstones': -1}
+                return {'X-Backend-Record-Type': 'shard'}, [entry]
+
+            else:
+                if account == main_acc and container == cont:
+                    if headers['X-Backend-Record-Type'] == 'auto':
+                        # The root container has no listing but has a shard
+                        # range.
+                        entry = {
+                            'name': '%s/%s' % (shard_acc, cont),
+                            'timestamp': '1630106063.23826',
+                            'lower': '',
+                            'upper': '',
+                            'object_count': 1,
+                            'bytes_used': 1024,
+                            'meta_timestamp': '1630106063.23826',
+                            'deleted': 0,
+                            'state': 'sharded',
+                            'state_timestamp': '1630106063.23826',
+                            'epoch': None,
+                            'reported': 1,
+                            'tombstones': -1}
+                        return {'X-Backend-Record-Type': 'shard'}, [entry]
+                    else:
+                        # we've come back with a direct record-type = object
+                        self.assertEqual(headers['X-Backend-Record-Type'],
+                                         'object')
+                        # let's give them the obj, they've tried hard enough.
+                        entry = {'bytes': 30968411,
+                                 'hash': '60303f4122966fe5925f045eb52d1129',
+                                 'name': '%s' % prefix,
+                                 'content_type': 'video/mp4',
+                                 'last_modified': '2017-08-15T03:30:57.693210'}
+                        return {'X-Backend-Record-Type': 'object'}, [entry]
+
+                else:
+                    # It's an un-sharded container, no tricks.
+                    entry = {'bytes': 30968411,
+                             'hash': '60303f4122966fe5925f045eb52d1129',
+                             'name': '%s' % prefix,
+                             'content_type': 'video/mp4',
+                             'last_modified': '2017-08-15T03:30:57.693210'}
+                    return {}, [entry]
+
+        conf = self.conf.copy()
+        conf['watchers'] = 'test_watcher1'
+        conf['__file__'] = '/etc/swift/swift.conf'
+
+        ret_config = {'test_watcher1': {'action': 'log', 'grace_age': '0'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[DarkDataWatcher]):
+            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1), \
+                mock.patch("swift.obj.watchers.dark_data.direct_get_container",
+                           fake_direct_get_container):
+            my_auditor.run_audit(mode='once')
+
+        self.assertEqual(
+            call_stack[-3:],
+            [(main_acc, cont, {'X-Backend-Record-Type': 'auto'}),
+             (shard_acc, cont, {'X-Backend-Record-Type': 'auto'}),
+             (main_acc, cont, {'X-Backend-Record-Type': 'object'})])
+
+        log_lines = self.logger.get_lines_for_level('info')
+        self.assertIn(
+            '[audit-watcher test_watcher1] total unknown 0 ok 3 dark 0',
+            log_lines)
+
+    def test_dark_data_with_sharding_fallback_to_root_no_objects(self):
+
+        # We use the EC object because it's all alone in its fake container.
+        main_acc = self.disk_file_ec._account
+        shard_acc = ".shards_%s" % main_acc
+        cont = self.disk_file_ec._container
+        call_stack = []
+
+        def fake_direct_get_container(node, part, account, container,
+                                      prefix=None, limit=None,
+                                      extra_params=None, headers=None):
+            self.assertEqual(part, 1)
+            self.assertEqual(limit, 1)
+            call_stack.append((account, container, headers))
+
+            if account == shard_acc:
+                # return a shard listing that actaully points to the root OSR
+                entry = {
+                    'name': '%s/%s' % (main_acc, cont),
+                    'timestamp': '1630106063.23826',
+                    'lower': '',
+                    'upper': '',
+                    'object_count': 1,
+                    'bytes_used': 1024,
+                    'meta_timestamp': '1630106063.23826',
+                    'deleted': 0,
+                    'state': 'sharded',
+                    'state_timestamp': '1630106063.23826',
+                    'epoch': None,
+                    'reported': 1,
+                    'tombstones': -1}
+                return {'X-Backend-Record-Type': 'shard'}, [entry]
+
+            else:
+                if account == main_acc and container == cont:
+                    if headers['X-Backend-Record-Type'] == 'auto':
+                        # The root container has no listing but has a shard
+                        # range.
+                        entry = {
+                            'name': '%s/%s' % (shard_acc, cont),
+                            'timestamp': '1630106063.23826',
+                            'lower': '',
+                            'upper': '',
+                            'object_count': 1,
+                            'bytes_used': 1024,
+                            'meta_timestamp': '1630106063.23826',
+                            'deleted': 0,
+                            'state': 'sharded',
+                            'state_timestamp': '1630106063.23826',
+                            'epoch': None,
+                            'reported': 1,
+                            'tombstones': -1}
+                        return {'X-Backend-Record-Type': 'shard'}, [entry]
+                    else:
+                        # we've come back with a direct record-type = object
+                        self.assertEqual(headers['X-Backend-Record-Type'],
+                                         'object')
+                        return {'X-Backend-Record-Type': 'object'}, []
+
+                else:
+                    # It's an un-sharded container, no tricks.
+                    entry = {'bytes': 30968411,
+                             'hash': '60303f4122966fe5925f045eb52d1129',
+                             'name': '%s' % prefix,
+                             'content_type': 'video/mp4',
+                             'last_modified': '2017-08-15T03:30:57.693210'}
+                    return {}, [entry]
+
+        conf = self.conf.copy()
+        conf['watchers'] = 'test_watcher1'
+        conf['__file__'] = '/etc/swift/swift.conf'
+
+        ret_config = {'test_watcher1': {'action': 'log', 'grace_age': '0'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[DarkDataWatcher]):
+            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1), \
+                mock.patch("swift.obj.watchers.dark_data.direct_get_container",
+                           fake_direct_get_container):
+            my_auditor.run_audit(mode='once')
+
+        self.assertEqual(
+            call_stack[-3:],
+            [(main_acc, cont, {'X-Backend-Record-Type': 'auto'}),
+             (shard_acc, cont, {'X-Backend-Record-Type': 'auto'}),
+             (main_acc, cont, {'X-Backend-Record-Type': 'object'})])
+
+        log_lines = self.logger.get_lines_for_level('info')
+        self.assertIn(
+            '[audit-watcher test_watcher1] total unknown 0 ok 2 dark 1',
+            log_lines)
 
 
 if __name__ == '__main__':
