@@ -135,6 +135,7 @@ class ReconMiddleware(object):
     def get_sharding_info(self):
         """get sharding info"""
         return self._from_recon_cache(["sharding_stats",
+                                       "sharding_time",
                                        "sharding_last"],
                                       self.container_recon_cache)
 
