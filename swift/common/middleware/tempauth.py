@@ -232,7 +232,11 @@ class TempAuth(object):
         self.users = {}
         for conf_key in conf:
             if conf_key.startswith(('user_', 'user64_')):
-                account, username = conf_key.split('_', 1)[1].split('_')
+                try:
+                    account, username = conf_key.split('_', 1)[1].split('_')
+                except ValueError:
+                    raise ValueError("key %s was provided in an "
+                                     "invalid format" % conf_key)
                 if conf_key.startswith('user64_'):
                     # Because trailing equal signs would screw up config file
                     # parsing, we auto-pad with '=' chars.
