@@ -113,7 +113,11 @@ class DeviceUnavailable(SwiftException):
     pass
 
 
-class InvalidAccountInfo(SwiftException):
+class DatabaseAuditorException(SwiftException):
+    pass
+
+
+class InvalidAccountInfo(DatabaseAuditorException):
     pass
 
 
