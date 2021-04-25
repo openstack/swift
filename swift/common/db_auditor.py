@@ -101,14 +101,14 @@ class DatabaseAuditor(Daemon):
                 self.logger.increment('errors')
                 self.logger.exception(_('ERROR auditing'))
             elapsed = time.time() - begin
-            if elapsed < self.interval:
-                time.sleep(self.interval - elapsed)
             self.logger.info(
                 _('%(server_type)s audit pass completed: %(elapsed).02fs'),
                 {'elapsed': elapsed, 'server_type': self.server_type.title()})
             dump_recon_cache({
                 '{}_auditor_pass_completed'.format(self.server_type): elapsed},
                 self.rcache, self.logger)
+            if elapsed < self.interval:
+                time.sleep(self.interval - elapsed)
 
     def run_once(self, *args, **kwargs):
         """Run the database audit once."""
