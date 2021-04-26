@@ -73,6 +73,14 @@ class Relinker(object):
             'policies': 0,
         }
 
+    @property
+    def total_errors(self):
+        return sum([
+            self.stats['errors'],
+            self.stats.get('unmounted', 0),
+            self.stats.get('unlistable_partitions', 0),
+        ])
+
     def devices_filter(self, _, devices):
         if self.device_list:
             devices = [d for d in devices if d in self.device_list]
@@ -169,7 +177,9 @@ class Relinker(object):
 
         return partitions
 
-    # Save states when a partition is done
+    def hook_pre_partition(self, partition_path):
+        self.pre_partition_errors = self.total_errors
+
     def hook_post_partition(self, partition_path):
         datadir_path, part = os.path.split(os.path.abspath(partition_path))
         device_path, datadir_name = os.path.split(datadir_path)
@@ -241,13 +251,15 @@ class Relinker(object):
                     # a shot.
                     pass
 
-        # Then mark this part as done, in case the process is interrupted and
-        # needs to resume.
-        self.states["state"][part] = True
-        with open(state_tmp_file, 'wt') as f:
-            json.dump(self.states, f)
-            os.fsync(f.fileno())
-        os.rename(state_tmp_file, state_file)
+        # If there were no errors, mark this partition as done. This is handy
+        # in case the process is interrupted and needs to resume, or there
+        # were errors and the relinker needs to run again.
+        if self.pre_partition_errors == self.total_errors:
+            self.states["state"][part] = True
+            with open(state_tmp_file, 'wt') as f:
+                json.dump(self.states, f)
+                os.fsync(f.fileno())
+            os.rename(state_tmp_file, state_file)
         num_parts_done = sum(
             1 for part in self.states["state"].values()
             if part)
@@ -441,6 +453,7 @@ class Relinker(object):
             hook_pre_device=self.hook_pre_device,
             hook_post_device=self.hook_post_device,
             partitions_filter=self.partitions_filter,
+            hook_pre_partition=self.hook_pre_partition,
             hook_post_partition=self.hook_post_partition,
             hashes_filter=self.hashes_filter,
             logger=self.logger,
@@ -480,6 +493,15 @@ class Relinker(object):
                 "No policy found to increase the partition power.")
             return EXIT_NO_APPLICABLE_POLICY
 
+        if self.total_errors > 0:
+            log_method = self.logger.warning
+            # NB: audit_location_generator logs unmounted disks as warnings,
+            # but we want to treat them as errors
+            status = EXIT_ERROR
+        else:
+            log_method = self.logger.info
+            status = EXIT_SUCCESS
+
         hash_dirs = self.stats.pop('hash_dirs')
         files = self.stats.pop('files')
         linked = self.stats.pop('linked')
@@ -498,19 +520,11 @@ class Relinker(object):
                 'There were unexpected errors while enumerating disk '
                 'files: %r', self.stats)
 
-        if action_errors + listdir_errors + unmounted > 0:
-            log_method = self.logger.warning
-            # NB: audit_location_generator logs unmounted disks as warnings,
-            # but we want to treat them as errors
-            status = EXIT_ERROR
-        else:
-            log_method = self.logger.info
-            status = EXIT_SUCCESS
-
         log_method(
             '%d hash dirs processed (cleanup=%s) (%d files, %d linked, '
             '%d removed, %d errors)', hash_dirs, self.do_cleanup, files,
             linked, removed, action_errors + listdir_errors)
+
         return status
 
 
