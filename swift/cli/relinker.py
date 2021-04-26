@@ -15,12 +15,14 @@
 
 
 import argparse
+import datetime
 import errno
 import fcntl
 import json
 import logging
 import os
 import time
+
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
@@ -520,11 +522,19 @@ def parallel_process(do_cleanup, conf, logger=None, device_list=None):
         workers = len(device_list)
     else:
         workers = min(workers, len(device_list))
-    if workers == 0 or len(device_list) in (0, 1):
-        return Relinker(
-            conf, logger, device_list, do_cleanup=do_cleanup).run()
 
     start = time.time()
+    logger.info('Starting relinker (cleanup=%s) using %d workers: %s' %
+                (do_cleanup, workers,
+                 time.strftime('%X %x %Z', time.gmtime(start))))
+    if workers == 0 or len(device_list) in (0, 1):
+        ret = Relinker(
+            conf, logger, device_list, do_cleanup=do_cleanup).run()
+        logger.info('Finished relinker (cleanup=%s): %s (%s elapsed)' %
+                    (do_cleanup, time.strftime('%X %x %Z', time.gmtime()),
+                     datetime.timedelta(seconds=time.time() - start)))
+        return ret
+
     children = {}
     for worker_devs in distribute_evenly(device_list, workers):
         pid = os.fork()
@@ -573,6 +583,9 @@ def parallel_process(do_cleanup, conf, logger=None, device_list=None):
 
     for msg in final_messages:
         logger.warning(msg)
+    logger.info('Finished relinker (cleanup=%s): %s (%s elapsed)' %
+                (do_cleanup, time.strftime('%X %x %Z', time.gmtime()),
+                 datetime.timedelta(seconds=time.time() - start)))
     return final_status
 
 
