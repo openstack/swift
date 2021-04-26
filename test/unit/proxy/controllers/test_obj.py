@@ -4314,8 +4314,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 206)
         self.assertEqual(len(log), self.policy.ec_n_unique_fragments * 2)
         log_lines = self.app.logger.get_lines_for_level('error')
-        self.assertIn("Trying to read object during GET (retrying)",
-                      log_lines[0])
+        self.assertIn("Trying to read next part of EC multi-part "
+                      "GET (retrying)", log_lines[0])
         # not the most graceful ending
         self.assertIn("Exception fetching fragments for '/a/c/o'",
                       log_lines[-1])
@@ -4755,6 +4755,44 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
 
+    def test_GET_write_timeout(self):
+        # verify EC GET behavior when there's a timeout sending decoded frags
+        # via the queue.
+        segment_size = self.policy.ec_segment_size
+        test_data = (b'test' * segment_size)[:-333]
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_data)
+        headers = {'X-Object-Sysmeta-Ec-Etag': etag,
+                   'X-Object-Sysmeta-Ec-Content-Length': '333'}
+        ndata = self.policy.ec_ndata
+        responses = [
+            (200, body, self._add_frag_index(i, headers))
+            for i, body in enumerate(ec_archive_bodies[:ndata])
+        ] * self.policy.ec_duplication_factor
+
+        req = swob.Request.blank('/v1/a/c/o')
+
+        status_codes, body_iter, headers = zip(*responses)
+        self.app.client_timeout = 0.01
+        with mocked_http_conn(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 200)
+            resp_body = next(resp.app_iter)
+            sleep(0.5)  # lazy client
+            # remaining resp truncated
+            resp_body += b''.join(resp.app_iter)
+        # we log errors
+        log_lines = self.app.logger.get_lines_for_level('error')
+        for line in log_lines:
+            self.assertIn('ChunkWriteTimeout fetching fragments', line)
+        # client gets a short read
+        self.assertEqual(16051, len(test_data))
+        self.assertEqual(8192, len(resp_body))
+        self.assertNotEqual(
+            md5(resp_body, usedforsecurity=False).hexdigest(),
+            etag)
+
     def test_GET_read_timeout_retrying_but_no_more_useful_nodes(self):
         # verify EC GET behavior when initial batch of nodes time out then
         # remaining nodes either return 404 or return data for different etag
@@ -4800,6 +4838,22 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             self.assertIn('ChunkReadTimeout (0.01s)', line)
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
+
+        debug_lines = self.logger.get_lines_for_level('debug')
+        nparity = self.policy.ec_nparity
+        nhandoffs = self.policy.object_ring.max_more_nodes
+        ignore_404 = ignore_404_handoff = 0
+        for line in debug_lines:
+            if 'Ignoring 404 from primary' in line:
+                ignore_404 += 1
+            if 'Ignoring 404 from handoff' in line:
+                ignore_404_handoff += 1
+        self.assertEqual(nparity - 2, ignore_404, debug_lines)
+        self.assertEqual(nhandoffs, ignore_404_handoff, debug_lines)
+        self.assertEqual(len(debug_lines), ignore_404_handoff + ignore_404)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Skipping source (etag mismatch: got other_etag, '
+            'expected %s)' % etag] * 2)
 
     def test_GET_read_timeout_resume(self):
         segment_size = self.policy.ec_segment_size
@@ -4867,8 +4921,9 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertNotEqual(md5(resp.body).hexdigest(), etag)
         error_lines = self.logger.get_lines_for_level('error')
-        self.assertEqual(1, len(error_lines))
-        self.assertIn('Timeout fetching', error_lines[0])
+        self.assertEqual(2, len(error_lines))
+        self.assertIn('Unable to fast forward', error_lines[0])
+        self.assertIn('Timeout fetching', error_lines[1])
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
 
