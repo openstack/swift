@@ -18,5 +18,4 @@ OpenStack Swift Administrator Guide
    objectstorage-account-reaper.rst
    objectstorage-tenant-specific-image-storage.rst
    objectstorage-monitoring.rst
-   objectstorage-admin.rst
    objectstorage-troubleshoot.rst
