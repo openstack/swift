@@ -1179,13 +1179,14 @@ class TestReconSuccess(TestCase):
                     }
                 },
             },
+            "sharding_time": 600,
             "sharding_last": 1614136398.6680582}
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_sharding_info()
-        self.assertEqual(self.fakecache.fakeout_calls,
-                         [((['sharding_stats', 'sharding_last'],
-                             '/var/cache/swift/container.recon'), {})])
+        self.assertEqual(self.fakecache.fakeout_calls, [
+            ((['sharding_stats', 'sharding_time', 'sharding_last'],
+              '/var/cache/swift/container.recon'), {})])
         self.assertEqual(rv, from_cache_response)
 
 
