@@ -6611,7 +6611,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
         dev_dir = os.path.join(devices, 'device_is_empty_dir')
         os.makedirs(dev_dir)
 
-        def assert_listdir_error(devices):
+        def assert_listdir_error(devices, expected):
             logger = debug_logger()
             error_counter = {}
             locations = utils.audit_location_generator(
@@ -6620,19 +6620,23 @@ class TestAuditLocationGenerator(unittest.TestCase):
             )
             self.assertEqual([], list(locations))
             self.assertEqual(1, len(logger.get_lines_for_level('warning')))
-            self.assertEqual({'unlistable_partitions': 1}, error_counter)
+            self.assertEqual({'unlistable_partitions': expected},
+                             error_counter)
 
         # file under devices/
         devices = os.path.join(tmpdir, 'devices3')
         os.makedirs(devices)
         with open(os.path.join(devices, 'device_is_file'), 'w'):
             pass
-        assert_listdir_error(devices)
+        listdir_error_data_dir = os.path.join(devices, 'device_is_file',
+                                              'data')
+        assert_listdir_error(devices, [listdir_error_data_dir])
 
         # dir under devices/
         devices = os.path.join(tmpdir, 'devices4')
         device = os.path.join(devices, 'device')
         os.makedirs(device)
+        expected_datadir = os.path.join(devices, 'device', 'data')
         assert_no_errors(devices)
 
         # error for dir under devices/
@@ -6644,7 +6648,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             return orig_listdir(path)
 
         with mock.patch('swift.common.utils.listdir', mocked):
-            assert_listdir_error(devices)
+            assert_listdir_error(devices, [expected_datadir])
 
         # mount check error
         devices = os.path.join(tmpdir, 'devices5')
@@ -6669,7 +6673,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             )
         self.assertEqual([], list(locations))
         self.assertEqual(1, len(logger.get_lines_for_level('warning')))
-        self.assertEqual({'unmounted': 1}, error_counter)
+        self.assertEqual({'unmounted': ['device']}, error_counter)
 
 
 class TestGreenAsyncPile(unittest.TestCase):

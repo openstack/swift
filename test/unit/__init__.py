@@ -225,6 +225,7 @@ class FakeRing(Ring):
         # 9 total nodes (6 more past the initial 3) is the cap, no matter if
         # this is set higher, or R^2 for R replicas
         self.set_replicas(replicas)
+        self._next_part_power = None
         self._reload()
 
     def has_changed(self):

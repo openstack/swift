@@ -56,6 +56,8 @@ class ReconMiddleware(object):
                                                 'account.recon')
         self.drive_recon_cache = os.path.join(self.recon_cache_path,
                                               'drive.recon')
+        self.relink_recon_cache = os.path.join(self.recon_cache_path,
+                                               "relinker.recon")
         self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
 
@@ -65,20 +67,26 @@ class ReconMiddleware(object):
             self.rings.append(os.path.join(swift_dir,
                                            policy.ring_name + '.ring.gz'))
 
-    def _from_recon_cache(self, cache_keys, cache_file, openr=open):
+    def _from_recon_cache(self, cache_keys, cache_file, openr=open,
+                          ignore_missing=False):
         """retrieve values from a recon cache file
 
         :params cache_keys: list of cache items to retrieve
         :params cache_file: cache file to retrieve items from.
         :params openr: open to use [for unittests]
+        :params ignore_missing: Some recon stats are very temporary, in this
+            case it would be better to not log if things are missing.
         :return: dict of cache items and their values or none if not found
         """
         try:
             with openr(cache_file, 'r') as f:
                 recondata = json.load(f)
                 return dict((key, recondata.get(key)) for key in cache_keys)
-        except IOError:
-            self.logger.exception(_('Error reading recon cache file'))
+        except IOError as err:
+            if err.errno == errno.ENOENT and ignore_missing:
+                pass
+            else:
+                self.logger.exception(_('Error reading recon cache file'))
         except ValueError:
             self.logger.exception(_('Error parsing recon cache file'))
         except Exception:
@@ -334,6 +342,14 @@ class ReconMiddleware(object):
 
         return time.time()
 
+    def get_relinker_info(self):
+        """get relinker info, if any"""
+
+        stat_keys = ['devices', 'workers']
+        return self._from_recon_cache(stat_keys,
+                                      self.relink_recon_cache,
+                                      ignore_missing=True)
+
     def GET(self, req):
         root, rcheck, rtype = req.split_path(1, 3, True)
         all_rtypes = ['account', 'container', 'object']
@@ -378,6 +394,8 @@ class ReconMiddleware(object):
             content = self.get_time()
         elif rcheck == "sharding":
             content = self.get_sharding_info()
+        elif rcheck == "relinker":
+            content = self.get_relinker_info()
         else:
             content = "Invalid path: %s" % req.path
             return Response(request=req, status="404 Not Found",

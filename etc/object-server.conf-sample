@@ -638,3 +638,6 @@ use = egg:swift#xprofile
 # tombstones from their old locations, causing duplicate tombstones with
 # different inodes to be relinked to the next partition power location.
 # link_check_limit = 2
+#
+# stats_interval = 300.0
+# recon_cache_path = /var/cache/swift

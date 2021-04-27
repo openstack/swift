@@ -3311,8 +3311,8 @@ def audit_location_generator(devices, datadir, suffix='',
     for device in device_dir:
         if mount_check and not ismount(os.path.join(devices, device)):
             if error_counter is not None:
-                error_counter.setdefault('unmounted', 0)
-                error_counter['unmounted'] += 1
+                error_counter.setdefault('unmounted', [])
+                error_counter['unmounted'].append(device)
             if logger:
                 logger.warning(
                     _('Skipping %s as it is not mounted'), device)
@@ -3325,8 +3325,8 @@ def audit_location_generator(devices, datadir, suffix='',
         except OSError as e:
             # NB: listdir ignores non-existent datadir_path
             if error_counter is not None:
-                error_counter.setdefault('unlistable_partitions', 0)
-                error_counter['unlistable_partitions'] += 1
+                error_counter.setdefault('unlistable_partitions', [])
+                error_counter['unlistable_partitions'].append(datadir_path)
             if logger:
                 logger.warning(_('Skipping %(datadir)s because %(err)s'),
                                {'datadir': datadir_path, 'err': e})
