@@ -674,6 +674,69 @@ class SwiftRecon(object):
             print("[ZBF_auditor] - No hosts returned valid data.")
         print("=" * 79)
 
+    def sharding_check(self, hosts):
+        """
+        Obtain and print sharding statistics
+
+        :param hosts: set of hosts to check. in the format of:
+            set([('127.0.0.1', 6221), ('127.0.0.2', 6231)])
+        """
+        stats = {'sharding_time': [],
+                 'attempted': [], 'failure': [], 'success': []}
+        recon = Scout("sharding", self.verbose,
+                      self.suppress_errors, self.timeout)
+        print("[%s] Checking on sharders" % self._ptime())
+        least_recent_time = 9999999999
+        least_recent_url = None
+        most_recent_time = 0
+        most_recent_url = None
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
+            if status == 200:
+                stats['sharding_time'].append(response.get('sharding_time', 0))
+                shard_stats = response.get('sharding_stats')
+                if shard_stats:
+                    # Sharding has a ton more stats, like "no_change".
+                    # Not sure if we need them at all, or maybe for -v.
+                    for stat_key in ['attempted', 'failure', 'success']:
+                        stats[stat_key].append(shard_stats.get(stat_key))
+                last = response.get('sharding_last', 0)
+                if last is None:
+                    continue
+                if last < least_recent_time:
+                    least_recent_time = last
+                    least_recent_url = url
+                if last > most_recent_time:
+                    most_recent_time = last
+                    most_recent_url = url
+        for k in stats:
+            if stats[k]:
+                computed = self._gen_stats(stats[k], name=k)
+                if computed['reported'] > 0:
+                    self._print_stats(computed)
+                else:
+                    print("[%s] - No hosts returned valid data." % k)
+            else:
+                print("[%s] - No hosts returned valid data." % k)
+        if least_recent_url is not None:
+            host = urlparse(least_recent_url).netloc
+            if not least_recent_time:
+                print('Oldest completion was NEVER by %s.' % host)
+            else:
+                elapsed = time.time() - least_recent_time
+                elapsed, elapsed_unit = seconds2timeunit(elapsed)
+                print('Oldest completion was %s (%d %s ago) by %s.' % (
+                    self._ptime(least_recent_time),
+                    elapsed, elapsed_unit, host))
+        if most_recent_url is not None:
+            host = urlparse(most_recent_url).netloc
+            elapsed = time.time() - most_recent_time
+            elapsed, elapsed_unit = seconds2timeunit(elapsed)
+            print('Most recent completion was %s (%d %s ago) by %s.' % (
+                self._ptime(most_recent_time),
+                elapsed, elapsed_unit, host))
+        print("=" * 79)
+
     def load_check(self, hosts):
         """
         Obtain and print load average statistics
@@ -998,6 +1061,8 @@ class SwiftRecon(object):
                         help="Get updater stats")
         args.add_option('--expirer', action="store_true",
                         help="Get expirer stats")
+        args.add_option('--sharding', action="store_true",
+                        help="Get sharding stats")
         args.add_option('--unmounted', '-u', action="store_true",
                         help="Check cluster for unmounted devices")
         args.add_option('--diskusage', '-d', action="store_true",
@@ -1090,6 +1155,7 @@ class SwiftRecon(object):
                 elif self.server_type == 'container':
                     self.auditor_check(hosts)
                     self.updater_check(hosts)
+                    self.sharding_check(hosts)
                 elif self.server_type == 'account':
                     self.auditor_check(hosts)
                 self.replication_check(hosts)
@@ -1133,7 +1199,14 @@ class SwiftRecon(object):
                     if self.server_type == 'object':
                         self.expirer_check(hosts)
                     else:
-                        print("Error: Can't check expired on non object "
+                        print("Error: Can't check expirer on non object "
+                              "servers.")
+                        print("=" * 79)
+                if options.sharding:
+                    if self.server_type == 'container':
+                        self.sharding_check(hosts)
+                    else:
+                        print("Error: Can't check sharding on non container "
                               "servers.")
                         print("=" * 79)
                 if options.validate_servers:

@@ -961,6 +961,114 @@ class TestReconCommands(unittest.TestCase):
 
     @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
+    def test_sharding_check(self, mock_now, mock_print):
+        now = 1430000000.0
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6011/recon/replication/container',
+                 {"sharding_last": now - 50,
+                  "sharding_stats": {
+                      "attempted": 0, "deferred": 0, "diff": 0,
+                      "diff_capped": 0, "empty": 0, "failure": 0,
+                      "hashmatch": 0, "no_change": 0, "remote_merge": 0,
+                      "remove": 0, "rsync": 0,
+                      "sharding": {
+                          "audit_root": {
+                              "attempted": 0, "failure": 0, "success": 0},
+                          "audit_shard": {
+                              "attempted": 0, "failure": 0, "success": 0},
+                          "cleaved": {
+                              "attempted": 0, "failure": 0, "max_time": 0,
+                              "min_time": 0, "success": 0},
+                          "created": {
+                              "attempted": 0, "failure": 0, "success": 0},
+                          "misplaced": {
+                              "attempted": 0, "failure": 0, "found": 0,
+                              "placed": 0, "success": 0, "unplaced": 0},
+                          "scanned": {
+                              "attempted": 0, "failure": 0, "found": 0,
+                              "max_time": 0, "min_time": 0, "success": 0},
+                          "sharding_candidates": {
+                              "found": 0,
+                              "top": []},
+                          "shrinking_candidates": {
+                              "found": 0,
+                              "top": []},
+                          "visited": {
+                              "attempted": 0, "completed": 0, "failure": 0,
+                              "skipped": 1381, "success": 0}},
+                      "start": now - 80,
+                      "success": 0, "ts_repl": 0},
+                  "sharding_time": 27.6},
+                 200,
+                 0,
+                 0),
+                ('http://127.0.0.1:6021/recon/sharding',
+                 {"sharding_last": now - 50,
+                  "sharding_stats": {
+                      "attempted": 0, "deferred": 0, "diff": 0,
+                      "diff_capped": 0, "empty": 0, "failure": 0,
+                      "hashmatch": 0, "no_change": 0, "remote_merge": 0,
+                      "remove": 0, "rsync": 0,
+                      "sharding": {
+                          "audit_root": {
+                              "attempted": 0, "failure": 0, "success": 0},
+                          "audit_shard": {
+                              "attempted": 0, "failure": 0, "success": 0},
+                          "cleaved": {
+                              "attempted": 0, "failure": 0, "max_time": 0,
+                              "min_time": 0, "success": 0},
+                          "created": {
+                              "attempted": 0, "failure": 0, "success": 0},
+                          "misplaced": {
+                              "attempted": 0, "failure": 0, "found": 0,
+                              "placed": 0, "success": 0, "unplaced": 0},
+                          "scanned": {
+                              "attempted": 0, "failure": 0, "found": 0,
+                              "max_time": 0, "min_time": 0, "success": 0},
+                          "sharding_candidates": {
+                              "found": 0,
+                              "top": []},
+                          "shrinking_candidates": {
+                              "found": 0,
+                              "top": []},
+                          "visited": {
+                              "attempted": 0, "completed": 0, "failure": 0,
+                              "skipped": 1381, "success": 0}},
+                      "start": now - 80,
+                      "success": 0, "ts_repl": 0},
+                  "sharding_time": 27.6},
+                 200,
+                 0,
+                 0),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        # All totals are zero in our test set above. Maybe do better later.
+        default_calls = [
+            mock.call('[sharding_time] low: 27, high: 27, avg: 27.6, ' +
+                      'total: 55, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[attempted] low: 0, high: 0, avg: 0.0, ' +
+                      'total: 0, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[failure] low: 0, high: 0, avg: 0.0, ' +
+                      'total: 0, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[success] low: 0, high: 0, avg: 0.0, ' +
+                      'total: 0, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('Oldest completion was 2015-04-25 22:12:30 ' +
+                      '(1 minutes ago) by 127.0.0.1:6011.'),
+            mock.call('Most recent completion was 2015-04-25 22:12:30 ' +
+                      '(1 minutes ago) by 127.0.0.1:6011.'),
+        ]
+
+        mock_now.return_value = now + 48
+        cli.sharding_check([('127.0.0.1', 6011), ('127.0.0.1', 6021)])
+        mock_print.assert_has_calls(default_calls, any_order=True)
+
+    @mock.patch('six.moves.builtins.print')
+    @mock.patch('time.time')
     def test_load_check(self, mock_now, mock_print):
         now = 1430000000.0
 
