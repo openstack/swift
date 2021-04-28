@@ -2308,12 +2308,17 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         get_statuses = [200] * self.policy.ec_ndata
-        get_hdrs = [{'Connection': 'close'}] * self.policy.ec_ndata
+        get_hdrs = [{
+            'Connection': 'close',
+            'X-Object-Sysmeta-Ec-Scheme': self.policy.ec_scheme_description,
+        }] * self.policy.ec_ndata
         with set_http_connect(*get_statuses, headers=get_hdrs):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
+        self.assertFalse([h for h in resp.headers
+                          if h.lower().startswith('x-object-sysmeta-ec-')])
 
     def test_GET_not_found_when_404_newer(self):
         # if proxy receives a 404, it keeps waiting for other connections until
