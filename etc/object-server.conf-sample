@@ -528,11 +528,19 @@ use = egg:swift#recon
 #
 # watchers =
 
-# Watcher-specific parameters can he added after "object-auditor:watcher:"
-# like the following (note that entry points are qualified by package#):
+# Watcher-specific parameters can be added in a section with a name
+# [object-auditor:watcher:some_package#some_watcher]. The following
+# example uses the built-in reference watcher.
 #
 # [object-auditor:watcher:swift#dark_data]
+#
+# Action type can be 'log' (default), 'delete', or 'quarantine'.
 # action=log
+#
+# The watcher ignores the objects younger than certain minimum age.
+# This prevents spurious actions upon fresh objects while container
+# listings eventually settle.
+# grace_age=604800
 
 [object-expirer]
 # If this true, this expirer will execute tasks from legacy expirer task queue,

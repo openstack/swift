@@ -145,7 +145,7 @@ class TestAuditorBase(unittest.TestCase):
         self.disk_file_p1 = self.df_mgr.get_diskfile('sda', '0', 'a', 'c2',
                                                      'o', policy=POLICIES[1])
         self.disk_file_ec = self.ec_df_mgr.get_diskfile(
-            'sda', '0', 'a', 'c', 'o', policy=POLICIES[2], frag_index=1)
+            'sda', '0', 'a', 'c_ec', 'o', policy=POLICIES[2], frag_index=1)
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
@@ -1574,33 +1574,53 @@ class TestAuditWatchers(TestAuditorBase):
 
         timestamp = Timestamp(time.time())
 
+        disk_file = self.df_mgr.get_diskfile(
+            'sda', '0', 'a', 'c', 'o0', policy=POLICIES.legacy)
         data = b'0' * 1024
         etag = md5()
-        with self.disk_file.create() as writer:
+        with disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
-            etag = etag.hexdigest()
             metadata = {
-                'ETag': etag,
+                'ETag': etag.hexdigest(),
                 'X-Timestamp': timestamp.internal,
                 'Content-Length': str(len(data)),
                 'X-Object-Meta-Flavor': 'banana',
             }
             writer.put(metadata)
+            # The commit does nothing; we keep it for code copy-paste with EC.
+            writer.commit(timestamp)
 
+        disk_file = self.df_mgr.get_diskfile(
+            'sda', '0', 'a', 'c', 'o1', policy=POLICIES.legacy)
         data = b'1' * 2048
         etag = md5()
-        with self.disk_file_p1.create() as writer:
+        with disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
-            etag = etag.hexdigest()
             metadata = {
-                'ETag': etag,
+                'ETag': etag.hexdigest(),
                 'X-Timestamp': timestamp.internal,
                 'Content-Length': str(len(data)),
                 'X-Object-Meta-Flavor': 'orange',
             }
             writer.put(metadata)
+            writer.commit(timestamp)
+
+        frag_0 = self.disk_file_ec.policy.pyeclib_driver.encode(
+            b'x' * self.disk_file_ec.policy.ec_segment_size)[0]
+        etag = md5()
+        with self.disk_file_ec.create() as writer:
+            writer.write(frag_0)
+            etag.update(frag_0)
+            metadata = {
+                'ETag': etag.hexdigest(),
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': str(len(frag_0)),
+                'X-Object-Meta-Flavor': 'peach',
+            }
+            writer.put(metadata)
+            writer.commit(timestamp)
 
     def test_watchers(self):
 
@@ -1650,7 +1670,7 @@ class TestAuditWatchers(TestAuditorBase):
 
         my_auditor.run_audit(mode='once', zero_byte_fps=float("inf"))
 
-        self.assertEqual(len(calls), 5)
+        self.assertEqual(len(calls), 6)
 
         self.assertEqual(calls[0], ["__init__", conf, mock.ANY])
         self.assertIsInstance(calls[0][2], PrefixLoggerAdapter)
@@ -1663,23 +1683,30 @@ class TestAuditWatchers(TestAuditorBase):
 
         # The order in which the auditor finds things on the filesystem is
         # irrelevant; what matters is that it finds all the things.
-        calls[2:4] = sorted(calls[2:4], key=lambda item: item[1]['name'])
+        calls[2:5] = sorted(calls[2:5], key=lambda item: item[1]['name'])
 
-        self.assertDictContainsSubset({'name': '/a/c/o',
+        self.assertDictContainsSubset({'name': '/a/c/o0',
                                        'X-Object-Meta-Flavor': 'banana'},
                                       calls[2][1])
         self.assertIn('node/sda/objects/0/', calls[2][2])  # data_file_path
         self.assertTrue(calls[2][2].endswith('.data'))  # data_file_path
         self.assertEqual({}, calls[2][3])
 
-        self.assertDictContainsSubset({'name': '/a/c2/o',
+        self.assertDictContainsSubset({'name': '/a/c/o1',
                                        'X-Object-Meta-Flavor': 'orange'},
                                       calls[3][1])
-        self.assertIn('node/sda/objects-1/0/', calls[3][2])  # data_file_path
+        self.assertIn('node/sda/objects/0/', calls[3][2])  # data_file_path
         self.assertTrue(calls[3][2].endswith('.data'))  # data_file_path
         self.assertEqual({}, calls[3][3])
 
-        self.assertEqual(calls[4], ["end"])
+        self.assertDictContainsSubset({'name': '/a/c_ec/o',
+                                       'X-Object-Meta-Flavor': 'peach'},
+                                      calls[4][1])
+        self.assertIn('node/sda/objects-2/0/', calls[4][2])  # data_file_path
+        self.assertTrue(calls[4][2].endswith('.data'))  # data_file_path
+        self.assertEqual({}, calls[4][3])
+
+        self.assertEqual(calls[5], ["end"])
 
         log_lines = self.logger.get_lines_for_level('debug')
         self.assertIn(
@@ -1688,20 +1715,35 @@ class TestAuditWatchers(TestAuditorBase):
 
     def test_builtin_watchers(self):
 
-        conf = self.conf.copy()
-        conf['watchers'] = 'test_watcher1'
-        conf['__file__'] = '/etc/swift/swift.conf'
-        ret_config = {'swift#dark_data': {'action': 'log'}}
-        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
-                        return_value=ret_config), \
-                mock.patch('swift.obj.auditor.load_pkg_resource',
-                           side_effect=[DarkDataWatcher]):
-            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+        # Yep, back-channel signaling in tests.
+        sentinel = 'DARK'
+
+        timestamp = Timestamp(time.time())
+
+        disk_file = self.df_mgr.get_diskfile(
+            'sda', '0', 'a', sentinel, 'o2', policy=POLICIES.legacy)
+        data = b'2' * 1024
+        etag = md5()
+        with disk_file.create() as writer:
+            writer.write(data)
+            etag.update(data)
+            metadata = {
+                'ETag': etag.hexdigest(),
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': str(len(data)),
+                'X-Object-Meta-Flavor': 'mango',
+            }
+            writer.put(metadata)
+            writer.commit(timestamp)
 
         def fake_direct_get_container(node, part, account, container,
                                       prefix=None, limit=None):
             self.assertEqual(part, 1)
             self.assertEqual(limit, 1)
+
+            if container == sentinel:
+                return {}, []
+
             # The returned entry is not abbreviated, but is full of nonsese.
             entry = {'bytes': 30968411,
                      'hash': '60303f4122966fe5925f045eb52d1129',
@@ -1710,17 +1752,70 @@ class TestAuditWatchers(TestAuditorBase):
                      'last_modified': '2017-08-15T03:30:57.693210'}
             return {}, [entry]
 
+        conf = self.conf.copy()
+        conf['watchers'] = 'test_watcher1'
+        conf['__file__'] = '/etc/swift/swift.conf'
+
+        # with default watcher config the DARK object will not be older than
+        # grace_age so will not be logged
+        ret_config = {'test_watcher1': {'action': 'log'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[DarkDataWatcher]):
+            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+
         with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1), \
                 mock.patch("swift.obj.watchers.dark_data.direct_get_container",
                            fake_direct_get_container):
             my_auditor.run_audit(mode='once')
 
-        # N.B. We want to check for ok files instead of dark because
-        # if anything goes wrong inside, we want it fail the test.
         log_lines = self.logger.get_lines_for_level('info')
         self.assertIn(
-            '[audit-watcher test_watcher1] total unknown 0 ok 2 dark 0',
+            '[audit-watcher test_watcher1] total unknown 0 ok 4 dark 0',
             log_lines)
+
+        self.logger.clear()
+        # with grace_age=0 the DARK object will be older than
+        # grace_age so will be logged
+        ret_config = {'test_watcher1': {'action': 'log', 'grace_age': '0'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[DarkDataWatcher]):
+            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1), \
+                mock.patch("swift.obj.watchers.dark_data.direct_get_container",
+                           fake_direct_get_container):
+            my_auditor.run_audit(mode='once')
+
+        log_lines = self.logger.get_lines_for_level('info')
+        self.assertIn(
+            '[audit-watcher test_watcher1] total unknown 0 ok 3 dark 1',
+            log_lines)
+
+    def test_dark_data_watcher_init(self):
+        conf = {}
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1):
+            watcher = DarkDataWatcher(conf, self.logger)
+        self.assertEqual(self.logger, watcher.logger)
+        self.assertEqual(604800, watcher.grace_age)
+        self.assertEqual('log', watcher.dark_data_policy)
+
+        conf = {'grace_age': 360, 'action': 'delete'}
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1):
+            watcher = DarkDataWatcher(conf, self.logger)
+        self.assertEqual(self.logger, watcher.logger)
+        self.assertEqual(360, watcher.grace_age)
+        self.assertEqual('delete', watcher.dark_data_policy)
+
+        conf = {'grace_age': 0, 'action': 'invalid'}
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1):
+            watcher = DarkDataWatcher(conf, self.logger)
+        self.assertEqual(self.logger, watcher.logger)
+        self.assertEqual(0, watcher.grace_age)
+        self.assertEqual('log', watcher.dark_data_policy)
 
 
 if __name__ == '__main__':
