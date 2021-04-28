@@ -791,16 +791,9 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                                                         full_path='nada/nada')
             return resp
 
-        resp = do_test(200)
-        self.assertEqual(resp.status, 200)
-
-        resp = do_test(400)
-        # on the error case return value will be None instead of response
-        self.assertIsNone(resp)
-        # ... and log warnings for 400
-        for line in self.logger.get_lines_for_level('warning'):
-            self.assertIn('Invalid response 400', line)
-        self.logger._clear()
+        for status in (200, 400, 404, 503):
+            resp = do_test(status)
+            self.assertEqual(status, resp.status)
 
         resp = do_test(Exception())
         self.assertIsNone(resp)
@@ -817,20 +810,6 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             # sanity Timeout has extra message in the error log
             self.assertIn('Timeout', line)
         self.logger.clear()
-
-        # we should get a warning on 503 (sanity)
-        resp = do_test(503)
-        self.assertIsNone(resp)
-        warnings = self.logger.get_lines_for_level('warning')
-        self.assertEqual(1, len(warnings))
-        self.assertIn('Invalid response 503', warnings[0])
-        self.logger.clear()
-
-        # ... but no messages should be emitted for 404
-        resp = do_test(404)
-        self.assertIsNone(resp)
-        for level, msgs in self.logger.lines_dict.items():
-            self.assertFalse(msgs)
 
     def test_reconstructor_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the reconstructor
@@ -4771,7 +4750,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         for line in error_lines[:-1]:
             self.assertIn("Trying to GET", line)
         self.assertIn(
-            'Unable to get enough responses (%s error responses)'
+            'Unable to get enough responses (%s x unknown error responses)'
             % (policy.object_ring.replicas - 1),
             error_lines[-1],
             "Unexpected error line found: %s" % error_lines[-1])
@@ -4796,12 +4775,49 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         # only 1 log to report not enough responses
         self.assertEqual(1, len(error_lines))
         self.assertIn(
-            'Unable to get enough responses (%s error responses)'
+            'Unable to get enough responses (%s x 404 error responses)'
             % (policy.object_ring.replicas - 1),
             error_lines[0],
             "Unexpected error line found: %s" % error_lines[0])
         # no warning
         self.assertFalse(self.logger.get_lines_for_level('warning'))
+
+    def test_reconstruct_fa_mixture_of_errors_fails(self):
+        job = {
+            'partition': 0,
+            'policy': self.policy,
+        }
+        part_nodes = self.policy.object_ring.get_part_nodes(0)
+        node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
+        policy = self.policy
+
+        # ensure at least one of each error type
+        possible_errors = [Timeout(), 404, 507]
+        codes = possible_errors + [random.choice(possible_errors) for i in
+                                   range(policy.object_ring.replicas - 4)]
+        with mocked_http_conn(*codes):
+            self.assertRaises(DiskFileError, self.reconstructor.reconstruct_fa,
+                              job, node, self.obj_metadata)
+        exp_timeouts = len([c for c in codes if isinstance(c, Timeout)])
+        exp_404s = len([c for c in codes if c == 404])
+        exp_507s = len([c for c in codes if c == 507])
+        error_lines = self.logger.get_lines_for_level('error')
+        # 1 error log to report not enough responses and possibly some to
+        # report Timeouts
+        self.assertEqual(len(error_lines), exp_timeouts + 1, error_lines)
+        for line in error_lines[:-1]:
+            self.assertIn("Trying to GET", line)
+        self.assertIn(
+            'Unable to get enough responses '
+            '(%s x unknown, %s x 404, %s x 507 error responses)'
+            % (exp_timeouts, exp_404s, exp_507s), error_lines[-1],
+            "Unexpected error line found: %s" % error_lines[-1])
+        # no warning
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(exp_507s, len(warning_lines), warning_lines)
+        for line in warning_lines:
+            self.assertIn('Invalid response 507', line)
 
     def test_reconstruct_fa_with_mixed_old_etag(self):
         job = {
@@ -4976,7 +4992,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             error_log_lines[0])
         self.assertFalse(self.logger.get_lines_for_level('warning'))
 
-    def test_reconstruct_fa_with_mixed_not_enough_etags_fail(self):
+    def test_reconstruct_fa_with_mixed_timestamps_etags_fail(self):
         job = {
             'partition': 0,
             'policy': self.policy,
@@ -5040,13 +5056,12 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             # following error lines
             del ec_archive_dict[(expected_etag, ts, durable)]
 
-            expected = 'Unable to get enough responses (%s/10) to ' \
-                       'reconstruct %s 10.0.0.1:1001/sdb/0%s policy#0 ' \
-                       'frag#1 with ETag %s and timestamp %s' % \
-                       (etag_count[expected_etag],
+            expected = 'Unable to get enough responses (%s/10 from %s ok ' \
+                       'responses) to reconstruct %s 10.0.0.1:1001/sdb/0%s ' \
+                       'policy#0 frag#1 with ETag %s and timestamp %s' %\
+                       (etag_count[expected_etag], etag_count[expected_etag],
                         'durable' if durable else 'non-durable',
-                        self.obj_path.decode('utf8'),
-                        expected_etag, ts)
+                        self.obj_path.decode('utf8'), expected_etag, ts)
             self.assertIn(
                 expected, error_line,
                 "Unexpected error line found: Expected: %s Got: %s"
@@ -5054,7 +5069,84 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         # no warning
         self.assertFalse(self.logger.get_lines_for_level('warning'))
 
-    def test_reconstruct_fa_finds_itself_does_not_fail(self):
+    def test_reconstruct_fa_with_mixed_etags_same_timestamp_fail(self):
+        job = {
+            'partition': 0,
+            'policy': self.policy,
+        }
+        part_nodes = self.policy.object_ring.get_part_nodes(0)
+        node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
+
+        test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
+        ec_archive_dict = dict()
+        ts = next(make_timestamp_iter())
+        # create 3 different ec bodies
+        for i in range(3):
+            body = test_data[i:]
+            archive_bodies = encode_frag_archive_bodies(self.policy, body)
+            # pop the index to the destination node
+            archive_bodies.pop(1)
+            key = (md5(body, usedforsecurity=False).hexdigest(),
+                   ts.internal, bool(i % 2))
+            ec_archive_dict[key] = archive_bodies
+
+        responses = list()
+        # fill out response list by 3 different etag bodies, same timestamp
+        for etag, ts, durable in itertools.cycle(ec_archive_dict):
+            body = ec_archive_dict[(etag, ts, durable)].pop(0)
+            headers = get_header_frag_index(self, body)
+            headers.update({'X-Object-Sysmeta-Ec-Etag': etag,
+                            'X-Backend-Timestamp': ts})
+            if durable:
+                headers['X-Backend-Durable-Timestamp'] = ts
+            responses.append((200, body, headers))
+            if len(responses) >= (self.policy.object_ring.replicas - 1):
+                break
+
+        # sanity, there is 3 different etag and each etag
+        # doesn't have > ec_k bodies
+        etag_count = collections.Counter(
+            [in_resp_headers['X-Object-Sysmeta-Ec-Etag']
+             for _, _, in_resp_headers in responses])
+        self.assertEqual(3, len(etag_count))
+        for etag, count in etag_count.items():
+            self.assertLess(count, self.policy.ec_ndata)
+
+        codes, body_iter, headers = zip(*responses)
+        with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
+            self.assertRaises(DiskFileError, self.reconstructor.reconstruct_fa,
+                              job, node, self.obj_metadata)
+
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertGreater(len(error_lines), 1)
+        for expected_etag, ts, durable in ec_archive_dict:
+            if expected_etag in error_lines[-1]:
+                break
+        else:
+            self.fail(
+                "no expected etag %s found: %s" %
+                (list(ec_archive_dict), error_lines[0]))
+
+        other_etags_count = sum(count for etag, count in etag_count.items()
+                                if etag != expected_etag)
+        self.assertEqual(other_etags_count + 1, len(error_lines))
+        for line in error_lines[:-1]:
+            self.assertIn('Mixed Etag', line)
+        expected = 'Unable to get enough responses (%s/10 from %s ok ' \
+                   'responses) to reconstruct %s 10.0.0.1:1001/sdb/0%s ' \
+                   'policy#0 frag#1 with ETag %s and timestamp %s' % \
+                   (etag_count[expected_etag], len(responses),
+                    'durable' if durable else 'non-durable',
+                    self.obj_path.decode('utf8'), expected_etag, ts)
+        self.assertIn(
+            expected, error_lines[-1],
+            "Unexpected error line found: Expected: %s Got: %s"
+            % (expected, error_lines[0]))
+        # no warning
+        self.assertFalse(self.logger.get_lines_for_level('warning'))
+
+    def test_reconstruct_fa_finds_missing_frag_does_not_fail(self):
         # verify that reconstruction of a missing frag can cope with finding
         # that missing frag in the responses it gets from other nodes while
         # attempting to rebuild the missing frag
