@@ -35,7 +35,7 @@ from swift.common.utils import md5
 from keystonemiddleware.auth_token import AuthProtocol
 from keystoneauth1.access import AccessInfoV2
 
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import FakeSwift
 from test.unit.common.middleware.s3api.test_s3token import \

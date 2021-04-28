@@ -20,7 +20,7 @@ from swift.common.swob import Request, Response
 from swift.common.http import HTTP_FORBIDDEN
 from swift.common.utils import split_path
 from swift.proxy.controllers.base import get_cache_key
-from test.unit import FakeLogger
+from test.debug_logger import debug_logger
 
 UNKNOWN_ID = keystoneauth.UNKNOWN_ID
 
@@ -97,7 +97,7 @@ class FakeApp(object):
 class SwiftAuth(unittest.TestCase):
     def setUp(self):
         self.test_auth = keystoneauth.filter_factory({})(FakeApp())
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
 
     def _make_request(self, path=None, headers=None, **kwargs):
         if not path:
@@ -352,7 +352,7 @@ class SwiftAuthMultiple(SwiftAuth):
     def setUp(self):
         self.test_auth = keystoneauth.filter_factory(
             {'reseller_prefix': 'AUTH, PRE2'})(FakeApp())
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
 
 
 class ServiceTokenFunctionality(unittest.TestCase):
@@ -541,7 +541,7 @@ class ServiceTokenFunctionality(unittest.TestCase):
 class BaseTestAuthorize(unittest.TestCase):
     def setUp(self):
         self.test_auth = keystoneauth.filter_factory({})(FakeApp())
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
 
     def _make_request(self, path, **kwargs):
         return Request.blank(path, **kwargs)
@@ -929,7 +929,7 @@ class TestAuthorize(BaseTestAuthorizeCheck):
     def test_names_allowed_in_acls_inside_default_domain_with_config(self):
         conf = {'allow_names_in_acls': 'yes'}
         self.test_auth = keystoneauth.filter_factory(conf)(FakeApp())
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
         id = self._get_identity_for_v2(user_domain_id='default',
                                        project_domain_id='default')
         env = {'keystone.token_info': _fake_token_info(version='3')}
@@ -956,7 +956,7 @@ class TestAuthorize(BaseTestAuthorizeCheck):
     def test_names_disallowed_in_acls_inside_default_domain(self):
         conf = {'allow_names_in_acls': 'false'}
         self.test_auth = keystoneauth.filter_factory(conf)(FakeApp())
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
         id = self._get_identity_for_v2(user_domain_id='default',
                                        project_domain_id='default')
         env = {'keystone.token_info': _fake_token_info(version='3')}
@@ -1278,7 +1278,7 @@ class TestIsNameAllowedInACLWithConfiguredDomain(TestIsNameAllowedInACL):
         super(TestIsNameAllowedInACLWithConfiguredDomain, self).setUp()
         conf = {'default_domain_id': 'mydefault'}
         self.test_auth = keystoneauth.filter_factory(conf)(FakeApp())
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
         self.default_id = 'mydefault'
 
 
@@ -1303,7 +1303,7 @@ class TestSetProjectDomain(BaseTestAuthorize):
                                   project_domain_id=req_project_domain_id)
 
         # reset fake logger
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
         num_warnings = 0
 
         # check account requests
@@ -1519,7 +1519,7 @@ class TestAuthorizeReader(BaseTestAuthorizeCheck):
     def _setup(self, system_reader_roles):
         self.test_auth = keystoneauth.filter_factory(
             {}, system_reader_roles=system_reader_roles)(FakeApp())
-        self.test_auth.logger = FakeLogger()
+        self.test_auth.logger = debug_logger()
 
     # Zero test: make sure that reader role has no default access
     # when not in the list of system_reader_roles[].

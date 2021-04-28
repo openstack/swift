@@ -28,7 +28,7 @@ from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK, \
 from swift.common.swob import Request, HTTPException, HTTPOk, \
     HTTPPreconditionFailed, HTTPNotFound, HTTPPartialContent, bytes_to_wsgi
 
-from test.unit import FakeLogger
+from test.debug_logger import debug_logger
 from test.unit.common.middleware.crypto.crypto_helpers import md5hex, \
     fetch_crypto_keys, FAKE_IV, encrypt, fake_get_crypto_meta
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
@@ -52,7 +52,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def setUp(self):
         self.app = FakeSwift()
         self.decrypter = decrypter.Decrypter(self.app, {})
-        self.decrypter.logger = FakeLogger()
+        self.decrypter.logger = debug_logger()
 
     def _make_response_headers(self, content_length, plaintext_etag, keys,
                                body_key, key_id=None):
@@ -983,7 +983,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
     def setUp(self):
         self.app = FakeSwift()
         self.decrypter = decrypter.Decrypter(self.app, {})
-        self.decrypter.logger = FakeLogger()
+        self.decrypter.logger = debug_logger()
 
     def _make_cont_get_req(self, resp_body, format, override=False,
                            callback=fetch_crypto_keys):

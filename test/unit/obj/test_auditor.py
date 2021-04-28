@@ -27,9 +27,10 @@ from shutil import rmtree
 from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
+from test.debug_logger import debug_logger
 from test.unit import (
-    debug_logger, DEFAULT_TEST_EC_TYPE,
-    make_timestamp_iter, patch_policies, skip_if_no_xattrs)
+    DEFAULT_TEST_EC_TYPE, make_timestamp_iter, patch_policies,
+    skip_if_no_xattrs)
 from test.unit.obj.common import write_diskfile
 from swift.obj import auditor, replicator
 from swift.obj.watchers.dark_data import DarkDataWatcher

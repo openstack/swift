@@ -22,7 +22,8 @@ from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
-from test.unit import debug_logger, mock_check_drive
+from test.debug_logger import debug_logger
+from test.unit import mock_check_drive
 
 from eventlet import spawn, Timeout
 

@@ -28,7 +28,7 @@ from collections import defaultdict
 import errno
 
 from swift.common import daemon, utils
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 
 
 class MyDaemon(daemon.Daemon):

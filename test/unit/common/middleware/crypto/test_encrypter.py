@@ -30,7 +30,8 @@ from swift.common.swob import (
     wsgi_to_bytes, bytes_to_wsgi)
 from swift.common.utils import FileLikeIter
 
-from test.unit import FakeLogger, EMPTY_ETAG
+from test.debug_logger import debug_logger
+from test.unit import EMPTY_ETAG
 from test.unit.common.middleware.crypto.crypto_helpers import (
     fetch_crypto_keys, md5hex, FAKE_IV, encrypt)
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
@@ -42,7 +43,7 @@ class TestEncrypter(unittest.TestCase):
     def setUp(self):
         self.app = FakeSwift()
         self.encrypter = encrypter.Encrypter(self.app, {})
-        self.encrypter.logger = FakeLogger()
+        self.encrypter.logger = debug_logger()
 
     def _verify_user_metadata(self, req_hdrs, name, value, key):
         # verify encrypted version of user metadata

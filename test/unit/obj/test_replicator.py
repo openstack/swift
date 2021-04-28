@@ -30,8 +30,9 @@ from errno import ENOENT, ENOTEMPTY, ENOTDIR
 from eventlet.green import subprocess
 from eventlet import Timeout, sleep
 
-from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mocked_http_conn, mock_check_drive, skip_if_no_xattrs)
+from test.debug_logger import debug_logger
+from test.unit import (patch_policies, make_timestamp_iter, mocked_http_conn,
+                       mock_check_drive, skip_if_no_xattrs)
 from swift.common import utils
 from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
                                 storage_directory)

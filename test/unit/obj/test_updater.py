@@ -24,9 +24,9 @@ from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
 from test import listen_zero
+from test.debug_logger import debug_logger
 from test.unit import (
-    make_timestamp_iter, debug_logger, patch_policies, mocked_http_conn,
-    FakeLogger)
+    make_timestamp_iter, patch_policies, mocked_http_conn)
 from time import time
 from distutils.dir_util import mkpath
 
@@ -289,7 +289,7 @@ class TestObjectUpdater(unittest.TestCase):
                 self.stats.successes += 1
                 self.stats.unlinks += 1
 
-        logger = FakeLogger()
+        logger = debug_logger()
         ou = MockObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -359,7 +359,7 @@ class TestObjectUpdater(unittest.TestCase):
                 self.stats.successes += 1
                 self.stats.unlinks += 1
 
-        logger = FakeLogger()
+        logger = debug_logger()
         ou = MockObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',

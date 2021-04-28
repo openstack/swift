@@ -30,8 +30,8 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 
-from test.unit import with_tempdir, write_fake_ring, patch_policies, \
-    debug_logger
+from test.debug_logger import debug_logger
+from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift, LeakTrackingIter
 
 if six.PY3:

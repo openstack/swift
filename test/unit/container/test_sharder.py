@@ -47,9 +47,9 @@ from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
 
-from test.unit import debug_logger, FakeRing, \
-    make_timestamp_iter, unlink_files, mocked_http_conn, mock_timestamp_now, \
-    attach_fake_replication_rpc
+from test.debug_logger import debug_logger
+from test.unit import FakeRing, make_timestamp_iter, unlink_files, \
+    mocked_http_conn, mock_timestamp_now, attach_fake_replication_rpc
 
 
 class BaseTestSharder(unittest.TestCase):

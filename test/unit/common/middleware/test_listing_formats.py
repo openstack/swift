@@ -19,7 +19,7 @@ import unittest
 from swift.common.swob import Request, HTTPOk, HTTPNoContent
 from swift.common.middleware import listing_formats
 from swift.common.request_helpers import get_reserved_name
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
 
 

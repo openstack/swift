@@ -35,8 +35,9 @@ from swift.obj import ssync_receiver, ssync_sender
 from swift.obj.reconstructor import ObjectReconstructor
 
 from test import listen_zero, unit
-from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mock_check_drive, skip_if_no_xattrs)
+from test.debug_logger import debug_logger
+from test.unit import (patch_policies, make_timestamp_iter, mock_check_drive,
+                       skip_if_no_xattrs)
 from test.unit.obj.common import write_diskfile
 
 

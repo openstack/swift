@@ -19,7 +19,7 @@ import eventlet
 import mock
 from contextlib import contextmanager
 
-from test.unit import FakeLogger
+from test.debug_logger import debug_logger
 from swift.common.middleware import ratelimit
 from swift.proxy.controllers.base import get_cache_key, \
     headers_to_container_info
@@ -147,7 +147,7 @@ class TestRateLimit(unittest.TestCase):
                      'container_ratelimit_50': 100,
                      'container_ratelimit_75': 30}
         test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        test_ratelimit.logger = FakeLogger()
+        test_ratelimit.logger = debug_logger()
         self.assertIsNone(ratelimit.get_maxrate(
             test_ratelimit.container_ratelimits, 0))
         self.assertIsNone(ratelimit.get_maxrate(
@@ -319,7 +319,7 @@ class TestRateLimit(unittest.TestCase):
                      'account_whitelist': 'a',
                      'account_blacklist': 'b'}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        self.test_ratelimit.logger = FakeLogger()
+        self.test_ratelimit.logger = debug_logger()
         self.test_ratelimit.BLACK_LIST_SLEEP = 0
         req = Request.blank('/v1/b/c')
         req.environ['swift.cache'] = FakeMemcache()

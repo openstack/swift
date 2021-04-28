@@ -24,7 +24,8 @@ from swift.common.request_helpers import is_user_meta, \
 from swift.common.swob import HTTPNotImplemented
 from swift.common.utils import split_path, md5
 
-from test.unit import FakeLogger, FakeRing
+from test.debug_logger import debug_logger
+from test.unit import FakeRing
 
 
 class LeakTrackingIter(object):
@@ -88,7 +89,7 @@ class FakeSwift(object):
         self.uploaded = {}
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
-        self.logger = FakeLogger('fake-swift')
+        self.logger = debug_logger('fake-swift')
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
         self.get_object_ring = lambda policy_index: FakeRing()

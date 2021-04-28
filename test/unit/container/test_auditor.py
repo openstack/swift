@@ -19,7 +19,8 @@ import os
 
 from swift.common.utils import normalize_timestamp
 from swift.container import auditor
-from test.unit import debug_logger, with_tempdir
+from test.debug_logger import debug_logger
+from test.unit import with_tempdir
 from test.unit.container import test_backend
 
 

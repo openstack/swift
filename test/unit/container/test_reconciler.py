@@ -35,7 +35,8 @@ from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import split_path, Timestamp, encode_timestamps
 
-from test.unit import debug_logger, FakeRing, fake_http_connect
+from test.debug_logger import debug_logger
+from test.unit import FakeRing, fake_http_connect
 from test.unit.common.middleware import helpers
 
 

@@ -26,7 +26,7 @@ from swift.common.middleware import container_sync
 from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.info import InfoController
 
-from test.unit import FakeLogger
+from test.debug_logger import debug_logger
 
 
 class FakeApp(object):
@@ -90,7 +90,7 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_current_invalid(self):
         self.conf = {'swift_dir': self.tempdir, 'current': 'foo'}
         self.sync = container_sync.ContainerSync(self.app, self.conf,
-                                                 logger=FakeLogger())
+                                                 logger=debug_logger())
         self.assertIsNone(self.sync.realm)
         self.assertIsNone(self.sync.cluster)
         info = {}
@@ -136,7 +136,7 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_missing_from_realms_conf(self):
         self.conf = {'swift_dir': self.tempdir, 'current': 'foo/bar'}
         self.sync = container_sync.ContainerSync(self.app, self.conf,
-                                                 logger=FakeLogger())
+                                                 logger=debug_logger())
         self.assertEqual('FOO', self.sync.realm)
         self.assertEqual('BAR', self.sync.cluster)
         info = {}

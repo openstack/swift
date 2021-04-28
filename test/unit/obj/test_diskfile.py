@@ -40,10 +40,10 @@ import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool
 from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
+from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
-                       patch_policies, debug_logger, EMPTY_ETAG,
-                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
-                       requires_o_tmpfile_support_in_tmp,
+                       patch_policies, EMPTY_ETAG, make_timestamp_iter,
+                       DEFAULT_TEST_EC_TYPE, requires_o_tmpfile_support_in_tmp,
                        encode_frag_archive_bodies, skip_if_no_xattrs)
 from swift.obj import diskfile
 from swift.common import utils

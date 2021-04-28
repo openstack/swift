@@ -18,7 +18,7 @@ import unittest
 
 from swift.common.middleware import read_only
 from swift.common.swob import Request
-from test.unit import FakeLogger
+from test.debug_logger import debug_logger
 
 
 class FakeApp(object):
@@ -43,7 +43,7 @@ class TestReadOnly(unittest.TestCase):
         }
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={}):
@@ -59,7 +59,7 @@ class TestReadOnly(unittest.TestCase):
         }
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={}):
@@ -79,7 +79,7 @@ class TestReadOnly(unittest.TestCase):
         conf = {}
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'true'}}):
@@ -99,7 +99,7 @@ class TestReadOnly(unittest.TestCase):
         conf = {}
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'false'}}):
@@ -115,7 +115,7 @@ class TestReadOnly(unittest.TestCase):
         }
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'false'}}):
@@ -132,7 +132,7 @@ class TestReadOnly(unittest.TestCase):
         }
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={}):
@@ -147,7 +147,7 @@ class TestReadOnly(unittest.TestCase):
         }
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'on'}}):
@@ -162,7 +162,7 @@ class TestReadOnly(unittest.TestCase):
         }
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         def get_fake_read_only(*args, **kwargs):
             if 'b' in args:
@@ -181,7 +181,7 @@ class TestReadOnly(unittest.TestCase):
         conf = {}
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         def get_fake_read_only(*args, **kwargs):
             if 'b' in args:
@@ -200,7 +200,7 @@ class TestReadOnly(unittest.TestCase):
         conf = {}
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         def fake_account_read_only(self, req, account):
             if account == 'a':
@@ -221,7 +221,7 @@ class TestReadOnly(unittest.TestCase):
         conf = {}
 
         ro = read_only.filter_factory(conf)(FakeApp())
-        ro.logger = FakeLogger()
+        ro.logger = debug_logger()
 
         with mock.patch(
                 'swift.common.middleware.read_only.ReadOnlyMiddleware.' +

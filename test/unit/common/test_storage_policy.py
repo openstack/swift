@@ -22,8 +22,9 @@ from functools import partial
 
 from six.moves.configparser import ConfigParser
 from tempfile import NamedTemporaryFile
+from test.debug_logger import debug_logger
 from test.unit import (
-    patch_policies, FakeRing, temptree, DEFAULT_TEST_EC_TYPE, FakeLogger)
+    patch_policies, FakeRing, temptree, DEFAULT_TEST_EC_TYPE)
 import swift.common.storage_policy
 from swift.common.storage_policy import (
     StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
@@ -1495,11 +1496,11 @@ class TestStoragePolicies(unittest.TestCase):
         policy = StoragePolicy(0, name='zero', is_default=True,
                                diskfile_module='replication.fs')
 
-        dfm = policy.get_diskfile_manager({'devices': 'sdb1'}, FakeLogger())
+        dfm = policy.get_diskfile_manager({'devices': 'sdb1'}, debug_logger())
         self.assertEqual('sdb1', dfm.devices)
-        dfm = policy.get_diskfile_manager({'devices': 'sdb2'}, FakeLogger())
+        dfm = policy.get_diskfile_manager({'devices': 'sdb2'}, debug_logger())
         self.assertEqual('sdb2', dfm.devices)
-        dfm2 = policy.get_diskfile_manager({'devices': 'sdb2'}, FakeLogger())
+        dfm2 = policy.get_diskfile_manager({'devices': 'sdb2'}, debug_logger())
         self.assertEqual('sdb2', dfm2.devices)
         self.assertIsNot(dfm, dfm2)
 

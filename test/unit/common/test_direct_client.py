@@ -33,7 +33,8 @@ from swift.common.swob import RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
 from six.moves.http_client import HTTPException
 
-from test.unit import patch_policies, debug_logger
+from test.debug_logger import debug_logger
+from test.unit import patch_policies
 
 
 class FakeConn(object):

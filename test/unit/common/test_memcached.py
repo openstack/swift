@@ -35,7 +35,7 @@ from eventlet.pools import Pool
 from swift.common import memcached
 from swift.common.utils import md5
 from mock import patch, MagicMock
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 
 
 class MockedMemcachePool(memcached.MemcacheConnPool):
