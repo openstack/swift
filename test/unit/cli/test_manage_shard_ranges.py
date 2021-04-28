@@ -20,6 +20,7 @@ import mock
 from shutil import rmtree
 from tempfile import mkdtemp
 
+import six
 from six.moves import cStringIO as StringIO
 
 from swift.cli.manage_shard_ranges import main
@@ -146,8 +147,10 @@ class TestManageShardRanges(unittest.TestCase):
             fd.write(dedent(conf))
 
         # default values
-        with mock.patch('swift.cli.manage_shard_ranges.find_ranges') as mocked:
-            main([db_file, 'find'])
+        with mock.patch('swift.cli.manage_shard_ranges.find_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, 'find'])
+        self.assertEqual(0, ret)
         expected = Namespace(conf_file=None,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
@@ -158,8 +161,10 @@ class TestManageShardRanges(unittest.TestCase):
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # conf file
-        with mock.patch('swift.cli.manage_shard_ranges.find_ranges') as mocked:
-            main([db_file, '--config', conf_file, 'find'])
+        with mock.patch('swift.cli.manage_shard_ranges.find_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, '--config', conf_file, 'find'])
+        self.assertEqual(0, ret)
         expected = Namespace(conf_file=conf_file,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
@@ -170,8 +175,10 @@ class TestManageShardRanges(unittest.TestCase):
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # cli options override conf file
-        with mock.patch('swift.cli.manage_shard_ranges.find_ranges') as mocked:
-            main([db_file, '--config', conf_file, 'find', '12345'])
+        with mock.patch('swift.cli.manage_shard_ranges.find_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, '--config', conf_file, 'find', '12345'])
+        self.assertEqual(0, ret)
         expected = Namespace(conf_file=conf_file,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
@@ -182,9 +189,10 @@ class TestManageShardRanges(unittest.TestCase):
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # default values
-        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges') \
-                as mocked:
-            main([db_file, 'compact'])
+        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, 'compact'])
+        self.assertEqual(0, ret)
         expected = Namespace(conf_file=None,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
@@ -199,9 +207,10 @@ class TestManageShardRanges(unittest.TestCase):
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # conf file
-        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges') \
-                as mocked:
-            main([db_file, '--config', conf_file, 'compact'])
+        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, '--config', conf_file, 'compact'])
+        self.assertEqual(0, ret)
         expected = Namespace(conf_file=conf_file,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
@@ -230,9 +239,10 @@ class TestManageShardRanges(unittest.TestCase):
         with open(conf_file, 'w') as fd:
             fd.write(dedent(conf))
 
-        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges') \
-                as mocked:
-            main([db_file, '--config', conf_file, 'compact'])
+        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, '--config', conf_file, 'compact'])
+        self.assertEqual(0, ret)
         expected = Namespace(conf_file=conf_file,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
@@ -247,13 +257,14 @@ class TestManageShardRanges(unittest.TestCase):
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # cli options
-        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges') \
-                as mocked:
-            main([db_file, '--config', conf_file, 'compact',
-                  '--max-shrinking', '22',
-                  '--max-expanding', '11',
-                  '--expansion-limit', '3456',
-                  '--shrink-threshold', '1234'])
+        with mock.patch('swift.cli.manage_shard_ranges.compact_shard_ranges',
+                        return_value=0) as mocked:
+            ret = main([db_file, '--config', conf_file, 'compact',
+                        '--max-shrinking', '22',
+                        '--max-expanding', '11',
+                        '--expansion-limit', '3456',
+                        '--shrink-threshold', '1234'])
+        self.assertEqual(0, ret)
         expected = Namespace(conf_file=conf_file,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
@@ -283,16 +294,18 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, '--config', conf_file, 'compact'])
+            ret = main([db_file, '--config', conf_file, 'compact'])
+        self.assertEqual(2, ret)
         err_lines = err.getvalue().split('\n')
-        self.assert_starts_with(err_lines[0], 'Error opening config file')
+        self.assert_starts_with(err_lines[0], 'Error loading config file')
 
         # conf file - cannot open conf file
         conf_file = os.path.join(self.testdir, 'missing_sharder.conf')
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, '--config', conf_file, 'compact'])
+            ret = main([db_file, '--config', conf_file, 'compact'])
+        self.assertEqual(1, ret)
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Error opening config file')
 
@@ -314,7 +327,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, 'find'])
+            ret = main([db_file, 'find'])
+        self.assertEqual(0, ret)
         self.assert_formatted_json(out.getvalue(), [])
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
@@ -323,7 +337,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, 'find', '100'])
+            ret = main([db_file, 'find', '100'])
+        self.assertEqual(0, ret)
         self.assert_formatted_json(out.getvalue(), [])
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
@@ -332,7 +347,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, 'find', '99'])
+            ret = main([db_file, 'find', '99'])
+        self.assertEqual(0, ret)
         self.assert_formatted_json(out.getvalue(), [
             {'index': 0, 'lower': '', 'upper': 'obj98', 'object_count': 99},
             {'index': 1, 'lower': 'obj98', 'upper': '', 'object_count': 1},
@@ -344,7 +360,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, 'find', '10'])
+            ret = main([db_file, 'find', '10'])
+        self.assertEqual(0, ret)
         self.assert_formatted_json(out.getvalue(), [
             {'index': 0, 'lower': '', 'upper': 'obj09', 'object_count': 10},
             {'index': 1, 'lower': 'obj09', 'upper': 'obj19',
@@ -376,7 +393,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([broker.db_file, 'info'])
+            ret = main([broker.db_file, 'info'])
+        self.assertEqual(0, ret)
         expected = ['Sharding enabled = True',
                     'Own shard range: None',
                     'db_state = unsharded',
@@ -396,7 +414,8 @@ class TestManageShardRanges(unittest.TestCase):
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             with mock_timestamp_now(now):
-                main([broker.db_file, 'info'])
+                ret = main([broker.db_file, 'info'])
+        self.assertEqual(0, ret)
         expected = ['Sharding enabled = True',
                     'Own shard range: {',
                     '  "bytes_used": 0,',
@@ -438,7 +457,8 @@ class TestManageShardRanges(unittest.TestCase):
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             with mock_timestamp_now(now):
-                main([broker.db_file, 'info'])
+                ret = main([broker.db_file, 'info'])
+        self.assertEqual(0, ret)
         expected = ['Sharding enabled = True',
                     'Own shard range: {',
                     '  "bytes_used": 0,',
@@ -467,7 +487,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([broker.db_file, 'show'])
+            ret = main([broker.db_file, 'show'])
+        self.assertEqual(0, ret)
         expected = [
             'Loaded db broker for a/c',
             'No shard data found.',
@@ -484,7 +505,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([broker.db_file, 'show'])
+            ret = main([broker.db_file, 'show'])
+        self.assertEqual(0, ret)
         expected = [
             'Loaded db broker for a/c',
             'Existing shard ranges:',
@@ -495,7 +517,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([broker.db_file, 'show', '--includes', 'foo'])
+            ret = main([broker.db_file, 'show', '--includes', 'foo'])
+        self.assertEqual(0, ret)
         expected = [
             'Loaded db broker for a/c',
             'Existing shard ranges:',
@@ -513,7 +536,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([broker.db_file, 'replace', input_file])
+            ret = main([broker.db_file, 'replace', input_file])
+        self.assertEqual(0, ret)
         expected = [
             'No shard ranges found to delete.',
             'Injected 10 shard ranges.',
@@ -534,7 +558,8 @@ class TestManageShardRanges(unittest.TestCase):
         stdin.seek(0)
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
                 mock.patch('sys.stdin', stdin):
-            main(['-', 'analyze'])
+            ret = main(['-', 'analyze'])
+        self.assertEqual(1, ret)
         expected = [
             'Found no complete sequence of shard ranges.',
             'Repairs necessary to fill gaps.',
@@ -556,7 +581,8 @@ class TestManageShardRanges(unittest.TestCase):
         stdin.seek(0)
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
                 mock.patch('sys.stdin', stdin):
-            main(['-', 'analyze'])
+            ret = main(['-', 'analyze'])
+        self.assertEqual(0, ret)
         expected = [
             'Found one complete sequence of 10 shard ranges '
             'and no overlapping shard ranges.',
@@ -585,7 +611,8 @@ class TestManageShardRanges(unittest.TestCase):
         stdin.seek(0)
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
                 mock.patch('sys.stdin', stdin):
-            main(['-', 'analyze'])
+            ret = main(['-', 'analyze'])
+        self.assertEqual(0, ret)
         expected = [
             'Repairs necessary to remove overlapping shard ranges.',
             'Chosen a complete sequence of 10 shard ranges with '
@@ -613,9 +640,10 @@ class TestManageShardRanges(unittest.TestCase):
         # no shard ranges
         out = StringIO()
         err = StringIO()
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit) as cm:
             with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
                 main([broker.db_file, 'enable'])
+        self.assertEqual(1, cm.exception.code)
         expected = ["WARNING: invalid shard ranges: ['No shard ranges.'].",
                     'Aborting.']
         self.assertEqual(expected, out.getvalue().splitlines())
@@ -635,7 +663,8 @@ class TestManageShardRanges(unittest.TestCase):
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             with mock_timestamp_now() as now:
-                main([broker.db_file, 'enable'])
+                ret = main([broker.db_file, 'enable'])
+        self.assertEqual(0, ret)
         expected = [
             "Container moved to state 'sharding' with epoch %s." %
             now.internal,
@@ -649,7 +678,8 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([broker.db_file, 'enable'])
+            ret = main([broker.db_file, 'enable'])
+        self.assertEqual(0, ret)
         expected = [
             "Container already in state 'sharding' with epoch %s." %
             now.internal,
@@ -677,7 +707,9 @@ class TestManageShardRanges(unittest.TestCase):
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             with mock_timestamp_now() as now:
-                main([broker.db_file, 'find_and_replace', '10', '--enable'])
+                ret = main([broker.db_file, 'find_and_replace', '10',
+                            '--enable'])
+        self.assertEqual(0, ret)
         expected = [
             'No shard ranges found to delete.',
             'Injected 10 shard ranges.',
@@ -700,9 +732,9 @@ class TestManageShardRanges(unittest.TestCase):
         err = StringIO()
         to_patch = 'swift.cli.manage_shard_ranges.input'
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
-                mock_timestamp_now() as now, \
-                mock.patch(to_patch, return_value='q'):
-            main([broker.db_file, 'find_and_replace', '10'])
+                mock_timestamp_now(), mock.patch(to_patch, return_value='q'):
+            ret = main([broker.db_file, 'find_and_replace', '10'])
+        self.assertEqual(3, ret)
         # Shard ranges haven't changed at all
         self.assertEqual(found_shard_ranges, broker.get_shard_ranges())
         expected = ['This will delete existing 10 shard ranges.']
@@ -715,14 +747,18 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(SystemExit) as cm:
                 main([broker.db_file, 'compact', '--shrink-threshold', '0'])
-            with self.assertRaises(SystemExit):
+            self.assertEqual(2, cm.exception.code)
+            with self.assertRaises(SystemExit) as cm:
                 main([broker.db_file, 'compact', '--expansion-limit', '0'])
-            with self.assertRaises(SystemExit):
+            self.assertEqual(2, cm.exception.code)
+            with self.assertRaises(SystemExit) as cm:
                 main([broker.db_file, 'compact', '--max-shrinking', '0'])
-            with self.assertRaises(SystemExit):
+            self.assertEqual(2, cm.exception.code)
+            with self.assertRaises(SystemExit) as cm:
                 main([broker.db_file, 'compact', '--max-expanding', '0'])
+            self.assertEqual(2, cm.exception.code)
 
     def test_compact_not_root(self):
         broker = self._make_broker()
@@ -735,7 +771,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertFalse(broker.is_root_container())
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             ret = main([broker.db_file, 'compact'])
-        self.assertEqual(2, ret)
+        self.assertEqual(1, ret)
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
         out_lines = out.getvalue().split('\n')
@@ -760,7 +796,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertTrue(broker.is_root_container())
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             ret = main([broker.db_file, 'compact'])
-        self.assertEqual(2, ret)
+        self.assertEqual(1, ret)
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
         out_lines = out.getvalue().split('\n')
@@ -786,7 +822,7 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             ret = main([broker.db_file,
                         'compact', '--yes', '--max-expanding', '10'])
-        self.assertEqual(2, ret)
+        self.assertEqual(1, ret)
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
         out_lines = out.getvalue().split('\n')
@@ -831,7 +867,7 @@ class TestManageShardRanges(unittest.TestCase):
         broker.merge_shard_ranges(shard_ranges)
         self._move_broker_to_sharded_state(broker)
 
-        def do_compact(user_input):
+        def do_compact(user_input, exit_code):
             out = StringIO()
             err = StringIO()
             with mock.patch('sys.stdout', out),\
@@ -840,7 +876,7 @@ class TestManageShardRanges(unittest.TestCase):
                                return_value=user_input):
                 ret = main([broker.db_file, 'compact',
                             '--max-shrinking', '99'])
-            self.assertEqual(0, ret)
+            self.assertEqual(exit_code, ret)
             err_lines = err.getvalue().split('\n')
             self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
             out_lines = out.getvalue().split('\n')
@@ -883,13 +919,13 @@ class TestManageShardRanges(unittest.TestCase):
             self.assertEqual(expected, [l.split('/', 1)[0] for l in out_lines])
             return broker.get_shard_ranges()
 
-        broker_ranges = do_compact('n')
+        broker_ranges = do_compact('n', 3)
         # expect no changes to shard ranges
         self.assertEqual(shard_ranges, broker_ranges)
         for i, sr in enumerate(broker_ranges):
             self.assertEqual(ShardRange.ACTIVE, sr.state)
 
-        broker_ranges = do_compact('yes')
+        broker_ranges = do_compact('yes', 0)
         # expect updated shard ranges
         shard_ranges[5].lower = shard_ranges[3].lower
         shard_ranges[8].lower = shard_ranges[7].lower
@@ -1359,7 +1395,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertFalse(broker.is_root_container())
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             ret = main([broker.db_file, 'repair'])
-        self.assertEqual(2, ret)
+        self.assertEqual(1, ret)
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
         out_lines = out.getvalue().split('\n')
@@ -1513,7 +1549,7 @@ class TestManageShardRanges(unittest.TestCase):
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_2)
         self.assertTrue(broker.is_root_container())
 
-        def do_repair(user_input, ts_now):
+        def do_repair(user_input, ts_now, exit_code):
             out = StringIO()
             err = StringIO()
             with mock.patch('sys.stdout', out), \
@@ -1522,7 +1558,7 @@ class TestManageShardRanges(unittest.TestCase):
                     mock.patch('swift.cli.manage_shard_ranges.input',
                                return_value=user_input):
                 ret = main([broker.db_file, 'repair'])
-            self.assertEqual(0, ret)
+            self.assertEqual(exit_code, ret)
             err_lines = err.getvalue().split('\n')
             self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
             out_lines = out.getvalue().split('\n')
@@ -1532,7 +1568,7 @@ class TestManageShardRanges(unittest.TestCase):
 
         # user input 'n'
         ts_now = next(self.ts_iter)
-        do_repair('n', ts_now)
+        do_repair('n', ts_now, 3)
         updated_ranges = broker.get_shard_ranges()
         expected = sorted(
             shard_ranges + overlap_shard_ranges_2,
@@ -1541,7 +1577,7 @@ class TestManageShardRanges(unittest.TestCase):
 
         # user input 'yes'
         ts_now = next(self.ts_iter)
-        do_repair('yes', ts_now)
+        do_repair('yes', ts_now, 0)
         updated_ranges = broker.get_shard_ranges()
         for sr in overlap_shard_ranges_2:
             sr.update_state(ShardRange.SHRINKING, ts_now)
@@ -1686,3 +1722,20 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual('', err.getvalue())
         new_out_lines = out.getvalue().split('\n')
         self.assertEqual(out_lines, new_out_lines)
+
+    def test_subcommand_required(self):
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err):
+            if six.PY2:
+                with self.assertRaises(SystemExit) as cm:
+                    main(['db file'])
+                err_lines = err.getvalue().split('\n')
+                self.assertIn('too few arguments', ' '.join(err_lines))
+                self.assertEqual(2, cm.exception.code)
+            else:
+                ret = main(['db file'])
+                self.assertEqual(2, ret)
+                err_lines = err.getvalue().split('\n')
+                self.assertIn('A sub-command is required.', err_lines)
