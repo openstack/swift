@@ -18,6 +18,7 @@ from __future__ import print_function
 
 import hashlib
 
+from test import annotate_failure
 from test.debug_logger import debug_logger
 from test.unit import temptree, make_timestamp_iter, with_tempdir, \
     mock_timestamp_now, FakeIterable
@@ -3155,6 +3156,27 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertIn('Config option must be a number, greater than 0, '
                           'less than 100, not "{}"'.format(val),
                           cm.exception.args[0])
+
+    def test_config_request_node_count_value(self):
+        def do_test(value, replicas, expected):
+            self.assertEqual(
+                expected,
+                utils.config_request_node_count_value(value)(replicas))
+
+        do_test('0', 10, 0)
+        do_test('1 * replicas', 3, 3)
+        do_test('1 * replicas', 11, 11)
+        do_test('2 * replicas', 3, 6)
+        do_test('2 * replicas', 11, 22)
+        do_test('11', 11, 11)
+        do_test('10', 11, 10)
+        do_test('12', 11, 12)
+
+        for bad in ('1.1', 1.1, 'auto', 'bad',
+                    '2.5 * replicas', 'two * replicas'):
+            with annotate_failure(bad):
+                with self.assertRaises(ValueError):
+                    utils.config_request_node_count_value(bad)
 
     def test_config_auto_int_value(self):
         expectations = {

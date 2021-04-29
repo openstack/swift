@@ -13,7 +13,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import itertools
 from contextlib import contextmanager
 import unittest
 import uuid
@@ -22,7 +22,9 @@ import time
 import six
 
 from swift.common.direct_client import DirectClientException
+from swift.common.manager import Manager
 from swift.common.utils import md5
+from swift.obj.reconstructor import ObjectReconstructor
 from test.probe.common import ECProbeTest
 
 from swift.common import direct_client
@@ -368,6 +370,160 @@ class TestReconstructorRebuild(ECProbeTest):
                 self.object_name, headers={
                     'X-Backend-Storage-Policy-Index': int(self.policy)})
             self.assertNotIn('X-Delete-At', headers)
+
+    def test_rebuild_quarantines_lonely_frag(self):
+        # fail one device while the object is deleted so we are left with one
+        # fragment and some tombstones
+        failed_node = self.onodes[0]
+        device_path = self.device_dir(failed_node)
+        self.kill_drive(device_path)
+        self.assert_direct_get_fails(failed_node, self.opart, 507)  # sanity
+
+        # delete object
+        client.delete_object(self.url, self.token, self.container_name,
+                             self.object_name)
+
+        # check we have tombstones
+        for node in self.onodes[1:]:
+            err = self.assert_direct_get_fails(node, self.opart, 404)
+            self.assertIn('X-Backend-Timestamp', err.http_headers)
+
+        # run the reconstructor with zero reclaim age to clean up tombstones
+        for conf_index in self.configs['object-reconstructor'].keys():
+            self.run_custom_daemon(
+                ObjectReconstructor, 'object-reconstructor', conf_index,
+                {'reclaim_age': '0'})
+
+        # check we no longer have tombstones
+        for node in self.onodes[1:]:
+            err = self.assert_direct_get_fails(node, self.opart, 404)
+            self.assertNotIn('X-Timestamp', err.http_headers)
+
+        # revive the failed device and check it has a fragment
+        self.revive_drive(device_path)
+        self.assert_direct_get_succeeds(failed_node, self.opart)
+
+        # restart proxy to clear error-limiting so that the revived drive
+        # participates again
+        Manager(['proxy-server']).restart()
+
+        # client GET will fail with 503 ...
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(self.url, self.token, self.container_name,
+                              self.object_name)
+        self.assertEqual(503, cm.exception.http_status)
+        # ... but client GET succeeds
+        headers = client.head_object(self.url, self.token, self.container_name,
+                                     self.object_name)
+        for key in self.headers_post:
+            self.assertIn(key, headers)
+            self.assertEqual(self.headers_post[key], headers[key])
+
+        # run the reconstructor without quarantine_threshold set
+        error_lines = []
+        warning_lines = []
+        for conf_index in self.configs['object-reconstructor'].keys():
+            reconstructor = self.run_custom_daemon(
+                ObjectReconstructor, 'object-reconstructor', conf_index,
+                {'reclaim_age': '0'})
+            logger = reconstructor.logger.logger
+            error_lines.append(logger.get_lines_for_level('error'))
+            warning_lines.append(logger.get_lines_for_level('warning'))
+
+        # check logs for errors
+        found_lines = False
+        for lines in error_lines:
+            if not lines:
+                continue
+            self.assertFalse(found_lines, error_lines)
+            found_lines = True
+            for line in itertools.islice(lines, 0, 6, 2):
+                self.assertIn(
+                    'Unable to get enough responses (1/4 from 1 ok '
+                    'responses)', line, lines)
+            for line in itertools.islice(lines, 1, 7, 2):
+                self.assertIn(
+                    'Unable to get enough responses (4 x 404 error '
+                    'responses)', line, lines)
+        self.assertTrue(found_lines, 'error lines not found')
+
+        for lines in warning_lines:
+            self.assertEqual([], lines)
+
+        # check we have still have a single fragment and no tombstones
+        self.assert_direct_get_succeeds(failed_node, self.opart)
+        for node in self.onodes[1:]:
+            err = self.assert_direct_get_fails(node, self.opart, 404)
+            self.assertNotIn('X-Timestamp', err.http_headers)
+
+        # run the reconstructor to quarantine the lonely frag
+        error_lines = []
+        warning_lines = []
+        for conf_index in self.configs['object-reconstructor'].keys():
+            reconstructor = self.run_custom_daemon(
+                ObjectReconstructor, 'object-reconstructor', conf_index,
+                {'reclaim_age': '0', 'quarantine_threshold': '1'})
+            logger = reconstructor.logger.logger
+            error_lines.append(logger.get_lines_for_level('error'))
+            warning_lines.append(logger.get_lines_for_level('warning'))
+
+        # check logs for errors
+        found_lines = False
+        for index, lines in enumerate(error_lines):
+            if not lines:
+                continue
+            self.assertFalse(found_lines, error_lines)
+            found_lines = True
+            for line in itertools.islice(lines, 0, 6, 2):
+                self.assertIn(
+                    'Unable to get enough responses (1/4 from 1 ok '
+                    'responses)', line, lines)
+            for line in itertools.islice(lines, 1, 7, 2):
+                self.assertIn(
+                    'Unable to get enough responses (6 x 404 error '
+                    'responses)', line, lines)
+        self.assertTrue(found_lines, 'error lines not found')
+
+        # check logs for quarantine warning
+        found_lines = False
+        for lines in warning_lines:
+            if not lines:
+                continue
+            self.assertFalse(found_lines, warning_lines)
+            found_lines = True
+            self.assertEqual(1, len(lines), lines)
+            self.assertIn('Quarantined object', lines[0])
+        self.assertTrue(found_lines, 'warning lines not found')
+
+        # check we have nothing
+        for node in self.onodes:
+            err = self.assert_direct_get_fails(node, self.opart, 404)
+            self.assertNotIn('X-Backend-Timestamp', err.http_headers)
+        # client HEAD and GET now both 404
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(self.url, self.token, self.container_name,
+                              self.object_name)
+        self.assertEqual(404, cm.exception.http_status)
+        with self.assertRaises(ClientException) as cm:
+            client.head_object(self.url, self.token, self.container_name,
+                               self.object_name)
+        self.assertEqual(404, cm.exception.http_status)
+
+        # run the reconstructor once more - should see no errors in logs!
+        error_lines = []
+        warning_lines = []
+        for conf_index in self.configs['object-reconstructor'].keys():
+            reconstructor = self.run_custom_daemon(
+                ObjectReconstructor, 'object-reconstructor', conf_index,
+                {'reclaim_age': '0', 'quarantine_threshold': '1'})
+            logger = reconstructor.logger.logger
+            error_lines.append(logger.get_lines_for_level('error'))
+            warning_lines.append(logger.get_lines_for_level('warning'))
+
+        for lines in error_lines:
+            self.assertEqual([], lines)
+        for lines in warning_lines:
+            self.assertEqual([], lines)
 
 
 if six.PY2:

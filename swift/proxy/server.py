@@ -35,7 +35,8 @@ from swift.common.ring import Ring
 from swift.common.utils import Watchdog, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
-    register_swift_info, parse_prefixed_conf, config_auto_int_value
+    register_swift_info, parse_prefixed_conf, config_auto_int_value, \
+    config_request_node_count_value
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
@@ -279,16 +280,8 @@ class Application(object):
             conf.get('strict_cors_mode', 't'))
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
-        value = conf.get('request_node_count', '2 * replicas').lower().split()
-        if len(value) == 1:
-            rnc_value = int(value[0])
-            self.request_node_count = lambda replicas: rnc_value
-        elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
-            rnc_value = int(value[0])
-            self.request_node_count = lambda replicas: rnc_value * replicas
-        else:
-            raise ValueError(
-                'Invalid request_node_count value: %r' % ''.join(value))
+        value = conf.get('request_node_count', '2 * replicas')
+        self.request_node_count = config_request_node_count_value(value)
         # swift_owner_headers are stripped by the account and container
         # controllers; we should extend header stripping to object controller
         # when a privileged object header is implemented.

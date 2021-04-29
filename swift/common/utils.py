@@ -515,6 +515,23 @@ def config_percent_value(value):
         raise ValueError("%s: %s" % (str(err), value))
 
 
+def config_request_node_count_value(value):
+    try:
+        value_parts = value.lower().split()
+        rnc_value = int(value_parts[0])
+    except (ValueError, AttributeError):
+        pass
+    else:
+        if len(value_parts) == 1:
+            return lambda replicas: rnc_value
+        elif (len(value_parts) == 3 and
+              value_parts[1] == '*' and
+              value_parts[2] == 'replicas'):
+            return lambda replicas: rnc_value * replicas
+    raise ValueError(
+        'Invalid request_node_count value: %r' % value)
+
+
 def append_underscore(prefix):
     if prefix and not prefix.endswith('_'):
         prefix += '_'

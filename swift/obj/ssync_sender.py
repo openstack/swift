@@ -374,7 +374,7 @@ class Sender(object):
                     # from the data file only.
                     df_alt = self.job.get(
                         'sync_diskfile_builder', lambda *args: df)(
-                            self.job, self.node, df.get_datafile_metadata())
+                            self.job, self.node, df)
                     self.send_put(connection, url_path, df_alt,
                                   durable=is_durable)
                 if want.get('meta') and df.data_timestamp != df.timestamp:

@@ -4699,10 +4699,30 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 503)
 
     def test_node_request_setting(self):
-        baseapp = proxy_server.Application({'request_node_count': '3'},
+        # default is 2 * replicas
+        baseapp = proxy_server.Application({},
                                            container_ring=FakeRing(),
                                            account_ring=FakeRing())
-        self.assertEqual(baseapp.request_node_count(3), 3)
+        self.assertEqual(6, baseapp.request_node_count(3))
+
+        def do_test(value, replicas, expected):
+            baseapp = proxy_server.Application({'request_node_count': value},
+                                               container_ring=FakeRing(),
+                                               account_ring=FakeRing())
+            self.assertEqual(expected, baseapp.request_node_count(replicas))
+
+        do_test('3', 4, 3)
+        do_test('1 * replicas', 4, 4)
+        do_test('2 * replicas', 4, 8)
+        do_test('4', 4, 4)
+        do_test('5', 4, 5)
+
+        for bad in ('1.1', 1.1, 'auto', 'bad',
+                    '2.5 * replicas', 'two * replicas'):
+            with self.assertRaises(ValueError):
+                proxy_server.Application({'request_node_count': bad},
+                                         container_ring=FakeRing(),
+                                         account_ring=FakeRing())
 
     def test_iter_nodes(self):
         with save_globals():
