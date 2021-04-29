@@ -2863,6 +2863,59 @@ class TestObjectController(unittest.TestCase):
         check_file(old_part)
         check_file(new_part)
 
+    def test_PUT_next_part_power_eexist(self):
+        hash_path_ = hash_path('a', 'c', 'o')
+        part_power = 10
+        old_part = utils.get_partition_for_hash(hash_path_, part_power)
+        new_part = utils.get_partition_for_hash(hash_path_, part_power + 1)
+        policy = POLICIES.default
+        timestamp = utils.Timestamp(int(time())).internal
+
+        # There's no substitute for the real thing ;-)
+        tpool.execute = self._orig_tpool_exc
+
+        # This is a little disingenuous, but it's easier than reproducing
+        # the actual race that could lead to this EEXIST
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Length': '6',
+                   'Content-Type': 'application/octet-stream',
+                   'X-Backend-Storage-Policy-Index': int(policy),
+                   'X-Trans-Id': 'txn1'}
+        req = Request.blank(
+            '/sda1/%s/a/c/o' % new_part, method='PUT',
+            headers=headers, body=b'VERIFY')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # The write should succeed, but the relink will fail
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Length': '6',
+                   'Content-Type': 'application/octet-stream',
+                   'X-Backend-Storage-Policy-Index': int(policy),
+                   'X-Backend-Next-Part-Power': part_power + 1,
+                   'X-Trans-Id': 'txn2'}
+        req = Request.blank(
+            '/sda1/%s/a/c/o' % old_part, method='PUT',
+            headers=headers, body=b'VERIFY')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        def check_file(part):
+            data_file = os.path.join(
+                self.testdir, 'sda1',
+                storage_directory(diskfile.get_data_dir(int(policy)),
+                                  part, hash_path_), timestamp + '.data')
+            self.assertTrue(os.path.isfile(data_file))
+
+        check_file(old_part)
+        check_file(new_part)
+
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertIn('[Errno 17] File exists', error_lines[0])
+        self.assertEqual([], error_lines[1:])
+        log_extras = self.logger.log_dict['error'][0][1]['extra']
+        self.assertEqual('txn2', log_extras.get('txn_id'))
+
     def test_PUT_next_part_power_races_around_makedirs_eexist(self):
         # simulate two 'concurrent' racing to create the new object dir in the
         # new partition and check that relinking tolerates the dir already
