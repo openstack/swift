@@ -1163,7 +1163,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             logger.error('Stopping with unexpected signal %r' %
                          running_context[1])
         else:
-            logger.error('%s received (%s)', signame, os.getpid())
+            logger.notice('%s received (%s)', signame, os.getpid())
     if running_context[1] == signal.SIGTERM:
         os.killpg(0, signal.SIGTERM)
     elif running_context[1] == signal.SIGUSR1:

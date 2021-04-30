@@ -139,6 +139,7 @@ class TestRunDaemon(unittest.TestCase):
         with mock.patch('swift.common.daemon.os') as mock_os:
             func()
         self.assertEqual(mock_os.method_calls, [
+            mock.call.getpid(),
             mock.call.killpg(0, signal.SIGTERM),
             # hard exit because bare except handlers can trap SystemExit
             mock.call._exit(0)
