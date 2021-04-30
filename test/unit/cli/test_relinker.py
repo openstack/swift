@@ -2537,11 +2537,13 @@ class TestRelinker(unittest.TestCase):
         }, self.logger)[r.policy]
 
         # Ack partition 96
+        r.hook_pre_partition(os.path.join(datadir_path, '96'))
         r.hook_post_partition(os.path.join(datadir_path, '96'))
         self.assertEqual(r.states["state"], {'96': True, '227': False})
-        self.assertIn("Step: relink Device: sda1 Policy: %s "
-                      "Partitions: 1/2" % r.policy.name,
-                      self.logger.get_lines_for_level("info"))
+        self.assertEqual(self.logger.get_lines_for_level("info"), [
+            "Step: relink Device: sda1 Policy: %s "
+            "Partitions: 1/2" % r.policy.name,
+        ])
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
                 "part_power": PART_POWER,
@@ -2549,15 +2551,39 @@ class TestRelinker(unittest.TestCase):
                 "state": {'96': True, '227': False}})
 
         # Restart relinking after only part 96 was done
+        self.logger.clear()
+        self.assertEqual(['227'],
+                         r.partitions_filter("", ['96', '227', '312']))
+        self.assertEqual(r.states["state"], {'96': True, '227': False})
+
+        # ...but there's an error
+        r.hook_pre_partition(os.path.join(datadir_path, '227'))
+        r.stats['errors'] += 1
+        r.hook_post_partition(os.path.join(datadir_path, '227'))
+        self.assertEqual(self.logger.get_lines_for_level("info"), [
+            "Step: relink Device: sda1 Policy: %s "
+            "Partitions: 1/2" % r.policy.name,
+        ])
+        self.assertEqual(r.states["state"], {'96': True, '227': False})
+        with open(state_file, 'rt') as f:
+            self.assertEqual(json.load(f), {
+                "part_power": PART_POWER,
+                "next_part_power": PART_POWER + 1,
+                "state": {'96': True, '227': False}})
+
+        # OK, one more try
+        self.logger.clear()
         self.assertEqual(['227'],
                          r.partitions_filter("", ['96', '227', '312']))
         self.assertEqual(r.states["state"], {'96': True, '227': False})
 
         # Ack partition 227
+        r.hook_pre_partition(os.path.join(datadir_path, '227'))
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertIn("Step: relink Device: sda1 Policy: %s "
-                      "Partitions: 2/2" % r.policy.name,
-                      self.logger.get_lines_for_level("info"))
+        self.assertEqual(self.logger.get_lines_for_level("info"), [
+            "Step: relink Device: sda1 Policy: %s "
+            "Partitions: 2/2" % r.policy.name,
+        ])
         self.assertEqual(r.states["state"], {'96': True, '227': True})
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
