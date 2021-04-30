@@ -1009,6 +1009,13 @@ def mock_timestamp_now(now=None):
         yield now
 
 
+@contextmanager
+def mock_timestamp_now_with_iter(ts_iter):
+    with mocklib.patch('swift.common.utils.Timestamp.now',
+                       side_effect=ts_iter):
+        yield
+
+
 class Timeout(object):
     def __init__(self, seconds):
         self.seconds = seconds

@@ -49,7 +49,8 @@ from test import annotate_failure
 
 from test.debug_logger import debug_logger
 from test.unit import FakeRing, make_timestamp_iter, unlink_files, \
-    mocked_http_conn, mock_timestamp_now, attach_fake_replication_rpc
+    mocked_http_conn, mock_timestamp_now, mock_timestamp_now_with_iter, \
+    attach_fake_replication_rpc
 
 
 class BaseTestSharder(unittest.TestCase):
@@ -903,9 +904,12 @@ class TestSharder(BaseTestSharder):
             10, '', '', '', '', include_deleted=None, all_policies=True,
             transform_func=lambda record: record)]
 
-    def _check_objects(self, expected_objs, shard_db):
-        shard_broker = ContainerBroker(shard_db)
-        shard_objs = self._get_raw_object_records(shard_broker)
+    def _check_objects(self, expected_objs, shard_dbs):
+        shard_dbs = shard_dbs if isinstance(shard_dbs, list) else [shard_dbs]
+        shard_objs = []
+        for shard_db in shard_dbs:
+            shard_broker = ContainerBroker(shard_db)
+            shard_objs.extend(self._get_raw_object_records(shard_broker))
         expected_objs = [list(obj) for obj in expected_objs]
         self.assertEqual(expected_objs, shard_objs)
 
@@ -1718,62 +1722,170 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(os.path.exists(misplaced_dbs[1]))
 
     def test_cleave_shard_shrinking(self):
-        broker = self._make_broker(account='.shards_a', container='shard_c')
-        own_shard_range = ShardRange(
-            broker.path, next(self.ts_iter), 'here', 'where',
-            state=ShardRange.SHRINKING, epoch=next(self.ts_iter))
-        broker.merge_shard_ranges([own_shard_range])
-        broker.set_sharding_sysmeta('Root', 'a/c')
-        self.assertFalse(broker.is_root_container())  # sanity check
+        unique = [0]
 
-        objects = [
-            ('there', self.ts_encoded(), 3, 'text/plain', 'etag_there', 0, 0),
-            ('where', self.ts_encoded(), 100, 'text/plain', 'etag_where', 0,
-             0),
-        ]
-        for obj in objects:
-            broker.put_object(*obj)
-        acceptor_epoch = next(self.ts_iter)
-        acceptor = ShardRange('.shards_a/acceptor', Timestamp.now(),
-                              'here', 'yonder', '1000', '11111',
-                              state=ShardRange.ACTIVE, epoch=acceptor_epoch)
-        db_hash = hash_path(acceptor.account, acceptor.container)
-        # NB expected cleave db includes acceptor epoch
-        expected_shard_db = os.path.join(
-            self.tempdir, 'sda', 'containers', '0', db_hash[-3:], db_hash,
-            '%s_%s.db' % (db_hash, acceptor_epoch.internal))
+        def do_test(acceptor_state, acceptor_bounds, expect_delete,
+                    exp_progress_bounds=None):
+            # 'unique' ensures fresh dbs on each test iteration
+            unique[0] += 1
 
-        broker.merge_shard_ranges([acceptor])
-        broker.set_sharding_state()
+            broker = self._make_broker(account='.shards_a',
+                                       container='donor_%s' % unique[0])
+            own_shard_range = ShardRange(
+                broker.path, next(self.ts_iter), 'h', 'w',
+                state=ShardRange.SHRINKING, epoch=next(self.ts_iter))
+            broker.merge_shard_ranges([own_shard_range])
+            broker.set_sharding_sysmeta('Root', 'a/c')
+            self.assertFalse(broker.is_root_container())  # sanity check
 
-        # run cleave
-        with self._mock_sharder() as sharder:
-            self.assertTrue(sharder._cleave(broker))
+            objects = [
+                ('i', self.ts_encoded(), 3, 'text/plain', 'etag_t', 0, 0),
+                ('m', self.ts_encoded(), 33, 'text/plain', 'etag_m', 0, 0),
+                ('w', self.ts_encoded(), 100, 'text/plain', 'etag_w', 0, 0),
+            ]
+            for obj in objects:
+                broker.put_object(*obj)
+            acceptor_epoch = next(self.ts_iter)
+            acceptors = [
+                ShardRange('.shards_a/acceptor_%s_%s' % (unique[0], bounds[1]),
+                           Timestamp.now(), bounds[0], bounds[1],
+                           '1000', '11111',
+                           state=acceptor_state, epoch=acceptor_epoch)
+                for bounds in acceptor_bounds]
+            # by default expect cleaving to progress through all acceptors
+            if exp_progress_bounds is None:
+                exp_progress_acceptors = acceptors
+            else:
+                exp_progress_acceptors = [
+                    ShardRange(
+                        '.shards_a/acceptor_%s_%s' % (unique[0], bounds[1]),
+                        Timestamp.now(), bounds[0], bounds[1], '1000', '11111',
+                        state=acceptor_state, epoch=acceptor_epoch)
+                    for bounds in exp_progress_bounds]
+            expected_acceptor_dbs = []
+            for acceptor in exp_progress_acceptors:
+                db_hash = hash_path(acceptor.account,
+                                    acceptor.container)
+                # NB expected cleaved db name includes acceptor epoch
+                db_name = '%s_%s.db' % (db_hash, acceptor_epoch.internal)
+                expected_acceptor_dbs.append(
+                    os.path.join(self.tempdir, 'sda', 'containers', '0',
+                                 db_hash[-3:], db_hash, db_name))
 
-        context = CleavingContext.load(broker)
-        self.assertTrue(context.misplaced_done)
-        self.assertTrue(context.cleaving_done)
-        self.assertEqual(acceptor.upper_str, context.cursor)
-        self.assertEqual(2, context.cleave_to_row)
-        self.assertEqual(2, context.max_row)
+            broker.merge_shard_ranges(acceptors)
+            broker.set_sharding_state()
 
-        self.assertEqual(SHARDING, broker.get_db_state())
-        sharder._replicate_object.assert_has_calls(
-            [mock.call(0, expected_shard_db, 0)])
-        shard_broker = ContainerBroker(expected_shard_db)
-        # NB when cleaving a shard container to a larger acceptor namespace
-        # then expect the shard broker's own shard range to reflect that of the
-        # acceptor shard range rather than being set to CLEAVED.
-        self.assertEqual(
-            ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
+            # run cleave
+            with mock_timestamp_now_with_iter(self.ts_iter):
+                with self._mock_sharder() as sharder:
+                    sharder.cleave_batch_size = 3
+                    self.assertEqual(expect_delete, sharder._cleave(broker))
 
-        updated_shard_ranges = broker.get_shard_ranges()
-        self.assertEqual(1, len(updated_shard_ranges))
-        self.assertEqual(dict(acceptor), dict(updated_shard_ranges[0]))
+            # check the cleave context and source broker
+            context = CleavingContext.load(broker)
+            self.assertTrue(context.misplaced_done)
+            self.assertEqual(expect_delete, context.cleaving_done)
+            if exp_progress_acceptors:
+                expected_cursor = exp_progress_acceptors[-1].upper_str
+            else:
+                expected_cursor = own_shard_range.lower_str
+            self.assertEqual(expected_cursor, context.cursor)
+            self.assertEqual(3, context.cleave_to_row)
+            self.assertEqual(3, context.max_row)
+            self.assertEqual(SHARDING, broker.get_db_state())
+            own_sr = broker.get_own_shard_range()
+            if expect_delete and len(acceptor_bounds) == 1:
+                self.assertTrue(own_sr.deleted)
+                self.assertEqual(ShardRange.SHRUNK, own_sr.state)
+            else:
+                self.assertFalse(own_sr.deleted)
+                self.assertEqual(ShardRange.SHRINKING, own_sr.state)
 
-        # shard range should have unmodified acceptor, bytes used and
-        # meta_timestamp
-        self._check_objects(objects, expected_shard_db)
+            # check the acceptor db's
+            sharder._replicate_object.assert_has_calls(
+                [mock.call(0, acceptor_db, 0)
+                 for acceptor_db in expected_acceptor_dbs])
+            for acceptor_db in expected_acceptor_dbs:
+                self.assertTrue(os.path.exists(acceptor_db))
+                # NB when *shrinking* a shard container then expect the
+                # acceptor broker's own shard range state to remain in the
+                # original state of the acceptor shard range rather than being
+                # set to CLEAVED as it would when *sharding*.
+                acceptor_broker = ContainerBroker(acceptor_db)
+                self.assertEqual(acceptor_state,
+                                 acceptor_broker.get_own_shard_range().state)
+                acceptor_ranges = acceptor_broker.get_shard_ranges(
+                    include_deleted=True)
+                if expect_delete and len(acceptor_bounds) == 1:
+                    # special case when deleted shrinking shard range is
+                    # forwarded to single enclosing acceptor
+                    self.assertEqual([own_sr], acceptor_ranges)
+                    self.assertTrue(acceptor_ranges[0].deleted)
+                    self.assertEqual(ShardRange.SHRUNK,
+                                     acceptor_ranges[0].state)
+                else:
+                    self.assertEqual([], acceptor_ranges)
+
+            expected_objects = [
+                obj for obj in objects
+                if any(acceptor.lower < obj[0] <= acceptor.upper
+                       for acceptor in exp_progress_acceptors)
+            ]
+            self._check_objects(expected_objects, expected_acceptor_dbs)
+
+            # check that *shrinking* shard's copies of acceptor ranges are not
+            # updated as they would be if *sharding*
+            updated_shard_ranges = broker.get_shard_ranges()
+            self.assertEqual([dict(sr) for sr in acceptors],
+                             [dict(sr) for sr in updated_shard_ranges])
+
+            # check that *shrinking* shard's copies of acceptor ranges are not
+            # updated when completing sharding as they would be if *sharding*
+            with mock_timestamp_now_with_iter(self.ts_iter):
+                sharder._complete_sharding(broker)
+
+            updated_shard_ranges = broker.get_shard_ranges()
+            self.assertEqual([dict(sr) for sr in acceptors],
+                             [dict(sr) for sr in updated_shard_ranges])
+            own_sr = broker.get_own_shard_range()
+            self.assertEqual(expect_delete, own_sr.deleted)
+            if expect_delete:
+                self.assertEqual(ShardRange.SHRUNK, own_sr.state)
+            else:
+                self.assertEqual(ShardRange.SHRINKING, own_sr.state)
+
+        # note: shrinking shard bounds are (h, w)
+        # shrinking to a single acceptor with enclosing namespace
+        expect_delete = True
+        do_test(ShardRange.CREATED, (('h', ''),), expect_delete)
+        do_test(ShardRange.CLEAVED, (('h', ''),), expect_delete)
+        do_test(ShardRange.ACTIVE, (('h', ''),), expect_delete)
+
+        # shrinking to multiple acceptors that enclose namespace
+        do_test(ShardRange.CREATED, (('d', 'k'), ('k', '')), expect_delete)
+        do_test(ShardRange.CLEAVED, (('d', 'k'), ('k', '')), expect_delete)
+        do_test(ShardRange.ACTIVE, (('d', 'k'), ('k', '')), expect_delete)
+        do_test(ShardRange.CLEAVED, (('d', 'k'), ('k', 't'), ('t', '')),
+                expect_delete)
+        do_test(ShardRange.CREATED, (('d', 'k'), ('k', 't'), ('t', '')),
+                expect_delete)
+        do_test(ShardRange.ACTIVE, (('d', 'k'), ('k', 't'), ('t', '')),
+                expect_delete)
+
+        # shrinking to incomplete acceptors, gap at end of namespace
+        expect_delete = False
+        do_test(ShardRange.CREATED, (('d', 'k'),), expect_delete)
+        do_test(ShardRange.CLEAVED, (('d', 'k'), ('k', 't')), expect_delete)
+        # shrinking to incomplete acceptors, gap at start and end of namespace
+        do_test(ShardRange.CREATED, (('k', 't'),), expect_delete,
+                exp_progress_bounds=(('k', 't'),))
+        # shrinking to incomplete acceptors, gap at start of namespace
+        expect_delete = True
+        do_test(ShardRange.CLEAVED, (('k', 't'), ('t', '')), expect_delete,
+                exp_progress_bounds=(('k', 't'), ('t', '')))
+        # shrinking to incomplete acceptors, gap in middle
+        do_test(ShardRange.CLEAVED, (('d', 'k'), ('t', '')), expect_delete,
+                exp_progress_bounds=(('d', 'k'), ('t', '')))
 
     def test_cleave_repeated(self):
         # verify that if new objects are merged into retiring db after cleaving

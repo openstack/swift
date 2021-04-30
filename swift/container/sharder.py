@@ -1597,16 +1597,21 @@ class ContainerSharder(ContainerReplicator):
                               quote(broker.path), shard_range)
 
         replication_quorum = self.existing_shard_replication_quorum
-        if shard_range.includes(own_shard_range):
-            # When shrinking, include deleted own (donor) shard range in
-            # the replicated db so that when acceptor next updates root it
-            # will atomically update its namespace *and* delete the donor.
-            # Don't do this when sharding a shard because the donor
-            # namespace should not be deleted until all shards are cleaved.
-            if own_shard_range.update_state(ShardRange.SHRUNK):
-                own_shard_range.set_deleted()
-                broker.merge_shard_ranges(own_shard_range)
-            shard_broker.merge_shard_ranges(own_shard_range)
+        if own_shard_range.state in (ShardRange.SHRINKING, ShardRange.SHRUNK):
+            if shard_range.includes(own_shard_range):
+                # When shrinking to a single acceptor that completely encloses
+                # this shard's namespace, include deleted own (donor) shard
+                # range in the replicated db so that when acceptor next updates
+                # root it will atomically update its namespace *and* delete the
+                # donor. This reduces the chance of a temporary listing gap if
+                # this shard fails to update the root with its SHRUNK/deleted
+                # state. Don't do this when sharding a shard or shrinking to
+                # multiple acceptors because in those cases the donor namespace
+                # should not be deleted until *all* shards are cleaved.
+                if own_shard_range.update_state(ShardRange.SHRUNK):
+                    own_shard_range.set_deleted()
+                    broker.merge_shard_ranges(own_shard_range)
+                shard_broker.merge_shard_ranges(own_shard_range)
         elif shard_range.state == ShardRange.CREATED:
             # The shard range object stats may have changed since the shard
             # range was found, so update with stats of objects actually
@@ -1615,6 +1620,8 @@ class ContainerSharder(ContainerReplicator):
             info = shard_broker.get_info()
             shard_range.update_meta(
                 info['object_count'], info['bytes_used'])
+            # Update state to CLEAVED; only do this when sharding, not when
+            # shrinking
             shard_range.update_state(ShardRange.CLEAVED)
             shard_broker.merge_shard_ranges(shard_range)
             replication_quorum = self.shard_replication_quorum
@@ -1747,18 +1754,18 @@ class ContainerSharder(ContainerReplicator):
             # Move all CLEAVED shards to ACTIVE state and if a shard then
             # delete own shard range; these changes will be simultaneously
             # reported in the next update to the root container.
-            modified_shard_ranges = broker.get_shard_ranges(
-                states=ShardRange.CLEAVED)
-            for sr in modified_shard_ranges:
-                sr.update_state(ShardRange.ACTIVE)
             own_shard_range = broker.get_own_shard_range()
+            own_shard_range.update_meta(0, 0)
             if own_shard_range.state in (ShardRange.SHRINKING,
                                          ShardRange.SHRUNK):
-                next_state = ShardRange.SHRUNK
+                own_shard_range.update_state(ShardRange.SHRUNK)
+                modified_shard_ranges = []
             else:
-                next_state = ShardRange.SHARDED
-            own_shard_range.update_state(next_state)
-            own_shard_range.update_meta(0, 0)
+                own_shard_range.update_state(ShardRange.SHARDED)
+                modified_shard_ranges = broker.get_shard_ranges(
+                    states=ShardRange.CLEAVED)
+                for sr in modified_shard_ranges:
+                    sr.update_state(ShardRange.ACTIVE)
             if (not broker.is_root_container() and not
                     own_shard_range.deleted):
                 own_shard_range = own_shard_range.copy(
