@@ -5090,3 +5090,19 @@ class CooperativeIterator(ClosingIterator):
                 sleep()
             self.count += 1
         return super(CooperativeIterator, self)._get_next_item()
+
+
+def get_ppid(pid):
+    """
+    Get the parent process's PID given a child pid.
+
+    :raises OSError: if the child pid cannot be found
+    """
+    try:
+        with open('/proc/%d/stat' % pid) as fp:
+            stats = fp.read().split()
+        return int(stats[3])
+    except IOError as e:
+        if e.errno == errno.ENOENT:
+            raise OSError(errno.ESRCH, 'No such process')
+        raise

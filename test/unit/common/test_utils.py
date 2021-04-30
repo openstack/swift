@@ -2826,6 +2826,9 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertRaises(
             TypeError, md5, None, usedforsecurity=False)
 
+    def test_get_my_ppid(self):
+        self.assertEqual(os.getppid(), utils.get_ppid(os.getpid()))
+
 
 class TestUnlinkOlder(unittest.TestCase):
 
@@ -4713,6 +4716,29 @@ class TestDistributeEvenly(unittest.TestCase):
     def test_more_buckets_than_items(self):
         out = utils.distribute_evenly(range(5), 7)
         self.assertEqual(out, [[0], [1], [2], [3], [4], [], []])
+
+
+@mock.patch('swift.common.utils.open')
+class TestGetPpid(unittest.TestCase):
+    def test_happy_path(self, mock_open):
+        mock_open.return_value.__enter__().read.return_value = \
+            'pid comm stat 456 see the procfs(5) man page for more info\n'
+        self.assertEqual(utils.get_ppid(123), 456)
+        self.assertIn(mock.call('/proc/123/stat'), mock_open.mock_calls)
+
+    def test_not_found(self, mock_open):
+        mock_open.side_effect = IOError(errno.ENOENT, "Not there")
+        with self.assertRaises(OSError) as caught:
+            utils.get_ppid(123)
+        self.assertEqual(caught.exception.errno, errno.ESRCH)
+        self.assertEqual(mock_open.mock_calls[0], mock.call('/proc/123/stat'))
+
+    def test_not_allowed(self, mock_open):
+        mock_open.side_effect = OSError(errno.EPERM, "Not for you")
+        with self.assertRaises(OSError) as caught:
+            utils.get_ppid(123)
+        self.assertEqual(caught.exception.errno, errno.EPERM)
+        self.assertEqual(mock_open.mock_calls[0], mock.call('/proc/123/stat'))
 
 
 class TestShardName(unittest.TestCase):

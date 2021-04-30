@@ -245,6 +245,12 @@ use = egg:swift#object
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
+#
+# When reloading servers with SIGUSR1, workers running with old config/code
+# are allowed some time to finish serving in-flight requests. Use this to
+# configure the grace period (in seconds), after which the reloaded server
+# will issue SIGKILLs to remaining stale workers.
+# stale_worker_timeout = 86400
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

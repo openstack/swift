@@ -18,8 +18,10 @@
 from __future__ import print_function
 
 import errno
+import json
 import os
 import signal
+import struct
 import sys
 from textwrap import dedent
 import time
@@ -45,6 +47,7 @@ from swift.common.utils import capture_stdio, disable_fallocate, \
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
 NOTIFY_FD_ENV_KEY = '__SWIFT_SERVER_NOTIFY_FD'
+CHILD_STATE_FD_ENV_KEY = '__SWIFT_SERVER_CHILD_STATE_FD'
 
 # Set maximum line size of message headers to be accepted.
 wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
@@ -474,6 +477,13 @@ class StrategyBase(object):
         # children to easily drop refs to sibling sockets in post_fork_hook().
         self.tracking_data = {}
 
+        # When doing a seamless reload, we inherit a bunch of child processes
+        # that should all clean themselves up fairly quickly; track them here
+        self.reload_pids = dict()
+        # If they don't cleanup quickly, we'll start killing them after this
+        self.stale_worker_timeout = utils.non_negative_float(
+            conf.get('stale_worker_timeout', 86400))
+
     def post_fork_hook(self):
         """
         Called in each forked-off child process, prior to starting the actual
@@ -523,15 +533,131 @@ class StrategyBase(object):
         # connections. This is used for seamless reloading using SIGUSR1.
         reexec_signal_fd = os.getenv(NOTIFY_FD_ENV_KEY)
         if reexec_signal_fd:
+            if ',' in reexec_signal_fd:
+                reexec_signal_fd, worker_state_fd = reexec_signal_fd.split(',')
             reexec_signal_fd = int(reexec_signal_fd)
             os.write(reexec_signal_fd, str(os.getpid()).encode('utf8'))
             os.close(reexec_signal_fd)
+        worker_state_fd = os.getenv(CHILD_STATE_FD_ENV_KEY)
+        try:
+            self.read_state_from_old_manager(worker_state_fd)
+        except Exception as e:
+            # This was all opportunistic anyway; old swift wouldn't even
+            # *try* to send us any state -- we don't want *new* code to
+            # fail just because *old* code didn't live up to its promise
+            self.logger.warning(
+                'Failed to read state from the old manager: %r', e,
+                exc_info=True)
 
         # Finally, signal systemd (if appropriate) that process started
         # properly.
         systemd_notify(logger=self.logger)
 
         self.signaled_ready = True
+
+    def read_state_from_old_manager(self, worker_state_fd):
+        """
+        Read worker state from the old manager's socket-closer.
+
+        The socket-closing process is the last thing to still have the worker
+        PIDs in its head, so it sends us a JSON dict (prefixed by its length)
+        of the form::
+
+           {
+             "old_pids": {
+               "<old worker>": "<first reload time>",
+               ...
+             }
+           }
+
+        More data may be added in the future.
+
+        :param worker_state_fd: The file descriptor that should have the
+                                old worker state. Should be passed to us
+                                via the ``__SWIFT_SERVER_CHILD_STATE_FD``
+                                environment variable.
+        """
+        if not worker_state_fd:
+            return
+        worker_state_fd = int(worker_state_fd)
+        try:
+            # The temporary manager may have up and died while trying to send
+            # state; hopefully its logs will have more about what went wrong
+            # -- let's just log at warning here
+            data_len = os.read(worker_state_fd, 4)
+            if len(data_len) != 4:
+                self.logger.warning(
+                    'Invalid worker state received; expected 4 bytes '
+                    'followed by a payload but only received %d bytes',
+                    len(data_len))
+                return
+
+            data_len = struct.unpack('!I', data_len)[0]
+            data = b''
+            while len(data) < data_len:
+                chunk = os.read(worker_state_fd, data_len - len(data))
+                if not chunk:
+                    break
+                data += chunk
+            if len(data) != data_len:
+                self.logger.warning(
+                    'Incomplete worker state received; expected %d '
+                    'bytes but only received %d', data_len, len(data))
+                return
+
+            # OK, the temporary manager was able to tell us how much it wanted
+            # to send and send it; from here on, error seems appropriate.
+            try:
+                old_state = json.loads(data)
+            except ValueError:
+                self.logger.error(
+                    'Invalid worker state received; '
+                    'invalid JSON: %r', data)
+                return
+
+            try:
+                old_pids = {
+                    int(pid): float(reloaded)
+                    for pid, reloaded in old_state["old_pids"].items()}
+            except (KeyError, TypeError) as err:
+                self.logger.error(
+                    'Invalid worker state received; '
+                    'error reading old pids: %s', err)
+            self.logger.debug('Received old worker pids: %s', old_pids)
+            self.reload_pids.update(old_pids)
+
+            def smother(old_pids=old_pids, timeout=self.stale_worker_timeout):
+                own_pid = os.getpid()
+                kill_times = sorted(((reloaded + timeout, pid)
+                                     for pid, reloaded in old_pids.items()),
+                                    reverse=True)
+                while kill_times:
+                    kill_time, pid = kill_times.pop()
+                    now = time.time()
+                    if kill_time > now:
+                        sleep(kill_time - now)
+                    try:
+                        ppid = utils.get_ppid(pid)
+                    except OSError as e:
+                        if e.errno != errno.ESRCH:
+                            self.logger.error("Could not determine parent "
+                                              "for stale pid %d: %s", pid, e)
+                        continue
+                    if ppid == own_pid:
+                        self.logger.notice("Killing long-running stale worker "
+                                           "%d after %ds", pid, int(timeout))
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except OSError as e:
+                            if e.errno != errno.ESRCH:
+                                self.logger.error(
+                                    "Could not kill stale pid %d: %s", pid, e)
+                    # else, pid got re-used?
+
+            eventlet.spawn_n(smother)
+
+        finally:
+            os.close(worker_state_fd)
 
 
 class WorkersStrategy(StrategyBase):
@@ -622,11 +748,17 @@ class WorkersStrategy(StrategyBase):
         :param int pid: The PID of the worker that exited.
         """
 
+        if self.reload_pids.pop(pid, None):
+            self.logger.notice('Removing stale child %d from parent %d',
+                               pid, os.getpid())
+            return
+
         sock = self.tracking_data.pop(pid, None)
         if sock is None:
-            self.logger.info('Ignoring wait() result from unknown PID %s', pid)
+            self.logger.warning('Ignoring wait() result from unknown PID %d',
+                                pid)
         else:
-            self.logger.error('Removing dead child %s from parent %s',
+            self.logger.error('Removing dead child %d from parent %d',
                               pid, os.getpid())
             greenio.shutdown_safe(sock)
             sock.close()
@@ -638,6 +770,9 @@ class WorkersStrategy(StrategyBase):
 
         for sock in self.tracking_data.values():
             yield sock
+
+    def get_worker_pids(self):
+        return list(self.tracking_data.keys())
 
 
 class ServersPerPortStrategy(StrategyBase):
@@ -786,13 +921,22 @@ class ServersPerPortStrategy(StrategyBase):
         :param int pid: The PID of the worker that exited.
         """
 
+        if self.reload_pids.pop(pid, None):
+            self.logger.notice('Removing stale child %d from parent %d',
+                               pid, os.getpid())
+            return
+
         for port_data in self.tracking_data.values():
             for idx, (child_pid, sock) in enumerate(port_data):
                 if child_pid == pid:
+                    self.logger.error('Removing dead child %d from parent %d',
+                                      pid, os.getpid())
                     port_data[idx] = (None, None)
                     greenio.shutdown_safe(sock)
                     sock.close()
                     return
+
+        self.logger.warning('Ignoring wait() result from unknown PID %d', pid)
 
     def iter_sockets(self):
         """
@@ -802,6 +946,12 @@ class ServersPerPortStrategy(StrategyBase):
         for port_data in self.tracking_data.values():
             for _pid, sock in port_data:
                 yield sock
+
+    def get_worker_pids(self):
+        return [
+            pid
+            for port_data in self.tracking_data.values()
+            for pid, _sock in port_data]
 
 
 def check_config(conf_path, app_section, *args, **kwargs):
@@ -1000,24 +1150,29 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         # then the old server can't actually ever exit.
         strategy.set_close_on_exec_on_listen_sockets()
         read_fd, write_fd = os.pipe()
+        state_rfd, state_wfd = os.pipe()
         orig_server_pid = os.getpid()
         child_pid = os.fork()
         if child_pid:
             # parent; set env var for fds and reexec ourselves
             os.close(read_fd)
+            os.close(state_wfd)
             os.putenv(NOTIFY_FD_ENV_KEY, str(write_fd))
+            os.putenv(CHILD_STATE_FD_ENV_KEY, str(state_rfd))
             myself = os.path.realpath(sys.argv[0])
             logger.info("Old server PID=%d re'execing as: %r",
                         orig_server_pid, [myself] + list(sys.argv))
             if hasattr(os, 'set_inheritable'):
                 # See https://www.python.org/dev/peps/pep-0446/
                 os.set_inheritable(write_fd, True)
+                os.set_inheritable(state_rfd, True)
             os.execv(myself, sys.argv)  # nosec B606
             logger.error('Somehow lived past os.execv()?!')
             exit('Somehow lived past os.execv()?!')
         elif child_pid == 0:
             # child
             os.close(write_fd)
+            os.close(state_rfd)
             logger.info('Old server temporary child PID=%d waiting for '
                         "re-exec'ed PID=%d to signal readiness...",
                         os.getpid(), orig_server_pid)
@@ -1032,6 +1187,16 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                     logger.info('Old server temporary child PID=%d notified '
                                 'to shutdown old listen sockets by PID=%s',
                                 os.getpid(), got_pid)
+                    # Ensure new process knows about old children
+                    stale_pids = dict(strategy.reload_pids)
+                    stale_pids[os.getpid()] = now = time.time()
+                    stale_pids.update({
+                        pid: now for pid in strategy.get_worker_pids()})
+                    data = json.dumps({
+                        "old_pids": stale_pids,
+                    }).encode('ascii')
+                    os.write(state_wfd, struct.pack('!I', len(data)) + data)
+                    os.close(state_wfd)
                 else:
                     logger.warning('Old server temporary child PID=%d *NOT* '
                                    'notified to shutdown old listen sockets; '

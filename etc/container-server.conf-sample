@@ -127,6 +127,12 @@ use = egg:swift#container
 # will be denied until the disk ha s more space available. Percentage
 # will be used if the value ends with a '%'.
 # fallocate_reserve = 1%
+#
+# When reloading servers with SIGUSR1, workers running with old config/code
+# are allowed some time to finish serving in-flight requests. Use this to
+# configure the grace period (in seconds), after which the reloaded server
+# will issue SIGKILLs to remaining stale workers.
+# stale_worker_timeout = 86400
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
