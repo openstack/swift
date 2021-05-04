@@ -16,7 +16,6 @@ boto>=2.32.1
 boto3>=1.9
 botocore>=1.12
 requests-mock>=1.2.0 # Apache-2.0
-fixtures>=3.0.0 # Apache-2.0/BSD
 keystonemiddleware>=4.17.0 # Apache-2.0
 
 # Security checks
