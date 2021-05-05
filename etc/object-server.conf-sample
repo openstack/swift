@@ -230,9 +230,9 @@ use = egg:swift#recon
 # daemonize = on
 #
 # Time in seconds to wait between replication passes
-# interval = 30
+# interval = 30.0
 # run_pause is deprecated, use interval instead
-# run_pause = 30
+# run_pause = 30.0
 #
 # Number of concurrent replication jobs to run. This is per-process,
 # so replicator_workers=W and concurrency=C will result in W*C
@@ -244,7 +244,7 @@ use = egg:swift#recon
 # is done in the main process.
 # replicator_workers = 0
 #
-# stats_interval = 300
+# stats_interval = 300.0
 #
 # default is rsync, alternative is ssync
 # sync_method = rsync
@@ -277,7 +277,7 @@ use = egg:swift#recon
 # attempts to kill all workers if nothing replicates for lockup_timeout seconds
 # lockup_timeout = 1800
 #
-# ring_check_interval = 15
+# ring_check_interval = 15.0
 # recon_cache_path = /var/cache/swift
 #
 # limits how long rsync error log lines are
@@ -329,9 +329,9 @@ use = egg:swift#recon
 # daemonize = on
 #
 # Time in seconds to wait between reconstruction passes
-# interval = 30
+# interval = 30.0
 # run_pause is deprecated, use interval instead
-# run_pause = 30
+# run_pause = 30.0
 #
 # Maximum number of worker processes to spawn.  Each worker will handle a
 # subset of devices.  Devices will be assigned evenly among the workers so that
@@ -341,11 +341,11 @@ use = egg:swift#recon
 # reconstructor_workers = 0
 #
 # concurrency = 1
-# stats_interval = 300
+# stats_interval = 300.0
 # node_timeout = 10
 # http_timeout = 60
 # lockup_timeout = 1800
-# ring_check_interval = 15
+# ring_check_interval = 15.0
 # recon_cache_path = /var/cache/swift
 # The handoffs_only mode option is for special case emergency situations during
 # rebalance such as disk full in the cluster.  This option SHOULD NOT BE
@@ -398,7 +398,7 @@ use = egg:swift#recon
 # log_level = INFO
 # log_address = /dev/log
 #
-# interval = 300
+# interval = 300.0
 # node_timeout = <whatever's in the DEFAULT section or 10>
 #
 # updater_workers controls how many processes the object updater will
@@ -420,7 +420,7 @@ use = egg:swift#recon
 # logging is per-process, so with concurrency > 1, the logs will
 # contain one stats log per worker process every report_interval
 # seconds.
-# report_interval = 300
+# report_interval = 300.0
 #
 # recon_cache_path = /var/cache/swift
 #
@@ -444,7 +444,7 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # Time in seconds to wait between auditor passes
-# interval = 30
+# interval = 30.0
 #
 # You can set the disk chunk size that the auditor uses making it larger if
 # you like for more efficient local auditing of larger objects
@@ -537,9 +537,9 @@ use = egg:swift#recon
 # log_level = INFO
 # log_address = /dev/log
 #
-# interval = 300
+# interval = 300.0
 #
-# report_interval = 300
+# report_interval = 300.0
 #
 # request_tries is the number of times the expirer's internal client will
 # attempt any given request in the event of failure. The default is 3.

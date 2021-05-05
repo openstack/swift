@@ -65,7 +65,7 @@ class AccountReaper(Daemon):
         self.logger = logger or get_logger(conf, log_route='account-reaper')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
-        self.interval = int(conf.get('interval', 3600))
+        self.interval = float(conf.get('interval', 3600))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.account_ring = None
         self.container_ring = None

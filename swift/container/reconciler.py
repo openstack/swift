@@ -362,7 +362,7 @@ class ContainerReconciler(Daemon):
         # marker will be retried before it is abandoned.  It is not coupled
         # with the tombstone reclaim age in the consistency engine.
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
-        self.interval = int(conf.get('interval', 30))
+        self.interval = float(conf.get('interval', 30))
         conf_path = conf.get('__file__') or \
             '/etc/swift/container-reconciler.conf'
         self.logger = get_logger(conf, log_route='container-reconciler')

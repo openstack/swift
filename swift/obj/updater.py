@@ -93,7 +93,7 @@ class ObjectUpdater(Daemon):
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.interval = int(conf.get('interval', 300))
+        self.interval = float(conf.get('interval', 300))
         self.container_ring = None
         self.concurrency = int(conf.get('concurrency', 8))
         self.updater_workers = int(conf.get('updater_workers', 1))

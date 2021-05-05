@@ -171,7 +171,7 @@ class ContainerSync(Daemon):
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         #: Minimum time between full scans. This is to keep the daemon from
         #: running wild on near empty systems.
-        self.interval = int(conf.get('interval', 300))
+        self.interval = float(conf.get('interval', 300))
         #: Maximum amount of time to spend syncing a container before moving on
         #: to the next one. If a container sync hasn't finished in this time,
         #: it'll just be resumed next scan.
