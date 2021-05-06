@@ -145,6 +145,7 @@ class DaemonStrategy(object):
 
         signal.signal(signal.SIGTERM, kill_children)
         self.running = True
+        utils.systemd_notify(self.logger)
 
     def _run_inline(self, once=False, **kwargs):
         """Run the daemon"""
