@@ -15,12 +15,10 @@
 import copy
 import base64
 import json
-import logging
 import time
 import unittest
 import uuid
 
-import fixtures
 import mock
 import requests
 from requests_mock.contrib import fixture as rm_fixture
@@ -29,6 +27,8 @@ from six.moves import urllib
 from swift.common.middleware.s3api import s3token
 from swift.common.swob import Request, Response
 from swift.common.wsgi import ConfigFileError
+
+from test.debug_logger import debug_logger
 
 GOOD_RESPONSE_V2 = {'access': {
     'user': {
@@ -130,8 +130,7 @@ class S3TokenMiddlewareTestBase(unittest.TestCase):
 
     def setUp(self):
         super(S3TokenMiddlewareTestBase, self).setUp()
-        self.logger = fixtures.FakeLogger(level=logging.DEBUG)
-        self.logger.setUp()
+        self.logger = debug_logger()
         self.time_patcher = mock.patch.object(time, 'time', lambda: 1234)
         self.time_patcher.start()
 
@@ -139,15 +138,19 @@ class S3TokenMiddlewareTestBase(unittest.TestCase):
         self.conf = {
             'auth_uri': self.TEST_AUTH_URI,
         }
-        self.middleware = s3token.S3Token(self.app, self.conf)
+        self.middleware = self.make_middleware(self.conf)
 
         self.requests_mock = rm_fixture.Fixture()
         self.requests_mock.setUp()
 
+    def make_middleware(self, conf):
+        with mock.patch('swift.common.middleware.s3api.s3token.get_logger',
+                        return_value=self.logger):
+            return s3token.S3Token(self.app, conf)
+
     def tearDown(self):
         self.requests_mock.cleanUp()
         self.time_patcher.stop()
-        self.logger.cleanUp()
         super(S3TokenMiddlewareTestBase, self).tearDown()
 
     def start_fake_response(self, status, headers):
@@ -267,8 +270,8 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             '%s/s3tokens' % auth_uri,
             status_code=201, json=GOOD_RESPONSE_V2)
 
-        self.middleware = s3token.filter_factory({
-            'auth_uri': auth_uri})(self.app)
+        self.middleware = self.make_middleware({
+            'auth_uri': auth_uri})
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -286,8 +289,8 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             '%s/s3tokens' % auth_uri,
             status_code=201, json=GOOD_RESPONSE_V2)
 
-        self.middleware = s3token.filter_factory({
-            'auth_uri': auth_uri})(self.app)
+        self.middleware = self.make_middleware({
+            'auth_uri': auth_uri})
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -298,8 +301,8 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         self._assert_authorized(req)
 
     def test_authorized_trailing_slash(self):
-        self.middleware = s3token.filter_factory({
-            'auth_uri': self.TEST_AUTH_URI + '/'})(self.app)
+        self.middleware = self.make_middleware({
+            'auth_uri': self.TEST_AUTH_URI + '/'})
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -321,8 +324,8 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
 
     @mock.patch.object(requests, 'post')
     def test_insecure(self, MOCK_REQUEST):
-        self.middleware = s3token.filter_factory(
-            {'insecure': 'True', 'auth_uri': 'http://example.com'})(self.app)
+        self.middleware = self.make_middleware({
+            'insecure': 'True', 'auth_uri': 'http://example.com'})
 
         text_return_value = json.dumps(GOOD_RESPONSE_V2)
         MOCK_REQUEST.return_value = TestResponse({
@@ -405,10 +408,10 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
 
     @mock.patch.object(requests, 'post')
     def test_http_timeout(self, MOCK_REQUEST):
-        self.middleware = s3token.filter_factory({
+        self.middleware = self.make_middleware({
             'http_timeout': '2',
             'auth_uri': 'http://example.com',
-        })(FakeApp())
+        })
 
         MOCK_REQUEST.return_value = TestResponse({
             'status_code': 201,
@@ -432,7 +435,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             middleware = s3token.filter_factory({
                 'http_timeout': val,
                 'auth_uri': 'http://example.com',
-            })(FakeApp())
+            })(self.app)
             self.assertEqual(float(val), middleware._timeout)
 
         bad_values = ['1, 4', '-3', '100', 'foo', '0']
@@ -441,7 +444,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
                 s3token.filter_factory({
                     'http_timeout': val,
                     'auth_uri': 'http://example.com',
-                })(FakeApp())
+                })(self.app)
             self.assertTrue(ctx.exception.args[0].startswith((
                 'invalid literal for float():',
                 'could not convert string to float:',
@@ -450,7 +453,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
 
         # default is 10 seconds
         middleware = s3token.filter_factory({
-            'auth_uri': 'http://example.com'})(FakeApp())
+            'auth_uri': 'http://example.com'})(self.app)
         self.assertEqual(10, middleware._timeout)
 
     def test_bad_auth_uris(self):
@@ -514,7 +517,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
     @mock.patch.object(requests, 'post')
     def test_secret_is_cached(self, MOCK_REQUEST, MOCK_KEYSTONE,
                               MOCK_CACHE_FROM_ENV):
-        self.middleware = s3token.filter_factory({
+        self.middleware = self.make_middleware({
             'auth_uri': 'http://example.com',
             'secret_cache_duration': '20',
             'auth_type': 'v3password',
@@ -524,7 +527,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'project_name': 'service',
             'user_domain_name': 'default',
             'project_domain_name': 'default',
-        })(FakeApp())
+        })
         self.assertEqual(20, self.middleware._secret_cache_duration)
         self.assertIsNone(MOCK_KEYSTONE.mock_calls[0][2]['region_name'])
 
@@ -553,7 +556,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
     @mock.patch.object(requests, 'post')
     def test_secret_sets_cache(self, MOCK_REQUEST, MOCK_KEYSTONE,
                                MOCK_CACHE_FROM_ENV):
-        self.middleware = s3token.filter_factory({
+        self.middleware = self.make_middleware({
             'auth_uri': 'http://example.com',
             'secret_cache_duration': '20',
             'auth_type': 'v3password',
@@ -564,7 +567,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'user_domain_name': 'default',
             'project_domain_name': 'default',
             'region_name': 'some-other-region',
-        })(FakeApp())
+        })
         self.assertEqual(20, self.middleware._secret_cache_duration)
         self.assertEqual(MOCK_KEYSTONE.mock_calls[0][2]['region_name'],
                          'some-other-region')
@@ -726,7 +729,7 @@ class S3TokenMiddlewareTestDeferredAuth(S3TokenMiddlewareTestBase):
     def setUp(self):
         super(S3TokenMiddlewareTestDeferredAuth, self).setUp()
         self.conf['delay_auth_decision'] = 'yes'
-        self.middleware = s3token.S3Token(FakeApp(), self.conf)
+        self.middleware = self.make_middleware(self.conf)
 
     def test_unauthorized_token(self):
         ret = {"error":
@@ -852,8 +855,8 @@ class S3TokenMiddlewareTestV3(S3TokenMiddlewareTestBase):
             auth_uri + 's3tokens',
             status_code=201, json=GOOD_RESPONSE_V3)
 
-        self.middleware = s3token.filter_factory({
-            'auth_uri': auth_uri})(self.app)
+        self.middleware = self.make_middleware({
+            'auth_uri': auth_uri})
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -869,8 +872,8 @@ class S3TokenMiddlewareTestV3(S3TokenMiddlewareTestBase):
             auth_uri + 's3tokens',
             status_code=201, json=GOOD_RESPONSE_V3)
 
-        self.middleware = s3token.filter_factory({
-            'auth_uri': auth_uri})(self.app)
+        self.middleware = self.make_middleware({
+            'auth_uri': auth_uri})
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -881,8 +884,8 @@ class S3TokenMiddlewareTestV3(S3TokenMiddlewareTestBase):
         self._assert_authorized(req)
 
     def test_authorized_trailing_slash(self):
-        self.middleware = s3token.filter_factory({
-            'auth_uri': self.TEST_AUTH_URI + '/'})(self.app)
+        self.middleware = self.make_middleware({
+            'auth_uri': self.TEST_AUTH_URI + '/'})
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
