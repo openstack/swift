@@ -4642,6 +4642,47 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     md5(fixed_body, usedforsecurity=False).hexdigest(),
                     md5(broken_body, usedforsecurity=False).hexdigest())
 
+    def test_reconstruct_fa_mixed_meta_timestamps_works(self):
+        # verify scenario where all fragments have same data timestamp but some
+        # have different meta timestamp
+        job = {
+            'partition': 0,
+            'policy': self.policy,
+        }
+        part_nodes = self.policy.object_ring.get_part_nodes(0)
+        node = part_nodes[4]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
+
+        test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
+        ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
+
+        broken_body = ec_archive_bodies.pop(4)
+        ts_data = next(self.ts_iter)  # all frags .data timestamp
+        ts_meta = next(self.ts_iter)  # some frags .meta timestamp
+        ts_cycle = itertools.cycle((ts_data, ts_meta))
+        responses = list()
+        for body in ec_archive_bodies:
+            ts = next(ts_cycle)  # vary timestamp between data and meta
+            headers = get_header_frag_index(self, body)
+            headers.update({'X-Object-Sysmeta-Ec-Etag': etag,
+                            'X-Timestamp': ts.normal,
+                            'X-Backend-Timestamp': ts.internal,
+                            'X-Backend-Data-Timestamp': ts_data.internal,
+                            'X-Backend-Durable-Timestamp': ts_data.internal})
+            responses.append((200, body, headers))
+
+        codes, body_iter, headers_iter = zip(*responses)
+        with mocked_http_conn(*codes, body_iter=body_iter,
+                              headers=headers_iter):
+            df = self.reconstructor.reconstruct_fa(
+                job, node, dict(self.obj_metadata))
+            fixed_body = b''.join(df.reader())
+            self.assertEqual(len(fixed_body), len(broken_body))
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
+
     def test_reconstruct_fa_error_with_invalid_header(self):
         job = {
             'partition': 0,
@@ -5328,7 +5369,8 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             ', frag index 0 (missing Etag)')
         test_missing_header(
             'X-Backend-Timestamp',
-            ', frag index 0 (missing X-Backend-Timestamp)')
+            ', frag index 0 (missing X-Backend-Data-Timestamp and '
+            'X-Backend-Timestamp)')
 
     def test_reconstruct_fa_invalid_frag_index_headers(self):
         # This is much negative tests asserting when the expected
