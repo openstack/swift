@@ -371,6 +371,9 @@ class TestReconstructorRebuild(ECProbeTest):
 
 
 if six.PY2:
+    # The non-ASCII chars in metadata cause test hangs in
+    # _assert_all_nodes_have_frag because of https://bugs.python.org/issue37093
+
     class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
 
         def _make_name(self, prefix):
