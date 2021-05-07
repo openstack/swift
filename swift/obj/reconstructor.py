@@ -432,11 +432,13 @@ class ObjectReconstructor(Daemon):
             error_responses[UNKNOWN_RESPONSE_STATUS].append(resp)
             return None
 
-        timestamp = resp.headers.get('X-Backend-Timestamp')
+        timestamp = resp.headers.get('X-Backend-Data-Timestamp',
+                                     resp.headers.get('X-Backend-Timestamp'))
         if not timestamp:
-            self.logger.warning('Invalid resp from %s, frag index %s '
-                                '(missing X-Backend-Timestamp)',
-                                resp.full_path, resp_frag_index)
+            self.logger.warning(
+                'Invalid resp from %s, frag index %s (missing '
+                'X-Backend-Data-Timestamp and X-Backend-Timestamp)',
+                resp.full_path, resp_frag_index)
             error_responses[UNKNOWN_RESPONSE_STATUS].append(resp)
             return None
         timestamp = Timestamp(timestamp)
