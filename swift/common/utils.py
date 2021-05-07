@@ -205,6 +205,7 @@ LOG_LINE_DEFAULT_FORMAT = '{remote_addr} - - [{time.d}/{time.b}/{time.Y}' \
                           '"{referer}" "{txn_id}" "{user_agent}" ' \
                           '{trans_time:.4f} "{additional_info}" {pid} ' \
                           '{policy_index}'
+DEFAULT_LOCK_TIMEOUT = 10
 
 
 class InvalidHashPathConfigError(ValueError):
@@ -2849,7 +2850,8 @@ def _get_any_lock(fds):
 
 
 @contextmanager
-def lock_path(directory, timeout=10, timeout_class=None, limit=1, name=None):
+def lock_path(directory, timeout=None, timeout_class=None,
+              limit=1, name=None):
     """
     Context manager that acquires a lock on a directory.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
@@ -2860,7 +2862,8 @@ def lock_path(directory, timeout=10, timeout_class=None, limit=1, name=None):
     workaround by locking a hidden file in the directory.
 
     :param directory: directory to be locked
-    :param timeout: timeout (in seconds)
+    :param timeout: timeout (in seconds). If None, defaults to
+        DEFAULT_LOCK_TIMEOUT
     :param timeout_class: The class of the exception to raise if the
         lock cannot be granted within the timeout. Will be
         constructed as timeout_class(timeout, lockpath). Default:
@@ -2874,10 +2877,12 @@ def lock_path(directory, timeout=10, timeout_class=None, limit=1, name=None):
     :raises TypeError: if limit is not an int.
     :raises ValueError: if limit is less than 1.
     """
-    if limit < 1:
-        raise ValueError('limit must be greater than or equal to 1')
+    if timeout is None:
+        timeout = DEFAULT_LOCK_TIMEOUT
     if timeout_class is None:
         timeout_class = swift.common.exceptions.LockTimeout
+    if limit < 1:
+        raise ValueError('limit must be greater than or equal to 1')
     mkdirs(directory)
     lockpath = '%s/.lock' % directory
     if name:
@@ -2905,17 +2910,20 @@ def lock_path(directory, timeout=10, timeout_class=None, limit=1, name=None):
 
 
 @contextmanager
-def lock_file(filename, timeout=10, append=False, unlink=True):
+def lock_file(filename, timeout=None, append=False, unlink=True):
     """
     Context manager that acquires a lock on a file.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
     first).
 
     :param filename: file to be locked
-    :param timeout: timeout (in seconds)
+    :param timeout: timeout (in seconds). If None, defaults to
+        DEFAULT_LOCK_TIMEOUT
     :param append: True if file should be opened in append mode
     :param unlink: True if the file should be unlinked at the end
     """
+    if timeout is None:
+        timeout = DEFAULT_LOCK_TIMEOUT
     flags = os.O_CREAT | os.O_RDWR
     if append:
         flags |= os.O_APPEND
@@ -2950,14 +2958,15 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
             file_obj.close()
 
 
-def lock_parent_directory(filename, timeout=10):
+def lock_parent_directory(filename, timeout=None):
     """
     Context manager that acquires a lock on the parent directory of the given
     file path.  This will block until the lock can be acquired, or the timeout
     time has expired (whichever occurs first).
 
     :param filename: file path of the parent directory to be locked
-    :param timeout: timeout (in seconds)
+    :param timeout: timeout (in seconds). If None, defaults to
+        DEFAULT_LOCK_TIMEOUT
     """
     return lock_path(os.path.dirname(filename), timeout=timeout)
 
