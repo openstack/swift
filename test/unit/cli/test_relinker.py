@@ -520,7 +520,7 @@ class TestRelinker(unittest.TestCase):
                 '--skip-mount-check', '--files-per-second', '2.2',
                 '--policy', '1', '--partition', '123',
                 '--partition', '123', '--partition', '456',
-                '--link-check-limit', '3',
+                '--link-check-limit', '3', '--workers', '2'
             ])
         mock_relinker.assert_called_once_with({
             '__file__': mock.ANY,
@@ -532,7 +532,7 @@ class TestRelinker(unittest.TestCase):
             'log_name': 'test-relinker',
             'policies': {POLICIES[1]},
             'partitions': {123, 456},
-            'workers': 'auto',
+            'workers': 2,
             'link_check_limit': 3,
         }, mock.ANY, ['sdx'], do_cleanup=False)
 
@@ -581,6 +581,80 @@ class TestRelinker(unittest.TestCase):
         # --debug is now effective
         mock_logging_config.assert_called_once_with(
             format='%(message)s', level=logging.DEBUG, filename=None)
+
+        # now test overriding workers back to auto
+        config = """
+                [DEFAULT]
+                swift_dir = test/swift/dir
+                devices = /test/node
+                mount_check = true
+
+                [object-relinker]
+                log_level = WARNING
+                log_name = test-relinker
+                files_per_second = 11.1
+                link_check_limit = 1
+                workers = 8
+                """
+        with open(conf_file, 'w') as f:
+            f.write(dedent(config))
+        devices = ['sdx%d' % i for i in range(8, 1)]
+        cli_cmd = ['relink', conf_file, '--device', 'sdx', '--workers', 'auto']
+        for device in devices:
+            cli_cmd.extend(['--device', device])
+        with mock.patch('swift.cli.relinker.Relinker') as mock_relinker:
+            relinker.main(cli_cmd)
+        mock_relinker.assert_called_once_with({
+            '__file__': mock.ANY,
+            'swift_dir': 'test/swift/dir',
+            'devices': '/test/node',
+            'mount_check': True,
+            'files_per_second': 11.1,
+            'log_name': 'test-relinker',
+            'log_level': 'WARNING',
+            'policies': POLICIES,
+            'partitions': set(),
+            'workers': 'auto',
+            'link_check_limit': 1,
+        }, mock.ANY, ['sdx'], do_cleanup=False)
+        logger = mock_relinker.call_args[0][1]
+        self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
+        self.assertEqual('test-relinker', logger.logger.name)
+
+        # and now globally
+        config = """
+                        [DEFAULT]
+                        swift_dir = test/swift/dir
+                        devices = /test/node
+                        mount_check = true
+                        workers = 8
+
+                        [object-relinker]
+                        log_level = WARNING
+                        log_name = test-relinker
+                        files_per_second = 11.1
+                        link_check_limit = 1
+                        """
+        with open(conf_file, 'w') as f:
+            f.write(dedent(config))
+        with mock.patch('swift.cli.relinker.Relinker') as mock_relinker:
+            relinker.main(cli_cmd)
+        mock_relinker.assert_called_once_with({
+            '__file__': mock.ANY,
+            'swift_dir': 'test/swift/dir',
+            'devices': '/test/node',
+            'mount_check': True,
+            'files_per_second': 11.1,
+            'log_name': 'test-relinker',
+            'log_level': 'WARNING',
+            'policies': POLICIES,
+            'partitions': set(),
+            'workers': 'auto',
+            'link_check_limit': 1,
+        }, mock.ANY, ['sdx'], do_cleanup=False)
+        logger = mock_relinker.call_args[0][1]
+        self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
+        self.assertEqual('test-relinker', logger.logger.name)
 
     def test_relink_first_quartile_no_rehash(self):
         # we need object name in lower half of current part

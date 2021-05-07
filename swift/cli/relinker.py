@@ -603,6 +603,10 @@ def parallel_process(do_cleanup, conf, logger=None, device_list=None):
     return final_status
 
 
+def auto_or_int(value):
+    return config_auto_int_value(value, default='auto')
+
+
 def main(args):
     parser = argparse.ArgumentParser(
         description='Relink and cleanup objects to increase partition power')
@@ -633,7 +637,7 @@ def main(args):
                         help='Used to limit I/O. Zero implies no limit '
                              '(default: no limit).')
     parser.add_argument(
-        '--workers', default=None, type=non_negative_int, help=(
+        '--workers', default=None, type=auto_or_int, help=(
             'Process devices across N workers '
             '(default: one worker per device)'))
     parser.add_argument('--logfile', default=None, dest='logfile',
