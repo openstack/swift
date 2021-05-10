@@ -36,7 +36,8 @@ from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, UNSHARDED, SHARDING, SHARDED, \
     COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES
-from swift.common.db import DatabaseAlreadyExists, GreenDBConnection
+from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
+    TombstoneReclaimer
 from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     ShardRange, make_db_file_path, md5, ShardRangeList
@@ -715,15 +716,17 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(count_reclaimable(conn, reclaim_age),
                              num_of_objects / 4)
 
-        orig__reclaim = broker._reclaim
         trace = []
 
-        def tracing_reclaim(conn, age_timestamp, marker):
-            trace.append((age_timestamp, marker,
-                          count_reclaimable(conn, age_timestamp)))
-            return orig__reclaim(conn, age_timestamp, marker)
+        class TracingReclaimer(TombstoneReclaimer):
+            def _reclaim(self, conn):
+                trace.append(
+                    (self.age_timestamp, self.marker,
+                     count_reclaimable(conn, self.age_timestamp)))
+                return super(TracingReclaimer, self)._reclaim(conn)
 
-        with mock.patch.object(broker, '_reclaim', new=tracing_reclaim), \
+        with mock.patch(
+                'swift.common.db.TombstoneReclaimer', TracingReclaimer), \
                 mock.patch('swift.common.db.RECLAIM_PAGE_SIZE', 10):
             broker.reclaim(reclaim_age, reclaim_age)
 
@@ -856,7 +859,8 @@ class TestContainerBroker(unittest.TestCase):
                 TestContainerBrokerBeforeXSync,
                 TestContainerBrokerBeforeSPI,
                 TestContainerBrokerBeforeShardRanges,
-                TestContainerBrokerBeforeShardRangeReportedColumn):
+                TestContainerBrokerBeforeShardRangeReportedColumn,
+                TestContainerBrokerBeforeShardRangeTombstonesColumn):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
@@ -2210,7 +2214,8 @@ class TestContainerBroker(unittest.TestCase):
                 TestContainerBrokerBeforeXSync,
                 TestContainerBrokerBeforeSPI,
                 TestContainerBrokerBeforeShardRanges,
-                TestContainerBrokerBeforeShardRangeReportedColumn):
+                TestContainerBrokerBeforeShardRangeReportedColumn,
+                TestContainerBrokerBeforeShardRangeTombstonesColumn):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
@@ -3509,7 +3514,8 @@ class TestContainerBroker(unittest.TestCase):
                 TestContainerBrokerBeforeXSync,
                 TestContainerBrokerBeforeSPI,
                 TestContainerBrokerBeforeShardRanges,
-                TestContainerBrokerBeforeShardRangeReportedColumn):
+                TestContainerBrokerBeforeShardRangeReportedColumn,
+                TestContainerBrokerBeforeShardRangeTombstonesColumn):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(timestamp.internal, info['status_changed_at'])
@@ -4843,7 +4849,7 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_merge_shard_ranges(self, tempdir):
-        ts = [next(self.ts) for _ in range(14)]
+        ts = [next(self.ts) for _ in range(16)]
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(
@@ -4947,6 +4953,20 @@ class TestContainerBroker(unittest.TestCase):
         broker.merge_shard_ranges(ShardRangeList([sr_c_13, sr_b_13]))
         self._assert_shard_ranges(
             broker, [sr_b_13, sr_c_13])
+        # merge with tombstones but same meta_timestamp
+        sr_c_13_tombs = ShardRange('a/c_c', ts[13], lower='b', upper='c',
+                                   object_count=10, meta_timestamp=ts[13],
+                                   tombstones=999)
+        broker.merge_shard_ranges(sr_c_13_tombs)
+        self._assert_shard_ranges(
+            broker, [sr_b_13, sr_c_13])
+        # merge with tombstones at newer meta_timestamp
+        sr_c_13_tombs = ShardRange('a/c_c', ts[13], lower='b', upper='c',
+                                   object_count=1, meta_timestamp=ts[14],
+                                   tombstones=999)
+        broker.merge_shard_ranges(sr_c_13_tombs)
+        self._assert_shard_ranges(
+            broker, [sr_b_13, sr_c_13_tombs])
 
     @with_tempdir
     def test_merge_shard_ranges_state(self, tempdir):
@@ -5670,7 +5690,7 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
         ContainerBrokerMigrationMixin, TestContainerBroker):
     """
     Tests for ContainerBroker against databases created
-    before the shard_ranges table was added.
+    before the shard_ranges table reported column was added.
     """
     # *grumble grumble* This should include container_info/policy_stat :-/
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
@@ -5697,6 +5717,234 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT reported
+                            FROM shard_range''')
+
+    @with_tempdir
+    def test_get_shard_ranges_attempts(self, tempdir):
+        # verify that old broker handles new sql query for shard range rows
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+
+        @contextmanager
+        def patch_execute():
+            with broker.get() as conn:
+                mock_conn = mock.MagicMock()
+                mock_execute = mock.MagicMock()
+                mock_conn.execute = mock_execute
+
+            @contextmanager
+            def mock_get():
+                yield mock_conn
+
+            with mock.patch.object(broker, 'get', mock_get):
+                yield mock_execute, conn
+
+        with patch_execute() as (mock_execute, conn):
+            mock_execute.side_effect = conn.execute
+            broker.get_shard_ranges()
+
+        expected = [
+            mock.call('\n            SELECT name, timestamp, lower, upper, '
+                      'object_count, bytes_used, meta_timestamp, deleted, '
+                      'state, state_timestamp, epoch, reported, '
+                      'tombstones\n            '
+                      'FROM shard_range WHERE deleted=0 AND name != ?;\n'
+                      '            ', ['a/c']),
+            mock.call('\n            SELECT name, timestamp, lower, upper, '
+                      'object_count, bytes_used, meta_timestamp, deleted, '
+                      'state, state_timestamp, epoch, 0 as reported, '
+                      'tombstones\n            '
+                      'FROM shard_range WHERE deleted=0 AND name != ?;\n'
+                      '            ', ['a/c']),
+            mock.call('\n            SELECT name, timestamp, lower, upper, '
+                      'object_count, bytes_used, meta_timestamp, deleted, '
+                      'state, state_timestamp, epoch, 0 as reported, '
+                      '-1 as tombstones\n            '
+                      'FROM shard_range WHERE deleted=0 AND name != ?;\n'
+                      '            ', ['a/c']),
+        ]
+
+        self.assertEqual(expected, mock_execute.call_args_list,
+                         mock_execute.call_args_list)
+
+        # if unexpectedly the call to execute continues to fail for reported,
+        # verify that the exception is raised after a retry
+        with patch_execute() as (mock_execute, conn):
+            def mock_execute_handler(*args, **kwargs):
+                if len(mock_execute.call_args_list) < 3:
+                    return conn.execute(*args, **kwargs)
+                else:
+                    raise sqlite3.OperationalError('no such column: reported')
+            mock_execute.side_effect = mock_execute_handler
+            with self.assertRaises(sqlite3.OperationalError):
+                broker.get_shard_ranges()
+        self.assertEqual(expected, mock_execute.call_args_list,
+                         mock_execute.call_args_list)
+
+        # if unexpectedly the call to execute continues to fail for tombstones,
+        # verify that the exception is raised after a retry
+        with patch_execute() as (mock_execute, conn):
+            def mock_execute_handler(*args, **kwargs):
+                if len(mock_execute.call_args_list) < 3:
+                    return conn.execute(*args, **kwargs)
+                else:
+                    raise sqlite3.OperationalError(
+                        'no such column: tombstones')
+            mock_execute.side_effect = mock_execute_handler
+            with self.assertRaises(sqlite3.OperationalError):
+                broker.get_shard_ranges()
+        self.assertEqual(expected, mock_execute.call_args_list,
+                         mock_execute.call_args_list)
+
+    @with_tempdir
+    def test_merge_shard_ranges_migrates_table(self, tempdir):
+        # verify that old broker migrates shard range table
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+        shard_ranges = [ShardRange('.shards_a/c_0', next(self.ts), 'a', 'b'),
+                        ShardRange('.shards_a/c_1', next(self.ts), 'b', 'c')]
+
+        orig_migrate_reported = broker._migrate_add_shard_range_reported
+        orig_migrate_tombstones = broker._migrate_add_shard_range_tombstones
+
+        with mock.patch.object(
+                broker, '_migrate_add_shard_range_reported',
+                side_effect=orig_migrate_reported) as mocked_reported:
+            with mock.patch.object(
+                    broker, '_migrate_add_shard_range_tombstones',
+                    side_effect=orig_migrate_tombstones) as mocked_tombstones:
+                broker.merge_shard_ranges(shard_ranges[:1])
+
+        mocked_reported.assert_called_once_with(mock.ANY)
+        mocked_tombstones.assert_called_once_with(mock.ANY)
+        self._assert_shard_ranges(broker, shard_ranges[:1])
+
+        with mock.patch.object(
+                broker, '_migrate_add_shard_range_reported',
+                side_effect=orig_migrate_reported) as mocked_reported:
+            with mock.patch.object(
+                    broker, '_migrate_add_shard_range_tombstones',
+                    side_effect=orig_migrate_tombstones) as mocked_tombstones:
+                broker.merge_shard_ranges(shard_ranges[1:])
+
+        mocked_reported.assert_not_called()
+        mocked_tombstones.assert_not_called()
+        self._assert_shard_ranges(broker, shard_ranges)
+
+    @with_tempdir
+    def test_merge_shard_ranges_fails_to_migrate_table(self, tempdir):
+        # verify that old broker will raise exception if it unexpectedly fails
+        # to migrate shard range table
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+        shard_ranges = [ShardRange('.shards_a/c_0', next(self.ts), 'a', 'b'),
+                        ShardRange('.shards_a/c_1', next(self.ts), 'b', 'c')]
+
+        # unexpected error during migration
+        with mock.patch.object(
+                broker, '_migrate_add_shard_range_reported',
+                side_effect=sqlite3.OperationalError('unexpected')) \
+                as mocked_reported:
+            with self.assertRaises(sqlite3.OperationalError):
+                broker.merge_shard_ranges(shard_ranges)
+
+        # one failed attempt was made to add reported column
+        self.assertEqual(1, mocked_reported.call_count)
+
+        # migration silently fails
+        with mock.patch.object(
+                broker, '_migrate_add_shard_range_reported') \
+                as mocked_reported:
+            with self.assertRaises(sqlite3.OperationalError):
+                broker.merge_shard_ranges(shard_ranges)
+
+        # one failed attempt was made to add reported column
+        self.assertEqual(1, mocked_reported.call_count)
+
+        with mock.patch.object(
+                broker, '_migrate_add_shard_range_tombstones') \
+                as mocked_tombstones:
+            with self.assertRaises(sqlite3.OperationalError):
+                broker.merge_shard_ranges(shard_ranges)
+
+        # first migration adds reported column
+        # one failed attempt was made to add tombstones column
+        self.assertEqual(1, mocked_tombstones.call_count)
+
+
+def pre_tombstones_create_shard_range_table(self, conn):
+    """
+    Copied from ContainerBroker before the
+    tombstones column was added; used for testing with
+    TestContainerBrokerBeforeShardRangeTombstonesColumn.
+
+    Create a shard_range table with no 'tombstones' column.
+
+    :param conn: DB connection object
+    """
+    # Use execute (not executescript) so we get the benefits of our
+    # GreenDBConnection. Creating a table requires a whole-DB lock;
+    # *any* in-progress cursor will otherwise trip a "database is locked"
+    # error.
+    conn.execute("""
+            CREATE TABLE shard_range (
+                ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                timestamp TEXT,
+                lower TEXT,
+                upper TEXT,
+                object_count INTEGER DEFAULT 0,
+                bytes_used INTEGER DEFAULT 0,
+                meta_timestamp TEXT,
+                deleted INTEGER DEFAULT 0,
+                state INTEGER,
+                state_timestamp TEXT,
+                epoch TEXT,
+                reported INTEGER DEFAULT 0
+            );
+        """)
+
+    conn.execute("""
+            CREATE TRIGGER shard_range_update BEFORE UPDATE ON shard_range
+            BEGIN
+                SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+            END;
+        """)
+
+
+class TestContainerBrokerBeforeShardRangeTombstonesColumn(
+        ContainerBrokerMigrationMixin, TestContainerBroker):
+    """
+    Tests for ContainerBroker against databases created
+    before the shard_ranges table tombstones column was added.
+    """
+    expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
+                          'sqlite_sequence', 'container_stat', 'shard_range'}
+
+    def setUp(self):
+        super(TestContainerBrokerBeforeShardRangeTombstonesColumn,
+              self).setUp()
+        ContainerBroker.create_shard_range_table = \
+            pre_tombstones_create_shard_range_table
+
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                broker.get() as conn:
+            conn.execute('''SELECT tombstones
+                            FROM shard_range''')
+        self.assertIn('no such column: tombstones', str(raised.exception))
+
+    def tearDown(self):
+        super(TestContainerBrokerBeforeShardRangeTombstonesColumn,
+              self).tearDown()
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        with broker.get() as conn:
+            conn.execute('''SELECT tombstones
                             FROM shard_range''')
 
 

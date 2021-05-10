@@ -208,9 +208,10 @@ class InvalidSolutionException(ManageShardRangesException):
 def _print_shard_range(sr, level=0):
     indent = '  ' * level
     print(indent + '%r' % sr.name)
-    print(indent + '  objects: %9d  lower: %r' % (sr.object_count,
-                                                  sr.lower_str))
-    print(indent + '    state: %9s  upper: %r' % (sr.state_text, sr.upper_str))
+    print(indent + '  objects: %9d, tombstones: %9d, lower: %r'
+          % (sr.object_count, sr.tombstones, sr.lower_str))
+    print(indent + '    state: %9s,                        upper: %r'
+          % (sr.state_text, sr.upper_str))
 
 
 @contextmanager
@@ -504,8 +505,8 @@ def compact_shard_ranges(broker, args):
         for sequence in compactible:
             acceptor = sequence[-1]
             donors = sequence[:-1]
-            print('Donor shard range(s) with total of %d objects:'
-                  % donors.object_count)
+            print('Donor shard range(s) with total of %d rows:'
+                  % donors.row_count)
             for donor in donors:
                 _print_shard_range(donor, level=1)
             print('can be compacted into acceptor shard range:')

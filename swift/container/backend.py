@@ -66,7 +66,7 @@ SHARD_AUDITING_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
 # tuples and vice-versa
 SHARD_RANGE_KEYS = ('name', 'timestamp', 'lower', 'upper', 'object_count',
                     'bytes_used', 'meta_timestamp', 'deleted', 'state',
-                    'state_timestamp', 'epoch', 'reported')
+                    'state_timestamp', 'epoch', 'reported', 'tombstones')
 
 POLICY_STAT_TABLE_CREATE = '''
     CREATE TABLE policy_stat (
@@ -287,6 +287,7 @@ def merge_shards(shard_data, existing):
     if existing['meta_timestamp'] >= shard_data['meta_timestamp']:
         for k in ('object_count', 'bytes_used', 'meta_timestamp'):
             shard_data[k] = existing[k]
+        shard_data['tombstones'] = existing.get('tombstones', -1)
     else:
         new_content = True
 
@@ -294,6 +295,7 @@ def merge_shards(shard_data, existing):
     if existing['reported'] and \
             existing['object_count'] == shard_data['object_count'] and \
             existing['bytes_used'] == shard_data['bytes_used'] and \
+            existing.get('tombstones', -1) == shard_data['tombstones'] and \
             existing['state'] == shard_data['state'] and \
             existing['epoch'] == shard_data['epoch']:
         shard_data['reported'] = 1
@@ -618,7 +620,8 @@ class ContainerBroker(DatabaseBroker):
                 state INTEGER,
                 state_timestamp TEXT,
                 epoch TEXT,
-                reported INTEGER DEFAULT 0
+                reported INTEGER DEFAULT 0,
+                tombstones INTEGER DEFAULT -1
             );
         """ % SHARD_RANGE_TABLE)
 
@@ -1450,22 +1453,34 @@ class ContainerBroker(DatabaseBroker):
                           for item in to_add.values()))
             conn.commit()
 
+        migrations = {
+            'no such column: reported':
+                self._migrate_add_shard_range_reported,
+            'no such column: tombstones':
+                self._migrate_add_shard_range_tombstones,
+            ('no such table: %s' % SHARD_RANGE_TABLE):
+                self.create_shard_range_table,
+        }
+        migrations_done = set()
         with self.get() as conn:
-            try:
-                return _really_merge_items(conn)
-            except sqlite3.OperationalError as err:
-                # Without the rollback, new enough (>= py37) python/sqlite3
-                # will panic:
-                #   sqlite3.OperationalError: cannot start a transaction
-                #   within a transaction
-                conn.rollback()
-                if 'no such column: reported' in str(err):
-                    self._migrate_add_shard_range_reported(conn)
+            while True:
+                try:
                     return _really_merge_items(conn)
-                if ('no such table: %s' % SHARD_RANGE_TABLE) in str(err):
-                    self.create_shard_range_table(conn)
-                    return _really_merge_items(conn)
-                raise
+                except sqlite3.OperationalError as err:
+                    # Without the rollback, new enough (>= py37) python/sqlite3
+                    # will panic:
+                    #   sqlite3.OperationalError: cannot start a transaction
+                    #   within a transaction
+                    conn.rollback()
+                    for err_str, migration in migrations.items():
+                        if err_str in migrations_done:
+                            continue
+                        if err_str in str(err):
+                            migration(conn)
+                            migrations_done.add(err_str)
+                            break
+                    else:
+                        raise
 
     def get_reconciler_sync(self):
         with self.get() as conn:
@@ -1624,6 +1639,17 @@ class ContainerBroker(DatabaseBroker):
             COMMIT;
         ''' % SHARD_RANGE_TABLE)
 
+    def _migrate_add_shard_range_tombstones(self, conn):
+        """
+        Add the tombstones column to the 'shard_range' table.
+        """
+        conn.executescript('''
+            BEGIN;
+            ALTER TABLE %s
+            ADD COLUMN tombstones INTEGER DEFAULT -1;
+            COMMIT;
+        ''' % SHARD_RANGE_TABLE)
+
     def _reclaim_other_stuff(self, conn, age_timestamp, sync_timestamp):
         super(ContainerBroker, self)._reclaim_other_stuff(
             conn, age_timestamp, sync_timestamp)
@@ -1673,7 +1699,11 @@ class ContainerBroker(DatabaseBroker):
         elif states is not None:
             included_states.add(states)
 
-        def do_query(conn, use_reported_column=True):
+        # defaults to be used when legacy db's are missing columns
+        default_values = {'reported': 0,
+                          'tombstones': -1}
+
+        def do_query(conn, defaults=None):
             condition = ''
             conditions = []
             params = []
@@ -1691,10 +1721,13 @@ class ContainerBroker(DatabaseBroker):
                 params.append(self.path)
             if conditions:
                 condition = ' WHERE ' + ' AND '.join(conditions)
-            if use_reported_column:
-                columns = SHARD_RANGE_KEYS
-            else:
-                columns = SHARD_RANGE_KEYS[:-1] + ('0 as reported', )
+            columns = SHARD_RANGE_KEYS[:-2]
+            for column in SHARD_RANGE_KEYS[-2:]:
+                if column in defaults:
+                    columns += (('%s as %s' %
+                                 (default_values[column], column)),)
+                else:
+                    columns += (column,)
             sql = '''
             SELECT %s
             FROM %s%s;
@@ -1704,14 +1737,26 @@ class ContainerBroker(DatabaseBroker):
             return [row for row in data]
 
         with self.maybe_get(connection) as conn:
-            try:
-                return do_query(conn)
-            except sqlite3.OperationalError as err:
-                if ('no such table: %s' % SHARD_RANGE_TABLE) in str(err):
-                    return []
-                if 'no such column: reported' in str(err):
-                    return do_query(conn, use_reported_column=False)
-                raise
+            defaults = set()
+            attempts = len(default_values) + 1
+            while attempts:
+                attempts -= 1
+                try:
+                    return do_query(conn, defaults)
+                except sqlite3.OperationalError as err:
+                    if ('no such table: %s' % SHARD_RANGE_TABLE) in str(err):
+                        return []
+                    if not attempts:
+                        raise
+                    new_defaults = set()
+                    for column in default_values.keys():
+                        if 'no such column: %s' % column in str(err):
+                            new_defaults.add(column)
+                    if not new_defaults:
+                        raise
+                    if new_defaults.intersection(defaults):
+                        raise
+                    defaults.update(new_defaults)
 
     @classmethod
     def resolve_shard_range_states(cls, states):

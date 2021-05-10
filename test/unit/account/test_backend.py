@@ -36,7 +36,7 @@ import six
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
 from test.unit import patch_policies, with_tempdir, make_timestamp_iter
-from swift.common.db import DatabaseConnectionError
+from swift.common.db import DatabaseConnectionError, TombstoneReclaimer
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy, POLICIES
 from swift.common.utils import md5
@@ -218,15 +218,17 @@ class TestAccountBroker(unittest.TestCase):
             self.assertEqual(count_reclaimable(conn, reclaim_age),
                              num_of_containers / 4)
 
-        orig__reclaim = broker._reclaim
         trace = []
 
-        def tracing_reclaim(conn, age_timestamp, marker):
-            trace.append((age_timestamp, marker,
-                          count_reclaimable(conn, age_timestamp)))
-            return orig__reclaim(conn, age_timestamp, marker)
+        class TracingReclaimer(TombstoneReclaimer):
+            def _reclaim(self, conn):
+                trace.append(
+                    (self.age_timestamp, self.marker,
+                     count_reclaimable(conn, self.age_timestamp)))
+                return super(TracingReclaimer, self)._reclaim(conn)
 
-        with mock.patch.object(broker, '_reclaim', new=tracing_reclaim), \
+        with mock.patch(
+                'swift.common.db.TombstoneReclaimer', TracingReclaimer), \
                 mock.patch('swift.common.db.RECLAIM_PAGE_SIZE', 10):
             broker.reclaim(reclaim_age, reclaim_age)
         with broker.get() as conn:
