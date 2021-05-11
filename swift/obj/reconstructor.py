@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import itertools
 import json
 import errno
 import os
@@ -33,7 +33,8 @@ from swift.common.utils import (
     dump_recon_cache, mkdirs, config_true_value,
     GreenAsyncPile, Timestamp, remove_file,
     load_recon_cache, parse_override_options, distribute_evenly,
-    PrefixLoggerAdapter, remove_directory)
+    PrefixLoggerAdapter, remove_directory, config_request_node_count_value,
+    non_negative_int)
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -102,8 +103,8 @@ class ResponseBucket(object):
     def __init__(self):
         # count of all responses associated with this Bucket
         self.num_responses = 0
-        # map {frag_index: response} for subset of responses that
-        # could be used to rebuild the missing fragment
+        # map {frag_index: response} for subset of responses that could be used
+        # to rebuild the missing fragment
         self.useful_responses = {}
         # set if a durable timestamp was seen in responses
         self.durable = False
@@ -232,6 +233,10 @@ class ObjectReconstructor(Daemon):
                                 'of handoffs_only.')
         self.rebuild_handoff_node_count = int(conf.get(
             'rebuild_handoff_node_count', 2))
+        self.quarantine_threshold = non_negative_int(
+            conf.get('quarantine_threshold', 0))
+        self.request_node_count = config_request_node_count_value(
+            conf.get('request_node_count', '2 * replicas'))
 
         # When upgrading from liberasurecode<=1.5.0, you may want to continue
         # writing legacy CRCs until all nodes are upgraded and capabale of
@@ -368,23 +373,24 @@ class ObjectReconstructor(Daemon):
                 return False
         return True
 
-    def _get_response(self, node, part, path, headers, full_path):
+    def _get_response(self, node, policy, partition, path, headers):
         """
         Helper method for reconstruction that GETs a single EC fragment
         archive
 
         :param node: the node to GET from
-        :param part: the partition
+        :param policy: the job policy
+        :param partition: the partition
         :param path: path of the desired EC archive relative to partition dir
         :param headers: the headers to send
-        :param full_path: full path to desired EC archive
         :returns: response
         """
+        full_path = _full_path(node, partition, path, policy)
         resp = None
         try:
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(node['ip'], node['port'], node['device'],
-                                    part, 'GET', path, headers=headers)
+                                    partition, 'GET', path, headers=headers)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
                 resp.full_path = full_path
@@ -462,7 +468,11 @@ class ObjectReconstructor(Daemon):
                               fi_to_rebuild)
             return None
 
-        if fi_to_rebuild == resp_frag_index:
+        durable_timestamp = resp.headers.get('X-Backend-Durable-Timestamp')
+        if durable_timestamp:
+            buckets[Timestamp(durable_timestamp)].durable = True
+
+        if resp_frag_index == fi_to_rebuild:
             # TODO: With duplicated EC frags it's not unreasonable to find the
             # very fragment we're trying to rebuild exists on another primary
             # node.  In this case we should stream it directly from the remote
@@ -471,19 +481,43 @@ class ObjectReconstructor(Daemon):
                 'Found existing frag #%s at %s while rebuilding to %s',
                 fi_to_rebuild, resp.full_path,
                 _full_path(node, partition, path, policy))
-            return None
-
-        durable_timestamp = resp.headers.get('X-Backend-Durable-Timestamp')
-        if durable_timestamp:
-            buckets[Timestamp(durable_timestamp)].durable = True
-
-        if resp_frag_index not in bucket.useful_responses:
+        elif resp_frag_index not in bucket.useful_responses:
             bucket.useful_responses[resp_frag_index] = resp
-            return bucket
-        return None
+        # else: duplicate frag_index isn't useful for rebuilding
 
-    def _make_fragment_requests(self, job, node, datafile_metadata, buckets,
-                                error_responses, nodes):
+        return bucket
+
+    def _is_quarantine_candidate(self, policy, buckets, error_responses, df):
+        # This condition is deliberately strict because it determines if
+        # more requests will be issued and ultimately if the fragment
+        # will be quarantined.
+        if list(error_responses.keys()) != [404]:
+            # only quarantine if all other responses are 404 so we are
+            # confident there are no other frags on queried nodes
+            return False
+
+        local_timestamp = Timestamp(df.get_datafile_metadata()['X-Timestamp'])
+        if list(buckets.keys()) != [local_timestamp]:
+            # don't quarantine if there's insufficient other timestamp
+            # frags, or no response for the local frag timestamp: we
+            # possibly could quarantine, but this unexpected case may be
+            # worth more investigation
+            return False
+
+        if time.time() - float(local_timestamp) <= df.manager.reclaim_age:
+            # If the fragment has not yet passed reclaim age then it is
+            # likely that a tombstone will be reverted to this node, or
+            # neighbor frags will get reverted from handoffs to *other* nodes
+            # and we'll discover we *do* have enough to reconstruct. Don't
+            # quarantine it yet: better that it is cleaned up 'normally'.
+            return False
+
+        bucket = buckets[local_timestamp]
+        return (bucket.num_responses <= self.quarantine_threshold and
+                bucket.num_responses < policy.ec_ndata and
+                df._frag_index in bucket.useful_responses)
+
+    def _make_fragment_requests(self, job, node, df, buckets, error_responses):
         """
         Issue requests for fragments to the list of ``nodes`` and sort the
         responses into per-timestamp ``buckets`` or per-status
@@ -492,16 +526,15 @@ class ObjectReconstructor(Daemon):
 
         :param job: job from ssync_sender.
         :param node: node to which we're rebuilding.
-        :param datafile_metadata:  the datafile metadata to attach to
-                                   the rebuilt fragment archive
+        :param df: an instance of :class:`~swift.obj.diskfile.BaseDiskFile`.
         :param buckets: dict of per-timestamp buckets for ok responses.
         :param error_responses: dict of per-status lists of error responses.
-        :param nodes: A list of nodes.
         :return: A per-timestamp with sufficient responses, or None if
             there is no such bucket.
         """
         policy = job['policy']
         partition = job['partition']
+        datafile_metadata = df.get_datafile_metadata()
 
         # the fragment index we need to reconstruct is the position index
         # of the node we're rebuilding to within the primary part list
@@ -521,24 +554,80 @@ class ObjectReconstructor(Daemon):
         headers['X-Backend-Fragment-Preferences'] = json.dumps(frag_prefs)
         path = datafile_metadata['name']
 
-        pile = GreenAsyncPile(len(nodes))
-        for _node in nodes:
-            full_get_path = _full_path(_node, partition, path, policy)
-            pile.spawn(self._get_response, _node, partition,
-                       path, headers, full_get_path)
+        ring = policy.object_ring
+        primary_nodes = ring.get_part_nodes(partition)
+        # primary_node_count is the maximum number of nodes to consume in a
+        # normal rebuild attempt when there is no quarantine candidate,
+        # including the node to which we are rebuilding
+        primary_node_count = len(primary_nodes)
+        # don't try and fetch a fragment from the node we're rebuilding to
+        filtered_primary_nodes = [n for n in primary_nodes
+                                  if n['id'] != node['id']]
+        # concurrency is the number of requests fired off in initial batch
+        concurrency = len(filtered_primary_nodes)
+        # max_node_count is the maximum number of nodes to consume when
+        # verifying a quarantine candidate and is at least primary_node_count
+        max_node_count = max(primary_node_count,
+                             self.request_node_count(primary_node_count))
 
+        pile = GreenAsyncPile(concurrency)
+        for primary_node in filtered_primary_nodes:
+            pile.spawn(self._get_response, primary_node, policy, partition,
+                       path, headers)
+
+        useful_bucket = None
         for resp in pile:
             bucket = self._handle_fragment_response(
                 node, policy, partition, fi_to_rebuild, path, buckets,
                 error_responses, resp)
             if bucket and len(bucket.useful_responses) >= policy.ec_ndata:
-                frag_indexes = list(bucket.useful_responses.keys())
-                self.logger.debug('Reconstruct frag #%s with frag indexes %s'
-                                  % (fi_to_rebuild, frag_indexes))
-                return bucket
-        return None
+                useful_bucket = bucket
+                break
 
-    def reconstruct_fa(self, job, node, datafile_metadata):
+        # Once all rebuild nodes have responded, if we have a quarantine
+        # candidate, go beyond primary_node_count and on to handoffs. The
+        # first non-404 response will prevent quarantine, but the expected
+        # common case is all 404 responses so we use some concurrency to get an
+        # outcome faster at the risk of some unnecessary requests in the
+        # uncommon case.
+        if (not useful_bucket and
+                self._is_quarantine_candidate(
+                    policy, buckets, error_responses, df)):
+            node_count = primary_node_count
+            handoff_iter = itertools.islice(ring.get_more_nodes(partition),
+                                            max_node_count - node_count)
+            for handoff_node in itertools.islice(handoff_iter, concurrency):
+                node_count += 1
+                pile.spawn(self._get_response, handoff_node, policy, partition,
+                           path, headers)
+            for resp in pile:
+                bucket = self._handle_fragment_response(
+                    node, policy, partition, fi_to_rebuild, path, buckets,
+                    error_responses, resp)
+                if bucket and len(bucket.useful_responses) >= policy.ec_ndata:
+                    useful_bucket = bucket
+                    self.logger.debug(
+                        'Reconstructing frag from handoffs, node_count=%d'
+                        % node_count)
+                    break
+                elif self._is_quarantine_candidate(
+                        policy, buckets, error_responses, df):
+                    try:
+                        handoff_node = next(handoff_iter)
+                        node_count += 1
+                        pile.spawn(self._get_response, handoff_node, policy,
+                                   partition, path, headers)
+                    except StopIteration:
+                        pass
+                # else: this frag is no longer a quarantine candidate, so we
+                # could break right here and ignore any remaining responses,
+                # but given that we may have actually found another frag we'll
+                # optimistically wait for any remaining responses in case a
+                # useful bucket is assembled.
+
+        return useful_bucket
+
+    def reconstruct_fa(self, job, node, df):
         """
         Reconstructs a fragment archive - this method is called from ssync
         after a remote node responds that is missing this object - the local
@@ -547,8 +636,7 @@ class ObjectReconstructor(Daemon):
 
         :param job: job from ssync_sender.
         :param node: node to which we're rebuilding.
-        :param datafile_metadata:  the datafile metadata to attach to
-                                   the rebuilt fragment archive
+        :param df: an instance of :class:`~swift.obj.diskfile.BaseDiskFile`.
         :returns: a DiskFile like class for use by ssync.
         :raises DiskFileQuarantined: if the fragment archive cannot be
             reconstructed and has as a result been quarantined.
@@ -559,6 +647,7 @@ class ObjectReconstructor(Daemon):
         # the fragment index we need to reconstruct is the position index
         # of the node we're rebuilding to within the primary part list
         fi_to_rebuild = node['backend_index']
+        datafile_metadata = df.get_datafile_metadata()
         local_timestamp = Timestamp(datafile_metadata['X-Timestamp'])
         path = datafile_metadata['name']
 
@@ -566,12 +655,13 @@ class ObjectReconstructor(Daemon):
         error_responses = defaultdict(list)  # map status code -> response list
 
         # don't try and fetch a fragment from the node we're rebuilding to
-        part_nodes = [n for n in policy.object_ring.get_part_nodes(partition)
-                      if n['id'] != node['id']]
         useful_bucket = self._make_fragment_requests(
-            job, node, datafile_metadata, buckets, error_responses, part_nodes)
+            job, node, df, buckets, error_responses)
 
         if useful_bucket:
+            frag_indexes = list(useful_bucket.useful_responses.keys())
+            self.logger.debug('Reconstruct frag #%s with frag indexes %s'
+                              % (fi_to_rebuild, frag_indexes))
             responses = list(useful_bucket.useful_responses.values())
             rebuilt_fragment_iter = self.make_rebuilt_fragment_iter(
                 responses[:policy.ec_ndata], path, policy, fi_to_rebuild)
@@ -600,6 +690,10 @@ class ObjectReconstructor(Daemon):
                 'to reconstruct %s %s frag#%s' % (
                     errors, 'durable' if durable else 'non-durable',
                     full_path, fi_to_rebuild))
+
+        if self._is_quarantine_candidate(policy, buckets, error_responses, df):
+            raise df._quarantine(
+                df._data_file, "Solitary fragment #%s" % df._frag_index)
 
         raise DiskFileError('Unable to reconstruct EC archive')
 

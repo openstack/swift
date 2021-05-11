@@ -33,7 +33,7 @@ from six.moves.http_client import HTTPConnection
 from six.moves.urllib.parse import urlparse
 
 from swiftclient import get_auth, head_account, client
-from swift.common import internal_client, direct_client
+from swift.common import internal_client, direct_client, utils
 from swift.common.direct_client import DirectClientException
 from swift.common.ring import Ring
 from swift.common.utils import readconf, renamer, \
@@ -41,6 +41,7 @@ from swift.common.utils import readconf, renamer, \
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.obj.diskfile import get_data_dir
+from test.debug_logger import debug_logger
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC, PROXY_BASE_URL
 
@@ -186,6 +187,8 @@ def store_config_paths(name, configs):
     server_names = [name, '%s-replicator' % name]
     if name == 'container':
         server_names.append('container-sharder')
+    elif name == 'object':
+        server_names.append('object-reconstructor')
     for server_name in server_names:
         for server in Manager([server_name]):
             for i, conf in enumerate(server.conf_files(), 1):
@@ -563,6 +566,15 @@ class ProbeTest(unittest.TestCase):
                             for ent in os.listdir(ap_dir_fullpath)])
         return async_pendings
 
+    def run_custom_daemon(self, klass, conf_section, conf_index,
+                          custom_conf, **kwargs):
+        conf_file = self.configs[conf_section][conf_index]
+        conf = utils.readconf(conf_file, conf_section)
+        conf.update(custom_conf)
+        daemon = klass(conf, debug_logger('probe'))
+        daemon.run_once(**kwargs)
+        return daemon
+
 
 class ReplProbeTest(ProbeTest):
 
@@ -679,6 +691,7 @@ class ECProbeTest(ProbeTest):
             self.direct_get(onode, opart, require_durable=require_durable)
         except direct_client.DirectClientException as err:
             self.assertEqual(err.http_status, status)
+            return err
         else:
             self.fail('Node data on %r was not fully destroyed!' % (onode,))
 

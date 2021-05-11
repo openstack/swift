@@ -390,6 +390,39 @@ use = egg:swift#recon
 # the environment (default). For more information, see
 # https://bugs.launchpad.net/liberasurecode/+bug/1886088
 # write_legacy_ec_crc =
+#
+# When attempting to reconstruct a missing fragment on another node from a
+# fragment on the local node, the reconstructor may fail to fetch sufficient
+# fragments to reconstruct the missing fragment. This may be because most or
+# all of the remote fragments have been deleted, and the local fragment is
+# stale, in which case the reconstructor will never succeed in reconstructing
+# the apparently missing fragment and will log errors. If the object's
+# tombstones have been reclaimed then the stale fragment will never be deleted
+# (see https://bugs.launchpad.net/swift/+bug/1655608). If an operator suspects
+# that stale fragments have been re-introduced to the cluster and is seeing
+# error logs similar to those in the bug report, then the quarantine_threshold
+# option may be set to a value greater than zero. This enables the
+# reconstructor to quarantine the stale fragments when it fails to fetch more
+# than the quarantine_threshold number of fragments (including the stale
+# fragment) during an attempt to reconstruct. For example, setting the
+# quarantine_threshold to 1 would cause a fragment to be quarantined if no
+# other fragments can be fetched. The value may be reset to zero after the
+# reconstructor has run on all affected nodes and the error logs are no longer
+# seen.
+# Note: the quarantine_threshold applies equally to all policies, but for each
+# policy it is effectively capped at (ec_ndata - 1) so that a fragment is never
+# quarantined when sufficient fragments exist to reconstruct the object.
+# Fragments are not quarantined until they are older than the reclaim_age.
+# quarantine_threshold = 0
+#
+# Sets the maximum number of nodes to which requests will be made before
+# quarantining a fragment. You can use '* replicas' at the end to have it use
+# the number given times the number of replicas for the ring being used for the
+# requests. The minimum number of nodes to which requests are made is the
+# number of replicas for the policy minus 1 (the node on which the fragment is
+# to be rebuilt). The minimum is only exceeded if request_node_count is
+# greater, and only for the purposes of quarantining.
+# request_node_count = 2 * replicas
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):

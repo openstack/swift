@@ -220,8 +220,8 @@ use = egg:swift#proxy
 # to use up to replica count threads when waiting on a response.  In
 # conjunction with the concurrency_timeout option this will allow swift to send
 # out GET/HEAD requests to the storage nodes concurrently and answer as soon as
-# the minimum number of backend responses are availabe - in replicated contexts
-# this will be the first backend replica to respond.
+# the minimum number of backend responses are available - in replicated
+# contexts this will be the first backend replica to respond.
 # concurrent_gets = off
 #
 # This parameter controls how long to wait before firing off the next

@@ -40,7 +40,6 @@ from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
     wait_for_server_to_hangup
-from test.debug_logger import debug_logger
 import mock
 
 
@@ -415,12 +414,8 @@ class BaseTestContainerSharding(ReplProbeTest):
                                additional_args='--partitions=%s' % part)
 
     def run_custom_sharder(self, conf_index, custom_conf, **kwargs):
-        conf_file = self.configs['container-sharder'][conf_index]
-        conf = utils.readconf(conf_file, 'container-sharder')
-        conf.update(custom_conf)
-        sharder = ContainerSharder(conf, logger=debug_logger('probe'))
-        sharder.run_once(**kwargs)
-        return sharder
+        return self.run_custom_daemon(ContainerSharder, 'container-sharder',
+                                      conf_index, custom_conf, **kwargs)
 
 
 class TestContainerShardingNonUTF8(BaseTestContainerSharding):
