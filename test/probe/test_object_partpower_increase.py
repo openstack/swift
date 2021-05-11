@@ -16,7 +16,7 @@
 import os
 
 from errno import EEXIST
-from shutil import copyfile
+from shutil import copyfile, move
 from tempfile import mkstemp
 from time import time
 from unittest import main
@@ -68,10 +68,8 @@ class TestPartPowerIncrease(ProbeTest):
         copyfile(self.builder_file, backup_name)
 
         # Restore original ring
-        os.system('sudo mv %s %s' % (
-            self.ring_file_backup, self.ring_file))
-        os.system('sudo mv %s %s' % (
-            self.builder_file_backup, self.builder_file))
+        move(self.ring_file_backup, self.ring_file)
+        move(self.builder_file_backup, self.builder_file)
 
     def _find_objs_ondisk(self, container, obj):
         locations = []
