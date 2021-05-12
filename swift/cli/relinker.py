@@ -29,7 +29,7 @@ from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
     RateLimitedIterator, lock_path, PrefixLoggerAdapter, distribute_evenly, \
     non_negative_float, non_negative_int, config_auto_int_value, \
-    dump_recon_cache
+    dump_recon_cache, get_partition_from_path
 from swift.obj import diskfile
 
 
@@ -118,6 +118,7 @@ class Relinker(object):
         self.devices_data = recursive_defaultdict()
         self.policy_count = 0
         self.pid = os.getpid()
+        self.linked_into_partitions = set()
 
     def _aggregate_dev_policy_stats(self):
         for dev_data in self.devices_data.values():
@@ -283,9 +284,11 @@ class Relinker(object):
 
     def hook_pre_partition(self, partition_path):
         self.pre_partition_errors = self.total_errors
+        self.linked_into_partitions = set()
 
     def hook_post_partition(self, partition_path):
-        datadir_path, part = os.path.split(os.path.abspath(partition_path))
+        datadir_path, partition = os.path.split(
+            os.path.abspath(partition_path))
         device_path, datadir_name = os.path.split(datadir_path)
         device = os.path.basename(device_path)
         state_tmp_file = os.path.join(
@@ -315,15 +318,15 @@ class Relinker(object):
         # shift to the new partition space and rehash
         #   |0                             2N|
         #   |                IIJJKKLLMMNNOOPP|
-        partition = int(part)
-        if not self.do_cleanup and partition >= 2 ** (
-                self.states['part_power'] - 1):
-            for new_part in (2 * partition, 2 * partition + 1):
+        for dirty_partition in self.linked_into_partitions:
+            if self.do_cleanup or \
+                    dirty_partition >= 2 ** self.states['part_power']:
                 self.diskfile_mgr.get_hashes(
-                    device, new_part, [], self.policy)
-        elif self.do_cleanup:
+                    device, dirty_partition, [], self.policy)
+
+        if self.do_cleanup:
             hashes = self.diskfile_mgr.get_hashes(
-                device, partition, [], self.policy)
+                device, int(partition), [], self.policy)
             # In any reasonably-large cluster, we'd expect all old
             # partitions P to be empty after cleanup (i.e., it's unlikely
             # that there's another partition Q := P//2 that also has data
@@ -359,7 +362,7 @@ class Relinker(object):
         # in case the process is interrupted and needs to resume, or there
         # were errors and the relinker needs to run again.
         if self.pre_partition_errors == self.total_errors:
-            self.states["state"][part] = True
+            self.states["state"][partition] = True
             with open(state_tmp_file, 'wt') as f:
                 json.dump(self.states, f)
                 os.fsync(f.fileno())
@@ -507,6 +510,8 @@ class Relinker(object):
                     self.stats['errors'] += 1
                     missing_links += 1
         if created_links:
+            self.linked_into_partitions.add(get_partition_from_path(
+                self.conf['devices'], new_hash_path))
             diskfile.invalidate_hash(os.path.dirname(new_hash_path))
 
         if self.do_cleanup and not missing_links:
@@ -529,6 +534,9 @@ class Relinker(object):
                 self.logger.debug("Removed %s", old_file)
 
         if rehash:
+            # Even though we're invalidating the suffix, don't update
+            # self.linked_into_partitions -- we only care about them for
+            # relinking into the new part-power space
             try:
                 diskfile.invalidate_hash(os.path.dirname(hash_path))
             except Exception as exc:
