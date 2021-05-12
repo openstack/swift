@@ -93,11 +93,12 @@ def curl_head_command(ip, port, device, part, target, policy_index):
     else:
         formatted_ip = ip
 
-    cmd = 'curl --path-as-is -g -I -XHEAD "http://%s:%s/%s/%s/%s"' % (
+    cmd = 'curl -g -I -XHEAD "http://%s:%s/%s/%s/%s"' % (
         formatted_ip, port, device, part, urllib.parse.quote(target))
     if policy_index is not None:
         cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
                                  policy_index)
+    cmd += ' --path-as-is'
     return cmd
 
 
