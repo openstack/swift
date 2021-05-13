@@ -12,6 +12,7 @@
 
 import json
 import os
+import sys
 import unittest
 from argparse import Namespace
 from textwrap import dedent
@@ -1776,8 +1777,15 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), \
-                mock.patch('sys.stderr', err):
-            ret = main(['db file', 'repair', '--dry-run', '--yes'])
-        self.assertEqual(2, ret)
+                mock.patch('sys.stderr', err), \
+                self.assertRaises(SystemExit) as cm:
+            main(['db file', 'repair', '--dry-run', '--yes'])
+        self.assertEqual(2, cm.exception.code)
         err_lines = err.getvalue().split('\n')
-        self.assertIn('--yes and --dry-run cannot both be set.', err_lines)
+        runner = os.path.basename(sys.argv[0])
+        self.assertEqual(
+            'usage: %s path_to_file repair [-h] [--yes | --dry-run]' % runner,
+            err_lines[0])
+        self.assertIn(
+            "argument --yes/-y: not allowed with argument --dry-run/-n",
+            err_lines[1])

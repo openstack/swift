@@ -728,11 +728,12 @@ def _add_enable_args(parser):
 
 
 def _add_prompt_args(parser):
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
         '--yes', '-y', action='store_true', default=False,
         help='Apply shard range changes to broker without prompting. '
              'Cannot be used with --dry-run option.')
-    parser.add_argument(
+    group.add_argument(
         '--dry-run', '-n', action='store_true', default=False,
         help='Do not apply any shard range changes to broker. '
              'Cannot be used with --yes option.')
@@ -888,10 +889,6 @@ def main(args=None):
         # out if not.
         parser.print_help()
         print('\nA sub-command is required.', file=sys.stderr)
-        return EXIT_INVALID_ARGS
-
-    if getattr(args, 'yes', False) and getattr(args, 'dry_run', False):
-        print('--yes and --dry-run cannot both be set.', file=sys.stderr)
         return EXIT_INVALID_ARGS
 
     conf = {}
