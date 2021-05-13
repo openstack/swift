@@ -894,6 +894,7 @@ class TestManageShardRanges(unittest.TestCase):
             "  '.shards_a",
             "    objects:    100001, tombstones:       999, lower: 'obj79'",
             "      state:    active,                        upper: 'obj89'",
+            'Total of 2 shard sequences identified for compaction.',
             'Once applied to the broker these changes will result in '
             'shard range compaction the next time the sharder runs.',
         ]

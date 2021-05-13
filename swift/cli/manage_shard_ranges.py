@@ -524,6 +524,8 @@ def compact_shard_ranges(broker, args):
             _print_shard_range(donor, level=1)
         print('can be compacted into acceptor shard range:')
         _print_shard_range(acceptor, level=1)
+    print('Total of %d shard sequences identified for compaction.'
+          % len(compactible))
     print('Once applied to the broker these changes will result in shard '
           'range compaction the next time the sharder runs.')
 
