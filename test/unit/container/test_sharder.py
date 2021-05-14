@@ -117,10 +117,10 @@ class BaseTestSharder(unittest.TestCase):
         if not isinstance(state, (tuple, list)):
             state = [state] * len(bounds)
         state_iter = iter(state)
-        return [ShardRange('.shards_a/c_%s' % upper, timestamp,
+        return [ShardRange('.shards_a/c_%s_%s' % (upper, index), timestamp,
                            lower, upper, state=next(state_iter),
                            object_count=object_count, **kwargs)
-                for lower, upper in bounds]
+                for index, (lower, upper) in enumerate(bounds)]
 
     def ts_encoded(self):
         # make a unique timestamp string with multiple timestamps encoded;
@@ -4859,11 +4859,14 @@ class TestSharder(BaseTestSharder):
             self.assertIn(
                 'Audit failed for root %s' % broker.db_file, line)
             self.assertIn(
-                'overlapping ranges in state %s: k-t s-z' % state_text,
-                line)
+                'overlapping ranges in state %r: k-t s-y, y-z y-z'
+                % state_text, line)
+            # check for no duplicates in reversed order
+            self.assertNotIn('s-z k-t', line)
 
         expected_stats = {'attempted': 1, 'success': 0, 'failure': 1}
-        shard_bounds = (('a', 'j'), ('k', 't'), ('s', 'z'))
+        shard_bounds = (('a', 'j'), ('k', 't'), ('s', 'y'),
+                        ('y', 'z'), ('y', 'z'))
         for state, state_text in ShardRange.STATES.items():
             if state in (ShardRange.SHRINKING,
                          ShardRange.SHARDED,

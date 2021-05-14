@@ -108,12 +108,13 @@ def find_overlapping_ranges(shard_ranges):
         each other.
     """
     result = set()
-    for shard_range in shard_ranges:
-        overlapping = [sr for sr in shard_ranges
-                       if shard_range != sr and shard_range.overlaps(sr)]
+    for i, shard_range in enumerate(shard_ranges):
+        overlapping = [
+            sr for sr in shard_ranges[i + 1:]
+            if shard_range.name != sr.name and shard_range.overlaps(sr)]
         if overlapping:
             overlapping.append(shard_range)
-            overlapping.sort()
+            overlapping.sort(key=ShardRange.sort_key)
             result.add(tuple(overlapping))
 
     return result
@@ -994,12 +995,14 @@ class ContainerSharder(ContainerReplicator):
                 continue
             shard_ranges = broker.get_shard_ranges(states=state)
             overlaps = find_overlapping_ranges(shard_ranges)
-            for overlapping_ranges in overlaps:
+            if overlaps:
+                all_overlaps = ', '.join(
+                    [' '.join(['%s-%s' % (sr.lower, sr.upper)
+                               for sr in overlapping_ranges])
+                     for overlapping_ranges in sorted(list(overlaps))])
                 warnings.append(
-                    'overlapping ranges in state %s: %s' %
-                    (ShardRange.STATES[state],
-                     ' '.join(['%s-%s' % (sr.lower, sr.upper)
-                               for sr in overlapping_ranges])))
+                    'overlapping ranges in state %r: %s' %
+                    (ShardRange.STATES[state], all_overlaps))
 
         if warnings:
             self.logger.warning(
