@@ -403,6 +403,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         req = Request.blank('/v1/a/c/symlink?symlink=get', method='GET')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '200 OK')
+        self.assertIsInstance(headers, list)
         self.assertIn(('X-Symlink-Target', 'c1/o'), headers)
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
 
