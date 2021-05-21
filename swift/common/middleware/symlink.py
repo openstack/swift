@@ -422,7 +422,7 @@ class SymlinkObjectContext(WSGIContext):
         resp = self._app_call(req.environ)
         response_header_dict = HeaderKeyDict(self._response_headers)
         symlink_sysmeta_to_usermeta(response_header_dict)
-        self._response_headers = response_header_dict.items()
+        self._response_headers = list(response_header_dict.items())
         return resp
 
     def handle_get_head(self, req):
