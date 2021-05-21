@@ -144,6 +144,7 @@ https://github.com/swiftstack/s3compat in detail.
 from cgi import parse_header
 import json
 from paste.deploy import loadwsgi
+from six.moves.urllib.parse import parse_qs
 
 from swift.common.constraints import valid_api_version
 from swift.common.middleware.listing_formats import \
@@ -290,13 +291,24 @@ class S3ApiMiddleware(object):
             wsgi_conf, log_route=wsgi_conf.get('log_name', 's3api'))
         self.check_pipeline(wsgi_conf)
 
+    def is_s3_cors_preflight(self, env):
+        if env['REQUEST_METHOD'] != 'OPTIONS' or not env.get('HTTP_ORIGIN'):
+            # Not a CORS preflight
+            return False
+        acrh = env.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS', '').lower()
+        if 'authorization' in acrh and \
+                not env['PATH_INFO'].startswith(('/v1/', '/v1.0/')):
+            return True
+        q = parse_qs(env.get('QUERY_STRING', ''))
+        if 'AWSAccessKeyId' in q or 'X-Amz-Credential' in q:
+            return True
+        # Not S3, apparently
+        return False
+
     def __call__(self, env, start_response):
         origin = env.get('HTTP_ORIGIN')
-        acrh = env.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS', '').lower()
-        if self.conf.cors_preflight_allow_origin and origin and \
-                env['REQUEST_METHOD'] == 'OPTIONS' and \
-                'authorization' in acrh and \
-                not env['PATH_INFO'].startswith(('/v1/', '/v1.0/')):
+        if self.conf.cors_preflight_allow_origin and \
+                self.is_s3_cors_preflight(env):
             # I guess it's likely going to be an S3 request? *shrug*
             if self.conf.cors_preflight_allow_origin != ['*'] and \
                     origin not in self.conf.cors_preflight_allow_origin:
@@ -305,15 +317,21 @@ class S3ApiMiddleware(object):
                 ])
                 return [b'']
 
-            start_response('200 OK', [
+            headers = [
                 ('Allow', 'GET, HEAD, PUT, POST, DELETE, OPTIONS'),
                 ('Access-Control-Allow-Origin', origin),
                 ('Access-Control-Allow-Methods',
                  'GET, HEAD, PUT, POST, DELETE, OPTIONS'),
-                ('Access-Control-Allow-Headers',
-                 ', '.join(set(list_from_csv(acrh)))),
                 ('Vary', 'Origin, Access-Control-Request-Headers'),
-            ])
+            ]
+            acrh = set(list_from_csv(
+                env.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS', '').lower()))
+            if acrh:
+                headers.append((
+                    'Access-Control-Allow-Headers',
+                    ', '.join(acrh)))
+
+            start_response('200 OK', headers)
             return [b'']
 
         try:
