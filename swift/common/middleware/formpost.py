@@ -267,6 +267,7 @@ class FormPost(object):
             boundary = boundary.encode('utf-8')
         status = message = ''
         attributes = {}
+        file_attributes = {}
         subheaders = []
         file_count = 0
         for fp in iter_multipart_mime_documents(
@@ -283,15 +284,17 @@ class FormPost(object):
                         break
                 except ValueError:
                     raise FormInvalid('max_file_count not an integer')
-                attributes['filename'] = attrs['filename'] or 'filename'
+                file_attributes = attributes.copy()
+                file_attributes['filename'] = attrs['filename'] or 'filename'
                 if 'content-type' not in attributes and 'content-type' in hdrs:
-                    attributes['content-type'] = \
+                    file_attributes['content-type'] = \
                         hdrs['Content-Type'] or 'application/octet-stream'
                 if 'content-encoding' not in attributes and \
                         'content-encoding' in hdrs:
-                    attributes['content-encoding'] = hdrs['Content-Encoding']
+                    file_attributes['content-encoding'] = \
+                        hdrs['Content-Encoding']
                 status, subheaders = \
-                    self._perform_subrequest(env, attributes, fp, keys)
+                    self._perform_subrequest(env, file_attributes, fp, keys)
                 if not status.startswith('2'):
                     break
             else:
