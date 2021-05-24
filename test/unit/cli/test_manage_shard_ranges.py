@@ -203,7 +203,7 @@ class TestManageShardRanges(unittest.TestCase):
                              max_expanding=-1,
                              max_shrinking=1,
                              shrink_threshold=100000,
-                             expansion_limit=500000,
+                             expansion_limit=750000,
                              yes=False,
                              dry_run=False)
         mocked.assert_called_once_with(mock.ANY, expected)
@@ -283,6 +283,11 @@ class TestManageShardRanges(unittest.TestCase):
                              dry_run=False)
         mocked.assert_called_once_with(mock.ANY, expected)
 
+    def test_conf_file_invalid(self):
+        db_file = os.path.join(self.testdir, 'hash.db')
+        broker = ContainerBroker(db_file, account='a', container='c')
+        broker.initialize()
+
         # conf file - invalid value for shard_container_threshold
         conf = """
         [container-sharder]
@@ -303,8 +308,12 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(2, ret)
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Error loading config file')
+        self.assertIn('shard_container_threshold', err_lines[0])
 
-        # conf file - cannot open conf file
+    def test_conf_file_does_not_exist(self):
+        db_file = os.path.join(self.testdir, 'hash.db')
+        broker = ContainerBroker(db_file, account='a', container='c')
+        broker.initialize()
         conf_file = os.path.join(self.testdir, 'missing_sharder.conf')
         out = StringIO()
         err = StringIO()

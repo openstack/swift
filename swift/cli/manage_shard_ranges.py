@@ -165,25 +165,26 @@ from contextlib import contextmanager
 
 from six.moves import input
 
+
 from swift.common.utils import Timestamp, get_logger, ShardRange, readconf, \
-    config_percent_value, config_positive_int_value, ShardRangeList
+    ShardRangeList
 from swift.container.backend import ContainerBroker, UNSHARDED
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
     CleavingContext, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, find_overlapping_ranges, \
-    find_paths, rank_paths, finalize_shrinking, \
-    DEFAULT_MAX_SHRINKING, DEFAULT_MAX_EXPANDING, \
-    DEFAULT_SHARD_CONTAINER_THRESHOLD, DEFAULT_SHARD_SHRINK_POINT, \
-    DEFAULT_SHARD_MERGE_POINT
-
-DEFAULT_ROWS_PER_SHARD = DEFAULT_SHARD_CONTAINER_THRESHOLD // 2
-DEFAULT_SHRINK_THRESHOLD = DEFAULT_SHARD_CONTAINER_THRESHOLD * \
-    config_percent_value(DEFAULT_SHARD_SHRINK_POINT)
+    find_paths, rank_paths, finalize_shrinking, DEFAULT_SHARDER_CONF, \
+    ContainerSharderConf
 
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1
 EXIT_INVALID_ARGS = 2  # consistent with argparse exit code for invalid args
 EXIT_USER_QUIT = 3
+
+# Some CLI options derive their default values from DEFAULT_SHARDER_CONF if
+# they have not been set. It is therefore important that the CLI parser
+# provides None as a default so that we can detect that no value was set on the
+# command line. We use this alias to act as a reminder.
+USE_SHARDER_DEFAULT = object()
 
 
 class ManageShardRangesException(Exception):
@@ -702,14 +703,21 @@ def _positive_int(arg):
 
 
 def _add_find_args(parser):
-    parser.add_argument('rows_per_shard', nargs='?', type=int,
-                        default=None)
+    parser.add_argument(
+        'rows_per_shard', nargs='?', type=int, default=USE_SHARDER_DEFAULT,
+        help='Target number of rows for newly created shards. '
+        'Default is half of the shard_container_threshold value if that is '
+        'given in a conf file specified with --config, otherwise %s.'
+        % DEFAULT_SHARDER_CONF['rows_per_shard'])
 
 
 def _add_replace_args(parser):
     parser.add_argument(
         '--shards_account_prefix', metavar='shards_account_prefix', type=str,
-        required=False, help='Prefix for shards account', default='.shards_')
+        required=False, default='.shards_',
+        help="Prefix for shards account. The default is '.shards_'. This "
+             "should only be changed if the auto_create_account_prefix option "
+             "has been similarly changed in swift.conf.")
     parser.add_argument(
         '--replace-timeout', type=int, default=600,
         help='Minimum DB timeout to use when replacing shard ranges.')
@@ -825,19 +833,18 @@ def _make_parser():
         help='Compact shard ranges with less than the shrink-threshold number '
              'of rows. This command only works on root containers.')
     _add_prompt_args(compact_parser)
-    compact_parser.add_argument('--shrink-threshold', nargs='?',
-                                type=_positive_int,
-                                default=None,
-                                help='The number of rows below which a shard '
-                                     'can qualify for shrinking. Defaults to '
-                                     '%d' % DEFAULT_SHRINK_THRESHOLD)
-    compact_parser.add_argument('--expansion-limit', nargs='?',
-                                type=_positive_int,
-                                default=None,
-                                help='Maximum number of rows for an expanding '
-                                     'shard to have after compaction has '
-                                     'completed. Defaults to %d' %
-                                     DEFAULT_ROWS_PER_SHARD)
+    compact_parser.add_argument(
+        '--shrink-threshold', nargs='?', type=_positive_int,
+        default=USE_SHARDER_DEFAULT,
+        help='The number of rows below which a shard can qualify for '
+             'shrinking. '
+             'Defaults to %d' % DEFAULT_SHARDER_CONF['shrink_threshold'])
+    compact_parser.add_argument(
+        '--expansion-limit', nargs='?', type=_positive_int,
+        default=USE_SHARDER_DEFAULT,
+        help='Maximum number of rows for an expanding shard to have after '
+             'compaction has completed. '
+             'Defaults to %d' % DEFAULT_SHARDER_CONF['expansion_limit'])
     # If just one donor shard is chosen to shrink to an acceptor then the
     # expanded acceptor will handle object listings as soon as the donor shard
     # has shrunk. If more than one donor shard are chosen to shrink to an
@@ -846,7 +853,7 @@ def _make_parser():
     # temporary gap(s) in object listings where the shrunk donors are missing.
     compact_parser.add_argument('--max-shrinking', nargs='?',
                                 type=_positive_int,
-                                default=None,
+                                default=USE_SHARDER_DEFAULT,
                                 help='Maximum number of shards that should be '
                                      'shrunk into each expanding shard. '
                                      'Defaults to 1. Using values greater '
@@ -855,7 +862,7 @@ def _make_parser():
                                      'shards have shrunk.')
     compact_parser.add_argument('--max-expanding', nargs='?',
                                 type=_positive_int,
-                                default=None,
+                                default=USE_SHARDER_DEFAULT,
                                 help='Maximum number of shards that should be '
                                      'expanded. Defaults to unlimited.')
     compact_parser.set_defaults(func=compact_shard_ranges)
@@ -878,9 +885,9 @@ def _make_parser():
     return parser
 
 
-def main(args=None):
+def main(cli_args=None):
     parser = _make_parser()
-    args = parser.parse_args(args)
+    args = parser.parse_args(cli_args)
     if not args.subcommand:
         # On py2, subparsers are required; on py3 they are not; see
         # https://bugs.python.org/issue9253. py37 added a `required` kwarg
@@ -891,49 +898,25 @@ def main(args=None):
         print('\nA sub-command is required.', file=sys.stderr)
         return EXIT_INVALID_ARGS
 
-    conf = {}
-    rows_per_shard = DEFAULT_ROWS_PER_SHARD
-    shrink_threshold = DEFAULT_SHRINK_THRESHOLD
-    expansion_limit = DEFAULT_ROWS_PER_SHARD
-    if args.conf_file:
-        try:
+    try:
+        # load values from conf file or sharder defaults
+        conf = {}
+        if args.conf_file:
             conf = readconf(args.conf_file, 'container-sharder')
-            shard_container_threshold = config_positive_int_value(conf.get(
-                'shard_container_threshold',
-                DEFAULT_SHARD_CONTAINER_THRESHOLD))
-            if shard_container_threshold:
-                rows_per_shard = shard_container_threshold // 2
-                shrink_threshold = int(
-                    shard_container_threshold * config_percent_value(
-                        conf.get('shard_shrink_point',
-                                 DEFAULT_SHARD_SHRINK_POINT)))
-                expansion_limit = int(
-                    shard_container_threshold * config_percent_value(
-                        conf.get('shard_shrink_merge_point',
-                                 DEFAULT_SHARD_MERGE_POINT)))
-        except (OSError, IOError) as exc:
-            print('Error opening config file %s: %s' % (args.conf_file, exc),
-                  file=sys.stderr)
-            return EXIT_ERROR
-        except (TypeError, ValueError) as exc:
-            print('Error loading config file %s: %s' % (args.conf_file, exc),
-                  file=sys.stderr)
-            return EXIT_INVALID_ARGS
+        conf_args = ContainerSharderConf(conf)
+    except (OSError, IOError) as exc:
+        print('Error opening config file %s: %s' % (args.conf_file, exc),
+              file=sys.stderr)
+        return EXIT_ERROR
+    except (TypeError, ValueError) as exc:
+        print('Error loading config file %s: %s' % (args.conf_file, exc),
+              file=sys.stderr)
+        return EXIT_INVALID_ARGS
 
-    # seems having sub parsers mean sometimes an arg wont exist in the args
-    # namespace. But we can check if it is with the 'in' statement.
-    if "max_shrinking" in args and args.max_shrinking is None:
-        args.max_shrinking = int(conf.get(
-            "max_shrinking", DEFAULT_MAX_SHRINKING))
-    if "max_expanding" in args and args.max_expanding is None:
-        args.max_expanding = int(conf.get(
-            "max_expanding", DEFAULT_MAX_EXPANDING))
-    if "shrink_threshold" in args and args.shrink_threshold is None:
-        args.shrink_threshold = shrink_threshold
-    if "expansion_limit" in args and args.expansion_limit is None:
-        args.expansion_limit = expansion_limit
-    if "rows_per_shard" in args and args.rows_per_shard is None:
-        args.rows_per_shard = rows_per_shard
+    for k, v in vars(args).items():
+        # set any un-set cli args from conf_args
+        if v is USE_SHARDER_DEFAULT:
+            setattr(args, k, getattr(conf_args, k))
 
     if args.func in (analyze_shard_ranges,):
         args.input = args.path_to_file
