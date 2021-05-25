@@ -94,6 +94,22 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
+    name: swift-tox-py38-arm64
+    parent: swift-tox-py38
+    nodeset: ubuntu-focal-arm64
+    description: |
+      Run unit tests for an OpenStack Python project under cPython
+      version 3.8 on top of arm64 architecture.
+
+- job:
+    name: swift-tox-py39-arm64
+    parent: swift-tox-py39
+    nodeset: ubuntu-focal-arm64
+    description: |
+      Run unit tests for an OpenStack Python project under cPython
+      version 3.9 on top of arm64 architecture.
+
+- job:
     name: swift-tox-py39
     parent: swift-tox-base
     nodeset: ubuntu-focal
@@ -517,6 +533,18 @@
       pass-to-parent: true
     vars: *swift_image_vars_py3
 
+- project-template:
+   name: swift-tox-jobs-arm64
+   description: |
+     Runs unit tests for an OpenStack Python project under the CPython
+     version 3 releases designated for testing on top of ARM64 architecture.
+   check-arm64:
+     jobs:
+       - swift-tox-py38-arm64:
+           voting: false
+       - swift-tox-py39-arm64:
+           voting: false
+
 - project:
     templates:
       - publish-openstack-docs-pti
@@ -524,6 +552,7 @@
       - check-requirements
       - release-notes-jobs-python3
       - integrated-gate-object-storage
+      - swift-tox-jobs-arm64
     check:
       jobs:
         - swift-build-image:
