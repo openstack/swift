@@ -467,15 +467,42 @@ class TestS3ApiBucket(S3ApiTestCase):
                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
-        self.assertEqual(elem.find('./Prefix').text, '\xef\xbc\xa3')
-        self.assertEqual(elem.find('./Marker').text, '\xef\xbc\xa2')
-        self.assertEqual(elem.find('./Delimiter').text, '\xef\xbc\xa1')
+        self.assertEqual(elem.find('./Prefix').text,
+                         swob.wsgi_to_str('\xef\xbc\xa3'))
+        self.assertEqual(elem.find('./Marker').text,
+                         swob.wsgi_to_str('\xef\xbc\xa2'))
+        self.assertEqual(elem.find('./Delimiter').text,
+                         swob.wsgi_to_str('\xef\xbc\xa1'))
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(parse_qsl(query_string))
-        self.assertEqual(args['delimiter'], '\xef\xbc\xa1')
-        self.assertEqual(args['marker'], '\xef\xbc\xa2')
-        self.assertEqual(args['prefix'], '\xef\xbc\xa3')
+        args = [part.partition('=')[::2] for part in query_string.split('&')]
+        self.assertEqual(sorted(args), [
+            ('delimiter', '%EF%BC%A1'),
+            ('limit', '1001'),
+            ('marker', '%EF%BC%A2'),
+            ('prefix', '%EF%BC%A3'),
+        ])
+
+        req = Request.blank(
+            '/%s?delimiter=\xef\xbc\xa1&marker=\xef\xbc\xa2&'
+            'prefix=\xef\xbc\xa3&encoding-type=url' % bucket_name,
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'ListBucketResult')
+        self.assertEqual(elem.find('./Prefix').text, '%EF%BC%A3')
+        self.assertEqual(elem.find('./Marker').text, '%EF%BC%A2')
+        self.assertEqual(elem.find('./Delimiter').text, '%EF%BC%A1')
+        _, path = self.swift.calls[-1]
+        _, query_string = path.split('?')
+        args = [part.partition('=')[::2] for part in query_string.split('&')]
+        self.assertEqual(sorted(args), [
+            ('delimiter', '%EF%BC%A1'),
+            ('limit', '1001'),
+            ('marker', '%EF%BC%A2'),
+            ('prefix', '%EF%BC%A3'),
+        ])
 
     def test_bucket_GET_v2_with_nonascii_queries(self):
         bucket_name = 'junk'
@@ -487,15 +514,42 @@ class TestS3ApiBucket(S3ApiTestCase):
                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
-        self.assertEqual(elem.find('./Prefix').text, '\xef\xbc\xa3')
-        self.assertEqual(elem.find('./StartAfter').text, '\xef\xbc\xa2')
-        self.assertEqual(elem.find('./Delimiter').text, '\xef\xbc\xa1')
+        self.assertEqual(elem.find('./Prefix').text,
+                         swob.wsgi_to_str('\xef\xbc\xa3'))
+        self.assertEqual(elem.find('./StartAfter').text,
+                         swob.wsgi_to_str('\xef\xbc\xa2'))
+        self.assertEqual(elem.find('./Delimiter').text,
+                         swob.wsgi_to_str('\xef\xbc\xa1'))
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(parse_qsl(query_string))
-        self.assertEqual(args['delimiter'], '\xef\xbc\xa1')
-        self.assertEqual(args['marker'], '\xef\xbc\xa2')
-        self.assertEqual(args['prefix'], '\xef\xbc\xa3')
+        args = [part.partition('=')[::2] for part in query_string.split('&')]
+        self.assertEqual(sorted(args), [
+            ('delimiter', '%EF%BC%A1'),
+            ('limit', '1001'),
+            ('marker', '%EF%BC%A2'),
+            ('prefix', '%EF%BC%A3'),
+        ])
+
+        req = Request.blank(
+            '/%s?list-type=2&delimiter=\xef\xbc\xa1&start-after=\xef\xbc\xa2&'
+            'prefix=\xef\xbc\xa3&encoding-type=url' % bucket_name,
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'ListBucketResult')
+        self.assertEqual(elem.find('./Prefix').text, '%EF%BC%A3')
+        self.assertEqual(elem.find('./StartAfter').text, '%EF%BC%A2')
+        self.assertEqual(elem.find('./Delimiter').text, '%EF%BC%A1')
+        _, path = self.swift.calls[-1]
+        _, query_string = path.split('?')
+        args = [part.partition('=')[::2] for part in query_string.split('&')]
+        self.assertEqual(sorted(args), [
+            ('delimiter', '%EF%BC%A1'),
+            ('limit', '1001'),
+            ('marker', '%EF%BC%A2'),
+            ('prefix', '%EF%BC%A3'),
+        ])
 
     def test_bucket_GET_with_delimiter_max_keys(self):
         bucket_name = 'junk'

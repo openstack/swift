@@ -109,35 +109,35 @@ class BucketController(Controller):
             'limit': max_keys + 1,
         }
         if 'prefix' in req.params:
-            query['prefix'] = req.params['prefix']
+            query['prefix'] = swob.wsgi_to_str(req.params['prefix'])
         if 'delimiter' in req.params:
-            query['delimiter'] = req.params['delimiter']
+            query['delimiter'] = swob.wsgi_to_str(req.params['delimiter'])
         fetch_owner = False
         if 'versions' in req.params:
-            query['versions'] = req.params['versions']
+            query['versions'] = swob.wsgi_to_str(req.params['versions'])
             listing_type = 'object-versions'
+            version_marker = swob.wsgi_to_str(req.params.get(
+                'version-id-marker'))
             if 'key-marker' in req.params:
-                query['marker'] = req.params['key-marker']
-                version_marker = req.params.get('version-id-marker')
+                query['marker'] = swob.wsgi_to_str(req.params['key-marker'])
                 if version_marker is not None:
                     if version_marker != 'null':
                         try:
                             Timestamp(version_marker)
                         except ValueError:
                             raise InvalidArgument(
-                                'version-id-marker',
-                                req.params['version-id-marker'],
+                                'version-id-marker', version_marker,
                                 'Invalid version id specified')
                     query['version_marker'] = version_marker
-            elif 'version-id-marker' in req.params:
+            elif version_marker is not None:
                 err_msg = ('A version-id marker cannot be specified without '
                            'a key marker.')
                 raise InvalidArgument('version-id-marker',
-                                      req.params['version-id-marker'], err_msg)
+                                      version_marker, err_msg)
         elif int(req.params.get('list-type', '1')) == 2:
             listing_type = 'version-2'
             if 'start-after' in req.params:
-                query['marker'] = req.params['start-after']
+                query['marker'] = swob.wsgi_to_str(req.params['start-after'])
             # continuation-token overrides start-after
             if 'continuation-token' in req.params:
                 decoded = b64decode(req.params['continuation-token'])
@@ -149,7 +149,7 @@ class BucketController(Controller):
         else:
             listing_type = 'version-1'
             if 'marker' in req.params:
-                query['marker'] = req.params['marker']
+                query['marker'] = swob.wsgi_to_str(req.params['marker'])
 
         return encoding_type, query, listing_type, fetch_owner
 
@@ -157,10 +157,16 @@ class BucketController(Controller):
                                tag_max_keys, is_truncated):
         elem = Element('ListVersionsResult')
         SubElement(elem, 'Name').text = req.container_name
-        SubElement(elem, 'Prefix').text = req.params.get('prefix')
-        SubElement(elem, 'KeyMarker').text = req.params.get('key-marker')
-        SubElement(elem, 'VersionIdMarker').text = req.params.get(
-            'version-id-marker')
+        prefix = swob.wsgi_to_str(req.params.get('prefix'))
+        if prefix and encoding_type == 'url':
+            prefix = quote(prefix)
+        SubElement(elem, 'Prefix').text = prefix
+        key_marker = swob.wsgi_to_str(req.params.get('key-marker'))
+        if key_marker and encoding_type == 'url':
+            key_marker = quote(key_marker)
+        SubElement(elem, 'KeyMarker').text = key_marker
+        SubElement(elem, 'VersionIdMarker').text = swob.wsgi_to_str(
+            req.params.get('version-id-marker'))
         if is_truncated:
             if 'name' in objects[-1]:
                 SubElement(elem, 'NextKeyMarker').text = \
@@ -172,24 +178,33 @@ class BucketController(Controller):
                     objects[-1]['subdir']
                 SubElement(elem, 'NextVersionIdMarker').text = 'null'
         SubElement(elem, 'MaxKeys').text = str(tag_max_keys)
-        if 'delimiter' in req.params:
-            SubElement(elem, 'Delimiter').text = req.params['delimiter']
+        delimiter = swob.wsgi_to_str(req.params.get('delimiter'))
+        if delimiter is not None:
+            if encoding_type == 'url':
+                delimiter = quote(delimiter)
+            SubElement(elem, 'Delimiter').text = delimiter
         if encoding_type == 'url':
             SubElement(elem, 'EncodingType').text = encoding_type
         SubElement(elem, 'IsTruncated').text = \
             'true' if is_truncated else 'false'
         return elem
 
-    def _build_base_listing_element(self, req):
+    def _build_base_listing_element(self, req, encoding_type):
         elem = Element('ListBucketResult')
         SubElement(elem, 'Name').text = req.container_name
-        SubElement(elem, 'Prefix').text = req.params.get('prefix')
+        prefix = swob.wsgi_to_str(req.params.get('prefix'))
+        if prefix and encoding_type == 'url':
+            prefix = quote(prefix)
+        SubElement(elem, 'Prefix').text = prefix
         return elem
 
     def _build_list_bucket_result_type_one(self, req, objects, encoding_type,
                                            tag_max_keys, is_truncated):
-        elem = self._build_base_listing_element(req)
-        SubElement(elem, 'Marker').text = req.params.get('marker')
+        elem = self._build_base_listing_element(req, encoding_type)
+        marker = swob.wsgi_to_str(req.params.get('marker'))
+        if marker and encoding_type == 'url':
+            marker = quote(marker)
+        SubElement(elem, 'Marker').text = marker
         if is_truncated and 'delimiter' in req.params:
             if 'name' in objects[-1]:
                 name = objects[-1]['name']
@@ -200,8 +215,10 @@ class BucketController(Controller):
             SubElement(elem, 'NextMarker').text = name
         # XXX: really? no NextMarker when no delimiter??
         SubElement(elem, 'MaxKeys').text = str(tag_max_keys)
-        delimiter = req.params.get('delimiter')
+        delimiter = swob.wsgi_to_str(req.params.get('delimiter'))
         if delimiter:
+            if encoding_type == 'url':
+                delimiter = quote(delimiter)
             SubElement(elem, 'Delimiter').text = delimiter
         if encoding_type == 'url':
             SubElement(elem, 'EncodingType').text = encoding_type
@@ -211,7 +228,7 @@ class BucketController(Controller):
 
     def _build_list_bucket_result_type_two(self, req, objects, encoding_type,
                                            tag_max_keys, is_truncated):
-        elem = self._build_base_listing_element(req)
+        elem = self._build_base_listing_element(req, encoding_type)
         if is_truncated:
             if 'name' in objects[-1]:
                 SubElement(elem, 'NextContinuationToken').text = \
@@ -221,14 +238,18 @@ class BucketController(Controller):
                     b64encode(objects[-1]['subdir'].encode('utf8'))
         if 'continuation-token' in req.params:
             SubElement(elem, 'ContinuationToken').text = \
-                req.params['continuation-token']
-        if 'start-after' in req.params:
-            SubElement(elem, 'StartAfter').text = \
-                req.params['start-after']
+                swob.wsgi_to_str(req.params['continuation-token'])
+        start_after = swob.wsgi_to_str(req.params.get('start-after'))
+        if start_after is not None:
+            if encoding_type == 'url':
+                start_after = quote(start_after)
+            SubElement(elem, 'StartAfter').text = start_after
         SubElement(elem, 'KeyCount').text = str(len(objects))
         SubElement(elem, 'MaxKeys').text = str(tag_max_keys)
-        delimiter = req.params.get('delimiter')
+        delimiter = swob.wsgi_to_str(req.params.get('delimiter'))
         if delimiter:
+            if encoding_type == 'url':
+                delimiter = quote(delimiter)
             SubElement(elem, 'Delimiter').text = delimiter
         if encoding_type == 'url':
             SubElement(elem, 'EncodingType').text = encoding_type
