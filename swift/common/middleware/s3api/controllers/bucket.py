@@ -153,7 +153,8 @@ class BucketController(Controller):
 
         return encoding_type, query, listing_type, fetch_owner
 
-    def _build_versions_result(self, req, objects, is_truncated):
+    def _build_versions_result(self, req, objects, encoding_type,
+                               tag_max_keys, is_truncated):
         elem = Element('ListVersionsResult')
         SubElement(elem, 'Name').text = req.container_name
         SubElement(elem, 'Prefix').text = req.params.get('prefix')
@@ -170,6 +171,13 @@ class BucketController(Controller):
                 SubElement(elem, 'NextKeyMarker').text = \
                     objects[-1]['subdir']
                 SubElement(elem, 'NextVersionIdMarker').text = 'null'
+        SubElement(elem, 'MaxKeys').text = str(tag_max_keys)
+        if 'delimiter' in req.params:
+            SubElement(elem, 'Delimiter').text = req.params['delimiter']
+        if encoding_type == 'url':
+            SubElement(elem, 'EncodingType').text = encoding_type
+        SubElement(elem, 'IsTruncated').text = \
+            'true' if is_truncated else 'false'
         return elem
 
     def _build_base_listing_element(self, req):
@@ -179,7 +187,7 @@ class BucketController(Controller):
         return elem
 
     def _build_list_bucket_result_type_one(self, req, objects, encoding_type,
-                                           is_truncated):
+                                           tag_max_keys, is_truncated):
         elem = self._build_base_listing_element(req)
         SubElement(elem, 'Marker').text = req.params.get('marker')
         if is_truncated and 'delimiter' in req.params:
@@ -191,9 +199,18 @@ class BucketController(Controller):
                 name = quote(name.encode('utf-8'))
             SubElement(elem, 'NextMarker').text = name
         # XXX: really? no NextMarker when no delimiter??
+        SubElement(elem, 'MaxKeys').text = str(tag_max_keys)
+        delimiter = req.params.get('delimiter')
+        if delimiter:
+            SubElement(elem, 'Delimiter').text = delimiter
+        if encoding_type == 'url':
+            SubElement(elem, 'EncodingType').text = encoding_type
+        SubElement(elem, 'IsTruncated').text = \
+            'true' if is_truncated else 'false'
         return elem
 
-    def _build_list_bucket_result_type_two(self, req, objects, is_truncated):
+    def _build_list_bucket_result_type_two(self, req, objects, encoding_type,
+                                           tag_max_keys, is_truncated):
         elem = self._build_base_listing_element(req)
         if is_truncated:
             if 'name' in objects[-1]:
@@ -209,17 +226,15 @@ class BucketController(Controller):
             SubElement(elem, 'StartAfter').text = \
                 req.params['start-after']
         SubElement(elem, 'KeyCount').text = str(len(objects))
-        return elem
-
-    def _finish_result(self, req, elem, tag_max_keys, encoding_type,
-                       is_truncated):
         SubElement(elem, 'MaxKeys').text = str(tag_max_keys)
-        if 'delimiter' in req.params:
-            SubElement(elem, 'Delimiter').text = req.params['delimiter']
+        delimiter = req.params.get('delimiter')
+        if delimiter:
+            SubElement(elem, 'Delimiter').text = delimiter
         if encoding_type == 'url':
             SubElement(elem, 'EncodingType').text = encoding_type
         SubElement(elem, 'IsTruncated').text = \
             'true' if is_truncated else 'false'
+        return elem
 
     def _add_subdir(self, elem, o, encoding_type):
         common_prefixes = SubElement(elem, 'CommonPrefixes')
@@ -293,11 +308,10 @@ class BucketController(Controller):
         """
         Handle GET Bucket (List Objects) request
         """
-        max_keys = req.get_validated_param(
+        tag_max_keys = req.get_validated_param(
             'max-keys', self.conf.max_bucket_listing)
-        tag_max_keys = max_keys
         # TODO: Separate max_bucket_listing and default_bucket_listing
-        max_keys = min(max_keys, self.conf.max_bucket_listing)
+        max_keys = min(tag_max_keys, self.conf.max_bucket_listing)
 
         encoding_type, query, listing_type, fetch_owner = \
             self._parse_request_options(req, max_keys)
@@ -310,15 +324,12 @@ class BucketController(Controller):
         objects = objects[:max_keys]
 
         if listing_type == 'object-versions':
-            elem = self._build_versions_result(req, objects, is_truncated)
+            func = self._build_versions_result
         elif listing_type == 'version-2':
-            elem = self._build_list_bucket_result_type_two(
-                req, objects, is_truncated)
+            func = self._build_list_bucket_result_type_two
         else:
-            elem = self._build_list_bucket_result_type_one(
-                req, objects, encoding_type, is_truncated)
-        self._finish_result(
-            req, elem, tag_max_keys, encoding_type, is_truncated)
+            func = self._build_list_bucket_result_type_one
+        elem = func(req, objects, encoding_type, tag_max_keys, is_truncated)
         self._add_objects_to_result(
             req, elem, objects, encoding_type, listing_type, fetch_owner)
 
