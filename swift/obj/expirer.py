@@ -78,7 +78,7 @@ class ObjectExpirer(Daemon):
     def __init__(self, conf, logger=None, swift=None):
         self.conf = conf
         self.logger = logger or get_logger(conf, log_route='object-expirer')
-        self.interval = int(conf.get('interval') or 300)
+        self.interval = float(conf.get('interval') or 300)
         self.tasks_per_second = float(conf.get('tasks_per_second', 50.0))
 
         self.conf_path = \
@@ -99,7 +99,7 @@ class ObjectExpirer(Daemon):
 
         self.read_conf_for_queue_access(swift)
 
-        self.report_interval = int(conf.get('report_interval') or 300)
+        self.report_interval = float(conf.get('report_interval') or 300)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
         self.recon_cache_path = conf.get('recon_cache_path',

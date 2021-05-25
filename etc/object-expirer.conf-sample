@@ -38,9 +38,9 @@
 # ionice_priority =
 
 [object-expirer]
-# interval = 300
+# interval = 300.0
 # expiring_objects_account_name = expiring_objects
-# report_interval = 300
+# report_interval = 300.0
 #
 # request_tries is the number of times the expirer's internal client will
 # attempt any given request in the event of failure. The default is 3.

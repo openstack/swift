@@ -897,7 +897,7 @@ class ServersPerPortStrategy(StrategyBase):
         super(ServersPerPortStrategy, self).__init__(conf, logger)
         self.servers_per_port = servers_per_port
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.ring_check_interval = int(conf.get('ring_check_interval', 15))
+        self.ring_check_interval = float(conf.get('ring_check_interval', 15))
 
         bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.cache = BindPortsCache(self.swift_dir, bind_ip)

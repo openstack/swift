@@ -323,7 +323,7 @@ class ObjectAuditor(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = join(self.recon_cache_path, "object.recon")
-        self.interval = int(conf.get('interval', 30))
+        self.interval = float(conf.get('interval', 30))
 
         watcher_names = set(list_from_csv(conf.get('watchers', '')))
         # Normally '__file__' is always in config, but tests neglect it often.

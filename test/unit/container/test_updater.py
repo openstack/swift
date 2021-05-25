@@ -103,7 +103,7 @@ class TestContainerUpdater(unittest.TestCase):
             'devices': '/some/where/else',
             'mount_check': 'huh?',
             'swift_dir': '/not/here',
-            'interval': '600',
+            'interval': '600.1',
             'concurrency': '2',
             'containers_per_second': '10.5',
         }
@@ -111,7 +111,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(daemon.devices, '/some/where/else')
         self.assertEqual(daemon.mount_check, False)
         self.assertEqual(daemon.swift_dir, '/not/here')
-        self.assertEqual(daemon.interval, 600)
+        self.assertEqual(daemon.interval, 600.1)
         self.assertEqual(daemon.concurrency, 2)
         self.assertEqual(daemon.max_containers_per_second, 10.5)
 
@@ -124,7 +124,6 @@ class TestContainerUpdater(unittest.TestCase):
                 container_updater.ContainerUpdater(conf)
 
         check_bad({'interval': 'foo'})
-        check_bad({'interval': '300.0'})
         check_bad({'concurrency': 'bar'})
         check_bad({'concurrency': '1.0'})
         check_bad({'slowdown': 'baz'})

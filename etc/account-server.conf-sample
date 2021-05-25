@@ -151,9 +151,9 @@ use = egg:swift#recon
 # concurrency = 8
 #
 # Time in seconds to wait between replication passes
-# interval = 30
+# interval = 30.0
 # run_pause is deprecated, use interval instead
-# run_pause = 30
+# run_pause = 30.0
 #
 # Process at most this many databases per second
 # databases_per_second = 50
@@ -214,7 +214,7 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # Will audit each account at most once per interval
-# interval = 1800
+# interval = 1800.0
 #
 # accounts_per_second = 200
 # recon_cache_path = /var/cache/swift
@@ -239,7 +239,7 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # concurrency = 25
-# interval = 3600
+# interval = 3600.0
 # node_timeout = 10
 # conn_timeout = 0.5
 #

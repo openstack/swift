@@ -196,8 +196,8 @@ class Replicator(Daemon):
         self._local_device_ids = set()
         self.per_diff = int(conf.get('per_diff', 1000))
         self.max_diffs = int(conf.get('max_diffs') or 100)
-        self.interval = int(conf.get('interval') or
-                            conf.get('run_pause') or 30)
+        self.interval = float(conf.get('interval') or
+                              conf.get('run_pause') or 30)
         if 'run_pause' in conf:
             if 'interval' in conf:
                 self.logger.warning(

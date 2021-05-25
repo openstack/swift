@@ -44,7 +44,7 @@ class DatabaseAuditor(Daemon):
             self.server_type))
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
-        self.interval = int(conf.get('interval', 1800))
+        self.interval = float(conf.get('interval', 1800))
         self.logging_interval = 3600  # once an hour
         self.passes = 0
         self.failures = 0

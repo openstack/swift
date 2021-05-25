@@ -1,7 +1,7 @@
 # [DEFAULT]
 # The number of seconds between checking the modified time of this config file
 # for changes and therefore reloading it.
-# mtime_check_interval = 300
+# mtime_check_interval = 300.0
 
 
 # [realm1]

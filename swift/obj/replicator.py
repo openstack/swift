@@ -142,13 +142,13 @@ class ObjectReplicator(Daemon):
         self.replicator_workers = int(conf.get('replicator_workers', 0))
         self.policies = [policy for policy in POLICIES
                          if policy.policy_type == REPL_POLICY]
-        self.stats_interval = int(conf.get('stats_interval', '300'))
-        self.ring_check_interval = int(conf.get('ring_check_interval', 15))
+        self.stats_interval = float(conf.get('stats_interval', '300'))
+        self.ring_check_interval = float(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
         self.replication_cycle = random.randint(0, 9)
         self.partition_times = []
-        self.interval = int(conf.get('interval') or
-                            conf.get('run_pause') or 30)
+        self.interval = float(conf.get('interval') or
+                              conf.get('run_pause') or 30)
         if 'run_pause' in conf:
             if 'interval' in conf:
                 self.logger.warning(
