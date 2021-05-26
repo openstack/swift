@@ -1438,7 +1438,13 @@ class ECAppIter(object):
                 # with an un-reconstructible list of fragments - so we'll
                 # break out of the iter so WSGI can tear down the broken
                 # connection.
-                if not all(fragments):
+                frags_with_data = sum([1 for f in fragments if f])
+                if frags_with_data < len(fragments):
+                    if frags_with_data > 0:
+                        self.logger.warning(
+                            'Un-recoverable fragment rebuild. Only received '
+                            '%d/%d fragments for %r', frags_with_data,
+                            len(fragments), quote(self.path))
                     break
                 try:
                     segment = self.policy.pyeclib_driver.decode(fragments)
