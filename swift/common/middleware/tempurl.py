@@ -839,7 +839,7 @@ class TempURL(object):
                     if h.startswith(p):
                         del headers[h]
                         break
-        return headers.items()
+        return list(headers.items())
 
 
 def filter_factory(global_conf, **local_conf):
