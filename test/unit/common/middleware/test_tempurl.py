@@ -34,6 +34,7 @@ import itertools
 import mock
 import unittest
 import hashlib
+from six.moves.urllib.parse import quote
 from time import time, strftime, gmtime
 
 from swift.common.middleware import tempauth, tempurl
@@ -343,7 +344,7 @@ class TestTempURL(unittest.TestCase):
         key = 'abc'
         hmac_body = '%s\n%s\n%s' % (method, expires, path)
         sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
-        req = self._make_request(path, keys=[key], environ={
+        req = self._make_request(quote(path), keys=[key], environ={
             'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                 sig, expires)})
         self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
