@@ -483,7 +483,7 @@ class TestContainerController(TestRingBase):
 
     def _check_GET_shard_listing(self, mock_responses, expected_objects,
                                  expected_requests, query_string='',
-                                 reverse=False):
+                                 reverse=False, expected_status=200):
         # mock_responses is a list of tuples (status, json body, headers)
         # expected objects is a list of dicts
         # expected_requests is a list of tuples (path, hdrs dict, params dict)
@@ -511,11 +511,12 @@ class TestContainerController(TestRingBase):
                              backend_req['headers']['X-Trans-Id'])
             self.assertTrue(backend_req['headers']['User-Agent'].startswith(
                 'proxy-server'))
-        self.assertEqual(200, resp.status_int)
-        actual_objects = json.loads(resp.body)
-        self.assertEqual(len(expected_objects), len(actual_objects))
-        self.assertEqual(expected_objects, actual_objects)
-        self.assertEqual(len(expected_requests), len(fake_conn.requests))
+        self.assertEqual(expected_status, resp.status_int)
+        if expected_status == 200:
+            actual_objects = json.loads(resp.body)
+            self.assertEqual(len(expected_objects), len(actual_objects))
+            self.assertEqual(expected_objects, actual_objects)
+            self.assertEqual(len(expected_requests), len(fake_conn.requests))
         for i, ((exp_path, exp_headers, exp_params), req) in enumerate(
                 zip(expected_requests, fake_conn.requests)):
             with annotate_failure('Request check at index %d.' % i):
@@ -906,6 +907,96 @@ class TestContainerController(TestRingBase):
             query_string='?marker=%s&end_marker=%s&limit=%s&reverse=true'
             % (end_marker, marker, limit), reverse=True)
         self.check_response(resp, root_resp_hdrs)
+
+    def _do_test_GET_sharded_container_with_deleted_shards(self, shard_specs):
+        # verify that if a shard fails to return its listing component then the
+        # client response is 503
+        shard_bounds = (('a', 'b'), ('b', 'c'), ('c', ''))
+        shard_ranges = [
+            ShardRange('.shards_a/c_%s' % upper, Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds]
+        sr_dicts = [dict(sr) for sr in shard_ranges]
+        sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
+        shard_resp_hdrs = [
+            {'X-Backend-Sharding-State': 'unsharded',
+             'X-Container-Object-Count': len(sr_objs[i]),
+             'X-Container-Bytes-Used':
+                 sum([obj['bytes'] for obj in sr_objs[i]]),
+             'X-Container-Meta-Flavour': 'flavour%d' % i,
+             'X-Backend-Storage-Policy-Index': 0}
+            for i, _ in enumerate(shard_ranges)]
+
+        all_objects = []
+        for objects in sr_objs:
+            all_objects.extend(objects)
+
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Timestamp': '99',
+                          # pretend root object stats are not yet updated
+                          'X-Container-Object-Count': 6,
+                          'X-Container-Bytes-Used': 12,
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        mock_responses = [
+            # status, body, headers
+            (200, sr_dicts, root_shard_resp_hdrs),
+        ]
+        for i, spec in enumerate(shard_specs):
+            if spec == 200:
+                mock_responses.append((200, sr_objs[i], shard_resp_hdrs[i]))
+            else:
+                mock_responses.extend(
+                    [(spec, '', {})] * 2 * self.CONTAINER_REPLICAS)
+
+        codes = (resp[0] for resp in mock_responses)
+        bodies = iter([json.dumps(resp[1]).encode('ascii')
+                       for resp in mock_responses])
+        exp_headers = [resp[2] for resp in mock_responses]
+        request = Request.blank('/v1/a/c')
+        with mocked_http_conn(
+                *codes, body_iter=bodies, headers=exp_headers) as fake_conn:
+            resp = request.get_response(self.app)
+        self.assertEqual(len(mock_responses), len(fake_conn.requests))
+        return request, resp
+
+    def test_GET_sharded_container_with_deleted_shard(self):
+        req, resp = self._do_test_GET_sharded_container_with_deleted_shards(
+            [404])
+        warnings = self.logger.get_lines_for_level('warning')
+        self.assertEqual(['Failed to get container listing from '
+                          '%s: 404' % req.path_qs],
+                         warnings)
+        self.assertEqual(resp.status_int, 503)
+        errors = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['Aborting listing from shards due to bad response: %s'
+             % ([404])], errors)
+
+    def test_GET_sharded_container_with_mix_ok_and_deleted_shard(self):
+        req, resp = self._do_test_GET_sharded_container_with_deleted_shards(
+            [200, 200, 404])
+        warnings = self.logger.get_lines_for_level('warning')
+        self.assertEqual(['Failed to get container listing from '
+                          '%s: 404' % req.path_qs], warnings)
+        self.assertEqual(resp.status_int, 503)
+        errors = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['Aborting listing from shards due to bad response: %s'
+             % ([200, 200, 404],)], errors)
+
+    def test_GET_sharded_container_mix_ok_and_unavailable_shards(self):
+        req, resp = self._do_test_GET_sharded_container_with_deleted_shards(
+            [200, 200, 503])
+        warnings = self.logger.get_lines_for_level('warning')
+        self.assertEqual(['Failed to get container listing from '
+                          '%s: 503' % req.path_qs], warnings[-1:])
+        self.assertEqual(resp.status_int, 503)
+        errors = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['Aborting listing from shards due to bad response: %s'
+             % ([200, 200, 503],)], errors[-1:])
 
     def test_GET_sharded_container_with_delimiter(self):
         shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
@@ -1538,8 +1629,7 @@ class TestContainerController(TestRingBase):
             # status, body, headers
             (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0])] + \
-            [(error, [], {})] * 2 * self.CONTAINER_REPLICAS + \
-            [(200, sr_objs[2], shard_resp_hdrs[2])]
+            [(error, [], {})] * 2 * self.CONTAINER_REPLICAS
 
         # NB marker always advances to last object name
         expected_requests = [
@@ -1552,15 +1642,11 @@ class TestContainerController(TestRingBase):
             + [(shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
                 dict(marker='h', end_marker='pie\x00', states='listing',
                      limit=str(limit - len(sr_objs[0]))))
-               ] * 2 * self.CONTAINER_REPLICAS \
-            + [(shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
-                dict(marker='h', end_marker='', states='listing',
-                     limit=str(limit - len(sr_objs[0] + sr_objs[1]))))]
+               ] * 2 * self.CONTAINER_REPLICAS
 
-        resp = self._check_GET_shard_listing(
-            mock_responses, all_objects, expected_requests)
-        # root object count will overridden by actual length of listing
-        self.check_response(resp, root_resp_hdrs)
+        self._check_GET_shard_listing(
+            mock_responses, all_objects, expected_requests,
+            expected_status=503)
 
     def test_GET_sharded_container_shard_errors(self):
         self._check_GET_sharded_container_shard_error(404)
