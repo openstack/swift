@@ -4,4 +4,6 @@ set -e
 apk add --update \
   python \
   python-dev \
-  py-pip
+  py-pip \
+  py-cffi \
+  py-cryptography
