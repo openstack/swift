@@ -789,14 +789,8 @@ class TestRequest(unittest.TestCase):
 
         hacker = 'account-name\n\n<b>foo<br>'  # url injection test
         quoted_hacker = quote(hacker)
-        req = swob.Request.blank('/v1/' + hacker)
-        resp = req.get_response(test_app)
-        self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Www-Authenticate' in resp.headers)
-        self.assertEqual('Swift realm="%s"' % quoted_hacker,
-                         resp.headers['Www-Authenticate'])
-
         req = swob.Request.blank('/v1/' + quoted_hacker)
+        self.assertIn(hacker, req.environ['PATH_INFO'])  # sanity check
         resp = req.get_response(test_app)
         self.assertEqual(resp.status_int, 401)
         self.assertTrue('Www-Authenticate' in resp.headers)
@@ -974,11 +968,11 @@ class TestRequest(unittest.TestCase):
         self.assertEqual(_test_split_path('/a/c/', 2), ['a', 'c'])
         self.assertEqual(_test_split_path('/a/c/', 2, 3), ['a', 'c', ''])
         try:
-            _test_split_path('o\nn e', 2)
+            _test_split_path('o%0an e', 2)
         except ValueError as err:
             self.assertEqual(str(err), 'Invalid path: o%0An%20e')
         try:
-            _test_split_path('o\nn e', 2, 3, True)
+            _test_split_path('o%0an e', 2, 3, True)
         except ValueError as err:
             self.assertEqual(str(err), 'Invalid path: o%0An%20e')
 
