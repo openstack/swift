@@ -287,6 +287,8 @@ the following configuration options defined for the `[container-replicator]`_:
 * rsync_module
 * recon_cache_path
 
+Some config options in this section may also be used by the
+:ref:`swift-manage-shard-ranges CLI tool <swift-manage-shard-ranges>`.
 
 ================================= =================  =======================================
 Option                            Default            Description
@@ -310,8 +312,7 @@ auto_shard                        false               If the auto_shard option
                                                       this option to true in a
                                                       production cluster.
 
-shard_container_threshold         1000000             When auto-sharding is
-                                                      enabled this defines the
+shard_container_threshold         1000000             This defines the
                                                       object count at which a
                                                       container with
                                                       container-sharding
@@ -326,8 +327,24 @@ shard_container_threshold         1000000             When auto-sharding is
                                                       shrinking and merging
                                                       shard containers.
 
-shard_shrink_point                10                  When auto-sharding is
-                                                      enabled this defines the
+shrink_threshold                                      This defines the
+                                                      object count below which
+                                                      a 'donor' shard container
+                                                      will be considered for
+                                                      shrinking into another
+                                                      'acceptor' shard
+                                                      container. The default is
+                                                      determined by
+                                                      shard_shrink_point. If
+                                                      set, shrink_threshold
+                                                      will take precedence over
+                                                      shard_shrink_point.
+
+shard_shrink_point                10                  Deprecated: shrink_threshold
+                                                      is recommended and if set
+                                                      will take precedence over
+                                                      shard_shrink_point.
+                                                      This defines the
                                                       object count below which
                                                       a 'donor' shard container
                                                       will be considered for
@@ -341,8 +358,22 @@ shard_shrink_point                10                  When auto-sharding is
                                                       10 means 10% of the
                                                       shard_container_threshold.
 
-shard_shrink_merge_point          75                  When auto-sharding is
-                                                      enabled this defines the
+expansion_limit                                       This defines the
+                                                      maximum allowed size of
+                                                      an acceptor shard
+                                                      container after having a
+                                                      donor merged into it. The
+                                                      default is determined by
+                                                      shard_shrink_merge_point.
+                                                      If set, expansion_limit
+                                                      will take precedence over
+                                                      shard_shrink_merge_point.
+
+shard_shrink_merge_point          75                  Deprecated: expansion_limit
+                                                      is recommended and if set
+                                                      will take precedence over
+                                                      shard_shrink_merge_point.
+                                                      This defines the
                                                       maximum allowed size of
                                                       an acceptor shard
                                                       container after having a

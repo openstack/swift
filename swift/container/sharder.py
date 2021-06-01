@@ -617,10 +617,16 @@ class ContainerSharderConf(object):
             'conn_timeout', float, 5)
         self.auto_shard = get_val(
             'auto_shard', config_true_value, False)
+        # deprecated percent options still loaded...
         self.shrink_threshold = get_val(
             'shard_shrink_point', self.percent_of_threshold, 10)
         self.expansion_limit = get_val(
             'shard_shrink_merge_point', self.percent_of_threshold, 75)
+        # ...but superseded by absolute options if present in conf
+        self.shrink_threshold = get_val(
+            'shrink_threshold', int, self.shrink_threshold)
+        self.expansion_limit = get_val(
+            'expansion_limit', int, self.expansion_limit)
         self.rows_per_shard = self.shard_container_threshold // 2
 
     def percent_of_threshold(self, val):

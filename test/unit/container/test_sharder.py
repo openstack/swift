@@ -130,28 +130,29 @@ class BaseTestSharder(unittest.TestCase):
 
 
 class TestSharder(BaseTestSharder):
-    def test_init(self):
-        def do_test(conf, expected, logger=self.logger):
-            if logger:
-                logger.clear()
-            with mock.patch(
-                    'swift.container.sharder.internal_client.InternalClient') \
-                    as mock_ic:
-                with mock.patch('swift.common.db_replicator.ring.Ring') \
-                        as mock_ring:
-                    mock_ring.return_value = mock.MagicMock()
-                    mock_ring.return_value.replica_count = 3
-                    sharder = ContainerSharder(conf, logger=logger)
-            mock_ring.assert_called_once_with(
-                '/etc/swift', ring_name='container')
-            for k, v in expected.items():
-                self.assertTrue(hasattr(sharder, k), 'Missing attr %s' % k)
-                self.assertEqual(v, getattr(sharder, k),
-                                 'Incorrect value: expected %s=%s but got %s' %
-                                 (k, v, getattr(sharder, k)))
-            return sharder, mock_ic
+    def _do_test_init(self, conf, expected, use_logger=True):
+        logger = self.logger if use_logger else None
+        if logger:
+            logger.clear()
+        with mock.patch(
+                'swift.container.sharder.internal_client.InternalClient') \
+                as mock_ic:
+            with mock.patch('swift.common.db_replicator.ring.Ring') \
+                    as mock_ring:
+                mock_ring.return_value = mock.MagicMock()
+                mock_ring.return_value.replica_count = 3
+                sharder = ContainerSharder(conf, logger=logger)
+        mock_ring.assert_called_once_with(
+            '/etc/swift', ring_name='container')
+        for k, v in expected.items():
+            self.assertTrue(hasattr(sharder, k), 'Missing attr %s' % k)
+            self.assertEqual(v, getattr(sharder, k),
+                             'Incorrect value: expected %s=%s but got %s' %
+                             (k, v, getattr(sharder, k)))
+        return sharder, mock_ic
 
-        # defaults
+    def test_init(self):
+        # default values
         expected = {
             'mount_check': True, 'bind_ip': '0.0.0.0', 'port': 6201,
             'per_diff': 1000, 'max_diffs': 100, 'interval': 30,
@@ -177,7 +178,7 @@ class TestSharder(BaseTestSharder):
             'max_shrinking': 1,
             'max_expanding': -1
         }
-        sharder, mock_ic = do_test({}, expected, logger=None)
+        sharder, mock_ic = self._do_test_init({}, expected, use_logger=False)
         self.assertEqual(
             'container-sharder', sharder.logger.logger.name)
         mock_ic.assert_called_once_with(
@@ -185,7 +186,7 @@ class TestSharder(BaseTestSharder):
             allow_modify_pipeline=False,
             use_replication_network=True)
 
-        # non-default
+        # non-default values
         conf = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'bind_port': 62010,
             'per_diff': 2000, 'max_diffs': 200, 'interval': 60,
@@ -195,8 +196,8 @@ class TestSharder(BaseTestSharder):
             'rsync_compress': True,
             'rsync_module': '{replication_ip}::container_sda/',
             'reclaim_age': 86400 * 14,
-            'shard_shrink_point': 35,
-            'shard_shrink_merge_point': 85,
+            'shrink_threshold': 7000000,
+            'expansion_limit': 17000000,
             'shard_container_threshold': 20000000,
             'cleave_batch_size': 4,
             'shard_scanner_batch_size': 8,
@@ -238,7 +239,7 @@ class TestSharder(BaseTestSharder):
             'max_shrinking': 5,
             'max_expanding': 4
         }
-        sharder, mock_ic = do_test(conf, expected)
+        sharder, mock_ic = self._do_test_init(conf, expected)
         mock_ic.assert_called_once_with(
             '/etc/swift/my-sharder-ic.conf', 'Swift Container Sharder', 2,
             allow_modify_pipeline=False,
@@ -253,7 +254,7 @@ class TestSharder(BaseTestSharder):
                          'existing_shard_replication_quorum': 3})
         conf.update({'shard_replication_quorum': 4,
                      'existing_shard_replication_quorum': 4})
-        do_test(conf, expected)
+        self._do_test_init(conf, expected)
         warnings = self.logger.get_lines_for_level('warning')
         self.assertEqual(warnings[:1], [
             'Option auto_create_account_prefix is deprecated. '
@@ -268,14 +269,80 @@ class TestSharder(BaseTestSharder):
         ])
 
         with self.assertRaises(ValueError) as cm:
-            do_test({'shard_shrink_point': 101}, {})
+            self._do_test_init({'shard_shrink_point': 101}, {})
         self.assertIn(
             'greater than 0, less than 100, not "101"', str(cm.exception))
 
         with self.assertRaises(ValueError) as cm:
-            do_test({'shard_shrink_merge_point': 101}, {})
+            self._do_test_init({'shard_shrink_merge_point': 101}, {})
         self.assertIn(
             'greater than 0, less than 100, not "101"', str(cm.exception))
+
+    def test_init_deprecated_options(self):
+        # percent values applied if absolute values not given
+        conf = {
+            'shard_shrink_point': 15,  # trumps shrink_threshold
+            'shard_shrink_merge_point': 95,  # trumps expansion_limit
+            'shard_container_threshold': 20000000,
+        }
+        expected = {
+            'mount_check': True, 'bind_ip': '0.0.0.0', 'port': 6201,
+            'per_diff': 1000, 'max_diffs': 100, 'interval': 30,
+            'databases_per_second': 50,
+            'cleave_row_batch_size': 10000,
+            'node_timeout': 10, 'conn_timeout': 5,
+            'rsync_compress': False,
+            'rsync_module': '{replication_ip}::container',
+            'reclaim_age': 86400 * 7,
+            'shard_container_threshold': 20000000,
+            'rows_per_shard': 10000000,
+            'shrink_threshold': 3000000,
+            'expansion_limit': 19000000,
+            'cleave_batch_size': 2,
+            'shard_scanner_batch_size': 10,
+            'rcache': '/var/cache/swift/container.recon',
+            'shards_account_prefix': '.shards_',
+            'auto_shard': False,
+            'recon_candidates_limit': 5,
+            'shard_replication_quorum': 2,
+            'existing_shard_replication_quorum': 2,
+            'max_shrinking': 1,
+            'max_expanding': -1
+        }
+        self._do_test_init(conf, expected)
+        # absolute values override percent values
+        conf = {
+            'shard_shrink_point': 15,  # trumps shrink_threshold
+            'shrink_threshold': 7000000,
+            'shard_shrink_merge_point': 95,  # trumps expansion_limit
+            'expansion_limit': 17000000,
+            'shard_container_threshold': 20000000,
+        }
+        expected = {
+            'mount_check': True, 'bind_ip': '0.0.0.0', 'port': 6201,
+            'per_diff': 1000, 'max_diffs': 100, 'interval': 30,
+            'databases_per_second': 50,
+            'cleave_row_batch_size': 10000,
+            'node_timeout': 10, 'conn_timeout': 5,
+            'rsync_compress': False,
+            'rsync_module': '{replication_ip}::container',
+            'reclaim_age': 86400 * 7,
+            'shard_container_threshold': 20000000,
+            'rows_per_shard': 10000000,
+            'shrink_threshold': 7000000,
+            'expansion_limit': 17000000,
+            'cleave_batch_size': 2,
+            'shard_scanner_batch_size': 10,
+            'rcache': '/var/cache/swift/container.recon',
+            'shards_account_prefix': '.shards_',
+            'auto_shard': False,
+            'recon_candidates_limit': 5,
+            'shard_replication_quorum': 2,
+            'existing_shard_replication_quorum': 2,
+            'max_shrinking': 1,
+            'max_expanding': -1
+        }
+        self._do_test_init(conf, expected)
 
     def test_init_internal_client_conf_loading_error(self):
         with mock.patch('swift.common.db_replicator.ring.Ring') \
@@ -7209,6 +7276,26 @@ class TestContainerSharderConf(unittest.TestCase):
         self.assertEqual(expected, DEFAULT_SHARDER_CONF)
 
     def test_conf(self):
+        conf = {'shard_container_threshold': 2000000,
+                'max_shrinking': 2,
+                'max_expanding': 3,
+                'shard_scanner_batch_size': 11,
+                'cleave_batch_size': 4,
+                'cleave_row_batch_size': 50000,
+                'broker_timeout': 61,
+                'recon_candidates_limit': 6,
+                'recon_sharded_timeout': 43201,
+                'conn_timeout': 5.1,
+                'auto_shard': True,
+                'shrink_threshold': 100001,
+                'expansion_limit': 750001,
+                'rows_per_shard': 500001}
+        # rows_per_shard is not directly configurable
+        expected = dict(conf, rows_per_shard=1000000)
+        conf.update({'unexpected': 'option'})
+        self.assertEqual(expected, vars(ContainerSharderConf(conf)))
+
+    def test_deprecated_percent_conf(self):
         base_conf = {'shard_container_threshold': 2000000,
                      'max_shrinking': 2,
                      'max_expanding': 3,
@@ -7221,12 +7308,22 @@ class TestContainerSharderConf(unittest.TestCase):
                      'conn_timeout': 5.1,
                      'auto_shard': True}
 
-        percent_conf = {'shard_shrink_point': 9,
-                        'shard_shrink_merge_point': 71}
+        # percent options work
+        deprecated_conf = {'shard_shrink_point': 9,
+                           'shard_shrink_merge_point': 71}
         expected = dict(base_conf, rows_per_shard=1000000,
                         shrink_threshold=180000, expansion_limit=1420000)
         conf = dict(base_conf)
-        conf.update(percent_conf)
+        conf.update(deprecated_conf)
+        self.assertEqual(expected, vars(ContainerSharderConf(conf)))
+
+        # check absolute options override percent options
+        conf.update({'shrink_threshold': 100001,
+                     'expansion_limit': 750001})
+
+        expected = dict(base_conf, rows_per_shard=1000000,
+                        shrink_threshold=100001, expansion_limit=750001)
+        conf.update(deprecated_conf)
         self.assertEqual(expected, vars(ContainerSharderConf(conf)))
 
     def test_bad_values(self):
@@ -7244,6 +7341,8 @@ class TestContainerSharderConf(unittest.TestCase):
                'recon_sharded_timeout': not_int,
                'conn_timeout': not_float,
                # 'auto_shard': anything can be passed to config_true_value
+               'shrink_threshold': not_int,
+               'expansion_limit': not_int,
                'shard_shrink_point': not_percent,
                'shard_shrink_merge_point': not_percent}
 

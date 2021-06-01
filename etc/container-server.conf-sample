@@ -372,12 +372,27 @@ use = egg:swift#xprofile
 # containers.
 # shard_container_threshold = 1000000
 #
+# When auto-sharding is enabled shrink_threshold defines the object count
+# below which a 'donor' shard container will be considered for shrinking into
+# another 'acceptor' shard container. The default is determined by
+# shard_shrink_point. If set, shrink_threshold will take precedence over
+# shard_shrink_point.
+# shrink_threshold =
+#
 # When auto-sharding is enabled shard_shrink_point defines the object count
 # below which a 'donor' shard container will be considered for shrinking into
 # another 'acceptor' shard container. shard_shrink_point is a percentage of
 # shard_container_threshold e.g. the default value of 10 means 10% of the
 # shard_container_threshold.
+# Deprecated: shrink_threshold is recommended and if set will take precedence
+# over shard_shrink_point.
 # shard_shrink_point = 10
+#
+# When auto-sharding is enabled expansion_limit defines the maximum
+# allowed size of an acceptor shard container after having a donor merged into
+# it. The default is determined by shard_shrink_merge_point.
+# If set, expansion_limit will take precedence over shard_shrink_merge_point.
+# expansion_limit =
 #
 # When auto-sharding is enabled shard_shrink_merge_point defines the maximum
 # allowed size of an acceptor shard container after having a donor merged into
@@ -391,6 +406,8 @@ use = egg:swift#xprofile
 # be considered for shrinking if it has less than or equal to 100 thousand
 # objects but will only merge into an acceptor if the combined object count
 # would be less than or equal to 750 thousand objects.
+# Deprecated: expansion_limit is recommended and if set will take precedence
+# over shard_shrink_merge_point.
 # shard_shrink_merge_point = 75
 #
 # When auto-sharding is enabled shard_scanner_batch_size defines the maximum
