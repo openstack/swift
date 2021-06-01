@@ -47,4 +47,4 @@ s3cmd -c s3cfg_saio mb s3://bucket
    a specific release.
 - **Source Code**: github.com/openstack/swift
 - **Maintained by**: Openstack Swift community
-- **Feedback/Questions**: #openstack-swift on freenode
+- **Feedback/Questions**: #openstack-swift on OFTC
