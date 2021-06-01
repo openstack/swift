@@ -4939,6 +4939,51 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                 self.logger.logger.records['WARNING']:
             self.assertIn(req.headers['x-trans-id'], line)
 
+    def test_GET_one_short_fragment_archive(self):
+        # verify that a warning is logged when one fragment archive returns
+        # less whole fragments than others
+        segment_size = self.policy.ec_segment_size
+        test_data = (b'test' * segment_size)[:-333]
+        etag = md5(test_data).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_data)
+
+        def do_test(missing_length):
+            self.logger.clear()
+            headers = {
+                'X-Object-Sysmeta-Ec-Etag': etag,
+                'X-Object-Sysmeta-Ec-Content-Length': len(test_data),
+            }
+            responses = [(200, ec_archive_bodies[0][:(-1 * missing_length)],
+                          self._add_frag_index(0, headers))]
+            # ... the rest are fine
+            responses += [
+                (200, body, self._add_frag_index(i, headers))
+                for i, body in enumerate(ec_archive_bodies[1:], start=1)]
+
+            req = swob.Request.blank('/v1/a/c/o')
+
+            status_codes, body_iter, headers = zip(
+                *responses[:self.policy.ec_ndata])
+            with set_http_connect(*status_codes, body_iter=body_iter,
+                                  headers=headers):
+                resp = req.get_response(self.app)
+                self.assertEqual(resp.status_int, 200)
+                self.assertNotEqual(md5(resp.body).hexdigest(), etag)
+            error_lines = self.logger.get_lines_for_level('error')
+            self.assertEqual([], error_lines)
+            warning_lines = self.logger.get_lines_for_level('warning')
+            self.assertEqual(1, len(warning_lines))
+            self.assertIn(
+                'Un-recoverable fragment rebuild. '
+                'Only received 9/10 fragments', warning_lines[0])
+
+        # each fragment archive has 4 fragments of sizes [490, 490, 490, 458];
+        # try dropping whole fragment(s) from one archive
+        do_test(458)
+        do_test(490 + 458)
+        do_test(490 + 490 + 458)
+        do_test(490 + 490 + 490 + 458)
+
     def test_GET_read_timeout_resume_mixed_etag(self):
         segment_size = self.policy.ec_segment_size
         test_data2 = (b'blah1' * segment_size)[:-333]
