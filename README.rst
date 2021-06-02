@@ -153,7 +153,7 @@ page.
 
 --------------
 
-For more information come hang out in #openstack-swift on freenode.
+For more information come hang out in #openstack-swift on OFTC.
 
 Thanks,
 

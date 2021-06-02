@@ -7,7 +7,7 @@ Communication
 -------------
 IRC
     People working on the Swift project may be found in the
-    ``#openstack-swift`` channel on Freenode during working hours
+    ``#openstack-swift`` channel on OFTC during working hours
     in their timezone.  The channel is logged, so if you ask a question
     when no one is around, you can check the log to see if it's been
     answered: http://eavesdrop.openstack.org/irclogs/%23openstack-swift/

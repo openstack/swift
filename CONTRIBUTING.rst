@@ -18,7 +18,7 @@ review and all tests before it can be included in the project. Reviewing
 proposed patches is a very helpful way to be a contributor.
 
 Swift is nothing without the community behind it. We'd love to welcome you to
-our community. Come find us in #openstack-swift on freenode IRC or on the
+our community. Come find us in #openstack-swift on OFTC IRC or on the
 OpenStack dev mailing list.
 
 For general information on contributing to OpenStack, please check out the
@@ -79,8 +79,7 @@ what to work on, check out the "wishlist" bugs in the bug tracker. These are
 normally smaller items that someone took the time to write down but didn't
 have time to implement.
 
-And please join #openstack-swift on freenode IRC to tell us what you're
-working on.
+And please join #openstack-swift on OFTC IRC to tell us what you're working on.
 
 Getting Started
 ---------------
