@@ -24,10 +24,11 @@ import os
 import time
 from collections import defaultdict
 
+from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
-    RateLimitedIterator, lock_path, PrefixLoggerAdapter, distribute_evenly, \
+    RateLimitedIterator, PrefixLoggerAdapter, distribute_evenly, \
     non_negative_float, non_negative_int, config_auto_int_value, \
     dump_recon_cache, get_partition_from_path
 from swift.obj import diskfile
@@ -325,8 +326,11 @@ class Relinker(object):
                     device, dirty_partition, [], self.policy)
 
         if self.do_cleanup:
-            hashes = self.diskfile_mgr.get_hashes(
-                device, int(partition), [], self.policy)
+            try:
+                hashes = self.diskfile_mgr.get_hashes(
+                    device, int(partition), [], self.policy)
+            except LockTimeout:
+                hashes = 1  # truthy, but invalid
             # In any reasonably-large cluster, we'd expect all old
             # partitions P to be empty after cleanup (i.e., it's unlikely
             # that there's another partition Q := P//2 that also has data
@@ -338,21 +342,24 @@ class Relinker(object):
             # starts and little data is written to handoffs during the
             # increase).
             if not hashes:
-                with lock_path(partition_path):
-                    # Same lock used by invalidate_hashes, consolidate_hashes,
-                    # get_hashes
-                    try:
-                        for f in ('hashes.pkl', 'hashes.invalid', '.lock'):
+                try:
+                    with self.diskfile_mgr.replication_lock(
+                            device, self.policy, partition), \
+                        self.diskfile_mgr.partition_lock(
+                            device, self.policy, partition):
+                        # Order here is somewhat important for crash-tolerance
+                        for f in ('hashes.pkl', 'hashes.invalid', '.lock',
+                                  '.lock-replication'):
                             try:
                                 os.unlink(os.path.join(partition_path, f))
                             except OSError as e:
                                 if e.errno != errno.ENOENT:
                                     raise
-                    except OSError:
-                        pass
-                try:
+                    # Note that as soon as we've deleted the lock files, some
+                    # other process could come along and make new ones -- so
+                    # this may well complain that the directory is not empty
                     os.rmdir(partition_path)
-                except OSError:
+                except (OSError, LockTimeout):
                     # Most likely, some data landed in here or we hit an error
                     # above. Let the replicator deal with things; it was worth
                     # a shot.
@@ -512,7 +519,17 @@ class Relinker(object):
         if created_links:
             self.linked_into_partitions.add(get_partition_from_path(
                 self.conf['devices'], new_hash_path))
-            diskfile.invalidate_hash(os.path.dirname(new_hash_path))
+            try:
+                diskfile.invalidate_hash(os.path.dirname(new_hash_path))
+            except (Exception, LockTimeout) as exc:
+                # at this point, the link's created. even if we counted it as
+                # an error, a subsequent run wouldn't find any work to do. so,
+                # don't bother; instead, wait for replication to be re-enabled
+                # so post-replication rehashing or periodic rehashing can
+                # eventually pick up the change
+                self.logger.warning(
+                    'Error invalidating suffix for %s: %r',
+                    new_hash_path, exc)
 
         if self.do_cleanup and not missing_links:
             # use the sorted list to help unit testing
@@ -539,7 +556,7 @@ class Relinker(object):
             # relinking into the new part-power space
             try:
                 diskfile.invalidate_hash(os.path.dirname(hash_path))
-            except Exception as exc:
+            except (Exception, LockTimeout) as exc:
                 # note: not counted as an error
                 self.logger.warning(
                     'Error invalidating suffix for %s: %r',
