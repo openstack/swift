@@ -1894,7 +1894,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             include_deleted=True)
         # send everything
         if self._send_shard_ranges(
-                broker.root_account, broker.root_container, shard_ranges):
+                broker.root_account, broker.root_container, shard_ranges,
+                {'Referer': quote(broker.path)}):
             # on success, mark ourselves as reported so we don't keep
             # hammering the root
             own_shard_range.reported = True

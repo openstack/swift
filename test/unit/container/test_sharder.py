@@ -4755,12 +4755,14 @@ class TestSharder(BaseTestSharder):
     def check_shard_ranges_sent(self, broker, expected_sent):
         bodies = []
         servers = []
+        referers = []
 
         def capture_send(conn, data):
             bodies.append(data)
 
-        def capture_connect(host, port, *a, **kw):
+        def capture_connect(host, port, _method, _path, headers, *a, **kw):
             servers.append((host, port))
+            referers.append(headers.get('Referer'))
 
         self.assertFalse(broker.get_own_shard_range().reported)  # sanity
         with self._mock_sharder() as sharder:
@@ -4779,6 +4781,7 @@ class TestSharder(BaseTestSharder):
             ('10.0.1.1', 1101),
             ('10.0.1.2', 1102),
         ])
+        self.assertEqual([broker.path] * 3, referers)
         self.assertTrue(broker.get_own_shard_range().reported)
 
     def test_update_root_container_own_range(self):
