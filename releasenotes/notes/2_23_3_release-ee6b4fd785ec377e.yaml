@@ -1,0 +1,45 @@
+---
+fixes:
+  - |
+    Sharding improvements:
+
+    * Prevent object updates from auto-creating shard containers. This
+      ensures more consistent listings for sharded containers during
+      rebalances.
+
+    * Deleted shard containers are no longer considered root containers.
+      This prevents unnecessary sharding audit failures and allows the
+      deleted shard database to actually be unlinked.
+
+    * The sharder daemon has been enhanced to better support the shrinking
+      of shards that are no longer required. Shard containers will now
+      discover from their root container if they should be shrinking. They
+      will also discover the shards into which they should shrink, which may
+      include the root container itself.
+
+    * Improved performance of sharded container listings when performing
+      prefix listings.
+
+    * Improved container-sharder stat reporting to reduce load on root
+      container databases.
+
+    * The container sharder can now handle containers with special
+      characters in their names.
+
+    * ``swift-container-info`` now summarizes shard range information.
+      Pass ``-v``/``--verbose`` if you want to see all of them.
+
+    * Don't inject shard ranges when user quits.
+
+    * Various other minor bug fixes and improvements.
+
+  - |
+    Python 3 bug fixes:
+
+    * Fixed a potential server error when uploading data via a tempurl.
+
+    * Fixed a potential server error when getting symlink details.
+
+  - |
+    Added the ability to connect to memcached over TLS. See the
+    ``tls_*`` options in etc/memcache.conf-sample
