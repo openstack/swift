@@ -2789,7 +2789,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.sharders.once(**kwargs)
 
     def test_manage_shard_ranges(self):
-        obj_names = self._make_object_names(4)
+        obj_names = self._make_object_names(7)
         self.put_objects(obj_names)
 
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -2807,7 +2807,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assert_subprocess_success([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
-            'find_and_replace', '2', '--enable'])
+            'find_and_replace', '3', '--enable', '--minimum-shard-size', '2'])
         self.assert_container_state(self.brain.nodes[0], 'unsharded', 2)
 
         # "Run container-replicator to replicate them to other nodes."

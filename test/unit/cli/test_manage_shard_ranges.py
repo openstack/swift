@@ -142,6 +142,7 @@ class TestManageShardRanges(unittest.TestCase):
         rows_per_shard = 600
         max_shrinking = 33
         max_expanding = 31
+        minimum_shard_size = 88
         """
 
         conf_file = os.path.join(self.testdir, 'sharder.conf')
@@ -159,7 +160,8 @@ class TestManageShardRanges(unittest.TestCase):
                              rows_per_shard=500000,
                              subcommand='find',
                              force_commits=False,
-                             verbose=0)
+                             verbose=0,
+                             minimum_shard_size=100000)
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # conf file
@@ -173,13 +175,15 @@ class TestManageShardRanges(unittest.TestCase):
                              rows_per_shard=600,
                              subcommand='find',
                              force_commits=False,
-                             verbose=0)
+                             verbose=0,
+                             minimum_shard_size=88)
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # cli options override conf file
         with mock.patch('swift.cli.manage_shard_ranges.find_ranges',
                         return_value=0) as mocked:
-            ret = main([db_file, '--config', conf_file, 'find', '12345'])
+            ret = main([db_file, '--config', conf_file, 'find', '12345',
+                        '--minimum-shard-size', '99'])
         self.assertEqual(0, ret)
         expected = Namespace(conf_file=conf_file,
                              path_to_file=mock.ANY,
@@ -187,7 +191,8 @@ class TestManageShardRanges(unittest.TestCase):
                              rows_per_shard=12345,
                              subcommand='find',
                              force_commits=False,
-                             verbose=0)
+                             verbose=0,
+                             minimum_shard_size=99)
         mocked.assert_called_once_with(mock.ANY, expected)
 
         # default values
@@ -377,7 +382,7 @@ class TestManageShardRanges(unittest.TestCase):
             ret = main([db_file, '--config', conf_file, 'compact'])
         self.assertEqual(2, ret)
         err_lines = err.getvalue().split('\n')
-        self.assert_starts_with(err_lines[0], 'Error loading config file')
+        self.assert_starts_with(err_lines[0], 'Error loading config')
         self.assertIn('shard_container_threshold', err_lines[0])
 
     def test_conf_file_invalid_deprecated_options(self):
@@ -403,7 +408,7 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             main([db_file, '--config', conf_file, 'compact'])
         err_lines = err.getvalue().split('\n')
-        self.assert_starts_with(err_lines[0], 'Error loading config file')
+        self.assert_starts_with(err_lines[0], 'Error loading config')
         self.assertIn('shard_shrink_point', err_lines[0])
 
     def test_conf_file_does_not_exist(self):
@@ -457,7 +462,7 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            ret = main([db_file, 'find', '99'])
+            ret = main([db_file, 'find', '99', '--minimum-shard-size', '1'])
         self.assertEqual(0, ret)
         self.assert_formatted_json(out.getvalue(), [
             {'index': 0, 'lower': '', 'upper': 'obj98', 'object_count': 99},
@@ -495,6 +500,91 @@ class TestManageShardRanges(unittest.TestCase):
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
         self.assert_starts_with(err_lines[1], 'Found 10 ranges in ')
+
+    def test_find_shard_ranges_with_minimum_size(self):
+        db_file = os.path.join(self.testdir, 'hash.db')
+        broker = ContainerBroker(db_file)
+        broker.account = 'a'
+        broker.container = 'c'
+        broker.initialize()
+        ts = utils.Timestamp.now()
+        # with 105 objects and rows_per_shard = 50 there is the potential for a
+        # tail shard of size 5
+        broker.merge_items([
+            {'name': 'obj%03d' % i, 'created_at': ts.internal, 'size': 0,
+             'content_type': 'application/octet-stream', 'etag': 'not-really',
+             'deleted': 0, 'storage_policy_index': 0,
+             'ctype_timestamp': ts.internal, 'meta_timestamp': ts.internal}
+            for i in range(105)])
+
+        def assert_tail_shard_not_extended(minimum):
+            out = StringIO()
+            err = StringIO()
+            with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+                ret = main([db_file, 'find', '50',
+                            '--minimum-shard-size', str(minimum)])
+            self.assertEqual(0, ret)
+            self.assert_formatted_json(out.getvalue(), [
+                {'index': 0, 'lower': '', 'upper': 'obj049',
+                 'object_count': 50},
+                {'index': 1, 'lower': 'obj049', 'upper': 'obj099',
+                 'object_count': 50},
+                {'index': 2, 'lower': 'obj099', 'upper': '',
+                 'object_count': 5},
+            ])
+            err_lines = err.getvalue().split('\n')
+            self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+            self.assert_starts_with(err_lines[1], 'Found 3 ranges in ')
+
+        # tail shard size > minimum
+        assert_tail_shard_not_extended(1)
+        assert_tail_shard_not_extended(4)
+        assert_tail_shard_not_extended(5)
+
+        def assert_tail_shard_extended(minimum):
+            out = StringIO()
+            err = StringIO()
+            if minimum is not None:
+                extra_args = ['--minimum-shard-size', str(minimum)]
+            else:
+                extra_args = []
+            with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+                ret = main([db_file, 'find', '50'] + extra_args)
+            self.assertEqual(0, ret)
+            err_lines = err.getvalue().split('\n')
+            self.assert_formatted_json(out.getvalue(), [
+                {'index': 0, 'lower': '', 'upper': 'obj049',
+                 'object_count': 50},
+                {'index': 1, 'lower': 'obj049', 'upper': '',
+                 'object_count': 55},
+            ])
+            self.assert_starts_with(err_lines[1], 'Found 2 ranges in ')
+            self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+
+        # sanity check - no minimum specified, defaults to rows_per_shard/5
+        assert_tail_shard_extended(None)
+        assert_tail_shard_extended(6)
+        assert_tail_shard_extended(50)
+
+        def assert_too_large_value_handled(minimum):
+            out = StringIO()
+            err = StringIO()
+            with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+                ret = main([db_file, 'find', '50',
+                            '--minimum-shard-size', str(minimum)])
+            self.assertEqual(2, ret)
+            self.assertEqual(
+                'Error loading config: minimum_shard_size (%s) must be less '
+                'than rows_per_shard (50)' % minimum, err.getvalue().strip())
+
+        assert_too_large_value_handled(51)
+        assert_too_large_value_handled(52)
+
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            with self.assertRaises(SystemExit):
+                main([db_file, 'find', '50', '--minimum-shard-size', '-1'])
 
     def test_info(self):
         broker = self._make_broker()
