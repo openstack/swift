@@ -20,7 +20,7 @@ import uuid
 
 import six
 
-from mock import patch
+from mock import ANY, patch
 from swift.common.container_sync_realms import ContainerSyncRealms
 from test.debug_logger import debug_logger
 from test.unit import temptree
@@ -177,11 +177,13 @@ mtime_check_interval = invalid
             logger = debug_logger()
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
-            self.assertEqual(
-                logger.all_log_lines(),
-                {'error': [
-                    "Error in '%s' with mtime_check_interval: invalid literal "
-                    "for int() with base 10: 'invalid'" % fpath]})
+            logs = logger.all_log_lines()
+            self.assertEqual(logs, {'error': [ANY]})
+            line = logs['error'][0]
+            self.assertIn(
+                "Error in '%s' with mtime_check_interval: "
+                "could not convert string to float:" % fpath, line)
+
             self.assertEqual(csr.mtime_check_interval, 300)
 
     def test_get_sig(self):
