@@ -125,23 +125,23 @@
       tox_envlist: func
 
 - job:
-    name: swift-tox-func-py37
+    name: swift-tox-func-py38
     parent: swift-tox-base
-    nodeset: ubuntu-bionic
+    nodeset: ubuntu-focal
     description: |
-      Run functional tests for swift under cPython version 3.7.
+      Run functional tests for swift under cPython version 3.8.
 
       Uses tox with the ``func-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
     vars:
       tox_envlist: func-py3
-      bindep_profile: test py37
-      python_version: 3.7
+      bindep_profile: test py38
+      python_version: 3.8
 
 - job:
     name: swift-tox-func-py36-centos-8
-    parent: swift-tox-func-py37
+    parent: swift-tox-func-py38
     nodeset: centos-8
     vars:
       bindep_profile: test py36
@@ -160,10 +160,10 @@
       tox_envlist: func-ec-py3
 
 - job:
-    name: swift-tox-func-encryption-py37
-    parent: swift-tox-func-py37
+    name: swift-tox-func-encryption-py38
+    parent: swift-tox-func-py38
     description: |
-      Run functional tests for swift under cPython version 3.7.
+      Run functional tests for swift under cPython version 3.8.
 
       Uses tox with the ``func-encryption-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
@@ -172,10 +172,10 @@
       tox_envlist: func-encryption-py3
 
 - job:
-    name: swift-tox-func-ec-py37
-    parent: swift-tox-func-py37
+    name: swift-tox-func-ec-py38
+    parent: swift-tox-func-py38
     description: |
-      Run functional tests for swift under cPython version 3.7.
+      Run functional tests for swift under cPython version 3.8.
 
       Uses tox with the ``func-ec-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
@@ -559,11 +559,11 @@
             irrelevant-files: *functest-irrelevant-files
 
         # py3 functional tests
-        - swift-tox-func-py37:
+        - swift-tox-func-py38:
             irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-encryption-py37:
+        - swift-tox-func-encryption-py38:
             irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-ec-py37:
+        - swift-tox-func-ec-py38:
             irrelevant-files: *functest-irrelevant-files
 
         # Other tests
@@ -631,9 +631,9 @@
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
         - swift-tox-func-ec-py27
-        - swift-tox-func-py37
-        - swift-tox-func-encryption-py37
-        - swift-tox-func-ec-py37
+        - swift-tox-func-py38
+        - swift-tox-func-encryption-py38
+        - swift-tox-func-ec-py38
         - swift-func-cors
         - swift-probetests-centos-7:
             irrelevant-files: *probetest-irrelevant-files
