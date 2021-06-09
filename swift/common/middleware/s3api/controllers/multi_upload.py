@@ -67,6 +67,7 @@ import time
 
 import six
 
+from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, wsgi_to_str
 from swift.common.utils import json, public, reiterate, md5
 from swift.common.db import utf8encode
@@ -77,7 +78,7 @@ from six.moves.urllib.parse import quote, urlparse
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
-    ErrorResponse, MalformedXML, BadDigest, \
+    ErrorResponse, MalformedXML, BadDigest, KeyTooLongError, \
     InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
     InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
     NoSuchBucket, BucketAlreadyOwnedByYou
@@ -403,6 +404,11 @@ class UploadsController(Controller):
         """
         Handles Initiate Multipart Upload.
         """
+        if len(req.object_name) > constraints.MAX_OBJECT_NAME_LENGTH:
+            # Note that we can still run into trouble where the MPU is just
+            # within the limit, which means the segment names will go over
+            raise KeyTooLongError()
+
         # Create a unique S3 upload id from UUID to avoid duplicates.
         upload_id = unique_id()
 
