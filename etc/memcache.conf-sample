@@ -56,3 +56,9 @@
 # specified in tls_certfile. If tls_enabled is False, this option
 # is ignored.
 # tls_keyfile =
+#
+# If an item size ever gets above item_size_warning_threshold then a warning will be
+# logged. This can be used to alert when memcache item sizes are getting to their limit.
+# It's an absolute size in bytes. Setting the value to 0 will warn on every memcache set.
+# A value of -1 disables the warning.
+# item_size_warning_threshold = -1
