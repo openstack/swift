@@ -4920,9 +4920,9 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         # re-raise the ChunkReadTimeout and still want a txn-id
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers), \
-            mock.patch(
-                'swift.proxy.controllers.obj.ECFragGetter.fast_forward',
-                side_effect=ValueError()):
+                mock.patch(
+                    'swift.proxy.controllers.obj.ECFragGetter.fast_forward',
+                    side_effect=ValueError()):
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 200)
             self.assertNotEqual(md5(resp.body).hexdigest(), etag)
@@ -4930,7 +4930,13 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(2, len(error_lines))
         self.assertIn('Unable to fast forward', error_lines[0])
         self.assertIn('Timeout fetching', error_lines[1])
-        for line in self.logger.logger.records['ERROR']:
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warning_lines))
+        self.assertIn(
+            'Un-recoverable fragment rebuild. Only received 9/10 fragments',
+            warning_lines[0])
+        for line in self.logger.logger.records['ERROR'] + \
+                self.logger.logger.records['WARNING']:
             self.assertIn(req.headers['x-trans-id'], line)
 
     def test_GET_read_timeout_resume_mixed_etag(self):
