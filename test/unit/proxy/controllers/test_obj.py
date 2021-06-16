@@ -2321,6 +2321,48 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertFalse([h for h in resp.headers
                           if h.lower().startswith('x-object-sysmeta-ec-')])
 
+    def test_GET_disconnect(self):
+        self.app.recoverable_node_timeout = 0.01
+        self.app.client_timeout = 0.1
+        segment_size = self.policy.ec_segment_size
+        test_data = (b'test' * segment_size)[:-743]
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_data)
+        headers = {
+            'X-Object-Sysmeta-Ec-Etag': etag,
+            'X-Object-Sysmeta-Ec-Content-Length': len(test_data),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+        }
+        num_slow = 4
+        responses = [
+            (200, SlowBody(body, 0.1 if i < num_slow else 0.0),
+             self._add_frag_index(i, headers))
+            for i, body in enumerate(ec_archive_bodies)
+        ] * self.policy.ec_duplication_factor
+
+        status_codes, body_iter, headers = zip(*responses)
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        with mocked_http_conn(*status_codes, body_iter=body_iter,
+                              headers=headers) as log:
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 200)
+            resp.app_iter.close()
+        self.assertEqual(len(log.requests),
+                         self.policy.ec_ndata + num_slow)
+
+        def make_key(r):
+            r['device'] = r['path'].split('/')[1]
+            return '%(ip)s:%(port)s/%(device)s' % r
+        # the first four slow nodes get errors incr'd
+        expected_error_limiting = {
+            make_key(r): {
+                'errors': 1,
+                'last_error': mock.ANY,
+            }
+            for r in log.requests[:4]
+        }
+        self.assertEqual(self.app._error_limiting, expected_error_limiting)
+
     def test_GET_not_found_when_404_newer(self):
         # if proxy receives a 404, it keeps waiting for other connections until
         # max number of nodes in hopes of finding an object, but if 404 is
