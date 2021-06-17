@@ -2242,6 +2242,8 @@ class LogAdapter(logging.LoggerAdapter, object):
                 emsg = _('Network unreachable')
             elif exc.errno == errno.ETIMEDOUT:
                 emsg = _('Connection timeout')
+            elif exc.errno == errno.EPIPE:
+                emsg = _('Broken pipe')
             else:
                 call = self._exception
         elif isinstance(exc, http_client.BadStatusLine):
