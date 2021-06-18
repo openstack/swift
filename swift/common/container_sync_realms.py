@@ -72,7 +72,7 @@ class ContainerSyncRealms(object):
                             % {'conf': self.conf_path, 'error': err})
                     else:
                         try:
-                            self.mtime_check_interval = conf.getint(
+                            self.mtime_check_interval = conf.getfloat(
                                 'DEFAULT', 'mtime_check_interval')
                             self.next_mtime_check = \
                                 now + self.mtime_check_interval

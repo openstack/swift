@@ -213,7 +213,7 @@ class Application(object):
         self.trans_id_suffix = conf.get('trans_id_suffix', '')
         self.post_quorum_timeout = float(conf.get('post_quorum_timeout', 0.5))
         self.error_suppression_interval = \
-            int(conf.get('error_suppression_interval', 60))
+            float(conf.get('error_suppression_interval', 60))
         self.error_suppression_limit = \
             int(conf.get('error_suppression_limit', 10))
         self.recheck_container_existence = \
