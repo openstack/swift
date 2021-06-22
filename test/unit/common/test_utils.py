@@ -2869,6 +2869,24 @@ log_name = %(yarr)s'''
             with mock.patch('swift.common.utils.os.rmdir', _m_rmdir):
                 self.assertRaises(OSError, utils.remove_directory, dir_name)
 
+    @with_tempdir
+    def test_is_file_older(self, tempdir):
+        ts = utils.Timestamp(time.time() - 100000)
+        file_name = os.path.join(tempdir, '%s.data' % ts.internal)
+        # assert no raise
+        self.assertFalse(os.path.exists(file_name))
+        self.assertTrue(utils.is_file_older(file_name, 0))
+        self.assertFalse(utils.is_file_older(file_name, 1))
+
+        with open(file_name, 'w') as f:
+            f.write('1')
+        self.assertTrue(os.path.exists(file_name))
+        self.assertTrue(utils.is_file_older(file_name, 0))
+        # check that timestamp in file name is not relevant
+        self.assertFalse(utils.is_file_older(file_name, 50000))
+        time.sleep(0.01)
+        self.assertTrue(utils.is_file_older(file_name, 0.009))
+
     def test_human_readable(self):
         self.assertEqual(utils.human_readable(0), '0')
         self.assertEqual(utils.human_readable(1), '1')

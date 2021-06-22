@@ -3277,6 +3277,25 @@ def remove_directory(path):
             raise
 
 
+def is_file_older(path, age):
+    """
+    Test if a file mtime is older than the given age, suppressing any OSErrors.
+
+    :param path: first and only argument passed to os.stat
+    :param age: age in seconds
+    :return: True if age is less than or equal to zero or if the file mtime is
+        more than ``age`` in the past; False if age is greater than zero and
+        the file mtime is less than or equal to ``age`` in the past or if there
+        is an OSError while stat'ing the file.
+    """
+    if age <= 0:
+        return True
+    try:
+        return time.time() - os.stat(path).st_mtime > age
+    except OSError:
+        return False
+
+
 def audit_location_generator(devices, datadir, suffix='',
                              mount_check=True, logger=None,
                              devices_filter=None, partitions_filter=None,
