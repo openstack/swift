@@ -1925,6 +1925,18 @@ class TestUtils(unittest.TestCase):
             self.assertNotIn('Traceback', log_msg)
             self.assertNotIn('my error message', log_msg)
             self.assertIn('Connection timeout', log_msg)
+
+            log_exception(socket.error(errno.ENETUNREACH, 'my error message'))
+            log_msg = strip_value(sio)
+            self.assertNotIn('Traceback', log_msg)
+            self.assertNotIn('my error message', log_msg)
+            self.assertIn('Network unreachable', log_msg)
+
+            log_exception(socket.error(errno.EPIPE, 'my error message'))
+            log_msg = strip_value(sio)
+            self.assertNotIn('Traceback', log_msg)
+            self.assertNotIn('my error message', log_msg)
+            self.assertIn('Broken pipe', log_msg)
             # unfiltered
             log_exception(socket.error(0, 'my error message'))
             log_msg = strip_value(sio)
