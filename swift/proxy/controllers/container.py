@@ -339,6 +339,7 @@ class ContainerController(Controller):
         prefix = wsgi_to_str(params.get('prefix'))
 
         limit = req_limit
+        all_resp_status = []
         for i, shard_range in enumerate(shard_ranges):
             params['limit'] = limit
             # Always set marker to ensure that object names less than or equal
@@ -390,16 +391,17 @@ class ContainerController(Controller):
             objs, shard_resp = self._get_container_listing(
                 req, shard_range.account, shard_range.container,
                 headers=headers, params=params)
+            all_resp_status.append(shard_resp.status_int)
 
             sharding_state = shard_resp.headers.get('x-backend-sharding-state',
                                                     'unknown')
 
             if objs is None:
-                # tolerate errors
-                self.app.logger.debug(
-                    'Failed to get objects from shard (state=%s), total = %d',
-                    sharding_state, len(objects))
-                continue
+                # give up if any non-success response from shard containers
+                self.app.logger.error(
+                    'Aborting listing from shards due to bad response: %r'
+                    % all_resp_status)
+                return HTTPServiceUnavailable(request=req)
 
             self.app.logger.debug(
                 'Found %d objects in shard (state=%s), total = %d',
