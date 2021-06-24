@@ -1,0 +1,235 @@
+---
+features:
+  - |
+    ``swift-manage-shard-ranges`` improvements:
+
+    * Exit codes are now applied more consistently:
+
+      - 0 for success
+      - 1 for an unexpected outcome
+      - 2 for invalid options
+      - 3 for user exit
+
+      As a result, some errors that previously resulted in exit code 2
+      will now exit with code 1.
+
+    * Added a new 'repair' command to automatically identify and
+      optionally resolve overlapping shard ranges.
+
+    * Added a new 'analyze' command to automatically identify overlapping
+      shard ranges and recommend a resolution based on a JSON listing
+      of shard ranges such as produced by the 'show' command.
+
+    * Added a ``--includes`` option for the 'show' command to only output
+      shard ranges that may include a given object name.
+
+    * Added a ``--dry-run`` option for the 'compact' command.
+
+    * The 'compact' command now outputs the total number of compactible
+      sequences.
+
+  - |
+    Partition power increase improvements:
+
+    * The relinker now spawns multiple subprocesses to process disks
+      in parallel. By default, one worker is spawned per disk; use the
+      new ``--workers`` option to control how many subprocesses are used.
+      Use ``--workers=0`` to maintain the previous behavior.
+
+    * The relinker can now target specific storage policies or
+      partitions by using the new ``--policy`` and ``--partition``
+      options.
+
+  - |
+    More daemons now support systemd notify sockets.
+
+  - |
+    The container-reconciler now scales out better with new ``processes``,
+    ``process``, and ``concurrency`` options, similar to the object-expirer.
+deprecations:
+  - |
+    Container sharding deprecations:
+
+    * Added a new config option, ``shrink_threshold``, to specify the
+      absolute size below which a shard will be considered for shrinking.
+      This overrides the ``shard_shrink_point`` configuration option, which
+      expressed this as a percentage of ``shard_container_threshold``.
+      ``shard_shrink_point`` is now deprecated.
+
+    * Similar to above, ``expansion_limit`` was added as an absolute-size
+      replacement for the now-deprecated ``shard_shrink_merge_point``
+      configuration option.
+fixes:
+  - |
+    Sharding improvements:
+
+    * When building a listing from shards, any failure to retrieve
+      listings will result in a 503 response. Previously, failures
+      fetching a partiucular shard would result in a gap in listings.
+
+    * Container-server logs now include the shard path in the referer
+      field when receiving stat updates.
+
+    * Added a new config option, ``rows_per_shard``, to specify how many
+      objects should be in each shard when scanning for ranges. The default
+      is ``shard_container_threshold / 2``, preserving existing behavior.
+
+    * Added a new config option, ``minimum_shard_size``. When scanning
+      for shard ranges, if the final shard would otherwise contain
+      fewer than this many objects, the previous shard will instead
+      be expanded to the end of the namespace (and so may contain up
+      to ``rows_per_shard + minimum_shard_size`` objects). This reduces
+      the number of small shards generated. The default value is
+      ``rows_per_shard / 5``.
+
+    * The sharder now correctly identifies and fails audits for shard
+      ranges that overlap exactly.
+
+    * The sharder and swift-manage-shard-ranges now consider total row
+      count (instead of just object count) when deciding whether a shard
+      is a candidate for shrinking.
+
+    * If the sharder encounters shard range gaps while cleaving, it will
+      now log an error and halt sharding progress. Previously, rows may
+      not have been moved properly, leading to data loss.
+
+    * Sharding cycle time and last-completion time are now available via
+      swift-recon.
+
+    * Fixed an issue where resolving overlapping shard ranges via shrinking
+      could prematurely mark created or cleaved shards as active.
+
+  - |
+    S3 API improvements:
+
+    * Added an option, ``ratelimit_as_client_error``, to return 429s for
+      rate-limited responses. Several clients/SDKs have seem to support
+      retries with backoffs on 429, and having it as a client error
+      cleans up logging and metrics. By default, Swift will respond 503,
+      matching AWS documentation.
+
+    * Fixed a server error in bucket listings when ``s3_acl`` is enabled
+      and staticweb is configured for the container.
+
+    * Fixed a server error when a client exceeds ``client_timeout`` during an
+      upload. Now, a ``RequestTimeout`` error is correctly returned.
+
+    * Fixed a server error when downloading multipart uploads/static large
+      objects that have missing or inaccessible segments. This is a state
+      that cannot arise in AWS, so a new ``BrokenMPU`` error is returned,
+      indicating that retrying the request is unlikely to succeed.
+
+    * Fixed several issues with the prefix, marker, and delimiter
+      parameters that would be mirrored back to clients when listing
+      buckets.
+
+  - |
+    Partition power increase fixes:
+
+    * The relinker now performs eventlet-hub selection the same way as
+      other daemons. In particular, ``epolls`` will no longer be selected,
+      as it seemed to cause occassional hangs.
+
+    * Partitions that encountered errors during relinking are no longer
+      marked as completed in the relinker state file. This ensures that
+      a subsequent relink will retry the failed partitions.
+
+    * Partition cleanup is more robust, decreasing the likelihood of
+      leaving behind mostly-empty partitions from the old partition
+      power.
+
+    * Improved relinker progress logging, and started collecting
+      progress information for swift-recon.
+
+    * Cleanup is more robust to files and directories being deleted by
+      another process.
+
+    * The relinker better handles data found from earlier partition power
+      increases.
+
+    * The relinker better handles tombstones found for the same object
+      but with different inodes.
+
+    * The reconciler now defers working on policies that have a partition
+      power increase in progress to avoid issues with concurrent writes.
+
+  - |
+    Erasure coding fixes:
+
+    * Added the ability to quarantine EC fragments that have no (or few)
+      other fragments in the cluster. A new configuration option,
+      ``quarantine_threshold``, in the reconstructor controls the point at
+      the fragment will be quarantined; the default (0) will never
+      quarantine. Only fragments older than ``quarantine_age`` (default:
+      ``reclaim_age``) may be quarantined. Before quarantining, the
+      reconstructor will attempt to fetch fragments from handoff nodes
+      in addition to the usual primary nodes; a new ``request_node_count``
+      option (default ``2 * replicas``) limits the total number of nodes to
+      contact.
+
+    * Added a delay before deleting non-durable data. A new configuration
+      option, ``commit_window`` in the ``[DEFAULT]`` section of
+      object-server.conf, adjusts this delay; the default is 60 seconds. This
+      improves the durability of both back-dated PUTs (from the reconciler or
+      container-sync, for example) and fresh writes to handoffs by preventing
+      the reconstructor from deleting data that the object-server was still
+      writing.
+
+    * Improved proxy-server and object-reconstructor logging when data
+      cannot be reconstructed.
+
+    * Fixed an issue where some but not all fragments having metadata
+      applied could prevent reconstruction of missing fragments.
+
+    * Server-side copying of erasure-coded data to a replicated policy no
+      longer copies EC sysmeta. The previous behavior had no material
+      effect, but could confuse operators examining data on disk.
+
+  - |
+    Python 3 fixes:
+
+    * Fixed a server error when performing a PUT authorized via
+      tempurl with some proxy pipelines.
+
+    * Fixed a server error during GET of a symlink with some proxy
+      pipelines.
+
+    * Fixed an issue with logging setup when /dev/log doesn't exist
+      or is not a UNIX socket.
+
+  - |
+    The dark-data audit watcher now skips objects younger than a new
+    configurable ``grace_age`` period. This avoids issues where data
+    could be flagged, quarantined, or deleted because of listing
+    consistency issues. The default is one week.
+
+  - |
+    The dark-data audit watcher now requires that all primary locations
+    for an object's container agree that the data does not appear in
+    listings to consider data "dark". Previously, a network partition
+    that left an object node isolated could cause it to quarantine or
+    delete all of its data.
+
+  - |
+    ``EPIPE`` errors no longer log tracebacks.
+
+  - |
+    The account and container auditors now log and update recon before
+    going to sleep.
+
+  - |
+    The object-expirer logs fewer client disconnects.
+
+  - |
+    ``swift-recon-cron`` now includes the last time it was run in the recon
+    information.
+
+  - |
+    ``EIO`` errors during read now cause object diskfiles to be quarantined.
+
+  - |
+    The formpost middleware now properly supports uploading multiple files
+    with different content-types.
+
+  - |
+    Various other minor bug fixes and improvements.
