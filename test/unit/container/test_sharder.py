@@ -14,6 +14,7 @@
 # limitations under the License.
 import json
 import random
+from argparse import Namespace
 
 import eventlet
 import os
@@ -210,7 +211,7 @@ class TestSharder(BaseTestSharder):
             'rsync_compress': True,
             'rsync_module': '{replication_ip}::container_sda/',
             'reclaim_age': 86400 * 14,
-            'shrink_threshold': 7000000,
+            'shrink_threshold': 2000000,
             'expansion_limit': 17000000,
             'shard_container_threshold': 20000000,
             'cleave_batch_size': 4,
@@ -226,7 +227,7 @@ class TestSharder(BaseTestSharder):
             'existing_shard_replication_quorum': 0,
             'max_shrinking': 5,
             'max_expanding': 4,
-            'rows_per_shard': 13
+            'rows_per_shard': 13000000
         }
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
@@ -238,8 +239,8 @@ class TestSharder(BaseTestSharder):
             'rsync_module': '{replication_ip}::container_sda',
             'reclaim_age': 86400 * 14,
             'shard_container_threshold': 20000000,
-            'rows_per_shard': 13,
-            'shrink_threshold': 7000000,
+            'rows_per_shard': 13000000,
+            'shrink_threshold': 2000000,
             'expansion_limit': 17000000,
             'cleave_batch_size': 4,
             'shard_scanner_batch_size': 8,
@@ -295,7 +296,7 @@ class TestSharder(BaseTestSharder):
     def test_init_deprecated_options(self):
         # percent values applied if absolute values not given
         conf = {
-            'shard_shrink_point': 15,  # trumps shrink_threshold
+            'shard_shrink_point': 7,  # trumps shrink_threshold
             'shard_shrink_merge_point': 95,  # trumps expansion_limit
             'shard_container_threshold': 20000000,
         }
@@ -310,7 +311,7 @@ class TestSharder(BaseTestSharder):
             'reclaim_age': 86400 * 7,
             'shard_container_threshold': 20000000,
             'rows_per_shard': 10000000,
-            'shrink_threshold': 3000000,
+            'shrink_threshold': 1400000,
             'expansion_limit': 19000000,
             'cleave_batch_size': 2,
             'shard_scanner_batch_size': 10,
@@ -326,10 +327,10 @@ class TestSharder(BaseTestSharder):
         self._do_test_init(conf, expected)
         # absolute values override percent values
         conf = {
-            'shard_shrink_point': 15,  # trumps shrink_threshold
-            'shrink_threshold': 7000000,
-            'shard_shrink_merge_point': 95,  # trumps expansion_limit
-            'expansion_limit': 17000000,
+            'shard_shrink_point': 7,
+            'shrink_threshold': 1300000,  # trumps shard_shrink_point
+            'shard_shrink_merge_point': 95,
+            'expansion_limit': 17000000,  # trumps shard_shrink_merge_point
             'shard_container_threshold': 20000000,
         }
         expected = {
@@ -343,7 +344,7 @@ class TestSharder(BaseTestSharder):
             'reclaim_age': 86400 * 7,
             'shard_container_threshold': 20000000,
             'rows_per_shard': 10000000,
-            'shrink_threshold': 7000000,
+            'shrink_threshold': 1300000,
             'expansion_limit': 17000000,
             'cleave_batch_size': 2,
             'shard_scanner_batch_size': 10,
@@ -4223,6 +4224,7 @@ class TestSharder(BaseTestSharder):
             account, cont, lower, upper)
         with self._mock_sharder(conf={'shard_container_threshold': 199,
                                       'minimum_shard_size': 1,
+                                      'shrink_threshold': 0,
                                       'auto_create_account_prefix': '.int_'}
                                 ) as sharder:
             with mock_timestamp_now() as now:
@@ -4239,6 +4241,7 @@ class TestSharder(BaseTestSharder):
         # second invocation finds none
         with self._mock_sharder(conf={'shard_container_threshold': 199,
                                       'minimum_shard_size': 1,
+                                      'shrink_threshold': 0,
                                       'auto_create_account_prefix': '.int_'}
                                 ) as sharder:
             num_found = sharder._find_shard_ranges(broker)
@@ -4324,6 +4327,7 @@ class TestSharder(BaseTestSharder):
             account, cont, lower, upper)
         with self._mock_sharder(conf={'shard_container_threshold': 199,
                                       'minimum_shard_size': 1,
+                                      'shrink_threshold': 0,
                                       'auto_create_account_prefix': '.int_'}
                                 ) as sharder:
             with mock_timestamp_now() as now:
@@ -4412,6 +4416,7 @@ class TestSharder(BaseTestSharder):
         # third invocation finds none
         with self._mock_sharder(conf={'shard_container_threshold': 199,
                                       'shard_scanner_batch_size': 2,
+                                      'shrink_threshold': 0,
                                       'minimum_shard_size': 10}
                                 ) as sharder:
             sharder._send_shard_ranges = mock.MagicMock(return_value=True)
@@ -7412,3 +7417,75 @@ class TestContainerSharderConf(unittest.TestCase):
                         ValueError, msg='{%s : %s}' % (key, bad_value)) as cm:
                     ContainerSharderConf({key: bad_value})
                 self.assertIn('Error setting %s' % key, str(cm.exception))
+
+    def test_validate(self):
+        def assert_bad(conf):
+            with self.assertRaises(ValueError):
+                ContainerSharderConf.validate_conf(ContainerSharderConf(conf))
+
+        def assert_ok(conf):
+            try:
+                ContainerSharderConf.validate_conf(ContainerSharderConf(conf))
+            except ValueError as err:
+                self.fail('Unexpected ValueError: %s' % err)
+
+        assert_ok({})
+        assert_ok({'minimum_shard_size': 100,
+                   'shrink_threshold': 100,
+                   'rows_per_shard': 100})
+        assert_bad({'minimum_shard_size': 100})
+        assert_bad({'shrink_threshold': 100001})
+        assert_ok({'minimum_shard_size': 100,
+                   'shrink_threshold': 100})
+        assert_bad({'minimum_shard_size': 100,
+                    'shrink_threshold': 100,
+                    'rows_per_shard': 99})
+
+        assert_ok({'shard_container_threshold': 100,
+                   'rows_per_shard': 99})
+        assert_bad({'shard_container_threshold': 100,
+                    'rows_per_shard': 100})
+        assert_bad({'rows_per_shard': 10000001})
+
+        assert_ok({'shard_container_threshold': 100,
+                   'expansion_limit': 99})
+        assert_bad({'shard_container_threshold': 100,
+                    'expansion_limit': 100})
+        assert_bad({'expansion_limit': 100000001})
+
+    def test_validate_subset(self):
+        # verify that validation is only applied for keys that exist in the
+        # given namespace
+        def assert_bad(conf):
+            with self.assertRaises(ValueError):
+                ContainerSharderConf.validate_conf(Namespace(**conf))
+
+        def assert_ok(conf):
+            try:
+                ContainerSharderConf.validate_conf(Namespace(**conf))
+            except ValueError as err:
+                self.fail('Unexpected ValueError: %s' % err)
+
+        assert_ok({})
+        assert_ok({'minimum_shard_size': 100,
+                   'shrink_threshold': 100,
+                   'rows_per_shard': 100})
+        assert_ok({'minimum_shard_size': 100})
+        assert_ok({'shrink_threshold': 100001})
+        assert_ok({'minimum_shard_size': 100,
+                   'shrink_threshold': 100})
+        assert_bad({'minimum_shard_size': 100,
+                    'shrink_threshold': 100,
+                    'rows_per_shard': 99})
+
+        assert_ok({'shard_container_threshold': 100,
+                   'rows_per_shard': 99})
+        assert_bad({'shard_container_threshold': 100,
+                    'rows_per_shard': 100})
+        assert_ok({'rows_per_shard': 10000001})
+
+        assert_ok({'shard_container_threshold': 100,
+                   'expansion_limit': 99})
+        assert_bad({'shard_container_threshold': 100,
+                    'expansion_limit': 100})
+        assert_ok({'expansion_limit': 100000001})

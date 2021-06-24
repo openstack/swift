@@ -15,6 +15,7 @@
 import collections
 import errno
 import json
+import operator
 import time
 from collections import defaultdict
 from operator import itemgetter
@@ -634,18 +635,28 @@ class ContainerSharderConf(object):
             'minimum_shard_size', config_positive_int_value,
             max(self.rows_per_shard // 5, 1))
 
-        self.validate_conf()
-
     def percent_of_threshold(self, val):
         return int(config_percent_value(val) * self.shard_container_threshold)
 
-    def validate_conf(self):
-        keys = ('minimum_shard_size', 'rows_per_shard')
-        vals = [getattr(self, key) for key in keys]
-        if not vals[0] <= vals[1]:
-            raise ValueError(
-                '%s (%d) must be less than %s (%d)'
-                % (keys[0], vals[0], keys[1], vals[1]))
+    @classmethod
+    def validate_conf(cls, namespace):
+        ops = {'<': operator.lt,
+               '<=': operator.le}
+        checks = (('minimum_shard_size', '<=', 'rows_per_shard'),
+                  ('shrink_threshold', '<=', 'minimum_shard_size'),
+                  ('rows_per_shard', '<', 'shard_container_threshold'),
+                  ('expansion_limit', '<', 'shard_container_threshold'))
+        for key1, op, key2 in checks:
+            try:
+                val1 = getattr(namespace, key1)
+                val2 = getattr(namespace, key2)
+            except AttributeError:
+                # swift-manage-shard-ranges uses a subset of conf options for
+                # each command so only validate those actually in the namespace
+                continue
+            if not ops[op](val1, val2):
+                raise ValueError('%s (%d) must be %s %s (%d)'
+                                 % (key1, val1, op, key2, val2))
 
 
 DEFAULT_SHARDER_CONF = vars(ContainerSharderConf())
@@ -658,6 +669,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         logger = logger or get_logger(conf, log_route='container-sharder')
         ContainerReplicator.__init__(self, conf, logger=logger)
         ContainerSharderConf.__init__(self, conf)
+        ContainerSharderConf.validate_conf(self)
         if conf.get('auto_create_account_prefix'):
             self.logger.warning('Option auto_create_account_prefix is '
                                 'deprecated. Configure '
