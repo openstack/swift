@@ -12,7 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import contextlib
 import logging
+import mock
 import sys
 
 from collections import defaultdict
@@ -27,7 +29,48 @@ class WARN_DEPRECATED(Exception):
         print(self.msg)
 
 
-class FakeLogger(logging.Logger, object):
+class CaptureLog(object):
+    """
+    Captures log records passed to the ``handle`` method and provides accessor
+    functions to the captured logs.
+    """
+    def __init__(self):
+        self.clear()
+
+    def _clear(self):
+        self.log_dict = defaultdict(list)
+        self.lines_dict = {'critical': [], 'error': [], 'info': [],
+                           'warning': [], 'debug': [], 'notice': []}
+
+    clear = _clear  # this is a public interface
+
+    def get_lines_for_level(self, level):
+        if level not in self.lines_dict:
+            raise KeyError(
+                "Invalid log level '%s'; valid levels are %s" %
+                (level,
+                 ', '.join("'%s'" % lvl for lvl in sorted(self.lines_dict))))
+        return self.lines_dict[level]
+
+    def all_log_lines(self):
+        return dict((level, msgs) for level, msgs in self.lines_dict.items()
+                    if len(msgs) > 0)
+
+    def _handle(self, record):
+        try:
+            line = record.getMessage()
+        except TypeError:
+            print('WARNING: unable to format log message %r %% %r' % (
+                record.msg, record.args))
+            raise
+        self.lines_dict[record.levelname.lower()].append(line)
+        return 0
+
+    def handle(self, record):
+        return self._handle(record)
+
+
+class FakeLogger(logging.Logger, CaptureLog):
     # a thread safe fake logger
 
     def __init__(self, *args, **kwargs):
@@ -72,25 +115,6 @@ class FakeLogger(logging.Logger, object):
             captured['exc_info'] = sys.exc_info()
         self.log_dict[store_name].append((tuple(cargs), captured))
         super(FakeLogger, self)._log(level, msg, *args, **kwargs)
-
-    def _clear(self):
-        self.log_dict = defaultdict(list)
-        self.lines_dict = {'critical': [], 'error': [], 'info': [],
-                           'warning': [], 'debug': [], 'notice': []}
-
-    clear = _clear  # this is a public interface
-
-    def get_lines_for_level(self, level):
-        if level not in self.lines_dict:
-            raise KeyError(
-                "Invalid log level '%s'; valid levels are %s" %
-                (level,
-                 ', '.join("'%s'" % lvl for lvl in sorted(self.lines_dict))))
-        return self.lines_dict[level]
-
-    def all_log_lines(self):
-        return dict((level, msgs) for level, msgs in self.lines_dict.items()
-                    if len(msgs) > 0)
 
     def _store_in(store_name):
         def stub_fn(self, *args, **kwargs):
@@ -138,18 +162,6 @@ class FakeLogger(logging.Logger, object):
 
     def emit(self, record):
         pass
-
-    def _handle(self, record):
-        try:
-            line = record.getMessage()
-        except TypeError:
-            print('WARNING: unable to format log message %r %% %r' % (
-                record.msg, record.args))
-            raise
-        self.lines_dict[record.levelname.lower()].append(line)
-
-    def handle(self, record):
-        self._handle(record)
 
     def flush(self):
         pass
@@ -210,3 +222,60 @@ class DebugLogAdapter(utils.LogAdapter):
 def debug_logger(name='test'):
     """get a named adapted debug logger"""
     return DebugLogAdapter(DebugLogger(), name)
+
+
+class ForwardingLogHandler(logging.NullHandler):
+    """
+    Provides a LogHandler implementation that simply forwards filtered records
+    to a given handler function. This can be useful to forward records to a
+    handler without the handler itself needing to subclass LogHandler.
+    """
+    def __init__(self, handler_fn):
+        super(ForwardingLogHandler, self).__init__()
+        self.handler_fn = handler_fn
+
+    def handle(self, record):
+        return self.handler_fn(record)
+
+
+class CaptureLogAdapter(utils.LogAdapter, CaptureLog):
+    """
+    A LogAdapter that is capable of capturing logs for inspection via accessor
+    methods.
+    """
+    def __init__(self, logger, name):
+        super(CaptureLogAdapter, self).__init__(logger, name)
+        self.clear()
+        self.handler = ForwardingLogHandler(self.handle)
+
+    def start_capture(self):
+        """
+        Attaches the adapter's handler to the adapted logger in order to start
+        capturing log messages.
+        """
+        self.logger.addHandler(self.handler)
+
+    def stop_capture(self):
+        """
+        Detaches the adapter's handler from the adapted logger. This should be
+        called to prevent further logging to the adapted logger (possibly via
+        other log adapter instances) being captured by this instance.
+        """
+        self.logger.removeHandler(self.handler)
+
+
+@contextlib.contextmanager
+def capture_logger(conf, *args, **kwargs):
+    """
+    Yields an adapted system logger based on the conf options. The log adapter
+    captures logs in order to support the pattern of tests calling the log
+    accessor methods (e.g. get_lines_for_level) directly on the logger
+    instance.
+    """
+    with mock.patch('swift.common.utils.LogAdapter', CaptureLogAdapter):
+        log_adapter = utils.get_logger(conf, *args, **kwargs)
+    log_adapter.start_capture()
+    try:
+        yield log_adapter
+    finally:
+        log_adapter.stop_capture()

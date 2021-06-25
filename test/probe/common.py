@@ -41,7 +41,7 @@ from swift.common.utils import readconf, renamer, \
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.obj.diskfile import get_data_dir
-from test.debug_logger import debug_logger
+from test.debug_logger import capture_logger
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC, PROXY_BASE_URL
 
@@ -571,8 +571,14 @@ class ProbeTest(unittest.TestCase):
         conf_file = self.configs[conf_section][conf_index]
         conf = utils.readconf(conf_file, conf_section)
         conf.update(custom_conf)
-        daemon = klass(conf, debug_logger('probe'))
-        daemon.run_once(**kwargs)
+        # Use a CaptureLogAdapter in order to preserve the pattern of tests
+        # calling the log accessor methods (e.g. get_lines_for_level) directly
+        # on the logger instance
+        with capture_logger(conf, conf.get('log_name', conf_section),
+                            log_to_console=kwargs.pop('verbose', False),
+                            log_route=conf_section) as log_adapter:
+            daemon = klass(conf, log_adapter)
+            daemon.run_once(**kwargs)
         return daemon
 
 
