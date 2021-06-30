@@ -125,7 +125,7 @@ class TestRelinker(unittest.TestCase):
                       % attempts)
         return _hash, part, next_part, obj_path
 
-    def _create_object(self, policy, part, _hash):
+    def _create_object(self, policy, part, _hash, ext='.data'):
         objects_dir = os.path.join(self.devices, self.existing_device,
                                    get_policy_string('objects', policy))
         shutil.rmtree(objects_dir, ignore_errors=True)
@@ -133,7 +133,7 @@ class TestRelinker(unittest.TestCase):
         objdir = os.path.join(objects_dir, str(part), _hash[-3:], _hash)
         os.makedirs(objdir)
         timestamp = utils.Timestamp.now()
-        filename = timestamp.internal + ".data"
+        filename = timestamp.internal + ext
         objname = os.path.join(objdir, filename)
         with open(objname, "wb") as dummy:
             dummy.write(b"Hello World!")
@@ -141,7 +141,7 @@ class TestRelinker(unittest.TestCase):
                            {'name': self.obj_path, 'Content-Length': '12'})
         return objdir, filename, timestamp
 
-    def _setup_object(self, condition=None, policy=None):
+    def _setup_object(self, condition=None, policy=None, ext='.data'):
         policy = policy or self.policy
         _hash, part, next_part, obj_path = self._get_object_name(condition)
         self._hash = _hash
@@ -152,7 +152,7 @@ class TestRelinker(unittest.TestCase):
                                    get_policy_string('objects', policy))
 
         self.objdir, self.object_fname, self.obj_ts = self._create_object(
-            policy, part, _hash)
+            policy, part, _hash, ext)
 
         self.objname = os.path.join(self.objdir, self.object_fname)
         self.part_dir = os.path.join(objects_dir, str(self.part))
@@ -514,7 +514,6 @@ class TestRelinker(unittest.TestCase):
             'policies': POLICIES,
             'workers': 'auto',
             'partitions': set(),
-            'link_check_limit': 2,
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
         }
@@ -543,7 +542,6 @@ class TestRelinker(unittest.TestCase):
         log_level = WARNING
         log_name = test-relinker
         files_per_second = 11.1
-        link_check_limit = 1
         recon_cache_path = /var/cache/swift-foo
         stats_interval = 111
         """
@@ -562,7 +560,6 @@ class TestRelinker(unittest.TestCase):
             'policies': POLICIES,
             'partitions': set(),
             'workers': 'auto',
-            'link_check_limit': 1,
             'recon_cache_path': '/var/cache/swift-foo',
             'stats_interval': 111.0,
         }, mock.ANY, ['sdx'], do_cleanup=False)
@@ -571,16 +568,20 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual('test-relinker', logger.logger.name)
 
         # override with cli options...
+        logger = debug_logger()
         with mock.patch('swift.cli.relinker.Relinker') as mock_relinker:
-            relinker.main([
-                'relink', conf_file, '--device', 'sdx', '--debug',
-                '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
-                '--skip-mount-check', '--files-per-second', '2.2',
-                '--policy', '1', '--partition', '123',
-                '--partition', '123', '--partition', '456',
-                '--link-check-limit', '3', '--workers', '2',
-                '--stats-interval', '222',
-            ])
+            with mock.patch('swift.cli.relinker.get_logger',
+                            return_value=logger):
+                relinker.main([
+                    'relink', conf_file, '--device', 'sdx', '--debug',
+                    '--swift-dir', 'cli-dir', '--devices', 'cli-devs',
+                    '--skip-mount-check', '--files-per-second', '2.2',
+                    '--policy', '1', '--partition', '123',
+                    '--partition', '123', '--partition', '456',
+                    '--link-check-limit', '3',  # allowed but ignored
+                    '--workers', '2',
+                    '--stats-interval', '222',
+                ])
         mock_relinker.assert_called_once_with({
             '__file__': mock.ANY,
             'swift_dir': 'cli-dir',
@@ -592,10 +593,12 @@ class TestRelinker(unittest.TestCase):
             'policies': {POLICIES[1]},
             'partitions': {123, 456},
             'workers': 2,
-            'link_check_limit': 3,
             'recon_cache_path': '/var/cache/swift-foo',
             'stats_interval': 222.0,
         }, mock.ANY, ['sdx'], do_cleanup=False)
+        self.assertIn('--link-check-limit option is ignored, deprecated and '
+                      'will be removed in a future version',
+                      logger.get_lines_for_level('warning'))
 
         with mock.patch('swift.cli.relinker.Relinker') as mock_relinker, \
                 mock.patch('logging.basicConfig') as mock_logging_config:
@@ -611,7 +614,6 @@ class TestRelinker(unittest.TestCase):
             'policies': POLICIES,
             'partitions': set(),
             'workers': 'auto',
-            'link_check_limit': 2,
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
         }, mock.ANY, ['sdx'], do_cleanup=False)
@@ -639,7 +641,6 @@ class TestRelinker(unittest.TestCase):
             'policies': set(POLICIES),
             'partitions': set(),
             'workers': 'auto',
-            'link_check_limit': 2,
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
         }, mock.ANY, ['sdx'], do_cleanup=False)
@@ -658,7 +659,6 @@ class TestRelinker(unittest.TestCase):
                 log_level = WARNING
                 log_name = test-relinker
                 files_per_second = 11.1
-                link_check_limit = 1
                 workers = 8
                 """
         with open(conf_file, 'w') as f:
@@ -680,7 +680,6 @@ class TestRelinker(unittest.TestCase):
             'policies': POLICIES,
             'partitions': set(),
             'workers': 'auto',
-            'link_check_limit': 1,
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
         }, mock.ANY, ['sdx'], do_cleanup=False)
@@ -700,7 +699,6 @@ class TestRelinker(unittest.TestCase):
                         log_level = WARNING
                         log_name = test-relinker
                         files_per_second = 11.1
-                        link_check_limit = 1
                         """
         with open(conf_file, 'w') as f:
             f.write(dedent(config))
@@ -717,7 +715,6 @@ class TestRelinker(unittest.TestCase):
             'policies': POLICIES,
             'partitions': set(),
             'workers': 'auto',
-            'link_check_limit': 1,
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
         }, mock.ANY, ['sdx'], do_cleanup=False)
@@ -1041,16 +1038,22 @@ class TestRelinker(unittest.TestCase):
                       '(0 files, 0 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_conflicting_ts_file(self):
-        self._cleanup_test((('ts', 0),),
+        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+        self._do_link_test('relink',
+                           (('ts', 0),),
                            None,
-                           (('ts', 0),),  # different inode
                            (('ts', 0),),
                            (('ts', 0),),
-                           exp_ret_code=1)
+                           (('ts', 0),),
+                           exp_ret_code=0)
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
-                      '(1 files, 0 linked, 0 removed, 1 errors)',
-                      warning_lines)
+        self.assertEqual([], warning_lines)
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertIn('1 hash dirs processed (cleanup=False) '
+                      '(1 files, 0 linked, 0 removed, 0 errors)',
+                      info_lines)
 
     def test_relink_link_already_exists_but_different_inode(self):
         self.rb.prepare_increase_partition_power()
@@ -1561,8 +1564,7 @@ class TestRelinker(unittest.TestCase):
         new_filepath = os.path.join(self.expected_dir, filename)
         old_filepath = os.path.join(self.objdir, filename)
         # setup a file in the current-1 part power (PART_POWER - 1) location
-        # that is *not* linked to the file in the next part power location;
-        # this file should be removed during relink.
+        # that is *not* linked to the file in the next part power location
         older_filepath = utils.replace_partition_in_path(
             self.devices, new_filepath, PART_POWER - 1)
         os.makedirs(os.path.dirname(older_filepath))
@@ -1576,17 +1578,14 @@ class TestRelinker(unittest.TestCase):
                            (('ts', 0),),
                            exp_ret_code=0)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn(
-            'Relinking: cleaning up unwanted file: %s' % older_filepath,
-            info_lines)
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
-        # links are created, and both the older files are removed
+        # links are created, and both the older files are retained
         self.assertIn('2 hash dirs processed (cleanup=False) '
-                      '(2 files, 0 linked, 1 removed, 0 errors)',
+                      '(2 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
         with open(new_filepath, 'r') as fd:
             self.assertEqual(old_filepath, fd.read())
-        self.assertFalse(os.path.exists(older_filepath))
+        self.assertTrue(os.path.exists(older_filepath))
 
     def test_relink_conflicting_ts_is_linked_to_part_power_minus_1(self):
         # link from next partition to current-1 partition;
@@ -1617,112 +1616,6 @@ class TestRelinker(unittest.TestCase):
         # prev part power file is retained because it is link target
         self.assertTrue(os.path.exists(older_filepath))
 
-    def test_relink_conflicting_ts_link_to_part_power_minus_1_disappears(self):
-        # uncommon case: existing link from next partition to current-1
-        # partition disappears between an EEXIST while attempting to link
-        # different file in current partition and checking for an ok link
-        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
-        self.rb.prepare_increase_partition_power()
-        self._save_ring()
-        # setup a file in the next part power (PART_POWER + 1) location that is
-        # linked to a file in an older (PART_POWER - 1) location
-        filename = '.'.join([self.obj_ts.internal, 'ts'])
-        older_filepath, new_filepath = self._make_link(filename,
-                                                       PART_POWER - 1)
-        old_filepath = os.path.join(self.objdir, filename)
-        orig_relink_paths = relink_paths
-        calls = []
-
-        def mock_relink_paths(target_path, new_target_path, **kwargs):
-            # while retrying link from current part power to next part power
-            # location, unlink the conflicting file in next part power location
-            calls.append((target_path, kwargs))
-            if len(calls) == 2:
-                os.unlink(os.path.join(self.expected_dir, filename))
-            return orig_relink_paths(target_path, new_target_path,
-                                     **kwargs)
-
-        with mock.patch('swift.cli.relinker.diskfile.relink_paths',
-                        mock_relink_paths):
-            self._do_link_test('relink',
-                               (('ts', 0),),
-                               None,
-                               None,
-                               (('ts', 0),),  # retained
-                               (('ts', 0),),
-                               exp_ret_code=0,
-                               mock_relink_paths=mock_relink_paths)
-        self.assertEqual(
-            [(old_filepath, {}),  # link attempted - EEXIST raised
-             (old_filepath, {'ignore_missing': False}),  # check makes link!
-             (older_filepath, {}),  # link attempted - EEXIST raised
-             (old_filepath, {'ignore_missing': False})],  # check finds ok link
-            calls)
-        info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn(
-            'Relinking: cleaning up unwanted file: %s' % older_filepath,
-            info_lines)
-        self.assertIn('2 hash dirs processed (cleanup=False) '
-                      '(2 files, 1 linked, 1 removed, 0 errors)',
-                      info_lines)
-        self.assertTrue(os.path.exists(old_filepath))
-        with open(new_filepath, 'r') as fd:
-            self.assertEqual(old_filepath, fd.read())
-        # older file is not needed
-        self.assertFalse(os.path.exists(older_filepath))
-
-    def test_relink_conflicting_ts_link_to_part_power_disappears(self):
-        # uncommon case: existing link from next partition to current
-        # partition disappears between an EEXIST while attempting to link
-        # different file in current-1 partition and checking for an ok link
-        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
-        self.rb.prepare_increase_partition_power()
-        self._save_ring()
-        filename = '.'.join([self.obj_ts.internal, 'ts'])
-        new_filepath = os.path.join(self.expected_dir, filename)
-        old_filepath = utils.replace_partition_in_path(
-            self.devices, new_filepath, PART_POWER)
-        older_filepath = utils.replace_partition_in_path(
-            self.devices, new_filepath, PART_POWER - 1)
-        os.makedirs(os.path.dirname(older_filepath))
-        with open(older_filepath, 'w') as fd:
-            fd.write(older_filepath)
-        orig_relink_paths = relink_paths
-        calls = []
-
-        def mock_relink_paths(target_path, new_target_path, **kwargs):
-            # while retrying link from current-1 part power to next part power
-            # location, unlink the conflicting file in next part power location
-            calls.append((target_path, kwargs))
-            if len(calls) == 3:
-                os.unlink(os.path.join(self.expected_dir, filename))
-            return orig_relink_paths(target_path, new_target_path,
-                                     **kwargs)
-
-        with mock.patch('swift.cli.relinker.diskfile.relink_paths',
-                        mock_relink_paths):
-            self._do_link_test('relink',
-                               (('ts', 0),),
-                               (('ts', 0),),
-                               None,
-                               (('ts', 0),),  # retained
-                               (('ts', 0),),
-                               exp_ret_code=0,
-                               mock_relink_paths=mock_relink_paths)
-        self.assertEqual(
-            [(old_filepath, {}),  # link attempted but exists
-             (older_filepath, {}),  # link attempted - EEXIST raised
-             (old_filepath, {'ignore_missing': False})],  # check makes link!
-            calls)
-        info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('2 hash dirs processed (cleanup=False) '
-                      '(2 files, 1 linked, 1 removed, 0 errors)',
-                      info_lines)
-        self.assertTrue(os.path.exists(old_filepath))
-        with open(new_filepath, 'r') as fd:
-            self.assertEqual(old_filepath, fd.read())
-        self.assertFalse(os.path.exists(older_filepath))
-
     def test_relink_conflicting_ts_is_linked_to_part_power_minus_2_err(self):
         # link from next partition to current-2 partition;
         # different file in current partition
@@ -1742,47 +1635,16 @@ class TestRelinker(unittest.TestCase):
                            None,  # we already made file linked to older part
                            (('ts', 0),),  # retained
                            (('ts', 0),),
-                           exp_ret_code=1)
+                           exp_ret_code=0)
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('2 hash dirs processed (cleanup=False) '
-                      '(2 files, 0 linked, 0 removed, 1 errors)',
-                      warning_lines)
-        self.assertIn('Error relinking: failed to relink', warning_lines[0])
-        with open(new_filepath, 'r') as fd:
-            self.assertEqual(older_filepath, fd.read())
-        # prev-1 part power file is always retained because it is link target
-        self.assertTrue(os.path.exists(older_filepath))
-
-    def test_relink_conflicting_ts_is_linked_to_part_power_minus_2_ok(self):
-        # link from next partition to current-2 partition;
-        # different file in current partition
-        # increase link_check_limit so that the relinker WILL validate the
-        # current-2 location
-        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
-        self.rb.prepare_increase_partition_power()
-        self._save_ring()
-        # setup a file in the next part power (PART_POWER + 1) location that is
-        # linked to a file in an older (PART_POWER - 2) location
-        filename = '.'.join([self.obj_ts.internal, 'ts'])
-        older_filepath, new_filepath = self._make_link(filename,
-                                                       PART_POWER - 2)
-        self._do_link_test('relink',
-                           (('ts', 0),),
-                           None,
-                           None,  # we already made file linked to older part
-                           (('ts', 0),),  # retained
-                           (('ts', 0),),
-                           exp_ret_code=0,
-                           extra_options=['--link-check-limit', '3'])
+        self.assertEqual([], warning_lines)
         info_lines = self.logger.get_lines_for_level('info')
         self.assertIn('2 hash dirs processed (cleanup=False) '
                       '(2 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
-        warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertEqual([], warning_lines)
         with open(new_filepath, 'r') as fd:
             self.assertEqual(older_filepath, fd.read())
-        # prev-1 part power file is retained because it is link target
+        # prev-1 part power file is always retained because it is link target
         self.assertTrue(os.path.exists(older_filepath))
 
     def test_relink_conflicting_ts_both_in_older_part_powers(self):
@@ -1798,8 +1660,7 @@ class TestRelinker(unittest.TestCase):
         older_filepath, new_filepath = self._make_link(filename,
                                                        PART_POWER - 1)
         # setup a file in an even older part power (PART_POWER - 2) location
-        # that is *not* linked to the file in the next part power location;
-        # this file should be removed during relink.
+        # that is *not* linked to the file in the next part power location
         oldest_filepath = utils.replace_partition_in_path(
             self.devices, new_filepath, PART_POWER - 2)
         os.makedirs(os.path.dirname(oldest_filepath))
@@ -1817,90 +1678,12 @@ class TestRelinker(unittest.TestCase):
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
         # links are created, and both the older files are retained
         self.assertIn('3 hash dirs processed (cleanup=False) '
-                      '(3 files, 0 linked, 1 removed, 0 errors)',
+                      '(3 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
         with open(new_filepath, 'r') as fd:
             self.assertEqual(older_filepath, fd.read())
         self.assertTrue(os.path.exists(older_filepath))  # linked so retained
-        self.assertFalse(os.path.exists(oldest_filepath))
-
-    def test_relink_conflicting_ts_is_not_linked_link_check_limit_zero(self):
-        # different file in next part power partition, so all attempts to link
-        # fail, check no rechecks made with zero link-check-limit
-        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
-        self.rb.prepare_increase_partition_power()
-        self._save_ring()
-        filename = '.'.join([self.obj_ts.internal, 'ts'])
-        current_filepath = os.path.join(self.objdir, filename)
-        orig_relink_paths = relink_paths
-        calls = []
-
-        def mock_relink_paths(target_path, new_target_path, **kwargs):
-            calls.append((target_path, kwargs))
-            return orig_relink_paths(target_path, new_target_path,
-                                     **kwargs)
-
-        self._do_link_test(
-            'relink',
-            (('ts', 0),),
-            None,
-            (('ts', 0),),
-            (('ts', 0),),
-            (('ts', 0),),
-            exp_ret_code=1,
-            extra_options=['--link-check-limit', '0'],
-            mock_relink_paths=mock_relink_paths,
-        )
-        warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
-                      '(1 files, 0 linked, 0 removed, 1 errors)',
-                      warning_lines)
-
-        # one attempt to link from current plus a check/retry from each
-        # possible partition power, stopping at part power 1
-        expected = [(current_filepath, {})]
-        self.assertEqual(expected, calls)
-
-    def test_relink_conflicting_ts_is_not_linked_link_check_limit_absurd(self):
-        # different file in next part power partition, so all attempts to link
-        # fail, check that absurd link-check-limit gets capped
-        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
-        self.rb.prepare_increase_partition_power()
-        self._save_ring()
-        filename = '.'.join([self.obj_ts.internal, 'ts'])
-        current_filepath = os.path.join(self.objdir, filename)
-        orig_relink_paths = relink_paths
-        calls = []
-
-        def mock_relink_paths(target_path, new_target_path, **kwargs):
-            calls.append((target_path, kwargs))
-            return orig_relink_paths(target_path, new_target_path,
-                                     **kwargs)
-
-        self._do_link_test(
-            'relink',
-            (('ts', 0),),
-            None,
-            (('ts', 0),),
-            (('ts', 0),),
-            (('ts', 0),),
-            exp_ret_code=1,
-            extra_options=['--link-check-limit', str(PART_POWER + 99)],
-            mock_relink_paths=mock_relink_paths,
-        )
-        warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
-                      '(1 files, 0 linked, 0 removed, 1 errors)',
-                      warning_lines)
-
-        # one attempt to link from current plus a check/retry from each
-        # possible partition power, stopping at part power 1
-        expected = [(current_filepath, {})] + [
-            (utils.replace_partition_in_path(
-                self.devices, current_filepath, part_power),
-             {'ignore_missing': False})
-            for part_power in range(PART_POWER, -1, -1)]
-        self.assertEqual(expected, calls)
+        self.assertTrue(os.path.exists(oldest_filepath))  # retained anyway
 
     @patch_policies(
         [StoragePolicy(0, name='gold', is_default=True),
@@ -2255,14 +2038,16 @@ class TestRelinker(unittest.TestCase):
     def test_cleanup_conflicting_ts_file(self):
         self._cleanup_test((('ts', 0),),
                            None,
-                           (('ts', 0),),  # different inode
+                           (('ts', 0),),  # different inode but same timestamp
+                           None,
                            (('ts', 0),),
-                           (('ts', 0),),
-                           exp_ret_code=1)
-        warning_lines = self.logger.get_lines_for_level('warning')
+                           exp_ret_code=0)
+        info_lines = self.logger.get_lines_for_level('info')
         self.assertIn('1 hash dirs processed (cleanup=True) '
-                      '(1 files, 0 linked, 0 removed, 1 errors)',
-                      warning_lines)
+                      '(1 files, 0 linked, 1 removed, 0 errors)',
+                      info_lines)
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual([], warning_lines)
 
     def test_cleanup_conflicting_ts_is_linked_to_part_power_minus_1(self):
         self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
@@ -2309,15 +2094,15 @@ class TestRelinker(unittest.TestCase):
                            (('ts', 0),),
                            None,
                            None,  # we already made file linked to older part
-                           (('ts', 0),),  # retained
+                           None,  # different inode but same timestamp: removed
                            (('ts', 0),),
-                           exp_ret_code=1)
-        warning_lines = self.logger.get_lines_for_level('warning')
+                           exp_ret_code=0)
+        info_lines = self.logger.get_lines_for_level('info')
         self.assertIn('2 hash dirs processed (cleanup=True) '
-                      '(2 files, 0 linked, 1 removed, 1 errors)',
-                      warning_lines)
-        self.assertIn('Error relinking (cleanup): failed to relink',
-                      warning_lines[0])
+                      '(2 files, 0 linked, 2 removed, 0 errors)',
+                      info_lines)
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual([], warning_lines)
         with open(new_filepath, 'r') as fd:
             self.assertEqual(older_filepath, fd.read())
         # current-2 is linked so can be removed in cleanup
@@ -2326,8 +2111,6 @@ class TestRelinker(unittest.TestCase):
     def test_cleanup_conflicting_ts_is_linked_to_part_power_minus_2_ok(self):
         # link from next partition to current-2 partition;
         # different file in current partition
-        # increase link_check_limit so that the relinker WILL validate the
-        # current-2 location
         self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
         self.rb.prepare_increase_partition_power()
         self.rb.increase_partition_power()
@@ -2343,8 +2126,7 @@ class TestRelinker(unittest.TestCase):
                            None,  # we already made file linked to older part
                            None,
                            (('ts', 0),),
-                           exp_ret_code=0,
-                           extra_options=['--link-check-limit', '3'])
+                           exp_ret_code=0)
         info_lines = self.logger.get_lines_for_level('info')
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
         # links are created, and both the older files are removed

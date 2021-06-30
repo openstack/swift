@@ -653,24 +653,5 @@ use = egg:swift#xprofile
 # client traffic. Use zero for unlimited.
 # files_per_second = 0.0
 #
-# Maximum number of partition power locations to check for a valid link target
-# if the relinker encounters an existing tombstone, but with different inode,
-# in the next partition power location. If the relinker fails to make a link
-# because a different tombstone already exists in the next partition power
-# location then it will try to validate that the existing tombstone links to a
-# valid target in the current partition power location, or previous partition
-# power locations, in descending order. This option limits the number of
-# partition power locations searched, including the current partition power,
-# and should be a whole number. A value of 0 implies that no validation is
-# attempted, and an error is logged, when an existing tombstone prevents link
-# creation. A value of 1 implies that an existing link is accepted if it links
-# to a tombstone in the current partition power location. The default value of
-# 2 implies that an existing link is acceptable if it links to a tombstone in
-# the current or previous partition power locations. Increased values may be
-# useful if previous partition power increases have failed to cleanup
-# tombstones from their old locations, causing duplicate tombstones with
-# different inodes to be relinked to the next partition power location.
-# link_check_limit = 2
-#
 # stats_interval = 300.0
 # recon_cache_path = /var/cache/swift
