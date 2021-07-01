@@ -437,7 +437,8 @@ class TestSharder(BaseTestSharder):
                             'min_time': 0.01, 'max_time': 1.3},
                 'misplaced': {'attempted': 1, 'success': 1, 'failure': 0,
                               'found': 1, 'placed': 1, 'unplaced': 0},
-                'audit_root': {'attempted': 5, 'success': 4, 'failure': 1},
+                'audit_root': {'attempted': 5, 'success': 4, 'failure': 1,
+                               'num_overlap': 0, "has_overlap": 0},
                 'audit_shard': {'attempted': 2, 'success': 2, 'failure': 0},
             }
             # NB these are time increments not absolute times...
@@ -4917,7 +4918,8 @@ class TestSharder(BaseTestSharder):
     def test_audit_root_container(self):
         broker = self._make_broker()
 
-        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'has_overlap': 0, 'num_overlap': 0}
         with self._mock_sharder() as sharder:
             with mock.patch.object(
                     sharder, '_audit_shard_container') as mocked:
@@ -4936,7 +4938,8 @@ class TestSharder(BaseTestSharder):
             # check for no duplicates in reversed order
             self.assertNotIn('s-z k-t', line)
 
-        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1}
+        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1,
+                          'has_overlap': 1, 'num_overlap': 2}
         shard_bounds = (('a', 'j'), ('k', 't'), ('s', 'y'),
                         ('y', 'z'), ('y', 'z'))
         for state, state_text in ShardRange.STATES.items():
@@ -4968,7 +4971,8 @@ class TestSharder(BaseTestSharder):
                 sharder._audit_container(broker)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        self._assert_stats({'attempted': 1, 'success': 1, 'failure': 0},
+        self._assert_stats({'attempted': 1, 'success': 1, 'failure': 0,
+                            'has_overlap': 0, 'num_overlap': 0},
                            sharder, 'audit_root')
         mocked.assert_not_called()
 
@@ -4984,7 +4988,8 @@ class TestSharder(BaseTestSharder):
                     sharder._audit_container(broker)
             self.assertFalse(sharder.logger.get_lines_for_level('warning'))
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
-            self._assert_stats({'attempted': 1, 'success': 1, 'failure': 0},
+            self._assert_stats({'attempted': 1, 'success': 1, 'failure': 0,
+                                'has_overlap': 0, 'num_overlap': 0},
                                sharder, 'audit_root')
             mocked.assert_not_called()
 
