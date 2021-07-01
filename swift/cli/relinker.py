@@ -24,13 +24,15 @@ import os
 import time
 from collections import defaultdict
 
+from eventlet import hubs
+
 from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
     RateLimitedIterator, PrefixLoggerAdapter, distribute_evenly, \
     non_negative_float, non_negative_int, config_auto_int_value, \
-    dump_recon_cache, get_partition_from_path
+    dump_recon_cache, get_partition_from_path, get_hub
 from swift.obj import diskfile
 
 
@@ -834,6 +836,7 @@ def main(args):
                              '(default: 2).')
 
     args = parser.parse_args(args)
+    hubs.use_hub(get_hub())
     if args.conf_file:
         conf = readconf(args.conf_file, 'object-relinker')
         if args.debug:

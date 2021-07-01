@@ -84,6 +84,10 @@ class TestRelinker(unittest.TestCase):
         storage_policy._POLICIES = StoragePolicyCollection([self.policy])
         self._setup_object(policy=self.policy)
 
+        patcher = mock.patch('swift.cli.relinker.hubs')
+        self.mock_hubs = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _setup_config(self):
         config = """
         [DEFAULT]
@@ -724,6 +728,14 @@ class TestRelinker(unittest.TestCase):
         logger = mock_relinker.call_args[0][1]
         self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
         self.assertEqual('test-relinker', logger.logger.name)
+
+    def test_relinker_utils_get_hub(self):
+        cli_cmd = ['relink', '--device', 'sdx', '--workers', 'auto',
+                   '--device', '/some/device']
+        with mock.patch('swift.cli.relinker.Relinker'):
+            relinker.main(cli_cmd)
+
+        self.mock_hubs.use_hub.assert_called_with(utils.get_hub())
 
     def test_relink_first_quartile_no_rehash(self):
         # we need object name in lower half of current part
