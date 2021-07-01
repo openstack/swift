@@ -33,7 +33,7 @@ import socket
 
 import eventlet
 from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
-    HTTPResponse, HTTPSConnection, _UNKNOWN
+    HTTPResponse, HTTPSConnection, _UNKNOWN, ImproperConnectionState
 from six.moves.urllib.parse import quote, parse_qsl, urlencode
 import six
 
@@ -56,16 +56,24 @@ class BufferedHTTPResponse(HTTPResponse):
 
     def __init__(self, sock, debuglevel=0, strict=0,
                  method=None):          # pragma: no cover
+        # sock should be an eventlet.greenio.GreenSocket
         self.sock = sock
-        # sock is an eventlet.greenio.GreenSocket
-        if six.PY2:
+        if sock is None:
+            # ...but it could be None if we close the connection as we're
+            # getting it wrapped up in a Response
+            self._real_socket = None
+            # No socket means no file-like -- set it to None like in
+            # HTTPResponse.close()
+            self.fp = None
+        elif six.PY2:
             # sock.fd is a socket._socketobject
             # sock.fd._sock is a _socket.socket object, which is what we want.
             self._real_socket = sock.fd._sock
+            self.fp = sock.makefile('rb')
         else:
             # sock.fd is a socket.socket, which should have a _real_close
             self._real_socket = sock.fd
-        self.fp = sock.makefile('rb')
+            self.fp = sock.makefile('rb')
         self.debuglevel = debuglevel
         self.strict = strict
         self._method = method
@@ -106,6 +114,8 @@ class BufferedHTTPResponse(HTTPResponse):
         if self.fp:
             self.fp.close()
             self.fp = None
+        if not self.sock:
+            raise ImproperConnectionState('Socket already closed')
         self.fp = self.sock.makefile('rb', 0)
         version, status, reason = self._read_status()
         if status != CONTINUE:

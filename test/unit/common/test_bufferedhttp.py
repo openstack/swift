@@ -99,6 +99,50 @@ class TestBufferedHTTP(unittest.TestCase):
                 if err:
                     raise Exception(err)
 
+    def test_get_expect(self):
+        bindsock = listen_zero()
+        request = []
+
+        def accept():
+            with Timeout(3):
+                sock, addr = bindsock.accept()
+                fp = sock.makefile('rwb')
+                request.append(fp.readline())
+                fp.write(b'HTTP/1.1 100 Continue\r\n\r\n')
+                fp.flush()
+                fp.write(b'HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n'
+                         b'RESPONSE')
+                fp.flush()
+
+        server = spawn(accept)
+        try:
+            address = '%s:%s' % ('127.0.0.1', bindsock.getsockname()[1])
+            conn = bufferedhttp.BufferedHTTPConnection(address)
+            conn.putrequest('GET', '/path')
+            conn.endheaders()
+            resp = conn.getexpect()
+            self.assertIsInstance(resp, bufferedhttp.BufferedHTTPResponse)
+            self.assertEqual(resp.status, 100)
+            self.assertEqual(resp.version, 11)
+            self.assertEqual(resp.reason, 'Continue')
+            # I don't think you're supposed to "read" a continue response
+            self.assertRaises(AssertionError, resp.read)
+
+            resp = conn.getresponse()
+            self.assertIsInstance(resp, bufferedhttp.BufferedHTTPResponse)
+            self.assertEqual(resp.read(), b'RESPONSE')
+
+        finally:
+            server.wait()
+        self.assertEqual(request[0], b'GET /path HTTP/1.1\r\n')
+
+    def test_closed_response(self):
+        resp = bufferedhttp.BufferedHTTPResponse(None)
+        self.assertEqual(resp.status, 'UNKNOWN')
+        self.assertEqual(resp.version, 'UNKNOWN')
+        self.assertEqual(resp.reason, 'UNKNOWN')
+        self.assertEqual(resp.read(), b'')
+
     def test_nonstr_header_values(self):
         with mock.patch('swift.common.bufferedhttp.HTTPSConnection',
                         MockHTTPSConnection):
