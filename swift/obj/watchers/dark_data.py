@@ -46,13 +46,14 @@ cluster has nodes separated by function.
 import os
 import random
 import shutil
+import time
 
 from eventlet import Timeout
 
 from swift.common.direct_client import direct_get_container
 from swift.common.exceptions import ClientException, QuarantineRequest
 from swift.common.ring import Ring
-from swift.common.utils import split_path
+from swift.common.utils import split_path, Timestamp
 
 
 class ContainerError(Exception):
@@ -68,10 +69,12 @@ class DarkDataWatcher(object):
         self.container_ring = Ring(swift_dir, ring_name='container')
         self.dark_data_policy = conf.get('action')
         if self.dark_data_policy not in ['log', 'delete', 'quarantine']:
-            self.logger.warning(
-                "Dark data action %r unknown, defaults to action = 'log'" %
-                (self.dark_data_policy,))
+            if self.dark_data_policy is not None:
+                self.logger.warning(
+                    "Dark data action %r unknown, defaults to action = 'log'" %
+                    (self.dark_data_policy,))
             self.dark_data_policy = 'log'
+        self.grace_age = int(conf.get('grace_age', 604800))
 
     def start(self, audit_type, **other_kwargs):
         self.is_zbf = audit_type == 'ZBF'
@@ -96,6 +99,13 @@ class DarkDataWatcher(object):
 
         # No point in loading the container servers with unnecessary requests.
         if self.is_zbf:
+            return
+
+        put_tstr = object_metadata['X-Timestamp']
+        if float(Timestamp(put_tstr)) + self.grace_age >= time.time():
+            # We can add "tot_new" if lumping these with the good objects
+            # ever bothers anyone.
+            self.tot_okay += 1
             return
 
         obj_path = object_metadata['name']

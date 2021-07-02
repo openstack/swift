@@ -60,9 +60,11 @@ class TestDarkDataDeletion(ReplProbeTest):
             config['object-auditor'].update(
                 {'watchers': 'swift#dark_data'})
             # Note that this setdefault business may mean the watcher doesn't
-            # pick up DEFAULT values, but that (probably?) won't matter
+            # pick up DEFAULT values, but that (probably?) won't matter.
+            # We set grace_age to 0 so that tests don't have to deal with time.
             config.setdefault(CONF_SECTION, {}).update(
-                {'action': self.action})
+                {'action': self.action,
+                 'grace_age': "0"})
 
             parser = ConfigParser()
             for section in ('object-auditor', CONF_SECTION):
