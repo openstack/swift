@@ -495,6 +495,19 @@ ionice_priority              None                      I/O scheduling priority o
                                                        Work only with ionice_class.
                                                        Ignored if IOPRIO_CLASS_IDLE
                                                        is set.
+quarantine_threshold         0                         The reconstructor may quarantine
+                                                       stale isolated fragments
+                                                       when it fails to fetch
+                                                       more than the
+                                                       quarantine_threshold
+                                                       number of fragments
+                                                       (including the stale
+                                                       fragment) during an
+                                                       attempt to reconstruct.
+quarantine_age               reclaim_age               Fragments are not quarantined
+                                                       until they are older than
+                                                       quarantine_age, which defaults
+                                                       to the value of reclaim_age.
 ===========================  ========================  ================================
 
 ****************
