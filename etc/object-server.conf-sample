@@ -423,6 +423,12 @@ use = egg:swift#recon
 # to be rebuilt). The minimum is only exceeded if request_node_count is
 # greater, and only for the purposes of quarantining.
 # request_node_count = 2 * replicas
+#
+# Sets a delay, in seconds, before the reconstructor removes non-durable data
+# files from a handoff node after reverting them to a primary. This gives the
+# object-server a window in which to finish a concurrent PUT on a handoff and
+# mark the data durable.
+# nondurable_purge_delay = 60.0
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):

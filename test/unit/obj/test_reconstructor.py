@@ -36,7 +36,7 @@ from six.moves.urllib.parse import unquote
 from swift.common import utils
 from swift.common.exceptions import DiskFileError, DiskFileQuarantined
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import dump_recon_cache, md5
+from swift.common.utils import dump_recon_cache, md5, Timestamp
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -245,18 +245,15 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                          '1': part_1,
                          '2': part_2}
 
-            def _create_df(obj_num, part_num):
-                self._create_diskfile(
-                    part=part_num, object_name='o' + str(obj_set),
-                    policy=policy, frag_index=scenarios[part_num](obj_set),
-                    timestamp=utils.Timestamp(t))
-
             for part_num in self.part_nums:
                 # create 3 unique objects per part, each part
                 # will then have a unique mix of FIs for the
                 # possible scenarios
                 for obj_num in range(0, 3):
-                    _create_df(obj_num, part_num)
+                    self._create_diskfile(
+                        part=part_num, object_name='o' + str(obj_set),
+                        policy=policy, frag_index=scenarios[part_num](obj_set),
+                        timestamp=utils.Timestamp(t))
 
         ips = utils.whataremyips(self.reconstructor.bind_ip)
         for policy in [p for p in POLICIES if p.policy_type == EC_POLICY]:
@@ -293,7 +290,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
 
     def _create_diskfile(self, policy=None, part=0, object_name='o',
-                         frag_index=0, timestamp=None, test_data=None):
+                         frag_index=0, timestamp=None, test_data=None,
+                         commit=True):
         policy = policy or self.policy
         df_mgr = self.reconstructor._df_router[policy]
         df = df_mgr.get_diskfile('sda1', part, 'a', 'c', object_name,
@@ -301,7 +299,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         timestamp = timestamp or utils.Timestamp.now()
         test_data = test_data or b'test data'
         write_diskfile(df, timestamp, data=test_data, frag_index=frag_index,
-                       legacy_durable=self.legacy_durable)
+                       commit=commit, legacy_durable=self.legacy_durable)
         return df
 
     def assert_expected_jobs(self, part_num, jobs):
@@ -1092,7 +1090,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                           matches a failure dict will return success == False.
         """
         class _fake_ssync(object):
-            def __init__(self, daemon, node, job, suffixes, **kwargs):
+            def __init__(self, daemon, node, job, suffixes,
+                         include_non_durable=False, **kwargs):
                 # capture context and generate an available_map of objs
                 context = {}
                 context['node'] = node
@@ -1101,10 +1100,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 self.suffixes = suffixes
                 self.daemon = daemon
                 self.job = job
+                frag_prefs = [] if include_non_durable else None
                 hash_gen = self.daemon._df_router[job['policy']].yield_hashes(
                     self.job['device'], self.job['partition'],
                     self.job['policy'], self.suffixes,
-                    frag_index=self.job.get('frag_index'))
+                    frag_index=self.job.get('frag_index'),
+                    frag_prefs=frag_prefs)
                 self.available_map = {}
                 for hash_, timestamps in hash_gen:
                     self.available_map[hash_] = timestamps
@@ -1116,7 +1117,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         self.success = False
                         break
                 context['success'] = self.success
-                context.update(kwargs)
+                context['include_non_durable'] = include_non_durable
 
             def __call__(self, *args, **kwargs):
                 return self.success, self.available_map if self.success else {}
@@ -1190,6 +1191,66 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         # sanity check that some files should were deleted
         self.assertGreater(n_files, n_files_after)
+
+    def test_delete_reverted_nondurable(self):
+        # verify reconstructor only deletes reverted nondurable fragments after
+        # nondurable_purge_delay
+        shutil.rmtree(self.ec_obj_path)
+        ips = utils.whataremyips(self.reconstructor.bind_ip)
+        local_devs = [dev for dev in self.ec_obj_ring.devs
+                      if dev and dev['replication_ip'] in ips and
+                      dev['replication_port'] ==
+                      self.reconstructor.port]
+        partition = (local_devs[0]['id'] + 1) % 3
+        # recent non-durable
+        df_recent = self._create_diskfile(
+            object_name='recent', part=partition, commit=False)
+        datafile_recent = df_recent.manager.cleanup_ondisk_files(
+            df_recent._datadir, frag_prefs=[])['data_file']
+        # older non-durable but with recent mtime
+        df_older = self._create_diskfile(
+            object_name='older', part=partition, commit=False,
+            timestamp=Timestamp(time.time() - 61))
+        datafile_older = df_older.manager.cleanup_ondisk_files(
+            df_older._datadir, frag_prefs=[])['data_file']
+        # durable
+        df_durable = self._create_diskfile(
+            object_name='durable', part=partition, commit=True)
+        datafile_durable = df_durable.manager.cleanup_ondisk_files(
+            df_durable._datadir, frag_prefs=[])['data_file']
+        self.assertTrue(os.path.exists(datafile_recent))
+        self.assertTrue(os.path.exists(datafile_older))
+        self.assertTrue(os.path.exists(datafile_durable))
+
+        ssync_calls = []
+        with mock.patch('swift.obj.reconstructor.ssync_sender',
+                        self._make_fake_ssync(ssync_calls)):
+            self.reconstructor.handoffs_only = True
+            self.reconstructor.reconstruct()
+        for context in ssync_calls:
+            self.assertEqual(REVERT, context['job']['job_type'])
+            self.assertTrue(True, context.get('include_non_durable'))
+        # neither nondurable should be removed yet with default purge delay
+        # because their mtimes are too recent
+        self.assertTrue(os.path.exists(datafile_recent))
+        self.assertTrue(os.path.exists(datafile_older))
+        # but durable is purged
+        self.assertFalse(os.path.exists(datafile_durable))
+
+        ssync_calls = []
+        with mock.patch('swift.obj.reconstructor.ssync_sender',
+                        self._make_fake_ssync(ssync_calls)):
+            self.reconstructor.handoffs_only = True
+            # turn down the purge delay...
+            self.reconstructor.nondurable_purge_delay = 0
+            self.reconstructor.reconstruct()
+        for context in ssync_calls:
+            self.assertEqual(REVERT, context['job']['job_type'])
+            self.assertTrue(True, context.get('include_non_durable'))
+
+        # ...now the nondurables get purged
+        self.assertFalse(os.path.exists(datafile_recent))
+        self.assertFalse(os.path.exists(datafile_older))
 
     def test_no_delete_failed_revert(self):
         # test will only process revert jobs
@@ -1314,8 +1375,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # part 2 should be totally empty
         hash_gen = self.reconstructor._df_router[self.policy].yield_hashes(
             'sda1', '2', self.policy, suffixes=stub_data.keys())
-        for path, hash_, ts in hash_gen:
-            self.fail('found %s with %s in %s' % (hash_, ts, path))
+        for hash_, ts in hash_gen:
+            self.fail('found %s : %s' % (hash_, ts))
 
         new_hashes = self.reconstructor._get_hashes(
             'sda1', 2, self.policy, do_listdir=True)
@@ -5327,6 +5388,24 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 with self.assertRaises(ValueError):
                     object_reconstructor.ObjectReconstructor(
                         {'quarantine_threshold': bad})
+
+    def test_nondurable_purge_delay_conf(self):
+        reconstructor = object_reconstructor.ObjectReconstructor({})
+        self.assertEqual(60, reconstructor.nondurable_purge_delay)
+
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'nondurable_purge_delay': '0'})
+        self.assertEqual(0, reconstructor.nondurable_purge_delay)
+
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'nondurable_purge_delay': '3.2'})
+        self.assertEqual(3.2, reconstructor.nondurable_purge_delay)
+
+        for bad in ('-1', -1, 'auto', 'bad'):
+            with annotate_failure(bad):
+                with self.assertRaises(ValueError):
+                    object_reconstructor.ObjectReconstructor(
+                        {'nondurable_purge_delay': bad})
 
     def test_request_node_count_conf(self):
         # default is 1 * replicas

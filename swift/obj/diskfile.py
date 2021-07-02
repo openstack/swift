@@ -66,7 +66,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
     O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory, \
-    md5
+    md5, is_file_older
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -3308,7 +3308,7 @@ class ECDiskFile(BaseDiskFile):
             frag_prefs=self._frag_prefs, policy=policy)
         return self._ondisk_info
 
-    def purge(self, timestamp, frag_index):
+    def purge(self, timestamp, frag_index, nondurable_purge_delay=0):
         """
         Remove a tombstone file matching the specified timestamp or
         datafile matching the specified timestamp and fragment index
@@ -3325,6 +3325,8 @@ class ECDiskFile(BaseDiskFile):
                           :class:`~swift.common.utils.Timestamp`
         :param frag_index: fragment archive index, must be
                            a whole number or None.
+        :param nondurable_purge_delay: only remove a non-durable data file if
+            it's been on disk longer than this many seconds.
         """
         purge_file = self.manager.make_on_disk_filename(
             timestamp, ext='.ts')
@@ -3334,7 +3336,8 @@ class ECDiskFile(BaseDiskFile):
             # possibilities
             purge_file = self.manager.make_on_disk_filename(
                 timestamp, ext='.data', frag_index=frag_index)
-            remove_file(os.path.join(self._datadir, purge_file))
+            if is_file_older(purge_file, nondurable_purge_delay):
+                remove_file(os.path.join(self._datadir, purge_file))
             purge_file = self.manager.make_on_disk_filename(
                 timestamp, ext='.data', frag_index=frag_index, durable=True)
             remove_file(os.path.join(self._datadir, purge_file))

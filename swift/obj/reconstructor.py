@@ -34,7 +34,7 @@ from swift.common.utils import (
     GreenAsyncPile, Timestamp, remove_file,
     load_recon_cache, parse_override_options, distribute_evenly,
     PrefixLoggerAdapter, remove_directory, config_request_node_count_value,
-    non_negative_int)
+    non_negative_int, non_negative_float)
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -238,6 +238,8 @@ class ObjectReconstructor(Daemon):
             conf.get('quarantine_threshold', 0))
         self.request_node_count = config_request_node_count_value(
             conf.get('request_node_count', '2 * replicas'))
+        self.nondurable_purge_delay = non_negative_float(
+            conf.get('nondurable_purge_delay', '60'))
 
         # When upgrading from liberasurecode<=1.5.0, you may want to continue
         # writing legacy CRCs until all nodes are upgraded and capabale of
@@ -976,7 +978,14 @@ class ObjectReconstructor(Daemon):
                     job['local_dev']['device'], job['partition'],
                     object_hash, job['policy'],
                     frag_index=frag_index)
-                df.purge(timestamps['ts_data'], frag_index)
+                # legacy durable data files look like modern nondurable data
+                # files; we therefore override nondurable_purge_delay when we
+                # know the data file is durable so that legacy durable data
+                # files get purged
+                nondurable_purge_delay = (0 if timestamps.get('durable')
+                                          else self.nondurable_purge_delay)
+                df.purge(timestamps['ts_data'], frag_index,
+                         nondurable_purge_delay)
             except DiskFileError:
                 self.logger.exception(
                     'Unable to purge DiskFile (%r %r %r)',
