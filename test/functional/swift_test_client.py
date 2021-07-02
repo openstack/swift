@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import io
 import json
 import os
@@ -671,16 +672,18 @@ class Container(Base):
         raise ResponseError(self.conn.response, 'POST',
                             self.conn.make_path(self.path))
 
-    def delete(self, hdrs=None, parms=None):
+    def delete(self, hdrs=None, parms=None, tolerate_missing=False):
         if hdrs is None:
             hdrs = {}
         if parms is None:
             parms = {}
+        allowed_codes = (204, 404) if tolerate_missing else (204, )
         return self.conn.make_request('DELETE', self.path, hdrs=hdrs,
-                                      parms=parms) == 204
+                                      parms=parms) in allowed_codes
 
-    def delete_files(self):
-        for f in listing_items(self.files):
+    def delete_files(self, tolerate_missing=False):
+        for f in listing_items(functools.partial(
+                self.files, tolerate_missing=tolerate_missing)):
             file_item = self.file(f)
             if not file_item.delete(tolerate_missing=True):
                 return False
@@ -688,12 +691,13 @@ class Container(Base):
         return listing_empty(self.files)
 
     def delete_recursive(self):
-        return self.delete_files() and self.delete()
+        return self.delete_files(tolerate_missing=True) and \
+            self.delete(tolerate_missing=True)
 
     def file(self, file_name):
         return File(self.conn, self.account, self.name, file_name)
 
-    def files(self, hdrs=None, parms=None, cfg=None):
+    def files(self, hdrs=None, parms=None, cfg=None, tolerate_missing=False):
         if hdrs is None:
             hdrs = {}
         if parms is None:
@@ -761,7 +765,7 @@ class Container(Base):
                     return [line.decode('utf-8') for line in lines]
                 else:
                     return []
-        elif status == 204:
+        elif status == 204 or (status == 404 and tolerate_missing):
             return []
 
         raise ResponseError(self.conn.response, 'GET',
