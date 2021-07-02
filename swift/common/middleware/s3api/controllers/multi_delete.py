@@ -144,8 +144,8 @@ class MultiObjectDeleteController(Controller):
                     except (ValueError, TypeError, KeyError):
                         # Logs get all the gory details
                         self.logger.exception(
-                            'Could not parse SLO delete response: %r',
-                            resp.body)
+                            'Could not parse SLO delete response (%s): %s',
+                            resp.status, resp.body)
                         # Client gets something more generic
                         return key, {'code': 'SLODeleteError',
                                      'message': 'Unexpected swift response'}
