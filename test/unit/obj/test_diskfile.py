@@ -3924,6 +3924,34 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         reader._obj_size += 1
         self.assertRaises(DiskFileQuarantined, b''.join, reader)
 
+    def test_disk_file_reader_iter_w_io_error(self):
+        df, df_data = self._create_test_file(b'1234567890')
+
+        class FakeFp(object):
+            def __init__(self, buf):
+                self.pos = 0
+                self.buf = buf
+
+            def read(self, sz):
+                if not self.buf:
+                    raise IOError(5, 'Input/output error')
+                chunk, self.buf = self.buf, b''
+                self.pos += len(chunk)
+                return chunk
+
+            def close(self):
+                pass
+
+            def tell(self):
+                return self.pos
+
+        def raise_dfq(m):
+            raise DiskFileQuarantined(m)
+
+        reader = df.reader(_quarantine_hook=raise_dfq)
+        reader._fp = FakeFp(b'1234')
+        self.assertRaises(DiskFileQuarantined, b''.join, reader)
+
     def test_disk_file_app_iter_corners(self):
         df, df_data = self._create_test_file(b'1234567890')
         quarantine_msgs = []

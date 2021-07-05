@@ -2063,7 +2063,15 @@ class BaseDiskFileReader(object):
             self._read_to_eof = False
             self._init_checks()
             while True:
-                chunk = self._fp.read(self._disk_chunk_size)
+                try:
+                    chunk = self._fp.read(self._disk_chunk_size)
+                except IOError as e:
+                    if e.errno == errno.EIO:
+                        # Note that if there's no quarantine hook set up,
+                        # this won't raise any exception
+                        self._quarantine(str(e))
+                    # ... so it's significant that this is not in an else
+                    raise
                 if chunk:
                     self._update_checks(chunk)
                     self._bytes_read += len(chunk)
