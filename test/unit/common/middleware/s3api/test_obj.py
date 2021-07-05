@@ -576,6 +576,10 @@ class TestS3ApiObj(S3ApiTestCase):
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPRequestTimeout)
         self.assertEqual(code, 'RequestTimeout')
+        code = self._test_method_error('PUT', '/bucket/object',
+                                       swob.HTTPClientDisconnect,
+                                       {})
+        self.assertEqual(code, 'RequestTimeout')
 
     def test_object_PUT_with_version(self):
         self.swift.register('GET',

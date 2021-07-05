@@ -34,7 +34,8 @@ from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_PARTIAL_CONTENT, HTTP_NOT_MODIFIED, HTTP_PRECONDITION_FAILED, \
     HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_LENGTH_REQUIRED, \
     HTTP_BAD_REQUEST, HTTP_REQUEST_TIMEOUT, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_TOO_MANY_REQUESTS, HTTP_RATE_LIMITED, is_success
+    HTTP_TOO_MANY_REQUESTS, HTTP_RATE_LIMITED, is_success, \
+    HTTP_CLIENT_CLOSED_REQUEST
 
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers.base import get_container_info
@@ -1310,6 +1311,7 @@ class S3Request(swob.Request):
                     HTTP_LENGTH_REQUIRED: MissingContentLength,
                     HTTP_REQUEST_TIMEOUT: RequestTimeout,
                     HTTP_PRECONDITION_FAILED: PreconditionFailed,
+                    HTTP_CLIENT_CLOSED_REQUEST: RequestTimeout,
                 },
                 'POST': {
                     HTTP_NOT_FOUND: not_found_handler,
