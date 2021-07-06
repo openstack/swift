@@ -1031,6 +1031,14 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                     'overlapping ranges in state %r: %s' %
                     (ShardRange.STATES[state], all_overlaps))
 
+        # We've seen a case in production where the roots own_shard_range
+        # epoch is reset to None, and state set to ACTIVE (like re-defaulted)
+        # Epoch it important to sharding so we want to detect if this happens
+        # 1. So we can alert, and 2. to see how common it is.
+        if own_shard_range.epoch is None and broker.db_epoch:
+            warnings.append('own_shard_range reset to None should be %s'
+                            % broker.db_epoch)
+
         if warnings:
             self.logger.warning(
                 'Audit failed for root %s (%s): %s',

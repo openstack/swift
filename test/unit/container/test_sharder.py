@@ -72,7 +72,7 @@ class BaseTestSharder(unittest.TestCase):
         datadir = os.path.join(
             self.tempdir, device, 'containers', str(part), hash_[-3:], hash_)
         if epoch:
-            filename = '%s_%s.db' % (hash, epoch)
+            filename = '%s_%s.db' % (hash_, epoch)
         else:
             filename = hash_ + '.db'
         db_file = os.path.join(datadir, filename)
@@ -4913,6 +4913,43 @@ class TestSharder(BaseTestSharder):
         for state in ShardRange.STATES.keys():
             with annotate_failure(state):
                 check_all_shard_ranges_sent(state)
+
+    def test_audit_root_container_reset_epoch(self):
+        epoch = next(self.ts_iter)
+        broker = self._make_broker(epoch=epoch.normal)
+        shard_bounds = (('', 'j'), ('j', 'k'), ('k', 's'),
+                        ('s', 'y'), ('y', ''))
+        shard_ranges = self._make_shard_ranges(shard_bounds,
+                                               ShardRange.ACTIVE,
+                                               timestamp=next(self.ts_iter))
+        broker.merge_shard_ranges(shard_ranges)
+        own_shard_range = broker.get_own_shard_range()
+        own_shard_range.update_state(ShardRange.SHARDED, next(self.ts_iter))
+        own_shard_range.epoch = epoch
+        broker.merge_shard_ranges(own_shard_range)
+        with self._mock_sharder() as sharder:
+            with mock.patch.object(
+                    sharder, '_audit_shard_container') as mocked:
+                sharder._audit_container(broker)
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+        self._assert_stats({'attempted': 1, 'success': 1, 'failure': 0},
+                           sharder, 'audit_root')
+        mocked.assert_not_called()
+
+        # test for a reset epoch
+        own_shard_range = broker.get_own_shard_range()
+        own_shard_range.epoch = None
+        own_shard_range.state_timestamp = next(self.ts_iter)
+        broker.merge_shard_ranges(own_shard_range)
+        with self._mock_sharder() as sharder:
+            with mock.patch.object(
+                    sharder, '_audit_shard_container') as mocked:
+                sharder._audit_container(broker)
+        lines = sharder.logger.get_lines_for_level('warning')
+
+        self.assertIn("own_shard_range reset to None should be %s"
+                      % broker.db_epoch, lines[0])
 
     def test_audit_root_container(self):
         broker = self._make_broker()
