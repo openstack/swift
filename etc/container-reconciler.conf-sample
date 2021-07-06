@@ -1,6 +1,7 @@
 [DEFAULT]
 # swift_dir = /etc/swift
 # user = swift
+# ring_check_interval = 15.0
 # You can specify default log routing here if you want:
 # log_name = swift
 # log_facility = LOG_LOCAL0

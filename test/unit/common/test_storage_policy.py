@@ -1127,7 +1127,8 @@ class TestStoragePolicies(unittest.TestCase):
 
         class NamedFakeRing(FakeRing):
 
-            def __init__(self, swift_dir, ring_name=None):
+            def __init__(self, swift_dir, reload_time=15, ring_name=None,
+                         validation_hook=None):
                 self.ring_name = ring_name
                 super(NamedFakeRing, self).__init__()
 

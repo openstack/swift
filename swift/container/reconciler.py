@@ -32,6 +32,7 @@ from swift.common.request_helpers import MISPLACED_OBJECTS_ACCOUNT, \
 from swift.common.utils import get_logger, split_path, majority_size, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
     LRUCache, decode_timestamps
+from swift.common.storage_policy import POLICIES
 
 MISPLACED_OBJECTS_CONTAINER_DIVISOR = 3600  # 1 hour
 CONTAINER_POLICY_TTL = 30
@@ -372,8 +373,10 @@ class ContainerReconciler(Daemon):
             'Swift Container Reconciler',
             request_tries,
             use_replication_network=True)
+        self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.stats = defaultdict(int)
         self.last_stat_time = time.time()
+        self.ring_check_interval = float(conf.get('ring_check_interval', 15))
 
     def stats_log(self, metric, msg, *args, **kwargs):
         """
@@ -416,6 +419,13 @@ class ContainerReconciler(Daemon):
         direct_delete_container_entry(
             self.swift.container_ring, MISPLACED_OBJECTS_ACCOUNT,
             container, obj, headers=headers)
+
+    def can_reconcile_policy(self, policy_index):
+        pol = POLICIES.get_by_index(policy_index)
+        if pol:
+            pol.load_ring(self.swift_dir, reload_time=self.ring_check_interval)
+            return pol.object_ring.next_part_power is None
+        return False
 
     def throw_tombstones(self, account, container, obj, timestamp,
                          policy_index, path):
@@ -482,6 +492,18 @@ class ContainerReconciler(Daemon):
                            '%s matches queue policy index %s', path, q_ts,
                            container_policy_index, q_policy_index)
             return True
+
+        # don't reconcile if the source or container policy_index is in the
+        # middle of a PPI
+        if not self.can_reconcile_policy(q_policy_index):
+            self.stats_log('ppi_skip', 'Source policy (%r) in the middle of '
+                           'a part power increase (PPI)', q_policy_index)
+            return False
+        if not self.can_reconcile_policy(container_policy_index):
+            self.stats_log('ppi_skip', 'Container policy (%r) in the middle '
+                           'of a part power increase (PPI)',
+                           container_policy_index)
+            return False
 
         # check if object exists in the destination already
         self.logger.debug('checking for %r (%f) in destination '

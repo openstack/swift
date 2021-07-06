@@ -28,6 +28,8 @@ from collections import defaultdict
 from datetime import datetime
 import six
 from six.moves import urllib
+from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
+
 from swift.container import reconciler
 from swift.container.server import gen_resp_headers
 from swift.common.direct_client import ClientException
@@ -36,7 +38,8 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import split_path, Timestamp, encode_timestamps
 
 from test.debug_logger import debug_logger
-from test.unit import FakeRing, fake_http_connect
+from test.unit import FakeRing, fake_http_connect, patch_policies, \
+    DEFAULT_TEST_EC_TYPE
 from test.unit.common.middleware import helpers
 
 
@@ -720,6 +723,11 @@ def listing_qs(marker):
         urllib.parse.quote(marker.encode('utf-8')))
 
 
+@patch_policies(
+    [StoragePolicy(0, 'zero', is_default=True),
+     ECStoragePolicy(1, 'one', ec_type=DEFAULT_TEST_EC_TYPE,
+                     ec_ndata=6, ec_nparity=2), ],
+    fake_ring_args=[{}, {'replicas': 8}])
 class TestReconciler(unittest.TestCase):
 
     maxDiff = None
@@ -883,6 +891,46 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['cleanup_object'], 0)
         # and we definitely should not pop_queue
         self.assertFalse(deleted_container_entries)
+        self.assertEqual(self.reconciler.stats['retry'], 1)
+
+    @patch_policies(
+        [StoragePolicy(0, 'zero', is_default=True),
+         StoragePolicy(1, 'one'),
+         ECStoragePolicy(2, 'two', ec_type=DEFAULT_TEST_EC_TYPE,
+                         ec_ndata=6, ec_nparity=2)],
+        fake_ring_args=[
+            {'next_part_power': 1}, {}, {'next_part_power': 1}])
+    def test_can_reconcile_policy(self):
+        for policy_index, expected in ((0, False), (1, True), (2, False),
+                                       (3, False), ('apple', False),
+                                       (None, False)):
+            self.assertEqual(
+                self.reconciler.can_reconcile_policy(policy_index), expected)
+
+    @patch_policies(
+        [StoragePolicy(0, 'zero', is_default=True),
+         ECStoragePolicy(1, 'one', ec_type=DEFAULT_TEST_EC_TYPE,
+                         ec_ndata=6, ec_nparity=2), ],
+        fake_ring_args=[{'next_part_power': 1}, {}])
+    def test_fail_to_move_if_ppi(self):
+        self._mock_listing({
+            (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): 3618.84187,
+            (1, "/AUTH_bob/c/o1"): 3618.84187,
+        })
+        self._mock_oldest_spi({'c': 0})
+        deleted_container_entries = self._run_once()
+
+        # skipped sending because policy_index 0 is in the middle of a PPI
+        self.assertFalse(deleted_container_entries)
+        self.assertEqual(
+            self.fake_swift.calls,
+            [('GET', self.current_container_path),
+             ('GET', '/v1/.misplaced_objects' + listing_qs('')),
+             ('GET', '/v1/.misplaced_objects' + listing_qs('3600')),
+             ('GET', '/v1/.misplaced_objects/3600' + listing_qs('')),
+             ('GET', '/v1/.misplaced_objects/3600' +
+              listing_qs('1:/AUTH_bob/c/o1'))])
+        self.assertEqual(self.reconciler.stats['ppi_skip'], 1)
         self.assertEqual(self.reconciler.stats['retry'], 1)
 
     def test_object_move(self):
