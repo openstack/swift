@@ -5407,6 +5407,37 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     object_reconstructor.ObjectReconstructor(
                         {'nondurable_purge_delay': bad})
 
+    def test_quarantine_age_conf(self):
+        # defaults to DEFAULT_RECLAIM_AGE
+        reconstructor = object_reconstructor.ObjectReconstructor({})
+        self.assertEqual(604800, reconstructor.quarantine_age)
+
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'quarantine_age': '0'})
+        self.assertEqual(0, reconstructor.quarantine_age)
+
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'quarantine_age': '1'})
+        self.assertEqual(1, reconstructor.quarantine_age)
+
+        # trumps reclaim_age
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'quarantine_age': '1', 'reclaim_age': 0})
+        self.assertEqual(1, reconstructor.quarantine_age)
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'quarantine_age': '1', 'reclaim_age': 2})
+        self.assertEqual(1, reconstructor.quarantine_age)
+
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'quarantine_age': 2.2})
+        self.assertEqual(2, reconstructor.quarantine_age)
+
+        for bad in ('1.1', 'auto', 'bad'):
+            with annotate_failure(bad):
+                with self.assertRaises(ValueError):
+                    object_reconstructor.ObjectReconstructor(
+                        {'quarantine_age': bad})
+
     def test_request_node_count_conf(self):
         # default is 1 * replicas
         reconstructor = object_reconstructor.ObjectReconstructor({})
@@ -5600,6 +5631,18 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         self._assert_diskfile_quarantined()
         self._verify_error_lines(2, other_responses, 2)
 
+    def test_reconstruct_fa_quarantine_threshold_two_with_quarantine_age(self):
+        num_other_resps = 2 * self.policy.object_ring.replicas - 3
+        other_responses = [(404, None, None)] * num_other_resps
+        conf = {'quarantine_threshold': 2,
+                'quarantine_age': 0,  # quarantine age trumps reclaim age
+                'reclaim_age': 1000}
+        exc = self._do_test_reconstruct_insufficient_frags(
+            conf, 2, other_responses)
+        self.assertIsInstance(exc, DiskFileQuarantined)
+        self._assert_diskfile_quarantined()
+        self._verify_error_lines(2, other_responses, 2)
+
     def test_reconstruct_fa_no_quarantine_more_than_threshold_frags(self):
         # default config
         num_other_resps = self.policy.object_ring.replicas - 2
@@ -5722,6 +5765,15 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         other_responses = [(404, None, None)] * num_other_resps
         exc = self._do_test_reconstruct_insufficient_frags(
             {'quarantine_threshold': 1, 'reclaim_age': 10000},
+            1, other_responses)
+        self.assertIsInstance(exc, DiskFileError)
+        self._assert_diskfile_not_quarantined()
+        self._verify_error_lines(1, other_responses, 1)
+
+        exc = self._do_test_reconstruct_insufficient_frags(
+            {'quarantine_threshold': 1,
+             'quarantine_age': 10000,  # quarantine_age trumps reclaim_age
+             'reclaim_age': 0},
             1, other_responses)
         self.assertIsInstance(exc, DiskFileError)
         self._assert_diskfile_not_quarantined()

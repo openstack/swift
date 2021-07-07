@@ -412,8 +412,11 @@ use = egg:swift#recon
 # Note: the quarantine_threshold applies equally to all policies, but for each
 # policy it is effectively capped at (ec_ndata - 1) so that a fragment is never
 # quarantined when sufficient fragments exist to reconstruct the object.
-# Fragments are not quarantined until they are older than the reclaim_age.
 # quarantine_threshold = 0
+#
+# Fragments are not quarantined until they are older than
+# quarantine_age, which defaults to the value of reclaim_age.
+# quarantine_age =
 #
 # Sets the maximum number of nodes to which requests will be made before
 # quarantining a fragment. You can use '* replicas' at the end to have it use

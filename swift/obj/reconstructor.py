@@ -44,7 +44,7 @@ from swift.obj.ssync_sender import Sender as ssync_sender
 from swift.common.http import HTTP_OK, HTTP_NOT_FOUND, \
     HTTP_INSUFFICIENT_STORAGE
 from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
-    get_tmp_dir
+    get_tmp_dir, DEFAULT_RECLAIM_AGE
 from swift.common.storage_policy import POLICIES, EC_POLICY
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
     SuffixSyncError, PartitionLockTimeout
@@ -236,6 +236,9 @@ class ObjectReconstructor(Daemon):
             'rebuild_handoff_node_count', 2))
         self.quarantine_threshold = non_negative_int(
             conf.get('quarantine_threshold', 0))
+        self.quarantine_age = int(
+            conf.get('quarantine_age',
+                     conf.get('reclaim_age', DEFAULT_RECLAIM_AGE)))
         self.request_node_count = config_request_node_count_value(
             conf.get('request_node_count', '2 * replicas'))
         self.nondurable_purge_delay = non_negative_float(
@@ -507,7 +510,7 @@ class ObjectReconstructor(Daemon):
             # worth more investigation
             return False
 
-        if time.time() - float(local_timestamp) <= df.manager.reclaim_age:
+        if time.time() - float(local_timestamp) <= self.quarantine_age:
             # If the fragment has not yet passed reclaim age then it is
             # likely that a tombstone will be reverted to this node, or
             # neighbor frags will get reverted from handoffs to *other* nodes
