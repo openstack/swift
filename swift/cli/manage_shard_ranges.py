@@ -754,7 +754,14 @@ def _make_parser():
                         'subcommand, a shard data file.')
     parser.add_argument('--config', dest='conf_file', required=False,
                         help='Path to config file with [container-sharder] '
-                             'section')
+                             'section. The following subcommand options will '
+                             'be loaded from a config file if they are not '
+                             'given on the command line: '
+                             'rows_per_shard, '
+                             'max_shrinking, '
+                             'max_expanding, '
+                             'shrink_threshold, '
+                             'expansion_limit')
     parser.add_argument('--verbose', '-v', action='count', default=0,
                         help='Increase output verbosity')
     # this is useful for probe tests that shard containers with unrealistically
