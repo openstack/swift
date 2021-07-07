@@ -627,7 +627,9 @@ class ContainerSharderConf(object):
             'shrink_threshold', int, self.shrink_threshold)
         self.expansion_limit = get_val(
             'expansion_limit', int, self.expansion_limit)
-        self.rows_per_shard = self.shard_container_threshold // 2
+        self.rows_per_shard = get_val(
+            'rows_per_shard', config_positive_int_value,
+            max(self.shard_container_threshold // 2, 1))
 
     def percent_of_threshold(self, val):
         return int(config_percent_value(val) * self.shard_container_threshold)

@@ -186,6 +186,20 @@ class TestSharder(BaseTestSharder):
             allow_modify_pipeline=False,
             use_replication_network=True)
 
+        # non-default shard_container_threshold influences other defaults
+        conf = {'shard_container_threshold': 20000000}
+        expected.update({
+            'shard_container_threshold': 20000000,
+            'shrink_threshold': 2000000,
+            'expansion_limit': 15000000,
+            'rows_per_shard': 10000000
+        })
+        sharder, mock_ic = self._do_test_init(conf, expected)
+        mock_ic.assert_called_once_with(
+            '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
+            allow_modify_pipeline=False,
+            use_replication_network=True)
+
         # non-default values
         conf = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'bind_port': 62010,
@@ -212,7 +226,7 @@ class TestSharder(BaseTestSharder):
             'existing_shard_replication_quorum': 0,
             'max_shrinking': 5,
             'max_expanding': 4,
-            'rows_per_shard': 13,  # should be ignored - not configurable
+            'rows_per_shard': 13
         }
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
@@ -224,7 +238,7 @@ class TestSharder(BaseTestSharder):
             'rsync_module': '{replication_ip}::container_sda',
             'reclaim_age': 86400 * 14,
             'shard_container_threshold': 20000000,
-            'rows_per_shard': 10000000,
+            'rows_per_shard': 13,
             'shrink_threshold': 7000000,
             'expansion_limit': 17000000,
             'cleave_batch_size': 4,
@@ -7293,8 +7307,7 @@ class TestContainerSharderConf(unittest.TestCase):
                 'shrink_threshold': 100001,
                 'expansion_limit': 750001,
                 'rows_per_shard': 500001}
-        # rows_per_shard is not directly configurable
-        expected = dict(conf, rows_per_shard=1000000)
+        expected = dict(conf)
         conf.update({'unexpected': 'option'})
         self.assertEqual(expected, vars(ContainerSharderConf(conf)))
 

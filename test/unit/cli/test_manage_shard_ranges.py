@@ -139,6 +139,7 @@ class TestManageShardRanges(unittest.TestCase):
         shrink_threshold = 150
         expansion_limit = 650
         shard_container_threshold = 1000
+        rows_per_shard = 600
         max_shrinking = 33
         max_expanding = 31
         """
@@ -169,7 +170,7 @@ class TestManageShardRanges(unittest.TestCase):
         expected = Namespace(conf_file=conf_file,
                              path_to_file=mock.ANY,
                              func=mock.ANY,
-                             rows_per_shard=500,
+                             rows_per_shard=600,
                              subcommand='find',
                              force_commits=False,
                              verbose=0)

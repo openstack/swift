@@ -366,11 +366,13 @@ use = egg:swift#xprofile
 #
 # When auto-sharding is enabled shard_container_threshold defines the object
 # count at which a container with container-sharding enabled will start to
-# shard. shard_container_threshold also indirectly determines the initial
-# nominal size of shard containers, which is shard_container_threshold // 2, as
-# well as determining the thresholds for shrinking and merging shard
-# containers.
+# shard. shard_container_threshold also indirectly determines the defaults for
+# rows_per_shard, shrink_threshold and expansion_limit.
 # shard_container_threshold = 1000000
+#
+# rows_per_shard determines the initial nominal size of shard containers. The
+# default is shard_container_threshold // 2
+# rows_per_shard = 500000
 #
 # When auto-sharding is enabled shrink_threshold defines the object count
 # below which a 'donor' shard container will be considered for shrinking into
