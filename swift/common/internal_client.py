@@ -31,7 +31,7 @@ from swift.common.http import (HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES,
                                is_client_error, is_server_error)
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.swob import Request, bytes_to_wsgi
-from swift.common.utils import quote, closing_if_possible
+from swift.common.utils import quote, close_if_possible, drain_and_close
 from swift.common.wsgi import loadapp, pipeline_property
 
 if six.PY3:
@@ -215,13 +215,13 @@ class InternalClient(object):
             # sleep only between tries, not after each one
             if attempt < self.request_tries - 1:
                 if resp:
-                    # always close any resp.app_iter before we discard it
-                    with closing_if_possible(resp.app_iter):
-                        # for non 2XX requests it's safe and useful to drain
-                        # the response body so we log the correct status code
-                        if resp.status_int // 100 != 2:
-                            for iter_body in resp.app_iter:
-                                pass
+                    # for non 2XX requests it's safe and useful to drain
+                    # the response body so we log the correct status code
+                    if resp.status_int // 100 != 2:
+                        drain_and_close(resp)
+                    else:
+                        # Just close; the 499 is appropriate
+                        close_if_possible(resp.app_iter)
                 sleep(2 ** (attempt + 1))
         if resp:
             msg = 'Unexpected response: %s' % resp.status
@@ -657,12 +657,9 @@ class InternalClient(object):
         path = self.make_path(account, container, obj)
         resp = self.make_request('DELETE', path, (headers or {}),
                                  acceptable_statuses)
-
         # Drain the response body to prevent unexpected disconnect
         # in proxy-server
-        with closing_if_possible(resp.app_iter):
-            for iter_body in resp.app_iter:
-                pass
+        drain_and_close(resp)
 
     def get_object_metadata(
             self, account, container, obj, metadata_prefix='',
