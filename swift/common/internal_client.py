@@ -234,6 +234,12 @@ class InternalClient(object):
             # To make pep8 tool happy, in place of raise t, v, tb:
             six.reraise(exc_type, exc_value, exc_traceback)
 
+    def handle_request(self, *args, **kwargs):
+        resp = self.make_request(*args, **kwargs)
+        # Drain the response body to prevent unexpected disconnect
+        # in proxy-server
+        drain_and_close(resp)
+
     def _get_metadata(
             self, path, metadata_prefix='', acceptable_statuses=(2,),
             headers=None, params=None):
@@ -363,7 +369,7 @@ class InternalClient(object):
                 headers[k] = v
             else:
                 headers['%s%s' % (metadata_prefix, k)] = v
-        self.make_request('POST', path, headers, acceptable_statuses)
+        self.handle_request('POST', path, headers, acceptable_statuses)
 
     # account methods
 
@@ -402,7 +408,7 @@ class InternalClient(object):
                            unexpected way.
         """
         path = self.make_path(account)
-        self.make_request('PUT', path, {}, (201, 202))
+        self.handle_request('PUT', path, {}, (201, 202))
 
     def delete_account(self, account, acceptable_statuses=(2, HTTP_NOT_FOUND)):
         """
@@ -417,7 +423,7 @@ class InternalClient(object):
                            unexpected way.
         """
         path = self.make_path(account)
-        self.make_request('DELETE', path, {}, acceptable_statuses)
+        self.handle_request('DELETE', path, {}, acceptable_statuses)
 
     def get_account_info(
             self, account, acceptable_statuses=(2, HTTP_NOT_FOUND)):
@@ -531,7 +537,7 @@ class InternalClient(object):
 
         headers = headers or {}
         path = self.make_path(account, container)
-        self.make_request('PUT', path, headers, acceptable_statuses)
+        self.handle_request('PUT', path, headers, acceptable_statuses)
 
     def delete_container(
             self, account, container, headers=None,
@@ -552,7 +558,7 @@ class InternalClient(object):
 
         headers = headers or {}
         path = self.make_path(account, container)
-        self.make_request('DELETE', path, headers, acceptable_statuses)
+        self.handle_request('DELETE', path, headers, acceptable_statuses)
 
     def get_container_metadata(
             self, account, container, metadata_prefix='',
@@ -655,11 +661,8 @@ class InternalClient(object):
         """
 
         path = self.make_path(account, container, obj)
-        resp = self.make_request('DELETE', path, (headers or {}),
-                                 acceptable_statuses)
-        # Drain the response body to prevent unexpected disconnect
-        # in proxy-server
-        drain_and_close(resp)
+        self.handle_request('DELETE', path, (headers or {}),
+                            acceptable_statuses)
 
     def get_object_metadata(
             self, account, container, obj, metadata_prefix='',
@@ -812,8 +815,8 @@ class InternalClient(object):
         if 'Content-Length' not in headers:
             headers['Transfer-Encoding'] = 'chunked'
         path = self.make_path(account, container, obj)
-        self.make_request('PUT', path, headers, acceptable_statuses, fobj,
-                          params=params)
+        self.handle_request('PUT', path, headers, acceptable_statuses, fobj,
+                            params=params)
 
 
 def get_auth(url, user, key, auth_version='1.0', **kwargs):

@@ -1019,6 +1019,20 @@ class TestInternalClient(unittest.TestCase):
             ret_items.append(container)
         self.assertEqual(items, ret_items)
 
+    def test_create_account(self):
+        account, container, obj = path_parts()
+        path = make_path_info(account)
+        client, app = get_client_app()
+        app.register('PUT', path, swob.HTTPCreated, {})
+        client.create_account(account)
+        self.assertEqual([('PUT', path, {
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Host': 'localhost:80',
+            'User-Agent': 'test'
+        })], app._calls)
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
     def test_delete_account(self):
         account, container, obj = path_parts()
         path = make_path_info(account)
@@ -1026,6 +1040,8 @@ class TestInternalClient(unittest.TestCase):
         app.register('DELETE', path, swob.HTTPNoContent, {})
         client.delete_account(account)
         self.assertEqual(1, len(app._calls))
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
 
     def test_get_account_info(self):
         class Response(object):
@@ -1116,6 +1132,22 @@ class TestInternalClient(unittest.TestCase):
 
     def test_set_account_metadata(self):
         account, container, obj = path_parts()
+        path = make_path_info(account)
+        client, app = get_client_app()
+        app.register('POST', path, swob.HTTPAccepted, {})
+        client.set_account_metadata(account, {'Color': 'Blue'},
+                                    metadata_prefix='X-Account-Meta-')
+        self.assertEqual([('POST', path, {
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Host': 'localhost:80',
+            'X-Account-Meta-Color': 'Blue',
+            'User-Agent': 'test',
+        })], app._calls)
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
+    def test_set_account_metadata_plumbing(self):
+        account, container, obj = path_parts()
         path = make_path(account)
         metadata = 'some_metadata'
         metadata_prefix = 'some_metadata_prefix'
@@ -1161,6 +1193,20 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.make_request_called)
 
     def test_create_container(self):
+        account, container, obj = path_parts()
+        path = make_path_info(account, container)
+        client, app = get_client_app()
+        app.register('PUT', path, swob.HTTPCreated, {})
+        client.create_container(account, container)
+        self.assertEqual([('PUT', path, {
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Host': 'localhost:80',
+            'User-Agent': 'test'
+        })], app._calls)
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
+    def test_create_container_plumbing(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test, path, headers):
                 self.test = test
@@ -1186,6 +1232,16 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.make_request_called)
 
     def test_delete_container(self):
+        account, container, obj = path_parts()
+        path = make_path_info(account, container)
+        client, app = get_client_app()
+        app.register('DELETE', path, swob.HTTPNoContent, {})
+        client.delete_container(account, container)
+        self.assertEqual(1, len(app._calls))
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
+    def test_delete_container_plumbing(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test, path):
                 self.test = test
@@ -1239,6 +1295,22 @@ class TestInternalClient(unittest.TestCase):
 
     def test_set_container_metadata(self):
         account, container, obj = path_parts()
+        path = make_path_info(account, container)
+        client, app = get_client_app()
+        app.register('POST', path, swob.HTTPAccepted, {})
+        client.set_container_metadata(account, container, {'Color': 'Blue'},
+                                      metadata_prefix='X-Container-Meta-')
+        self.assertEqual([('POST', path, {
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Host': 'localhost:80',
+            'X-Container-Meta-Color': 'Blue',
+            'User-Agent': 'test',
+        })], app._calls)
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
+    def test_set_container_metadata_plumbing(self):
+        account, container, obj = path_parts()
         path = make_path(account, container)
         metadata = 'some_metadata'
         metadata_prefix = 'some_metadata_prefix'
@@ -1257,10 +1329,15 @@ class TestInternalClient(unittest.TestCase):
         client.delete_object(account, container, obj)
         self.assertEqual(app.unclosed_requests, {})
         self.assertEqual(1, len(app._calls))
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
         app.register('DELETE', path, swob.HTTPNotFound, {})
         client.delete_object(account, container, obj)
         self.assertEqual(app.unclosed_requests, {})
         self.assertEqual(2, len(app._calls))
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
 
     def test_get_object_metadata(self):
         account, container, obj = path_parts()
@@ -1384,6 +1461,22 @@ class TestInternalClient(unittest.TestCase):
 
     def test_set_object_metadata(self):
         account, container, obj = path_parts()
+        path = make_path_info(account, container, obj)
+        client, app = get_client_app()
+        app.register('POST', path, swob.HTTPAccepted, {})
+        client.set_object_metadata(account, container, obj, {'Color': 'Blue'},
+                                   metadata_prefix='X-Object-Meta-')
+        self.assertEqual([('POST', path, {
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Host': 'localhost:80',
+            'X-Object-Meta-Color': 'Blue',
+            'User-Agent': 'test',
+        })], app._calls)
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
+    def test_set_object_metadata_plumbing(self):
+        account, container, obj = path_parts()
         path = make_path(account, container, obj)
         metadata = 'some_metadata'
         metadata_prefix = 'some_metadata_prefix'
@@ -1396,6 +1489,21 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.set_metadata_called)
 
     def test_upload_object(self):
+        account, container, obj = path_parts()
+        path = make_path_info(account, container, obj)
+        client, app = get_client_app()
+        app.register('PUT', path, swob.HTTPCreated, {})
+        client.upload_object(BytesIO(b'fobj'), account, container, obj)
+        self.assertEqual([('PUT', path, {
+            'Transfer-Encoding': 'chunked',
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Host': 'localhost:80',
+            'User-Agent': 'test'
+        })], app._calls)
+        self.assertEqual({}, app.unread_requests)
+        self.assertEqual({}, app.unclosed_requests)
+
+    def test_upload_object_plumbing(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test, path, headers, fobj):
                 self.test = test
