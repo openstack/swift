@@ -4340,7 +4340,7 @@ class TestContainerBroker(unittest.TestCase):
         container_name = 'test_container'
 
         def do_test(expected_bounds, expected_last_found, shard_size, limit,
-                    start_index=0, existing=None):
+                    start_index=0, existing=None, minimum_size=1):
             # expected_bounds is a list of tuples (lower, upper, object_count)
             # build expected shard ranges
             expected_shard_ranges = [
@@ -4352,7 +4352,8 @@ class TestContainerBroker(unittest.TestCase):
             with mock.patch('swift.common.utils.time.time',
                             return_value=float(ts_now.normal)):
                 ranges, last_found = broker.find_shard_ranges(
-                    shard_size, limit=limit, existing_ranges=existing)
+                    shard_size, limit=limit, existing_ranges=existing,
+                    minimum_shard_size=minimum_size)
             self.assertEqual(expected_shard_ranges, ranges)
             self.assertEqual(expected_last_found, last_found)
 
@@ -4396,6 +4397,20 @@ class TestContainerBroker(unittest.TestCase):
         do_test(expected, True, shard_size=4, limit=3)
         do_test(expected, True, shard_size=4, limit=4)
         do_test(expected, True, shard_size=4, limit=-1)
+
+        # check use of minimum_shard_size
+        expected = [(c_lower, 'obj03', 4), ('obj03', 'obj07', 4),
+                    ('obj07', c_upper, 2)]
+        do_test(expected, True, shard_size=4, limit=None, minimum_size=2)
+        # crazy values ignored...
+        do_test(expected, True, shard_size=4, limit=None, minimum_size=0)
+        do_test(expected, True, shard_size=4, limit=None, minimum_size=-1)
+        # minimum_size > potential final shard
+        expected = [(c_lower, 'obj03', 4), ('obj03', c_upper, 6)]
+        do_test(expected, True, shard_size=4, limit=None, minimum_size=3)
+        # extended shard size >= object_count
+        do_test([], False, shard_size=6, limit=None, minimum_size=5)
+        do_test([], False, shard_size=6, limit=None, minimum_size=500)
 
         # increase object count to 11
         broker.put_object(

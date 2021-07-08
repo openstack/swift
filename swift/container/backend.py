@@ -2234,7 +2234,8 @@ class ContainerBroker(DatabaseBroker):
             row = connection.execute(sql, args).fetchone()
             return row['name'] if row else None
 
-    def find_shard_ranges(self, shard_size, limit=-1, existing_ranges=None):
+    def find_shard_ranges(self, shard_size, limit=-1, existing_ranges=None,
+                          minimum_shard_size=1):
         """
         Scans the container db for shard ranges. Scanning will start at the
         upper bound of the any ``existing_ranges`` that are given, otherwise
@@ -2253,6 +2254,10 @@ class ContainerBroker(DatabaseBroker):
             given, this list should be sorted in order of upper bounds; the
             scan for new shard ranges will start at the upper bound of the last
             existing ShardRange.
+        :param minimum_shard_size: Minimum size of the final shard range. If
+            this is greater than one then the final shard range may be extended
+            to more than shard_size in order to avoid a further shard range
+            with less minimum_shard_size rows.
         :return:  a tuple; the first value in the tuple is a list of
             dicts each having keys {'index', 'lower', 'upper', 'object_count'}
             in order of ascending 'upper'; the second value in the tuple is a
@@ -2260,8 +2265,9 @@ class ContainerBroker(DatabaseBroker):
             otherwise.
         """
         existing_ranges = existing_ranges or []
+        minimum_shard_size = max(minimum_shard_size, 1)
         object_count = self.get_info().get('object_count', 0)
-        if shard_size >= object_count:
+        if shard_size + minimum_shard_size > object_count:
             # container not big enough to shard
             return [], False
 
@@ -2292,9 +2298,10 @@ class ContainerBroker(DatabaseBroker):
         sub_broker = self.get_brokers()[0]
         index = len(existing_ranges)
         while limit is None or limit < 0 or len(found_ranges) < limit:
-            if progress + shard_size >= object_count:
-                # next shard point is at or beyond final object name so don't
-                # bother with db query
+            if progress + shard_size + minimum_shard_size > object_count:
+                # next shard point is within minimum_size rows of the final
+                # object name, or beyond it, so don't bother with db query.
+                # This shard will have <= shard_size + (minimum_size - 1) rows.
                 next_shard_upper = None
             else:
                 try:
