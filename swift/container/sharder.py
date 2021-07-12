@@ -835,7 +835,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             ('created', default_stats),
             ('cleaved', default_stats + ('min_time', 'max_time',)),
             ('misplaced', default_stats + ('found', 'placed', 'unplaced')),
-            ('audit_root', default_stats),
+            ('audit_root', default_stats + ('has_overlap', 'num_overlap')),
             ('audit_shard', default_stats),
         )
 
@@ -1038,6 +1038,9 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             shard_ranges = broker.get_shard_ranges(states=state)
             overlaps = find_overlapping_ranges(shard_ranges)
             if overlaps:
+                self._increment_stat('audit_root', 'has_overlap')
+                self._increment_stat('audit_root', 'num_overlap',
+                                     step=len(overlaps))
                 all_overlaps = ', '.join(
                     [' '.join(['%s-%s' % (sr.lower, sr.upper)
                                for sr in overlapping_ranges])
