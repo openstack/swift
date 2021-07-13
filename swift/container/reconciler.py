@@ -489,9 +489,15 @@ class ContainerReconciler(Daemon):
                           container_policy_index)
         headers = {
             'X-Backend-Storage-Policy-Index': container_policy_index}
-        dest_obj = self.swift.get_object_metadata(account, container, obj,
-                                                  headers=headers,
-                                                  acceptable_statuses=(2, 4))
+        try:
+            dest_obj = self.swift.get_object_metadata(
+                account, container, obj, headers=headers,
+                acceptable_statuses=(2, 4))
+        except UnexpectedResponse:
+            self.stats_log('unavailable_destination', '%r (%f) unable to '
+                           'determine the destination timestamp, if any',
+                           path, q_ts)
+            return False
         dest_ts = Timestamp(dest_obj.get('x-backend-timestamp', 0))
         if dest_ts >= q_ts:
             self.stats_log('found_object', '%r (%f) in policy_index %s '

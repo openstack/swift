@@ -1281,6 +1281,44 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(deleted_container_entries, [])
         self.assertEqual(self.reconciler.stats['retry'], 1)
 
+    def test_object_move_fails_preflight(self):
+        # setup the cluster
+        self._mock_listing({
+            (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): 3600.123456,
+            (1, '/AUTH_bob/c/o1'): 3600.123457,  # slightly newer
+        })
+        self._mock_oldest_spi({'c': 0})  # destination
+
+        # make the HEAD blow up
+        self.fake_swift.storage_policy[0].register(
+            'HEAD', '/v1/AUTH_bob/c/o1', swob.HTTPServiceUnavailable, {})
+        # turn the crank
+        deleted_container_entries = self._run_once()
+
+        # we did some listings...
+        self.assertEqual(
+            self.fake_swift.calls,
+            [('GET', self.current_container_path),
+             ('GET', '/v1/.misplaced_objects' + listing_qs('')),
+             ('GET', '/v1/.misplaced_objects' + listing_qs('3600')),
+             ('GET', '/v1/.misplaced_objects/3600' + listing_qs('')),
+             ('GET', '/v1/.misplaced_objects/3600' +
+              listing_qs('1:/AUTH_bob/c/o1'))])
+        # ...but we can't even tell whether anything's misplaced or not
+        self.assertEqual(self.reconciler.stats['misplaced_object'], 0)
+        self.assertEqual(self.reconciler.stats['unavailable_destination'], 1)
+        # so we don't try to do any sort of move or cleanup
+        self.assertEqual(self.reconciler.stats['copy_attempt'], 0)
+        self.assertEqual(self.reconciler.stats['cleanup_attempt'], 0)
+        self.assertEqual(self.reconciler.stats['pop_queue'], 0)
+        self.assertEqual(deleted_container_entries, [])
+        # and we'll have to try again later
+        self.assertEqual(self.reconciler.stats['retry'], 1)
+        self.assertEqual(self.fake_swift.storage_policy[1].calls, [])
+        self.assertEqual(
+            self.fake_swift.storage_policy[0].calls,
+            [('HEAD', '/v1/AUTH_bob/c/o1')])
+
     def test_object_move_fails_cleanup(self):
         # setup the cluster
         self._mock_listing({
