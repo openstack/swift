@@ -765,6 +765,34 @@ class TestReconciler(unittest.TestCase):
         self.assertRaises(ValueError, reconciler.ContainerReconciler,
                           conf, self.logger, self.swift)
 
+    def test_processes_config(self):
+        conf = {}
+        r = reconciler.ContainerReconciler(conf, self.logger, self.swift)
+        self.assertEqual(r.process, 0)
+        self.assertEqual(r.processes, 0)
+
+        conf = {'processes': '1'}
+        r = reconciler.ContainerReconciler(conf, self.logger, self.swift)
+        self.assertEqual(r.process, 0)
+        self.assertEqual(r.processes, 1)
+
+        conf = {'processes': 10, 'process': '9'}
+        r = reconciler.ContainerReconciler(conf, self.logger, self.swift)
+        self.assertEqual(r.process, 9)
+        self.assertEqual(r.processes, 10)
+
+        conf = {'processes': -1}
+        self.assertRaises(ValueError, reconciler.ContainerReconciler,
+                          conf, self.logger, self.swift)
+
+        conf = {'process': -1}
+        self.assertRaises(ValueError, reconciler.ContainerReconciler,
+                          conf, self.logger, self.swift)
+
+        conf = {'processes': 9, 'process': 9}
+        self.assertRaises(ValueError, reconciler.ContainerReconciler,
+                          conf, self.logger, self.swift)
+
     def _mock_listing(self, objects):
         self.swift.parse(objects)
         self.fake_swift = self.reconciler.swift.app
@@ -852,6 +880,57 @@ class TestReconciler(unittest.TestCase):
             ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o2'),
             ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o1'),
         ])
+
+    def test_multi_process_should_process(self):
+        def mkqi(a, c, o):
+            "make queue item"
+            return {
+                'account': a,
+                'container': c,
+                'obj': o,
+            }
+        queue = [
+            mkqi('a', 'c', 'o1'),
+            mkqi('a', 'c', 'o2'),
+            mkqi('a', 'c', 'o3'),
+            mkqi('a', 'c', 'o4'),
+        ]
+
+        def map_should_process(process, processes):
+            self.reconciler.process = process
+            self.reconciler.processes = processes
+            with mock.patch('swift.common.utils.HASH_PATH_SUFFIX',
+                            b'endcap'), \
+                    mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''):
+                return [self.reconciler.should_process(q_item)
+                        for q_item in queue]
+
+        def check_process(process, processes, expected):
+            should_process = map_should_process(process, processes)
+            try:
+                self.assertEqual(should_process, expected)
+            except AssertionError as e:
+                self.fail('unexpected items processed for %s/%s\n%s' % (
+                    process, processes, e))
+
+        check_process(0, 0, [True] * 4)
+        check_process(0, 1, [True] * 4)
+        check_process(0, 2, [False, True, False, False])
+        check_process(1, 2, [True, False, True, True])
+
+        check_process(0, 4, [False, True, False, False])
+        check_process(1, 4, [True, False, False, False])
+        check_process(2, 4, [False] * 4)  # lazy
+        check_process(3, 4, [False, False, True, True])
+
+        queue = [mkqi('a%s' % i, 'c%s' % i, 'o%s' % i) for i in range(1000)]
+        items_handled = [0] * 1000
+        for process in range(100):
+            should_process = map_should_process(process, 100)
+            for i, handled in enumerate(should_process):
+                if handled:
+                    items_handled[i] += 1
+        self.assertEqual([1] * 1000, items_handled)
 
     def test_invalid_queue_name(self):
         self._mock_listing({
