@@ -23,6 +23,7 @@ import os
 import errno
 import itertools
 import random
+import eventlet
 
 from collections import defaultdict
 from datetime import datetime
@@ -95,7 +96,7 @@ class FakeStoragePolicySwift(object):
 
 
 class FakeInternalClient(reconciler.InternalClient):
-    def __init__(self, listings):
+    def __init__(self, listings=None):
         self.app = FakeStoragePolicySwift()
         self.user_agent = 'fake-internal-client'
         self.request_tries = 1
@@ -103,6 +104,7 @@ class FakeInternalClient(reconciler.InternalClient):
         self.parse(listings)
 
     def parse(self, listings):
+        listings = listings or {}
         self.accounts = defaultdict(lambda: defaultdict(list))
         for item, timestamp in listings.items():
             # XXX this interface is stupid
@@ -735,15 +737,36 @@ class TestReconciler(unittest.TestCase):
     def setUp(self):
         self.logger = debug_logger()
         conf = {}
-        with mock.patch('swift.container.reconciler.InternalClient'):
-            self.reconciler = reconciler.ContainerReconciler(conf)
-        self.reconciler.logger = self.logger
+        self.swift = FakeInternalClient()
+        self.reconciler = reconciler.ContainerReconciler(
+            conf, logger=self.logger, swift=self.swift)
         self.start_interval = int(time.time() // 3600 * 3600)
         self.current_container_path = '/v1/.misplaced_objects/%d' % (
             self.start_interval) + listing_qs('')
 
+    def test_concurrency_config(self):
+        conf = {}
+        r = reconciler.ContainerReconciler(conf, self.logger, self.swift)
+        self.assertEqual(r.concurrency, 1)
+
+        conf = {'concurrency': '10'}
+        r = reconciler.ContainerReconciler(conf, self.logger, self.swift)
+        self.assertEqual(r.concurrency, 10)
+
+        conf = {'concurrency': 48}
+        r = reconciler.ContainerReconciler(conf, self.logger, self.swift)
+        self.assertEqual(r.concurrency, 48)
+
+        conf = {'concurrency': 0}
+        self.assertRaises(ValueError, reconciler.ContainerReconciler,
+                          conf, self.logger, self.swift)
+
+        conf = {'concurrency': '-1'}
+        self.assertRaises(ValueError, reconciler.ContainerReconciler,
+                          conf, self.logger, self.swift)
+
     def _mock_listing(self, objects):
-        self.reconciler.swift = FakeInternalClient(objects)
+        self.swift.parse(objects)
         self.fake_swift = self.reconciler.swift.app
 
     def _mock_oldest_spi(self, container_oldest_spi_map):
@@ -775,6 +798,59 @@ class TestReconciler(unittest.TestCase):
 
         return [c[1][1:4] for c in
                 mocks['direct_delete_container_entry'].mock_calls]
+
+    def test_no_concurrency(self):
+        self._mock_listing({
+            (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): 3618.84187,
+            (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o2"): 3724.23456,
+            (1, "/AUTH_bob/c/o1"): 3618.84187,
+            (1, "/AUTH_bob/c/o2"): 3724.23456,
+        })
+
+        order_recieved = []
+
+        def fake_reconcile_object(account, container, obj, q_policy_index,
+                                  q_ts, q_op, path, **kwargs):
+            order_recieved.append(obj)
+            return True
+
+        self.reconciler._reconcile_object = fake_reconcile_object
+        self.assertEqual(self.reconciler.concurrency, 1)  # sanity
+        deleted_container_entries = self._run_once()
+        self.assertEqual(order_recieved, ['o1', 'o2'])
+        # process in order recieved
+        self.assertEqual(deleted_container_entries, [
+            ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o1'),
+            ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o2'),
+        ])
+
+    def test_concurrency(self):
+        self._mock_listing({
+            (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): 3618.84187,
+            (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o2"): 3724.23456,
+            (1, "/AUTH_bob/c/o1"): 3618.84187,
+            (1, "/AUTH_bob/c/o2"): 3724.23456,
+        })
+
+        order_recieved = []
+
+        def fake_reconcile_object(account, container, obj, q_policy_index,
+                                  q_ts, q_op, path, **kwargs):
+            order_recieved.append(obj)
+            # o1 takes longer than o2 for some reason
+            while 'o2' not in order_recieved:
+                eventlet.sleep(0.001)
+            return True
+
+        self.reconciler._reconcile_object = fake_reconcile_object
+        self.reconciler.concurrency = 2
+        deleted_container_entries = self._run_once()
+        self.assertEqual(order_recieved, ['o1', 'o2'])
+        # ... and so we finish o2 first
+        self.assertEqual(deleted_container_entries, [
+            ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o2'),
+            ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o1'),
+        ])
 
     def test_invalid_queue_name(self):
         self._mock_listing({

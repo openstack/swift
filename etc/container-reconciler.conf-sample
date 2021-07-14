@@ -57,6 +57,8 @@
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
+# Number of objects to process concurrently per process
+# concurrency = 1
 
 [pipeline:main]
 # Note that the reconciler's pipeline is intentionally very sparse -- it is
