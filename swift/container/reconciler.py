@@ -357,7 +357,7 @@ class ContainerReconciler(Daemon):
     Move objects that are in the wrong storage policy.
     """
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None, swift=None):
         self.conf = conf
         # This option defines how long an un-processable misplaced object
         # marker will be retried before it is abandoned.  It is not coupled
@@ -366,9 +366,10 @@ class ContainerReconciler(Daemon):
         self.interval = float(conf.get('interval', 30))
         conf_path = conf.get('__file__') or \
             '/etc/swift/container-reconciler.conf'
-        self.logger = get_logger(conf, log_route='container-reconciler')
+        self.logger = logger or get_logger(
+            conf, log_route='container-reconciler')
         request_tries = int(conf.get('request_tries') or 3)
-        self.swift = InternalClient(
+        self.swift = swift or InternalClient(
             conf_path,
             'Swift Container Reconciler',
             request_tries,
@@ -377,6 +378,9 @@ class ContainerReconciler(Daemon):
         self.stats = defaultdict(int)
         self.last_stat_time = time.time()
         self.ring_check_interval = float(conf.get('ring_check_interval', 15))
+        self.concurrency = int(conf.get('concurrency', 1))
+        if self.concurrency < 1:
+            raise ValueError("concurrency must be set to at least 1")
 
     def stats_log(self, metric, msg, *args, **kwargs):
         """
@@ -716,9 +720,9 @@ class ContainerReconciler(Daemon):
         # hit most recent container first instead of waiting on the updaters
         current_container = get_reconciler_container_name(time.time())
         yield current_container
-        container_gen = self.swift.iter_containers(MISPLACED_OBJECTS_ACCOUNT)
         self.logger.debug('looking for containers in %s',
                           MISPLACED_OBJECTS_ACCOUNT)
+        container_gen = self.swift.iter_containers(MISPLACED_OBJECTS_ACCOUNT)
         while True:
             one_page = None
             try:
@@ -769,29 +773,41 @@ class ContainerReconciler(Daemon):
                 MISPLACED_OBJECTS_ACCOUNT, container,
                 acceptable_statuses=(2, 404, 409, 412))
 
+    def process_queue_entry(self, container, raw_obj):
+        """
+        Process an entry and remove from queue on success.
+
+        :param container: the queue container
+        :param raw_obj: the raw_obj listing from the container
+        """
+        try:
+            obj_info = parse_raw_obj(raw_obj)
+        except Exception:
+            self.stats_log('invalid_record',
+                           'invalid queue record: %r', raw_obj,
+                           level=logging.ERROR, exc_info=True)
+            return
+        finished = self.reconcile_object(obj_info)
+        if finished:
+            self.pop_queue(container, raw_obj['name'],
+                           obj_info['q_ts'],
+                           obj_info['q_record'])
+
     def reconcile(self):
         """
-        Main entry point for processing misplaced objects.
+        Main entry point for concurrent processing of misplaced objects.
 
-        Iterate over all queue entries and delegate to reconcile_object.
+        Iterate over all queue entries and delegate processing to spawned
+        workers in the pool.
         """
         self.logger.debug('pulling items from the queue')
+        pool = GreenPool(self.concurrency)
         for container in self._iter_containers():
+            self.logger.debug('checking container %s', container)
             for raw_obj in self._iter_objects(container):
-                try:
-                    obj_info = parse_raw_obj(raw_obj)
-                except Exception:
-                    self.stats_log('invalid_record',
-                                   'invalid queue record: %r', raw_obj,
-                                   level=logging.ERROR, exc_info=True)
-                    continue
-                finished = self.reconcile_object(obj_info)
-                if finished:
-                    self.pop_queue(container, raw_obj['name'],
-                                   obj_info['q_ts'],
-                                   obj_info['q_record'])
+                pool.spawn_n(self.process_queue_entry, container, raw_obj)
             self.log_stats()
-            self.logger.debug('finished container %s', container)
+        pool.waitall()
 
     def run_once(self, *args, **kwargs):
         """
