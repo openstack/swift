@@ -837,9 +837,10 @@ class TestReconciler(unittest.TestCase):
         def fake_reconcile_object(account, container, obj, q_policy_index,
                                   q_ts, q_op, path, **kwargs):
             order_recieved.append(obj)
-            # o1 takes longer than o2 for some reason
-            while 'o2' not in order_recieved:
-                eventlet.sleep(0.001)
+            if obj == 'o1':
+                # o1 takes longer than o2 for some reason
+                for i in range(10):
+                    eventlet.sleep(0.0)
             return True
 
         self.reconciler._reconcile_object = fake_reconcile_object

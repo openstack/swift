@@ -773,25 +773,19 @@ class ContainerReconciler(Daemon):
                 MISPLACED_OBJECTS_ACCOUNT, container,
                 acceptable_statuses=(2, 404, 409, 412))
 
-    def process_queue_entry(self, container, raw_obj):
+    def process_queue_item(self, q_container, q_entry, queue_item):
         """
         Process an entry and remove from queue on success.
 
-        :param container: the queue container
-        :param raw_obj: the raw_obj listing from the container
+        :param q_container: the queue container
+        :param q_entry: the raw_obj name from the q_container
+        :param queue_item: a parsed entry from the queue
         """
-        try:
-            obj_info = parse_raw_obj(raw_obj)
-        except Exception:
-            self.stats_log('invalid_record',
-                           'invalid queue record: %r', raw_obj,
-                           level=logging.ERROR, exc_info=True)
-            return
-        finished = self.reconcile_object(obj_info)
+        finished = self.reconcile_object(queue_item)
         if finished:
-            self.pop_queue(container, raw_obj['name'],
-                           obj_info['q_ts'],
-                           obj_info['q_record'])
+            self.pop_queue(q_container, q_entry,
+                           queue_item['q_ts'],
+                           queue_item['q_record'])
 
     def reconcile(self):
         """
@@ -805,7 +799,15 @@ class ContainerReconciler(Daemon):
         for container in self._iter_containers():
             self.logger.debug('checking container %s', container)
             for raw_obj in self._iter_objects(container):
-                pool.spawn_n(self.process_queue_entry, container, raw_obj)
+                try:
+                    queue_item = parse_raw_obj(raw_obj)
+                except Exception:
+                    self.stats_log('invalid_record',
+                                   'invalid queue record: %r', raw_obj,
+                                   level=logging.ERROR, exc_info=True)
+                    continue
+                pool.spawn_n(self.process_queue_item,
+                             container, raw_obj['name'], queue_item)
             self.log_stats()
         pool.waitall()
 
