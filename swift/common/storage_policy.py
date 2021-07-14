@@ -366,15 +366,26 @@ class BaseStoragePolicy(object):
             self._validate_policy_name(name)
         self.alias_list.insert(0, name)
 
-    def load_ring(self, swift_dir):
+    def validate_ring_data(self, ring_data):
+        """
+        Validation hook used when loading the ring; currently only used for EC
+        """
+
+    def load_ring(self, swift_dir, reload_time=None):
         """
         Load the ring for this policy immediately.
 
         :param swift_dir: path to rings
+        :param reload_time: time interval in seconds to check for a ring change
         """
         if self.object_ring:
+            if reload_time is not None:
+                self.object_ring.reload_time = reload_time
             return
-        self.object_ring = Ring(swift_dir, ring_name=self.ring_name)
+
+        self.object_ring = Ring(
+            swift_dir, ring_name=self.ring_name,
+            validation_hook=self.validate_ring_data, reload_time=reload_time)
 
     @property
     def quorum(self):
@@ -643,38 +654,25 @@ class ECStoragePolicy(BaseStoragePolicy):
         """
         return self._ec_quorum_size * self.ec_duplication_factor
 
-    def load_ring(self, swift_dir):
+    def validate_ring_data(self, ring_data):
         """
-        Load the ring for this policy immediately.
+        EC specific validation
 
-        :param swift_dir: path to rings
+        Replica count check - we need _at_least_ (#data + #parity) replicas
+        configured.  Also if the replica count is larger than exactly that
+        number there's a non-zero risk of error for code that is
+        considering the number of nodes in the primary list from the ring.
         """
-        if self.object_ring:
-            return
 
-        def validate_ring_data(ring_data):
-            """
-            EC specific validation
-
-            Replica count check - we need _at_least_ (#data + #parity) replicas
-            configured.  Also if the replica count is larger than exactly that
-            number there's a non-zero risk of error for code that is
-            considering the number of nodes in the primary list from the ring.
-            """
-
-            configured_fragment_count = ring_data.replica_count
-            required_fragment_count = \
-                (self.ec_n_unique_fragments) * self.ec_duplication_factor
-            if configured_fragment_count != required_fragment_count:
-                raise RingLoadError(
-                    'EC ring for policy %s needs to be configured with '
-                    'exactly %d replicas. Got %s.' % (
-                        self.name, required_fragment_count,
-                        configured_fragment_count))
-
-        self.object_ring = Ring(
-            swift_dir, ring_name=self.ring_name,
-            validation_hook=validate_ring_data)
+        configured_fragment_count = ring_data.replica_count
+        required_fragment_count = \
+            (self.ec_n_unique_fragments) * self.ec_duplication_factor
+        if configured_fragment_count != required_fragment_count:
+            raise RingLoadError(
+                'EC ring for policy %s needs to be configured with '
+                'exactly %d replicas. Got %s.' % (
+                    self.name, required_fragment_count,
+                    configured_fragment_count))
 
     def get_backend_index(self, node_index):
         """

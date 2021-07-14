@@ -37,6 +37,9 @@ from swift.common.utils import hash_path, validate_configuration, md5
 from swift.common.ring.utils import tiers_for_dev
 
 
+DEFAULT_RELOAD_TIME = 15
+
+
 def calc_replica_count(replica2part2dev_id):
     if not replica2part2dev_id:
         return 0
@@ -272,7 +275,7 @@ class Ring(object):
     :raises RingLoadError: if the loaded ring data violates its constraint
     """
 
-    def __init__(self, serialized_path, reload_time=15, ring_name=None,
+    def __init__(self, serialized_path, reload_time=None, ring_name=None,
                  validation_hook=lambda ring_data: None):
         # can't use the ring unless HASH_PATH_SUFFIX is set
         validate_configuration()
@@ -281,7 +284,8 @@ class Ring(object):
                                                 ring_name + '.ring.gz')
         else:
             self.serialized_path = os.path.join(serialized_path)
-        self.reload_time = reload_time
+        self.reload_time = (DEFAULT_RELOAD_TIME if reload_time is None
+                            else reload_time)
         self._validation_hook = validation_hook
         self._reload(force=True)
 
@@ -362,6 +366,8 @@ class Ring(object):
 
     @property
     def next_part_power(self):
+        if time() > self._rtime:
+            self._reload()
         return self._next_part_power
 
     @property
