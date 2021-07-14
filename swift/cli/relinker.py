@@ -784,11 +784,6 @@ def main(args):
                         help='Set log file name. Ignored if using conf_file.')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Enable debug mode')
-    # --link-check-limit is no longer used but allowed on the command line to
-    # avoid errors after upgrade
-    parser.add_argument('--link-check-limit', type=non_negative_int,
-                        default=None, dest='link_check_limit',
-                        help=argparse.SUPPRESS)
 
     args = parser.parse_args(args)
     hubs.use_hub(get_hub())
@@ -812,9 +807,6 @@ def main(args):
             filename=args.logfile)
         logger = logging.getLogger()
 
-    if args.link_check_limit is not None:
-        logger.warning('--link-check-limit option is ignored, deprecated and '
-                       'will be removed in a future version')
     conf.update({
         'swift_dir': args.swift_dir or conf.get('swift_dir', '/etc/swift'),
         'devices': args.devices or conf.get('devices', '/srv/node'),
