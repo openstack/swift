@@ -1054,6 +1054,48 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                                    policy=policy, frag_index=frag_index,
                                    **kwargs)
 
+    def test_init(self):
+        for policy in POLICIES:
+            df_router = diskfile.DiskFileRouter({}, self.logger)
+            df_mgr = df_router[policy]
+            self.assertEqual('/srv/node', df_mgr.devices)
+            self.assertEqual(604800, df_mgr.reclaim_age)
+            self.assertEqual(60.0, df_mgr.commit_window)
+            self.assertTrue(df_mgr.mount_check)
+
+        for policy in POLICIES:
+            conf = dict(devices=self.testdir,
+                        mount_check='false',
+                        reclaim_age=1000,
+                        commit_window=10.1)
+            df_router = diskfile.DiskFileRouter(conf, self.logger)
+            df_mgr = df_router[policy]
+            self.assertEqual(self.testdir, df_mgr.devices)
+            self.assertEqual(1000, df_mgr.reclaim_age)
+            self.assertEqual(10.1, df_mgr.commit_window)
+            self.assertFalse(df_mgr.mount_check)
+
+    def test_init_commit_window(self):
+        def assert_ok(value, expected):
+            for policy in POLICIES:
+                conf = {'commit_window': value}
+                df_mgr = diskfile.DiskFileRouter(conf, self.logger)[policy]
+                self.assertEqual(expected, df_mgr.commit_window)
+
+        assert_ok(10.1, 10.1)
+        assert_ok('10.1', 10.1)
+        assert_ok(0, 0.0)
+
+        def assert_invalid(value):
+            for policy in POLICIES:
+                conf = {'commit_window': value}
+                with self.assertRaises(ValueError):
+                    diskfile.DiskFileRouter(conf, self.logger)[policy]
+
+        assert_invalid(-1.1)
+        assert_invalid('-1.1')
+        assert_invalid('auto')
+
     def test_cleanup_uses_configured_reclaim_age(self):
         # verify that the reclaim_age used when cleaning up tombstones is
         # either the default or the configured value
@@ -1108,7 +1150,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 shuffle(files)
 
     def _test_cleanup_ondisk_files(self, scenarios, policy,
-                                   reclaim_age=None):
+                                   reclaim_age=None, commit_window=None):
         # check that expected files are left in hashdir after cleanup
         for test in scenarios:
             class_under_test = self.df_router[policy]
@@ -1120,6 +1162,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 open(os.path.join(hashdir, fname), 'w')
             expected_after_cleanup = set([f[0] for f in test
                                           if (f[2] if len(f) > 2 else f[1])])
+            if commit_window is not None:
+                class_under_test.commit_window = commit_window
             if reclaim_age:
                 class_under_test.reclaim_age = reclaim_age
                 class_under_test.cleanup_ondisk_files(hashdir)
@@ -1268,7 +1312,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
              ('%s.ts' % older, False, False)]]
 
         self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
-                                        reclaim_age=1000)
+                                        reclaim_age=1000, commit_window=0)
 
     def test_construct_dev_path(self):
         res_path = self.df_mgr.construct_dev_path('abc')
@@ -2693,7 +2737,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
              ('%s.durable' % much_older, False, False)]]
 
         self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
-                                        reclaim_age=1000)
+                                        reclaim_age=1000, commit_window=0)
 
     def test_cleanup_ondisk_files_reclaim_with_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
@@ -2739,7 +2783,33 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
              ('%s#4.data' % much_older, False, False)]]
 
         self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
-                                        reclaim_age=1000)
+                                        reclaim_age=1000, commit_window=0)
+
+    def test_cleanup_ondisk_files_commit_window(self):
+        # verify that non-durable files are not reclaimed regardless of
+        # timestamp if written to disk within commit_window
+        much_older = Timestamp(time() - 1001).internal
+        older = Timestamp(time() - 1001).internal
+        newer = Timestamp(time() - 900).internal
+        scenarios = [
+            # recently written nondurables not cleaned up
+            [('%s#1.data' % older, True),
+             ('%s#2.data' % newer, True),
+             ('%s.meta' % much_older, False),
+             ('%s.ts' % much_older, False)]]
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000, commit_window=60)
+
+        # ... but if commit_window is reduced then recently written files are
+        # cleaned up
+        scenarios = [
+            # older *timestamps* cleaned up
+            [('%s#1.data' % older, False),
+             ('%s#2.data' % newer, True),
+             ('%s.meta' % much_older, False),
+             ('%s.ts' % much_older, False)]]
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000, commit_window=0)
 
     def test_get_ondisk_files_with_stray_meta(self):
         # get_ondisk_files ignores a stray .meta file
@@ -6820,6 +6890,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertRaises(output_files.__class__,
                                   df_mgr.cleanup_ondisk_files, path)
                 return
+            df_mgr.commit_window = 0
             files = df_mgr.cleanup_ondisk_files('/whatever')['files']
             self.assertEqual(files, output_files)
             if files:
@@ -7701,6 +7772,7 @@ class TestSuffixHashes(unittest.TestCase):
             # get_hashes does not trigger reclaim because the suffix has
             # MD5_OF_EMPTY_STRING in hashes.pkl
             df_mgr.reclaim_age = 500
+            df_mgr.commit_window = 0
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             self.assertEqual([ts_meta.internal + '.meta'],
                              os.listdir(df._datadir))

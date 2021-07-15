@@ -66,7 +66,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
     O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory, \
-    md5, is_file_older
+    md5, is_file_older, non_negative_float
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -81,6 +81,7 @@ from swift.common.storage_policy import (
 
 PICKLE_PROTOCOL = 2
 DEFAULT_RECLAIM_AGE = timedelta(weeks=1).total_seconds()
+DEFAULT_COMMIT_WINDOW = 60.0
 HASH_FILE = 'hashes.pkl'
 HASH_INVALIDATIONS_FILE = 'hashes.invalid'
 METADATA_KEY = b'user.swift.metadata'
@@ -708,6 +709,8 @@ class BaseDiskFileManager(object):
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.reclaim_age = int(conf.get('reclaim_age', DEFAULT_RECLAIM_AGE))
+        self.commit_window = non_negative_float(conf.get(
+            'commit_window', DEFAULT_COMMIT_WINDOW))
         replication_concurrency_per_device = conf.get(
             'replication_concurrency_per_device')
         replication_one_per_device = conf.get('replication_one_per_device')
@@ -1102,8 +1105,14 @@ class BaseDiskFileManager(object):
             remove_file(join(hsh_path, results['ts_info']['filename']))
             files.remove(results.pop('ts_info')['filename'])
         for file_info in results.get('possible_reclaim', []):
-            # stray files are not deleted until reclaim-age
-            if is_reclaimable(file_info['timestamp']):
+            # stray files are not deleted until reclaim-age; non-durable data
+            # files are not deleted unless they were written before
+            # commit_window
+            filepath = join(hsh_path, file_info['filename'])
+            if (is_reclaimable(file_info['timestamp']) and
+                    (file_info.get('durable', True) or
+                     self.commit_window <= 0 or
+                     is_file_older(filepath, self.commit_window))):
                 results.setdefault('obsolete', []).append(file_info)
         for file_info in results.get('obsolete', []):
             remove_file(join(hsh_path, file_info['filename']))
@@ -3625,7 +3634,8 @@ class ECDiskFileManager(BaseDiskFileManager):
             results.setdefault('obsolete', []).extend(exts['.durable'])
             exts.pop('.durable')
 
-        # Fragments *may* be ready for reclaim, unless they are durable
+        # Fragments *may* be ready for reclaim, unless they are most recent
+        # durable
         for frag_set in frag_sets.values():
             if frag_set in (durable_frag_set, chosen_frag_set):
                 continue
