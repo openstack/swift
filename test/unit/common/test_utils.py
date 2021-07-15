@@ -2417,7 +2417,7 @@ log_name = yarr'''
                         'foo': 'bar', 'bar': 'baz'}
             self.assertEqual(result, expected)
 
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ValueError, 'Unable to find section3 config section in.*',
             utils.readconf, temppath, 'section3')
         os.unlink(temppath)
