@@ -450,7 +450,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         o = resp_objects[0]
         self.assertEqual(o.find('Key').text, keys[0])
         self.assertIsNotNone(o.find('LastModified').text)
-        self.assertRegexpMatches(
+        self.assertRegex(
             o.find('LastModified').text,
             r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
         self.assertEqual(o.find('ETag').text, exp_etag)
