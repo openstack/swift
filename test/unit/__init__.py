@@ -933,9 +933,15 @@ def fake_http_connect(*code_iter, **kwargs):
 
         if 'give_connect' in kwargs:
             give_conn_fn = kwargs['give_connect']
-            argspec = inspect.getargspec(give_conn_fn)
-            if argspec.keywords or 'connection_id' in argspec.args:
-                ckwargs['connection_id'] = i
+
+            if six.PY2:
+                argspec = inspect.getargspec(give_conn_fn)
+                if argspec.keywords or 'connection_id' in argspec.args:
+                    ckwargs['connection_id'] = i
+            else:
+                argspec = inspect.getfullargspec(give_conn_fn)
+                if argspec.varkw or 'connection_id' in argspec.args:
+                    ckwargs['connection_id'] = i
             give_conn_fn(*args, **ckwargs)
         etag = next(etag_iter)
         headers = next(headers_iter)
