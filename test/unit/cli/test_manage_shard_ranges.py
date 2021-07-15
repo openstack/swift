@@ -574,8 +574,8 @@ class TestManageShardRanges(unittest.TestCase):
                             '--minimum-shard-size', str(minimum)])
             self.assertEqual(2, ret)
             self.assertEqual(
-                'Error loading config: minimum_shard_size (%s) must be less '
-                'than rows_per_shard (50)' % minimum, err.getvalue().strip())
+                'Invalid config: minimum_shard_size (%s) must be <= '
+                'rows_per_shard (50)' % minimum, err.getvalue().strip())
 
         assert_too_large_value_handled(51)
         assert_too_large_value_handled(52)
@@ -1461,7 +1461,7 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             ret = main([broker.db_file, 'compact', '--yes',
                         '--expansion-limit', '20'])
-        self.assertEqual(0, ret, out.getvalue())
+        self.assertEqual(0, ret, err.getvalue())
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
         out_lines = out.getvalue().rstrip('\n').split('\n')

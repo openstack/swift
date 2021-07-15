@@ -934,6 +934,12 @@ def main(cli_args=None):
         if v is USE_SHARDER_DEFAULT:
             setattr(args, k, getattr(conf_args, k))
 
+    try:
+        ContainerSharderConf.validate_conf(args)
+    except ValueError as err:
+        print('Invalid config: %s' % err, file=sys.stderr)
+        return EXIT_INVALID_ARGS
+
     if args.func in (analyze_shard_ranges,):
         args.input = args.path_to_file
         return args.func(args) or 0
