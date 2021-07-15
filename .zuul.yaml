@@ -188,6 +188,30 @@
       tox_envlist: func-encryption-py3
 
 - job:
+    name: swift-tox-func-encryption-py38-arm64
+    parent: swift-tox-func-encryption-py38
+    nodeset: ubuntu-focal-arm64
+    description: |
+      Run functional tests for swift under cPython version 3.8
+      on top of arm64 architecture.
+
+      Uses tox with the ``func-encryption-py3`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+
+- job:
+    name: swift-tox-func-py38-arm64
+    parent: swift-tox-func-py38
+    nodeset: ubuntu-focal-arm64
+    description: |
+      Run functional tests for swift under cPython version 3.8
+      on top of arm64 architecture.
+
+      Uses tox with the ``func-py3`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+
+- job:
     name: swift-tox-func-ec-py38
     parent: swift-tox-func-py38
     description: |
@@ -326,6 +350,14 @@
       under Python 3.
     vars:
       bindep_profile: test py36
+
+- job:
+    name: swift-probetests-centos-8-arm64
+    parent: swift-probetests-centos-8
+    nodeset: centos-8-arm64
+    description: |
+      Setup a SAIO dev environment and run Swift's probe tests
+      under Python 3 on top of arm64 architecture.
 
 - job:
     name: swift-func-cors
@@ -534,15 +566,21 @@
     vars: *swift_image_vars_py3
 
 - project-template:
-   name: swift-tox-jobs-arm64
+   name: swift-jobs-arm64
    description: |
-     Runs unit tests for an OpenStack Python project under the CPython
+     Runs tests for an OpenStack Python project under the CPython
      version 3 releases designated for testing on top of ARM64 architecture.
    check-arm64:
      jobs:
        - swift-tox-py38-arm64:
            voting: false
        - swift-tox-py39-arm64:
+           voting: false
+       - swift-probetests-centos-8-arm64:
+           voting: false
+       - swift-tox-func-encryption-py38-arm64:
+           voting: false
+       - swift-tox-func-py38-arm64:
            voting: false
 
 - project:
@@ -552,7 +590,7 @@
       - check-requirements
       - release-notes-jobs-python3
       - integrated-gate-object-storage
-      - swift-tox-jobs-arm64
+      - swift-jobs-arm64
     check:
       jobs:
         - swift-build-image:
