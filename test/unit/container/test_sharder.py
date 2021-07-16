@@ -42,7 +42,8 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     CleavingContext, DEFAULT_SHARDER_CONF, finalize_shrinking, \
     find_shrinking_candidates, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, is_shrinking_candidate, \
-    is_sharding_candidate, find_paths, rank_paths, ContainerSharderConf
+    is_sharding_candidate, find_paths, rank_paths, ContainerSharderConf, \
+    CLEAVE_FAILED
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
@@ -1667,6 +1668,27 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(cleaving_context.ranges_todo, 2)
         self.assertFalse(cleaving_context.cleaving_done)
 
+    def test_cleave_shard_range_no_own_shard_range(self):
+        broker = self._make_sharding_broker()
+        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+               'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
+               'deleted': 0}
+        broker.get_brokers()[0].merge_items([obj])
+        self.assertEqual(2, len(broker.db_files))  # sanity check
+        context = CleavingContext.load(broker)
+        shard_range = broker.get_shard_ranges()[0]
+
+        with self._mock_sharder() as sharder, mock.patch(
+                'swift.container.backend.ContainerBroker.get_own_shard_range',
+                return_value=None):
+            self.assertEqual(
+                sharder._cleave_shard_range(broker, context, shard_range),
+                CLEAVE_FAILED)
+        self.assertEqual(SHARDING, broker.get_db_state())
+        warning_lines = sharder.logger.get_lines_for_level('warning')
+        self.assertEqual(warning_lines[0],
+                         'Failed to get own_shard_range for a/c')
+
     def test_cleave_shard(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
         own_shard_range = ShardRange(
@@ -2876,6 +2898,31 @@ class TestSharder(BaseTestSharder):
         broker = self._check_complete_sharding(
             '.shards_', 'shard_c', (('l', 'mid'), ('mid', 'u')))
         self.assertEqual(1, broker.get_own_shard_range().deleted)
+
+    def test_complete_sharding_missing_own_shard_range(self):
+        broker = self._make_sharding_broker()
+        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+               'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
+               'deleted': 0}
+        broker.get_brokers()[0].merge_items([obj])
+        self.assertEqual(2, len(broker.db_files))  # sanity check
+
+        # Make cleaving context_done
+        context = CleavingContext.load(broker)
+        self.assertEqual(1, context.max_row)
+        context.cleave_to_row = 1  # pretend all rows have been cleaved
+        context.cleaving_done = True
+        context.misplaced_done = True
+        context.store(broker)
+
+        with self._mock_sharder() as sharder, mock.patch(
+                'swift.container.backend.ContainerBroker.get_own_shard_range',
+                return_value=None):
+            self.assertFalse(sharder._complete_sharding(broker))
+        self.assertEqual(SHARDING, broker.get_db_state())
+        warning_lines = sharder.logger.get_lines_for_level('warning')
+        self.assertEqual(warning_lines[0],
+                         'Failed to get own_shard_range for a/c')
 
     def test_sharded_record_sharding_progress_missing_contexts(self):
         broker = self._check_complete_sharding(
