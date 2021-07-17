@@ -239,9 +239,10 @@ class TestContainerController(unittest.TestCase):
         self.assertTrue(created_at_header >= start)
         self.assertEqual(response.headers['x-put-timestamp'],
                          Timestamp(start).normal)
+        time_fmt = "%a, %d %b %Y %H:%M:%S GMT"
         self.assertEqual(
-            response.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT"),
-            time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(start)))
+            response.last_modified.strftime(time_fmt),
+            time.strftime(time_fmt, time.gmtime(int(start))))
 
         # backend headers
         self.assertEqual(int(response.headers
