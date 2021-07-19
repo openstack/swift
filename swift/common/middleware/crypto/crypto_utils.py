@@ -14,7 +14,6 @@
 # limitations under the License.
 import base64
 import binascii
-import collections
 import json
 import os
 
@@ -260,7 +259,7 @@ def load_crypto_meta(value, b64decode=True):
         if not isinstance(value, six.string_types):
             raise ValueError('crypto meta not a string')
         val = json.loads(urlparse.unquote_plus(value))
-        if not isinstance(val, collections.Mapping):
+        if not isinstance(val, dict):
             raise ValueError('crypto meta not a Mapping')
         return b64_decode_meta(val)
     except (KeyError, ValueError, TypeError) as err:
