@@ -149,6 +149,10 @@ The default is 65536.
 .IP \fBreclaim_age\fR
 Time elapsed in seconds before an object can be reclaimed. The default is
 604800 seconds.
+.IP \fBcommit_window\fR
+Time in seconds during which a newly written non-durable data file will not be
+reclaimed. The value should be greater than zero and much less than
+reclaim_age. The default is 60.0 seconds.
 .IP \fBnice_priority\fR
 Modify scheduling priority of server processes. Niceness values range from -20
 (most favorable to the process) to 19 (least favorable to the process).

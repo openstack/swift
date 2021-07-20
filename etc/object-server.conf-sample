@@ -87,6 +87,13 @@ bind_port = 6200
 # and not greater than the container services reclaim_age
 # reclaim_age = 604800
 #
+# Non-durable data files may also get reclaimed if they are older than
+# reclaim_age, but not if the time they were written to disk (i.e. mtime) is
+# less than commit_window seconds ago. A commit_window greater than zero is
+# strongly recommended to avoid unintended reclamation of data files that were
+# about to become durable; commit_window should be much less than reclaim_age.
+# commit_window = 60.0
+#
 # You can set scheduling priority of processes. Niceness values range from -20
 # (most favorable to the process) to 19 (least favorable to the process).
 # nice_priority =

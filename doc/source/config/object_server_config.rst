@@ -136,6 +136,18 @@ reclaim_age                      604800      Time elapsed in seconds before the 
                                              it will result in dark data.  This setting
                                              should be consistent across all object
                                              services.
+commit_window                    60          Non-durable data files may also
+                                             get reclaimed if they are older
+                                             than reclaim_age, but not if the
+                                             time they were written to disk
+                                             (i.e. mtime) is less than
+                                             commit_window seconds ago. A
+                                             commit_window greater than zero is
+                                             strongly recommended to avoid
+                                             unintended reclamation of data
+                                             files that were about to become
+                                             durable; commit_window should be
+                                             much less than reclaim_age.
 nice_priority                    None        Scheduling priority of server processes.
                                              Niceness values range from -20 (most
                                              favorable to the process) to 19 (least
