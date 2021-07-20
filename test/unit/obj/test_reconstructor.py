@@ -1184,7 +1184,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 for dirpath, files in visit_obj_dirs(context):
                     n_files_after += len(files)
                     for filename in files:
-                        self.assertFalse(filename.endswith(data_file_tail))
+                        self.assertFalse(
+                            filename.endswith(data_file_tail), filename)
             else:
                 self.assertFalse(context.get('include_non_durable'))
 
@@ -1192,8 +1193,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertGreater(n_files, n_files_after)
 
     def test_delete_reverted_nondurable(self):
-        # verify reconstructor only deletes reverted nondurable fragments after
-        # nondurable_purge_delay
+        # verify reconstructor only deletes reverted nondurable fragments older
+        # commit_window
         shutil.rmtree(self.ec_obj_path)
         ips = utils.whataremyips(self.reconstructor.bind_ip)
         local_devs = [dev for dev in self.ec_obj_ring.devs
@@ -1220,7 +1221,6 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertTrue(os.path.exists(datafile_recent))
         self.assertTrue(os.path.exists(datafile_older))
         self.assertTrue(os.path.exists(datafile_durable))
-
         ssync_calls = []
         with mock.patch('swift.obj.reconstructor.ssync_sender',
                         self._make_fake_ssync(ssync_calls)):
@@ -1229,19 +1229,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         for context in ssync_calls:
             self.assertEqual(REVERT, context['job']['job_type'])
             self.assertTrue(True, context.get('include_non_durable'))
-        # neither nondurable should be removed yet with default purge delay
+        # neither nondurable should be removed yet with default commit_window
         # because their mtimes are too recent
         self.assertTrue(os.path.exists(datafile_recent))
         self.assertTrue(os.path.exists(datafile_older))
         # but durable is purged
-        self.assertFalse(os.path.exists(datafile_durable))
+        self.assertFalse(os.path.exists(datafile_durable), datafile_durable)
 
         ssync_calls = []
         with mock.patch('swift.obj.reconstructor.ssync_sender',
                         self._make_fake_ssync(ssync_calls)):
             self.reconstructor.handoffs_only = True
-            # turn down the purge delay...
-            self.reconstructor.nondurable_purge_delay = 0
+            # turn down the commit_window...
+            df_older.manager.commit_window = 0
             self.reconstructor.reconstruct()
         for context in ssync_calls:
             self.assertEqual(REVERT, context['job']['job_type'])
@@ -5534,24 +5534,6 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 with self.assertRaises(ValueError):
                     object_reconstructor.ObjectReconstructor(
                         {'quarantine_threshold': bad})
-
-    def test_nondurable_purge_delay_conf(self):
-        reconstructor = object_reconstructor.ObjectReconstructor({})
-        self.assertEqual(60, reconstructor.nondurable_purge_delay)
-
-        reconstructor = object_reconstructor.ObjectReconstructor(
-            {'nondurable_purge_delay': '0'})
-        self.assertEqual(0, reconstructor.nondurable_purge_delay)
-
-        reconstructor = object_reconstructor.ObjectReconstructor(
-            {'nondurable_purge_delay': '3.2'})
-        self.assertEqual(3.2, reconstructor.nondurable_purge_delay)
-
-        for bad in ('-1', -1, 'auto', 'bad'):
-            with annotate_failure(bad):
-                with self.assertRaises(ValueError):
-                    object_reconstructor.ObjectReconstructor(
-                        {'nondurable_purge_delay': bad})
 
     def test_quarantine_age_conf(self):
         # defaults to DEFAULT_RECLAIM_AGE

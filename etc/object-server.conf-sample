@@ -89,9 +89,13 @@ bind_port = 6200
 #
 # Non-durable data files may also get reclaimed if they are older than
 # reclaim_age, but not if the time they were written to disk (i.e. mtime) is
-# less than commit_window seconds ago. A commit_window greater than zero is
-# strongly recommended to avoid unintended reclamation of data files that were
-# about to become durable; commit_window should be much less than reclaim_age.
+# less than commit_window seconds ago. The commit_window also prevents the
+# reconstructor removing recently written non-durable data files from a handoff
+# node after reverting them to a primary. This gives the object-server a window
+# in which to finish a concurrent PUT on a handoff and mark the data durable. A
+# commit_window greater than zero is strongly recommended to avoid unintended
+# removal of data files that were about to become durable; commit_window should
+# be much less than reclaim_age.
 # commit_window = 60.0
 #
 # You can set scheduling priority of processes. Niceness values range from -20
@@ -433,12 +437,6 @@ use = egg:swift#recon
 # to be rebuilt). The minimum is only exceeded if request_node_count is
 # greater, and only for the purposes of quarantining.
 # request_node_count = 2 * replicas
-#
-# Sets a delay, in seconds, before the reconstructor removes non-durable data
-# files from a handoff node after reverting them to a primary. This gives the
-# object-server a window in which to finish a concurrent PUT on a handoff and
-# mark the data durable.
-# nondurable_purge_delay = 60.0
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):

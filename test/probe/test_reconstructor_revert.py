@@ -396,12 +396,12 @@ class TestReconstructorRevert(ECProbeTest):
         # fix the 507'ing primary
         self.revive_drive(pdevs[0])
 
-        # fire up reconstructor on handoff node only; nondurable_purge_delay is
+        # fire up reconstructor on handoff node only; commit_window is
         # set to zero to ensure the nondurable handoff frag is purged
         hnode_id = (hnodes[0]['port'] % 100) // 10
         self.run_custom_daemon(
             ObjectReconstructor, 'object-reconstructor', hnode_id,
-            {'nondurable_purge_delay': '0'})
+            {'commit_window': '0'})
 
         # primary now has only the newer non-durable frag
         self.assert_direct_get_fails(onodes[0], opart, 404)
