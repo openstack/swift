@@ -582,7 +582,6 @@ class TestRelinker(unittest.TestCase):
                     '--skip-mount-check', '--files-per-second', '2.2',
                     '--policy', '1', '--partition', '123',
                     '--partition', '123', '--partition', '456',
-                    '--link-check-limit', '3',  # allowed but ignored
                     '--workers', '2',
                     '--stats-interval', '222',
                 ])
@@ -600,9 +599,6 @@ class TestRelinker(unittest.TestCase):
             'recon_cache_path': '/var/cache/swift-foo',
             'stats_interval': 222.0,
         }, mock.ANY, ['sdx'], do_cleanup=False)
-        self.assertIn('--link-check-limit option is ignored, deprecated and '
-                      'will be removed in a future version',
-                      logger.get_lines_for_level('warning'))
 
         with mock.patch('swift.cli.relinker.Relinker') as mock_relinker, \
                 mock.patch('logging.basicConfig') as mock_logging_config:
