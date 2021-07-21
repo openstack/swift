@@ -512,11 +512,6 @@ commands are as follows:
    .. literalinclude:: /../saio/swift/object-expirer.conf
       :language: ini
 
-#. ``/etc/swift/container-reconciler.conf``
-
-   .. literalinclude:: /../saio/swift/container-reconciler.conf
-      :language: ini
-
 #. ``/etc/swift/container-sync-realms.conf``
 
    .. literalinclude:: /../saio/swift/container-sync-realms.conf
@@ -530,6 +525,11 @@ commands are as follows:
 #. ``/etc/swift/container-server/1.conf``
 
    .. literalinclude:: /../saio/swift/container-server/1.conf
+      :language: ini
+
+#. ``/etc/swift/container-reconciler/1.conf``
+
+   .. literalinclude:: /../saio/swift/container-reconciler/1.conf
       :language: ini
 
 #. ``/etc/swift/object-server/1.conf``
@@ -547,6 +547,11 @@ commands are as follows:
    .. literalinclude:: /../saio/swift/container-server/2.conf
       :language: ini
 
+#. ``/etc/swift/container-reconciler/2.conf``
+
+   .. literalinclude:: /../saio/swift/container-reconciler/2.conf
+      :language: ini
+
 #. ``/etc/swift/object-server/2.conf``
 
    .. literalinclude:: /../saio/swift/object-server/2.conf
@@ -562,6 +567,11 @@ commands are as follows:
    .. literalinclude:: /../saio/swift/container-server/3.conf
       :language: ini
 
+#. ``/etc/swift/container-reconciler/3.conf``
+
+   .. literalinclude:: /../saio/swift/container-reconciler/3.conf
+      :language: ini
+
 #. ``/etc/swift/object-server/3.conf``
 
    .. literalinclude:: /../saio/swift/object-server/3.conf
@@ -575,6 +585,11 @@ commands are as follows:
 #. ``/etc/swift/container-server/4.conf``
 
    .. literalinclude:: /../saio/swift/container-server/4.conf
+      :language: ini
+
+#. ``/etc/swift/container-reconciler/4.conf``
+
+   .. literalinclude:: /../saio/swift/container-reconciler/4.conf
       :language: ini
 
 #. ``/etc/swift/object-server/4.conf``
