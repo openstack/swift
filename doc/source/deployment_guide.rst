@@ -668,7 +668,7 @@ The following settings should be in ``/etc/sysctl.conf``::
     net.ipv4.tcp_syncookies = 0
 
     # double amount of allowed conntrack
-    net.ipv4.netfilter.ip_conntrack_max = 262144
+    net.netfilter.nf_conntrack_max = 262144
 
 To load the updated sysctl settings, run ``sudo sysctl -p``.
 
