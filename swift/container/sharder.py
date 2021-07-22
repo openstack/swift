@@ -1707,7 +1707,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
         self.logger.info(
             'Replicating new shard container %s for %s',
-            quote(shard_broker.path), shard_broker.get_own_shard_range())
+            quote(shard_broker.path), own_shard_range)
 
         success, responses = self._replicate_object(
             shard_part, shard_broker.db_file, node_id)
