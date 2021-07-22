@@ -34,9 +34,13 @@ not have any particular bugs that trigger creation of dark data. So,
 this is an excercise in writing watchers, with a plausible function.
 
 When enabled, Dark Data watcher definitely drags down the cluster's overall
-performance. Of course, the load increase can be
-mitigated as usual, but at the expense of the total time taken by
-the pass of auditor.
+performance. Of course, the load increase can be mitigated as usual,
+but at the expense of the total time taken by the pass of auditor.
+
+Because the watcher only deems an object dark when all container
+servers agree, it will silently fail to detect anything if even one
+of container servers in the ring is down or unreacheable. This is
+done in the interest of operators who run with action=delete.
 
 Finally, keep in mind that Dark Data watcher needs the container
 ring to operate, but runs on an object node. This can come up if
@@ -152,7 +156,7 @@ def get_info_1(container_ring, obj_path, logger):
     # to a crawl (if this plugin is enabled).
     random.shuffle(container_nodes)
 
-    dark_flag = 0
+    err_flag = 0
     for node in container_nodes:
         try:
             headers, objs = direct_get_container(
@@ -160,17 +164,12 @@ def get_info_1(container_ring, obj_path, logger):
                 prefix=obj_name, limit=1)
         except (ClientException, Timeout):
             # Something is wrong with that server, treat as an error.
+            err_flag += 1
             continue
-        if not objs or objs[0]['name'] != obj_name:
-            dark_flag += 1
-            continue
-        return objs[0]
+        if objs and objs[0]['name'] == obj_name:
+            return objs[0]
 
-    # We do not ask for a quorum of container servers to know the object.
-    # Even if 1 server knows the object, we return with the info above.
-    # So, we only end here when all servers either have no record of the
-    # object or error out. In such case, even one non-error server means
-    # that the object is dark.
-    if dark_flag:
-        return None
-    raise ContainerError()
+    # We only report the object as dark if all known servers agree that it is.
+    if err_flag:
+        raise ContainerError()
+    return None

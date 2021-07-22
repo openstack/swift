@@ -38,6 +38,7 @@ from swift.obj.diskfile import (
     DiskFile, write_metadata, invalidate_hash, get_data_dir,
     DiskFileManager, ECDiskFileManager, AuditLocation, clear_auditor_status,
     get_auditor_status, HASH_FILE, HASH_INVALIDATIONS_FILE)
+from swift.common.exceptions import ClientException
 from swift.common.utils import (
     mkdirs, normalize_timestamp, Timestamp, readconf, md5, PrefixLoggerAdapter)
 from swift.common.storage_policy import (
@@ -88,6 +89,26 @@ class FakeRing1(object):
                  'id': x,
                  'handoff_index': 1}
         return (1, [node1])
+
+
+class FakeRing2(object):
+
+    def __init__(self, swift_dir, ring_name=None):
+        return
+
+    def get_nodes(self, *args, **kwargs):
+        nodes = []
+        for x in [1, 2]:
+            nodes.append({'ip': '10.0.0.%s' % x,
+                          'replication_ip': '10.0.0.%s' % x,
+                          'port': 6200 + x,
+                          'replication_port': 6200 + x,
+                          'device': 'sda',
+                          'zone': x % 3,
+                          'region': x % 2,
+                          'id': x,
+                          'handoff_index': 1})
+        return (1, nodes)
 
 
 class TestAuditorBase(unittest.TestCase):
@@ -1776,6 +1797,7 @@ class TestAuditWatchers(TestAuditorBase):
             log_lines)
 
         self.logger.clear()
+
         # with grace_age=0 the DARK object will be older than
         # grace_age so will be logged
         ret_config = {'test_watcher1': {'action': 'log', 'grace_age': '0'}}
@@ -1816,6 +1838,101 @@ class TestAuditWatchers(TestAuditorBase):
         self.assertEqual(self.logger, watcher.logger)
         self.assertEqual(0, watcher.grace_age)
         self.assertEqual('log', watcher.dark_data_policy)
+
+    def test_dark_data_agreement(self):
+
+        # The dark data watcher only sees an object as dark if all container
+        # servers in the ring reply without an error and return an empty
+        # listing. So, we have the following permutations for an object:
+        #
+        #      Container Servers         Result
+        #      CS1         CS2
+        #      Listed      Listed        Good - the baseline result
+        #      Listed      Error         Good
+        #      Listed      Not listed    Good
+        #      Error       Error         Unknown - the baseline failure
+        #      Not listed  Error         Unknown
+        #      Not listed  Not listed    Dark - the only such result!
+        #
+        scenario = [
+            {'cr': ['L', 'L'], 'res': 'G'},
+            {'cr': ['L', 'E'], 'res': 'G'},
+            {'cr': ['L', 'N'], 'res': 'G'},
+            {'cr': ['E', 'E'], 'res': 'U'},
+            {'cr': ['N', 'E'], 'res': 'U'},
+            {'cr': ['N', 'N'], 'res': 'D'}]
+
+        conf = self.conf.copy()
+        conf['watchers'] = 'test_watcher1'
+        conf['__file__'] = '/etc/swift/swift.conf'
+        ret_config = {'test_watcher1': {'action': 'log', 'grace_age': '0'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[DarkDataWatcher]):
+            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+
+        for cur in scenario:
+
+            def fake_direct_get_container(node, part, account, container,
+                                          prefix=None, limit=None):
+                self.assertEqual(part, 1)
+                self.assertEqual(limit, 1)
+
+                reply_type = cur['cr'][int(node['id']) - 1]
+
+                if reply_type == 'E':
+                    raise ClientException("Emulated container server error")
+
+                if reply_type == 'N':
+                    return {}, []
+
+                entry = {'bytes': 30968411,
+                         'hash': '60303f4122966fe5925f045eb52d1129',
+                         'name': '%s' % prefix,
+                         'content_type': 'video/mp4',
+                         'last_modified': '2017-08-15T03:30:57.693210'}
+                return {}, [entry]
+
+            self.logger.clear()
+
+            namespace = 'swift.obj.watchers.dark_data.'
+            with mock.patch(namespace + 'Ring', FakeRing2), \
+                    mock.patch(namespace + 'direct_get_container',
+                               fake_direct_get_container):
+                my_auditor.run_audit(mode='once')
+
+            # We inherit a common setUp with 3 objects, so 3 everywhere.
+            if cur['res'] == 'U':
+                unk_exp, ok_exp, dark_exp = 3, 0, 0
+            elif cur['res'] == 'G':
+                unk_exp, ok_exp, dark_exp = 0, 3, 0
+            else:
+                unk_exp, ok_exp, dark_exp = 0, 0, 3
+
+            log_lines = self.logger.get_lines_for_level('info')
+            for line in log_lines:
+
+                if not line.startswith('[audit-watcher test_watcher1] total'):
+                    continue
+                words = line.split()
+                if not (words[3] == 'unknown' and
+                        words[5] == 'ok' and
+                        words[7] == 'dark'):
+                    unittest.TestCase.fail('Syntax error in %r' % (line,))
+
+                try:
+                    unk_cnt = int(words[4])
+                    ok_cnt = int(words[6])
+                    dark_cnt = int(words[8])
+                except ValueError:
+                    unittest.TestCase.fail('Bad value in %r' % (line,))
+
+            if unk_cnt != unk_exp or ok_cnt != ok_exp or dark_cnt != dark_exp:
+                fmt = 'Expected unknown %d ok %d dark %d, got %r, for nodes %r'
+                msg = fmt % (unk_exp, ok_exp, dark_exp,
+                             ' '.join(words[3:]), cur['cr'])
+                self.fail(msg=msg)
 
 
 if __name__ == '__main__':
