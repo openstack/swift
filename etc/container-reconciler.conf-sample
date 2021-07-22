@@ -60,6 +60,16 @@
 # Number of objects to process concurrently per process
 # concurrency = 1
 
+# processes is how many parts to divide the work into, one part per process
+# that will be doing the work
+# processes set 0 means that a single process will be doing all the work
+# processes = 0
+#
+# process is which of the parts a particular process will work on
+# process is "zero based", if you want to use 3 processes, you should run
+# processes with process set to 0, 1, and 2
+# process = 0
+
 [pipeline:main]
 # Note that the reconciler's pipeline is intentionally very sparse -- it is
 # only responsible for moving data from one policy to another and should not

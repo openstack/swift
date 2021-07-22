@@ -31,7 +31,7 @@ from swift.common.request_helpers import MISPLACED_OBJECTS_ACCOUNT, \
     USE_REPLICATION_NETWORK_HEADER
 from swift.common.utils import get_logger, split_path, majority_size, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
-    LRUCache, decode_timestamps
+    LRUCache, decode_timestamps, hash_path
 from swift.common.storage_policy import POLICIES
 
 MISPLACED_OBJECTS_CONTAINER_DIVISOR = 3600  # 1 hour
@@ -381,6 +381,17 @@ class ContainerReconciler(Daemon):
         self.concurrency = int(conf.get('concurrency', 1))
         if self.concurrency < 1:
             raise ValueError("concurrency must be set to at least 1")
+        self.processes = int(self.conf.get('processes', 0))
+        if self.processes < 0:
+            raise ValueError(
+                'processes must be an integer greater than or equal to 0')
+        self.process = int(self.conf.get('process', 0))
+        if self.process < 0:
+            raise ValueError(
+                'process must be an integer greater than or equal to 0')
+        if self.processes and self.process >= self.processes:
+            raise ValueError(
+                'process must be less than processes')
 
     def stats_log(self, metric, msg, *args, **kwargs):
         """
@@ -773,6 +784,19 @@ class ContainerReconciler(Daemon):
                 MISPLACED_OBJECTS_ACCOUNT, container,
                 acceptable_statuses=(2, 404, 409, 412))
 
+    def should_process(self, queue_item):
+        """
+        Check if a given entry should be handled by this process.
+
+        :param container: the queue container
+        :param queue_item: an entry from the queue
+        """
+        if not self.processes:
+            return True
+        hexdigest = hash_path(
+            queue_item['account'], queue_item['container'], queue_item['obj'])
+        return int(hexdigest, 16) % self.processes == self.process
+
     def process_queue_item(self, q_container, q_entry, queue_item):
         """
         Process an entry and remove from queue on success.
@@ -806,8 +830,9 @@ class ContainerReconciler(Daemon):
                                    'invalid queue record: %r', raw_obj,
                                    level=logging.ERROR, exc_info=True)
                     continue
-                pool.spawn_n(self.process_queue_item,
-                             container, raw_obj['name'], queue_item)
+                if self.should_process(queue_item):
+                    pool.spawn_n(self.process_queue_item,
+                                 container, raw_obj['name'], queue_item)
             self.log_stats()
         pool.waitall()
 
