@@ -731,3 +731,9 @@ class UserKeyMustBeSpecified(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'The bucket POST must contain the specified field name. If it is ' \
            'specified, please check the order of the fields.'
+
+
+class BrokenMPU(ErrorResponse):
+    # This is very much a Swift-ism, and we wish we didn't need it
+    _status = '409 Conflict'
+    _msg = 'Multipart upload has broken segment data.'

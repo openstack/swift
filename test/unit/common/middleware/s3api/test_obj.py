@@ -307,6 +307,9 @@ class TestS3ApiObj(S3ApiTestCase):
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
         self.assertEqual(code, 'ServiceUnavailable')
+        code = self._test_method_error('GET', '/bucket/object',
+                                       swob.HTTPConflict)
+        self.assertEqual(code, 'BrokenMPU')
 
         code = self._test_method_error(
             'GET', '/bucket/object',

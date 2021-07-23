@@ -55,7 +55,7 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     MissingContentLength, InvalidStorageClass, S3NotImplemented, InvalidURI, \
     MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, \
     BadDigest, AuthorizationHeaderMalformed, SlowDown, \
-    AuthorizationQueryParametersError, ServiceUnavailable
+    AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU
 from swift.common.middleware.s3api.exception import NotS3Request, \
     BadSwiftRequest
 from swift.common.middleware.s3api.utils import utf8encode, \
@@ -1405,6 +1405,9 @@ class S3Request(swob.Request):
             if self.conf.ratelimit_as_client_error:
                 raise SlowDown(status='429 Slow Down')
             raise SlowDown()
+        if resp.status_int == HTTP_CONFLICT:
+            # TODO: validate that this actually came up out of SLO
+            raise BrokenMPU()
 
         raise InternalError('unexpected status code %d' % status)
 
