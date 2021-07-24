@@ -178,7 +178,8 @@ class KeystoneAuth(object):
             config_read_reseller_options(conf,
                                          dict(operator_roles=['admin',
                                                               'swiftoperator'],
-                                              service_roles=[]))
+                                              service_roles=[],
+                                              project_reader_roles=[]))
         self.reseller_admin_role = conf.get('reseller_admin_role',
                                             'ResellerAdmin').lower()
         self.system_reader_roles = {role.lower() for role in list_from_csv(
@@ -418,15 +419,14 @@ class KeystoneAuth(object):
         user_service_roles = [r.lower() for r in env_identity.get(
                               'service_roles', [])]
 
-        # Give unconditional access to a user with the reseller_admin
-        # role.
+        # Give unconditional access to a user with the reseller_admin role.
         if self.reseller_admin_role in user_roles:
             msg = 'User %s has reseller admin authorizing'
             self.logger.debug(msg, tenant_id)
             req.environ['swift_owner'] = True
             return
 
-        # The system_reader_role is almost as good as reseller_admin.
+        # Being in system_reader_roles is almost as good as reseller_admin.
         if self.system_reader_roles.intersection(user_roles):
             # Note that if a system reader is trying to write, we're letting
             # the request fall on other access checks below. This way,
@@ -500,6 +500,20 @@ class KeystoneAuth(object):
                                                 have_service_role)))
             req.environ['swift_owner'] = True
             return
+
+        # The project_reader_roles is almost as good as operator_roles. But
+        # it does not work with service tokens and does not get 'swift_owner'.
+        # And, it only serves GET requests, obviously.
+        project_reader_roles = self.account_rules[account_prefix][
+            'project_reader_roles']
+        have_reader_role = set(project_reader_roles).intersection(
+            set(user_roles))
+        if have_reader_role:
+            if req.method in ('GET', 'HEAD'):
+                msg = 'User %s with role(s) %s has project reader authorizing'
+                self.logger.debug(msg, tenant_id,
+                                  ','.join(project_reader_roles))
+                return
 
         if acl_authorized is not None:
             return self.denied_response(req)
