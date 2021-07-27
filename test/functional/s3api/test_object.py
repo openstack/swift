@@ -158,6 +158,13 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(get_error_code(body), 'NoSuchBucket')
         self.assertEqual(headers['content-type'], 'application/xml')
 
+    def test_put_object_name_too_long(self):
+        status, headers, body = self.conn.make_request(
+            'PUT', self.bucket,
+            'x' * (tf.cluster_info['swift']['max_object_name_length'] + 1))
+        self.assertEqual(get_error_code(body), 'KeyTooLongError')
+        self.assertEqual(headers['content-type'], 'application/xml')
+
     def test_put_object_copy_error(self):
         obj = 'object'
         self.conn.make_request('PUT', self.bucket, obj)

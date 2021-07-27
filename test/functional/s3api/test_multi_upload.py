@@ -475,6 +475,12 @@ class TestS3ApiMultiUpload(S3ApiBase):
             self.conn.make_request('POST', 'nothing', key, query=query)
         self.assertEqual(get_error_code(body), 'NoSuchBucket')
 
+        status, resp_headers, body = self.conn.make_request(
+            'POST', bucket,
+            'x' * (tf.cluster_info['swift']['max_object_name_length'] + 1),
+            query=query)
+        self.assertEqual(get_error_code(body), 'KeyTooLongError')
+
     def test_list_multi_uploads_error(self):
         bucket = 'bucket'
         self.conn.make_request('PUT', bucket)

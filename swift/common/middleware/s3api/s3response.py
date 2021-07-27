@@ -503,7 +503,7 @@ class InvalidURI(ErrorResponse):
         ErrorResponse.__init__(self, msg, uri=uri, *args, **kwargs)
 
 
-class KeyTooLong(ErrorResponse):
+class KeyTooLongError(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'Your key is too long.'
 
