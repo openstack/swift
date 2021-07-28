@@ -4226,6 +4226,53 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         with df.open(), open(df._data_file, 'rb') as fp:
             self.assertEqual(b'dataB', fp.read())
 
+    def test_disk_file_concurrent_marked_durable(self):
+        ts = self.ts()
+
+        def threadA(df, events, errors):
+            try:
+                with df.create() as writer:
+                    writer.write(b'dataA')
+                    writer.put({
+                        'X-Timestamp': ts.internal,
+                        'Content-Length': 5,
+                    })
+                    events[0].set()
+                    events[1].wait()
+                    writer.commit(ts)
+            except Exception as e:
+                errors.append(e)
+                raise
+
+        def threadB(df, events, errors):
+            try:
+                events[0].wait()
+                # Mark it durable just like in ssync_receiver
+                with df.create() as writer:
+                    writer.commit(ts)
+                events[1].set()
+            except Exception as e:
+                errors.append(e)
+                raise
+
+        df = self._simple_get_diskfile()
+        events = [threading.Event(), threading.Event()]
+        errors = []
+
+        threads = [threading.Thread(target=tgt, args=(df, events, errors))
+                   for tgt in (threadA, threadB)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertFalse(errors)
+
+        with df.open(), open(df._data_file, 'rb') as fp:
+            if df.policy.policy_type == EC_POLICY:
+                # Confirm that it really *was* marked durable
+                self.assertTrue(df._data_file.endswith('#d.data'))
+            self.assertEqual(b'dataA', fp.read())
+
     def test_disk_file_concurrent_delete(self):
         def threadA(df, events, errors):
             try:

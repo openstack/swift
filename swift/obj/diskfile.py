@@ -3153,8 +3153,8 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                     durables = results.get('durable_frag_set', [])
                     if ts_info and ts_info['timestamp'] > timestamp:
                         return
-                    elif any(frag_set['timestamp'] > timestamp
-                             for frag_set in durables):
+                    elif any(frag['timestamp'] >= timestamp
+                             for frag in durables):
                         return
 
                 if err.errno not in (errno.ENOSPC, errno.EDQUOT):
