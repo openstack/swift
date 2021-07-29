@@ -17,6 +17,7 @@ import copy
 import json
 
 from swift.common.constraints import MAX_OBJECT_NAME_LENGTH
+from swift.common.http import HTTP_NO_CONTENT
 from swift.common.utils import public, StreamingPile, get_swift_info
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
@@ -127,8 +128,11 @@ class MultiObjectDeleteController(Controller):
 
                 resp = req.get_response(self.app, method='DELETE', query=query,
                                         headers={'Accept': 'application/json'})
-                # Have to read the response to actually do the SLO delete
-                if query.get('multipart-manifest'):
+                # If async segment cleanup is available, we expect to get
+                # back a 204; otherwise, the delete is synchronous and we
+                # have to read the response to actually do the SLO delete
+                if query.get('multipart-manifest') and \
+                        resp.status_int != HTTP_NO_CONTENT:
                     try:
                         delete_result = json.loads(resp.body)
                         if delete_result['Errors']:
