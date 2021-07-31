@@ -682,13 +682,15 @@ class Container(Base):
                                       parms=parms) in allowed_codes
 
     def delete_files(self, tolerate_missing=False):
-        for f in listing_items(functools.partial(
-                self.files, tolerate_missing=tolerate_missing)):
+        partialed_files = functools.partial(
+            self.files, tolerate_missing=tolerate_missing)
+
+        for f in listing_items(partialed_files):
             file_item = self.file(f)
             if not file_item.delete(tolerate_missing=True):
                 return False
 
-        return listing_empty(self.files)
+        return listing_empty(partialed_files)
 
     def delete_recursive(self):
         return self.delete_files(tolerate_missing=True) and \
