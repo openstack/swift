@@ -62,14 +62,14 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
 
     @s3acl
     def test_object_multi_DELETE(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key3',
-                            swob.HTTPOk,
-                            {'x-static-large-object': 'True'},
-                            None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
                             swob.HTTPNoContent, {}, None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
                             swob.HTTPNotFound, {}, None)
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key3',
+                            swob.HTTPOk,
+                            {'x-static-large-object': 'True'},
+                            None)
         slo_delete_resp = {
             'Number Not Found': 0,
             'Response Status': '200 OK',
@@ -79,9 +79,16 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         }
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key3',
                             swob.HTTPOk, {}, json.dumps(slo_delete_resp))
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key4',
+                            swob.HTTPOk,
+                            {'x-static-large-object': 'True',
+                             'x-object-sysmeta-s3api-etag': 'some-etag'},
+                            None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key4',
+                            swob.HTTPNoContent, {}, None)
 
         elem = Element('Delete')
-        for key in ['Key1', 'Key2', 'Key3']:
+        for key in ['Key1', 'Key2', 'Key3', 'Key4']:
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
@@ -99,7 +106,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
 
         elem = fromstring(body)
-        self.assertEqual(len(elem.findall('Deleted')), 3)
+        self.assertEqual(len(elem.findall('Deleted')), 4)
+        self.assertEqual(len(elem.findall('Error')), 0)
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket/Key1?symlink=get'),
@@ -108,6 +116,9 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             ('DELETE', '/v1/AUTH_test/bucket/Key2'),
             ('HEAD', '/v1/AUTH_test/bucket/Key3?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/Key3?multipart-manifest=delete'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key4?symlink=get'),
+            ('DELETE',
+             '/v1/AUTH_test/bucket/Key4?async=on&multipart-manifest=delete'),
         ])
 
     @s3acl

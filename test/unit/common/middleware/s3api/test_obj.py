@@ -1572,7 +1572,7 @@ class TestS3ApiObj(S3ApiTestCase):
                              'x-object-sysmeta-s3api-etag': 's3-style-etag'},
                             None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object',
-                            swob.HTTPOk, {}, '<SLO delete results>')
+                            swob.HTTPNoContent, {}, '')
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'Authorization': 'AWS test:tester:hmac',
