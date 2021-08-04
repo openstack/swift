@@ -3415,6 +3415,12 @@ class TestContainerController(unittest.TestCase):
             self.assertIn('X-Backend-Record-Type', resp.headers)
             self.assertEqual(
                 'object', resp.headers.pop('X-Backend-Record-Type'))
+            self.assertEqual(
+                str(POLICIES.default.idx),
+                resp.headers.pop('X-Backend-Storage-Policy-Index'))
+            self.assertEqual(
+                str(POLICIES.default.idx),
+                resp.headers.pop('X-Backend-Record-Storage-Policy-Index'))
             resp.headers.pop('Content-Length')
             return resp
 
@@ -3430,6 +3436,11 @@ class TestContainerController(unittest.TestCase):
             self.assertIn('X-Backend-Record-Type', resp.headers)
             self.assertEqual(
                 'shard', resp.headers.pop('X-Backend-Record-Type'))
+            self.assertEqual(
+                str(POLICIES.default.idx),
+                resp.headers.pop('X-Backend-Storage-Policy-Index'))
+            self.assertNotIn('X-Backend-Record-Storage-Policy-Index',
+                             resp.headers)
             resp.headers.pop('Content-Length')
             return resp
 
@@ -4238,6 +4249,119 @@ class TestContainerController(unittest.TestCase):
         req.accept = 'application/xml*'
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 406)
+
+    @patch_policies([
+        StoragePolicy(0, name='nulo', is_default=True),
+        StoragePolicy(1, name='unu'),
+        StoragePolicy(2, name='du'),
+    ])
+    def test_GET_objects_of_different_policies(self):
+        # make a container
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                                    'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+        resp_policy_idx = resp.headers['X-Backend-Storage-Policy-Index']
+        self.assertEqual(resp_policy_idx, str(POLICIES.default.idx))
+
+        pol_def_objs = ['obj_default_%d' % i for i in range(11)]
+        pol_1_objs = ['obj_1_%d' % i for i in range(10)]
+
+        # fill the container
+        for obj in pol_def_objs:
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % obj,
+                environ={
+                    'REQUEST_METHOD': 'PUT',
+                    'HTTP_X_TIMESTAMP': '1',
+                    'HTTP_X_CONTENT_TYPE': 'text/plain',
+                    'HTTP_X_ETAG': 'x',
+                    'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+
+        for obj in pol_1_objs:
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % obj,
+                environ={
+                    'REQUEST_METHOD': 'PUT',
+                    'HTTP_X_TIMESTAMP': '1',
+                    'HTTP_X_CONTENT_TYPE': 'text/plain',
+                    'HTTP_X_ETAG': 'x',
+                    'HTTP_X_SIZE': 0,
+                    'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': 1})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+
+        expected_pol_def_objs = [o.encode('utf8') for o in pol_def_objs]
+        expected_pol_1_objs = [o.encode('utf8') for o in pol_1_objs]
+
+        # By default the container server will return objects belonging to
+        # the brokers storage policy
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        result = [o for o in resp.body.split(b'\n') if o]
+        self.assertEqual(len(result), 11)
+        self.assertEqual(sorted(result), sorted(expected_pol_def_objs))
+        self.assertIn('X-Backend-Storage-Policy-Index', resp.headers)
+        self.assertEqual('0', resp.headers['X-Backend-Storage-Policy-Index'])
+        self.assertEqual('0',
+                         resp.headers['X-Backend-Record-Storage-Policy-Index'])
+
+        # If we specify the policy 0 idx we should get the same
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        req.headers['X-Backend-Storage-Policy-Index'] = POLICIES.default.idx
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        result = [o for o in resp.body.split(b'\n') if o]
+        self.assertEqual(len(result), 11)
+        self.assertEqual(sorted(result), sorted(expected_pol_def_objs))
+        self.assertIn('X-Backend-Storage-Policy-Index', resp.headers)
+        self.assertEqual('0', resp.headers['X-Backend-Storage-Policy-Index'])
+        self.assertEqual('0',
+                         resp.headers['X-Backend-Record-Storage-Policy-Index'])
+
+        # And if we specify a different idx we'll get objects for that policy
+        # and the X-Backend-Record-Storage-Policy-Index letting us know the
+        # policy for which these objects came from, if it differs from the
+        # policy stored in the DB.
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        req.headers['X-Backend-Storage-Policy-Index'] = 1
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        result = [o for o in resp.body.split(b'\n') if o]
+        self.assertEqual(len(result), 10)
+        self.assertEqual(sorted(result), sorted(expected_pol_1_objs))
+        self.assertIn('X-Backend-Storage-Policy-Index', resp.headers)
+        self.assertEqual('0', resp.headers['X-Backend-Storage-Policy-Index'])
+        self.assertEqual('1',
+                         resp.headers['X-Backend-Record-Storage-Policy-Index'])
+
+        # And an index that the broker doesn't have any objects for
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        req.headers['X-Backend-Storage-Policy-Index'] = 2
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        result = [o for o in resp.body.split(b'\n') if o]
+        self.assertEqual(len(result), 0)
+        self.assertFalse(result)
+        self.assertIn('X-Backend-Storage-Policy-Index', resp.headers)
+        self.assertEqual('0', resp.headers['X-Backend-Storage-Policy-Index'])
+        self.assertEqual('2',
+                         resp.headers['X-Backend-Record-Storage-Policy-Index'])
+
+        # And an index that doesn't exist in POLICIES
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        req.headers['X-Backend-Storage-Policy-Index'] = 3
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
 
     def test_GET_limit(self):
         # make a container

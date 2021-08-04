@@ -610,25 +610,30 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing')),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='', end_marker='ham\x00', limit=str(limit),
                   states='listing')),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1])))),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='\xd1\xb0', end_marker='\xf0\x9f\x8c\xb4\x00',
                   states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]
                                         + sr_objs[2])))),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='\xe2\xa8\x83', end_marker='', states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1] + sr_objs[2]
                                         + sr_objs[3])))),  # 200
@@ -653,13 +658,19 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing')),  # 200
-            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+            (shard_ranges[0].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='', end_marker='ham\x00', limit=str(limit),
                   states='listing')),  # 200
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+            (shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),  # 200
-            (root_range.name, {'X-Backend-Record-Type': 'object'},
+            (root_range.name,
+             {'X-Backend-Record-Type': 'object',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='p', end_marker='',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
         ]
@@ -685,27 +696,32 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing', reverse='true', limit='')),
             (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='', end_marker='\xf0\x9f\x8c\xb4', states='listing',
                   reverse='true', limit=str(limit))),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='\xf0\x9f\x8c\xb5', end_marker='\xe2\x98\x83',
                   states='listing', reverse='true',
                   limit=str(limit - len(sr_objs[4])))),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='\xe2\x98\x84', end_marker='pie', states='listing',
                   reverse='true',
                   limit=str(limit - len(sr_objs[4] + sr_objs[3])))),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='q', end_marker='ham', states='listing',
                   reverse='true',
                   limit=str(limit - len(sr_objs[4] + sr_objs[3]
                                         + sr_objs[2])))),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
-             {'X-Backend-Record-Type': 'auto'},
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='i', end_marker='', states='listing', reverse='true',
                   limit=str(limit - len(sr_objs[4] + sr_objs[3] + sr_objs[2]
                                         + sr_objs[1])))),  # 200
@@ -735,15 +751,18 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(limit=str(limit), states='listing')),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker='', end_marker='ham\x00', states='listing',
                   limit=str(limit))),
             (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
             (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
-             {'X-Backend-Record-Type': 'auto'},   # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},   # 200
              dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1])))),
         ]
@@ -771,15 +790,18 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(marker=marker, states='listing')),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker=marker, end_marker='\xf0\x9f\x8c\xb4\x00',
                   states='listing', limit=str(limit))),
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker=marker, end_marker='\xf0\x9f\x8c\xb4\x00',
                   states='listing', limit=str(limit))),
             (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker='\xe2\xa8\x83', end_marker='', states='listing',
                   limit=str(limit - len(sr_objs[3][2:])))),
         ]
@@ -809,28 +831,34 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(end_marker=end_marker, states='listing')),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker='', end_marker='ham\x00', states='listing',
                   limit=str(limit))),
             (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 404
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 404
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
             (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
             (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1])))),
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 404
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 404
              dict(marker='\xd1\xb0', end_marker=end_marker, states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]
                                         + sr_objs[2])))),
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker='\xd1\xb0', end_marker=end_marker, states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]
                                         + sr_objs[2])))),
@@ -856,7 +884,8 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(prefix=prefix, states='listing')),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 404
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 404
              dict(prefix=prefix, marker='', end_marker='pie\x00',
                   states='listing', limit=str(limit))),
         ]
@@ -877,7 +906,8 @@ class TestContainerController(TestRingBase):
              dict(states='listing', limit=str(limit),
                   marker=marker, end_marker=end_marker)),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker=marker, end_marker=end_marker, states='listing',
                   limit=str(limit))),
         ]
@@ -898,7 +928,8 @@ class TestContainerController(TestRingBase):
              dict(marker=end_marker, reverse='true', end_marker=marker,
                   limit=str(limit), states='listing',)),  # 200
             (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
-             {'X-Backend-Record-Type': 'auto'},  # 200
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
              dict(marker=end_marker, end_marker=marker, states='listing',
                   limit=str(limit), reverse='true')),
         ]
@@ -1720,28 +1751,160 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing')),  # 200
             # get first shard objects
-            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+            (shard_ranges[0].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='', end_marker='ham\x00', states='listing',
                   limit=str(limit))),  # 200
             # get second shard sub-shard ranges
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+            (shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
             # get first sub-shard objects
-            (sub_shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+            (sub_shard_ranges[0].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='h', end_marker='juice\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
             # get second sub-shard objects
-            (sub_shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+            (sub_shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='j', end_marker='lemon\x00', states='listing',
                   limit=str(limit - len(sr_objs[0] + sub_sr_objs[0])))),
             # get remainder of first shard objects
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'object'},
+            (shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'object',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='l', end_marker='pie\x00',
                   limit=str(limit - len(sr_objs[0] + sub_sr_objs[0] +
                                         sub_sr_objs[1])))),  # 200
             # get third shard objects
-            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
+            (shard_ranges[2].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='p', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
+        ]
+        expected_objects = (
+            sr_objs[0] + sub_sr_objs[0] + sub_sr_objs[1] +
+            sr_objs[1][len(sub_sr_objs[0] + sub_sr_objs[1]):] + sr_objs[2])
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests)
+        # root object count will overridden by actual length of listing
+        self.check_response(resp, root_resp_hdrs)
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', False, object_ring=FakeRing())
+    ])
+    def test_GET_sharded_container_sharding_shard_mixed_policies(self):
+        # scenario: one shard is in process of sharding, shards have different
+        # policy than root, expect listing to always request root policy index
+        shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
+        shard_ranges = [
+            ShardRange('.shards_a/c_' + upper, Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds]
+        sr_dicts = [dict(sr) for sr in shard_ranges]
+        sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
+        shard_resp_hdrs = [
+            {'X-Backend-Sharding-State': 'unsharded',
+             'X-Container-Object-Count': len(sr_objs[i]),
+             'X-Container-Bytes-Used':
+                 sum([obj['bytes'] for obj in sr_objs[i]]),
+             'X-Container-Meta-Flavour': 'flavour%d' % i,
+             'X-Backend-Storage-Policy-Index': 1,
+             'X-Backend-Record-Storage-Policy-Index': 0}
+            for i in range(3)]
+        shard_1_shard_resp_hdrs = dict(shard_resp_hdrs[1])
+        shard_1_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        # second shard is sharding and has cleaved two out of three sub shards
+        shard_resp_hdrs[1]['X-Backend-Sharding-State'] = 'sharding'
+        sub_shard_bounds = (('ham', 'juice'), ('juice', 'lemon'))
+        sub_shard_ranges = [
+            ShardRange('a/c_sub_' + upper, Timestamp.now(), lower, upper)
+            for lower, upper in sub_shard_bounds]
+        sub_sr_dicts = [dict(sr) for sr in sub_shard_ranges]
+        sub_sr_objs = [self._make_shard_objects(sr) for sr in sub_shard_ranges]
+        sub_shard_resp_hdrs = [
+            {'X-Backend-Sharding-State': 'unsharded',
+             'X-Container-Object-Count': len(sub_sr_objs[i]),
+             'X-Container-Bytes-Used':
+                 sum([obj['bytes'] for obj in sub_sr_objs[i]]),
+             'X-Container-Meta-Flavour': 'flavour%d' % i,
+             'X-Backend-Storage-Policy-Index': 1,
+             'X-Backend-Record-Storage-Policy-Index': 0}
+            for i in range(2)]
+
+        all_objects = []
+        for objects in sr_objs:
+            all_objects.extend(objects)
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        num_all_objects = len(all_objects)
+        limit = CONTAINER_LISTING_LIMIT
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Timestamp': '99',
+                          'X-Container-Object-Count': num_all_objects,
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Container-Meta-Flavour': 'peach',
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        mock_responses = [
+            # status, body, headers
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sub_sr_dicts + [sr_dicts[1]], shard_1_shard_resp_hdrs),
+            (200, sub_sr_objs[0], sub_shard_resp_hdrs[0]),
+            (200, sub_sr_objs[1], sub_shard_resp_hdrs[1]),
+            (200, sr_objs[1][len(sub_sr_objs[0] + sub_sr_objs[1]):],
+             shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2])
+        ]
+        # NB marker always advances to last object name
+        expected_requests = [
+            # get root shard ranges
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing')),  # 200
+            # get first shard objects
+            (shard_ranges[0].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='', end_marker='ham\x00', states='listing',
+                  limit=str(limit))),  # 200
+            # get second shard sub-shard ranges
+            (shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),
+            # get first sub-shard objects
+            (sub_shard_ranges[0].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='h', end_marker='juice\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),
+            # get second sub-shard objects
+            (sub_shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='j', end_marker='lemon\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sub_sr_objs[0])))),
+            # get remainder of second shard objects
+            (shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'object',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='l', end_marker='pie\x00',
+                  limit=str(limit - len(sr_objs[0] + sub_sr_objs[0] +
+                                        sub_sr_objs[1])))),  # 200
+            # get third shard objects
+            (shard_ranges[2].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
              dict(marker='p', end_marker='', states='listing',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
         ]
@@ -1926,6 +2089,88 @@ class TestContainerController(TestRingBase):
             [('delete', 'container/a/c', None, None),
              ('delete', 'shard-listing/a/c', None, None)],
             self.memcache.calls)
+
+    def test_get_from_shards_add_root_spi(self):
+        self._setup_shard_range_stubs()
+        shard_resp = mock.MagicMock(status_int=204, headers={})
+
+        def mock_get_container_listing(self_, req, *args, **kargs):
+            captured_hdrs.update(req.headers)
+            return None, shard_resp
+
+        # header in response -> header added to request
+        captured_hdrs = {}
+        req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+        resp = mock.MagicMock(body=self._stub_shards_dump,
+                              headers=self.root_resp_hdrs,
+                              request=req)
+        resp.headers['X-Backend-Storage-Policy-Index'] = '0'
+        with mock.patch('swift.proxy.controllers.container.'
+                        'ContainerController._get_container_listing',
+                        mock_get_container_listing):
+            controller_cls, d = self.app.get_controller(req)
+            controller = controller_cls(self.app, **d)
+            controller._get_from_shards(req, resp)
+
+        self.assertIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+        self.assertEqual(
+            captured_hdrs['X-Backend-Storage-Policy-Index'], '0')
+
+        captured_hdrs = {}
+        req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+        resp = mock.MagicMock(body=self._stub_shards_dump,
+                              headers=self.root_resp_hdrs,
+                              request=req)
+        resp.headers['X-Backend-Storage-Policy-Index'] = '1'
+        with mock.patch('swift.proxy.controllers.container.'
+                        'ContainerController._get_container_listing',
+                        mock_get_container_listing):
+            controller_cls, d = self.app.get_controller(req)
+            controller = controller_cls(self.app, **d)
+            controller._get_from_shards(req, resp)
+
+        self.assertIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+        self.assertEqual(
+            captured_hdrs['X-Backend-Storage-Policy-Index'], '1')
+
+        # header not added to request if not root request
+        captured_hdrs = {}
+        req = Request.blank('/v1/a/c',
+                            environ={
+                                'REQUEST_METHOD': 'GET',
+                                'swift.shard_listing_history': [('a', 'c')]}
+                            )
+        resp = mock.MagicMock(body=self._stub_shards_dump,
+                              headers=self.root_resp_hdrs,
+                              request=req)
+        resp.headers['X-Backend-Storage-Policy-Index'] = '0'
+        with mock.patch('swift.proxy.controllers.container.'
+                        'ContainerController._get_container_listing',
+                        mock_get_container_listing):
+            controller_cls, d = self.app.get_controller(req)
+            controller = controller_cls(self.app, **d)
+            controller._get_from_shards(req, resp)
+
+        self.assertNotIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+
+        # existing X-Backend-Storage-Policy-Index in request is respected
+        captured_hdrs = {}
+        req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+        req.headers['X-Backend-Storage-Policy-Index'] = '0'
+        resp = mock.MagicMock(body=self._stub_shards_dump,
+                              headers=self.root_resp_hdrs,
+                              request=req)
+        resp.headers['X-Backend-Storage-Policy-Index'] = '1'
+        with mock.patch('swift.proxy.controllers.container.'
+                        'ContainerController._get_container_listing',
+                        mock_get_container_listing):
+            controller_cls, d = self.app.get_controller(req)
+            controller = controller_cls(self.app, **d)
+            controller._get_from_shards(req, resp)
+
+        self.assertIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+        self.assertEqual(
+            captured_hdrs['X-Backend-Storage-Policy-Index'], '0')
 
     def test_GET_shard_ranges(self):
         self._setup_shard_range_stubs()
