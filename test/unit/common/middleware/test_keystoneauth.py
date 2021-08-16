@@ -1510,13 +1510,15 @@ class TestSetProjectDomain(BaseTestAuthorize):
                                         sysmeta_project_domain_id='test_id')
 
 
-class TestAuthorizeReader(BaseTestAuthorizeCheck):
+class TestAuthorizeReaderSystem(BaseTestAuthorizeCheck):
 
     system_reader_role_1 = 'compliance'
     system_reader_role_2 = 'integrity'
 
     # This cannot be in SetUp because it takes arguments from tests.
     def _setup(self, system_reader_roles):
+        # We could rifle in the KeystoneAuth internals and tweak the list,
+        # but to create the middleware fresh is a clean, future-resistant way.
         self.test_auth = keystoneauth.filter_factory(
             {}, system_reader_roles=system_reader_roles)(FakeApp())
         self.test_auth.logger = debug_logger()
@@ -1524,8 +1526,6 @@ class TestAuthorizeReader(BaseTestAuthorizeCheck):
     # Zero test: make sure that reader role has no default access
     # when not in the list of system_reader_roles[].
     def test_reader_none(self):
-        # We could rifle in the KeystoneAuth internals and tweak the list,
-        # but to create the middleware fresh is a clean, future-resistant way.
         self._setup(None)
         identity = self._get_identity(roles=[self.system_reader_role_1])
         self._check_authenticate(exception=HTTP_FORBIDDEN,
@@ -1569,10 +1569,44 @@ class TestAuthorizeReader(BaseTestAuthorizeCheck):
                                  env={'REQUEST_METHOD': 'PUT'})
 
 
+class TestAuthorizeReaderProject(BaseTestAuthorizeCheck):
+
+    project_reader_role_1 = 'rdr1'
+    project_reader_role_2 = 'rdr2'
+
+    # This cannot be in SetUp because it takes arguments from tests.
+    def _setup(self, project_reader_roles):
+        self.test_auth = keystoneauth.filter_factory(
+            {}, project_reader_roles=project_reader_roles)(FakeApp())
+        self.test_auth.logger = debug_logger()
+
+    # The project reader tests do not have a zero test because it literally
+    # is the same code as system reader tests already run. See above.
+
+    # Reading is what a reader does.
+    def test_reader_get(self):
+        self._setup("%s, %s" %
+                    (self.project_reader_role_1, self.project_reader_role_2))
+        identity = self._get_identity(roles=[self.project_reader_role_2])
+        self._check_authenticate(identity=identity)
+
+    # Writing would otherwise be allowed, but not for a reader.
+    def test_reader_put(self):
+        self._setup(self.project_reader_role_1)
+        identity = self._get_identity(roles=[self.project_reader_role_1])
+        self._check_authenticate(exception=HTTP_FORBIDDEN,
+                                 identity=identity,
+                                 env={'REQUEST_METHOD': 'PUT'})
+        self._check_authenticate(exception=HTTP_FORBIDDEN,
+                                 identity=identity,
+                                 env={'REQUEST_METHOD': 'POST'})
+
+
 class ResellerInInfo(unittest.TestCase):
 
     def setUp(self):
         self.default_rules = {'operator_roles': ['admin', 'swiftoperator'],
+                              'project_reader_roles': [],
                               'service_roles': []}
 
     def test_defaults(self):

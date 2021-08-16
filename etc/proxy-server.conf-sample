@@ -508,6 +508,11 @@ user_test5_tester5 = testing5 service
 # only do not modify the cluster.
 # By default the list of reader roles is empty.
 # system_reader_roles =
+#
+# This is a reader role scoped for a Keystone project.
+# An identity that has this role can read anything in a project, so it is
+# basically a swiftoperator, but read-only.
+# project_reader_roles =
 
 [filter:s3api]
 use = egg:swift#s3api
