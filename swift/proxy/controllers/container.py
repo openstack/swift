@@ -413,7 +413,16 @@ class ContainerController(Controller):
                     'Aborting listing from shards due to bad response: %r'
                     % all_resp_status)
                 return HTTPServiceUnavailable(request=req)
-
+            shard_policy = shard_resp.headers.get(
+                'X-Backend-Record-Storage-Policy-Index',
+                shard_resp.headers[policy_key]
+            )
+            if shard_policy != req.headers[policy_key]:
+                self.app.logger.error(
+                    'Aborting listing from shards due to bad shard policy '
+                    'index: %s (expected %s)',
+                    shard_policy, req.headers[policy_key])
+                return HTTPServiceUnavailable(request=req)
             self.app.logger.debug(
                 'Found %d objects in shard (state=%s), total = %d',
                 len(objs), sharding_state, len(objs) + len(objects))

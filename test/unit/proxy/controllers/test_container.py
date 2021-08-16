@@ -1184,15 +1184,19 @@ class TestContainerController(TestRingBase):
                           'X-Container-Object-Count': num_all_objects,
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Backend-Storage-Policy-Index': 0,
+                          'X-Backend-Record-Storage-Policy-Index': 0,
                           'X-Backend-Record-Type': 'shard',
                           }
         shard_resp_hdrs = {'X-Backend-Sharding-State': 'unsharded',
                            'X-Container-Object-Count': 2,
                            'X-Container-Bytes-Used': 4,
-                           'X-Backend-Storage-Policy-Index': 0}
+                           'X-Backend-Storage-Policy-Index': 0,
+                           'X-Backend-Record-Storage-Policy-Index': 0,
+                           }
         shrinking_resp_hdrs = {
             'X-Backend-Sharding-State': 'sharded',
             'X-Backend-Record-Type': 'shard',
+            'X-Backend-Storage-Policy-Index': 0
         }
         limit = CONTAINER_LISTING_LIMIT
 
@@ -1915,6 +1919,67 @@ class TestContainerController(TestRingBase):
             mock_responses, expected_objects, expected_requests)
         # root object count will overridden by actual length of listing
         self.check_response(resp, root_resp_hdrs)
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', False, object_ring=FakeRing())
+    ])
+    def test_GET_sharded_container_mixed_policies_error(self):
+        # scenario: shards have different policy than root, listing requests
+        # root policy index but shards not upgraded and respond with their own
+        # policy index
+        def do_test(shard_policy):
+            # only need first shard for this test...
+            sr = ShardRange('.shards_a/c_pie', Timestamp.now(), '', 'pie')
+            sr_objs = self._make_shard_objects(sr)
+            shard_resp_hdrs = {
+                'X-Backend-Sharding-State': 'unsharded',
+                'X-Container-Object-Count': len(sr_objs),
+                'X-Container-Bytes-Used':
+                    sum([obj['bytes'] for obj in sr_objs]),
+            }
+
+            if shard_policy is not None:
+                shard_resp_hdrs['X-Backend-Storage-Policy-Index'] = \
+                    shard_policy
+
+            size_all_objects = sum([obj['bytes'] for obj in sr_objs])
+            num_all_objects = len(sr_objs)
+            limit = CONTAINER_LISTING_LIMIT
+            root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                              'X-Backend-Timestamp': '99',
+                              'X-Container-Object-Count': num_all_objects,
+                              'X-Container-Bytes-Used': size_all_objects,
+                              'X-Container-Meta-Flavour': 'peach',
+                              # NB root policy 1 differes from shard policy
+                              'X-Backend-Storage-Policy-Index': 1}
+            root_shard_resp_hdrs = dict(root_resp_hdrs)
+            root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+            mock_responses = [
+                # status, body, headers
+                (200, [dict(sr)], root_shard_resp_hdrs),
+                (200, sr_objs, shard_resp_hdrs),
+            ]
+            # NB marker always advances to last object name
+            expected_requests = [
+                # get root shard ranges
+                ('a/c', {'X-Backend-Record-Type': 'auto'},
+                 dict(states='listing')),  # 200
+                # get first shard objects
+                (sr.name,
+                 {'X-Backend-Record-Type': 'auto',
+                  'X-Backend-Storage-Policy-Index': '1'},
+                 dict(marker='', end_marker='pie\x00', states='listing',
+                      limit=str(limit))),  # 200
+                # error to client; no request for second shard objects
+            ]
+            self._check_GET_shard_listing(
+                mock_responses, [], expected_requests,
+                expected_status=503)
+
+        do_test(0)
+        do_test(None)
 
     def _build_request(self, headers, params, infocache=None):
         # helper to make a GET request with caches set in environ
