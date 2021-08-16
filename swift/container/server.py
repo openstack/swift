@@ -768,16 +768,22 @@ class ContainerController(BaseStorageServer):
                 include_deleted=include_deleted, fill_gaps=fill_gaps,
                 include_own=include_own)
         else:
+            requested_policy_index = self.get_and_validate_policy_index(req)
             resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
             if is_deleted:
                 return HTTPNotFound(request=req, headers=resp_headers)
             resp_headers['X-Backend-Record-Type'] = 'object'
+            storage_policy_index = (
+                requested_policy_index if requested_policy_index is not None
+                else info['storage_policy_index'])
+            resp_headers['X-Backend-Record-Storage-Policy-Index'] = \
+                storage_policy_index
             # Use the retired db while container is in process of sharding,
             # otherwise use current db
             src_broker = broker.get_brokers()[0]
             container_list = src_broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
-                storage_policy_index=info['storage_policy_index'],
+                storage_policy_index=storage_policy_index,
                 reverse=reverse, allow_reserved=req.allow_reserved_names)
         return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)

@@ -2285,7 +2285,9 @@ class Controller(object):
         :param req: original Request instance.
         :param account: account in which `container` is stored.
         :param container: container from which listing should be fetched.
-        :param headers: headers to be included with the request
+        :param headers: extra headers to be included with the listing
+            sub-request; these update the headers copied from the original
+            request.
         :param params: query string parameters to be used.
         :return: a tuple of (deserialized json data structure, swob Response)
         """
