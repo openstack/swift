@@ -648,6 +648,45 @@ aliases = %s
             self.assertRaises(SystemExit, recon.main)
             self.assertIn('Invalid Storage Policy', stdout.getvalue())
 
+    def test_calculate_least_and_most_recent(self):
+        now = 1517894596
+
+        def test_least_most(data, expected):
+            stdout = StringIO()
+            with mock.patch('sys.stdout', new=stdout), \
+                    mock.patch('time.time', return_value=now):
+                self.recon_instance._calculate_least_and_most_recent(data)
+            self.assertEqual(stdout.getvalue(), expected)
+
+        # first the empty set
+        test_least_most([], '')
+        expected = 'Oldest completion was NEVER by my.url.\n'
+        test_least_most([('http://my.url/is/awesome', 0)], expected)
+
+        expected = (
+            'Oldest completion was 2018-02-06 05:23:11 (5 seconds ago) '
+            'by my.url.\n'
+            'Most recent completion was 2018-02-06 05:23:11 (5 seconds ago) '
+            'by my.url.\n')
+        data = [('http://my.url/is/awesome', now - 5)]
+        test_least_most(data, expected)
+
+        expected = (
+            'Oldest completion was 2018-02-06 05:06:36 (16 minutes ago) '
+            'by a.diff.url.\n'
+            'Most recent completion was 2018-02-06 05:23:11 (5 seconds ago) '
+            'by my.url.\n')
+        data.append(('http://a.diff.url/not/as/awesome', now - 1000))
+        test_least_most(data, expected)
+
+        # now through larger sets at it
+        for extra in (5, 10, 40, 100):
+            data.extend([
+                ('http://extra.%d.url/blah' % (extra + r),
+                 now - random.randint(6, 999)) for r in range(extra)])
+            random.shuffle(data)
+            test_least_most(data, expected)
+
 
 class TestReconCommands(unittest.TestCase):
     def setUp(self):
@@ -1067,6 +1106,41 @@ class TestReconCommands(unittest.TestCase):
         cli.sharding_check([('127.0.0.1', 6011), ('127.0.0.1', 6021)])
         mock_print.assert_has_calls(default_calls, any_order=True)
 
+    @ mock.patch('six.moves.builtins.print')
+    @ mock.patch('time.time')
+    def test_reconstruction_check(self, mock_now, mock_print):
+        now = 1430000000.0
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6011/recon/reconstruction',
+                 {"object_reconstruction_last": now,
+                  "object_reconstruction_time": 42},
+                 200, 0, 0),
+                ('http://127.0.0.1:6021/recon/reconstruction',
+                 {"object_reconstruction_last": now,
+                  "object_reconstruction_time": 23},
+                 200, 0, 0)]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call('[object_reconstruction_time] low: 23, high: 42, '
+                      'avg: 32.5, total: 65, Failed: 0.0%, no_result: 0, '
+                      'reported: 2'),
+            mock.call('Oldest completion was 2015-04-25 22:13:20 ' +
+                      '(42 seconds ago) by 127.0.0.1:6011.'),
+            mock.call('Most recent completion was 2015-04-25 22:13:20 ' +
+                      '(42 seconds ago) by 127.0.0.1:6011.'),
+        ]
+
+        mock_now.return_value = now + 42
+        cli.reconstruction_check([('127.0.0.1', 6011), ('127.0.0.1', 6021)])
+        # We need any_order=True because the order of calls depends on the dict
+        # that is returned from the recon middleware, thus can't rely on it
+        mock_print.assert_has_calls(default_calls, any_order=True)
+
     @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_load_check(self, mock_now, mock_print):
@@ -1077,16 +1151,11 @@ class TestReconCommands(unittest.TestCase):
                 ('http://127.0.0.1:6010/recon/load',
                  {"1m": 0.2, "5m": 0.4, "15m": 0.25,
                   "processes": 10000, "tasks": "1/128"},
-                 200,
-                 0,
-                 0),
+                 200, 0, 0),
                 ('http://127.0.0.1:6020/recon/load',
                  {"1m": 0.4, "5m": 0.8, "15m": 0.75,
                   "processes": 9000, "tasks": "1/200"},
-                 200,
-                 0,
-                 0),
-            ]
+                 200, 0, 0)]
 
         cli = recon.SwiftRecon()
         cli.pool.imap = dummy_request

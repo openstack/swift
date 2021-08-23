@@ -168,6 +168,9 @@ class FakeRecon(object):
     def fake_relinker(self):
         return {"relinktest": "1"}
 
+    def fake_reconstruction(self):
+        return {'reconstructiontest': "1"}
+
     def fake_updater(self, recon_type):
         self.fake_updater_rtype = recon_type
         return {'updatertest': "1"}
@@ -807,6 +810,21 @@ class TestReconSuccess(TestCase):
         rv = self.app.get_replication_info('unrecognized_recon_type')
         self.assertIsNone(rv)
 
+    def test_get_reconstruction(self):
+        from_cache_response = {
+            "object_reconstruction_time": 0.2615511417388916,
+            "object_reconstruction_last": 1357969645.25}
+        self.fakecache.fakeout_calls = []
+        self.fakecache.fakeout = from_cache_response
+        rv = self.app.get_reconstruction_info()
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['object_reconstruction_last',
+                             'object_reconstruction_time'],
+                             '/var/cache/swift/object.recon'), {})])
+        self.assertEqual(rv, {
+            "object_reconstruction_time": 0.2615511417388916,
+            "object_reconstruction_last": 1357969645.25})
+
     def test_get_updater_info_container(self):
         from_cache_response = {"container_updater_sweep": 18.476239919662476}
         self.fakecache.fakeout_calls = []
@@ -1333,6 +1351,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.app.get_async_info = self.frecon.fake_async
         self.app.get_device_info = self.frecon.fake_get_device_info
         self.app.get_replication_info = self.frecon.fake_replication
+        self.app.get_reconstruction_info = self.frecon.fake_reconstruction
         self.app.get_auditor_info = self.frecon.fake_auditor
         self.app.get_updater_info = self.frecon.fake_updater
         self.app.get_expirer_info = self.frecon.fake_expirer
@@ -1379,6 +1398,13 @@ class TestReconMiddleware(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_device_resp)
+
+    def test_reconstruction_info(self):
+        get_reconstruction_resp = [b'{"reconstructiontest": "1"}']
+        req = Request.blank('/recon/reconstruction/object',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, get_reconstruction_resp)
 
     def test_recon_get_replication_notype(self):
         get_replication_resp = [b'{"replicationtest": "1"}']
