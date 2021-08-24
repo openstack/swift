@@ -46,7 +46,7 @@ RUN         mkdir /etc/swift && \
             echo && \
             echo && \
             echo "================   installing s6-overlay  ===================" && \
-            curl https://keybase.io/justcontainers/key.asc | gpg --import && \
+            gpg --import /opt/swift/docker/s6-gpg-pub-key && \
             gpg --verify /tmp/s6-overlay-$ARCH.tar.gz.sig /tmp/s6-overlay-$ARCH.tar.gz && \
             gunzip -c /tmp/s6-overlay-$ARCH.tar.gz | tar -xf - -C / && \
             gunzip -c /tmp/socklog-overlay-amd64.tar.gz | tar -xf - -C / && \
