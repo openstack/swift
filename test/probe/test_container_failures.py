@@ -14,8 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from os import listdir
-from os.path import join as path_join
 from unittest import main
 from uuid import uuid4
 
@@ -26,18 +24,11 @@ from swiftclient import client
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
-from swift.common.utils import hash_path, readconf
+from swift.common.utils import readconf
 from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server
 
 eventlet.monkey_patch(all=False, socket=True)
-
-
-def get_db_file_path(obj_dir):
-    files = sorted(listdir(obj_dir), reverse=True)
-    for filename in files:
-        if filename.endswith('db'):
-            return path_join(obj_dir, filename)
 
 
 class TestContainerFailures(ReplProbeTest):
@@ -154,23 +145,6 @@ class TestContainerFailures(ReplProbeTest):
             client.put_object(self.url, self.token, container1, 'obj3', 'x')
         self.assertEqual(caught.exception.http_status, 503)
 
-    def _get_container_db_files(self, container):
-        opart, onodes = self.container_ring.get_nodes(self.account, container)
-        onode = onodes[0]
-        db_files = []
-        for onode in onodes:
-            node_id = (onode['port'] % 100) // 10
-            device = onode['device']
-            hash_str = hash_path(self.account, container)
-            server_conf = readconf(self.configs['container-server'][node_id])
-            devices = server_conf['app:container-server']['devices']
-            obj_dir = '%s/%s/containers/%s/%s/%s/' % (devices,
-                                                      device, opart,
-                                                      hash_str[-3:], hash_str)
-            db_files.append(get_db_file_path(obj_dir))
-
-        return db_files
-
     def test_locked_container_dbs(self):
 
         def run_test(num_locks, catch_503):
@@ -179,7 +153,7 @@ class TestContainerFailures(ReplProbeTest):
             # Get the container info into memcache (so no stray
             # get_container_info calls muck up our timings)
             client.get_container(self.url, self.token, container)
-            db_files = self._get_container_db_files(container)
+            db_files = self.get_container_db_files(container)
             db_conns = []
             for i in range(num_locks):
                 db_conn = connect(db_files[i])

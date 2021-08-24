@@ -185,8 +185,9 @@ class AccountController(BaseStorageServer):
                     broker.initialize(timestamp.internal)
                 except DatabaseAlreadyExists:
                     pass
-            if req.headers.get('x-account-override-deleted', 'no').lower() != \
-                    'yes' and broker.is_deleted():
+            if (req.headers.get('x-account-override-deleted', 'no').lower() !=
+                    'yes' and broker.is_deleted()) \
+                    or not os.path.exists(broker.db_file):
                 return HTTPNotFound(request=req)
             broker.put_container(container, req.headers['x-put-timestamp'],
                                  req.headers['x-delete-timestamp'],

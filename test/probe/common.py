@@ -36,8 +36,8 @@ from swiftclient import get_auth, head_account, client
 from swift.common import internal_client, direct_client, utils
 from swift.common.direct_client import DirectClientException
 from swift.common.ring import Ring
-from swift.common.utils import readconf, renamer, \
-    rsync_module_interpolation, md5
+from swift.common.utils import hash_path, md5, \
+    readconf, renamer, rsync_module_interpolation
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.obj.diskfile import get_data_dir
@@ -582,6 +582,13 @@ class ProbeTest(unittest.TestCase):
         return daemon
 
 
+def _get_db_file_path(obj_dir):
+    files = sorted(os.listdir(obj_dir), reverse=True)
+    for filename in files:
+        if filename.endswith('db'):
+            return os.path.join(obj_dir, filename)
+
+
 class ReplProbeTest(ProbeTest):
 
     acct_cont_required_replicas = 3
@@ -624,6 +631,23 @@ class ReplProbeTest(ProbeTest):
                              expect_failure=False):
         return self.direct_container_op(direct_client.direct_get_container,
                                         account, container, expect_failure)
+
+    def get_container_db_files(self, container):
+        opart, onodes = self.container_ring.get_nodes(self.account, container)
+        onode = onodes[0]
+        db_files = []
+        for onode in onodes:
+            node_id = (onode['port'] % 100) // 10
+            device = onode['device']
+            hash_str = hash_path(self.account, container)
+            server_conf = readconf(self.configs['container-server'][node_id])
+            devices = server_conf['app:container-server']['devices']
+            obj_dir = '%s/%s/containers/%s/%s/%s/' % (devices,
+                                                      device, opart,
+                                                      hash_str[-3:], hash_str)
+            db_files.append(_get_db_file_path(obj_dir))
+
+        return db_files
 
 
 class ECProbeTest(ProbeTest):
