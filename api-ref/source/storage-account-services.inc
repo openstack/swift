@@ -363,3 +363,67 @@ Response Parameters
    - X-Account-Meta-Quota-Bytes: X-Account-Meta-Quota-Bytes_resp
    - X-Account-Access-Control: X-Account-Access-Control_resp
    - Content-Type: Content-Type_cud_resp
+
+
+Delete the specified account
+============================
+
+.. rest_method::  DELETE /v1/{account}
+
+Deletes the specified account when a reseller admin issues this request.
+Accounts are only deleted by (1) having a reseller admin level auth token (2)
+sending a DELETE to a proxy server for the account to be deleted and (3) that
+proxy server having the allow_account_management" config option set to true.
+
+Note that an issuing a DELETE request simply marks the account for deletion
+later as outlined in the link: https://docs.openstack.org/swift/latest/overview_reaper.html.
+
+Take care when performing this operation because deleting an account is a
+one-way operation that is not trivially recoverable. It's crucial to note that in
+an OpenStack context, you should delete an account after the project/tenant has been deleted from Keystone.
+
+
+::
+
+   curl -i $publicURL -X DELETE -H 'X-Auth-Token: $<reseller admin token>' 
+
+
+
+::
+
+   HTTP/1.1 204 No Content
+   Content-Length: 0
+   Content-Type: text/html; charset=UTF-8
+   X-Account-Status: Deleted
+   X-Trans-Id: tx91ce60a640cc42eca198a-006128c180
+   X-Openstack-Request-Id: tx91ce60a640cc42eca198a-006128c180
+   Date: Fri, 27 Aug 2021 11:42:08 GMT
+
+If the account or authentication token is not valid, the operation
+returns the ``Unauthorized (401)``. If you try to delete an account with a
+non-admin token, a ``403 Forbidden`` response code is returned.
+If you give a non-existent account or an invalid URL, a ``404 Not Found`` response code is returned.
+
+Error response codes:204,401,403,404.
+
+
+Request
+-------
+
+.. rest_parameters:: parameters.yaml
+
+   - account: account
+   - X-Auth-Token: X-Auth-Token
+
+Response Parameters
+-------------------
+
+.. rest_parameters:: parameters.yaml
+
+   - Date: Date
+   - X-Timestamp: X-Timestamp
+   - Content-Length: Content-Length_cud_resp
+   - Content-Type: Content-Type_cud_resp
+   - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
+
