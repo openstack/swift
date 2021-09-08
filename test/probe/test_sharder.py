@@ -28,8 +28,8 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.internal_client import UnexpectedResponse
 from swift.common.manager import Manager
 from swift.common.memcached import MemcacheRing
-from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
-    quorum_size, config_true_value, Timestamp, md5, Namespace
+from swift.common.utils import ShardRange, parse_db_filename, quorum_size, \
+    config_true_value, Timestamp, md5, Namespace
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED
 from swift.container.sharder import CleavingContext, ContainerSharder
@@ -244,9 +244,10 @@ class BaseTestContainerSharding(ReplProbeTest):
     def get_db_file(self, part, node, account=None, container=None):
         container_dir, container_hash = self.get_storage_dir(
             part, node, account=account, container=container)
-        db_file = os.path.join(container_dir, container_hash + '.db')
-        self.assertTrue(get_db_files(db_file))  # sanity check
-        return db_file
+        for f in os.listdir(container_dir):
+            path = os.path.join(container_dir, f)
+            if path.endswith('.db'):
+                return path
 
     def get_broker(self, part, node, account=None, container=None):
         return ContainerBroker(
@@ -259,10 +260,13 @@ class BaseTestContainerSharding(ReplProbeTest):
             shard_part, shard_nodes[node_index], shard_range.account,
             shard_range.container)
 
-    def categorize_container_dir_content(self, account=None, container=None):
+    def categorize_container_dir_content(self, account=None, container=None,
+                                         more_nodes=False):
         account = account or self.brain.account
         container = container or self.container_name
         part, nodes = self.brain.ring.get_nodes(account, container)
+        if more_nodes:
+            nodes.extend(self.brain.ring.get_more_nodes(part))
         storage_dirs = [
             self.get_storage_dir(part, node, account=account,
                                  container=container)[0]
@@ -4049,6 +4053,229 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertEqual(3,
                                  broker.get_shard_usage()['object_count'])
                 self.assertFalse(broker.is_deleted())
+
+    def test_handoff_replication_does_not_cause_reset_epoch(self):
+        obj_names = self._make_object_names(100)
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        # run replicators first time to get sync points set
+        self.replicators.once()
+
+        # sanity check: we don't have nearly enough objects for this to shard
+        # automatically
+        self.sharders_once_non_auto(
+            number=self.brain.node_numbers[0],
+            additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 0)
+
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '50', '--enable',
+            '--minimum-shard-size', '40'])
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 2)
+
+        # "Run container-replicator to replicate them to other nodes."
+        self.replicators.once()
+        # "Run container-sharder on all nodes to shard the container."
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+
+        # Everybody's settled
+        self.assert_container_state(self.brain.nodes[0], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[1], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[2], 'sharded', 2)
+        self.assert_container_listing(obj_names)
+
+        # now lets put the container again and make sure it lands on a handoff
+        self.brain.stop_primary_half()
+        self.brain.put_container(policy_index=int(self.policy))
+        self.brain.start_primary_half()
+
+        dir_content = self.categorize_container_dir_content(more_nodes=True)
+        # the handoff node is considered normal because it doesn't have an
+        # epoch
+        self.assertEqual(len(dir_content['normal_dbs']), 1)
+        self.assertEqual(len(dir_content['shard_dbs']), 3)
+
+        # let's replicate
+        self.replicators.once()
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+
+        # let's now check the handoff broker it should have all the shards
+        handoff_broker = ContainerBroker(dir_content['normal_dbs'][0])
+        self.assertEqual(len(handoff_broker.get_shard_ranges()), 2)
+        handoff_osr = handoff_broker.get_own_shard_range(no_default=True)
+        self.assertIsNotNone(handoff_osr.epoch)
+
+    def test_force_replication_of_a_reset_own_shard_range(self):
+        obj_names = self._make_object_names(100)
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        # run replicators first time to get sync points set
+        self.replicators.once()
+
+        # sanity check: we don't have nearly enough objects for this to shard
+        # automatically
+        self.sharders_once_non_auto(
+            number=self.brain.node_numbers[0],
+            additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 0)
+
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '50', '--enable',
+            '--minimum-shard-size', '40'])
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 2)
+
+        # "Run container-replicator to replicate them to other nodes."
+        self.replicators.once()
+        # "Run container-sharder on all nodes to shard the container."
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+
+        # Everybody's settled
+        self.assert_container_state(self.brain.nodes[0], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[1], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[2], 'sharded', 2)
+        self.assert_container_listing(obj_names)
+
+        # Lets delete a primary to simulate a new primary and force an
+        # own_shard_range reset.
+        new_primary = self.brain.nodes[2]
+        db_file = self.get_db_file(self.brain.part, new_primary)
+        os.remove(db_file)
+
+        # issue a new PUT to create the "new" primary container
+        self.brain.put_container(policy_index=int(self.policy))
+
+        # put a bunch of objects that should land in the primary so it'll be
+        # shardable (in case this makes any kind of difference).
+        self.put_objects(obj_names)
+
+        # The new primary isn't considered a shard_db because it hasn't
+        # sunk with the other primaries yet.
+        dir_content = self.categorize_container_dir_content()
+        self.assertEqual(len(dir_content['normal_dbs']), 1)
+        self.assertEqual(len(dir_content['shard_dbs']), 2)
+
+        # run the sharders incase this will trigger a reset osr
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+        new_primary_broker = self.get_broker(self.brain.part, new_primary)
+        # Nope, still no default/reset osr
+        self.assertIsNone(
+            new_primary_broker.get_own_shard_range(no_default=True))
+
+        # Let's reset the osr by hand.
+        reset_osr = new_primary_broker.get_own_shard_range()
+        self.assertIsNone(reset_osr.epoch)
+        self.assertEqual(reset_osr.state, ShardRange.ACTIVE)
+        new_primary_broker.merge_shard_ranges(reset_osr)
+
+        # now let's replicate with the old primaries
+        self.replicators.once()
+        # Pull an old primary own_shard_range
+        dir_content = self.categorize_container_dir_content()
+        old_broker = ContainerBroker(dir_content['shard_dbs'][0])
+        old_osr = old_broker.get_own_shard_range()
+        new_primary_broker = ContainerBroker(dir_content['normal_dbs'][0])
+        new_osr = new_primary_broker.get_own_shard_range()
+
+        # This version stops replicating a remote non-epoch osr over a local
+        # epoched osr. But it doesn't do the other way. So it means the
+        # primary with non-epoched OSR get's stuck with it, if it is newer then
+        # the other epoched versions.
+        self.assertIsNotNone(old_osr.epoch)
+        self.assertEqual(old_osr.state, ShardRange.SHARDED)
+
+        self.assertIsNone(new_osr.epoch)
+        self.assertGreater(new_osr.timestamp, old_osr.timestamp)
+
+    def test_manage_shard_ranges_missing_epoch_no_false_positives(self):
+        # when one replica of a shard is sharding before the others, it's epoch
+        # is not None but it is normal for the other replica to replicate to it
+        # sending their own shard ranges with epoch=None until they also shard
+        obj_names = self._make_object_names(4)
+        self.put_objects(obj_names)
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        # run replicators first time to get sync points set, and get container
+        # sharded into 4 shards
+        self.replicators.once()
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '2', '--enable'])
+        ranges = self.assert_container_state(
+            self.brain.nodes[0], 'unsharded', 2)
+
+        # "Run container-replicator to replicate them to other nodes."
+        self.replicators.once()
+        # "Run container-sharder on all nodes to shard the container."
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+        # Run them again, just so the shards themselves can pull down the
+        # latest sharded versions of their OSRs.
+        self.sharders_once_non_auto()
+
+        # Everybody's settled
+        self.assert_container_state(self.brain.nodes[0], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[1], 'sharded', 2)
+        ranges = self.assert_container_state(self.brain.nodes[2], 'sharded', 2)
+        self.assert_container_listing(obj_names)
+
+        # Now we need to shard a shard. A shard's OSR always exist and should
+        # have an epoch of None, so we should get some false positives.
+        # we'll shard ranges[1] which have a range of objs-0002 - MAX
+        shard_obj_names = ['objs-0001%d' % i for i in range(2)]
+        self.put_objects(shard_obj_names)
+
+        part, shard_node_numbers = self.get_part_and_node_numbers(ranges[1])
+        shard_nodes = self.brain.ring.get_part_nodes(part)
+        shard_broker = self.get_shard_broker(ranges[1], 0)
+        # set the account, container instance variables
+        shard_broker.get_info()
+        self.replicators.once()
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            shard_broker.db_file,
+            'find_and_replace', '2', '--enable'])
+        self.assert_container_state(
+            shard_nodes[0], 'unsharded', 2,
+            shard_broker.account, shard_broker.container, part)
+
+        # index 0 has an epoch now but 1 and 2 don't
+        for idx in 1, 2:
+            sb = self.get_shard_broker(ranges[1], idx)
+            osr = sb.get_own_shard_range(no_default=True)
+            self.assertIsNone(osr.epoch)
+
+        expected_false_positive_line_snippet = 'Ignoring remote osr w/o epoch:'
+        # run the replicator on the node with an epoch and it'll complain the
+        # others dont have an epoch and not set it.
+        replicator = self.run_custom_daemon(
+            ContainerReplicator, 'container-replicator',
+            shard_node_numbers[0], {})
+        warnings = replicator.logger.get_lines_for_level('warning')
+
+        self.assertFalse([w for w in warnings
+                          if expected_false_positive_line_snippet in w])
+
+        # But it does send the new OSR with an epoch so the others should all
+        # have it now.
+        for idx in 1, 2:
+            sb = self.get_shard_broker(ranges[1], idx)
+            osr = sb.get_own_shard_range(no_default=True)
+            self.assertIsNotNone(osr.epoch)
 
     def test_manage_shard_ranges_deleted_child_and_parent_gap(self):
         # Test to produce a scenario where a parent container is stuck at
