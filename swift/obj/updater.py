@@ -349,7 +349,9 @@ class ObjectUpdater(Daemon):
         """
         try:
             update = pickle.load(open(update_path, 'rb'))
-        except Exception:
+        except Exception as e:
+            if getattr(e, 'errno', None) == errno.ENOENT:
+                return
             self.logger.exception(
                 _('ERROR Pickle problem, quarantining %s'), update_path)
             self.stats.quarantines += 1
@@ -357,6 +359,13 @@ class ObjectUpdater(Daemon):
             target_path = os.path.join(device, 'quarantined', 'objects',
                                        os.path.basename(update_path))
             renamer(update_path, target_path, fsync=False)
+            try:
+                # If this was the last async_pending in the directory,
+                # then this will succeed. Otherwise, it'll fail, and
+                # that's okay.
+                os.rmdir(os.path.dirname(update_path))
+            except OSError:
+                pass
             return
 
         def do_update():
