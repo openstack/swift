@@ -1778,6 +1778,41 @@ class TestS3ApiObj(S3ApiTestCase):
             'Vary': 'Origin, Access-Control-Request-Headers',
         })
 
+        # test presigned urls
+        req = Request.blank(
+            '/bucket/cors-object?AWSAccessKeyId=test%3Atester&'
+            'Expires=1621558415&Signature=MKMdW3FpYcoFEJlTLF3EhP7AJgc%3D',
+            environ={'REQUEST_METHOD': 'OPTIONS'},
+            headers={'Origin': 'http://example.com',
+                     'Access-Control-Request-Method': 'PUT'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '200 OK')
+        self.assertDictEqual(headers, {
+            'Allow': 'GET, HEAD, PUT, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Origin': 'http://example.com',
+            'Access-Control-Allow-Methods': ('GET, HEAD, PUT, POST, DELETE, '
+                                             'OPTIONS'),
+            'Vary': 'Origin, Access-Control-Request-Headers',
+        })
+        req = Request.blank(
+            '/bucket/cors-object?X-Amz-Algorithm=AWS4-HMAC-SHA256&'
+            'X-Amz-Credential=test%3Atester%2F20210521%2Fus-east-1%2Fs3%2F'
+            'aws4_request&X-Amz-Date=20210521T003835Z&X-Amz-Expires=900&'
+            'X-Amz-Signature=e413549f2cbeddb457c5fddb2d28820ce58de514bb900'
+            '5d588800d7ebb1a6a2d&X-Amz-SignedHeaders=host',
+            environ={'REQUEST_METHOD': 'OPTIONS'},
+            headers={'Origin': 'http://example.com',
+                     'Access-Control-Request-Method': 'DELETE'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '200 OK')
+        self.assertDictEqual(headers, {
+            'Allow': 'GET, HEAD, PUT, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Origin': 'http://example.com',
+            'Access-Control-Allow-Methods': ('GET, HEAD, PUT, POST, DELETE, '
+                                             'OPTIONS'),
+            'Vary': 'Origin, Access-Control-Request-Headers',
+        })
+
         # Wrong protocol
         self.s3api.conf.cors_preflight_allow_origin = ['https://example.com']
         status, headers, body = self.call_s3api(req)

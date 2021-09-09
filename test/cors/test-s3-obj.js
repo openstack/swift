@@ -166,6 +166,31 @@ function makeTests (params) {
           .then(CheckTransactionIdHeaders)
           .then(HasNoBody)
       })],
+    ['presigned PUT then DELETE',
+      () => Promise.resolve('put-target-' + Math.random()).then((objectName) => {
+        return MakeRequest('PUT', service.getSignedUrl('putObject', {
+          Bucket: 'private-with-cors',
+          Key: objectName,
+          ContentType: 'application/octet-stream'
+          // Consciously go for an unsigned payload
+        }), {'Content-Type': 'application/octet-stream'}, 'test')
+          .then(HasStatus(200, 'OK'))
+          .then(CheckS3Headers)
+          .then(HasHeaders({
+            'Content-Type': 'text/html; charset=UTF-8',
+            Etag: '"098f6bcd4621d373cade4e832627b4f6"'
+          }))
+          .then(HasNoBody)
+          .then((resp) => {
+            return MakeRequest('DELETE', service.getSignedUrl('deleteObject', {
+              Bucket: 'private-with-cors',
+              Key: objectName
+            }))
+          })
+          .then(HasStatus(204, 'No Content'))
+          .then(CheckTransactionIdHeaders)
+          .then(HasNoBody)
+      })],
     ['GET If-Match matching',
       () => MakeS3Request(service, 'getObject', {
         Bucket: 'private-with-cors',
