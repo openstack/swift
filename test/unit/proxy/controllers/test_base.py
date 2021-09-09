@@ -1244,7 +1244,7 @@ class TestFuncs(BaseTest):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, [b'abcd1234', b'efgh5678'])
 
-    def test_disconnected_warning(self):
+    def test_disconnected_logging(self):
         self.app.logger = mock.Mock()
         req = Request.blank('/v1/a/c/o')
 
@@ -1271,7 +1271,7 @@ class TestFuncs(BaseTest):
             'some-path', {})
         app_iter = handler._make_app_iter(req, node, source)
         app_iter.close()
-        self.app.logger.warning.assert_called_once_with(
+        self.app.logger.info.assert_called_once_with(
             'Client disconnected on read of %r', 'some-path')
 
         self.app.logger = mock.Mock()
