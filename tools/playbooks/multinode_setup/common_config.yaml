@@ -16,7 +16,7 @@
 
     - name: create /var/run/swift
       file:
-        path: '/var/run/swift' 
+        path: '/var/run/swift'
         owner: '{{ ansible_user_id }}'
         group: '{{ ansible_user_gid }}'
         state: directory
