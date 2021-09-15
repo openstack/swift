@@ -167,8 +167,8 @@ class TestS3ApiMultiDelete(S3ApiBase):
                                    query=query)
         self.assertEqual(get_error_code(body), 'UserKeyMustBeSpecified')
 
-        max_deletes = tf.cluster_info.get('s3api', {}).get(
-            'max_multi_delete_objects', 1000)
+        max_deletes = int(tf.cluster_info.get('s3api', {}).get(
+            'max_multi_delete_objects', 1000))
         # specified number of objects are over max_multi_delete_objects
         # (Default 1000), but xml size is relatively small
         req_objects = ['obj%s' for var in range(max_deletes + 1)]

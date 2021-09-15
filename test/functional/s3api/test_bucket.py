@@ -55,8 +55,8 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
 
     def test_bucket(self):
         bucket = 'bucket'
-        max_bucket_listing = tf.cluster_info['s3api'].get(
-            'max_bucket_listing', 1000)
+        max_bucket_listing = int(tf.cluster_info['s3api'].get(
+            'max_bucket_listing', 1000))
 
         # PUT Bucket
         resp = self.conn.create_bucket(Bucket=bucket)
@@ -241,7 +241,13 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
             ctx.exception.response['Error']['Code'], 'NoSuchBucket')
 
     def _prepare_test_get_bucket(self, bucket, objects):
-        self.conn.create_bucket(Bucket=bucket)
+        try:
+            self.conn.create_bucket(Bucket=bucket)
+        except botocore.exceptions.ClientError as e:
+            err_code = e.response.get('Error', {}).get('Code')
+            if err_code != 'BucketAlreadyOwnedByYou':
+                raise
+
         for obj in objects:
             self.conn.put_object(Bucket=bucket, Key=obj, Body=b'')
 

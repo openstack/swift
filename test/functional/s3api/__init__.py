@@ -46,11 +46,14 @@ class S3ApiBase(unittest.TestCase):
     def setUp(self):
         if 's3api' not in tf.cluster_info:
             raise tf.SkipTest('s3api middleware is not enabled')
+        if tf.config.get('account'):
+            user_id = '%s:%s' % (tf.config['account'], tf.config['username'])
+        else:
+            user_id = tf.config['username']
         try:
             self.conn = Connection(
                 tf.config['s3_access_key'], tf.config['s3_secret_key'],
-                user_id='%s:%s' % (tf.config['account'],
-                                   tf.config['username']))
+                user_id=user_id)
 
             self.conn.reset()
         except Exception:

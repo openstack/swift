@@ -101,7 +101,13 @@ class Connection(object):
                             bucket.delete_key(
                                 obj.name, version_id=obj.version_id)
 
-                        self.conn.delete_bucket(bucket.name)
+                        try:
+                            self.conn.delete_bucket(bucket.name)
+                        except ClientError as e:
+                            err_code = e.response.get('Error', {}).get('Code')
+                            if err_code != 'BucketNotEmpty':
+                                raise
+                            # else, listing consistency issue; try again
                     except S3ResponseError as e:
                         # 404 means NoSuchBucket, NoSuchKey, or NoSuchUpload
                         if e.status != 404:
@@ -187,7 +193,13 @@ def tear_down_s3(conn):
                     resp = conn.list_objects(Bucket=bucket)
                     for obj in resp.get('Contents', []):
                         conn.delete_object(Bucket=bucket, Key=obj['Key'])
-                    conn.delete_bucket(Bucket=bucket)
+                    try:
+                        conn.delete_bucket(Bucket=bucket)
+                    except ClientError as e:
+                        err_code = e.response.get('Error', {}).get('Code')
+                        if err_code != 'BucketNotEmpty':
+                            raise
+                        # else, listing consistency issue; try again
                 except ClientError as e:
                     # 404 means NoSuchBucket, NoSuchKey, or NoSuchUpload
                     if e.response['ResponseMetadata']['HTTPStatusCode'] != 404:
