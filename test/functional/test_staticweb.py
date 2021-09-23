@@ -15,13 +15,17 @@
 # limitations under the License.
 
 import functools
+import hashlib
 import six
+import time
 from unittest import SkipTest
 from six.moves.urllib.parse import unquote
+from swift.common.middleware import tempurl
 from swift.common.utils import quote
 from swift.common.swob import str_to_wsgi
 import test.functional as tf
 from test.functional.tests import Utils, Base, Base2, BaseEnv
+from test.functional.test_tempurl import tempurl_parms
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 
@@ -424,3 +428,213 @@ class TestStaticWebUTF8(Base2, TestStaticWeb):
 
     def test_redirect_slash_anon_remap_cont(self):
         self.skipTest("Can't remap UTF8 containers")
+
+
+class TestStaticWebTempurlEnv(BaseEnv):
+    static_web_enabled = None  # tri-state: None initially, then True/False
+    tempurl_enabled = None  # tri-state: None initially, then True/False
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(tf.config)
+        cls.conn.authenticate()
+
+        if cls.static_web_enabled is None:
+            cls.static_web_enabled = 'staticweb' in tf.cluster_info
+            if not cls.static_web_enabled:
+                return
+
+        if cls.tempurl_enabled is None:
+            cls.tempurl_enabled = 'tempurl' in tf.cluster_info
+            if not cls.tempurl_enabled:
+                return
+
+        cls.account = Account(
+            cls.conn, tf.config.get('account', tf.config['username']))
+        cls.account.delete_containers()
+
+        cls.container = cls.account.container(Utils.create_name())
+        cls.tempurl_key = Utils.create_name()
+        if not cls.container.create(
+                hdrs={'X-Container-Meta-Web-Listings': 'true',
+                      'X-Container-Meta-Temp-URL-Key': cls.tempurl_key}):
+            raise ResponseError(cls.conn.response)
+
+        objects = ['index',
+                   'error',
+                   'listings_css',
+                   'dir/',
+                   'dir/obj',
+                   'dir/subdir/',
+                   'dir/subdir/obj']
+
+        cls.objects = {}
+        for item in sorted(objects):
+            if '/' in item.rstrip('/'):
+                parent, _ = item.rstrip('/').rsplit('/', 1)
+                path = '%s/%s' % (cls.objects[parent + '/'].name,
+                                  Utils.create_name())
+            else:
+                path = Utils.create_name()
+
+            if item[-1] == '/':
+                cls.objects[item] = cls.container.file(path)
+                cls.objects[item].write(hdrs={
+                    'Content-Type': 'application/directory'})
+            else:
+                cls.objects[item] = cls.container.file(path)
+                cls.objects[item].write(('%s contents' % item).encode('utf8'))
+
+
+class TestStaticWebTempurl(Base):
+    env = TestStaticWebTempurlEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestStaticWebTempurl, self).setUp()
+        if self.env.static_web_enabled is False:
+            raise SkipTest("Static Web not enabled")
+        elif self.env.static_web_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected static_web_enabled to be True/False, got %r" %
+                (self.env.static_web_enabled,))
+
+        if self.env.tempurl_enabled is False:
+            raise SkipTest("Temp URL not enabled")
+        elif self.env.tempurl_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected tempurl_enabled to be True/False, got %r" %
+                (self.env.tempurl_enabled,))
+
+        self.whole_container_parms = dict(tempurl_parms(
+            'GET', int(time.time() + 60),
+            'prefix:%s' % self.env.conn.make_path(
+                self.env.container.path + ['']),
+            self.env.tempurl_key, hashlib.sha256,
+        ), temp_url_prefix='')
+
+    def link(self, virtual_name, parms=None):
+        name = self.env.objects[virtual_name].name.rsplit('/', 1)[-1]
+        if parms is None:
+            parms = self.whole_container_parms
+        return (
+            '<a href="%s?temp_url_prefix=%s&amp;temp_url_expires=%s&amp;'
+            'temp_url_sig=%s">%s</a>' % (
+                name,
+                parms['temp_url_prefix'],
+                quote(str(parms['temp_url_expires'])),
+                parms['temp_url_sig'],
+                name))
+
+    def test_unauthed(self):
+        status = self.env.conn.make_request(
+            'GET', self.env.container.path, cfg={'no_auth_token': True})
+        self.assertEqual(status, 401)
+
+    def test_staticweb_off(self):
+        self.env.container.update_metadata(
+            {'X-Remove-Container-Meta-Web-Listings': 'true'})
+        status = self.env.conn.make_request(
+            'GET', self.env.container.path, parms=self.whole_container_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 401, self.env.conn.response.read())
+
+        status = self.env.conn.make_request(
+            'GET', self.env.container.path + [''],
+            parms=self.whole_container_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 401)
+
+        status = self.env.conn.make_request(
+            'GET',
+            self.env.container.path + [self.env.objects['dir/'].name, ''],
+            parms=self.whole_container_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 404)
+
+    def test_get_root(self):
+        status = self.env.conn.make_request(
+            'GET', self.env.container.path, parms=self.whole_container_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 301)
+
+        status = self.env.conn.make_request(
+            'GET', self.env.container.path + [''],
+            parms=self.whole_container_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 200)
+        body = self.env.conn.response.read()
+        if not six.PY2:
+            body = body.decode('utf-8')
+        self.assertIn('Listing of /v1/', body)
+        self.assertNotIn('href="..', body)
+        self.assertIn(self.link('dir/'), body)
+
+    def test_get_dir(self):
+        status = self.env.conn.make_request(
+            'GET',
+            self.env.container.path + [self.env.objects['dir/'].name, ''],
+            parms=self.whole_container_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 200)
+        body = self.env.conn.response.read()
+        if not six.PY2:
+            body = body.decode('utf-8')
+        self.assertIn('Listing of /v1/', body)
+        self.assertIn('href="..', body)
+        self.assertIn(self.link('dir/obj'), body)
+        self.assertIn(self.link('dir/subdir/'), body)
+
+    def test_get_dir_with_iso_expiry(self):
+        iso_expiry = time.strftime(
+            tempurl.EXPIRES_ISO8601_FORMAT,
+            time.gmtime(int(self.whole_container_parms['temp_url_expires'])))
+        iso_parms = dict(self.whole_container_parms,
+                         temp_url_expires=iso_expiry)
+        status = self.env.conn.make_request(
+            'GET',
+            self.env.container.path + [self.env.objects['dir/'].name, ''],
+            parms=iso_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 200)
+        body = self.env.conn.response.read()
+        if not six.PY2:
+            body = body.decode('utf-8')
+        self.assertIn('Listing of /v1/', body)
+        self.assertIn('href="..', body)
+        self.assertIn(self.link('dir/obj', iso_parms), body)
+        self.assertIn(self.link('dir/subdir/', iso_parms), body)
+
+    def test_get_limited_dir(self):
+        parms = dict(tempurl_parms(
+            'GET', int(time.time() + 60),
+            'prefix:%s' % self.env.conn.make_path(
+                self.env.container.path + [self.env.objects['dir/'].name, '']),
+            self.env.tempurl_key, hashlib.sha256,
+        ), temp_url_prefix=self.env.objects['dir/'].name + '/')
+        status = self.env.conn.make_request(
+            'GET',
+            self.env.container.path + [self.env.objects['dir/'].name, ''],
+            parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(status, 200)
+        body = self.env.conn.response.read()
+        if not six.PY2:
+            body = body.decode('utf-8')
+        self.assertIn('Listing of /v1/', body)
+        self.assertNotIn('href="..', body)
+        self.assertIn(self.link('dir/obj', parms), body)
+        self.assertIn(self.link('dir/subdir/', parms), body)
+
+        status = self.env.conn.make_request(
+            'GET', self.env.container.path + [
+                self.env.objects['dir/subdir/'].name, ''],
+            parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(status, 200)
+        body = self.env.conn.response.read()
+        if not six.PY2:
+            body = body.decode('utf-8')
+        self.assertIn('Listing of /v1/', body)
+        self.assertIn('href="..', body)
+        self.assertIn(self.link('dir/subdir/obj', parms), body)

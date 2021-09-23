@@ -539,6 +539,7 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c3/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
         self.assertIn(b'Test main index.html file.', resp.body)
+        self.assertNotIn('X-Backend-Content-Generator', resp.headers)
 
     def test_container3subsubdir(self):
         resp = Request.blank(
@@ -591,20 +592,85 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertIn(b'Listing of /v1/a/c4/', resp.body)
         self.assertIn(b'href="listing.css"', resp.body)
+        self.assertIn('X-Backend-Content-Generator', resp.headers)
+        self.assertEqual(resp.headers['X-Backend-Content-Generator'],
+                         'staticweb')
 
     def test_container4indexhtmlauthed(self):
+        # anonymous access gets staticweb
         resp = Request.blank('/v1/a/c4').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 301)
+
+        # authed access doesn't (by default)
         resp = Request.blank(
             '/v1/a/c4',
             environ={'REMOTE_USER': 'authed'}).get_response(
                 self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
+
+        # it can opt-in, though!
         resp = Request.blank(
             '/v1/a/c4', headers={'x-web-mode': 't'},
             environ={'REMOTE_USER': 'authed'}).get_response(
                 self.test_staticweb)
         self.assertEqual(resp.status_int, 301)
+
+        # and there's an exclusion for authed-via-tempurl
+        resp = Request.blank(
+            '/v1/a/c4',
+            environ={'REMOTE_USER': '.wsgi.tempurl'}).get_response(
+                self.test_staticweb)
+        self.assertEqual(resp.status_int, 301)
+
+    def test_container4tempurl(self):
+        parts = [
+            'temp_url_prefix=subdir/',
+            'temp_url_sig=the-sig',
+            'temp_url_expires=2024-12-31T00:00:00'
+        ]
+
+        resp = Request.blank(
+            '/v1/a/c4/subdir/?' + '&'.join(parts),
+            environ={'REMOTE_USER': '.wsgi.tempurl'},
+        ).get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
+        self.assertIn(b'<a href="2.txt?temp_url_prefix=subdir/&amp;'
+                      b'temp_url_expires=2024-12-31T00%3A00%3A00&amp;'
+                      b'temp_url_sig=the-sig">2.txt</a>', resp.body)
+
+        parts.append('temp_url_ip_range=127.0.0.1')
+        resp = Request.blank(
+            '/v1/a/c4/subdir/?' + '&'.join(parts),
+            environ={'REMOTE_USER': '.wsgi.tempurl'},
+        ).get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
+        self.assertIn(b'<a href="2.txt?temp_url_prefix=subdir/&amp;'
+                      b'temp_url_expires=2024-12-31T00%3A00%3A00&amp;'
+                      b'temp_url_sig=the-sig&amp;temp_url_ip_range='
+                      b'127.0.0.1">2.txt</a>', resp.body)
+
+        parts.append('inline')
+        resp = Request.blank(
+            '/v1/a/c4/subdir/?' + '&'.join(parts),
+            environ={'REMOTE_USER': '.wsgi.tempurl'},
+        ).get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
+        self.assertIn(b'<a href="2.txt?temp_url_prefix=subdir/&amp;'
+                      b'temp_url_expires=2024-12-31T00%3A00%3A00&amp;'
+                      b'temp_url_sig=the-sig&amp;temp_url_ip_range='
+                      b'127.0.0.1&amp;inline">2.txt</a>', resp.body)
+
+        # no prefix => you get normal links (which will almost certainly 401)
+        resp = Request.blank(
+            '/v1/a/c4/subdir/?' + '&'.join(parts[1:]),
+            environ={'REMOTE_USER': '.wsgi.tempurl'},
+        ).get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
+        self.assertIn(b'<a href="2.txt">2.txt</a>', resp.body)
 
     def test_container4unknown(self):
         resp = Request.blank(

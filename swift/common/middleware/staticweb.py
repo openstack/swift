@@ -59,7 +59,8 @@ requests for paths not found.
 
 For pseudo paths that have no <index.name>, this middleware can serve HTML file
 listings if you set the ``X-Container-Meta-Web-Listings: true`` metadata item
-on the container.
+on the container. Note that the listing must be authorized; you may want a
+container ACL like ``X-Container-Read: .r:*,.rlistings``.
 
 If listings are enabled, the listings can have a custom style sheet by setting
 the X-Container-Meta-Web-Listings-CSS header. For instance, setting
@@ -67,6 +68,17 @@ the X-Container-Meta-Web-Listings-CSS header. For instance, setting
 the .../listing.css style sheet. If you "view source" in your browser on a
 listing page, you will see the well defined document structure that can be
 styled.
+
+Additionally, prefix-based :ref:`tempurl` parameters may be used to authorize
+requests instead of making the whole container publicly readable. This gives
+clients dynamic discoverability of the objects available within that prefix.
+
+.. note::
+
+    ``temp_url_prefix`` values should typically end with a slash (``/``) when
+    used with StaticWeb. StaticWeb's redirects will not carry over any TempURL
+    parameters, as they likely indicate that the user created an overly-broad
+    TempURL.
 
 By default, the listings will be rendered with a label of
 "Listing of /v1/account/container/path".  This can be altered by
@@ -137,6 +149,7 @@ from swift.common.wsgi import make_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound, \
     Request, wsgi_quote, wsgi_to_str, str_to_wsgi
+from swift.common.middleware.tempurl import get_temp_url_info
 from swift.proxy.controllers.base import get_container_info
 
 
@@ -225,7 +238,7 @@ class _StaticWebContext(WSGIContext):
             self._dir_type = meta.get('web-directory-type', '').strip()
         return container_info
 
-    def _listing(self, env, start_response, prefix=None):
+    def _listing(self, env, start_response, prefix=''):
         """
         Sends an HTML object listing to the remote client.
 
@@ -284,7 +297,27 @@ class _StaticWebContext(WSGIContext):
         if prefix and not listing:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
-        headers = {'Content-Type': 'text/html; charset=UTF-8'}
+
+        tempurl_qs = tempurl_prefix = ''
+        if env.get('REMOTE_USER') == '.wsgi.tempurl':
+            sig, expires, tempurl_prefix, _filename, inline, ip_range = \
+                get_temp_url_info(env)
+            if tempurl_prefix is None:
+                tempurl_prefix = ''
+            else:
+                parts = [
+                    'temp_url_prefix=%s' % quote(tempurl_prefix),
+                    'temp_url_expires=%s' % quote(str(expires)),
+                    'temp_url_sig=%s' % sig,
+                ]
+                if ip_range:
+                    parts.append('temp_url_ip_range=%s' % quote(ip_range))
+                if inline:
+                    parts.append('inline')
+                tempurl_qs = '?' + '&amp;'.join(parts)
+
+        headers = {'Content-Type': 'text/html; charset=UTF-8',
+                   'X-Backend-Content-Generator': 'staticweb'}
         body = '<!DOCTYPE html>\n' \
                '<html>\n' \
                ' <head>\n' \
@@ -309,12 +342,12 @@ class _StaticWebContext(WSGIContext):
                 '    <th class="colsize">Size</th>\n' \
                 '    <th class="coldate">Date</th>\n' \
                 '   </tr>\n' % html_escape(label)
-        if prefix:
+        if len(prefix) > len(tempurl_prefix):
             body += '   <tr id="parent" class="item">\n' \
-                    '    <td class="colname"><a href="../">../</a></td>\n' \
+                    '    <td class="colname"><a href="../%s">../</a></td>\n' \
                     '    <td class="colsize">&nbsp;</td>\n' \
                     '    <td class="coldate">&nbsp;</td>\n' \
-                    '   </tr>\n'
+                    '   </tr>\n' % tempurl_qs
         for item in listing:
             if 'subdir' in item:
                 subdir = item['subdir'] if six.PY3 else  \
@@ -326,7 +359,7 @@ class _StaticWebContext(WSGIContext):
                         '    <td class="colsize">&nbsp;</td>\n' \
                         '    <td class="coldate">&nbsp;</td>\n' \
                         '   </tr>\n' % \
-                        (quote(subdir), html_escape(subdir))
+                        (quote(subdir) + tempurl_qs, html_escape(subdir))
         for item in listing:
             if 'name' in item:
                 name = item['name'] if six.PY3 else  \
@@ -347,7 +380,7 @@ class _StaticWebContext(WSGIContext):
                         '   </tr>\n' % \
                         (' '.join('type-' + html_escape(t.lower())
                                   for t in content_type.split('/')),
-                         quote(name), html_escape(name),
+                         quote(name) + tempurl_qs, html_escape(name),
                          bytes, last_modified)
         body += '  </table>\n' \
                 ' </body>\n' \
@@ -540,8 +573,8 @@ class StaticWeb(object):
             return self.app(env, start_response)
         if env['REQUEST_METHOD'] not in ('HEAD', 'GET'):
             return self.app(env, start_response)
-        if env.get('REMOTE_USER') and \
-                not config_true_value(env.get('HTTP_X_WEB_MODE', 'f')):
+        if env.get('REMOTE_USER') and env['REMOTE_USER'] != '.wsgi.tempurl' \
+                and not config_true_value(env.get('HTTP_X_WEB_MODE', 'f')):
             return self.app(env, start_response)
         if not container:
             return self.app(env, start_response)
