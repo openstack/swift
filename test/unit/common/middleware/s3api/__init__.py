@@ -80,7 +80,7 @@ class S3ApiTestCase(unittest.TestCase):
             's3_acl': False,
             'storage_domain': 'localhost',
             'auth_pipeline_check': True,
-            'max_upload_part_num': 1000,
+            'max_upload_part_num': 10000,
             'check_bucket_owner': False,
             'force_swift_request_proxy_log': False,
             'allow_multipart_uploads': True,

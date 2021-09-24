@@ -80,7 +80,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def setUp(self):
         super(TestS3ApiMultiUpload, self).setUp()
 
-        segment_bucket = '/v1/AUTH_test/bucket+segments'
+        self.segment_bucket = '/v1/AUTH_test/bucket+segments'
         self.etag = '7dfa07a8e59ddbcd1dc84d4c4f82aea1'
         self.last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
         put_headers = {'etag': self.etag, 'last-modified': self.last_modified}
@@ -91,42 +91,42 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                     'hash': item[2], 'bytes': item[3]}
                    for item in OBJECTS_TEMPLATE]
 
-        self.swift.register('PUT', segment_bucket,
+        self.swift.register('PUT', self.segment_bucket,
                             swob.HTTPAccepted, {}, None)
         # default to just returning everybody...
-        self.swift.register('GET', segment_bucket, swob.HTTPOk, {},
+        self.swift.register('GET', self.segment_bucket, swob.HTTPOk, {},
                             json.dumps(objects))
         # but for the listing when aborting an upload, break it up into pages
         self.swift.register(
-            'GET', '%s?delimiter=/&format=json&prefix=object/X/' % (
-                segment_bucket, ),
+            'GET', '%s?delimiter=/&format=json&marker=&prefix=object/X/' % (
+                self.segment_bucket, ),
             swob.HTTPOk, {}, json.dumps(objects[:1]))
         self.swift.register(
             'GET', '%s?delimiter=/&format=json&marker=%s&prefix=object/X/' % (
-                segment_bucket, objects[0]['name']),
+                self.segment_bucket, objects[0]['name']),
             swob.HTTPOk, {}, json.dumps(objects[1:]))
         self.swift.register(
             'GET', '%s?delimiter=/&format=json&marker=%s&prefix=object/X/' % (
-                segment_bucket, objects[-1]['name']),
+                self.segment_bucket, objects[-1]['name']),
             swob.HTTPOk, {}, '[]')
-        self.swift.register('HEAD', segment_bucket + '/object/X',
+        self.swift.register('HEAD', self.segment_bucket + '/object/X',
                             swob.HTTPOk,
                             {'x-object-meta-foo': 'bar',
                              'content-type': 'application/directory',
                              'x-object-sysmeta-s3api-has-content-type': 'yes',
                              'x-object-sysmeta-s3api-content-type':
                              'baz/quux'}, None)
-        self.swift.register('PUT', segment_bucket + '/object/X',
+        self.swift.register('PUT', self.segment_bucket + '/object/X',
                             swob.HTTPCreated, {}, None)
-        self.swift.register('DELETE', segment_bucket + '/object/X',
+        self.swift.register('DELETE', self.segment_bucket + '/object/X',
                             swob.HTTPNoContent, {}, None)
-        self.swift.register('GET', segment_bucket + '/object/invalid',
+        self.swift.register('GET', self.segment_bucket + '/object/invalid',
                             swob.HTTPNotFound, {}, None)
-        self.swift.register('PUT', segment_bucket + '/object/X/1',
+        self.swift.register('PUT', self.segment_bucket + '/object/X/1',
                             swob.HTTPCreated, put_headers, None)
-        self.swift.register('DELETE', segment_bucket + '/object/X/1',
+        self.swift.register('DELETE', self.segment_bucket + '/object/X/1',
                             swob.HTTPNoContent, {}, None)
-        self.swift.register('DELETE', segment_bucket + '/object/X/2',
+        self.swift.register('DELETE', self.segment_bucket + '/object/X/2',
                             swob.HTTPNoContent, {}, None)
 
     @s3acl
@@ -1674,8 +1674,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
 
-        # part number must be < 1001
-        req = Request.blank('/bucket/object?partNumber=1001&uploadId=X',
+        # part number must be < 10001
+        req = Request.blank('/bucket/object?partNumber=10001&uploadId=X',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()},
@@ -1731,6 +1731,21 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
     @s3acl
     def test_object_list_parts(self):
+        swift_parts = [
+            {'name': 'object/X/%d' % i,
+             'last_modified': '2014-05-07T19:47:%02d.592270' % (i % 60),
+             'hash': hex(i),
+             'bytes': 100 * i}
+            for i in range(1, 2000)]
+        swift_sorted = sorted(swift_parts, key=lambda part: part['name'])
+        self.swift.register('GET',
+                            "%s?delimiter=/&format=json&marker=&"
+                            "prefix=object/X/" % self.segment_bucket,
+                            swob.HTTPOk, {}, json.dumps(swift_sorted))
+        self.swift.register('GET',
+                            "%s?delimiter=/&format=json&marker=object/X/999&"
+                            "prefix=object/X/" % self.segment_bucket,
+                            swob.HTTPOk, {}, json.dumps({}))
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -1746,23 +1761,31 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(elem.find('Owner/ID').text, 'test:tester')
         self.assertEqual(elem.find('StorageClass').text, 'STANDARD')
         self.assertEqual(elem.find('PartNumberMarker').text, '0')
-        self.assertEqual(elem.find('NextPartNumberMarker').text, '2')
+        self.assertEqual(elem.find('NextPartNumberMarker').text, '1000')
         self.assertEqual(elem.find('MaxParts').text, '1000')
-        self.assertEqual(elem.find('IsTruncated').text, 'false')
-        self.assertEqual(len(elem.findall('Part')), 2)
+        self.assertEqual(elem.find('IsTruncated').text, 'true')
+        self.assertEqual(len(elem.findall('Part')), 1000)
+        s3_parts = []
         for p in elem.findall('Part'):
             partnum = int(p.find('PartNumber').text)
-            self.assertEqual(p.find('LastModified').text,
-                             OBJECTS_TEMPLATE[partnum - 1][1][:-3] + 'Z')
+            s3_parts.append(partnum)
+            self.assertEqual(
+                p.find('LastModified').text,
+                swift_parts[partnum - 1]['last_modified'][:-3] + 'Z')
             self.assertEqual(p.find('ETag').text.strip(),
-                             '"%s"' % OBJECTS_TEMPLATE[partnum - 1][2])
+                             '"%s"' % swift_parts[partnum - 1]['hash'])
             self.assertEqual(p.find('Size').text,
-                             str(OBJECTS_TEMPLATE[partnum - 1][3]))
+                             str(swift_parts[partnum - 1]['bytes']))
         self.assertEqual(status.split()[0], '200')
+        self.assertEqual(s3_parts, list(range(1, 1001)))
 
     def test_object_list_parts_encoding_type(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object@@/X',
                             swob.HTTPOk, {}, None)
+        self.swift.register('GET', "%s?delimiter=/&format=json&"
+                            "marker=object/X/2&prefix=object@@/X/"
+                            % self.segment_bucket, swob.HTTPOk, {},
+                            json.dumps({}))
         req = Request.blank('/bucket/object@@?uploadId=X&encoding-type=url',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -1776,6 +1799,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_object_list_parts_without_encoding_type(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object@@/X',
                             swob.HTTPOk, {}, None)
+        self.swift.register('GET', "%s?delimiter=/&format=json&"
+                            "marker=object/X/2&prefix=object@@/X/"
+                            % self.segment_bucket, swob.HTTPOk, {},
+                            json.dumps({}))
         req = Request.blank('/bucket/object@@?uploadId=X',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',

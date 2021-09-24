@@ -500,15 +500,23 @@ class UploadController(Controller):
 
         query = {
             'format': 'json',
-            'limit': maxparts + 1,
             'prefix': '%s/%s/' % (req.object_name, upload_id),
-            'delimiter': '/'
+            'delimiter': '/',
+            'marker': '',
         }
 
         container = req.container_name + MULTIUPLOAD_SUFFIX
-        resp = req.get_response(self.app, container=container, obj='',
-                                query=query)
-        objects = json.loads(resp.body)
+        # Because the parts are out of order in Swift, we list up to the
+        # maximum number of parts and then apply the marker and limit options.
+        objects = []
+        while True:
+            resp = req.get_response(self.app, container=container, obj='',
+                                    query=query)
+            new_objects = json.loads(resp.body)
+            if not new_objects:
+                break
+            objects.extend(new_objects)
+            query['marker'] = new_objects[-1]['name']
 
         last_part = 0
 
