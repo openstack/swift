@@ -1,4 +1,5 @@
-# Copyright (c) 2015 OpenStack Foundation
+# -*- coding: utf-8 -*-
+# Copyright (c) 2015-2021 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,12 +26,11 @@ import email.parser
 from email.utils import formatdate, parsedate
 from time import mktime
 import six
-from six.moves.urllib.parse import quote
 
 import test.functional as tf
 
 from swift.common.middleware.s3api.etree import fromstring
-from swift.common.utils import md5
+from swift.common.utils import md5, quote
 
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
@@ -59,7 +59,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertCommonResponseHeaders(headers, etag)
 
     def test_object(self):
-        obj = 'object name with %-sign'
+        obj = u'object name with %-sign 🙂'
         content = b'abc123'
         etag = md5(content, usedforsecurity=False).hexdigest()
 
