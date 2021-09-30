@@ -86,7 +86,7 @@ class TestReconstructorRevert(ECProbeTest):
 
         # fire up reconstructor on handoff nodes only
         for hnode in hnodes:
-            hnode_id = (hnode['port'] % 100) // 10
+            hnode_id = self.config_number(hnode)
             self.reconstructor.once(number=hnode_id)
 
         # first three primaries have data again
@@ -398,7 +398,7 @@ class TestReconstructorRevert(ECProbeTest):
 
         # fire up reconstructor on handoff node only; commit_window is
         # set to zero to ensure the nondurable handoff frag is purged
-        hnode_id = (hnodes[0]['port'] % 100) // 10
+        hnode_id = self.config_number(hnodes[0])
         self.run_custom_daemon(
             ObjectReconstructor, 'object-reconstructor', hnode_id,
             {'commit_window': '0'})
