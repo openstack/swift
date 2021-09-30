@@ -910,7 +910,8 @@ class S3Request(swob.Request):
         headers = swob.HeaderKeyDict()
         headers.update(self._copy_source_headers())
 
-        src_resp = self.get_response(app, 'HEAD', src_bucket, src_obj,
+        src_resp = self.get_response(app, 'HEAD', src_bucket,
+                                     swob.str_to_wsgi(src_obj),
                                      headers=headers, query=query)
         if src_resp.status_int == 304:  # pylint: disable-msg=E1101
             raise PreconditionFailed()
