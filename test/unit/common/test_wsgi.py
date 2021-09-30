@@ -460,14 +460,13 @@ class TestWSGI(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
-            with mock.patch('swift.proxy.server.Application.'
-                            'modify_wsgi_pipeline'), \
-                    mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
+            with mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt:
                 conf = wsgi.appconfig(conf_file)
                 logger = logging.getLogger('test')
                 sock = listen_zero()
-                wsgi.run_server(conf, logger, sock)
+                wsgi.run_server(conf, logger, sock,
+                                allow_modify_pipeline=False)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
         _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)

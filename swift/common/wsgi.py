@@ -645,7 +645,8 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
         return environ
 
 
-def run_server(conf, logger, sock, global_conf=None, ready_callback=None):
+def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
+               allow_modify_pipeline=True):
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
     # some platforms. This locks in reported times to UTC.
     os.environ['TZ'] = 'UTC+0'
@@ -665,7 +666,8 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None):
         else:
             log_name = logger.name
         global_conf = {'log_name': log_name}
-    app = loadapp(conf['__file__'], global_conf=global_conf)
+    app = loadapp(conf['__file__'], global_conf=global_conf,
+                  allow_modify_pipeline=allow_modify_pipeline)
     max_clients = int(conf.get('max_clients', '1024'))
     pool = RestrictedGreenPool(size=max_clients)
 
@@ -1046,6 +1048,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     :param conf_path: Path to paste.deploy style configuration file/directory
     :param app_section: App name from conf file to load config from
+    :param allow_modify_pipeline: Boolean for whether the server should have
+                                  an opportunity to change its own pipeline.
+                                  Defaults to True
     :returns: 0 if successful, nonzero otherwise
     """
     # Load configuration, Set logger and Load request processor
@@ -1088,6 +1093,8 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     if 'global_conf_callback' in kwargs:
         kwargs['global_conf_callback'](conf, global_conf)
 
+    allow_modify_pipeline = kwargs.get('allow_modify_pipeline', True)
+
     # set utils.FALLOCATE_RESERVE if desired
     utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
         utils.config_fallocate_value(conf.get('fallocate_reserve', '1%'))
@@ -1099,7 +1106,8 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     no_fork_sock = strategy.no_fork_sock()
     if no_fork_sock:
         run_server(conf, logger, no_fork_sock, global_conf=global_conf,
-                   ready_callback=strategy.signal_ready)
+                   ready_callback=strategy.signal_ready,
+                   allow_modify_pipeline=allow_modify_pipeline)
         return 0
 
     def stop_with_signal(signum, *args):
@@ -1132,7 +1140,8 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                     os.write(write_fd, b'ready')
                     os.close(write_fd)
 
-                run_server(conf, logger, sock, ready_callback=notify)
+                run_server(conf, logger, sock, ready_callback=notify,
+                           allow_modify_pipeline=allow_modify_pipeline)
                 strategy.log_sock_exit(sock, sock_info)
                 return 0
             else:
