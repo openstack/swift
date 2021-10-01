@@ -30,8 +30,9 @@ from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.manager import Manager
 from swift.common.utils import md5
-from test.probe.common import (kill_server, start_server, ReplProbeTest,
-                               ECProbeTest, Body)
+from test.probe.common import (
+    Body, get_server_number, kill_server, start_server,
+    ReplProbeTest, ECProbeTest)
 
 
 class TestObjectHandoff(ReplProbeTest):
@@ -135,17 +136,14 @@ class TestObjectHandoff(ReplProbeTest):
         # Run object replication, ensuring we run the handoff node last so it
         #   will remove its extra handoff partition
         for node in onodes:
-            try:
-                port_num = node['replication_port']
-            except KeyError:
-                port_num = node['port']
-            node_id = (port_num % 100) // 10
+            _, node_id = get_server_number(
+                (node['ip'], node.get('replication_port', node['port'])),
+                self.ipport2server)
             Manager(['object-replicator']).once(number=node_id)
-        try:
-            another_port_num = another_onode['replication_port']
-        except KeyError:
-            another_port_num = another_onode['port']
-        another_num = (another_port_num % 100) // 10
+        another_port_num = another_onode.get(
+            'replication_port', another_onode['port'])
+        _, another_num = get_server_number(
+            (another_onode['ip'], another_port_num), self.ipport2server)
         Manager(['object-replicator']).once(number=another_num)
 
         # Assert the first container/obj primary server now has container/obj
@@ -227,13 +225,12 @@ class TestObjectHandoff(ReplProbeTest):
         # Run object replication, ensuring we run the handoff node last so it
         #   will remove its extra handoff partition
         for node in onodes:
-            try:
-                port_num = node['replication_port']
-            except KeyError:
-                port_num = node['port']
-            node_id = (port_num % 100) // 10
+            _, node_id = get_server_number(
+                (node['ip'], node.get('replication_port', node['port'])),
+                self.ipport2server)
             Manager(['object-replicator']).once(number=node_id)
-        another_node_id = (another_port_num % 100) // 10
+        _, another_node_id = get_server_number(
+            (another_onode['ip'], another_port_num), self.ipport2server)
         Manager(['object-replicator']).once(number=another_node_id)
 
         # Assert primary node no longer has container/obj

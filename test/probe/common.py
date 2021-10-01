@@ -634,10 +634,9 @@ class ReplProbeTest(ProbeTest):
 
     def get_container_db_files(self, container):
         opart, onodes = self.container_ring.get_nodes(self.account, container)
-        onode = onodes[0]
         db_files = []
         for onode in onodes:
-            node_id = (onode['port'] % 100) // 10
+            node_id = self.config_number(onode)
             device = onode['device']
             hash_str = hash_path(self.account, container)
             server_conf = readconf(self.configs['container-server'][node_id])
