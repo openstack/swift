@@ -178,7 +178,8 @@ class TestSharder(BaseTestSharder):
             'shard_replication_quorum': 2,
             'existing_shard_replication_quorum': 2,
             'max_shrinking': 1,
-            'max_expanding': -1
+            'max_expanding': -1,
+            'stats_interval': 3600,
         }
         sharder, mock_ic = self._do_test_init({}, expected, use_logger=False)
         self.assertEqual(
@@ -228,7 +229,8 @@ class TestSharder(BaseTestSharder):
             'existing_shard_replication_quorum': 0,
             'max_shrinking': 5,
             'max_expanding': 4,
-            'rows_per_shard': 13000000
+            'rows_per_shard': 13000000,
+            'stats_interval': 300,
         }
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
@@ -253,7 +255,8 @@ class TestSharder(BaseTestSharder):
             'shard_replication_quorum': 1,
             'existing_shard_replication_quorum': 0,
             'max_shrinking': 5,
-            'max_expanding': 4
+            'max_expanding': 4,
+            'stats_interval': 300,
         }
         sharder, mock_ic = self._do_test_init(conf, expected)
         mock_ic.assert_called_once_with(
