@@ -59,7 +59,7 @@ def lookup_cname(domain, resolver):  # pragma: no cover
     try:
         answer = resolver.query(domain, 'CNAME').rrset
         ttl = answer.ttl
-        result = answer.items[0].to_text()
+        result = list(answer.items)[0].to_text()
         result = result.rstrip('.')
         return ttl, result
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
