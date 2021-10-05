@@ -393,8 +393,9 @@ class ObjectReconstructor(Daemon):
         resp = None
         try:
             with ConnectionTimeout(self.conn_timeout):
-                conn = http_connect(node['ip'], node['port'], node['device'],
-                                    partition, 'GET', path, headers=headers)
+                conn = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], partition, 'GET', path, headers=headers)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
                 resp.full_path = full_path

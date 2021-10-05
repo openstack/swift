@@ -780,11 +780,22 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def test_get_response(self):
         part = self.part_nums[0]
         node = self.policy.object_ring.get_part_nodes(int(part))[0]
+        # separate replication network
+        node['replication_port'] = node['port'] + 1000
 
         def do_test(stat_code):
-            with mocked_http_conn(stat_code):
+            with mocked_http_conn(stat_code) as mock_conn:
                 resp = self.reconstructor._get_response(
-                    node, self.policy, part, path='nada', headers={})
+                    node, self.policy, part, path='/nada', headers={})
+            self.assertEqual(mock_conn.requests, [{
+                'ssl': False,
+                'ip': node['replication_ip'],
+                'port': node['replication_port'],
+                'method': 'GET',
+                'path': '/sda0/%s/nada' % part,
+                'qs': None,
+                'headers': {},
+            }])
             return resp
 
         for status in (200, 400, 404, 503):
