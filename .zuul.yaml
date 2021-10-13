@@ -358,6 +358,7 @@
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
       under Python 3 on top of arm64 architecture.
+    timeout: 10800
 
 - job:
     name: swift-func-cors
