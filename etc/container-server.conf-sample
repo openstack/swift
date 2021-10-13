@@ -491,6 +491,9 @@ use = egg:swift#xprofile
 # us less likely to bomb out on a LockTimeout.
 # broker_timeout = 60
 #
+# Time in seconds to wait between emitting stats to logs
+# stats_interval = 3600.0
+#
 # Time in seconds to wait between sharder cycles
 # interval = 30.0
 #

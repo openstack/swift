@@ -724,6 +724,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             raise SystemExit(
                 'Unable to load internal client from config: %r (%s)' %
                 (internal_client_conf_path, err))
+        self.stats_interval = float(conf.get('stats_interval', '3600'))
         self.reported = 0
 
     def _zero_stats(self):
@@ -880,7 +881,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         self.reported = now
 
     def _periodic_report_stats(self):
-        if (time.time() - self.reported) >= 3600:  # once an hour
+        if (time.time() - self.reported) >= self.stats_interval:
             self._report_stats()
 
     def _check_node(self, node):
