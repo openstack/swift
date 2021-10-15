@@ -332,7 +332,8 @@ class UploadsController(Controller):
                         'last_modified': object_info['last_modified']}
             return obj_dict
 
-        is_part = re.compile('/[0-9]+$')
+        is_segment = re.compile('.*/[0-9]+$')
+
         while len(uploads) < maxuploads:
             try:
                 resp = req.get_response(self.app, container=container,
@@ -344,8 +345,8 @@ class UploadsController(Controller):
             if not objects:
                 break
 
-            new_uploads = [object_to_upload(obj) for obj in objects if
-                           is_part.search(obj.get('name', '')) is None]
+            new_uploads = [object_to_upload(obj) for obj in objects
+                           if not is_segment.match(obj.get('name', ''))]
             new_prefixes = []
             if 'delimiter' in req.params:
                 prefix = get_param(req, 'prefix', '')
