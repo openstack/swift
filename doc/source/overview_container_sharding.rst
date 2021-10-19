@@ -9,9 +9,8 @@ very large container databases into a number of smaller shard containers
 
 .. note::
 
-    Container sharding is currently an experimental feature. It is strongly
-    recommended that operators gain experience of sharding containers in a
-    non-production cluster before using in production.
+    It is strongly recommended that operators gain experience of sharding
+    containers in a non-production cluster before using in production.
 
     The sharding process involves moving all sharding container database
     records via the container replication engine; the time taken to complete
@@ -128,13 +127,14 @@ section is shown in the `container-server.conf-sample` file.
 
 .. note::
 
+    The ``auto_shard`` option is currently **NOT** recommended for production
+    systems and should be set to ``false`` (the default value).
+
     Several of the ``[container-sharder]`` config options are only significant
     when the ``auto_shard`` option is enabled. This option enables the
     ``container-sharder`` daemon to automatically identify containers that are
     candidates for sharding and initiate the sharding process, instead of using
-    the ``swift-manage-shard-ranges`` tool. The ``auto_shard`` option is
-    currently NOT recommended for production systems and shoud be set to
-    ``false`` (the default value).
+    the ``swift-manage-shard-ranges`` tool.
 
 The container sharder uses an internal client and therefore requires an
 internal client configuration file to exist. By default the internal-client
