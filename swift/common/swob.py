@@ -35,7 +35,11 @@ place to keep Swift working every time webob decides some interface
 needs to change.
 """
 
-from collections import defaultdict, MutableMapping
+from collections import defaultdict
+try:
+    from collections.abc import MutableMapping
+except ImportError:
+    from collections import MutableMapping  # py2
 import time
 from functools import partial
 from datetime import datetime

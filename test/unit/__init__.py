@@ -22,7 +22,11 @@ import logging
 import logging.handlers
 import sys
 from contextlib import contextmanager, closing
-from collections import defaultdict, Iterable
+from collections import defaultdict
+try:
+    from collections.abc import Iterable
+except ImportError:
+    from collections import Iterable  # py2
 import itertools
 from numbers import Number
 from tempfile import NamedTemporaryFile
