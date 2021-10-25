@@ -595,7 +595,7 @@ class ObjectReplicator(Daemon):
             self.logger.info("Unable to lock handoff partition %s for "
                              "replication on device %s policy %d",
                              job['partition'], job['device'],
-                             int(job['policy']))
+                             job['policy'])
             self.logger.increment('partition.lock-failure.count')
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing handoff partition"))

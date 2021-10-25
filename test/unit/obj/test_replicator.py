@@ -40,6 +40,7 @@ from swift.common import ring
 from swift.common.recon import RECON_OBJECT_FILE
 from swift.obj import diskfile, replicator as object_replicator
 from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.exceptions import PartitionLockTimeout
 
 
 def _ips(*args, **kwargs):
@@ -2117,6 +2118,20 @@ class TestObjectReplicator(unittest.TestCase):
 
             # After 10 cycles every partition is seen exactly once
             self.assertEqual(sorted(range(partitions)), sorted(seen))
+
+    def test_update_deleted_partition_lock_timeout(self):
+        self.replicator.handoffs_remaining = 0
+        jobs = self.replicator.collect_jobs()
+        delete_jobs = [j for j in jobs if j['delete']]
+        delete_jobs.sort(key=lambda j: j['policy'])
+        job = delete_jobs[0]
+        df_mgr = self.replicator._df_router[job['policy']]
+        with mock.patch.object(df_mgr, 'partition_lock',
+                               side_effect=PartitionLockTimeout):
+            self.replicator.update_deleted(job)
+        logs = self.logger.get_lines_for_level('info')
+        self.assertEqual(['Unable to lock handoff partition 1 for '
+                          'replication on device sda policy 0'], logs)
 
     def test_replicate_skipped_partpower_increase(self):
         _create_test_rings(self.testdir, next_part_power=4)
