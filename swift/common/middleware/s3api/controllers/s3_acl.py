@@ -37,7 +37,7 @@ class S3AclController(Controller):
         """
         Handles GET Bucket acl and GET Object acl.
         """
-        resp = req.get_response(self.app)
+        resp = req.get_response(self.app, method='HEAD')
 
         acl = resp.object_acl if req.is_object_request else resp.bucket_acl
 

@@ -248,6 +248,9 @@ class S3AclHandler(BaseAclHandler):
     """
     S3AclHandler: Handler for S3AclController
     """
+    def HEAD(self, app):
+        self._handle_acl(app, 'HEAD', permission='READ_ACP')
+
     def GET(self, app):
         self._handle_acl(app, 'HEAD', permission='READ_ACP')
 

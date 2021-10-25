@@ -46,13 +46,17 @@ class TestS3ApiAcl(S3ApiTestCase):
         name = elem.find('./AccessControlList/Grant/Grantee/ID').text
         self.assertEqual(name, owner)
 
+    @s3acl
     def test_bucket_acl_GET(self):
         req = Request.blank('/bucket?acl',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
-        self._check_acl('test:tester', body)
+        if not self.s3api.conf.s3_acl:
+            self._check_acl('test:tester', body)
+        self.assertSetEqual(set((('HEAD', '/v1/AUTH_test/bucket'),)),
+                            set(self.swift.calls))
 
     def test_bucket_acl_PUT(self):
         elem = Element('AccessControlPolicy')
@@ -167,13 +171,17 @@ class TestS3ApiAcl(S3ApiTestCase):
         self._test_put_no_body(use_transfer_encoding=True)
         self._test_put_no_body(use_transfer_encoding=True, string_to_md5=b'zz')
 
+    @s3acl
     def test_object_acl_GET(self):
         req = Request.blank('/bucket/object?acl',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
-        self._check_acl('test:tester', body)
+        if not self.s3api.conf.s3_acl:
+            self._check_acl('test:tester', body)
+        self.assertSetEqual(set((('HEAD', '/v1/AUTH_test/bucket/object'),)),
+                            set(self.swift.calls))
 
     def test_invalid_xml(self):
         req = Request.blank('/bucket?acl',
