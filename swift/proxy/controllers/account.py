@@ -15,8 +15,6 @@
 
 from six.moves.urllib.parse import unquote
 
-from swift import gettext_ as _
-
 from swift.account.utils import account_listing_response
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.utils import public
@@ -70,7 +68,7 @@ class AccountController(Controller):
         params['format'] = 'json'
         req.params = params
         resp = self.GETorHEAD_base(
-            req, _('Account'), node_iter, partition,
+            req, 'Account', node_iter, partition,
             req.swift_entity_path.rstrip('/'), concurrency)
         if resp.status_int == HTTP_NOT_FOUND:
             if resp.headers.get('X-Account-Status', '').lower() == 'deleted':

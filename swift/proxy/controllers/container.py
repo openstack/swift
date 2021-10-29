@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift import gettext_ as _
 import json
 import math
 
@@ -103,7 +102,7 @@ class ContainerController(Controller):
             if self.app.get_policy_options(None).concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.container_ring, part)
         resp = self.GETorHEAD_base(
-            req, _('Container'), node_iter, part,
+            req, 'Container', node_iter, part,
             req.swift_entity_path, concurrency)
         return resp
 
