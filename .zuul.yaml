@@ -284,9 +284,6 @@
         SWIFT_REPLICAS: 1
         # One replica => no need for replicators, etc.
         SWIFT_START_ALL_SERVICES: False
-        # Keystone v3 is currently the default, but may as well be explicit
-        ENABLE_IDENTITY_V2: False
-        IDENTITY_API_VERSION: 3
       devstack_services:
         keystone: true
         swift: true
