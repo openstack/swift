@@ -13,6 +13,8 @@
 
 import json
 import numbers
+import shutil
+from tempfile import mkdtemp
 
 import mock
 import operator
@@ -30,17 +32,18 @@ from datetime import datetime
 import six
 from six.moves import urllib
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
+from swift.common.swob import Request
 
 from swift.container import reconciler
-from swift.container.server import gen_resp_headers
+from swift.container.server import gen_resp_headers, ContainerController
 from swift.common.direct_client import ClientException
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import split_path, Timestamp, encode_timestamps
+from swift.common.utils import split_path, Timestamp, encode_timestamps, mkdirs
 
 from test.debug_logger import debug_logger
 from test.unit import FakeRing, fake_http_connect, patch_policies, \
-    DEFAULT_TEST_EC_TYPE
+    DEFAULT_TEST_EC_TYPE, make_timestamp_iter
 from test.unit.common.middleware import helpers
 
 
@@ -203,6 +206,10 @@ class TestReconcilerUtils(unittest.TestCase):
     def setUp(self):
         self.fake_ring = FakeRing()
         reconciler.direct_get_container_policy_index.reset()
+        self.tempdir = mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tempdir, ignore_errors=True)
 
     def test_parse_raw_obj(self):
         got = reconciler.parse_raw_obj({
@@ -520,6 +527,102 @@ class TestReconcilerUtils(unittest.TestCase):
             direct_head.side_effect = stub_resp_headers
             oldest_spi = reconciler.direct_get_container_policy_index(
                 self.fake_ring, 'a', 'con')
+        self.assertEqual(oldest_spi, 1)
+
+    @patch_policies(
+        [StoragePolicy(0, 'zero', is_default=True),
+         StoragePolicy(1, 'one'),
+         StoragePolicy(2, 'two')])
+    def test_get_container_policy_index_for_recently_split_recreated(self):
+        # verify that get_container_policy_index reaches same conclusion as a
+        # container server that receives all requests in chronological order
+        ts_iter = make_timestamp_iter()
+        ts = [next(ts_iter) for _ in range(8)]
+
+        # make 3 container replicas
+        device_dirs = [os.path.join(self.tempdir, str(i)) for i in range(3)]
+        for device_dir in device_dirs:
+            mkdirs(os.path.join(device_dir, 'sda1'))
+        controllers = [ContainerController(
+            {'devices': devices,
+             'mount_check': 'false',
+             'replication_server': 'true'})
+            for devices in device_dirs]
+
+        # initial PUT goes to all 3 replicas
+        responses = []
+        for controller in controllers:
+            req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+                'X-Timestamp': ts[0].internal,
+                'X-Backend-Storage-Policy-Index': 0,
+            })
+            responses.append(req.get_response(controller))
+        self.assertEqual([resp.status_int for resp in responses],
+                         [201, 201, 201])
+
+        # DELETE to all 3 replicas
+        responses = []
+        for controller in controllers:
+            req = Request.blank('/sda1/p/a/c', method='DELETE', headers={
+                'X-Timestamp': ts[2].internal,
+            })
+            responses.append(req.get_response(controller))
+        self.assertEqual([resp.status_int for resp in responses],
+                         [204, 204, 204])
+
+        # first recreate PUT, SPI=1, goes to replicas 0 and 1
+        responses = []
+        for controller in controllers[:2]:
+            req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+                'X-Timestamp': ts[3].internal,
+                'X-Backend-Storage-Policy-Index': 1,
+            })
+            responses.append(req.get_response(controller))
+        # all ok, PUT follows DELETE
+        self.assertEqual([resp.status_int for resp in responses],
+                         [201, 201])
+
+        # second recreate PUT, SPI=2, goes to replicas 0 and 2
+        responses = []
+        for controller in [controllers[0], controllers[2]]:
+            req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+                'X-Timestamp': ts[5].internal,
+                'X-Backend-Storage-Policy-Index': 2,
+            })
+            responses.append(req.get_response(controller))
+        # note: 409 from replica 0 because PUT follows previous PUT
+        self.assertEqual([resp.status_int for resp in responses],
+                         [409, 201])
+
+        # now do a HEAD on all replicas
+        responses = []
+        for controller in controllers:
+            req = Request.blank('/sda1/p/a/c', method='HEAD')
+            responses.append(req.get_response(controller))
+        self.assertEqual([resp.status_int for resp in responses],
+                         [204, 204, 204])
+
+        resp_headers = [resp.headers for resp in responses]
+        # replica 0 should be authoritative because it received all requests
+        self.assertEqual(ts[3].internal, resp_headers[0]['X-Put-Timestamp'])
+        self.assertEqual('1',
+                         resp_headers[0]['X-Backend-Storage-Policy-Index'])
+        self.assertEqual(ts[3].internal, resp_headers[1]['X-Put-Timestamp'])
+        self.assertEqual('1',
+                         resp_headers[1]['X-Backend-Storage-Policy-Index'])
+        self.assertEqual(ts[5].internal, resp_headers[2]['X-Put-Timestamp'])
+        self.assertEqual('2',
+                         resp_headers[2]['X-Backend-Storage-Policy-Index'])
+
+        # now feed the headers from each replica to
+        # direct_get_container_policy_index
+        mock_path = 'swift.container.reconciler.direct_head_container'
+        random.shuffle(resp_headers)
+        with mock.patch(mock_path) as direct_head:
+            direct_head.side_effect = resp_headers
+            oldest_spi = reconciler.direct_get_container_policy_index(
+                self.fake_ring, 'a', 'con')
+        # expect the same outcome as the authoritative replica 0
         self.assertEqual(oldest_spi, 1)
 
     def test_get_container_policy_index_cache(self):

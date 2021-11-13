@@ -87,8 +87,13 @@ def cmp_policy_info(info, remote_info):
             return 1
         elif not remote_recreated:
             return -1
-        return cmp(remote_info['status_changed_at'],
-                   info['status_changed_at'])
+        # both have been recreated, everything devoles to here eventually
+        most_recent_successful_delete = max(info['delete_timestamp'],
+                                            remote_info['delete_timestamp'])
+        if info['put_timestamp'] < most_recent_successful_delete:
+            return 1
+        elif remote_info['put_timestamp'] < most_recent_successful_delete:
+            return -1
     return cmp(info['status_changed_at'], remote_info['status_changed_at'])
 
 
