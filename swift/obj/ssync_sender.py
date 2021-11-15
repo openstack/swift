@@ -144,7 +144,7 @@ class Sender(object):
     """
 
     def __init__(self, daemon, node, job, suffixes, remote_check_objs=None,
-                 include_non_durable=False):
+                 include_non_durable=False, max_objects=0):
         self.daemon = daemon
         self.df_mgr = self.daemon._df_router[job['policy']]
         self.node = node
@@ -154,6 +154,7 @@ class Sender(object):
         # make sure those objects exist or not in remote.
         self.remote_check_objs = remote_check_objs
         self.include_non_durable = include_non_durable
+        self.max_objects = max_objects
 
     def __call__(self):
         """
@@ -319,6 +320,17 @@ class Sender(object):
                 sleep()  # Gives a chance for other greenthreads to run
             nlines += 1
             nbytes += len(msg)
+            if 0 < self.max_objects <= nlines:
+                for _ in hash_gen:
+                    # only log truncation if there were more hashes to come...
+                    self.daemon.logger.info(
+                        'ssync missing_check truncated after %d objects: '
+                        'device: %s, part: %s, policy: %s, last object hash: '
+                        '%s', nlines, self.job['device'],
+                        self.job['partition'], int(self.job['policy']),
+                        object_hash)
+                    break
+                break
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check end'):
             msg = b':MISSING_CHECK: END\r\n'

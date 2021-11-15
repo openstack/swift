@@ -466,6 +466,63 @@ handoffs_only                false                     The handoffs_only mode op
                                                        temporary use and should be disabled
                                                        as soon as the emergency situation
                                                        has been resolved.
+rebuild_handoff_node_count   2                         The default strategy for unmounted
+                                                       drives will stage
+                                                       rebuilt data on a
+                                                       handoff node until
+                                                       updated rings are
+                                                       deployed.  Because
+                                                       fragments are rebuilt on
+                                                       offset handoffs based on
+                                                       fragment index and the
+                                                       proxy limits how deep it
+                                                       will search for EC frags
+                                                       we restrict how many
+                                                       nodes we'll try.
+                                                       Setting to 0 will
+                                                       disable rebuilds to
+                                                       handoffs and only
+                                                       rebuild fragments for
+                                                       unmounted devices to
+                                                       mounted primaries after
+                                                       a ring change. Setting
+                                                       to -1 means "no limit".
+max_objects_per_revert       0                         By default the reconstructor
+                                                       attempts to revert all
+                                                       objects from handoff
+                                                       partitions in a single
+                                                       batch using a single
+                                                       SSYNC request. In
+                                                       exceptional
+                                                       circumstances
+                                                       max_objects_per_revert
+                                                       can be used to
+                                                       temporarily limit the
+                                                       number of objects
+                                                       reverted by each
+                                                       reconstructor revert
+                                                       type job. If more than
+                                                       max_objects_per_revert
+                                                       are available in a
+                                                       sender's handoff
+                                                       partition, the remaining
+                                                       objects will remain in
+                                                       the handoff partition
+                                                       and will not be reverted
+                                                       until the next time the
+                                                       reconstructor visits
+                                                       that handoff partition
+                                                       i.e. with this option
+                                                       set, a single cycle of
+                                                       the reconstructor may
+                                                       not completely revert
+                                                       all handoff partitions.
+                                                       The option has no effect
+                                                       on reconstructor sync
+                                                       type jobs between
+                                                       primary partitions. A
+                                                       value of 0 (the default)
+                                                       means there is no limit.
 node_timeout                 DEFAULT or 10             Request timeout to external
                                                        services. The value used is the value
                                                        set in this section, or the value set

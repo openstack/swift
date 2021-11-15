@@ -241,7 +241,8 @@ class ObjectReconstructor(Daemon):
                      conf.get('reclaim_age', DEFAULT_RECLAIM_AGE)))
         self.request_node_count = config_request_node_count_value(
             conf.get('request_node_count', '2 * replicas'))
-
+        self.max_objects_per_revert = non_negative_int(
+            conf.get('max_objects_per_revert', 0))
         # When upgrading from liberasurecode<=1.5.0, you may want to continue
         # writing legacy CRCs until all nodes are upgraded and capabale of
         # reading fragments with zlib CRCs.
@@ -1058,9 +1059,13 @@ class ObjectReconstructor(Daemon):
             if not suffixes:
                 continue
 
-            # ssync any out-of-sync suffixes with the remote node
+            # ssync any out-of-sync suffixes with the remote node; do not limit
+            # max_objects - we need to check them all because, unlike a revert
+            # job, we don't purge any objects so start with the same set each
+            # cycle
             success, _ = ssync_sender(
-                self, node, job, suffixes, include_non_durable=False)()
+                self, node, job, suffixes, include_non_durable=False,
+                max_objects=0)()
             # update stats for this attempt
             self.suffix_sync += len(suffixes)
             self.logger.update_stats('suffix.syncs', len(suffixes))
@@ -1088,7 +1093,8 @@ class ObjectReconstructor(Daemon):
                         node['index'])
                     success, in_sync_objs = ssync_sender(
                         self, node, job, job['suffixes'],
-                        include_non_durable=True)()
+                        include_non_durable=True,
+                        max_objects=self.max_objects_per_revert)()
                     if success:
                         syncd_with += 1
                         reverted_objs.update(in_sync_objs)
