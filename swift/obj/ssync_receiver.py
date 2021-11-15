@@ -445,6 +445,7 @@ class Receiver(object):
             raise Exception('Looking for :UPDATES: START got %r' % line[:1024])
         successes = 0
         failures = 0
+        updates = 0
         while True:
             line = self._readline('updates line')
             if not line or line.strip() == b':UPDATES: END':
@@ -539,6 +540,9 @@ class Receiver(object):
             # subreq.
             for junk in subreq.environ['wsgi.input']:
                 pass
+            if updates % 5 == 0:
+                sleep()  # Gives a chance for other greenthreads to run
+            updates += 1
         if failures:
             raise swob.HTTPInternalServerError(
                 'ERROR: With :UPDATES: %d failures to %d successes' %
