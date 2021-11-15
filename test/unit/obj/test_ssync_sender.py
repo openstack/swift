@@ -102,7 +102,9 @@ class TestSender(BaseTest):
         self.daemon_logger = debug_logger('test-ssync-sender')
         self.daemon = ObjectReplicator(self.daemon_conf,
                                        self.daemon_logger)
-        job = {'policy': POLICIES.legacy}  # sufficient for Sender.__init__
+        job = {'policy': POLICIES.legacy,
+               'device': 'test-dev',
+               'partition': '99'}  # sufficient for Sender.__init__
         self.sender = ssync_sender.Sender(self.daemon, None, job, None)
 
     def test_call_catches_MessageTimeout(self):
@@ -788,13 +790,36 @@ class TestSender(BaseTest):
         self.assertEqual(response.readline(), b'')
         self.assertEqual(response.readline(), b'')
 
-    def test_missing_check_timeout(self):
+    def test_missing_check_timeout_start(self):
         connection = FakeConnection()
-        connection.send = lambda d: eventlet.sleep(1)
         response = FakeResponse()
         self.sender.daemon.node_timeout = 0.01
-        self.assertRaises(exceptions.MessageTimeout, self.sender.missing_check,
-                          connection, response)
+        with mock.patch.object(connection, 'send',
+                               side_effect=lambda *args: eventlet.sleep(1)):
+            with self.assertRaises(exceptions.MessageTimeout) as cm:
+                self.sender.missing_check(connection, response)
+        self.assertIn('0.01 seconds: missing_check start', str(cm.exception))
+
+    def test_missing_check_timeout_send_line(self):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
+            yield (
+                '9d41d8cd98f00b204e9800998ecf0abc',
+                {'ts_data': Timestamp(1380144470.00000)})
+            yield (
+                '9d41d8cd98f00b204e9800998ecf0def',
+                {'ts_data': Timestamp(1380144471.00000)})
+        connection = FakeConnection()
+        response = FakeResponse()
+        self.sender.daemon.node_timeout = 0.01
+        self.sender.df_mgr.yield_hashes = yield_hashes
+        sleeps = [0, 0, 1]
+        with mock.patch.object(
+                connection, 'send',
+                side_effect=lambda *args: eventlet.sleep(sleeps.pop(0))):
+            with self.assertRaises(exceptions.MessageTimeout) as cm:
+                self.sender.missing_check(connection, response)
+        self.assertIn('0.01 seconds: missing_check send line: '
+                      '1 lines (57 bytes) sent', str(cm.exception))
 
     def test_missing_check_has_empty_suffixes(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):

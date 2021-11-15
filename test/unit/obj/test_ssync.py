@@ -57,7 +57,7 @@ class TestBaseSsync(BaseTest):
             'mount_check': 'false',
             'replication_concurrency_per_device': '0',
             'log_requests': 'false'}
-        self.rx_logger = debug_logger()
+        self.rx_logger = debug_logger(name='test-ssync-receiver')
         self.rx_controller = server.ObjectController(conf, self.rx_logger)
         self.ts_iter = make_timestamp_iter()
         self.rx_ip = '127.0.0.1'

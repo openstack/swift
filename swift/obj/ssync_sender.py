@@ -197,6 +197,12 @@ class Sender(object):
                                       set(send_map.keys()))
                     can_delete_obj = dict((hash_, available_map[hash_])
                                           for hash_ in in_sync_hashes)
+                self.daemon.logger.debug(
+                    'ssync completed ok: dev: %s, part: %s, policy: %d, '
+                    'num suffixes: %s, available: %d, sent: %d, deletable: %d',
+                    self.job['device'], self.job['partition'],
+                    self.job['policy'].idx, len(self.suffixes),
+                    len(available_map), len(send_map), len(can_delete_obj))
                 return True, can_delete_obj
             except (exceptions.MessageTimeout,
                     exceptions.ReplicationException) as err:
@@ -299,16 +305,20 @@ class Sender(object):
                 objhash_timestamps[0] in
                 self.remote_check_objs, hash_gen)
         nlines = 0
+        nbytes = 0
         for object_hash, timestamps in hash_gen:
             available_map[object_hash] = timestamps
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
-                    'missing_check send line'):
+                    'missing_check send line: %d lines (%d bytes) sent'
+                    % (nlines, nbytes)):
                 msg = b'%s\r\n' % encode_missing(object_hash, **timestamps)
-                connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
+                msg = b'%x\r\n%s\r\n' % (len(msg), msg)
+                connection.send(msg)
             if nlines % 5 == 0:
                 sleep()  # Gives a chance for other greenthreads to run
             nlines += 1
+            nbytes += len(msg)
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check end'):
             msg = b':MISSING_CHECK: END\r\n'
