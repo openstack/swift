@@ -51,9 +51,9 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-py36-centos-8
+    name: swift-tox-py36-centos-8-stream
     parent: swift-tox-py36
-    nodeset: centos-8
+    nodeset: centos-8-stream
 
 - job:
     name: swift-tox-py37
@@ -156,22 +156,22 @@
       python_version: 3.8
 
 - job:
-    name: swift-tox-func-py36-centos-8
+    name: swift-tox-func-py36-centos-8-stream
     parent: swift-tox-func-py38
-    nodeset: centos-8
+    nodeset: centos-8-stream
     vars:
       bindep_profile: test py36
       python_version: 3.6
 
 - job:
-    name: swift-tox-func-encryption-py36-centos-8
-    parent: swift-tox-func-py36-centos-8
+    name: swift-tox-func-encryption-py36-centos-8-stream
+    parent: swift-tox-func-py36-centos-8-stream
     vars:
       tox_envlist: func-encryption-py3
 
 - job:
-    name: swift-tox-func-ec-py36-centos-8
-    parent: swift-tox-func-py36-centos-8
+    name: swift-tox-func-ec-py36-centos-8-stream
+    parent: swift-tox-func-py36-centos-8-stream
     vars:
       tox_envlist: func-ec-py3
 
@@ -342,9 +342,9 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-probetests-centos-8
+    name: swift-probetests-centos-8-stream
     parent: swift-probetests-centos-7
-    nodeset: centos-8
+    nodeset: centos-8-stream
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
       under Python 3.
@@ -352,9 +352,12 @@
       bindep_profile: test py36
 
 - job:
-    name: swift-probetests-centos-8-arm64
-    parent: swift-probetests-centos-8
-    nodeset: centos-8-arm64
+    name: swift-probetests-centos-8-stream-arm64
+    parent: swift-probetests-centos-8-stream
+    nodeset:
+      nodes:
+        - name: swift-centos-8-stream-arm64
+          label: centos-8-stream-arm64
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
       under Python 3 on top of arm64 architecture.
@@ -572,16 +575,11 @@
      version 3 releases designated for testing on top of ARM64 architecture.
    check-arm64:
      jobs:
-       - swift-tox-py38-arm64:
-           voting: false
-       - swift-tox-py39-arm64:
-           voting: false
-       - swift-probetests-centos-8-arm64:
-           voting: false
-       - swift-tox-func-encryption-py38-arm64:
-           voting: false
-       - swift-tox-func-py38-arm64:
-           voting: false
+       - swift-tox-py38-arm64
+       - swift-tox-py39-arm64
+       - swift-probetests-centos-8-stream-arm64
+       - swift-tox-func-encryption-py38-arm64
+       - swift-tox-func-py38-arm64
 
 - project:
     templates:
@@ -656,7 +654,7 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(cors|unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-8:
+        - swift-probetests-centos-8-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
@@ -704,7 +702,7 @@
         - swift-func-cors
         - swift-probetests-centos-7:
             irrelevant-files: *probetest-irrelevant-files
-        - swift-probetests-centos-8:
+        - swift-probetests-centos-8-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
@@ -728,10 +726,10 @@
         - swift-tox-func-py27-centos-7
         - swift-tox-func-encryption-py27-centos-7
         - swift-tox-func-ec-py27-centos-7
-        - swift-tox-py36-centos-8
-        - swift-tox-func-py36-centos-8
-        - swift-tox-func-encryption-py36-centos-8
-        - swift-tox-func-ec-py36-centos-8
+        - swift-tox-py36-centos-8-stream
+        - swift-tox-func-py36-centos-8-stream
+        - swift-tox-func-encryption-py36-centos-8-stream
+        - swift-tox-func-ec-py36-centos-8-stream
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
         - swift-multinode-rolling-upgrade-train
