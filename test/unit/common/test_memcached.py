@@ -912,6 +912,41 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(connections['1.2.3.5'].qsize(), 2)
         self.assertEqual(connections['1.2.3.4'].qsize(), 2)
 
+    def test_connection_slow_connect(self):
+        with patch('swift.common.memcached.socket') as mock_module:
+            def mock_getaddrinfo(host, port, family=socket.AF_INET,
+                                 socktype=socket.SOCK_STREAM, proto=0,
+                                 flags=0):
+                return [(family, socktype, proto, '', (host, port))]
+
+            mock_module.getaddrinfo = mock_getaddrinfo
+
+            # patch socket, stub socket.socket, mock sock
+            mock_sock = mock_module.socket.return_value
+
+            def wait_connect(addr):
+                # slow connect gives Timeout Exception
+                sleep(1)
+
+            # patch connect method
+            mock_sock.connect = wait_connect
+
+            memcache_client = memcached.MemcacheRing(
+                ['1.2.3.4:11211'], connect_timeout=0.1)
+
+            # sanity
+            self.assertEqual(1, len(memcache_client._client_cache))
+            for server, pool in memcache_client._client_cache.items():
+                self.assertEqual(2, pool.max_size)
+
+            # try to get connect and no connection found
+            # so it will result in StopIteration
+            conn_generator = memcache_client._get_conns(b'key')
+            with self.assertRaises(StopIteration):
+                next(conn_generator)
+
+            self.assertEqual(1, mock_sock.close.call_count)
+
 
 if __name__ == '__main__':
     unittest.main()

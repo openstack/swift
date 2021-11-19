@@ -140,11 +140,15 @@ class MemcacheConnPool(Pool):
         family, socktype, proto, canonname, sockaddr = addrs[0]
         sock = socket.socket(family, socket.SOCK_STREAM)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        with Timeout(self._connect_timeout):
-            sock.connect(sockaddr)
-        if self._tls_context:
-            sock = self._tls_context.wrap_socket(sock,
-                                                 server_hostname=self.host)
+        try:
+            with Timeout(self._connect_timeout):
+                sock.connect(sockaddr)
+            if self._tls_context:
+                sock = self._tls_context.wrap_socket(sock,
+                                                     server_hostname=self.host)
+        except (Exception, Timeout):
+            sock.close()
+            raise
         return (sock.makefile('rwb'), sock)
 
     def get(self):
@@ -237,6 +241,8 @@ class MemcacheRing(object):
         """
         Retrieves a server conn from the pool, or connects a new one.
         Chooses the server based on a consistent hash of "key".
+
+        :return: generator to serve memcached connection
         """
         pos = bisect(self._sorted, key)
         served = []
