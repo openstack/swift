@@ -3347,17 +3347,23 @@ class ECDiskFile(BaseDiskFile):
         """
         purge_file = self.manager.make_on_disk_filename(
             timestamp, ext='.ts')
-        remove_file(os.path.join(self._datadir, purge_file))
+        purge_path = os.path.join(self._datadir, purge_file)
+        remove_file(purge_path)
+
         if frag_index is not None:
             # data file may or may not be durable so try removing both filename
             # possibilities
             purge_file = self.manager.make_on_disk_filename(
                 timestamp, ext='.data', frag_index=frag_index)
-            if is_file_older(purge_file, nondurable_purge_delay):
-                remove_file(os.path.join(self._datadir, purge_file))
+            purge_path = os.path.join(self._datadir, purge_file)
+            if is_file_older(purge_path, nondurable_purge_delay):
+                remove_file(purge_path)
+
             purge_file = self.manager.make_on_disk_filename(
                 timestamp, ext='.data', frag_index=frag_index, durable=True)
-            remove_file(os.path.join(self._datadir, purge_file))
+            purge_path = os.path.join(self._datadir, purge_file)
+            remove_file(purge_path)
+
             remove_directory(self._datadir)
         self.manager.invalidate_hash(dirname(self._datadir))
 

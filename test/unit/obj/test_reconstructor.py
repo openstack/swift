@@ -1251,8 +1251,10 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         with mock.patch('swift.obj.reconstructor.ssync_sender',
                         self._make_fake_ssync(ssync_calls)):
             self.reconstructor.handoffs_only = True
-            # turn down the commit_window...
-            df_older.manager.commit_window = 0
+            # let the file get a little bit older and turn down the
+            # commit_window...
+            sleep(0.01)
+            df_older.manager.commit_window = 0.005
             self.reconstructor.reconstruct()
         for context in ssync_calls:
             self.assertEqual(REVERT, context['job']['job_type'])
