@@ -961,7 +961,7 @@ class ObjectReconstructor(Daemon):
         self.suffix_count += len(suffixes)
         return suffixes, node
 
-    def delete_reverted_objs(self, job, objects, frag_index):
+    def delete_reverted_objs(self, job, objects):
         """
         For EC we can potentially revert only some of a partition
         so we'll delete reverted objects here. Note that we delete
@@ -970,24 +970,37 @@ class ObjectReconstructor(Daemon):
         :param job: the job being processed
         :param objects: a dict of objects to be deleted, each entry maps
                         hash=>timestamp
-        :param frag_index: (int) the fragment index of data files to be deleted
         """
         df_mgr = self._df_router[job['policy']]
         suffixes_to_delete = set()
         for object_hash, timestamps in objects.items():
             try:
-                df = df_mgr.get_diskfile_from_hash(
+                df, filenames = df_mgr.get_diskfile_and_filenames_from_hash(
                     job['local_dev']['device'], job['partition'],
                     object_hash, job['policy'],
-                    frag_index=frag_index)
+                    frag_index=job['frag_index'])
                 # legacy durable data files look like modern nondurable data
                 # files; we therefore override nondurable_purge_delay when we
                 # know the data file is durable so that legacy durable data
                 # files get purged
                 nondurable_purge_delay = (0 if timestamps.get('durable')
                                           else df_mgr.commit_window)
-                df.purge(timestamps['ts_data'], frag_index,
-                         nondurable_purge_delay)
+                data_files = [
+                    f for f in filenames
+                    if f.endswith('.data')]
+                purgable_data_files = [
+                    f for f in data_files
+                    if f.startswith(timestamps['ts_data'].internal)]
+                if (job['primary_frag_index'] is None
+                        and len(purgable_data_files) == len(data_files) <= 1):
+                    # pure handoff node, and we're about to purge the last
+                    # .data file, so it's ok to remove any meta file that may
+                    # have been reverted
+                    meta_timestamp = timestamps.get('ts_meta')
+                else:
+                    meta_timestamp = None
+                df.purge(timestamps['ts_data'], job['frag_index'],
+                         nondurable_purge_delay, meta_timestamp)
             except DiskFileNotExist:
                 # may have passed reclaim age since being reverted, or may have
                 # raced with another reconstructor process trying the same
@@ -995,7 +1008,7 @@ class ObjectReconstructor(Daemon):
             except DiskFileError:
                 self.logger.exception(
                     'Unable to purge DiskFile (%r %r %r)',
-                    object_hash, timestamps['ts_data'], frag_index)
+                    object_hash, timestamps['ts_data'], job['frag_index'])
             suffixes_to_delete.add(object_hash[-3:])
 
         for suffix in suffixes_to_delete:
@@ -1080,8 +1093,7 @@ class ObjectReconstructor(Daemon):
                         syncd_with += 1
                         reverted_objs.update(in_sync_objs)
                 if syncd_with >= len(job['sync_to']):
-                    self.delete_reverted_objs(
-                        job, reverted_objs, job['frag_index'])
+                    self.delete_reverted_objs(job, reverted_objs)
                 else:
                     self.handoffs_remaining += 1
         except PartitionLockTimeout:
@@ -1150,7 +1162,8 @@ class ObjectReconstructor(Daemon):
                     data_fi_to_suffixes[fi].append(suffix)
 
         # helper to ensure consistent structure of jobs
-        def build_job(job_type, frag_index, suffixes, sync_to):
+        def build_job(job_type, frag_index, suffixes, sync_to,
+                      primary_frag_index):
             return {
                 'job_type': job_type,
                 'frag_index': frag_index,
@@ -1163,28 +1176,33 @@ class ObjectReconstructor(Daemon):
                 'local_dev': local_dev,
                 # ssync likes to have it handy
                 'device': local_dev['device'],
+                # provide a hint to revert jobs that the node is a primary for
+                # one of the frag indexes
+                'primary_frag_index': primary_frag_index,
             }
 
         # aggregate jobs for all the fragment index in this part
         jobs = []
 
         # check the primary nodes - to see if the part belongs here
+        primary_frag_index = None
         part_nodes = policy.object_ring.get_part_nodes(partition)
         for node in part_nodes:
             if node['id'] == local_dev['id']:
                 # this partition belongs here, we'll need a sync job
-                frag_index = policy.get_backend_index(node['index'])
+                primary_frag_index = policy.get_backend_index(node['index'])
                 try:
-                    suffixes = data_fi_to_suffixes.pop(frag_index)
+                    suffixes = data_fi_to_suffixes.pop(primary_frag_index)
                 except KeyError:
                     # N.B. If this function ever returns an empty list of jobs
                     # the entire partition will be deleted.
                     suffixes = []
                 sync_job = build_job(
                     job_type=SYNC,
-                    frag_index=frag_index,
+                    frag_index=primary_frag_index,
                     suffixes=suffixes,
                     sync_to=_get_partners(node['index'], part_nodes),
+                    primary_frag_index=primary_frag_index
                 )
                 # ssync callback to rebuild missing fragment_archives
                 sync_job['sync_diskfile_builder'] = self.reconstruct_fa
@@ -1215,6 +1233,7 @@ class ObjectReconstructor(Daemon):
                 frag_index=fi,
                 suffixes=data_fi_to_suffixes[fi],
                 sync_to=nodes_sync_to,
+                primary_frag_index=primary_frag_index
             )
             jobs.append(revert_job)
 
@@ -1241,7 +1260,8 @@ class ObjectReconstructor(Daemon):
                     job_type=REVERT,
                     frag_index=None,
                     suffixes=non_data_fragment_suffixes,
-                    sync_to=random.sample(part_nodes, nsample)
+                    sync_to=random.sample(part_nodes, nsample),
+                    primary_frag_index=primary_frag_index
                 ))
         # return a list of jobs for this part
         return jobs

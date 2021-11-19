@@ -1488,21 +1488,22 @@ class BaseDiskFileManager(object):
             self, audit_location.path, dev_path,
             audit_location.partition, policy=audit_location.policy)
 
-    def get_diskfile_from_hash(self, device, partition, object_hash,
-                               policy, **kwargs):
+    def get_diskfile_and_filenames_from_hash(self, device, partition,
+                                             object_hash, policy, **kwargs):
         """
-        Returns a DiskFile instance for an object at the given
-        object_hash. Just in case someone thinks of refactoring, be
-        sure DiskFileDeleted is *not* raised, but the DiskFile
-        instance representing the tombstoned object is returned
-        instead.
+        Returns a tuple of (a DiskFile instance for an object at the given
+        object_hash, the basenames of the files in the object's hash dir).
+        Just in case someone thinks of refactoring, be sure DiskFileDeleted is
+        *not* raised, but the DiskFile instance representing the tombstoned
+        object is returned instead.
 
         :param device: name of target device
         :param partition: partition on the device in which the object lives
         :param object_hash: the hash of an object path
         :param policy: the StoragePolicy instance
         :raises DiskFileNotExist: if the object does not exist
-        :returns: an instance of BaseDiskFile
+        :returns: a tuple comprising (an instance of BaseDiskFile, a list of
+            file basenames)
         """
         dev_path = self.get_dev_path(device)
         if not dev_path:
@@ -1541,9 +1542,27 @@ class BaseDiskFileManager(object):
                 metadata.get('name', ''), 3, 3, True)
         except ValueError:
             raise DiskFileNotExist()
-        return self.diskfile_cls(self, dev_path,
-                                 partition, account, container, obj,
-                                 policy=policy, **kwargs)
+        df = self.diskfile_cls(self, dev_path, partition, account, container,
+                               obj, policy=policy, **kwargs)
+        return df, filenames
+
+    def get_diskfile_from_hash(self, device, partition, object_hash, policy,
+                               **kwargs):
+        """
+        Returns a DiskFile instance for an object at the given object_hash.
+        Just in case someone thinks of refactoring, be sure DiskFileDeleted is
+        *not* raised, but the DiskFile instance representing the tombstoned
+        object is returned instead.
+
+        :param device: name of target device
+        :param partition: partition on the device in which the object lives
+        :param object_hash: the hash of an object path
+        :param policy: the StoragePolicy instance
+        :raises DiskFileNotExist: if the object does not exist
+        :returns: an instance of BaseDiskFile
+        """
+        return self.get_diskfile_and_filenames_from_hash(
+            device, partition, object_hash, policy, **kwargs)[0]
 
     def get_hashes(self, device, partition, suffixes, policy,
                    skip_rehash=False):
@@ -3325,7 +3344,8 @@ class ECDiskFile(BaseDiskFile):
             frag_prefs=self._frag_prefs, policy=policy)
         return self._ondisk_info
 
-    def purge(self, timestamp, frag_index, nondurable_purge_delay=0):
+    def purge(self, timestamp, frag_index, nondurable_purge_delay=0,
+              meta_timestamp=None):
         """
         Remove a tombstone file matching the specified timestamp or
         datafile matching the specified timestamp and fragment index
@@ -3344,11 +3364,19 @@ class ECDiskFile(BaseDiskFile):
                            a whole number or None.
         :param nondurable_purge_delay: only remove a non-durable data file if
             it's been on disk longer than this many seconds.
+        :param meta_timestamp: if not None then remove any meta file with this
+            timestamp
         """
         purge_file = self.manager.make_on_disk_filename(
             timestamp, ext='.ts')
         purge_path = os.path.join(self._datadir, purge_file)
         remove_file(purge_path)
+
+        if meta_timestamp is not None:
+            purge_file = self.manager.make_on_disk_filename(
+                meta_timestamp, ext='.meta')
+            purge_path = os.path.join(self._datadir, purge_file)
+            remove_file(purge_path)
 
         if frag_index is not None:
             # data file may or may not be durable so try removing both filename

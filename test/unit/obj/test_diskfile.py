@@ -1678,13 +1678,15 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with mock.patch(self._manager_mock('diskfile_cls')) as dfclass, \
+        mock_return = object()
+        with mock.patch(self._manager_mock('diskfile_cls'),
+                        return_value=mock_return) as dfclass, \
                 mock.patch(self._manager_mock(
                     'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             cleanup.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {'name': '/a/c/o'}
-            self.df_mgr.get_diskfile_from_hash(
+            actual = self.df_mgr.get_diskfile_from_hash(
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
             dfclass.assert_called_once_with(
                 self.df_mgr, '/srv/dev/', '9',
@@ -1694,6 +1696,30 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             readmeta.assert_called_once_with(
                 '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/'
                 '1381679759.90941.data')
+            self.assertEqual(mock_return, actual)
+
+    def test_get_diskfile_and_filenames_from_hash(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        mock_return = object()
+        with mock.patch(self._manager_mock('diskfile_cls'),
+                        return_value=mock_return) as dfclass, \
+                mock.patch(self._manager_mock(
+                    'cleanup_ondisk_files')) as cleanup, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
+            cleanup.return_value = {'files': ['1381679759.90941.data']}
+            readmeta.return_value = {'name': '/a/c/o'}
+            actual, names = self.df_mgr.get_diskfile_and_filenames_from_hash(
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
+            dfclass.assert_called_once_with(
+                self.df_mgr, '/srv/dev/', '9',
+                'a', 'c', 'o', policy=POLICIES[0])
+            cleanup.assert_called_once_with(
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
+            readmeta.assert_called_once_with(
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/'
+                '1381679759.90941.data')
+            self.assertEqual(mock_return, actual)
+            self.assertEqual(['1381679759.90941.data'], names)
 
     def test_listdir_enoent(self):
         oserror = OSError()
@@ -1919,7 +1945,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             expected = sorted(expected_items)
             actual = sorted(hash_items)
             # default list diff easiest to debug
-            self.assertEqual(actual, expected)
+            self.assertEqual(expected, actual)
 
     def test_yield_hashes_tombstones(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
@@ -2127,6 +2153,9 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 '9333a92d072897b136b3fc06595b4abc': [
                     ts1.internal + '.ts',
                     ts2.internal + '.meta'],
+                # dangling .meta is not yielded because it cannot be sync'd
+                '9222a92d072897b136b3fc06595b4abc': [
+                    ts3.internal + '.meta'],
             },
             '456': {
                 # only latest metadata timestamp
@@ -6116,15 +6145,61 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         for frag_index in (1, 2):
             df = self._simple_get_diskfile(frag_index=frag_index)
             write_diskfile(df, ts)
+        ts_meta = self.ts()
+        df.write_metadata({
+            'X-Timestamp': ts_meta.internal,
+            'X-Object-Meta-Delete': 'me'
+        })
 
         # sanity
         self.assertEqual(sorted(os.listdir(df._datadir)), [
             ts.internal + '#1#d.data',
             ts.internal + '#2#d.data',
+            ts_meta.internal + '.meta',
         ])
         df.purge(ts, 2)
-        self.assertEqual(os.listdir(df._datadir), [
+        # by default .meta file is not purged
+        self.assertEqual(sorted(os.listdir(df._datadir)), [
             ts.internal + '#1#d.data',
+            ts_meta.internal + '.meta',
+        ])
+
+    def test_purge_final_fragment_index_and_meta(self):
+        ts = self.ts()
+        df = self._simple_get_diskfile(frag_index=1)
+        write_diskfile(df, ts)
+        ts_meta = self.ts()
+        df.write_metadata({
+            'X-Timestamp': ts_meta.internal,
+            'X-Object-Meta-Delete': 'me',
+        })
+
+        # sanity
+        self.assertEqual(sorted(os.listdir(df._datadir)), [
+            ts.internal + '#1#d.data',
+            ts_meta.internal + '.meta',
+        ])
+        df.purge(ts, 1, meta_timestamp=ts_meta)
+        self.assertFalse(os.path.exists(df._datadir))
+
+    def test_purge_final_fragment_index_and_not_meta(self):
+        ts = self.ts()
+        df = self._simple_get_diskfile(frag_index=1)
+        write_diskfile(df, ts)
+        ts_meta = self.ts()
+        df.write_metadata({
+            'X-Timestamp': ts_meta.internal,
+            'X-Object-Meta-Delete': 'me',
+        })
+
+        # sanity
+        self.assertEqual(sorted(os.listdir(df._datadir)), [
+            ts.internal + '#1#d.data',
+            ts_meta.internal + '.meta',
+        ])
+        df.purge(ts, 1, meta_timestamp=ts)
+        self.assertEqual(sorted(os.listdir(df._datadir)), [
+            ts_meta.internal + '.meta',
         ])
 
     def test_purge_last_fragment_index(self):
