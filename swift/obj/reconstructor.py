@@ -47,7 +47,7 @@ from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
     get_tmp_dir, DEFAULT_RECLAIM_AGE
 from swift.common.storage_policy import POLICIES, EC_POLICY
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
-    SuffixSyncError, PartitionLockTimeout
+    SuffixSyncError, PartitionLockTimeout, DiskFileNotExist
 
 SYNC, REVERT = ('sync_only', 'sync_revert')
 UNKNOWN_RESPONSE_STATUS = 0  # used as response status for timeouts, exceptions
@@ -988,6 +988,10 @@ class ObjectReconstructor(Daemon):
                                           else df_mgr.commit_window)
                 df.purge(timestamps['ts_data'], frag_index,
                          nondurable_purge_delay)
+            except DiskFileNotExist:
+                # may have passed reclaim age since being reverted, or may have
+                # raced with another reconstructor process trying the same
+                pass
             except DiskFileError:
                 self.logger.exception(
                     'Unable to purge DiskFile (%r %r %r)',

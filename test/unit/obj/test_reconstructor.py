@@ -4666,6 +4666,62 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
 
         self.assertEqual(self.reconstructor.handoffs_remaining, 0)
 
+    def test_process_job_revert_cleanup_but_already_reclaimed(self):
+        frag_index = random.randint(
+            0, self.policy.ec_n_unique_fragments - 1)
+        sync_to = [random.choice([n for n in self.policy.object_ring.devs
+                                  if n != self.local_dev])]
+        sync_to[0]['index'] = frag_index
+        partition = 0
+
+        part_path = os.path.join(self.devices, self.local_dev['device'],
+                                 diskfile.get_data_dir(self.policy),
+                                 str(partition))
+        os.makedirs(part_path)
+        df_mgr = self.reconstructor._df_router[self.policy]
+        df = df_mgr.get_diskfile(self.local_dev['device'], partition, 'a',
+                                 'c', 'data-obj', policy=self.policy)
+        ts_delete = self.ts()
+        df.delete(ts_delete)
+        ohash = os.path.basename(df._datadir)
+        suffix = os.path.basename(os.path.dirname(df._datadir))
+
+        job = {
+            'job_type': object_reconstructor.REVERT,
+            'frag_index': frag_index,
+            'suffixes': [suffix],
+            'sync_to': sync_to,
+            'partition': partition,
+            'path': part_path,
+            'hashes': {},
+            'policy': self.policy,
+            'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
+        }
+
+        fake_time = [float(ts_delete) + df_mgr.reclaim_age - 100]
+
+        def mock_time():
+            return fake_time[0]
+
+        def ssync_response_callback(*args):
+            # pretend ssync completed and time has moved just beyonf the
+            # reclaim age for the tombstone
+            fake_time[0] = float(ts_delete) + df_mgr.reclaim_age + 1
+            return True, {ohash: {'ts_data': ts_delete}}
+
+        ssync_calls = []
+        with mock.patch('swift.obj.diskfile.time.time', mock_time):
+            with mock_ssync_sender(ssync_calls,
+                                   response_callback=ssync_response_callback):
+                self.reconstructor.process_job(job)
+
+        self.assertFalse(os.path.exists(df._datadir))
+        self.assertEqual(self.reconstructor.handoffs_remaining, 0)
+        # check there's no tracebacks for opening the reclaimed tombstone
+        self.assertEqual(
+            [], self.reconstructor.logger.logger.get_lines_for_level('error'))
+
     def test_process_job_revert_cleanup_tombstone(self):
         partition = 0
         sync_to = [random.choice([
