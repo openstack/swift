@@ -897,9 +897,15 @@ class SwiftRecon(object):
         low_percents = [(None, 100)] * lowest
         recon = Scout("diskusage", self.verbose, self.suppress_errors,
                       self.timeout)
+        # We want to only query each host once, but we don't care
+        # which of the available ports we use. So we filter hosts by
+        # constructing a host->port dictionary, since the dict
+        # constructor ensures each key is unique, thus each host
+        # appears only once in filtered_hosts.
+        filtered_hosts = set(dict(hosts).items())
         print("[%s] Checking disk usage now" % self._ptime())
         for url, response, status, ts_start, ts_end in self.pool.imap(
-                recon.scout, hosts):
+                recon.scout, filtered_hosts):
             if status == 200:
                 hostusage = []
                 for entry in response:
