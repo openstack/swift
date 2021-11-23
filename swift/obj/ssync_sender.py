@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from eventlet import sleep
 import six
 from six.moves import urllib
 
@@ -297,6 +298,7 @@ class Sender(object):
                 lambda objhash_timestamps:
                 objhash_timestamps[0] in
                 self.remote_check_objs, hash_gen)
+        nlines = 0
         for object_hash, timestamps in hash_gen:
             available_map[object_hash] = timestamps
             with exceptions.MessageTimeout(
@@ -304,6 +306,9 @@ class Sender(object):
                     'missing_check send line'):
                 msg = b'%s\r\n' % encode_missing(object_hash, **timestamps)
                 connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
+            if nlines % 5 == 0:
+                sleep()  # Gives a chance for other greenthreads to run
+            nlines += 1
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check end'):
             msg = b':MISSING_CHECK: END\r\n'
