@@ -369,6 +369,7 @@ class Sender(object):
             msg = b':UPDATES: START\r\n'
             connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         frag_prefs = [] if self.include_non_durable else None
+        updates = 0
         for object_hash, want in send_map.items():
             object_hash = urllib.parse.unquote(object_hash)
             try:
@@ -404,6 +405,9 @@ class Sender(object):
                 # continue. The diskfile may however be deleted after a
                 # successful ssync since it remains in the send_map.
                 pass
+            if updates % 5 == 0:
+                sleep()  # Gives a chance for other greenthreads to run
+            updates += 1
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'updates end'):
             msg = b':UPDATES: END\r\n'
