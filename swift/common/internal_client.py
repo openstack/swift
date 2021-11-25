@@ -157,7 +157,8 @@ class InternalClient(object):
             raise ValueError('request_tries must be positive')
         self.app = app or loadapp(conf_path, global_conf=global_conf,
                                   allow_modify_pipeline=allow_modify_pipeline,)
-        self.user_agent = user_agent
+        self.user_agent = \
+            self.app._pipeline_final_app.backend_user_agent = user_agent
         self.request_tries = request_tries
         self.use_replication_network = use_replication_network
         self.get_object_ring = self.app._pipeline_final_app.get_object_ring

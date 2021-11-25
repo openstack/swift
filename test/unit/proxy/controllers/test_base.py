@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 from argparse import Namespace
 import itertools
 import json
@@ -1082,7 +1082,25 @@ class TestFuncs(BaseTest):
         dst_headers = base.generate_request_headers(req, transfer=True)
         expected_headers = {'x-base-meta-owner': '',
                             'x-base-meta-size': '151M',
-                            'connection': 'close'}
+                            'connection': 'close',
+                            'user-agent': 'proxy-server %d' % os.getpid()}
+        for k, v in expected_headers.items():
+            self.assertIn(k, dst_headers)
+            self.assertEqual(v, dst_headers[k])
+        self.assertNotIn('new-owner', dst_headers)
+
+    def test_generate_request_headers_change_backend_user_agent(self):
+        base = Controller(self.app)
+        self.app.backend_user_agent = "swift-flux-capacitor"
+        src_headers = {'x-remove-base-meta-owner': 'x',
+                       'x-base-meta-size': '151M',
+                       'new-owner': 'Kun'}
+        req = Request.blank('/v1/a/c/o', headers=src_headers)
+        dst_headers = base.generate_request_headers(req, transfer=True)
+        expected_headers = {'x-base-meta-owner': '',
+                            'x-base-meta-size': '151M',
+                            'connection': 'close',
+                            'user-agent': 'swift-flux-capacitor'}
         for k, v in expected_headers.items():
             self.assertIn(k, dst_headers)
             self.assertEqual(v, dst_headers[k])
