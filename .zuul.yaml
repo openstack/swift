@@ -570,16 +570,11 @@
      version 3 releases designated for testing on top of ARM64 architecture.
    check-arm64:
      jobs:
-       - swift-tox-py38-arm64:
-           voting: false
-       - swift-tox-py39-arm64:
-           voting: false
-       - swift-probetests-centos-8-arm64:
-           voting: false
-       - swift-tox-func-encryption-py38-arm64:
-           voting: false
-       - swift-tox-func-py38-arm64:
-           voting: false
+       - swift-tox-py38-arm64
+       - swift-tox-py39-arm64
+       - swift-probetests-centos-8-arm64
+       - swift-tox-func-encryption-py38-arm64
+       - swift-tox-func-py38-arm64
 
 - project:
     templates:
