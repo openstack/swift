@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-from swift import gettext_ as _
 from swift.account.backend import AccountBroker
 from swift.common.exceptions import InvalidAccountInfo
 from swift.common.db_auditor import DatabaseAuditor
@@ -41,7 +40,7 @@ class AccountAuditor(DatabaseAuditor):
         for key in policy_totals:
             if policy_totals[key] == info[key]:
                 continue
-            return InvalidAccountInfo(_(
+            return InvalidAccountInfo(
                 'The total %(key)s for the container (%(total)s) does not '
-                'match the sum of %(key)s across policies (%(sum)s)')
+                'match the sum of %(key)s across policies (%(sum)s)'
                 % {'key': key, 'total': info[key], 'sum': policy_totals[key]})
