@@ -18,7 +18,6 @@ import os
 import time
 import traceback
 import math
-from swift import gettext_ as _
 
 from eventlet import Timeout
 
@@ -238,10 +237,10 @@ class ContainerController(BaseStorageServer):
         if len(account_hosts) != len(account_devices):
             # This shouldn't happen unless there's a bug in the proxy,
             # but if there is, we want to know about it.
-            self.logger.error(_(
+            self.logger.error(
                 'ERROR Account update failed: different  '
                 'numbers of hosts and devices in request: '
-                '"%(hosts)s" vs "%(devices)s"') % {
+                '"%(hosts)s" vs "%(devices)s"', {
                     'hosts': req.headers.get('X-Account-Host', ''),
                     'devices': req.headers.get('X-Account-Device', '')})
             return HTTPBadRequest(req=req)
@@ -284,18 +283,18 @@ class ContainerController(BaseStorageServer):
                     if account_response.status == HTTP_NOT_FOUND:
                         account_404s += 1
                     elif not is_success(account_response.status):
-                        self.logger.error(_(
+                        self.logger.error(
                             'ERROR Account update failed '
                             'with %(ip)s:%(port)s/%(device)s (will retry '
-                            'later): Response %(status)s %(reason)s'),
+                            'later): Response %(status)s %(reason)s',
                             {'ip': account_ip, 'port': account_port,
                              'device': account_device,
                              'status': account_response.status,
                              'reason': account_response.reason})
             except (Exception, Timeout):
-                self.logger.exception(_(
+                self.logger.exception(
                     'ERROR account update failed with '
-                    '%(ip)s:%(port)s/%(device)s (will retry later)'),
+                    '%(ip)s:%(port)s/%(device)s (will retry later)',
                     {'ip': account_ip, 'port': account_port,
                      'device': account_device})
         if updates and account_404s == len(updates):
@@ -900,8 +899,8 @@ class ContainerController(BaseStorageServer):
             except HTTPException as error_response:
                 res = error_response
             except (Exception, Timeout):
-                self.logger.exception(_(
-                    'ERROR __call__ error with %(method)s %(path)s '),
+                self.logger.exception(
+                    'ERROR __call__ error with %(method)s %(path)s ',
                     {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         if self.log_requests:
