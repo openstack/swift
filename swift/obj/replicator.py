@@ -23,7 +23,6 @@ import time
 import itertools
 from six import viewkeys
 import six.moves.cPickle as pickle
-from swift import gettext_ as _
 
 import eventlet
 from eventlet import GreenPool, queue, tpool, Timeout, sleep
@@ -386,7 +385,7 @@ class ObjectReplicator(Daemon):
         except Timeout:
             self.logger.error(
                 self._limit_rsync_log(
-                    _("Killing long-running rsync after %ds: %s") % (
+                    "Killing long-running rsync after %ds: %s" % (
                         self.rsync_timeout, str(args))))
             if proc:
                 proc.kill()
@@ -570,7 +569,7 @@ class ObjectReplicator(Daemon):
                     stats.remove += 1
                     if (self.conf.get('sync_method', 'rsync') == 'ssync' and
                             delete_objs is not None):
-                        self.logger.info(_("Removing %s objects"),
+                        self.logger.info("Removing %s objects",
                                          len(delete_objs))
                         _junk, error_paths = self.delete_handoff_objs(
                             job, delete_objs)
@@ -598,7 +597,7 @@ class ObjectReplicator(Daemon):
                              job['policy'])
             self.logger.increment('partition.lock-failure.count')
         except (Exception, Timeout):
-            self.logger.exception(_("Error syncing handoff partition"))
+            self.logger.exception("Error syncing handoff partition")
             stats.add_failure_stats(failure_devs_info)
         finally:
             target_devs_info = set([(target_dev['replication_ip'],
@@ -611,7 +610,7 @@ class ObjectReplicator(Daemon):
             self.logger.timing_since('partition.delete.timing', begin)
 
     def delete_partition(self, path):
-        self.logger.info(_("Removing partition: %s"), path)
+        self.logger.info("Removing partition: %s", path)
         try:
             tpool.execute(shutil.rmtree, path)
         except OSError as e:
@@ -686,15 +685,15 @@ class ObjectReplicator(Daemon):
                             '', headers=headers).getresponse()
                         if resp.status == HTTP_INSUFFICIENT_STORAGE:
                             self.logger.error(
-                                _('%(replication_ip)s/%(device)s '
-                                  'responded as unmounted'), node)
+                                '%(replication_ip)s/%(device)s '
+                                'responded as unmounted', node)
                             attempts_left += 1
                             failure_devs_info.add((node['replication_ip'],
                                                    node['device']))
                             continue
                         if resp.status != HTTP_OK:
-                            self.logger.error(_("Invalid response %(resp)s "
-                                                "from %(ip)s"),
+                            self.logger.error("Invalid response %(resp)s "
+                                              "from %(ip)s",
                                               {'resp': resp.status,
                                                'ip': node['replication_ip']})
                             failure_devs_info.add((node['replication_ip'],
@@ -733,7 +732,7 @@ class ObjectReplicator(Daemon):
                 except (Exception, Timeout):
                     failure_devs_info.add((node['replication_ip'],
                                            node['device']))
-                    self.logger.exception(_("Error syncing with node: %s") %
+                    self.logger.exception("Error syncing with node: %s",
                                           node)
             stats.suffix_count += len(local_hash)
         except StopIteration:
@@ -742,7 +741,7 @@ class ObjectReplicator(Daemon):
                               job['partition'], int(job['policy']))
         except (Exception, Timeout):
             failure_devs_info.update(target_devs_info)
-            self.logger.exception(_("Error syncing partition"))
+            self.logger.exception("Error syncing partition")
         finally:
             stats.add_failure_stats(failure_devs_info)
             stats.success += len(target_devs_info - failure_devs_info)
@@ -760,23 +759,23 @@ class ObjectReplicator(Daemon):
             elapsed = (time.time() - self.start) or 0.000001
             rate = replication_count / elapsed
             self.logger.info(
-                _("%(replicated)d/%(total)d (%(percentage).2f%%)"
-                  " partitions replicated in %(time).2fs (%(rate).2f/sec, "
-                  "%(remaining)s remaining)"),
+                "%(replicated)d/%(total)d (%(percentage).2f%%)"
+                " partitions replicated in %(time).2fs (%(rate).2f/sec, "
+                "%(remaining)s remaining)",
                 {'replicated': replication_count, 'total': self.job_count,
                  'percentage': replication_count * 100.0 / self.job_count,
                  'time': time.time() - self.start, 'rate': rate,
                  'remaining': '%d%s' % compute_eta(self.start,
                                                    replication_count,
                                                    self.job_count)})
-            self.logger.info(_('%(success)s successes, %(failure)s failures')
-                             % dict(success=stats.success,
-                                    failure=stats.failure))
+            self.logger.info('%(success)s successes, %(failure)s failures',
+                             dict(success=stats.success,
+                                  failure=stats.failure))
 
             if stats.suffix_count:
                 self.logger.info(
-                    _("%(checked)d suffixes checked - "
-                      "%(hashed).2f%% hashed, %(synced).2f%% synced"),
+                    "%(checked)d suffixes checked - "
+                    "%(hashed).2f%% hashed, %(synced).2f%% synced",
                     {'checked': stats.suffix_count,
                      'hashed':
                      (stats.suffix_hash * 100.0) / stats.suffix_count,
@@ -784,15 +783,15 @@ class ObjectReplicator(Daemon):
                      (stats.suffix_sync * 100.0) / stats.suffix_count})
                 self.partition_times.sort()
                 self.logger.info(
-                    _("Partition times: max %(max).4fs, "
-                      "min %(min).4fs, med %(med).4fs"),
+                    "Partition times: max %(max).4fs, "
+                    "min %(min).4fs, med %(med).4fs",
                     {'max': self.partition_times[-1],
                      'min': self.partition_times[0],
                      'med': self.partition_times[
                          len(self.partition_times) // 2]})
         else:
             self.logger.info(
-                _("Nothing replicated for %s seconds."),
+                "Nothing replicated for %s seconds.",
                 (time.time() - self.start))
 
     def heartbeat(self):
@@ -919,7 +918,7 @@ class ObjectReplicator(Daemon):
                 policy.object_ring, 'next_part_power', None)
             if next_part_power is not None:
                 self.logger.warning(
-                    _("next_part_power set in policy '%s'. Skipping"),
+                    "next_part_power set in policy '%s'. Skipping",
                     policy.name)
                 continue
 
@@ -979,14 +978,14 @@ class ObjectReplicator(Daemon):
                     # in handoffs first mode, we won't process primary
                     # partitions until rebalance was successful!
                     if self.handoffs_remaining:
-                        self.logger.warning(_(
+                        self.logger.warning(
                             "Handoffs first mode still has handoffs "
                             "remaining.  Aborting current "
-                            "replication pass."))
+                            "replication pass.")
                         break
                 if not self.check_ring(job['policy'].object_ring):
-                    self.logger.info(_("Ring change detected. Aborting "
-                                       "current replication pass."))
+                    self.logger.info("Ring change detected. Aborting "
+                                     "current replication pass.")
                     return
 
                 try:
@@ -1016,7 +1015,7 @@ class ObjectReplicator(Daemon):
                 else:
                     dev_stats.add_failure_stats(self.all_devs_info)
             self.logger.exception(
-                _("Exception in top-level replication loop: %s"), err)
+                "Exception in top-level replication loop: %s", err)
         finally:
             stats.kill()
             self.stats_line()
@@ -1083,7 +1082,7 @@ class ObjectReplicator(Daemon):
 
         rsync_reaper = eventlet.spawn(self._child_process_reaper)
         self._zero_stats()
-        self.logger.info(_("Running object replicator in script mode."))
+        self.logger.info("Running object replicator in script mode.")
 
         override_opts = parse_override_options(once=True, **kwargs)
         devices = override_opts.devices or None
@@ -1099,7 +1098,7 @@ class ObjectReplicator(Daemon):
         end_time = time.time()
         total = (end_time - start_time) / 60
         self.logger.info(
-            _("Object replication complete (once). (%.02f minutes)"), total)
+            "Object replication complete (once). (%.02f minutes)", total)
 
         # If we've been manually run on a subset of
         # policies/devices/partitions, then our recon stats are not
@@ -1126,19 +1125,19 @@ class ObjectReplicator(Daemon):
         if multiprocess_worker_index is not None:
             self.is_multiprocess_worker = True
             self._emplace_log_prefix(multiprocess_worker_index)
-        self.logger.info(_("Starting object replicator in daemon mode."))
+        self.logger.info("Starting object replicator in daemon mode.")
         eventlet.spawn_n(self._child_process_reaper)
         # Run the replicator continually
         while True:
             self._zero_stats()
-            self.logger.info(_("Starting object replication pass."))
+            self.logger.info("Starting object replication pass.")
             # Run the replicator
             start = time.time()
             self.replicate(override_devices=override_devices)
             end = time.time()
             total = (end - start) / 60
             self.logger.info(
-                _("Object replication complete. (%.02f minutes)"), total)
+                "Object replication complete. (%.02f minutes)", total)
             self.update_recon(total, end, override_devices)
             self.logger.debug('Replication sleeping for %s seconds.',
                               self.interval)
