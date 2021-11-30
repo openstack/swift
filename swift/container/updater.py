@@ -19,7 +19,6 @@ import os
 import signal
 import sys
 import time
-from swift import gettext_ as _
 from random import random, shuffle
 from tempfile import mkstemp
 
@@ -90,8 +89,8 @@ class ContainerUpdater(Daemon):
         try:
             return os.listdir(path)
         except OSError as e:
-            self.logger.error(_('ERROR:  Failed to get paths to drive '
-                                'partitions: %s') % e)
+            self.logger.error('ERROR:  Failed to get paths to drive '
+                              'partitions: %s', e)
             return []
 
     def get_paths(self):
@@ -124,7 +123,7 @@ class ContainerUpdater(Daemon):
                     self.account_suppressions[account] = until
         except Exception:
             self.logger.exception(
-                _('ERROR with loading suppressions from %s: ') % filename)
+                'ERROR with loading suppressions from %s: ', filename)
         finally:
             os.unlink(filename)
 
@@ -134,7 +133,7 @@ class ContainerUpdater(Daemon):
         """
         time.sleep(random() * self.interval)
         while True:
-            self.logger.info(_('Begin container update sweep'))
+            self.logger.info('Begin container update sweep')
             begin = time.time()
             now = time.time()
             expired_suppressions = \
@@ -168,9 +167,9 @@ class ContainerUpdater(Daemon):
                     self.container_sweep(path)
                     elapsed = time.time() - forkbegin
                     self.logger.debug(
-                        _('Container update sweep of %(path)s completed: '
-                          '%(elapsed).02fs, %(success)s successes, %(fail)s '
-                          'failures, %(no_change)s with no changes'),
+                        'Container update sweep of %(path)s completed: '
+                        '%(elapsed).02fs, %(success)s successes, %(fail)s '
+                        'failures, %(no_change)s with no changes',
                         {'path': path, 'elapsed': elapsed,
                          'success': self.successes, 'fail': self.failures,
                          'no_change': self.no_changes})
@@ -182,7 +181,7 @@ class ContainerUpdater(Daemon):
                 finally:
                     del pid2filename[pid]
             elapsed = time.time() - begin
-            self.logger.info(_('Container update sweep completed: %.02fs'),
+            self.logger.info('Container update sweep completed: %.02fs',
                              elapsed)
             dump_recon_cache({'container_updater_sweep': elapsed},
                              self.rcache, self.logger)
@@ -194,7 +193,7 @@ class ContainerUpdater(Daemon):
         Run the updater once.
         """
         eventlet_monkey_patch()
-        self.logger.info(_('Begin container update single threaded sweep'))
+        self.logger.info('Begin container update single threaded sweep')
         begin = time.time()
         self.no_changes = 0
         self.successes = 0
@@ -202,10 +201,10 @@ class ContainerUpdater(Daemon):
         for path in self.get_paths():
             self.container_sweep(path)
         elapsed = time.time() - begin
-        self.logger.info(_(
+        self.logger.info(
             'Container update single threaded sweep completed: '
             '%(elapsed).02fs, %(success)s successes, %(fail)s failures, '
-            '%(no_change)s with no changes'),
+            '%(no_change)s with no changes',
             {'elapsed': elapsed, 'success': self.successes,
              'fail': self.failures, 'no_change': self.no_changes})
         dump_recon_cache({'container_updater_sweep': elapsed},
@@ -282,7 +281,7 @@ class ContainerUpdater(Daemon):
                 self.logger.increment('successes')
                 self.successes += 1
                 self.logger.debug(
-                    _('Update report sent for %(container)s %(dbfile)s'),
+                    'Update report sent for %(container)s %(dbfile)s',
                     {'container': container, 'dbfile': dbfile})
                 broker.reported(info['put_timestamp'],
                                 info['delete_timestamp'], info['object_count'],
@@ -291,7 +290,7 @@ class ContainerUpdater(Daemon):
                 self.logger.increment('failures')
                 self.failures += 1
                 self.logger.debug(
-                    _('Update report stub for %(container)s %(dbfile)s'),
+                    'Update report stub for %(container)s %(dbfile)s',
                     {'container': container, 'dbfile': dbfile})
                 broker.quarantine('no account replicas exist')
                 # All that's left at this point is a few sacks of Gnocchi,
@@ -300,7 +299,7 @@ class ContainerUpdater(Daemon):
                 self.logger.increment('failures')
                 self.failures += 1
                 self.logger.debug(
-                    _('Update report failed for %(container)s %(dbfile)s'),
+                    'Update report failed for %(container)s %(dbfile)s',
                     {'container': container, 'dbfile': dbfile})
                 self.account_suppressions[info['account']] = until = \
                     time.time() + self.account_suppression_time
@@ -342,9 +341,9 @@ class ContainerUpdater(Daemon):
                     node['ip'], node['port'], node['device'], part,
                     'PUT', container, headers=headers)
             except (Exception, Timeout):
-                self.logger.exception(_(
+                self.logger.exception(
                     'ERROR account update failed with '
-                    '%(ip)s:%(port)s/%(device)s (will retry later): '), node)
+                    '%(ip)s:%(port)s/%(device)s (will retry later): ', node)
                 return HTTP_INTERNAL_SERVER_ERROR
         with Timeout(self.node_timeout):
             try:
@@ -354,7 +353,7 @@ class ContainerUpdater(Daemon):
             except (Exception, Timeout):
                 if self.logger.getEffectiveLevel() <= logging.DEBUG:
                     self.logger.exception(
-                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
+                        'Exception with %(ip)s:%(port)s/%(device)s', node)
                 return HTTP_INTERNAL_SERVER_ERROR
             finally:
                 conn.close()

@@ -17,7 +17,6 @@ import collections
 import errno
 import os
 import uuid
-from swift import gettext_ as _
 from time import ctime, time
 from random import choice, random
 from struct import unpack_from
@@ -233,9 +232,9 @@ class ContainerSync(Daemon):
         internal_client_conf_path = conf.get('internal_client_conf_path')
         if not internal_client_conf_path:
             self.logger.warning(
-                _('Configuration option internal_client_conf_path not '
-                  'defined. Using default configuration, See '
-                  'internal-client.conf-sample for options'))
+                'Configuration option internal_client_conf_path not '
+                'defined. Using default configuration, See '
+                'internal-client.conf-sample for options')
             internal_client_conf = ConfigString(ic_conf_body)
         else:
             internal_client_conf = internal_client_conf_path
@@ -248,8 +247,8 @@ class ContainerSync(Daemon):
                     not str(err).endswith(' not found'):
                 raise
             raise SystemExit(
-                _('Unable to load internal client from config: '
-                  '%(conf)r (%(error)s)')
+                'Unable to load internal client from config: '
+                '%(conf)r (%(error)s)'
                 % {'conf': internal_client_conf_path, 'error': err})
 
     def run_forever(self, *args, **kwargs):
@@ -272,7 +271,7 @@ class ContainerSync(Daemon):
         """
         Runs a single container sync scan.
         """
-        self.logger.info(_('Begin container sync "once" mode'))
+        self.logger.info('Begin container sync "once" mode')
         begin = time()
         for path in self.sync_store.synced_containers_generator():
             self.container_sync(path)
@@ -281,7 +280,7 @@ class ContainerSync(Daemon):
         self.report()
         elapsed = time() - begin
         self.logger.info(
-            _('Container sync "once" mode completed: %.02fs'), elapsed)
+            'Container sync "once" mode completed: %.02fs', elapsed)
 
     def report(self):
         """
@@ -289,8 +288,8 @@ class ContainerSync(Daemon):
         next report.
         """
         self.logger.info(
-            _('Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s '
-              'puts], %(skip)s skipped, %(fail)s failed'),
+            'Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s '
+            'puts], %(skip)s skipped, %(fail)s failed',
             {'time': ctime(self.reported),
              'sync': self.container_syncs,
              'delete': self.container_deletes,
@@ -306,16 +305,16 @@ class ContainerSync(Daemon):
 
     def container_report(self, start, end, sync_point1, sync_point2, info,
                          max_row):
-        self.logger.info(_('Container sync report: %(container)s, '
-                           'time window start: %(start)s, '
-                           'time window end: %(end)s, '
-                           'puts: %(puts)s, '
-                           'posts: %(posts)s, '
-                           'deletes: %(deletes)s, '
-                           'bytes: %(bytes)s, '
-                           'sync_point1: %(point1)s, '
-                           'sync_point2: %(point2)s, '
-                           'total_rows: %(total)s'),
+        self.logger.info('Container sync report: %(container)s, '
+                         'time window start: %(start)s, '
+                         'time window end: %(end)s, '
+                         'puts: %(puts)s, '
+                         'posts: %(posts)s, '
+                         'deletes: %(deletes)s, '
+                         'bytes: %(bytes)s, '
+                         'sync_point1: %(point1)s, '
+                         'sync_point2: %(point2)s, '
+                         'total_rows: %(total)s',
                          {'container': '%s/%s' % (info['account'],
                                                   info['container']),
                           'start': start,
@@ -386,7 +385,7 @@ class ContainerSync(Daemon):
                     sync_to, self.allowed_sync_hosts, self.realms_conf)
                 if err:
                     self.logger.info(
-                        _('ERROR %(db_file)s: %(validate_sync_to_err)s'),
+                        'ERROR %(db_file)s: %(validate_sync_to_err)s',
                         {'db_file': str(broker),
                          'validate_sync_to_err': err})
                     self.container_failures += 1
@@ -455,7 +454,7 @@ class ContainerSync(Daemon):
         except (Exception, Timeout):
             self.container_failures += 1
             self.logger.increment('failures')
-            self.logger.exception(_('ERROR Syncing %s'),
+            self.logger.exception('ERROR Syncing %s',
                                   broker if broker else path)
 
     def _update_sync_to_headers(self, name, sync_to, user_key,
@@ -647,27 +646,27 @@ class ContainerSync(Daemon):
         except ClientException as err:
             if err.http_status == HTTP_UNAUTHORIZED:
                 self.logger.info(
-                    _('Unauth %(sync_from)r => %(sync_to)r'),
+                    'Unauth %(sync_from)r => %(sync_to)r',
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
                      'sync_to': sync_to})
             elif err.http_status == HTTP_NOT_FOUND:
                 self.logger.info(
-                    _('Not found %(sync_from)r => %(sync_to)r \
-                      - object %(obj_name)r'),
+                    'Not found %(sync_from)r => %(sync_to)r \
+                    - object %(obj_name)r',
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
                      'sync_to': sync_to, 'obj_name': row['name']})
             else:
                 self.logger.exception(
-                    _('ERROR Syncing %(db_file)s %(row)s'),
+                    'ERROR Syncing %(db_file)s %(row)s',
                     {'db_file': str(broker), 'row': row})
             self.container_failures += 1
             self.logger.increment('failures')
             return False
         except (Exception, Timeout):
             self.logger.exception(
-                _('ERROR Syncing %(db_file)s %(row)s'),
+                'ERROR Syncing %(db_file)s %(row)s',
                 {'db_file': str(broker), 'row': row})
             self.container_failures += 1
             self.logger.increment('failures')
