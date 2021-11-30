@@ -36,7 +36,7 @@ from six.moves.urllib.parse import unquote
 from swift.common import utils
 from swift.common.exceptions import DiskFileError, DiskFileQuarantined
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import dump_recon_cache, md5, Timestamp
+from swift.common.utils import dump_recon_cache, md5, Timestamp, mkdirs
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -332,6 +332,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'suffixes': ['061'],
                 'partition': 0,
                 'frag_index': 2,
+                'primary_frag_index': 1,
                 'device': 'sda1',
                 'local_dev': {
                     'replication_port': 6200,
@@ -395,6 +396,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'suffixes': ['061', '3c1'],
                 'partition': 0,
                 'frag_index': 1,
+                'primary_frag_index': 1,
                 'device': 'sda1',
                 'local_dev': {
                     'replication_port': 6200,
@@ -440,6 +442,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'suffixes': ['061', '3c1'],
                 'partition': 1,
                 'frag_index': 1,
+                'primary_frag_index': 4,
                 'device': 'sda1',
                 'local_dev': {
                     'replication_port': 6200,
@@ -481,6 +484,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'suffixes': ['3c1'],
                 'partition': 1,
                 'frag_index': 0,
+                'primary_frag_index': 4,
                 'device': 'sda1',
                 'local_dev': {
                     'replication_port': 6200,
@@ -544,6 +548,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'suffixes': [],
                 'partition': 1,
                 'frag_index': 4,
+                'primary_frag_index': 4,
                 'device': 'sda1',
                 'local_dev': {
                     'replication_port': 6200,
@@ -589,6 +594,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'suffixes': ['061'],
                 'partition': 2,
                 'frag_index': 0,
+                'primary_frag_index': None,
                 'device': 'sda1',
                 'local_dev': {
                     'replication_port': 6200,
@@ -628,6 +634,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'suffixes': ['3c1'],
                 'partition': 2,
                 'frag_index': 2,
+                'primary_frag_index': None,
                 'device': 'sda1',
                 'local_dev': {
                     'replication_port': 6200,
@@ -1166,9 +1173,10 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     # may not be for the reverted frag index
                     self.assertTrue(files)
                     n_files += len(files)
+                self.assertEqual(context['job']['frag_index'],
+                                 context['node']['index'])
                 expected_calls.append(mock.call(context['job'],
-                                      context['available_map'],
-                                      context['node']['index']))
+                                      context['available_map']))
             else:
                 self.assertFalse(context.get('include_non_durable'))
 
@@ -4642,6 +4650,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         job = {
             'job_type': object_reconstructor.REVERT,
             'frag_index': frag_index,
+            'primary_frag_index': None,
             'suffixes': [suffix],
             'sync_to': sync_to,
             'partition': partition,
@@ -4722,6 +4731,193 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(
             [], self.reconstructor.logger.logger.get_lines_for_level('error'))
 
+    def _make_frag(self, df, fi, ts_data):
+        with df.create() as writer:
+            test_data = b'test data'
+            writer.write(test_data)
+            metadata = {
+                'X-Timestamp': ts_data.internal,
+                'Content-Length': len(test_data),
+                'Etag': md5(test_data, usedforsecurity=False).hexdigest(),
+                'X-Object-Sysmeta-Ec-Frag-Index': fi,
+            }
+            writer.put(metadata)
+            writer.commit(ts_data)
+
+    def _do_test_process_job_revert_cleanup_with_meta(self, frag_indexes,
+                                                      primary_frag_index):
+        sync_to = [[dict(random.choice([n for n in self.policy.object_ring.devs
+                                        if n != self.local_dev]),
+                         index=frag_index)] for frag_index in frag_indexes]
+        partition = 0
+
+        part_path = os.path.join(self.devices, self.local_dev['device'],
+                                 diskfile.get_data_dir(self.policy),
+                                 str(partition))
+        mkdirs(part_path)
+        df_mgr = self.reconstructor._df_router[self.policy]
+        df = df_mgr.get_diskfile(self.local_dev['device'], partition, 'a',
+                                 'c', 'data-obj', policy=self.policy)
+
+        ts_data = self.ts()
+        for frag_index in frag_indexes:
+            self._make_frag(df, frag_index, ts_data)
+        if primary_frag_index is not None:
+            self._make_frag(df, primary_frag_index, ts_data)
+        ts_meta = self.ts()
+        df.write_metadata({'X-Timestamp': ts_meta.internal,
+                           'X-Object-Meta-Test': 'testing'})
+
+        ohash = os.path.basename(df._datadir)
+        suffix = os.path.basename(os.path.dirname(df._datadir))
+
+        jobs = [{
+            'job_type': object_reconstructor.REVERT,
+            'frag_index': frag_index,
+            'primary_frag_index': primary_frag_index,
+            'suffixes': [suffix],
+            'sync_to': sync_to[i],
+            'partition': partition,
+            'path': part_path,
+            'hashes': {},
+            'policy': self.policy,
+            'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
+        } for i, frag_index in enumerate(frag_indexes)]
+
+        ondisk_files_during_sync = []
+
+        def ssync_response_callback(*args):
+            ondisk_files_during_sync.append(os.listdir(df._datadir))
+            # success should not increment handoffs_remaining
+            return True, {ohash: {'ts_data': ts_data, 'ts_meta': ts_meta}}
+
+        ssync_calls = []
+        with mock_ssync_sender(ssync_calls,
+                               response_callback=ssync_response_callback):
+            for job in jobs:
+                self.reconstructor.process_job(job)
+
+        self.assertEqual(self.reconstructor.handoffs_remaining, 0)
+        self.assertEqual(len(jobs), len(ssync_calls))
+        self.assertEqual(len(jobs), len(ondisk_files_during_sync))
+        # verify that the meta file is intact at startof every job/ssync call:
+        # if it is removed at all, it should be removed in the *last* call
+        for fileset in ondisk_files_during_sync:
+            self.assertIn(ts_meta.internal + '.meta', fileset)
+        return df
+
+    def test_process_job_revert_does_cleanup_meta_pure_handoff(self):
+        # verify that danging meta files are cleaned up if the revert job is
+        # for a pure handoff partition
+        frag_index = random.randint(
+            0, self.policy.ec_n_unique_fragments - 1)
+        df = self._do_test_process_job_revert_cleanup_with_meta(
+            frag_indexes=[frag_index], primary_frag_index=None)
+        # hashpath has been removed
+        self.assertFalse(os.path.exists(df._datadir))
+
+        extra_index = frag_index
+        while extra_index == frag_index:
+            extra_index = random.randint(
+                0, self.policy.ec_n_unique_fragments - 1)
+        df = self._do_test_process_job_revert_cleanup_with_meta(
+            frag_indexes=[frag_index, extra_index], primary_frag_index=None)
+        # hashpath has been removed
+        self.assertFalse(os.path.exists(df._datadir))
+
+    def test_process_job_revert_does_not_cleanup_meta_also_primary(self):
+        # verify that danging meta files are not cleaned up if the revert job
+        # is for a handoff partition that is also a primary for another frag
+        # index
+        frag_index = random.randint(
+            0, self.policy.ec_n_unique_fragments - 1)
+        primary_frag_index = frag_index
+        while primary_frag_index == frag_index:
+            primary_frag_index = random.randint(
+                0, self.policy.ec_n_unique_fragments - 1)
+        df = self._do_test_process_job_revert_cleanup_with_meta(
+            frag_indexes=[frag_index], primary_frag_index=primary_frag_index)
+        # hashpath has not been removed
+        self.assertTrue(os.path.exists(df._datadir))
+        file_info = df._manager.cleanup_ondisk_files(df._datadir)
+        self.maxDiff = None
+        self.assertTrue('meta_file' in file_info)
+        self.assertTrue(os.path.exists(file_info['meta_file']))
+        self.assertTrue('data_info' in file_info)
+        self.assertEqual(primary_frag_index,
+                         file_info['data_info']['frag_index'])
+        self.assertTrue(os.path.exists(file_info['data_file']))
+        # only the primary frag and meta file remain
+        self.assertEqual(2, len(os.listdir(df._datadir)))
+
+    def test_process_job_revert_does_not_cleanup_meta_new_data(self):
+        # verify that danging meta files are not cleaned up if the revert job
+        # is for a pure handoff partition that has a newer data frag in
+        # addition to the frag that was sync'd
+        frag_index = 0
+        extra_frag_index = 1
+        sync_to = [dict(random.choice([n for n in self.policy.object_ring.devs
+                                       if n != self.local_dev]),
+                        index=frag_index)]
+        partition = 0
+
+        part_path = os.path.join(self.devices, self.local_dev['device'],
+                                 diskfile.get_data_dir(self.policy),
+                                 str(partition))
+        mkdirs(part_path)
+        df_mgr = self.reconstructor._df_router[self.policy]
+        df = df_mgr.get_diskfile(self.local_dev['device'], partition, 'a',
+                                 'c', 'data-obj', policy=self.policy)
+
+        ts_data0 = self.ts()  # original frag
+        ts_data1 = self.ts()  # new one written during ssync
+        self._make_frag(df, frag_index, ts_data0)
+        ts_meta = self.ts()
+        df.write_metadata({'X-Timestamp': ts_meta.internal,
+                           'X-Object-Meta-Test': 'testing'})
+
+        ohash = os.path.basename(df._datadir)
+        suffix = os.path.basename(os.path.dirname(df._datadir))
+
+        job = {
+            'job_type': object_reconstructor.REVERT,
+            'frag_index': frag_index,
+            'primary_frag_index': None,
+            'suffixes': [suffix],
+            'sync_to': sync_to,
+            'partition': partition,
+            'path': part_path,
+            'hashes': {},
+            'policy': self.policy,
+            'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
+        }
+
+        def ssync_response_callback(*args):
+            # pretend that during the ssync call the original frag is replaced
+            # by a newer one
+            self._make_frag(df, extra_frag_index, ts_data1)
+            return True, {ohash: {'ts_data': ts_data0, 'ts_meta': ts_meta}}
+
+        ssync_calls = []
+        with mock_ssync_sender(ssync_calls,
+                               response_callback=ssync_response_callback):
+            self.reconstructor.process_job(job)
+
+        self.assertEqual(1, len(ssync_calls))
+        # hashpath has not been removed
+        self.assertTrue(os.path.exists(df._datadir))
+        file_info = df._manager.cleanup_ondisk_files(df._datadir)
+        self.maxDiff = None
+        self.assertIsNotNone(file_info['meta_file'])
+        self.assertTrue(os.path.exists(file_info['meta_file']))
+        self.assertTrue('data_info' in file_info)
+        self.assertTrue(os.path.exists(file_info['data_file']))
+        # only the newer frag and meta file remain
+        self.assertEqual(2, len(os.listdir(df._datadir)))
+        self.assertEqual(ts_data1, file_info['data_info']['timestamp'])
+
     def test_process_job_revert_cleanup_tombstone(self):
         partition = 0
         sync_to = [random.choice([
@@ -4744,6 +4940,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         job = {
             'job_type': object_reconstructor.REVERT,
             'frag_index': None,
+            'primary_frag_index': None,
             'suffixes': [suffix],
             'sync_to': sync_to,
             'partition': partition,
