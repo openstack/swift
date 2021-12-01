@@ -144,7 +144,67 @@ class TestWSGI(unittest.TestCase):
         with open(conf_path, 'w') as f:
             f.write(contents)
         app = wsgi.loadapp(conf_path)
-        self.assertTrue(isinstance(app, obj_server.ObjectController))
+        self.assertIsInstance(app, obj_server.ObjectController)
+
+    @with_tempdir
+    def test_loadapp_from_file_with_global_conf(self, tempdir):
+        # verify that global_conf items override conf file DEFAULTS...
+        conf_path = os.path.join(tempdir, 'object-server.conf')
+        conf_body = """
+        [DEFAULT]
+        log_name = swift
+        [app:main]
+        use = egg:swift#object
+        log_name = swift-main
+        """
+        contents = dedent(conf_body)
+        with open(conf_path, 'w') as f:
+            f.write(contents)
+        app = wsgi.loadapp(conf_path)
+        self.assertIsInstance(app, obj_server.ObjectController)
+        self.assertEqual('swift', app.logger.server)
+
+        app = wsgi.loadapp(conf_path, global_conf={'log_name': 'custom'})
+        self.assertIsInstance(app, obj_server.ObjectController)
+        self.assertEqual('custom', app.logger.server)
+
+        # and regular section options...
+        conf_path = os.path.join(tempdir, 'object-server.conf')
+        conf_body = """
+        [DEFAULT]
+        [app:main]
+        use = egg:swift#object
+        log_name = swift-main
+        """
+        contents = dedent(conf_body)
+        with open(conf_path, 'w') as f:
+            f.write(contents)
+        app = wsgi.loadapp(conf_path)
+        self.assertIsInstance(app, obj_server.ObjectController)
+        self.assertEqual('swift-main', app.logger.server)
+
+        app = wsgi.loadapp(conf_path, global_conf={'log_name': 'custom'})
+        self.assertIsInstance(app, obj_server.ObjectController)
+        self.assertEqual('custom', app.logger.server)
+
+        # ...but global_conf items do not override conf file 'set' options
+        conf_body = """
+        [DEFAULT]
+        log_name = swift
+        [app:main]
+        use = egg:swift#object
+        set log_name = swift-main
+        """
+        contents = dedent(conf_body)
+        with open(conf_path, 'w') as f:
+            f.write(contents)
+        app = wsgi.loadapp(conf_path)
+        self.assertIsInstance(app, obj_server.ObjectController)
+        self.assertEqual('swift-main', app.logger.server)
+
+        app = wsgi.loadapp(conf_path, global_conf={'log_name': 'custom'})
+        self.assertIsInstance(app, obj_server.ObjectController)
+        self.assertEqual('swift-main', app.logger.server)
 
     def test_loadapp_from_string(self):
         conf_body = """

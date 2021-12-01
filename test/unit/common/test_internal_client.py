@@ -282,47 +282,54 @@ class TestInternalClient(unittest.TestCase):
             self.assertEqual(client.auto_create_account_prefix, '-')
 
     def test_init(self):
-        class App(object):
-            def __init__(self, test, conf_path):
-                self.test = test
-                self.conf_path = conf_path
-                self.load_called = 0
-
-            def load(self, uri, allow_modify_pipeline=True):
-                self.load_called += 1
-                self.test.assertEqual(conf_path, uri)
-                self.test.assertFalse(allow_modify_pipeline)
-                return self
-
         conf_path = 'some_path'
-        app = App(self, conf_path)
+        app = object()
 
         user_agent = 'some_user_agent'
         request_tries = 123
 
-        with mock.patch.object(internal_client, 'loadapp', app.load), \
+        with mock.patch.object(
+                internal_client, 'loadapp', return_value=app) as mock_loadapp,\
                 self.assertRaises(ValueError):
             # First try with a bad arg
             internal_client.InternalClient(
                 conf_path, user_agent, request_tries=0)
-        self.assertEqual(0, app.load_called)
+        mock_loadapp.assert_not_called()
 
-        with mock.patch.object(internal_client, 'loadapp', app.load):
+        with mock.patch.object(
+                internal_client, 'loadapp', return_value=app) as mock_loadapp:
             client = internal_client.InternalClient(
                 conf_path, user_agent, request_tries)
 
-        self.assertEqual(1, app.load_called)
+        mock_loadapp.assert_called_once_with(
+            conf_path, global_conf=None, allow_modify_pipeline=False)
         self.assertEqual(app, client.app)
         self.assertEqual(user_agent, client.user_agent)
         self.assertEqual(request_tries, client.request_tries)
         self.assertFalse(client.use_replication_network)
 
-        with mock.patch.object(internal_client, 'loadapp', app.load):
+        with mock.patch.object(
+                internal_client, 'loadapp', return_value=app) as mock_loadapp:
             client = internal_client.InternalClient(
                 conf_path, user_agent, request_tries,
                 use_replication_network=True)
 
-        self.assertEqual(2, app.load_called)
+        mock_loadapp.assert_called_once_with(
+            conf_path, global_conf=None, allow_modify_pipeline=False)
+        self.assertEqual(app, client.app)
+        self.assertEqual(user_agent, client.user_agent)
+        self.assertEqual(request_tries, client.request_tries)
+        self.assertTrue(client.use_replication_network)
+
+        global_conf = {'log_name': 'custom'}
+        with mock.patch.object(
+                internal_client, 'loadapp', return_value=app) as mock_loadapp:
+            client = internal_client.InternalClient(
+                conf_path, user_agent, request_tries,
+                use_replication_network=True, global_conf=global_conf)
+
+        mock_loadapp.assert_called_once_with(
+            conf_path, global_conf=global_conf, allow_modify_pipeline=False)
         self.assertEqual(app, client.app)
         self.assertEqual(user_agent, client.user_agent)
         self.assertEqual(request_tries, client.request_tries)

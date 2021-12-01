@@ -145,14 +145,18 @@ class InternalClient(object):
     :param user_agent: User agent to be sent to requests to Swift.
     :param request_tries: Number of tries before InternalClient.make_request()
                           gives up.
+    :param global_conf: a dict of options to update the loaded proxy config.
+        Options in ``global_conf`` will override those in ``conf_path`` except
+        where the ``conf_path`` option is preceded by ``set``.
     """
 
     def __init__(self, conf_path, user_agent, request_tries,
-                 allow_modify_pipeline=False, use_replication_network=False):
+                 allow_modify_pipeline=False, use_replication_network=False,
+                 global_conf=None):
         if request_tries < 1:
             raise ValueError('request_tries must be positive')
-        self.app = loadapp(conf_path,
-                           allow_modify_pipeline=allow_modify_pipeline)
+        self.app = loadapp(conf_path, global_conf=global_conf,
+                           allow_modify_pipeline=allow_modify_pipeline,)
         self.user_agent = user_agent
         self.request_tries = request_tries
         self.use_replication_network = use_replication_network

@@ -386,6 +386,15 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
     """
     Loads a context from a config file, and if the context is a pipeline
     then presents the app with the opportunity to modify the pipeline.
+
+    :param conf_file: path to a config file
+    :param global_conf: a dict of options to update the loaded config. Options
+        in ``global_conf`` will override those in ``conf_file`` except where
+        the ``conf_file`` option is preceded by ``set``.
+    :param allow_modify_pipeline: if True, and the context is a pipeline, and
+        the loaded app has a ``modify_wsgi_pipeline`` property, then that
+        property will be called before the pipeline is loaded.
+    :return: the loaded app
     """
     global_conf = global_conf or {}
     ctx = loadcontext(loadwsgi.APP, conf_file, global_conf=global_conf)
