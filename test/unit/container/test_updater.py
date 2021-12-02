@@ -48,9 +48,15 @@ class TestContainerUpdater(unittest.TestCase):
         with closing(GzipFile(ring_file, 'wb')) as f:
             pickle.dump(
                 RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                         [{'id': 0, 'ip': '127.0.0.1', 'port': 12345,
+                         [{'id': 0, 'ip': '127.0.0.2', 'port': 12345,
+                           'replication_ip': '127.0.0.1',
+                           # replication_port may be overridden in tests but
+                           # include here for completeness...
+                           'replication_port': 67890,
                            'device': 'sda1', 'zone': 0},
-                          {'id': 1, 'ip': '127.0.0.1', 'port': 12345,
+                          {'id': 1, 'ip': '127.0.0.2', 'port': 12345,
+                           'replication_ip': '127.0.0.1',
+                           'replication_port': 67890,
                            'device': 'sda1', 'zone': 2}], 30),
                 f)
         self.devices_dir = os.path.join(self.testdir, 'devices')
@@ -264,12 +270,13 @@ class TestContainerUpdater(unittest.TestCase):
         spawned = spawn(spawn_accepts)
         for dev in cu.get_account_ring().devs:
             if dev is not None:
-                dev['port'] = bindsock.getsockname()[1]
+                dev['replication_port'] = bindsock.getsockname()[1]
         cu.run_once()
-        for event in spawned.wait():
-            err = event.wait()
-            if err:
-                raise err
+        with Timeout(5):
+            for event in spawned.wait():
+                err = event.wait()
+                if err:
+                    raise err
         info = cb.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 3)
@@ -338,12 +345,13 @@ class TestContainerUpdater(unittest.TestCase):
         spawned = spawn(spawn_accepts)
         for dev in cu.get_account_ring().devs:
             if dev is not None:
-                dev['port'] = bindsock.getsockname()[1]
+                dev['replication_port'] = bindsock.getsockname()[1]
         cu.run_once()
-        for event in spawned.wait():
-            err = event.wait()
-            if err:
-                raise err
+        with Timeout(5):
+            for event in spawned.wait():
+                err = event.wait()
+                if err:
+                    raise err
         info = cb.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 3)
@@ -425,12 +433,13 @@ class TestContainerUpdater(unittest.TestCase):
         spawned = spawn(spawn_accepts)
         for dev in cu.get_account_ring().devs:
             if dev is not None:
-                dev['port'] = bindsock.getsockname()[1]
+                dev['replication_port'] = bindsock.getsockname()[1]
         cu.run_once()
-        for event in spawned.wait():
-            err = event.wait()
-            if err:
-                raise err
+        with Timeout(5):
+            for event in spawned.wait():
+                err = event.wait()
+                if err:
+                    raise err
         info = cb.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 3)
@@ -514,12 +523,13 @@ class TestContainerUpdater(unittest.TestCase):
         spawned = spawn(spawn_accepts)
         for dev in cu.get_account_ring().devs:
             if dev is not None:
-                dev['port'] = bindsock.getsockname()[1]
+                dev['replication_port'] = bindsock.getsockname()[1]
         cu.run_once()
-        for event in spawned.wait():
-            err = event.wait()
-            if err:
-                raise err
+        with Timeout(5):
+            for event in spawned.wait():
+                err = event.wait()
+                if err:
+                    raise err
         info = cb.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 3)

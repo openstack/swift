@@ -78,13 +78,23 @@ class TestObjectUpdater(unittest.TestCase):
                 RingData([[0, 1, 2, 0, 1, 2],
                           [1, 2, 0, 1, 2, 0],
                           [2, 3, 1, 2, 3, 1]],
-                         [{'id': 0, 'ip': '127.0.0.1', 'port': 1,
+                         [{'id': 0, 'ip': '127.0.0.2', 'port': 1,
+                           'replication_ip': '127.0.0.1',
+                           # replication_port may be overridden in tests but
+                           # include here for completeness...
+                           'replication_port': 67890,
                            'device': 'sda1', 'zone': 0},
-                          {'id': 1, 'ip': '127.0.0.1', 'port': 1,
+                          {'id': 1, 'ip': '127.0.0.2', 'port': 1,
+                           'replication_ip': '127.0.0.1',
+                           'replication_port': 67890,
                            'device': 'sda1', 'zone': 2},
-                          {'id': 2, 'ip': '127.0.0.1', 'port': 1,
+                          {'id': 2, 'ip': '127.0.0.2', 'port': 1,
+                           'replication_ip': '127.0.0.1',
+                           'replication_port': 67890,
                            'device': 'sda1', 'zone': 4},
-                          {'id': 3, 'ip': '127.0.0.1', 'port': 1,
+                          {'id': 3, 'ip': '127.0.0.2', 'port': 1,
+                           'replication_ip': '127.0.0.1',
+                           'replication_port': 67890,
                            'device': 'sda1', 'zone': 6}], 30),
                 f)
         self.devices_dir = os.path.join(self.testdir, 'devices')
@@ -535,7 +545,7 @@ class TestObjectUpdater(unittest.TestCase):
         event = spawn(accept, [201, 500, 500])
         for dev in ou.get_container_ring().devs:
             if dev is not None:
-                dev['port'] = bindsock.getsockname()[1]
+                dev['replication_port'] = bindsock.getsockname()[1]
 
         ou.logger._clear()
         ou.run_once()

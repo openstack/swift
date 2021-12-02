@@ -1188,6 +1188,8 @@ class TestObjectController(unittest.TestCase):
                     {'devices': self.testdir,
                      'mount_check': 'false'}, logger=debug_logger())
                 node = {'id': 1, 'ip': 'chost', 'port': 3200,
+                        'replication_ip': 'chost_repl',
+                        'replication_port': 6200,
                         'device': 'cdevice'}
                 mock_ring = mock.MagicMock()
                 mock_ring.get_nodes.return_value = (99, [node])
@@ -1197,6 +1199,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(1, len(conn.requests))
         self.assertEqual('/cdevice/99/.sharded_a/c_shard_1/o',
                          conn.requests[0]['path'])
+        self.assertEqual(6200, conn.requests[0]['port'])
+        self.assertEqual('chost_repl', conn.requests[0]['ip'])
 
     def test_PUT_redirected_async_pending(self):
         self._check_PUT_redirected_async_pending()
