@@ -1417,6 +1417,7 @@ class ECAppIter(object):
                 queue.put(None)
                 frag_iter.close()
 
+        segments_decoded = 0
         with ContextPool(len(fragment_iters)) as pool:
             for frag_iter, queue in zip(fragment_iters, queues):
                 pool.spawn(put_fragments_in_queue, frag_iter, queue,
@@ -1445,11 +1446,17 @@ class ECAppIter(object):
                     break
                 try:
                     segment = self.policy.pyeclib_driver.decode(fragments)
-                except ECDriverError:
-                    self.logger.exception("Error decoding fragments for %r",
-                                          quote(self.path))
+                except ECDriverError as err:
+                    self.logger.error(
+                        "Error decoding fragments for %r. "
+                        "Segments decoded: %d, "
+                        "Lengths: [%s]: %s" % (
+                            quote(self.path), segments_decoded,
+                            ', '.join(map(str, map(len, fragments))),
+                            str(err)))
                     raise
 
+                segments_decoded += 1
                 yield segment
 
     def app_iter_range(self, start, end):
