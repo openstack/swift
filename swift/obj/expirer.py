@@ -18,7 +18,6 @@ import six
 from random import random
 from time import time
 from os.path import join
-from swift import gettext_ as _
 from collections import defaultdict, deque
 
 from eventlet import sleep, Timeout
@@ -151,17 +150,17 @@ class ObjectExpirer(Daemon):
         """
         if final:
             elapsed = time() - self.report_first_time
-            self.logger.info(_('Pass completed in %(time)ds; '
-                               '%(objects)d objects expired') % {
-                             'time': elapsed, 'objects': self.report_objects})
+            self.logger.info(
+                'Pass completed in %(time)ds; %(objects)d objects expired', {
+                    'time': elapsed, 'objects': self.report_objects})
             dump_recon_cache({'object_expiration_pass': elapsed,
                               'expired_last_pass': self.report_objects},
                              self.rcache, self.logger)
         elif time() - self.report_last_time >= self.report_interval:
             elapsed = time() - self.report_first_time
-            self.logger.info(_('Pass so far %(time)ds; '
-                               '%(objects)d objects expired') % {
-                             'time': elapsed, 'objects': self.report_objects})
+            self.logger.info(
+                'Pass so far %(time)ds; %(objects)d objects expired', {
+                    'time': elapsed, 'objects': self.report_objects})
             self.report_last_time = time()
 
     def parse_task_obj(self, task_obj):
@@ -331,13 +330,13 @@ class ObjectExpirer(Daemon):
                 if not container_count:
                     continue
 
-                self.logger.info(_(
+                self.logger.info(
                     'Pass beginning for task account %(account)s; '
                     '%(container_count)s possible containers; '
-                    '%(obj_count)s possible objects') % {
-                    'account': task_account,
-                    'container_count': container_count,
-                    'obj_count': obj_count})
+                    '%(obj_count)s possible objects', {
+                        'account': task_account,
+                        'container_count': container_count,
+                        'obj_count': obj_count})
 
                 task_account_container_list = \
                     [(task_account, task_container) for task_container in
@@ -368,14 +367,14 @@ class ObjectExpirer(Daemon):
                         acceptable_statuses=(2, HTTP_NOT_FOUND, HTTP_CONFLICT))
                 except (Exception, Timeout) as err:
                     self.logger.exception(
-                        _('Exception while deleting container %(account)s '
-                          '%(container)s %(err)s') % {
-                              'account': task_account,
-                              'container': task_container, 'err': str(err)})
+                        'Exception while deleting container %(account)s '
+                        '%(container)s %(err)s', {
+                            'account': task_account,
+                            'container': task_container, 'err': str(err)})
             self.logger.debug('Run end')
             self.report(final=True)
         except (Exception, Timeout):
-            self.logger.exception(_('Unhandled exception'))
+            self.logger.exception('Unhandled exception')
 
     def run_forever(self, *args, **kwargs):
         """
@@ -392,7 +391,7 @@ class ObjectExpirer(Daemon):
             try:
                 self.run_once(*args, **kwargs)
             except (Exception, Timeout):
-                self.logger.exception(_('Unhandled exception'))
+                self.logger.exception('Unhandled exception')
             elapsed = time() - begin
             if elapsed < self.interval:
                 sleep(random() * (self.interval - elapsed))

@@ -25,7 +25,6 @@ import time
 import traceback
 import socket
 import math
-from swift import gettext_ as _
 
 from eventlet import sleep, wsgi, Timeout, tpool
 from eventlet.greenthread import spawn
@@ -330,16 +329,16 @@ class ObjectController(BaseStorageServer):
                             'Container update failed for %r; problem with '
                             'redirect location: %s' % (obj, err))
                 else:
-                    self.logger.error(_(
+                    self.logger.error(
                         'ERROR Container update failed '
                         '(saving for async update later): %(status)d '
-                        'response from %(ip)s:%(port)s/%(dev)s'),
+                        'response from %(ip)s:%(port)s/%(dev)s',
                         {'status': response.status, 'ip': ip, 'port': port,
                          'dev': contdevice})
             except (Exception, Timeout):
-                self.logger.exception(_(
+                self.logger.exception(
                     'ERROR container update failed with '
-                    '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
+                    '%(ip)s:%(port)s/%(dev)s (saving for async update later)',
                     {'ip': ip, 'port': port, 'dev': contdevice})
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
@@ -380,10 +379,10 @@ class ObjectController(BaseStorageServer):
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
             # but if there is, we want to know about it.
-            self.logger.error(_(
+            self.logger.error(
                 'ERROR Container update failed: different '
                 'numbers of hosts and devices in request: '
-                '"%(hosts)s" vs "%(devices)s"') % {
+                '"%(hosts)s" vs "%(devices)s"', {
                     'hosts': headers_in.get('X-Container-Host', ''),
                     'devices': headers_in.get('X-Container-Device', '')})
             return
@@ -1341,9 +1340,9 @@ class ObjectController(BaseStorageServer):
             except HTTPException as error_response:
                 res = error_response
             except (Exception, Timeout):
-                self.logger.exception(_(
+                self.logger.exception(
                     'ERROR __call__ error with %(method)s'
-                    ' %(path)s '), {'method': req.method, 'path': req.path})
+                    ' %(path)s ', {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = time.time() - start_time
         res.fix_conditional_response()

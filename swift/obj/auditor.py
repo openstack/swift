@@ -20,7 +20,6 @@ import time
 import signal
 from os.path import basename, dirname, join
 from random import shuffle
-from swift import gettext_ as _
 from contextlib import closing
 from eventlet import Timeout
 
@@ -117,11 +116,11 @@ class AuditorWorker(object):
         if device_dirs:
             device_dir_str = ','.join(sorted(device_dirs))
             if self.auditor_type == 'ALL':
-                description = _(' - parallel, %s') % device_dir_str
+                description = ' - parallel, %s' % device_dir_str
             else:
-                description = _(' - %s') % device_dir_str
-        self.logger.info(_('Begin object audit "%(mode)s" mode (%(audi_type)s'
-                           '%(description)s)') %
+                description = ' - %s' % device_dir_str
+        self.logger.info('Begin object audit "%(mode)s" mode (%(audi_type)s'
+                         '%(description)s)',
                          {'mode': mode, 'audi_type': self.auditor_type,
                           'description': description})
         for watcher in self.watchers:
@@ -152,13 +151,13 @@ class AuditorWorker(object):
             self.total_files_processed += 1
             now = time.time()
             if now - self.last_logged >= self.log_time:
-                self.logger.info(_(
+                self.logger.info(
                     'Object audit (%(type)s). '
                     'Since %(start_time)s: Locally: %(passes)d passed, '
                     '%(quars)d quarantined, %(errors)d errors, '
                     'files/sec: %(frate).2f, bytes/sec: %(brate).2f, '
                     'Total time: %(total).2f, Auditing time: %(audit).2f, '
-                    'Rate: %(audit_rate).2f') % {
+                    'Rate: %(audit_rate).2f', {
                         'type': '%s%s' % (self.auditor_type, description),
                         'start_time': time.ctime(reported),
                         'passes': self.passes, 'quars': self.quarantines,
@@ -186,12 +185,12 @@ class AuditorWorker(object):
             time_auditing += (now - loop_time)
         # Avoid divide by zero during very short runs
         elapsed = (time.time() - begin) or 0.000001
-        self.logger.info(_(
+        self.logger.info(
             'Object audit (%(type)s) "%(mode)s" mode '
             'completed: %(elapsed).02fs. Total quarantined: %(quars)d, '
             'Total errors: %(errors)d, Total files/sec: %(frate).2f, '
             'Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, '
-            'Rate: %(audit_rate).2f') % {
+            'Rate: %(audit_rate).2f', {
                 'type': '%s%s' % (self.auditor_type, description),
                 'mode': mode, 'elapsed': elapsed,
                 'quars': total_quarantines + self.quarantines,
@@ -203,7 +202,7 @@ class AuditorWorker(object):
             watcher.end()
         if self.stats_sizes:
             self.logger.info(
-                _('Object audit stats: %s') % json.dumps(self.stats_buckets))
+                'Object audit stats: %s', json.dumps(self.stats_buckets))
 
         for policy in POLICIES:
             # Unset remaining partitions to not skip them in the next run
@@ -237,7 +236,7 @@ class AuditorWorker(object):
         except (Exception, Timeout):
             self.logger.increment('errors')
             self.errors += 1
-            self.logger.exception(_('ERROR Trying to audit %s'), location)
+            self.logger.exception('ERROR Trying to audit %s', location)
 
     def object_audit(self, location):
         """
@@ -284,8 +283,8 @@ class AuditorWorker(object):
                         "Requested by %s" % watcher.watcher_name)
         except DiskFileQuarantined as err:
             self.quarantines += 1
-            self.logger.error(_('ERROR Object %(obj)s failed audit and was'
-                                ' quarantined: %(err)s'),
+            self.logger.error('ERROR Object %(obj)s failed audit and was'
+                              ' quarantined: %(err)s',
                               {'obj': location, 'err': err})
         except DiskFileExpired:
             pass  # ignore expired objects
@@ -375,7 +374,7 @@ class ObjectAuditor(Daemon):
                 self.run_audit(**kwargs)
             except Exception as e:
                 self.logger.exception(
-                    _("ERROR: Unable to run auditing: %s") % e)
+                    "ERROR: Unable to run auditing: %s", e)
             finally:
                 sys.exit()
 
@@ -454,7 +453,7 @@ class ObjectAuditor(Daemon):
             try:
                 self.audit_loop(parent, zbo_fps, **kwargs)
             except (Exception, Timeout) as err:
-                self.logger.exception(_('ERROR auditing: %s'), err)
+                self.logger.exception('ERROR auditing: %s', err)
             self._sleep()
 
     def run_once(self, *args, **kwargs):
@@ -475,7 +474,7 @@ class ObjectAuditor(Daemon):
             self.audit_loop(parent, zbo_fps, override_devices=override_devices,
                             **kwargs)
         except (Exception, Timeout) as err:
-            self.logger.exception(_('ERROR auditing: %s'), err)
+            self.logger.exception('ERROR auditing: %s', err)
 
 
 class WatcherWrapper(object):
