@@ -52,21 +52,33 @@ from test.unit import (patch_policies, mocked_http_conn, FabricatedRing,
 from test.unit.obj.common import write_diskfile
 
 
-@contextmanager
-def mock_ssync_sender(ssync_calls=None, response_callback=None, **kwargs):
-    def fake_ssync(daemon, node, job, suffixes, **kwargs):
+class FakeSsyncSender(object):
+    def __init__(self, daemon, node, job, suffixes, ssync_calls=None,
+                 response_callback=None, **kwargs):
         if ssync_calls is not None:
             call_args = {'node': node, 'job': job, 'suffixes': suffixes}
             call_args.update(kwargs)
             ssync_calls.append(call_args)
+        self.response_callback = response_callback
+        self.node = node
+        self.job = job
+        self.suffixes = suffixes
+        self.limited_by_max_objects = False
 
-        def fake_call():
-            if response_callback:
-                response = response_callback(node, job, suffixes)
-            else:
-                response = True, {}
-            return response
-        return fake_call
+    def __call__(self):
+        if self.response_callback:
+            response = self.response_callback(
+                self.node, self.job, self.suffixes)
+        else:
+            response = True, {}
+        return response
+
+
+@contextmanager
+def mock_ssync_sender(ssync_calls=None, response_callback=None, **kwargs):
+    def fake_ssync(daemon, node, job, suffixes, **kwargs):
+        return FakeSsyncSender(daemon, node, job, suffixes, ssync_calls,
+                               response_callback, **kwargs)
 
     with mock.patch('swift.obj.reconstructor.ssync_sender', fake_ssync):
         yield fake_ssync
@@ -1126,13 +1138,16 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     frag_index=self.job.get('frag_index'),
                     frag_prefs=frag_prefs)
                 self.available_map = {}
+                self.limited_by_max_objects = False
                 nlines = 0
                 for hash_, timestamps in hash_gen:
                     self.available_map[hash_] = timestamps
                     nlines += 1
                     if 0 < max_objects <= nlines:
                         break
-
+                for _ in hash_gen:
+                    self.limited_by_max_objects = True
+                    break
                 context['available_map'] = self.available_map
                 ssync_calls.append(context)
                 self.success = True
@@ -1459,7 +1474,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                       dev['replication_port'] ==
                       self.reconstructor.port]
         partition = (local_devs[0]['id'] + 1) % 3
-        # 2 durable objects
+        # three durable objects
         df_0 = self._create_diskfile(
             object_name='zero', part=partition)
         datafile_0 = df_0.manager.cleanup_ondisk_files(
@@ -1480,7 +1495,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         actual_datafiles = [df for df in datafiles if os.path.exists(df)]
         self.assertEqual(datafiles, actual_datafiles)
 
-        # only two object will be sync'd and purged...
+        # only two objects will be sync'd and purged...
         ssync_calls = []
         conf = dict(self.conf, max_objects_per_revert=2, handoffs_only=True)
         self.reconstructor = object_reconstructor.ObjectReconstructor(
@@ -1493,18 +1508,25 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.assertEqual(2, context.get('max_objects'))
         actual_datafiles = [df for df in datafiles if os.path.exists(df)]
         self.assertEqual(1, len(actual_datafiles), actual_datafiles)
+        # handoff still reported as remaining
+        self.assertEqual(1, self.reconstructor.handoffs_remaining)
 
         # ...until next reconstructor run which will sync and purge the last
-        # object
+        # object; max_objects_per_revert == actual number of objects
         ssync_calls = []
+        conf = dict(self.conf, max_objects_per_revert=1, handoffs_only=True)
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            conf, logger=self.logger)
         with mock.patch('swift.obj.reconstructor.ssync_sender',
                         self._make_fake_ssync(ssync_calls)):
             self.reconstructor.reconstruct()
         for context in ssync_calls:
             self.assertEqual(REVERT, context['job']['job_type'])
-            self.assertEqual(2, context.get('max_objects'))
+            self.assertEqual(1, context.get('max_objects'))
         actual_datafiles = [df for df in datafiles if os.path.exists(df)]
         self.assertEqual([], actual_datafiles)
+        # handoff is no longer remaining
+        self.assertEqual(0, self.reconstructor.handoffs_remaining)
 
     def test_no_delete_failed_revert(self):
         # test will only process revert jobs

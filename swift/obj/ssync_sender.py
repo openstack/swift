@@ -155,6 +155,7 @@ class Sender(object):
         self.remote_check_objs = remote_check_objs
         self.include_non_durable = include_non_durable
         self.max_objects = max_objects
+        self.limited_by_max_objects = False
 
     def __call__(self):
         """
@@ -285,6 +286,7 @@ class Sender(object):
         Full documentation of this can be found at
         :py:meth:`.Receiver.missing_check`.
         """
+        self.limited_by_max_objects = False
         available_map = {}
         send_map = {}
         # First, send our list.
@@ -307,6 +309,7 @@ class Sender(object):
                 self.remote_check_objs, hash_gen)
         nlines = 0
         nbytes = 0
+        object_hash = None
         for object_hash, timestamps in hash_gen:
             available_map[object_hash] = timestamps
             with exceptions.MessageTimeout(
@@ -321,16 +324,17 @@ class Sender(object):
             nlines += 1
             nbytes += len(msg)
             if 0 < self.max_objects <= nlines:
-                for _ in hash_gen:
-                    # only log truncation if there were more hashes to come...
-                    self.daemon.logger.info(
-                        'ssync missing_check truncated after %d objects: '
-                        'device: %s, part: %s, policy: %s, last object hash: '
-                        '%s', nlines, self.job['device'],
-                        self.job['partition'], int(self.job['policy']),
-                        object_hash)
-                    break
                 break
+        for _ in hash_gen:
+            # only log truncation if there were more hashes to come...
+            self.limited_by_max_objects = True
+            self.daemon.logger.info(
+                'ssync missing_check truncated after %d objects: '
+                'device: %s, part: %s, policy: %s, last object hash: '
+                '%s', nlines, self.job['device'],
+                self.job['partition'], int(self.job['policy']),
+                object_hash)
+            break
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check end'):
             msg = b':MISSING_CHECK: END\r\n'
