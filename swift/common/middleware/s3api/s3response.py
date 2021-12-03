@@ -14,7 +14,10 @@
 # limitations under the License.
 
 import re
-from collections import MutableMapping
+try:
+    from collections.abc import MutableMapping
+except ImportError:
+    from collections import MutableMapping  # py2
 from functools import partial
 
 from swift.common import header_key_dict
