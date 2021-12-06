@@ -102,10 +102,10 @@ class TestSender(BaseTest):
         self.daemon_logger = debug_logger('test-ssync-sender')
         self.daemon = ObjectReplicator(self.daemon_conf,
                                        self.daemon_logger)
-        job = {'policy': POLICIES.legacy,
-               'device': 'test-dev',
-               'partition': '99'}  # sufficient for Sender.__init__
-        self.sender = ssync_sender.Sender(self.daemon, None, job, None)
+        self.job = {'policy': POLICIES.legacy,
+                    'device': 'test-dev',
+                    'partition': '99'}  # sufficient for Sender.__init__
+        self.sender = ssync_sender.Sender(self.daemon, None, self.job, None)
 
     def test_call_catches_MessageTimeout(self):
 
@@ -810,6 +810,9 @@ class TestSender(BaseTest):
                 {'ts_data': Timestamp(1380144471.00000)})
         connection = FakeConnection()
         response = FakeResponse()
+        # max_objects unlimited
+        self.sender = ssync_sender.Sender(self.daemon, None, self.job, None,
+                                          max_objects=0)
         self.sender.daemon.node_timeout = 0.01
         self.sender.df_mgr.yield_hashes = yield_hashes
         sleeps = [0, 0, 1]
@@ -874,6 +877,10 @@ class TestSender(BaseTest):
                     'No match for %r %r %r %r' % (device, partition,
                                                   policy, suffixes))
 
+        # note: max_objects > number that would yield
+        self.sender = ssync_sender.Sender(self.daemon, None, self.job, None,
+                                          max_objects=4)
+
         connection = FakeConnection()
         self.sender.job = {
             'device': 'dev',
@@ -908,6 +915,121 @@ class TestSender(BaseTest):
                             ts_meta=Timestamp(1380144475.44444),
                             ts_ctype=Timestamp(1380144474.44448)))]
         self.assertEqual(available_map, dict(candidates))
+        self.assertEqual([], self.daemon_logger.get_lines_for_level('info'))
+
+    def test_missing_check_max_objects_less_than_actual_objects(self):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
+            # verify missing_check stops after 2 objects even though more
+            # objects would yield
+            if (device == 'dev' and partition == '9' and
+                    policy == POLICIES.legacy and
+                    suffixes == ['abc', 'def']):
+                yield (
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    {'ts_data': Timestamp(1380144470.00000)})
+                yield (
+                    '9d41d8cd98f00b204e9800998ecf0def',
+                    {'ts_data': Timestamp(1380144472.22222),
+                     'ts_meta': Timestamp(1380144473.22222)})
+                yield (
+                    '9d41d8cd98f00b204e9800998ecf1def',
+                    {'ts_data': Timestamp(1380144474.44444),
+                     'ts_ctype': Timestamp(1380144474.44448),
+                     'ts_meta': Timestamp(1380144475.44444)})
+            else:
+                raise Exception(
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy, suffixes))
+
+        # max_objects < number that would yield
+        self.sender = ssync_sender.Sender(self.daemon, None, self.job, None,
+                                          max_objects=2)
+
+        connection = FakeConnection()
+        self.sender.job = {
+            'device': 'dev',
+            'partition': '9',
+            'policy': POLICIES.legacy,
+        }
+        self.sender.suffixes = ['abc', 'def']
+        response = FakeResponse(
+            chunk_body=(
+                ':MISSING_CHECK: START\r\n'
+                ':MISSING_CHECK: END\r\n'))
+        self.sender.df_mgr.yield_hashes = yield_hashes
+        available_map, send_map = self.sender.missing_check(connection,
+                                                            response)
+        self.assertEqual(
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'3b\r\n9d41d8cd98f00b204e9800998ecf0def 1380144472.22222 '
+            b'm:186a0\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
+        self.assertEqual(send_map, {})
+        candidates = [('9d41d8cd98f00b204e9800998ecf0abc',
+                       dict(ts_data=Timestamp(1380144470.00000))),
+                      ('9d41d8cd98f00b204e9800998ecf0def',
+                       dict(ts_data=Timestamp(1380144472.22222),
+                            ts_meta=Timestamp(1380144473.22222)))]
+        self.assertEqual(available_map, dict(candidates))
+        self.assertEqual(
+            ['ssync missing_check truncated after 2 objects: device: dev, '
+             'part: 9, policy: 0, last object hash: '
+             '9d41d8cd98f00b204e9800998ecf0def'],
+            self.daemon_logger.get_lines_for_level('info'))
+
+    def test_missing_check_max_objects_exactly_actual_objects(self):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
+            if (device == 'dev' and partition == '9' and
+                    policy == POLICIES.legacy and
+                    suffixes == ['abc', 'def']):
+                yield (
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    {'ts_data': Timestamp(1380144470.00000)})
+                yield (
+                    '9d41d8cd98f00b204e9800998ecf0def',
+                    {'ts_data': Timestamp(1380144472.22222),
+                     'ts_meta': Timestamp(1380144473.22222)})
+            else:
+                raise Exception(
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy, suffixes))
+
+        # max_objects == number that would yield
+        self.sender = ssync_sender.Sender(self.daemon, None, self.job, None,
+                                          max_objects=2)
+
+        connection = FakeConnection()
+        self.sender.job = {
+            'device': 'dev',
+            'partition': '9',
+            'policy': POLICIES.legacy,
+        }
+        self.sender.suffixes = ['abc', 'def']
+        response = FakeResponse(
+            chunk_body=(
+                ':MISSING_CHECK: START\r\n'
+                ':MISSING_CHECK: END\r\n'))
+        self.sender.df_mgr.yield_hashes = yield_hashes
+        available_map, send_map = self.sender.missing_check(connection,
+                                                            response)
+        self.assertEqual(
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'3b\r\n9d41d8cd98f00b204e9800998ecf0def 1380144472.22222 '
+            b'm:186a0\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
+        self.assertEqual(send_map, {})
+        candidates = [('9d41d8cd98f00b204e9800998ecf0abc',
+                       dict(ts_data=Timestamp(1380144470.00000))),
+                      ('9d41d8cd98f00b204e9800998ecf0def',
+                       dict(ts_data=Timestamp(1380144472.22222),
+                            ts_meta=Timestamp(1380144473.22222)))]
+        self.assertEqual(available_map, dict(candidates))
+        # nothing logged re: truncation
+        self.assertEqual([], self.daemon_logger.get_lines_for_level('info'))
 
     def test_missing_check_far_end_disconnect(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):

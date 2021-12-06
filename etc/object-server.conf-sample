@@ -358,6 +358,7 @@ use = egg:swift#recon
 # lockup_timeout = 1800
 # ring_check_interval = 15.0
 # recon_cache_path = /var/cache/swift
+#
 # The handoffs_only mode option is for special case emergency situations during
 # rebalance such as disk full in the cluster.  This option SHOULD NOT BE
 # CHANGED, except for extreme situations.  When handoffs_only mode is enabled
@@ -379,6 +380,19 @@ use = egg:swift#recon
 # devices to mounted primaries after a ring change.
 # Setting to -1 means "no limit".
 # rebuild_handoff_node_count = 2
+#
+# By default the reconstructor attempts to revert all objects from handoff
+# partitions in a single batch using a single SSYNC request. In exceptional
+# circumstances max_objects_per_revert can be used to temporarily limit the
+# number of objects reverted by each reconstructor revert type job. If more
+# than max_objects_per_revert are available in a sender's handoff partition,
+# the remaining objects will remain in the handoff partition and will not be
+# reverted until the next time the reconstructor visits that handoff partition
+# i.e. with this option set, a single cycle of the reconstructor may not
+# completely revert all handoff partitions. The option has no effect on
+# reconstructor sync type jobs between primary partitions. A value of 0 (the
+# default) means there is no limit.
+# max_objects_per_revert = 0
 #
 # You can set scheduling priority of processes. Niceness values range from -20
 # (most favorable to the process) to 19 (least favorable to the process).
