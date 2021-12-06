@@ -156,13 +156,14 @@ class ContainerSync(Daemon):
     :param container_ring: If None, the <swift_dir>/container.ring.gz will be
                            loaded. This is overridden by unit tests.
     """
+    log_route = 'container-sync'
 
     def __init__(self, conf, container_ring=None, logger=None):
         #: The dict of configuration values from the [container-sync] section
         #: of the container-server.conf.
         self.conf = conf
         #: Logger to use for container-sync log lines.
-        self.logger = logger or get_logger(conf, log_route='container-sync')
+        self.logger = logger or get_logger(conf, log_route=self.log_route)
         #: Path to the local device mount points.
         self.devices = conf.get('devices', '/srv/node')
         #: Indicates whether mount points should be verified as actual mount
@@ -241,7 +242,9 @@ class ContainerSync(Daemon):
         try:
             self.swift = InternalClient(
                 internal_client_conf, 'Swift Container Sync', request_tries,
-                use_replication_network=True)
+                use_replication_network=True,
+                global_conf={'log_name': '%s-ic' % conf.get(
+                    'log_name', self.log_route)})
         except (OSError, IOError) as err:
             if err.errno != errno.ENOENT and \
                     not str(err).endswith(' not found'):

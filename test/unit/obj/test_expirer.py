@@ -168,6 +168,22 @@ class TestObjectExpirer(TestCase):
         ])
         self.assertEqual(x.expiring_objects_account, '-expiring_objects')
 
+    def test_init_internal_client_log_name(self):
+        def _do_test_init_ic_log_name(conf, exp_internal_client_log_name):
+            with mock.patch(
+                    'swift.obj.expirer.InternalClient') \
+                    as mock_ic:
+                expirer.ObjectExpirer(conf)
+            mock_ic.assert_called_once_with(
+                '/etc/swift/object-expirer.conf',
+                'Swift Object Expirer', 3,
+                global_conf={'log_name': exp_internal_client_log_name},
+                use_replication_network=True)
+
+        _do_test_init_ic_log_name({}, 'object-expirer-ic')
+        _do_test_init_ic_log_name({'log_name': 'my-object-expirer'},
+                                  'my-object-expirer-ic')
+
     def test_get_process_values_from_kwargs(self):
         x = expirer.ObjectExpirer({})
         vals = {

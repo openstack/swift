@@ -187,7 +187,8 @@ class TestSharder(BaseTestSharder):
         mock_ic.assert_called_once_with(
             '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
             allow_modify_pipeline=False,
-            use_replication_network=True)
+            use_replication_network=True,
+            global_conf={'log_name': 'container-sharder-ic'})
 
         # non-default shard_container_threshold influences other defaults
         conf = {'shard_container_threshold': 20000000}
@@ -201,7 +202,8 @@ class TestSharder(BaseTestSharder):
         mock_ic.assert_called_once_with(
             '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
             allow_modify_pipeline=False,
-            use_replication_network=True)
+            use_replication_network=True,
+            global_conf={'log_name': 'container-sharder-ic'})
 
         # non-default values
         conf = {
@@ -262,7 +264,8 @@ class TestSharder(BaseTestSharder):
         mock_ic.assert_called_once_with(
             '/etc/swift/my-sharder-ic.conf', 'Swift Container Sharder', 2,
             allow_modify_pipeline=False,
-            use_replication_network=True)
+            use_replication_network=True,
+            global_conf={'log_name': 'container-sharder-ic'})
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
             'Option auto_create_account_prefix is deprecated. '
             'Configure auto_create_account_prefix under the '
@@ -384,6 +387,27 @@ class TestSharder(BaseTestSharder):
                 with self.assertRaises(Exception) as cm:
                     ContainerSharder({})
         self.assertIn('kaboom', str(cm.exception))
+
+    def test_init_internal_client_log_name(self):
+        def _do_test_init_ic_log_name(conf, exp_internal_client_log_name):
+            with mock.patch(
+                    'swift.container.sharder.internal_client.InternalClient') \
+                    as mock_ic:
+                with mock.patch('swift.common.db_replicator.ring.Ring') \
+                        as mock_ring:
+                    mock_ring.return_value = mock.MagicMock()
+                    mock_ring.return_value.replica_count = 3
+                    ContainerSharder(conf)
+            mock_ic.assert_called_once_with(
+                '/etc/swift/internal-client.conf',
+                'Swift Container Sharder', 3,
+                allow_modify_pipeline=False,
+                global_conf={'log_name': exp_internal_client_log_name},
+                use_replication_network=True)
+
+        _do_test_init_ic_log_name({}, 'container-sharder-ic')
+        _do_test_init_ic_log_name({'log_name': 'container-sharder-6021'},
+                                  'container-sharder-6021-ic')
 
     def _assert_stats(self, expected, sharder, category):
         # assertEqual doesn't work with a defaultdict

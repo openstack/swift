@@ -1757,6 +1757,27 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(sio.getvalue(),
                          'test1\ntest3\ntest4\ntest6\n')
 
+    def test_get_logger_name_and_route(self):
+        logger = utils.get_logger({}, name='name', log_route='route')
+        self.assertEqual('route', logger.name)
+        self.assertEqual('name', logger.server)
+        logger = utils.get_logger({'log_name': 'conf-name'}, name='name',
+                                  log_route='route')
+        self.assertEqual('route', logger.name)
+        self.assertEqual('name', logger.server)
+        logger = utils.get_logger({'log_name': 'conf-name'}, log_route='route')
+        self.assertEqual('route', logger.name)
+        self.assertEqual('conf-name', logger.server)
+        logger = utils.get_logger({'log_name': 'conf-name'})
+        self.assertEqual('conf-name', logger.name)
+        self.assertEqual('conf-name', logger.server)
+        logger = utils.get_logger({})
+        self.assertEqual('swift', logger.name)
+        self.assertEqual('swift', logger.server)
+        logger = utils.get_logger({}, log_route='route')
+        self.assertEqual('route', logger.name)
+        self.assertEqual('swift', logger.server)
+
     @with_tempdir
     def test_get_logger_sysloghandler_plumbing(self, tempdir):
         orig_sysloghandler = utils.ThreadSafeSysLogHandler
@@ -5509,11 +5530,16 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(logger.logger.statsd_client._prefix, 'some-name.')
         self.assertEqual(logger.logger.statsd_client._default_sample_rate, 1)
 
+        logger2 = utils.get_logger({'log_statsd_host': 'some.host.com'},
+                                   'other-name', log_route='some-route')
         logger.set_statsd_prefix('some-name.more-specific')
         self.assertEqual(logger.logger.statsd_client._prefix,
                          'some-name.more-specific.')
+        self.assertEqual(logger2.logger.statsd_client._prefix,
+                         'some-name.more-specific.')
         logger.set_statsd_prefix('')
         self.assertEqual(logger.logger.statsd_client._prefix, '')
+        self.assertEqual(logger2.logger.statsd_client._prefix, '')
 
     def test_get_logger_statsd_client_non_defaults(self):
         logger = utils.get_logger({

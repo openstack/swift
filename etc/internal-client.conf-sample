@@ -2,7 +2,9 @@
 # swift_dir = /etc/swift
 # user = swift
 # You can specify default log routing here if you want:
-# log_name = swift
+# Note: the 'set' syntax is necessary to override the log_name that some
+# daemons specify when instantiating an internal client.
+# set log_name = swift
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log

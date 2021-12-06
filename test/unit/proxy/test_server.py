@@ -2110,6 +2110,55 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         app = self._write_conf_and_load_app(conf_sections)
         self._check_policy_options(app, exp_options, {})
 
+    def test_log_name(self):
+        # defaults...
+        conf_sections = """
+        [DEFAULT]
+        log_statsd_host = example.com
+        swift_dir = %s
+
+        [pipeline:main]
+        pipeline = proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        """ % self.tempdir
+        conf_path = self._write_conf(dedent(conf_sections))
+
+        with mock.patch('swift.common.utils.StatsdClient') as mock_statsd:
+            app = loadapp(conf_path, allow_modify_pipeline=False)
+        # logger name is hard-wired 'proxy-server'
+        self.assertEqual('proxy-server', app.logger.name)
+        self.assertEqual('swift', app.logger.server)
+        mock_statsd.assert_called_once_with(
+            'example.com', 8125, '', 'swift', 1.0, 1.0,
+            logger=app.logger.logger)
+
+        conf_sections = """
+        [DEFAULT]
+        log_name = test-name
+        log_statsd_host = example.com
+        swift_dir = %s
+
+        [pipeline:main]
+        pipeline = proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        """ % self.tempdir
+        conf_path = self._write_conf(dedent(conf_sections))
+
+        with mock.patch('swift.common.utils.StatsdClient') as mock_statsd:
+            app = loadapp(conf_path, allow_modify_pipeline=False)
+        # logger name is hard-wired 'proxy-server'
+        self.assertEqual('proxy-server', app.logger.name)
+        # server is defined by log_name option
+        self.assertEqual('test-name', app.logger.server)
+        # statsd prefix is defined by log_name option
+        mock_statsd.assert_called_once_with(
+            'example.com', 8125, '', 'test-name', 1.0, 1.0,
+            logger=app.logger.logger)
+
 
 class TestProxyServerConfigStringLoading(TestProxyServerConfigLoading):
     # The proxy may be loaded from a conf string rather than a conf file, for
