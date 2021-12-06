@@ -1087,19 +1087,22 @@ class ObjectReconstructor(Daemon):
             with df_mgr.partition_lock(job['device'], job['policy'],
                                        job['partition'], name='replication',
                                        timeout=0.2):
+                limited_by_max_objects = False
                 for node in job['sync_to']:
                     node['backend_index'] = job['policy'].get_backend_index(
                         node['index'])
-                    success, in_sync_objs = ssync_sender(
+                    sender = ssync_sender(
                         self, node, job, job['suffixes'],
                         include_non_durable=True,
-                        max_objects=self.max_objects_per_revert)()
+                        max_objects=self.max_objects_per_revert)
+                    success, in_sync_objs = sender()
+                    limited_by_max_objects |= sender.limited_by_max_objects
                     if success:
                         syncd_with += 1
                         reverted_objs.update(in_sync_objs)
                 if syncd_with >= len(job['sync_to']):
                     self.delete_reverted_objs(job, reverted_objs)
-                else:
+                if syncd_with < len(job['sync_to']) or limited_by_max_objects:
                     self.handoffs_remaining += 1
         except PartitionLockTimeout:
             self.logger.info("Unable to lock handoff partition %d for revert "
