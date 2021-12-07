@@ -13,15 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-
-from eventlet.green import ssl
-from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
-
-from swift.common.memcached import (
-    MemcacheRing, CONN_TIMEOUT, POOL_TIMEOUT, IO_TIMEOUT, TRY_COUNT,
-    ERROR_LIMIT_COUNT, ERROR_LIMIT_TIME, DEFAULT_ITEM_SIZE_WARNING_THRESHOLD)
-from swift.common.utils import get_logger, config_true_value
+from swift.common.memcached import load_memcache
+from swift.common.utils import get_logger
 
 
 class MemcacheMiddleware(object):
@@ -32,90 +25,7 @@ class MemcacheMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route='memcache')
-        self.memcache_servers = conf.get('memcache_servers')
-        try:
-            # Originally, while we documented using memcache_max_connections
-            # we only accepted max_connections
-            max_conns = int(conf.get('memcache_max_connections',
-                                     conf.get('max_connections', 0)))
-        except ValueError:
-            max_conns = 0
-
-        memcache_options = {}
-        if (not self.memcache_servers
-                or max_conns <= 0):
-            path = os.path.join(conf.get('swift_dir', '/etc/swift'),
-                                'memcache.conf')
-            memcache_conf = ConfigParser()
-            if memcache_conf.read(path):
-                # if memcache.conf exists we'll start with those base options
-                try:
-                    memcache_options = dict(memcache_conf.items('memcache'))
-                except NoSectionError:
-                    pass
-
-                if not self.memcache_servers:
-                    try:
-                        self.memcache_servers = \
-                            memcache_conf.get('memcache', 'memcache_servers')
-                    except (NoSectionError, NoOptionError):
-                        pass
-                if max_conns <= 0:
-                    try:
-                        new_max_conns = \
-                            memcache_conf.get('memcache',
-                                              'memcache_max_connections')
-                        max_conns = int(new_max_conns)
-                    except (NoSectionError, NoOptionError, ValueError):
-                        pass
-
-        # while memcache.conf options are the base for the memcache
-        # middleware, if you set the same option also in the filter
-        # section of the proxy config it is more specific.
-        memcache_options.update(conf)
-        connect_timeout = float(memcache_options.get(
-            'connect_timeout', CONN_TIMEOUT))
-        pool_timeout = float(memcache_options.get(
-            'pool_timeout', POOL_TIMEOUT))
-        tries = int(memcache_options.get('tries', TRY_COUNT))
-        io_timeout = float(memcache_options.get('io_timeout', IO_TIMEOUT))
-        if config_true_value(memcache_options.get('tls_enabled', 'false')):
-            tls_cafile = memcache_options.get('tls_cafile')
-            tls_certfile = memcache_options.get('tls_certfile')
-            tls_keyfile = memcache_options.get('tls_keyfile')
-            self.tls_context = ssl.create_default_context(
-                cafile=tls_cafile)
-            if tls_certfile:
-                self.tls_context.load_cert_chain(tls_certfile,
-                                                 tls_keyfile)
-        else:
-            self.tls_context = None
-        error_suppression_interval = float(memcache_options.get(
-            'error_suppression_interval', ERROR_LIMIT_TIME))
-        error_suppression_limit = float(memcache_options.get(
-            'error_suppression_limit', ERROR_LIMIT_COUNT))
-        item_size_warning_threshold = int(memcache_options.get(
-            'item_size_warning_threshold',
-            DEFAULT_ITEM_SIZE_WARNING_THRESHOLD))
-
-        if not self.memcache_servers:
-            self.memcache_servers = '127.0.0.1:11211'
-        if max_conns <= 0:
-            max_conns = 2
-
-        self.memcache = MemcacheRing(
-            [s.strip() for s in self.memcache_servers.split(',') if s.strip()],
-            connect_timeout=connect_timeout,
-            pool_timeout=pool_timeout,
-            tries=tries,
-            io_timeout=io_timeout,
-            max_conns=max_conns,
-            tls_context=self.tls_context,
-            logger=self.logger,
-            error_limit_count=error_suppression_limit,
-            error_limit_time=error_suppression_interval,
-            error_limit_duration=error_suppression_interval,
-            item_size_warning_threshold=item_size_warning_threshold)
+        self.memcache = load_memcache(conf, self.logger)
 
     def __call__(self, env, start_response):
         env['swift.cache'] = self.memcache
