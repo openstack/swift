@@ -600,10 +600,6 @@
               - ^test/(cors|functional|probe)/.*$
         - swift-tox-py36:
             irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py37:
-            irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py38:
-            irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py39:
             irrelevant-files: *unittest-irrelevant-files
 
@@ -685,8 +681,6 @@
             irrelevant-files: *docker-irrelevant-files
         - swift-tox-py27
         - swift-tox-py36
-        - swift-tox-py37
-        - swift-tox-py38
         - swift-tox-py39
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
@@ -717,6 +711,8 @@
             irrelevant-files: *tempest-irrelevant-files
     experimental:
       jobs:
+        - swift-tox-py37
+        - swift-tox-py38
         - swift-tox-py27-centos-7
         - swift-tox-func-py27-centos-7
         - swift-tox-func-encryption-py27-centos-7
