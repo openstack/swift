@@ -468,8 +468,9 @@ class ObjectUpdater(Daemon):
         redirect = None
         try:
             with ConnectionTimeout(self.conn_timeout):
-                conn = http_connect(node['ip'], node['port'], node['device'],
-                                    part, op, obj, headers_out)
+                conn = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], part, op, obj, headers_out)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
                 resp.read()
@@ -487,10 +488,12 @@ class ObjectUpdater(Daemon):
                 self.logger.debug(
                     'Error code %(status)d is returned from remote '
                     'server %(ip)s: %(port)s / %(device)s',
-                    {'status': resp.status, 'ip': node['ip'],
-                     'port': node['port'], 'device': node['device']})
+                    {'status': resp.status, 'ip': node['replication_ip'],
+                     'port': node['replication_port'],
+                     'device': node['device']})
             return success, node['id'], redirect
         except (Exception, Timeout):
-            self.logger.exception('ERROR with remote server '
-                                  '%(ip)s:%(port)s/%(device)s', node)
+            self.logger.exception(
+                'ERROR with remote server '
+                '%(replication_ip)s:%(replication_port)s/%(device)s', node)
         return HTTP_INTERNAL_SERVER_ERROR, node['id'], redirect

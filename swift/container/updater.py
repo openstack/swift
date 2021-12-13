@@ -338,12 +338,13 @@ class ContainerUpdater(Daemon):
                     'X-Backend-Storage-Policy-Index': storage_policy_index,
                     'user-agent': self.user_agent}
                 conn = http_connect(
-                    node['ip'], node['port'], node['device'], part,
-                    'PUT', container, headers=headers)
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], part, 'PUT', container, headers=headers)
             except (Exception, Timeout):
                 self.logger.exception(
                     'ERROR account update failed with '
-                    '%(ip)s:%(port)s/%(device)s (will retry later): ', node)
+                    '%(replication_ip)s:%(replication_port)s/%(device)s '
+                    '(will retry later): ', node)
                 return HTTP_INTERNAL_SERVER_ERROR
         with Timeout(self.node_timeout):
             try:
@@ -353,7 +354,9 @@ class ContainerUpdater(Daemon):
             except (Exception, Timeout):
                 if self.logger.getEffectiveLevel() <= logging.DEBUG:
                     self.logger.exception(
-                        'Exception with %(ip)s:%(port)s/%(device)s', node)
+                        'Exception with '
+                        '%(replication_ip)s:%(replication_port)s/%(device)s',
+                        node)
                 return HTTP_INTERNAL_SERVER_ERROR
             finally:
                 conn.close()
