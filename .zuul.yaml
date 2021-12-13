@@ -179,7 +179,8 @@
         - swift-tox-func-domain-remap-staticweb-py27
         - swift-tox-func-ec-py27
         - swift-tox-func-s3api-py27
-        - swift-probetests-centos-7
+        - swift-probetests-centos-7:
+            voting: false
         - openstack-tox-lower-constraints
         - openstack-tox-pep8
         - swift-dsvm-functional:
@@ -214,7 +215,6 @@
         - swift-tox-func-domain-remap-staticweb-py27
         - swift-tox-func-ec-py27
         - swift-tox-func-s3api-py27
-        - swift-probetests-centos-7
         - openstack-tox-lower-constraints
         - openstack-tox-pep8
         - swift-dsvm-functional:
