@@ -1328,7 +1328,8 @@ class TestFuncs(BaseTest):
             body_iter=iter([b'', json.dumps(shard_ranges).encode('ascii')]),
             headers=resp_headers
         ) as fake_conn:
-            actual = base._get_shard_ranges(req, 'a', 'c')
+            actual, resp = base._get_shard_ranges(req, 'a', 'c')
+        self.assertEqual(200, resp.status_int)
 
         # account info
         captured = fake_conn.requests
@@ -1359,7 +1360,8 @@ class TestFuncs(BaseTest):
                             json.dumps(shard_ranges[1:2]).encode('ascii')]),
             headers=resp_headers
         ) as fake_conn:
-            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertEqual(200, resp.status_int)
 
         # account info
         captured = fake_conn.requests
@@ -1383,7 +1385,8 @@ class TestFuncs(BaseTest):
         headers = {'X-Backend-Record-Type': 'shard'}
         with mocked_http_conn(200, 200, body_iter=iter([b'', body]),
                               headers=headers):
-            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertEqual(200, resp.status_int)
         self.assertIsNone(actual)
         lines = self.app.logger.get_lines_for_level('error')
         return lines
@@ -1427,7 +1430,8 @@ class TestFuncs(BaseTest):
         body = json.dumps([dict(sr)]).encode('ascii')
         with mocked_http_conn(
                 200, 200, body_iter=iter([b'', body])):
-            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertEqual(200, resp.status_int)
         self.assertIsNone(actual)
         error_lines = self.app.logger.get_lines_for_level('error')
         self.assertIn('Failed to get shard ranges', error_lines[0])
@@ -1444,7 +1448,8 @@ class TestFuncs(BaseTest):
         with mocked_http_conn(
                 200, 200, body_iter=iter([b'', body]),
                 headers=headers):
-            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertEqual(200, resp.status_int)
         self.assertIsNone(actual)
         error_lines = self.app.logger.get_lines_for_level('error')
         self.assertIn('Failed to get shard ranges', error_lines[0])
@@ -1456,7 +1461,8 @@ class TestFuncs(BaseTest):
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o', method='PUT')
         with mocked_http_conn(200, 404, 404, 404):
-            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertEqual(404, resp.status_int)
         self.assertIsNone(actual)
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
         warning_lines = self.app.logger.get_lines_for_level('warning')

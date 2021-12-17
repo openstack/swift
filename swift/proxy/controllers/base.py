@@ -2351,7 +2351,7 @@ class Controller(object):
         headers = {'X-Backend-Record-Type': 'shard'}
         listing, response = self._get_container_listing(
             req, account, container, headers=headers, params=params)
-        return self._parse_shard_ranges(req, listing, response)
+        return self._parse_shard_ranges(req, listing, response), response
 
     def _get_update_shard(self, req, account, container, obj):
         """
@@ -2370,8 +2370,10 @@ class Controller(object):
         """
         if not self.app.recheck_updating_shard_ranges:
             # caching is disabled; fall back to old behavior
-            shard_ranges = self._get_shard_ranges(
+            shard_ranges, response = self._get_shard_ranges(
                 req, account, container, states='updating', includes=obj)
+            self.app.logger.increment(
+                'shard_updating.backend.%s' % response.status_int)
             if not shard_ranges:
                 return None
             return shard_ranges[0]
@@ -2383,14 +2385,18 @@ class Controller(object):
         cached_ranges = infocache.get(cache_key)
         if cached_ranges is None and memcache:
             cached_ranges = memcache.get(cache_key)
+            self.app.logger.increment('shard_updating.cache.%s'
+                                      % ('hit' if cached_ranges else 'miss'))
 
         if cached_ranges:
             shard_ranges = [
                 ShardRange.from_dict(shard_range)
                 for shard_range in cached_ranges]
         else:
-            shard_ranges = self._get_shard_ranges(
+            shard_ranges, response = self._get_shard_ranges(
                 req, account, container, states='updating')
+            self.app.logger.increment(
+                'shard_updating.backend.%s' % response.status_int)
             if shard_ranges:
                 cached_ranges = [dict(sr) for sr in shard_ranges]
                 # went to disk; cache it
