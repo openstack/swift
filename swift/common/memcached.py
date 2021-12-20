@@ -153,10 +153,18 @@ class MemcacheConnPool(Pool):
 
     def get(self):
         fp, sock = super(MemcacheConnPool, self).get()
-        if fp is None:
-            # An error happened previously, so we need a new connection
-            fp, sock = self.create()
-        return fp, sock
+        try:
+            if fp is None:
+                # An error happened previously, so we need a new connection
+                fp, sock = self.create()
+            return fp, sock
+        except MemcachePoolTimeout:
+            # This is the only place that knows an item was successfully taken
+            # from the pool, so it has to be responsible for repopulating it.
+            # Any other errors should get handled in _get_conns(); see the
+            # comment about timeouts during create() there.
+            self.put((None, None))
+            raise
 
 
 class MemcacheRing(object):
