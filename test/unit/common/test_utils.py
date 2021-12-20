@@ -5580,17 +5580,34 @@ class TestStatsdLogging(unittest.TestCase):
         # instantiation so we don't call getaddrinfo() too often and don't have
         # to call bind() on our socket to detect IPv4/IPv6 on every send.
         #
-        # This test uses the real getaddrinfo, so we patch over the mock to
-        # put the real one back. If we just stop the mock, then
-        # unittest.exit() blows up, but stacking real-fake-real works okay.
-        with mock.patch.object(utils.socket, 'getaddrinfo',
-                               self.real_getaddrinfo):
+        # This test patches over the existing mock. If we just stop the
+        # existing mock, then unittest.exit() blows up, but stacking
+        # real-fake-fake works okay.
+        calls = []
+
+        def fake_getaddrinfo(host, port, family, *args):
+            calls.append(family)
+            if len(calls) == 1:
+                raise socket.gaierror
+            # this is what a real getaddrinfo('::1', port,
+            # socket.AF_INET6) returned once
+            return [(socket.AF_INET6,
+                     socket.SOCK_STREAM,
+                     socket.IPPROTO_TCP,
+                     '', ('::1', port, 0, 0)),
+                    (socket.AF_INET6,
+                     socket.SOCK_DGRAM,
+                     socket.IPPROTO_UDP,
+                     '',
+                     ('::1', port, 0, 0))]
+
+        with mock.patch.object(utils.socket, 'getaddrinfo', fake_getaddrinfo):
             logger = utils.get_logger({
                 'log_statsd_host': '::1',
                 'log_statsd_port': '9876',
             }, 'some-name', log_route='some-route')
         statsd_client = logger.logger.statsd_client
-
+        self.assertEqual([socket.AF_INET, socket.AF_INET6], calls)
         self.assertEqual(statsd_client._sock_family, socket.AF_INET6)
         self.assertEqual(statsd_client._target, ('::1', 9876, 0, 0))
 
