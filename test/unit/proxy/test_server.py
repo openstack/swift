@@ -3911,6 +3911,25 @@ class TestReplicatedObjectController(
         resp_headers['X-Backend-Sharding-State'] = 'unsharded'
         do_test(resp_headers)
 
+    def _check_request(self, req, method, path, headers=None, params=None):
+        self.assertEqual(method, req['method'])
+        # caller can ignore leading path parts
+        self.assertTrue(req['path'].endswith(path),
+                        'expected path to end with %s, it was %s' % (
+                            path, req['path']))
+        headers = headers or {}
+        # caller can ignore some headers
+        for k, v in headers.items():
+            self.assertEqual(req['headers'][k], v,
+                             'Expected %s but got %s for key %s' %
+                             (v, req['headers'][k], k))
+        params = params or {}
+        req_params = dict(parse_qsl(req['qs'])) if req['qs'] else {}
+        for k, v in params.items():
+            self.assertEqual(req_params[k], v,
+                             'Expected %s but got %s for key %s' %
+                             (v, req_params[k], k))
+
     @patch_policies([
         StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
         StoragePolicy(1, 'one', object_ring=FakeRing()),
@@ -3924,6 +3943,7 @@ class TestReplicatedObjectController(
         self.app.recheck_updating_shard_ranges = 0
 
         def do_test(method, sharding_state):
+            self.app.logger = debug_logger('proxy-ut')  # clean capture state
             req = Request.blank('/v1/a/c/o', {}, method=method, body='',
                                 headers={'Content-Type': 'text/plain'})
 
@@ -3942,33 +3962,18 @@ class TestReplicatedObjectController(
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.get_increment_counts()
+            self.assertEqual({'shard_updating.backend.200': 1}, stats)
             backend_requests = fake_conn.requests
 
-            def check_request(req, method, path, headers=None, params=None):
-                self.assertEqual(method, req['method'])
-                # caller can ignore leading path parts
-                self.assertTrue(req['path'].endswith(path),
-                                'expected path to end with %s, it was %s' % (
-                                    path, req['path']))
-                headers = headers or {}
-                # caller can ignore some headers
-                for k, v in headers.items():
-                    self.assertEqual(req['headers'][k], v,
-                                     'Expected %s but got %s for key %s' %
-                                     (v, req['headers'][k], k))
-                params = params or {}
-                req_params = dict(parse_qsl(req['qs'])) if req['qs'] else {}
-                for k, v in params.items():
-                    self.assertEqual(req_params[k], v,
-                                     'Expected %s but got %s for key %s' %
-                                     (v, req_params[k], k))
-
             account_request = backend_requests[0]
-            check_request(account_request, method='HEAD', path='/sda/0/a')
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
             container_request = backend_requests[1]
-            check_request(container_request, method='HEAD', path='/sda/0/a/c')
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
             container_request_shard = backend_requests[2]
-            check_request(
+            self._check_request(
                 container_request_shard, method='GET', path='/sda/0/a/c',
                 params={'includes': 'o', 'states': 'updating'},
                 headers={'X-Backend-Record-Type': 'shard'})
@@ -3991,7 +3996,7 @@ class TestReplicatedObjectController(
                         'X-Backend-Quoted-Container-Path': shard_range.name
                     },
                 }
-                check_request(request, **expectations)
+                self._check_request(request, **expectations)
 
             expected = {}
             for i, device in enumerate(['sda', 'sdb', 'sdc']):
@@ -4018,6 +4023,7 @@ class TestReplicatedObjectController(
         self.app.recheck_updating_shard_ranges = 3600
 
         def do_test(method, sharding_state):
+            self.app.logger = debug_logger('proxy-ut')  # clean capture state
             req = Request.blank(
                 '/v1/a/c/o', {'swift.cache': FakeMemcache()},
                 method=method, body='', headers={'Content-Type': 'text/plain'})
@@ -4045,33 +4051,19 @@ class TestReplicatedObjectController(
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.get_increment_counts()
+            self.assertEqual({'shard_updating.cache.miss': 1,
+                              'shard_updating.backend.200': 1}, stats)
+
             backend_requests = fake_conn.requests
-
-            def check_request(req, method, path, headers=None, params=None):
-                self.assertEqual(method, req['method'])
-                # caller can ignore leading path parts
-                self.assertTrue(req['path'].endswith(path),
-                                'expected path to end with %s, it was %s' % (
-                                    path, req['path']))
-                headers = headers or {}
-                # caller can ignore some headers
-                for k, v in headers.items():
-                    self.assertEqual(req['headers'][k], v,
-                                     'Expected %s but got %s for key %s' %
-                                     (v, req['headers'][k], k))
-                params = params or {}
-                req_params = dict(parse_qsl(req['qs'])) if req['qs'] else {}
-                for k, v in params.items():
-                    self.assertEqual(req_params[k], v,
-                                     'Expected %s but got %s for key %s' %
-                                     (v, req_params[k], k))
-
             account_request = backend_requests[0]
-            check_request(account_request, method='HEAD', path='/sda/0/a')
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
             container_request = backend_requests[1]
-            check_request(container_request, method='HEAD', path='/sda/0/a/c')
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
             container_request_shard = backend_requests[2]
-            check_request(
+            self._check_request(
                 container_request_shard, method='GET', path='/sda/0/a/c',
                 params={'states': 'updating'},
                 headers={'X-Backend-Record-Type': 'shard'})
@@ -4102,7 +4094,7 @@ class TestReplicatedObjectController(
                         'X-Backend-Quoted-Container-Path': shard_ranges[1].name
                     },
                 }
-                check_request(request, **expectations)
+                self._check_request(request, **expectations)
 
             expected = {}
             for i, device in enumerate(['sda', 'sdb', 'sdc']):
@@ -4129,6 +4121,7 @@ class TestReplicatedObjectController(
         self.app.recheck_updating_shard_ranges = 3600
 
         def do_test(method, sharding_state):
+            self.app.logger = debug_logger('proxy-ut')  # clean capture state
             shard_ranges = [
                 utils.ShardRange(
                     '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
@@ -4156,31 +4149,16 @@ class TestReplicatedObjectController(
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.get_increment_counts()
+            self.assertEqual({'shard_updating.cache.hit': 1}, stats)
+
             backend_requests = fake_conn.requests
-
-            def check_request(req, method, path, headers=None, params=None):
-                self.assertEqual(method, req['method'])
-                # caller can ignore leading path parts
-                self.assertTrue(req['path'].endswith(path),
-                                'expected path to end with %s, it was %s' % (
-                                    path, req['path']))
-                headers = headers or {}
-                # caller can ignore some headers
-                for k, v in headers.items():
-                    self.assertEqual(req['headers'][k], v,
-                                     'Expected %s but got %s for key %s' %
-                                     (v, req['headers'][k], k))
-                params = params or {}
-                req_params = dict(parse_qsl(req['qs'])) if req['qs'] else {}
-                for k, v in params.items():
-                    self.assertEqual(req_params[k], v,
-                                     'Expected %s but got %s for key %s' %
-                                     (v, req_params[k], k))
-
             account_request = backend_requests[0]
-            check_request(account_request, method='HEAD', path='/sda/0/a')
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
             container_request = backend_requests[1]
-            check_request(container_request, method='HEAD', path='/sda/0/a/c')
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
 
             # infocache gets populated from memcache
             cache_key = 'shard-updating/a/c'
@@ -4206,7 +4184,86 @@ class TestReplicatedObjectController(
                         'X-Backend-Quoted-Container-Path': shard_ranges[1].name
                     },
                 }
-                check_request(request, **expectations)
+                self._check_request(request, **expectations)
+
+            expected = {}
+            for i, device in enumerate(['sda', 'sdb', 'sdc']):
+                expected[device] = '10.0.0.%d:100%d' % (i, i)
+            self.assertEqual(container_headers, expected)
+
+        do_test('POST', 'sharding')
+        do_test('POST', 'sharded')
+        do_test('DELETE', 'sharding')
+        do_test('DELETE', 'sharded')
+        do_test('PUT', 'sharding')
+        do_test('PUT', 'sharded')
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', object_ring=FakeRing()),
+    ])
+    def test_backend_headers_update_shard_container_errors(self):
+        # verify that update target reverts to root if get shard ranges fails
+        # reset the router post patch_policies
+        self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
+        self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+        self.app.recheck_updating_shard_ranges = 0
+
+        def do_test(method, sharding_state):
+            self.app.logger = debug_logger('proxy-ut')  # clean capture state
+            req = Request.blank('/v1/a/c/o', {}, method=method, body='',
+                                headers={'Content-Type': 'text/plain'})
+
+            # we want the container_info response to say policy index of 1 and
+            # sharding state, but we want shard range listings to fail
+            # acc HEAD, cont HEAD, cont shard GETs, obj POSTs
+            status_codes = (200, 200, 404, 404, 404, 202, 202, 202)
+            resp_headers = {'X-Backend-Storage-Policy-Index': 1,
+                            'x-backend-sharding-state': sharding_state}
+            with mocked_http_conn(*status_codes,
+                                  headers=resp_headers) as fake_conn:
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.get_increment_counts()
+            self.assertEqual({'shard_updating.backend.404': 1}, stats)
+
+            backend_requests = fake_conn.requests
+            account_request = backend_requests[0]
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
+            container_request = backend_requests[1]
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
+            container_request_shard = backend_requests[2]
+            self._check_request(
+                container_request_shard, method='GET', path='/sda/0/a/c',
+                params={'includes': 'o', 'states': 'updating'},
+                headers={'X-Backend-Record-Type': 'shard'})
+
+            # infocache does not get populated from memcache
+            cache_key = 'shard-updating/a/c'
+            self.assertNotIn(cache_key, req.environ.get('swift.infocache'))
+
+            # make sure backend requests included expected container headers
+            container_headers = {}
+
+            for request in backend_requests[5:]:
+                req_headers = request['headers']
+                device = req_headers['x-container-device']
+                container_headers[device] = req_headers['x-container-host']
+                expectations = {
+                    'method': method,
+                    'path': '/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Host': 'localhost:80',
+                        'Referer': '%s http://localhost/v1/a/c/o' % method,
+                        'X-Backend-Storage-Policy-Index': '1',
+                        # X-Backend-Quoted-Container-Path is not sent
+                    },
+                }
+                self._check_request(request, **expectations)
 
             expected = {}
             for i, device in enumerate(['sda', 'sdb', 'sdc']):
