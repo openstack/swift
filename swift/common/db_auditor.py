@@ -96,7 +96,7 @@ class DatabaseAuditor(Daemon):
         time.sleep(random() * self.interval)
         while True:
             self.logger.info(
-                'Begin {} audit pass.'.format(self.server_type))
+                'Begin %s audit pass.', self.server_type)
             begin = time.time()
             try:
                 reported = self._one_audit_pass(reported)
@@ -116,7 +116,7 @@ class DatabaseAuditor(Daemon):
     def run_once(self, *args, **kwargs):
         """Run the database audit once."""
         self.logger.info(
-            'Begin {} audit "once" mode'.format(self.server_type))
+            'Begin %s audit "once" mode', self.server_type)
         begin = reported = time.time()
         self._one_audit_pass(reported)
         elapsed = time.time() - begin

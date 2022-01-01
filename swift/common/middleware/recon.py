@@ -20,7 +20,6 @@ import time
 from resource import getpagesize
 
 from swift import __version__ as swiftver
-from swift import gettext_ as _
 from swift.common.constraints import check_mount
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, Response
@@ -89,11 +88,11 @@ class ReconMiddleware(object):
             if err.errno == errno.ENOENT and ignore_missing:
                 pass
             else:
-                self.logger.exception(_('Error reading recon cache file'))
+                self.logger.exception('Error reading recon cache file')
         except ValueError:
-            self.logger.exception(_('Error parsing recon cache file'))
+            self.logger.exception('Error parsing recon cache file')
         except Exception:
-            self.logger.exception(_('Error retrieving recon data'))
+            self.logger.exception('Error retrieving recon data')
         return dict((key, None) for key in cache_keys)
 
     def get_version(self):
@@ -181,7 +180,7 @@ class ReconMiddleware(object):
         try:
             return {self.devices: os.listdir(self.devices)}
         except Exception:
-            self.logger.exception(_('Error listing devices'))
+            self.logger.exception('Error listing devices')
             return {self.devices: None}
 
     def get_updater_info(self, recon_type):
@@ -277,7 +276,7 @@ class ReconMiddleware(object):
                 except IOError as err:
                     sums[ringfile] = None
                     if err.errno != errno.ENOENT:
-                        self.logger.exception(_('Error reading ringfile'))
+                        self.logger.exception('Error reading ringfile')
         return sums
 
     def get_swift_conf_md5(self):
@@ -287,7 +286,7 @@ class ReconMiddleware(object):
             hexsum = md5_hash_for_file(SWIFT_CONF_FILE)
         except IOError as err:
             if err.errno != errno.ENOENT:
-                self.logger.exception(_('Error reading swift.conf'))
+                self.logger.exception('Error reading swift.conf')
         return {SWIFT_CONF_FILE: hexsum}
 
     def get_quarantine_count(self):
