@@ -20,7 +20,6 @@ import pstats
 import tempfile
 import time
 
-from swift import gettext_ as _
 from swift.common.middleware.x_profile.exceptions import ODFLIBNotInstalled
 
 
@@ -125,7 +124,7 @@ class Stats2(pstats.Stats):
 
     def to_ods(self, *selection):
         if not ODFLIB_INSTALLED:
-            raise ODFLIBNotInstalled(_('odfpy not installed.'))
+            raise ODFLIBNotInstalled('odfpy not installed.')
         if self.fcn_list:
             stat_list = self.fcn_list[:]
             order_text = "   Ordered by: " + self.sort_type + '\n'
