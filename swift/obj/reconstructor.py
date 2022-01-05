@@ -1434,15 +1434,21 @@ class ObjectReconstructor(Daemon):
 
         stats = spawn(self.heartbeat)
         lockup_detector = spawn(self.detect_lockups)
+        changed_rings = set()
 
         try:
             self.run_pool = GreenPool(size=self.concurrency)
             for part_info in self.collect_parts(**kwargs):
                 sleep()  # Give spawns a cycle
+                if part_info['policy'] in changed_rings:
+                    continue
                 if not self.check_ring(part_info['policy'].object_ring):
-                    self.logger.info("Ring change detected. Aborting "
-                                     "current reconstruction pass.")
-                    return
+                    changed_rings.add(part_info['policy'])
+                    self.logger.info(
+                        "Ring change detected for policy %d (%s). Aborting "
+                        "current reconstruction pass for this policy.",
+                        part_info['policy'].idx, part_info['policy'].name)
+                    continue
 
                 self.reconstruction_part_count += 1
                 jobs = self.build_reconstruction_jobs(part_info)
