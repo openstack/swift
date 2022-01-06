@@ -16,7 +16,6 @@
 
 import json
 import unittest
-from contextlib import contextmanager
 from base64 import b64encode as _b64encode
 from time import time
 
@@ -26,6 +25,7 @@ from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response
 from swift.common.utils import split_path
+from test.unit import FakeMemcache
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
 
@@ -34,42 +34,6 @@ def b64encode(str_or_bytes):
     if not isinstance(str_or_bytes, bytes):
         str_or_bytes = str_or_bytes.encode('utf8')
     return _b64encode(str_or_bytes).decode('ascii')
-
-
-class FakeMemcache(object):
-
-    def __init__(self):
-        self.store = {}
-
-    def get(self, key):
-        return self.store.get(key)
-
-    def set(self, key, value, time=0):
-        if isinstance(value, (tuple, list)):
-            decoded = []
-            for elem in value:
-                if isinstance(elem, bytes):
-                    decoded.append(elem.decode('utf8'))
-                else:
-                    decoded.append(elem)
-            value = tuple(decoded)
-        self.store[key] = value
-        return True
-
-    def incr(self, key, time=0):
-        self.store[key] = self.store.setdefault(key, 0) + 1
-        return self.store[key]
-
-    @contextmanager
-    def soft_lock(self, key, timeout=0, retries=5):
-        yield True
-
-    def delete(self, key):
-        try:
-            del self.store[key]
-        except Exception:
-            pass
-        return True
 
 
 class FakeApp(object):
