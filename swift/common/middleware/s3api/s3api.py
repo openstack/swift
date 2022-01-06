@@ -167,6 +167,9 @@ from swift.common.registry import register_swift_info, \
 class ListingEtagMiddleware(object):
     def __init__(self, app):
         self.app = app
+        # Pass this along so get_container_info will have the configured
+        # odds to skip cache
+        self._pipeline_final_app = app._pipeline_final_app
 
     def __call__(self, env, start_response):
         # a lot of this is cribbed from listing_formats / swob.Request

@@ -47,5 +47,8 @@ def filter_factory(global_conf, **local_conf):
             if 'symlink' not in get_swift_info():
                 raise ValueError('object versioning requires symlinks')
             app = ObjectVersioningMiddleware(app, conf)
+            # Pass this along so get_container_info will have the configured
+            # odds to skip cache
+            app._pipeline_final_app = app.app._pipeline_final_app
         return VersionedWritesMiddleware(app, conf)
     return versioning_filter

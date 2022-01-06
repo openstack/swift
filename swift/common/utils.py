@@ -3716,7 +3716,11 @@ class StreamingPile(GreenAsyncPile):
 
         # Keep populating the pile as greenthreads become available
         for args in args_iter:
-            yield next(self)
+            try:
+                to_yield = next(self)
+            except StopIteration:
+                break
+            yield to_yield
             self.spawn(func, *args)
 
         # Drain the pile

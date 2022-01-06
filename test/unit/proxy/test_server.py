@@ -508,6 +508,7 @@ class TestController(unittest.TestCase):
 
     def test_get_account_info_returns_values_as_strings(self):
         app = mock.MagicMock()
+        app._pipeline_final_app.account_existence_skip_cache = 0.0
         memcache = mock.MagicMock()
         memcache.get = mock.MagicMock()
         memcache.get.return_value = {
@@ -533,6 +534,7 @@ class TestController(unittest.TestCase):
 
     def test_get_container_info_returns_values_as_strings(self):
         app = mock.MagicMock()
+        app._pipeline_final_app.container_existence_skip_cache = 0.0
         memcache = mock.MagicMock()
         memcache.get = mock.MagicMock()
         memcache.get.return_value = {
@@ -4134,9 +4136,10 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'object.shard_updating.cache.miss': 1,
+            self.assertEqual({'account.info.cache.miss': 1,
+                              'container.info.cache.miss': 1,
+                              'object.shard_updating.cache.miss': 1,
                               'object.shard_updating.backend.200': 1}, stats)
-            # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
 
             backend_requests = fake_conn.requests
@@ -4234,7 +4237,9 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'object.shard_updating.cache.hit': 1}, stats)
+            self.assertEqual({'account.info.cache.miss': 1,
+                              'container.info.cache.miss': 1,
+                              'object.shard_updating.cache.hit': 1}, stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
 
@@ -4328,7 +4333,9 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'object.shard_updating.cache.hit': 1}, stats)
+            self.assertEqual({'account.info.cache.miss': 1,
+                              'container.info.cache.miss': 1,
+                              'object.shard_updating.cache.hit': 1}, stats)
 
             # cached shard ranges are still there
             cache_key = 'shard-updating/a/c'
@@ -4366,7 +4373,11 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'object.shard_updating.cache.skip': 1,
+            self.assertEqual({'account.info.cache.miss': 1,
+                              'account.info.cache.hit': 1,
+                              'container.info.cache.miss': 1,
+                              'container.info.cache.hit': 1,
+                              'object.shard_updating.cache.skip': 1,
                               'object.shard_updating.cache.hit': 1,
                               'object.shard_updating.backend.200': 1}, stats)
             # verify statsd prefix is not mutated
@@ -4425,10 +4436,15 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'object.shard_updating.cache.skip': 1,
-                              'object.shard_updating.cache.hit': 1,
-                              'object.shard_updating.cache.error': 1,
-                              'object.shard_updating.backend.200': 2}, stats)
+            self.assertEqual(stats, {
+                'account.info.cache.hit': 2,
+                'account.info.cache.miss': 1,
+                'container.info.cache.hit': 2,
+                'container.info.cache.miss': 1,
+                'object.shard_updating.cache.skip': 1,
+                'object.shard_updating.cache.hit': 1,
+                'object.shard_updating.cache.error': 1,
+                'object.shard_updating.backend.200': 2})
 
         do_test('POST', 'sharding')
         do_test('POST', 'sharded')

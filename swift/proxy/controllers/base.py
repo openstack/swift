@@ -750,7 +750,30 @@ def _get_info_from_memcache(app, env, account, container=None):
     cache_key = get_cache_key(account, container)
     memcache = cache_from_env(env, True)
     if memcache:
-        info = memcache.get(cache_key)
+        try:
+            proxy_app = app._pipeline_final_app
+        except AttributeError:
+            # Only the middleware entry-points get a reference to the
+            # proxy-server app; if a middleware composes itself as multiple
+            # filters, we'll just have to choose a reasonable default
+            skip_chance = 0.0
+            logger = None
+        else:
+            if container:
+                skip_chance = proxy_app.container_existence_skip_cache
+            else:
+                skip_chance = proxy_app.account_existence_skip_cache
+            logger = proxy_app.logger
+        info_type = 'container' if container else 'account'
+        if skip_chance and random.random() < skip_chance:
+            info = None
+            if logger:
+                logger.increment('%s.info.cache.skip' % info_type)
+        else:
+            info = memcache.get(cache_key)
+            if logger:
+                logger.increment('%s.info.cache.%s' % (
+                    info_type, 'hit' if info else 'miss'))
         if info and six.PY2:
             # Get back to native strings
             new_info = {}

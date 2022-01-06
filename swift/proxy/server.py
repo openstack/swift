@@ -193,6 +193,10 @@ class Application(object):
 
     def __init__(self, conf, logger=None, account_ring=None,
                  container_ring=None):
+        # This is for the sake of tests which instantiate an Application
+        # directly rather than via loadapp().
+        self._pipeline_final_app = self
+
         if conf is None:
             conf = {}
         if logger is None:
@@ -230,12 +234,16 @@ class Application(object):
         self.recheck_account_existence = \
             int(conf.get('recheck_account_existence',
                          DEFAULT_RECHECK_ACCOUNT_EXISTENCE))
+        self.container_existence_skip_cache = config_percent_value(
+            conf.get('container_existence_skip_cache_pct', 0))
         self.container_updating_shard_ranges_skip_cache = \
             config_percent_value(conf.get(
                 'container_updating_shard_ranges_skip_cache_pct', 0))
         self.container_listing_shard_ranges_skip_cache = \
             config_percent_value(conf.get(
                 'container_listing_shard_ranges_skip_cache_pct', 0))
+        self.account_existence_skip_cache = config_percent_value(
+            conf.get('account_existence_skip_cache_pct', 0))
         self.allow_account_management = \
             config_true_value(conf.get('allow_account_management', 'no'))
         self.container_ring = container_ring or Ring(swift_dir,
