@@ -2110,14 +2110,13 @@ class TestContainerController(TestRingBase):
             'X-Backend-Record-Type': 'shard',
             'X-Backend-Sharding-State': sharding_state})
         self.assertEqual(
-            [('get', 'container/a/c', None, None),
-             ('set', 'shard-listing/a/c', self.sr_dicts,
-              exp_recheck_listing),
-             ('set', 'container/a/c', mock.ANY, 60)],
+            [mock.call.get('container/a/c'),
+             mock.call.set('shard-listing/a/c', self.sr_dicts,
+                           time=exp_recheck_listing),
+             mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
-        self.assertEqual(self.sr_dicts, self.memcache.calls[1][2])
         self.assertEqual(sharding_state,
-                         self.memcache.calls[2][2]['sharding_state'])
+                         self.memcache.calls[2][1][1]['sharding_state'])
         self.assertIn('swift.infocache', req.environ)
         self.assertIn('shard-listing/a/c', req.environ['swift.infocache'])
         self.assertEqual(tuple(self.sr_dicts),
@@ -2134,8 +2133,8 @@ class TestContainerController(TestRingBase):
             'X-Backend-Record-Type': 'shard',
             'X-Backend-Sharding-State': sharding_state})
         self.assertEqual(
-            [('get', 'container/a/c', None, None),
-             ('get', 'shard-listing/a/c', None, None)],
+            [mock.call.get('container/a/c'),
+             mock.call.get('shard-listing/a/c')],
             self.memcache.calls)
         self.assertIn('swift.infocache', req.environ)
         self.assertIn('shard-listing/a/c', req.environ['swift.infocache'])
@@ -2151,8 +2150,8 @@ class TestContainerController(TestRingBase):
         self._capture_backend_request(req, 204, b'', {},
                                       num_resp=self.CONTAINER_REPLICAS)
         self.assertEqual(
-            [('delete', 'container/a/c', None, None),
-             ('delete', 'shard-listing/a/c', None, None)],
+            [mock.call.delete('container/a/c'),
+             mock.call.delete('shard-listing/a/c')],
             self.memcache.calls)
 
     def test_get_from_shards_add_root_spi(self):
@@ -2281,11 +2280,11 @@ class TestContainerController(TestRingBase):
         # Note: container metadata is updated in cache but shard ranges are not
         # deleted from cache
         self.assertEqual(
-            [('get', 'container/a/c', None, None),
-             ('get', 'shard-listing/a/c', None, None),
-             ('set', 'container/a/c', mock.ANY, 6.0)],
+            [mock.call.get('container/a/c'),
+             mock.call.get('shard-listing/a/c'),
+             mock.call.set('container/a/c', mock.ANY, time=6.0)],
             self.memcache.calls)
-        self.assertEqual(404, self.memcache.calls[2][2]['status'])
+        self.assertEqual(404, self.memcache.calls[2][1][1]['status'])
         self.assertEqual(b'', resp.body)
         self.assertEqual(404, resp.status_int)
 
@@ -2304,8 +2303,8 @@ class TestContainerController(TestRingBase):
         req = self._build_request(req_hdrs, params, {})
         resp = req.get_response(self.app)
         self.assertEqual(
-            [('get', 'container/a/c', None, None),
-             ('get', 'shard-listing/a/c', None, None)],
+            [mock.call.get('container/a/c'),
+             mock.call.get('shard-listing/a/c')],
             self.memcache.calls)
         return resp
 
@@ -2387,14 +2386,13 @@ class TestContainerController(TestRingBase):
         expected_hdrs = {'X-Backend-Recheck-Container-Existence': '60'}
         expected_hdrs.update(resp_hdrs)
         self.assertEqual(
-            [('get', 'container/a/c', None, None),
-             ('set', 'shard-listing/a/c', self.sr_dicts, 600),
-             ('set', 'container/a/c', mock.ANY, 60)],
+            [mock.call.get('container/a/c'),
+             mock.call.set('shard-listing/a/c', self.sr_dicts, time=600),
+             mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         # shards were cached
-        self.assertEqual(self.sr_dicts, self.memcache.calls[1][2])
         self.assertEqual('sharded',
-                         self.memcache.calls[2][2]['sharding_state'])
+                         self.memcache.calls[2][1][1]['sharding_state'])
         return resp
 
     def test_GET_shard_ranges_write_to_cache(self):
@@ -2480,12 +2478,11 @@ class TestContainerController(TestRingBase):
         expected_hdrs.update(resp_hdrs)
         self._check_response(resp, self.sr_dicts, expected_hdrs)
         self.assertEqual(
-            [('set', 'shard-listing/a/c', self.sr_dicts, 600),
-             ('set', 'container/a/c', mock.ANY, 60)],
+            [mock.call.set('shard-listing/a/c', self.sr_dicts, time=600),
+             mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
-        self.assertEqual(self.sr_dicts, self.memcache.calls[0][2])
         self.assertEqual('sharded',
-                         self.memcache.calls[1][2]['sharding_state'])
+                         self.memcache.calls[1][1][1]['sharding_state'])
 
     def _do_test_GET_shard_ranges_no_cache_write(self, resp_hdrs):
         # verify that there is a cache lookup to check container info but then
@@ -2516,11 +2513,11 @@ class TestContainerController(TestRingBase):
         # container metadata is looked up in memcache for sharding state
         # container metadata is set in memcache
         self.assertEqual(
-            [('get', 'container/a/c', None, None),
-             ('set', 'container/a/c', mock.ANY, 60)],
+            [mock.call.get('container/a/c'),
+             mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         self.assertEqual(resp.headers.get('X-Backend-Sharding-State'),
-                         self.memcache.calls[1][2]['sharding_state'])
+                         self.memcache.calls[1][1][1]['sharding_state'])
         self.memcache.delete_all()
 
     def test_GET_shard_ranges_no_cache_write_with_cached_container_info(self):
@@ -2650,11 +2647,11 @@ class TestContainerController(TestRingBase):
         # container metadata is looked up in memcache for sharding state
         # container metadata is set in memcache
         self.assertEqual(
-            [('get', 'container/a/c', None, None),
-             ('set', 'container/a/c', mock.ANY, 60)],
+            [mock.call.get('container/a/c'),
+             mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         self.assertEqual(resp.headers.get('X-Backend-Sharding-State'),
-                         self.memcache.calls[1][2]['sharding_state'])
+                         self.memcache.calls[1][1][1]['sharding_state'])
         self.memcache.delete_all()
 
     def test_GET_shard_ranges_bad_response_body(self):
@@ -2703,10 +2700,10 @@ class TestContainerController(TestRingBase):
             'X-Backend-Sharding-State': sharding_state})
         # container metadata from backend response is set in memcache
         self.assertEqual(
-            [('set', 'container/a/c', mock.ANY, 60)],
+            [mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         self.assertEqual(sharding_state,
-                         self.memcache.calls[0][2]['sharding_state'])
+                         self.memcache.calls[0][1][1]['sharding_state'])
 
     def test_GET_shard_ranges_no_cache_recheck_listing_shard_ranges(self):
         # verify that a GET for shards does not lookup or store in cache when
@@ -2773,10 +2770,10 @@ class TestContainerController(TestRingBase):
             'X-Backend-Sharding-State': 'sharded'})
         # container metadata from backend response is set in memcache
         self.assertEqual(
-            [('set', 'container/a/c', mock.ANY, 60)],
+            [mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         self.assertEqual('sharded',
-                         self.memcache.calls[0][2]['sharding_state'])
+                         self.memcache.calls[0][1][1]['sharding_state'])
 
     def test_GET_shard_ranges_no_memcache_available(self):
         self._setup_shard_range_stubs()

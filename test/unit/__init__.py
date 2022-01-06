@@ -401,6 +401,13 @@ class FabricatedRing(Ring):
         self._update_bookkeeping()
 
 
+def track(f):
+    def wrapper(self, *a, **kw):
+        self.calls.append(getattr(mocklib.call, f.__name__)(*a, **kw))
+        return f(self, *a, **kw)
+    return wrapper
+
+
 class FakeMemcache(object):
 
     def __init__(self):
@@ -412,19 +419,16 @@ class FakeMemcache(object):
     def clear_calls(self):
         del self.calls[:]
 
-    def _called(self, method, key=None, value=None, time=None):
-        self.calls.append((method, key, value, time))
-
+    @track
     def get(self, key):
-        self._called('get', key)
         return self.store.get(key)
 
+    @property
     def keys(self):
-        self._called('keys')
-        return self.store.keys()
+        return self.store.keys
 
+    @track
     def set(self, key, value, serialize=True, time=0):
-        self._called('set', key, value, time)
         if serialize:
             value = json.loads(json.dumps(value))
         else:
@@ -432,8 +436,8 @@ class FakeMemcache(object):
         self.store[key] = value
         return True
 
+    @track
     def incr(self, key, delta=1, time=0):
-        self._called('incr', key, time=time)
         if self.error_on_incr:
             raise MemcacheConnectionError('Memcache restarting')
         if self.init_incr_return_neg:
@@ -445,6 +449,7 @@ class FakeMemcache(object):
             self.store[key] = 0
         return self.store[key]
 
+    # tracked via incr()
     def decr(self, key, delta=1, time=0):
         return self.incr(key, delta=-delta, time=time)
 
@@ -452,8 +457,8 @@ class FakeMemcache(object):
     def soft_lock(self, key, timeout=0, retries=5):
         yield True
 
+    @track
     def delete(self, key):
-        self._called('delete', key)
         try:
             del self.store[key]
         except Exception:
@@ -462,6 +467,11 @@ class FakeMemcache(object):
 
     def delete_all(self):
         self.store.clear()
+
+
+# This decorator only makes sense in the context of FakeMemcache;
+# may as well clean it up now
+del track
 
 
 class FakeIterable(object):
