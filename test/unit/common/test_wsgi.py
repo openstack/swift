@@ -1942,6 +1942,10 @@ class TestPipelineModification(unittest.TestCase):
             self.assertTrue(isinstance(app.app, exp), app.app)
             exp = swift.proxy.server.Application
             self.assertTrue(isinstance(app.app.app, exp), app.app.app)
+            # Everybody gets a reference to the final app, too
+            self.assertIs(app.app.app, app._pipeline_final_app)
+            self.assertIs(app.app.app, app.app._pipeline_final_app)
+            self.assertIs(app.app.app, app.app.app._pipeline_final_app)
 
             # make sure you can turn off the pipeline modification if you want
             def blow_up(*_, **__):
@@ -2399,7 +2403,7 @@ class TestPipelineModification(unittest.TestCase):
                 tempdir, policy.ring_name + '.ring.gz')
 
         app = wsgi.loadapp(conf_path)
-        proxy_app = app.app.app.app.app.app.app.app
+        proxy_app = app._pipeline_final_app
         self.assertEqual(proxy_app.account_ring.serialized_path,
                          account_ring_path)
         self.assertEqual(proxy_app.container_ring.serialized_path,
@@ -2430,36 +2434,6 @@ class TestPipelineModification(unittest.TestCase):
                 f.write(dedent(conf_body))
             app = wsgi.loadapp(conf_path)
             self.assertTrue(isinstance(app, controller))
-
-    def test_pipeline_property(self):
-        depth = 3
-
-        class FakeApp(object):
-            pass
-
-        class AppFilter(object):
-
-            def __init__(self, app):
-                self.app = app
-
-        # make a pipeline
-        app = FakeApp()
-        filtered_app = app
-        for i in range(depth):
-            filtered_app = AppFilter(filtered_app)
-
-        # AttributeError if no apps in the pipeline have attribute
-        wsgi._add_pipeline_properties(filtered_app, 'foo')
-        self.assertRaises(AttributeError, getattr, filtered_app, 'foo')
-
-        # set the attribute
-        self.assertTrue(isinstance(app, FakeApp))
-        app.foo = 'bar'
-        self.assertEqual(filtered_app.foo, 'bar')
-
-        # attribute is cached
-        app.foo = 'baz'
-        self.assertEqual(filtered_app.foo, 'bar')
 
 
 if __name__ == '__main__':

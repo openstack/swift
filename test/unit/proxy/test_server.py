@@ -1421,10 +1421,7 @@ class TestProxyServerLoading(unittest.TestCase):
             object_ring_path = os.path.join(self.tempdir,
                                             policy.ring_name + '.ring.gz')
             write_fake_ring(object_ring_path)
-        app = loadapp(conf_path)
-        # find the end of the pipeline
-        while hasattr(app, 'app'):
-            app = app.app
+        app = loadapp(conf_path)._pipeline_final_app
 
         # validate loaded rings
         self.assertEqual(app.account_ring.serialized_path,

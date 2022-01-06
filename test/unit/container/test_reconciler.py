@@ -105,6 +105,7 @@ class FakeInternalClient(reconciler.InternalClient):
         self.request_tries = 1
         self.use_replication_network = True
         self.parse(listings)
+        self.container_ring = FakeRing()
 
     def parse(self, listings):
         listings = listings or {}
