@@ -141,6 +141,9 @@ class FakeLogger(logging.Logger, CaptureLog):
             counts[metric] += 1
         return counts
 
+    def get_update_stats(self):
+        return [call[0] for call in self.log_dict['update_stats']]
+
     def setFormatter(self, obj):
         self.formatter = obj
 
