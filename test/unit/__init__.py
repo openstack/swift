@@ -49,6 +49,7 @@ from six.moves import range
 from six.moves.http_client import HTTPException
 
 from swift.common import storage_policy, swob, utils
+from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
 from swift.common.utils import Timestamp, md5
@@ -405,6 +406,8 @@ class FakeMemcache(object):
     def __init__(self):
         self.store = {}
         self.calls = []
+        self.error_on_incr = False
+        self.init_incr_return_neg = False
 
     def clear_calls(self):
         del self.calls[:]
@@ -420,15 +423,30 @@ class FakeMemcache(object):
         self._called('keys')
         return self.store.keys()
 
-    def set(self, key, value, time=0):
+    def set(self, key, value, serialize=True, time=0):
         self._called('set', key, value, time)
+        if serialize:
+            value = json.loads(json.dumps(value))
+        else:
+            assert isinstance(value, (str, bytes))
         self.store[key] = value
         return True
 
-    def incr(self, key, time=0):
+    def incr(self, key, delta=1, time=0):
         self._called('incr', key, time=time)
-        self.store[key] = self.store.setdefault(key, 0) + 1
+        if self.error_on_incr:
+            raise MemcacheConnectionError('Memcache restarting')
+        if self.init_incr_return_neg:
+            # simulate initial hit, force reset of memcache
+            self.init_incr_return_neg = False
+            return -10000000
+        self.store[key] = int(self.store.setdefault(key, 0)) + delta
+        if self.store[key] < 0:
+            self.store[key] = 0
         return self.store[key]
+
+    def decr(self, key, delta=1, time=0):
+        return self.incr(key, delta=-delta, time=time)
 
     @contextmanager
     def soft_lock(self, key, timeout=0, retries=5):

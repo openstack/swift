@@ -337,7 +337,7 @@ class TestController(unittest.TestCase):
                               'container_count': '12345',
                               'total_object_count': None,
                               'bytes': None,
-                              'storage_policies': {p.idx: {
+                              'storage_policies': {str(p.idx): {
                                   'container_count': 0,
                                   'object_count': 0,
                                   'bytes': 0} for p in POLICIES},
@@ -368,7 +368,7 @@ class TestController(unittest.TestCase):
                             'container_count': None,  # internally keep None
                             'total_object_count': None,
                             'bytes': None,
-                            'storage_policies': {p.idx: {
+                            'storage_policies': {str(p.idx): {
                                 'container_count': 0,
                                 'object_count': 0,
                                 'bytes': 0} for p in POLICIES},
