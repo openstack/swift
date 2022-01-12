@@ -473,6 +473,16 @@ use = egg:swift#recon
 # Send at most this many object updates per second
 # objects_per_second = 50
 #
+# Send at most this many object updates per bucket per second. The value must
+# be a float greater than or equal to 0. Set to 0 for unlimited.
+# max_objects_per_container_per_second = 0
+#
+# The per_container ratelimit implementation uses a hashring to constrain
+# memory requirements.  Orders of magnitude more buckets will use (nominally)
+# more memory, but will ratelimit smaller groups of containers. The value must
+# be an integer greater than 0.
+# per_container_ratelimit_buckets = 1000
+#
 # slowdown will sleep that amount between objects. Deprecated; use
 # objects_per_second instead.
 # slowdown = 0.01

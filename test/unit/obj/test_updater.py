@@ -12,13 +12,14 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import eventlet
 import six.moves.cPickle as pickle
 import mock
 import os
 import unittest
 import random
 import itertools
+from collections import Counter
 from contextlib import closing
 from gzip import GzipFile
 from tempfile import mkdtemp
@@ -39,8 +40,7 @@ from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import bytes_to_wsgi
-from swift.common.utils import (
-    hash_path, normalize_timestamp, mkdirs, write_pickle)
+from swift.common.utils import hash_path, normalize_timestamp, mkdirs
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -135,6 +135,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(daemon.concurrency, 8)
         self.assertEqual(daemon.updater_workers, 1)
         self.assertEqual(daemon.max_objects_per_second, 50.0)
+        self.assertEqual(daemon.max_objects_per_container_per_second, 0.0)
+        self.assertEqual(daemon.per_container_ratelimit_buckets, 1000)
 
         # non-defaults
         conf = {
@@ -145,6 +147,8 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '2',
             'updater_workers': '3',
             'objects_per_second': '10.5',
+            'max_objects_per_container_per_second': '1.2',
+            'per_container_ratelimit_buckets': '100',
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
         self.assertEqual(daemon.devices, '/some/where/else')
@@ -154,6 +158,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(daemon.concurrency, 2)
         self.assertEqual(daemon.updater_workers, 3)
         self.assertEqual(daemon.max_objects_per_second, 10.5)
+        self.assertEqual(daemon.max_objects_per_container_per_second, 1.2)
+        self.assertEqual(daemon.per_container_ratelimit_buckets, 100)
 
         # check deprecated option
         daemon = object_updater.ObjectUpdater({'slowdown': '0.04'},
@@ -169,6 +175,12 @@ class TestObjectUpdater(unittest.TestCase):
         check_bad({'concurrency': '1.0'})
         check_bad({'slowdown': 'baz'})
         check_bad({'objects_per_second': 'quux'})
+        check_bad({'max_objects_per_container_per_second': '-0.1'})
+        check_bad({'max_objects_per_container_per_second': 'auto'})
+        check_bad({'per_container_ratelimit_buckets': '1.2'})
+        check_bad({'per_container_ratelimit_buckets': '0'})
+        check_bad({'per_container_ratelimit_buckets': '-1'})
+        check_bad({'per_container_ratelimit_buckets': 'auto'})
 
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
@@ -201,11 +213,12 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(len(log_lines), 0)
         self.assertEqual(path, ['foo', 'bar'])
 
-    def test_object_sweep(self):
-        def check_with_idx(index, warn, should_skip):
-            if int(index) > 0:
+    @mock.patch('swift.obj.updater.dump_recon_cache')
+    def test_object_sweep(self, mock_recon):
+        def check_with_idx(policy_index, warn, should_skip):
+            if int(policy_index) > 0:
                 asyncdir = os.path.join(self.sda1,
-                                        ASYNCDIR_BASE + "-" + index)
+                                        ASYNCDIR_BASE + "-" + policy_index)
             else:
                 asyncdir = os.path.join(self.sda1, ASYNCDIR_BASE)
 
@@ -220,7 +233,8 @@ class TestObjectUpdater(unittest.TestCase):
                 os.path.join(self.sda1,
                              ASYNCDIR_BASE + '-' + 'twentington'),
                 os.path.join(self.sda1,
-                             ASYNCDIR_BASE + '-' + str(int(index) + 100)))
+                             ASYNCDIR_BASE + '-' + str(
+                                 int(policy_index) + 100)))
 
             for not_dir in not_dirs:
                 with open(not_dir, 'w'):
@@ -239,13 +253,13 @@ class TestObjectUpdater(unittest.TestCase):
                     o_path = os.path.join(prefix_dir, ohash + '-' +
                                           normalize_timestamp(t))
                     if t == timestamps[0]:
-                        expected.add((o_path, int(index)))
-                    write_pickle({}, o_path)
+                        expected.add((o_path, int(policy_index)))
+                    self._write_dummy_pickle(o_path, 'account', 'container', o)
 
             seen = set()
 
             class MockObjectUpdater(object_updater.ObjectUpdater):
-                def process_object_update(self, update_path, device, policy):
+                def process_object_update(self, update_path, policy, **kwargs):
                     seen.add((update_path, int(policy)))
                     os.unlink(update_path)
 
@@ -290,10 +304,10 @@ class TestObjectUpdater(unittest.TestCase):
             ohash = hash_path('account', 'container', o)
             o_path = os.path.join(prefix_dir, ohash + '-' +
                                   normalize_timestamp(t))
-            write_pickle({}, o_path)
+            self._write_dummy_pickle(o_path, 'account', 'container', o)
 
         class MockObjectUpdater(object_updater.ObjectUpdater):
-            def process_object_update(self, update_path, device, policy):
+            def process_object_update(self, update_path, **kwargs):
                 os.unlink(update_path)
                 self.stats.successes += 1
                 self.stats.unlinks += 1
@@ -312,12 +326,13 @@ class TestObjectUpdater(unittest.TestCase):
 
         def mock_time_function():
             rv = now[0]
-            now[0] += 5
+            now[0] += 4
             return rv
 
-        # With 10s between updates, time() advancing 5s every time we look,
+        # With 10s between updates, time() advancing 4s every time we look,
         # and 5 async_pendings on disk, we should get at least two progress
-        # lines.
+        # lines. (time is incremented by 4 each time the update app iter yields
+        # and each time the elapsed time is sampled)
         with mock.patch('swift.obj.updater.time',
                         mock.MagicMock(time=mock_time_function)), \
                 mock.patch.object(object_updater, 'ContextPool', MockPool):
@@ -360,10 +375,10 @@ class TestObjectUpdater(unittest.TestCase):
                 ohash = hash_path('account', 'container%d' % policy.idx, o)
                 o_path = os.path.join(prefix_dir, ohash + '-' +
                                       normalize_timestamp(t))
-                write_pickle({}, o_path)
+                self._write_dummy_pickle(o_path, 'account', 'container', o)
 
         class MockObjectUpdater(object_updater.ObjectUpdater):
-            def process_object_update(self, update_path, device, policy):
+            def process_object_update(self, update_path, **kwargs):
                 os.unlink(update_path)
                 self.stats.successes += 1
                 self.stats.unlinks += 1
@@ -1196,7 +1211,7 @@ class TestObjectUpdater(unittest.TestCase):
 
     def test_obj_update_gone_missing(self):
         # if you've got multiple updaters running (say, both a background
-        # and foreground process), process_object_update may get a file
+        # and foreground process), _load_update may get a file
         # that doesn't exist
         policies = list(POLICIES)
         random.shuffle(policies)
@@ -1218,12 +1233,226 @@ class TestObjectUpdater(unittest.TestCase):
             odir,
             '%s-%s' % (ohash, next(self.ts_iter).internal))
 
+        self.assertEqual(os.listdir(async_dir), [ohash[-3:]])
+        self.assertFalse(os.listdir(odir))
         with mocked_http_conn():
             with mock.patch('swift.obj.updater.dump_recon_cache'):
-                daemon.process_object_update(op_path, self.sda1, policies[0])
+                daemon._load_update(self.sda1, op_path)
         self.assertEqual({}, daemon.logger.get_increment_counts())
         self.assertEqual(os.listdir(async_dir), [ohash[-3:]])
         self.assertFalse(os.listdir(odir))
+
+    def _write_dummy_pickle(self, path, a, c, o, cp=None):
+        update = {
+            'op': 'PUT',
+            'account': a,
+            'container': c,
+            'obj': o,
+            'headers': {'X-Container-Timestamp': normalize_timestamp(0)}
+        }
+        if cp:
+            update['container_path'] = cp
+        with open(path, 'wb') as async_pending:
+            pickle.dump(update, async_pending)
+
+    def _make_async_pending_pickle(self, a, c, o, cp=None):
+        ohash = hash_path(a, c, o)
+        odir = os.path.join(self.async_dir, ohash[-3:])
+        mkdirs(odir)
+        path = os.path.join(
+            odir,
+            '%s-%s' % (ohash, normalize_timestamp(time())))
+        self._write_dummy_pickle(path, a, c, o, cp)
+
+    def _find_async_pending_files(self):
+        found_files = []
+        for root, dirs, files in os.walk(self.async_dir):
+            found_files.extend(files)
+        return found_files
+
+    @mock.patch('swift.obj.updater.dump_recon_cache')
+    def test_per_container_rate_limit(self, mock_recon):
+        conf = {
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'max_objects_per_container_per_second': 1,
+        }
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
+        self.async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
+        os.mkdir(self.async_dir)
+        num_c1_files = 10
+        for i in range(num_c1_files):
+            obj_name = 'o%02d' % i
+            self._make_async_pending_pickle('a', 'c1', obj_name)
+        c1_part, _ = daemon.get_container_ring().get_nodes('a', 'c1')
+        # make one more in a different container, with a container_path
+        self._make_async_pending_pickle('a', 'c2', obj_name,
+                                        cp='.shards_a/c2_shard')
+        c2_part, _ = daemon.get_container_ring().get_nodes('.shards_a',
+                                                           'c2_shard')
+        expected_total = num_c1_files + 1
+        self.assertEqual(expected_total,
+                         len(self._find_async_pending_files()))
+        expected_success = 2
+        fake_status_codes = [200] * 3 * expected_success
+        with mocked_http_conn(*fake_status_codes) as fake_conn:
+            daemon.run_once()
+        self.assertEqual(expected_success, daemon.stats.successes)
+        expected_skipped = expected_total - expected_success
+        self.assertEqual(expected_skipped, daemon.stats.skips)
+        self.assertEqual(expected_skipped,
+                         len(self._find_async_pending_files()))
+        self.assertEqual(
+            Counter(
+                '/'.join(req['path'].split('/')[:5])
+                for req in fake_conn.requests),
+            {'/sda1/%s/a/c1' % c1_part: 3,
+             '/sda1/%s/.shards_a/c2_shard' % c2_part: 3})
+
+    @mock.patch('swift.obj.updater.dump_recon_cache')
+    def test_per_container_rate_limit_unlimited(self, mock_recon):
+        conf = {
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'max_objects_per_container_per_second': 0,
+        }
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
+        self.async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
+        os.mkdir(self.async_dir)
+        num_c1_files = 10
+        for i in range(num_c1_files):
+            obj_name = 'o%02d' % i
+            self._make_async_pending_pickle('a', 'c1', obj_name)
+        c1_part, _ = daemon.get_container_ring().get_nodes('a', 'c1')
+        # make one more in a different container, with a container_path
+        self._make_async_pending_pickle('a', 'c2', obj_name,
+                                        cp='.shards_a/c2_shard')
+        c2_part, _ = daemon.get_container_ring().get_nodes('.shards_a',
+                                                           'c2_shard')
+        expected_total = num_c1_files + 1
+        self.assertEqual(expected_total,
+                         len(self._find_async_pending_files()))
+        fake_status_codes = [200] * 3 * expected_total
+        with mocked_http_conn(*fake_status_codes):
+            daemon.run_once()
+        self.assertEqual(expected_total, daemon.stats.successes)
+        self.assertEqual(0, daemon.stats.skips)
+        self.assertEqual([], self._find_async_pending_files())
+
+    @mock.patch('swift.obj.updater.dump_recon_cache')
+    def test_per_container_rate_limit_slow_responses(self, mock_recon):
+        conf = {
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'max_objects_per_container_per_second': 10,
+        }
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
+        self.async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
+        os.mkdir(self.async_dir)
+        # all updates for same container
+        num_c1_files = 4
+        for i in range(num_c1_files):
+            obj_name = 'o%02d' % i
+            self._make_async_pending_pickle('a', 'c1', obj_name)
+        expected_total = num_c1_files
+        self.assertEqual(expected_total,
+                         len(self._find_async_pending_files()))
+        latencies = [.11, 0, .11, 0]
+        expected_success = 2
+        fake_status_codes = [200] * 3 * expected_success
+
+        def fake_spawn(pool, *args, **kwargs):
+            # make each update delay the iter being called again
+            eventlet.sleep(latencies.pop(0))
+            return args[0](*args[1:], **kwargs)
+
+        with mocked_http_conn(*fake_status_codes):
+            with mock.patch('swift.obj.updater.ContextPool.spawn', fake_spawn):
+                daemon.run_once()
+        self.assertEqual(expected_success, daemon.stats.successes)
+        expected_skipped = expected_total - expected_success
+        self.assertEqual(expected_skipped, daemon.stats.skips)
+        self.assertEqual(expected_skipped,
+                         len(self._find_async_pending_files()))
+
+
+class TestObjectUpdaterFunctions(unittest.TestCase):
+    def test_split_update_path(self):
+        update = {
+            'op': 'PUT',
+            'account': 'a',
+            'container': 'c',
+            'obj': 'o',
+            'headers': {
+                'X-Container-Timestamp': normalize_timestamp(0),
+            }
+        }
+        actual = object_updater.split_update_path(update)
+        self.assertEqual(('a', 'c'), actual)
+
+        update['container_path'] = None
+        actual = object_updater.split_update_path(update)
+        self.assertEqual(('a', 'c'), actual)
+
+        update['container_path'] = '.shards_a/c_shard_n'
+        actual = object_updater.split_update_path(update)
+        self.assertEqual(('.shards_a', 'c_shard_n'), actual)
+
+
+class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
+    def test_init(self):
+        it = object_updater.BucketizedUpdateSkippingLimiter([3, 1], 1000, 10)
+        self.assertEqual(1000, it.num_buckets)
+        self.assertEqual(0.1, it.bucket_update_delta)
+        self.assertEqual([3, 1], [x for x in it.iterator])
+
+        # rate of 0 implies unlimited
+        it = object_updater.BucketizedUpdateSkippingLimiter(iter([3, 1]), 9, 0)
+        self.assertEqual(9, it.num_buckets)
+        self.assertEqual(-1, it.bucket_update_delta)
+        self.assertEqual([3, 1], [x for x in it.iterator])
+
+        # num_buckets is collared at 1
+        it = object_updater.BucketizedUpdateSkippingLimiter(iter([3, 1]), 0, 1)
+        self.assertEqual(1, it.num_buckets)
+        self.assertEqual(1, it.bucket_update_delta)
+        self.assertEqual([3, 1], [x for x in it.iterator])
+
+    def test_iteration_unlimited(self):
+        # verify iteration at unlimited rate
+        update_ctxs = [
+            {'update': {'account': '%d' % i, 'container': '%s' % i}}
+            for i in range(20)]
+        it = object_updater.BucketizedUpdateSkippingLimiter(
+            iter(update_ctxs), 9, 0)
+        self.assertEqual(update_ctxs, [x for x in it])
+
+    def test_iteration_ratelimited(self):
+        # verify iteration at limited rate - single bucket
+        update_ctxs = [
+            {'update': {'account': '%d' % i, 'container': '%s' % i}}
+            for i in range(2)]
+        it = object_updater.BucketizedUpdateSkippingLimiter(
+            iter(update_ctxs), 1, 0.1)
+        self.assertEqual(update_ctxs[:1], [x for x in it])
+
+    def test_iteration_ratelimited_with_callback(self):
+        # verify iteration at limited rate - single bucket
+        skipped = []
+
+        def on_skip(update_ctx):
+            skipped.append(update_ctx)
+
+        update_ctxs = [
+            {'update': {'account': '%d' % i, 'container': '%s' % i}}
+            for i in range(2)]
+        it = object_updater.BucketizedUpdateSkippingLimiter(
+            iter(update_ctxs), 1, 0.1, skip_f=on_skip)
+        self.assertEqual(update_ctxs[:1], [x for x in it])
+        self.assertEqual(update_ctxs[1:], skipped)
 
 
 if __name__ == '__main__':
