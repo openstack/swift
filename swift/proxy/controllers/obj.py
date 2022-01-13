@@ -196,7 +196,8 @@ class BaseObjectController(Controller):
         policy_options = self.app.get_policy_options(policy)
         is_local = policy_options.write_affinity_is_local_fn
         if is_local is None:
-            return self.app.iter_nodes(ring, partition, policy=policy)
+            return self.app.iter_nodes(ring, partition, self.logger,
+                                       policy=policy)
 
         primary_nodes = ring.get_part_nodes(partition)
         handoff_nodes = ring.get_more_nodes(partition)
@@ -229,8 +230,8 @@ class BaseObjectController(Controller):
             (node for node in all_nodes if node not in preferred_nodes)
         )
 
-        return self.app.iter_nodes(ring, partition, node_iter=node_iter,
-                                   policy=policy)
+        return self.app.iter_nodes(ring, partition, self.logger,
+                                   node_iter=node_iter, policy=policy)
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -249,7 +250,8 @@ class BaseObjectController(Controller):
                 return aresp
         partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
-        node_iter = self.app.iter_nodes(obj_ring, partition, policy=policy)
+        node_iter = self.app.iter_nodes(obj_ring, partition, self.logger,
+                                        policy=policy)
 
         resp = self._get_or_head_response(req, node_iter, partition, policy)
 
@@ -409,7 +411,7 @@ class BaseObjectController(Controller):
 
     def _get_conn_response(self, putter, path, logger_thread_locals,
                            final_phase, **kwargs):
-        self.app.logger.thread_locals = logger_thread_locals
+        self.logger.thread_locals = logger_thread_locals
         try:
             resp = putter.await_response(
                 self.app.node_timeout, not final_phase)
@@ -466,7 +468,7 @@ class BaseObjectController(Controller):
             if putter.failed:
                 continue
             pile.spawn(self._get_conn_response, putter, req.path,
-                       self.app.logger.thread_locals, final_phase=final_phase)
+                       self.logger.thread_locals, final_phase=final_phase)
 
         def _handle_response(putter, response):
             statuses.append(response.status)
@@ -563,7 +565,7 @@ class BaseObjectController(Controller):
                 putter.resp.status for putter in putters if putter.resp]
             if HTTP_PRECONDITION_FAILED in statuses:
                 # If we find any copy of the file, it shouldn't be uploaded
-                self.app.logger.debug(
+                self.logger.debug(
                     'Object PUT returning 412, %(statuses)r',
                     {'statuses': statuses})
                 raise HTTPPreconditionFailed(request=req)
@@ -576,7 +578,7 @@ class BaseObjectController(Controller):
                     putter.resp.getheaders()).get(
                         'X-Backend-Timestamp', 'unknown')
             } for putter in putters if putter.resp]
-            self.app.logger.debug(
+            self.logger.debug(
                 'Object PUT returning 202 for 409: '
                 '%(req_timestamp)s <= %(timestamps)r',
                 {'req_timestamp': req.timestamp.internal,
@@ -614,11 +616,11 @@ class BaseObjectController(Controller):
         :param req: a swob Request
         :param headers: request headers
         :param logger_thread_locals: The thread local values to be set on the
-                                     self.app.logger to retain transaction
+                                     self.logger to retain transaction
                                      logging information.
         :return: an instance of a Putter
         """
-        self.app.logger.thread_locals = logger_thread_locals
+        self.logger.thread_locals = logger_thread_locals
         for node in nodes:
             try:
                 putter = self._make_putter(node, part, req, headers)
@@ -653,7 +655,7 @@ class BaseObjectController(Controller):
                 del nheaders['Content-Length']
             nheaders['Expect'] = '100-continue'
             pile.spawn(self._connect_put_node, node_iter, partition,
-                       req, nheaders, self.app.logger.thread_locals)
+                       req, nheaders, self.logger.thread_locals)
 
         putters = [putter for putter in pile if putter]
 
@@ -664,8 +666,7 @@ class BaseObjectController(Controller):
                       'required connections')
 
         if len(putters) < min_conns:
-            self.app.logger.error((msg),
-                                  {'conns': len(putters), 'nodes': min_conns})
+            self.logger.error(msg, {'conns': len(putters), 'nodes': min_conns})
             raise HTTPServiceUnavailable(request=req)
 
     def _get_footers(self, req):
@@ -874,7 +875,7 @@ class ReplicatedObjectController(BaseObjectController):
                 node_timeout=self.app.node_timeout,
                 write_timeout=self.app.node_timeout,
                 send_exception_handler=self.app.exception_occurred,
-                logger=self.app.logger,
+                logger=self.logger,
                 need_multiphase=False)
         else:
             te = ',' + headers.get('Transfer-Encoding', '')
@@ -884,7 +885,7 @@ class ReplicatedObjectController(BaseObjectController):
                 node_timeout=self.app.node_timeout,
                 write_timeout=self.app.node_timeout,
                 send_exception_handler=self.app.exception_occurred,
-                logger=self.app.logger,
+                logger=self.logger,
                 chunked=te.endswith(',chunked'))
         return putter
 
@@ -927,9 +928,9 @@ class ReplicatedObjectController(BaseObjectController):
 
             ml = req.message_length()
             if ml and bytes_transferred < ml:
-                self.app.logger.warning(
+                self.logger.warning(
                     'Client disconnected without sending enough data')
-                self.app.logger.increment('client_disconnects')
+                self.logger.increment('client_disconnects')
                 raise HTTPClientDisconnect(request=req)
 
             trail_md = self._get_footers(req)
@@ -942,23 +943,23 @@ class ReplicatedObjectController(BaseObjectController):
                 msg='Object PUT exceptions after last send, '
                     '%(conns)s/%(nodes)s required connections')
         except ChunkReadTimeout as err:
-            self.app.logger.warning(
+            self.logger.warning(
                 'ERROR Client read timeout (%ss)', err.seconds)
-            self.app.logger.increment('client_timeouts')
+            self.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except HTTPException:
             raise
         except ChunkReadError:
-            self.app.logger.warning(
+            self.logger.warning(
                 'Client disconnected without sending last chunk')
-            self.app.logger.increment('client_disconnects')
+            self.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
         except Timeout:
-            self.app.logger.exception(
+            self.logger.exception(
                 'ERROR Exception causing client disconnect')
             raise HTTPClientDisconnect(request=req)
         except Exception:
-            self.app.logger.exception(
+            self.logger.exception(
                 'ERROR Exception transferring data to object servers %s',
                 {'path': req.path})
             raise HTTPInternalServerError(request=req)
@@ -1002,7 +1003,7 @@ class ReplicatedObjectController(BaseObjectController):
                 putter.close()
 
         if len(etags) > 1:
-            self.app.logger.error(
+            self.logger.error(
                 'Object servers returned %s mismatched etags', len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
@@ -2376,7 +2377,8 @@ def is_good_source(status):
 class ECFragGetter(object):
 
     def __init__(self, app, req, node_iter, partition, policy, path,
-                 backend_headers, header_provider, logger_thread_locals):
+                 backend_headers, header_provider, logger_thread_locals,
+                 logger):
         self.app = app
         self.req = req
         self.node_iter = node_iter
@@ -2390,6 +2392,7 @@ class ECFragGetter(object):
         self.bytes_used_from_backend = 0
         self.source = None
         self.logger_thread_locals = logger_thread_locals
+        self.logger = logger
 
     def fast_forward(self, num_bytes):
         """
@@ -2574,7 +2577,7 @@ class ECFragGetter(object):
                         try:
                             self.fast_forward(self.bytes_used_from_backend)
                         except (HTTPException, ValueError):
-                            self.app.logger.exception('Unable to fast forward')
+                            self.logger.exception('Unable to fast forward')
                             six.reraise(exc_type, exc_value, exc_traceback)
                         except RangeAlreadyComplete:
                             break
@@ -2701,10 +2704,10 @@ class ECFragGetter(object):
                                         'Trying to read during GET')
             raise
         except ChunkWriteTimeout:
-            self.app.logger.warning(
+            self.logger.warning(
                 'Client did not read from proxy within %ss' %
                 self.app.client_timeout)
-            self.app.logger.increment('client_timeouts')
+            self.logger.increment('client_timeouts')
         except GeneratorExit:
             warn = True
             req_range = self.backend_headers['Range']
@@ -2716,11 +2719,11 @@ class ECFragGetter(object):
                         if end - begin + 1 == self.bytes_used_from_backend:
                             warn = False
             if not req.environ.get('swift.non_client_disconnect') and warn:
-                self.app.logger.warning(
+                self.logger.warning(
                     'Client disconnected on read of EC frag %r', self.path)
             raise
         except Exception:
-            self.app.logger.exception('Trying to send to client')
+            self.logger.exception('Trying to send to client')
             raise
         finally:
             # Close-out the connection as best as possible.
@@ -2739,7 +2742,7 @@ class ECFragGetter(object):
             return HeaderKeyDict()
 
     def _make_node_request(self, node, node_timeout):
-        self.app.logger.thread_locals = self.logger_thread_locals
+        self.logger.thread_locals = self.logger_thread_locals
         req_headers = dict(self.backend_headers)
         ip, port = get_ip_port(node, req_headers)
         req_headers.update(self.header_provider())
@@ -2774,8 +2777,8 @@ class ECFragGetter(object):
                 not Timestamp(src_headers.get('x-backend-timestamp', 0)):
             # throw out 5XX and 404s from handoff nodes unless the data is
             # really on disk and had been DELETEd
-            self.app.logger.debug('Ignoring %s from handoff' %
-                                  possible_source.status)
+            self.logger.debug('Ignoring %s from handoff' %
+                              possible_source.status)
             conn.close()
             return None
 
@@ -2798,7 +2801,7 @@ class ECFragGetter(object):
                     {'status': possible_source.status,
                      'body': self.body[:1024]})
             else:
-                self.app.logger.debug(
+                self.logger.debug(
                     'Ignoring %s from primary' % possible_source.status)
 
             return None
@@ -2830,7 +2833,7 @@ class ECFragGetter(object):
                 # _make_node_request only returns good sources
                 continue
             if source.getheader('X-Object-Sysmeta-EC-ETag') != used_etag:
-                self.app.logger.warning(
+                self.logger.warning(
                     'Skipping source (etag mismatch: got %s, expected %s)',
                     source.getheader('X-Object-Sysmeta-EC-ETag'), used_etag)
             else:
@@ -2846,13 +2849,14 @@ class ECObjectController(BaseObjectController):
         """
         Makes a GET request for a fragment.
         """
-        self.app.logger.thread_locals = logger_thread_locals
+        self.logger.thread_locals = logger_thread_locals
         backend_headers = self.generate_request_headers(
             req, additional=req.headers)
 
         getter = ECFragGetter(self.app, req, node_iter, partition,
                               policy, req.swift_entity_path, backend_headers,
-                              header_provider, logger_thread_locals)
+                              header_provider, logger_thread_locals,
+                              self.logger)
         return (getter, getter.response_parts_iter(req))
 
     def _convert_range(self, req, policy):
@@ -2965,14 +2969,14 @@ class ECObjectController(BaseObjectController):
                 pile.spawn(self._fragment_GET_request,
                            req, safe_iter, partition,
                            policy, buckets.get_extra_headers,
-                           self.app.logger.thread_locals)
+                           self.logger.thread_locals)
 
             feeder_q = None
             if policy_options.concurrent_gets:
                 feeder_q = Queue()
                 pool.spawn(self.feed_remaining_primaries, safe_iter, pile, req,
                            partition, policy, buckets, feeder_q,
-                           self.app.logger.thread_locals)
+                           self.logger.thread_locals)
 
             extra_requests = 0
             # max_extra_requests is an arbitrary hard limit for spawning extra
@@ -2987,7 +2991,7 @@ class ECObjectController(BaseObjectController):
                 try:
                     buckets.add_response(get, parts_iter)
                 except ValueError as err:
-                    self.app.logger.error(
+                    self.logger.error(
                         "Problem with fragment response: %s", err)
                 best_bucket = buckets.best_bucket
                 if best_bucket.durable and best_bucket.shortfall <= 0:
@@ -3001,7 +3005,7 @@ class ECObjectController(BaseObjectController):
                     extra_requests += 1
                     pile.spawn(self._fragment_GET_request, req, safe_iter,
                                partition, policy, buckets.get_extra_headers,
-                               self.app.logger.thread_locals)
+                               self.logger.thread_locals)
             if feeder_q:
                 feeder_q.put('stop')
 
@@ -3024,7 +3028,7 @@ class ECObjectController(BaseObjectController):
                 policy,
                 [p_iter for _getter, p_iter in best_bucket.get_responses()],
                 range_specs, fa_length, obj_length,
-                self.app.logger)
+                self.logger)
             resp = Response(
                 request=req,
                 conditional_response=True,
@@ -3146,7 +3150,7 @@ class ECObjectController(BaseObjectController):
             node_timeout=self.app.node_timeout,
             write_timeout=self.app.node_timeout,
             send_exception_handler=self.app.exception_occurred,
-            logger=self.app.logger,
+            logger=self.logger,
             need_multiphase=True)
 
     def _determine_chunk_destinations(self, putters, policy):
@@ -3285,9 +3289,9 @@ class ECObjectController(BaseObjectController):
 
             ml = req.message_length()
             if ml and bytes_transferred < ml:
-                self.app.logger.warning(
+                self.logger.warning(
                     'Client disconnected without sending enough data')
-                self.app.logger.increment('client_disconnects')
+                self.logger.increment('client_disconnects')
                 raise HTTPClientDisconnect(request=req)
 
             send_chunk(b'')  # flush out any buffered data
@@ -3327,7 +3331,7 @@ class ECObjectController(BaseObjectController):
                     min_responses=min_conns)
             if not self.have_quorum(
                     statuses, len(nodes), quorum=min_conns):
-                self.app.logger.error(
+                self.logger.error(
                     'Not enough object servers ack\'ed (got %d)',
                     statuses.count(HTTP_CONTINUE))
                 raise HTTPServiceUnavailable(request=req)
@@ -3355,23 +3359,23 @@ class ECObjectController(BaseObjectController):
             for putter in putters:
                 putter.send_commit_confirmation()
         except ChunkReadTimeout as err:
-            self.app.logger.warning(
+            self.logger.warning(
                 'ERROR Client read timeout (%ss)', err.seconds)
-            self.app.logger.increment('client_timeouts')
+            self.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except ChunkReadError:
-            self.app.logger.warning(
+            self.logger.warning(
                 'Client disconnected without sending last chunk')
-            self.app.logger.increment('client_disconnects')
+            self.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
         except HTTPException:
             raise
         except Timeout:
-            self.app.logger.exception(
+            self.logger.exception(
                 'ERROR Exception causing client disconnect')
             raise HTTPClientDisconnect(request=req)
         except Exception:
-            self.app.logger.exception(
+            self.logger.exception(
                 'ERROR Exception transferring data to object servers %s',
                 {'path': req.path})
             raise HTTPInternalServerError(request=req)
