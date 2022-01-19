@@ -133,7 +133,7 @@ class TestS3ApiUtils(unittest.TestCase):
 class TestConfig(unittest.TestCase):
 
     def _assert_defaults(self, conf):
-        self.assertEqual('', conf.storage_domain)
+        self.assertEqual([], conf.storage_domains)
         self.assertEqual('us-east-1', conf.location)
         self.assertFalse(conf.force_swift_request_proxy_log)
         self.assertTrue(conf.dns_compliant_bucket_names)
@@ -146,7 +146,7 @@ class TestConfig(unittest.TestCase):
         # deliberately brittle so new defaults will need to be added to test
         conf = utils.Config()
         self._assert_defaults(conf)
-        del conf.storage_domain
+        del conf.storage_domains
         del conf.location
         del conf.force_swift_request_proxy_log
         del conf.dns_compliant_bucket_names

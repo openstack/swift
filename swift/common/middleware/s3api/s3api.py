@@ -263,7 +263,8 @@ class S3ApiMiddleware(object):
             wsgi_conf.get('multi_delete_concurrency', 2))
         self.conf.s3_acl = config_true_value(
             wsgi_conf.get('s3_acl', False))
-        self.conf.storage_domain = wsgi_conf.get('storage_domain', '')
+        self.conf.storage_domains = list_from_csv(
+            wsgi_conf.get('storage_domain', ''))
         self.conf.auth_pipeline_check = config_true_value(
             wsgi_conf.get('auth_pipeline_check', True))
         self.conf.max_upload_part_num = config_positive_int_value(

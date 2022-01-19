@@ -603,12 +603,8 @@ class S3Request(swob.Request):
         return 'AWSAccessKeyId' in self.params
 
     def _parse_host(self):
-        storage_domain = self.conf.storage_domain
-        if not storage_domain:
+        if not self.conf.storage_domains:
             return None
-
-        if not storage_domain.startswith('.'):
-            storage_domain = '.' + storage_domain
 
         if 'HTTP_HOST' in self.environ:
             given_domain = self.environ['HTTP_HOST']
@@ -616,12 +612,16 @@ class S3Request(swob.Request):
             given_domain = self.environ['SERVER_NAME']
         else:
             return None
-
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
-        if given_domain.endswith(storage_domain):
-            return given_domain[:-len(storage_domain)]
+
+        for storage_domain in self.conf.storage_domains:
+            if not storage_domain.startswith('.'):
+                storage_domain = '.' + storage_domain
+
+            if given_domain.endswith(storage_domain):
+                return given_domain[:-len(storage_domain)]
 
         return None
 
