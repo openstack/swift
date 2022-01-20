@@ -2579,10 +2579,11 @@ class ECFragGetter(object):
                         except RangeAlreadyComplete:
                             break
                         buf = b''
+                        old_node = self.node
                         new_source, new_node = self._dig_for_source_and_node()
                         if new_source:
                             self.app.error_occurred(
-                                self.node, 'Trying to read EC fragment '
+                                old_node, 'Trying to read EC fragment '
                                 'during GET (retrying)')
                             # Close-out the connection as best as possible.
                             if getattr(self.source, 'swift_conn', None):
