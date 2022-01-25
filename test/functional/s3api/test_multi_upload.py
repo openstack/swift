@@ -23,6 +23,7 @@ import boto
 # pylint: disable-msg=E0611,F0401
 from distutils.version import StrictVersion
 
+import six
 from six.moves import zip, zip_longest
 
 import test.functional as tf
@@ -111,7 +112,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
     def test_object_multi_upload(self):
         bucket = 'bucket'
-        keys = ['obj1', 'obj2', 'obj3']
+        keys = [u'obj1\N{SNOWMAN}', 'obj2', 'obj3']
         bad_content_md5 = base64.b64encode(b'a' * 16).strip().decode('ascii')
         headers = [{'Content-Type': 'foo/bar', 'x-amz-meta-baz': 'quux'},
                    {'Content-MD5': bad_content_md5},
@@ -133,6 +134,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
             elem = fromstring(body, 'InitiateMultipartUploadResult')
             self.assertEqual(elem.find('Bucket').text, bucket)
             key = elem.find('Key').text
+            if six.PY2:
+                expected_key = expected_key.encode('utf-8')
             self.assertEqual(expected_key, key)
             upload_id = elem.find('UploadId').text
             self.assertIsNotNone(upload_id)
@@ -200,7 +203,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # prepare src obj
         self.conn.make_request('PUT', src_bucket)
-        self.conn.make_request('PUT', src_bucket, src_obj, body=src_content)
+        with self.quiet_boto_logging():
+            self.conn.make_request('PUT', src_bucket, src_obj,
+                                   body=src_content)
         _, headers, _ = self.conn.make_request('HEAD', src_bucket, src_obj)
         self.assertCommonResponseHeaders(headers)
 
@@ -305,7 +310,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue(lines[0].endswith(b'?>'), body)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(
-            '%s/bucket/obj1' % tf.config['s3_storage_url'].rstrip('/'),
+            '%s/bucket/obj1%%E2%%98%%83' %
+            tf.config['s3_storage_url'].rstrip('/'),
             elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
@@ -346,7 +352,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue(lines[0].endswith(b'?>'), body)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(
-            '%s/bucket/obj1' % tf.config['s3_storage_url'].rstrip('/'),
+            '%s/bucket/obj1%%E2%%98%%83' %
+            tf.config['s3_storage_url'].rstrip('/'),
             elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
@@ -448,7 +455,11 @@ class TestS3ApiMultiUpload(S3ApiBase):
         resp_objects = list(elem.findall('./Contents'))
         self.assertEqual(len(resp_objects), 1)
         o = resp_objects[0]
-        self.assertEqual(o.find('Key').text, keys[0])
+        if six.PY2:
+            expected_key = keys[0].encode('utf-8')
+        else:
+            expected_key = keys[0]
+        self.assertEqual(o.find('Key').text, expected_key)
         self.assertIsNotNone(o.find('LastModified').text)
         self.assertRegexpMatches(
             o.find('LastModified').text,

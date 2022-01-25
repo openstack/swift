@@ -626,6 +626,7 @@ class S3Request(swob.Request):
         return None
 
     def _parse_uri(self):
+        # NB: returns WSGI strings
         if not check_utf8(swob.wsgi_to_str(self.environ['PATH_INFO'])):
             raise InvalidURI(self.path)
 
