@@ -24,6 +24,8 @@ from contextlib import closing
 from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
+
+from swift.common.exceptions import ConnectionTimeout
 from test import listen_zero
 from test.debug_logger import debug_logger
 from test.unit import (
@@ -454,8 +456,9 @@ class TestObjectUpdater(unittest.TestCase):
         ], mock_check_drive.mock_calls)
         self.assertEqual(ou.logger.get_increment_counts(), {})
 
+    @mock.patch('swift.obj.updater.dump_recon_cache')
     @mock.patch.object(object_updater, 'check_drive')
-    def test_run_once(self, mock_check_drive):
+    def test_run_once(self, mock_check_drive, mock_dump_recon):
         mock_check_drive.side_effect = lambda r, d, mc: os.path.join(r, d)
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
@@ -465,6 +468,7 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'}, logger=self.logger)
         ou.run_once()
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
         async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
         os.mkdir(async_dir)
         ou.run_once()
@@ -475,6 +479,7 @@ class TestObjectUpdater(unittest.TestCase):
             mock.call(self.devices_dir, 'sda1', False),
         ], mock_check_drive.mock_calls)
         mock_check_drive.reset_mock()
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
 
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
@@ -491,6 +496,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual([
             mock.call(self.devices_dir, 'sda1', True),
         ], mock_check_drive.mock_calls)
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
 
         ohash = hash_path('a', 'c', 'o')
         odir = os.path.join(async_dir, ohash[-3:])
@@ -515,6 +521,14 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(ou.logger.get_increment_counts(),
                          {'failures': 1, 'unlinks': 1})
         self.assertIsNone(pickle.load(open(op_path, 'rb')).get('successes'))
+        self.assertEqual(
+            ['ERROR with remote server 127.0.0.1:67890/sda1: '
+             'Connection refused'] * 3,
+            ou.logger.get_lines_for_level('error'))
+        self.assertEqual([args for args, kw in ou.logger.log_dict['timing']], [
+            ('updater.timing.status.500', mock.ANY),
+        ] * 3)
+        ou.logger.clear()
 
         bindsock = listen_zero()
 
@@ -557,6 +571,7 @@ class TestObjectUpdater(unittest.TestCase):
                 return err
             return None
 
+        # only 1/3 updates succeeds
         event = spawn(accept, [201, 500, 500])
         for dev in ou.get_container_ring().devs:
             if dev is not None:
@@ -572,9 +587,18 @@ class TestObjectUpdater(unittest.TestCase):
                          {'failures': 1})
         self.assertEqual([0],
                          pickle.load(open(op_path, 'rb')).get('successes'))
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
+        self.assertEqual(
+            sorted([args for args, kw in ou.logger.log_dict['timing']]),
+            sorted([
+                ('updater.timing.status.201', mock.ANY),
+                ('updater.timing.status.500', mock.ANY),
+                ('updater.timing.status.500', mock.ANY),
+            ]))
 
+        # only 1/2 updates succeeds
         event = spawn(accept, [404, 201])
-        ou.logger._clear()
+        ou.logger.clear()
         ou.run_once()
         err = event.wait()
         if err:
@@ -584,9 +608,60 @@ class TestObjectUpdater(unittest.TestCase):
                          {'failures': 1})
         self.assertEqual([0, 2],
                          pickle.load(open(op_path, 'rb')).get('successes'))
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
+        self.assertEqual(
+            sorted([args for args, kw in ou.logger.log_dict['timing']]),
+            sorted([
+                ('updater.timing.status.404', mock.ANY),
+                ('updater.timing.status.201', mock.ANY),
+            ]))
 
+        # final update has Timeout
+        ou.logger.clear()
+        mock_connect = mock.MagicMock()
+        mock_connect.getresponse = mock.MagicMock(side_effect=Timeout(99))
+
+        with mock.patch('swift.obj.updater.http_connect',
+                        return_value=mock_connect):
+            ou.run_once()
+        self.assertTrue(os.path.exists(op_path))
+        self.assertEqual(ou.logger.get_increment_counts(),
+                         {'failures': 1})
+        self.assertEqual([0, 2],
+                         pickle.load(open(op_path, 'rb')).get('successes'))
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
+        self.assertIn(
+            'Timeout waiting on remote server 127.0.0.1:%d/sda1: 99 seconds'
+            % bindsock.getsockname()[1], ou.logger.get_lines_for_level('info'))
+        self.assertEqual([args for args, kw in ou.logger.log_dict['timing']], [
+            ('updater.timing.status.499', mock.ANY),
+        ])
+
+        # final update has ConnectionTimeout
+        ou.logger.clear()
+        mock_connect = mock.MagicMock()
+        mock_connect.getresponse = mock.MagicMock(
+            side_effect=ConnectionTimeout(9))
+
+        with mock.patch('swift.obj.updater.http_connect',
+                        return_value=mock_connect):
+            ou.run_once()
+        self.assertTrue(os.path.exists(op_path))
+        self.assertEqual(ou.logger.get_increment_counts(),
+                         {'failures': 1})
+        self.assertEqual([0, 2],
+                         pickle.load(open(op_path, 'rb')).get('successes'))
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
+        self.assertIn(
+            'Timeout connecting to remote server 127.0.0.1:%d/sda1: 9 seconds'
+            % bindsock.getsockname()[1], ou.logger.get_lines_for_level('info'))
+        self.assertEqual([args for args, kw in ou.logger.log_dict['timing']], [
+            ('updater.timing.status.500', mock.ANY),
+        ])
+
+        # final update succeeds
         event = spawn(accept, [201])
-        ou.logger._clear()
+        ou.logger.clear()
         ou.run_once()
         err = event.wait()
         if err:
@@ -598,8 +673,12 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.dirname(op_path)))
         self.assertTrue(os.path.exists(os.path.dirname(os.path.dirname(
             op_path))))
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertEqual(ou.logger.get_increment_counts(),
                          {'unlinks': 1, 'successes': 1})
+        self.assertEqual([args for args, kw in ou.logger.log_dict['timing']], [
+            ('updater.timing.status.201', mock.ANY),
+        ])
 
     def test_obj_put_legacy_updates(self):
         ts = (normalize_timestamp(t) for t in
