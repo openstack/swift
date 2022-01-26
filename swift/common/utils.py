@@ -2400,6 +2400,9 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     :param fmt: Override log format
     :return: an instance of ``LogAdapter``
     """
+    # note: log_name is typically specified in conf (i.e. defined by
+    # operators), whereas log_route is typically hard-coded in callers of
+    # get_logger (i.e. defined by developers)
     if not conf:
         conf = {}
     if name is None:
