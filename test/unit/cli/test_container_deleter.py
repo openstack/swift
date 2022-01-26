@@ -276,3 +276,13 @@ class TestContainerDeleter(unittest.TestCase):
                     utils.Timestamp(ts)
                 )
             )
+
+    def test_init_internal_client_log_name(self):
+        with mock.patch(
+                'swift.cli.container_deleter.InternalClient') \
+                as mock_ic:
+            container_deleter.main(['a', 'c', '--request-tries', '2'])
+        mock_ic.assert_called_once_with(
+            '/etc/swift/internal-client.conf',
+            'Swift Container Deleter', 2,
+            global_conf={'log_name': 'container-deleter-ic'})

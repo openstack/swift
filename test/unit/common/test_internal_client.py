@@ -281,6 +281,103 @@ class TestInternalClient(unittest.TestCase):
                              object_ring_path)
             self.assertEqual(client.auto_create_account_prefix, '-')
 
+    @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new=b'endcap')
+    @with_tempdir
+    def test_load_from_config_with_global_conf(self, tempdir):
+        account_ring_path = os.path.join(tempdir, 'account.ring.gz')
+        write_fake_ring(account_ring_path)
+        container_ring_path = os.path.join(tempdir, 'container.ring.gz')
+        write_fake_ring(container_ring_path)
+        object_ring_path = os.path.join(tempdir, 'object.ring.gz')
+        write_fake_ring(object_ring_path)
+
+        # global_conf will override the 'x = y' syntax in conf file...
+        conf_path = os.path.join(tempdir, 'internal_client.conf')
+        conf_body = """
+        [DEFAULT]
+        swift_dir = %s
+        log_name = conf-file-log-name
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        auto_create_account_prefix = -
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        log_name = catch-errors-log-name
+        """ % tempdir
+        with open(conf_path, 'w') as f:
+            f.write(dedent(conf_body))
+        global_conf = {'log_name': 'global-conf-log-name'}
+        with patch_policies([StoragePolicy(0, 'legacy', True)]):
+            client = internal_client.InternalClient(
+                conf_path, 'test', 1, global_conf=global_conf)
+        self.assertEqual('global-conf-log-name', client.app.logger.server)
+
+        # ...but the 'set x = y' syntax in conf file DEFAULT section will
+        # override global_conf
+        conf_body = """
+        [DEFAULT]
+        swift_dir = %s
+        set log_name = conf-file-log-name
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        auto_create_account_prefix = -
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        log_name = catch-errors-log-name
+        """ % tempdir
+        with open(conf_path, 'w') as f:
+            f.write(dedent(conf_body))
+        global_conf = {'log_name': 'global-conf-log-name'}
+        with patch_policies([StoragePolicy(0, 'legacy', True)]):
+            client = internal_client.InternalClient(
+                conf_path, 'test', 1, global_conf=global_conf)
+        self.assertEqual('conf-file-log-name', client.app.logger.server)
+
+        # ...and the 'set x = y' syntax in conf file app section will override
+        # DEFAULT section and global_conf
+        conf_body = """
+        [DEFAULT]
+        swift_dir = %s
+        set log_name = conf-file-log-name
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        auto_create_account_prefix = -
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        set log_name = catch-errors-log-name
+        """ % tempdir
+        with open(conf_path, 'w') as f:
+            f.write(dedent(conf_body))
+        global_conf = {'log_name': 'global-conf-log-name'}
+        with patch_policies([StoragePolicy(0, 'legacy', True)]):
+            client = internal_client.InternalClient(
+                conf_path, 'test', 1, global_conf=global_conf)
+        self.assertEqual('catch-errors-log-name', client.app.logger.server)
+
     def test_init(self):
         conf_path = 'some_path'
         app = object()

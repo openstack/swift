@@ -896,6 +896,22 @@ class TestReconciler(unittest.TestCase):
         self.assertRaises(ValueError, reconciler.ContainerReconciler,
                           conf, self.logger, self.swift)
 
+    def test_init_internal_client_log_name(self):
+        def _do_test_init_ic_log_name(conf, exp_internal_client_log_name):
+            with mock.patch(
+                    'swift.container.reconciler.InternalClient') \
+                    as mock_ic:
+                reconciler.ContainerReconciler(conf)
+            mock_ic.assert_called_once_with(
+                '/etc/swift/container-reconciler.conf',
+                'Swift Container Reconciler', 3,
+                global_conf={'log_name': exp_internal_client_log_name},
+                use_replication_network=True)
+
+        _do_test_init_ic_log_name({}, 'container-reconciler-ic')
+        _do_test_init_ic_log_name({'log_name': 'my-container-reconciler'},
+                                  'my-container-reconciler-ic')
+
     def _mock_listing(self, objects):
         self.swift.parse(objects)
         self.fake_swift = self.reconciler.swift.app

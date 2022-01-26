@@ -361,6 +361,7 @@ class ContainerReconciler(Daemon):
     """
     Move objects that are in the wrong storage policy.
     """
+    log_route = 'container-reconciler'
 
     def __init__(self, conf, logger=None, swift=None):
         self.conf = conf
@@ -372,13 +373,15 @@ class ContainerReconciler(Daemon):
         conf_path = conf.get('__file__') or \
             '/etc/swift/container-reconciler.conf'
         self.logger = logger or get_logger(
-            conf, log_route='container-reconciler')
+            conf, log_route=self.log_route)
         request_tries = int(conf.get('request_tries') or 3)
         self.swift = swift or InternalClient(
             conf_path,
             'Swift Container Reconciler',
             request_tries,
-            use_replication_network=True)
+            use_replication_network=True,
+            global_conf={'log_name': '%s-ic' % conf.get(
+                'log_name', self.log_route)})
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.stats = defaultdict(int)
         self.last_stat_time = time.time()

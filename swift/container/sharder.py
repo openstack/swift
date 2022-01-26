@@ -665,9 +665,10 @@ DEFAULT_SHARDER_CONF = vars(ContainerSharderConf())
 
 class ContainerSharder(ContainerSharderConf, ContainerReplicator):
     """Shards containers."""
+    log_route = 'container-sharder'
 
     def __init__(self, conf, logger=None):
-        logger = logger or get_logger(conf, log_route='container-sharder')
+        logger = logger or get_logger(conf, log_route=self.log_route)
         ContainerReplicator.__init__(self, conf, logger=logger)
         ContainerSharderConf.__init__(self, conf)
         ContainerSharderConf.validate_conf(self)
@@ -716,7 +717,9 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 'Swift Container Sharder',
                 request_tries,
                 allow_modify_pipeline=False,
-                use_replication_network=True)
+                use_replication_network=True,
+                global_conf={'log_name': '%s-ic' % conf.get(
+                    'log_name', self.log_route)})
         except (OSError, IOError) as err:
             if err.errno != errno.ENOENT and \
                     not str(err).endswith(' not found'):

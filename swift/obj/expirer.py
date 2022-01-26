@@ -73,10 +73,11 @@ class ObjectExpirer(Daemon):
 
     :param conf: The daemon configuration.
     """
+    log_route = 'object-expirer'
 
     def __init__(self, conf, logger=None, swift=None):
         self.conf = conf
-        self.logger = logger or get_logger(conf, log_route='object-expirer')
+        self.logger = logger or get_logger(conf, log_route=self.log_route)
         self.interval = float(conf.get('interval') or 300)
         self.tasks_per_second = float(conf.get('tasks_per_second', 50.0))
 
@@ -135,7 +136,9 @@ class ObjectExpirer(Daemon):
         request_tries = int(self.conf.get('request_tries') or 3)
         self.swift = swift or InternalClient(
             self.ic_conf_path, 'Swift Object Expirer', request_tries,
-            use_replication_network=True)
+            use_replication_network=True,
+            global_conf={'log_name': '%s-ic' % self.conf.get(
+                'log_name', self.log_route)})
 
         self.processes = int(self.conf.get('processes', 0))
         self.process = int(self.conf.get('process', 0))

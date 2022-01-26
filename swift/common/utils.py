@@ -2387,11 +2387,18 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_statsd_metric_prefix = (empty-string)
 
     :param conf: Configuration dict to read settings from
-    :param name: Name of the logger
+    :param name: This value is used to populate the ``server`` field in the log
+                 format, as the prefix for statsd messages, and as the default
+                 value for ``log_route``; defaults to the ``log_name`` value in
+                 ``conf``, if it exists, or to 'swift'.
     :param log_to_console: Add handler which writes to console on stderr
     :param log_route: Route for the logging, not emitted to the log, just used
-                      to separate logging configurations
+                      to separate logging configurations; defaults to the value
+                      of ``name`` or whatever ``name`` defaults to. This value
+                      is used as the name attribute of the
+                      ``logging.LogAdapter`` that is returned.
     :param fmt: Override log format
+    :return: an instance of ``LogAdapter``
     """
     if not conf:
         conf = {}
