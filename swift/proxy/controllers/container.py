@@ -15,6 +15,7 @@
 
 import json
 import math
+import random
 
 import six
 from six.moves.urllib.parse import unquote
@@ -150,7 +151,15 @@ class ContainerController(Controller):
                                           shard='listing')
                 cached_ranges = infocache.get(cache_key)
                 if cached_ranges is None and memcache:
-                    cached_ranges = memcache.get(cache_key)
+                    skip_chance = \
+                        self.app.container_listing_shard_ranges_skip_cache
+                    if skip_chance and random.random() < skip_chance:
+                        self.app.logger.increment('shard_listing.cache.skip')
+                    else:
+                        cached_ranges = memcache.get(cache_key)
+                        self.app.logger.increment('shard_listing.cache.%s' % (
+                            'hit' if cached_ranges else 'miss'))
+
                 if cached_ranges is not None:
                     infocache[cache_key] = tuple(cached_ranges)
                     # shard ranges can be returned from cache
