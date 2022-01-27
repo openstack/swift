@@ -872,14 +872,12 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         filter_factory(conf_from_file)
         swift_info = utils.get_swift_info()
         self.assertTrue('s3api' in swift_info)
-        self.assertEqual(swift_info['s3api'].get('max_bucket_listing'),
-                         self.conf['max_bucket_listing'])
-        self.assertEqual(swift_info['s3api'].get('max_parts_listing'),
-                         self.conf['max_parts_listing'])
-        self.assertEqual(swift_info['s3api'].get('max_upload_part_num'),
-                         self.conf['max_upload_part_num'])
-        self.assertEqual(swift_info['s3api'].get('max_multi_delete_objects'),
-                         self.conf['max_multi_delete_objects'])
+        registered_keys = [
+            'max_bucket_listing', 'max_parts_listing', 'max_upload_part_num',
+            'max_multi_delete_objects', 'allow_multipart_uploads',
+            'min_segment_size', 's3_acl']
+        expected = dict((k, self.conf[k]) for k in registered_keys)
+        self.assertEqual(expected, swift_info['s3api'])
 
     def test_check_pipeline(self):
         with patch("swift.common.middleware.s3api.s3api.loadcontext"), \
