@@ -572,6 +572,34 @@
       pass-to-parent: true
     vars: *swift_image_vars_py3
 
+- job:
+    name: swift-tox-func-py36-centos-8-stream-fips
+    parent: swift-tox-func-py36-centos-8-stream
+    voting: false
+    description: |
+      Functional testing on a FIPS enabled Centos 8 system
+    vars:
+      enable_fips: true
+
+- job:
+    name: swift-tox-func-encryption-py36-centos-8-stream-fips
+    parent: swift-tox-func-encryption-py36-centos-8-stream
+    voting: false
+    description: |
+      Functional encryption testing on a FIPS enabled
+      Centos 8 system
+    vars:
+      enable_fips: true
+
+- job:
+    name: swift-tox-func-ec-py36-centos-8-stream-fips
+    parent: swift-tox-func-ec-py36-centos-8-stream
+    voting: false
+    description: |
+      Functional EC testing on a FIPS enabled Centos 8 system
+    vars:
+      enable_fips: true
+
 - project-template:
    name: swift-jobs-arm64
    description: |
@@ -595,6 +623,17 @@
       - swift-jobs-arm64
     check:
       jobs:
+        - swift-tox-func-encryption-py36-centos-8:
+            irrelevant-files: &functest-irrelevant-files
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(cors|probe)/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+        - swift-tox-func-py36-centos-8-stream-fips:
+            irrelevant-files: *functest-irrelevant-files
+        - swift-tox-func-encryption-py36-centos-8-stream-fips:
+            irrelevant-files: *functest-irrelevant-files
+        - swift-tox-func-ec-py36-centos-8-stream-fips:
+            irrelevant-files: *functest-irrelevant-files
         - swift-build-image:
             irrelevant-files: &docker-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
@@ -614,10 +653,7 @@
 
         # Functional tests
         - swift-tox-func-py27:
-            irrelevant-files: &functest-irrelevant-files
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(cors|probe)/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-encryption-py27:
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-ec-py27:
