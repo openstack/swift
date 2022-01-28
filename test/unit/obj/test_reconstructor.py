@@ -159,6 +159,9 @@ def get_header_frag_index(self, body):
 @patch_policies([StoragePolicy(0, name='zero', is_default=True),
                  ECStoragePolicy(1, name='one',
                                  ec_type=DEFAULT_TEST_EC_TYPE,
+                                 ec_ndata=3, ec_nparity=2),
+                 ECStoragePolicy(2, name='two',
+                                 ec_type=DEFAULT_TEST_EC_TYPE,
                                  ec_ndata=3, ec_nparity=2)])
 class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     # Tests for reconstructor using real objects in test partition directories.
@@ -169,6 +172,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.testdir = tempfile.mkdtemp()
         POLICIES[0].object_ring = FabricatedRing(3)
         POLICIES[1].object_ring = FabricatedRing(5)
+        POLICIES[2].object_ring = FabricatedRing(5)
         utils.HASH_PATH_SUFFIX = b'endcap'
         utils.HASH_PATH_PREFIX = b''
         self.devices = os.path.join(self.testdir, 'node')
@@ -868,13 +872,32 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def test_reconstruct_check_ring(self):
         # test reconstruct logs info when check_ring is false and that
         # there are no jobs built
-        with mock.patch('swift.obj.reconstructor.ObjectReconstructor.'
-                        'check_ring', return_value=False):
+        objects_2 = os.path.join(self.devices, 'sda1',
+                                 diskfile.get_data_dir(POLICIES[2]))
+        os.mkdir(objects_2)
+        for part in ['0', '1', '2']:
+            os.mkdir(os.path.join(objects_2, part))
+
+        with mock.patch.object(self.reconstructor, 'process_job') as mock_pj, \
+            mock.patch(
+                'swift.obj.reconstructor.ObjectReconstructor.check_ring',
+                side_effect=lambda ring: ring is not POLICIES[1].object_ring):
             self.reconstructor.reconstruct()
         msgs = self.logger.get_lines_for_level('info')
-        self.assertIn('Ring change detected. Aborting'
-                      ' current reconstruction pass.', msgs[0])
-        self.assertEqual(self.reconstructor.reconstruction_count, 0)
+        self.assertEqual(1, msgs.count(
+            'Ring change detected for policy 1 (one). Aborting '
+            'current reconstruction pass for this policy.'), msgs)
+        self.assertEqual(
+            [call[1][0]['job_type'] for call in mock_pj.mock_calls],
+            ['sync_only'] * 2)
+        self.assertEqual(
+            [call[1][0]['policy'] for call in mock_pj.mock_calls],
+            [POLICIES[2]] * 2)
+        # partition 2 doesn't belong here and doesn't have data,
+        # so it just gets cleaned up
+        self.assertEqual(
+            {call[1][0]['partition'] for call in mock_pj.mock_calls},
+            {0, 1})
 
     def test_build_reconstruction_jobs(self):
         self.reconstructor._reset_stats()
@@ -1039,9 +1062,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             for part_info in self.reconstructor.collect_parts():
                 parts.append(part_info['partition'])
             error_lines = self.logger.get_lines_for_level('error')
-            self.assertEqual(len(error_lines), 1,
-                             'Expected only one error, got %r' % error_lines)
+            self.assertEqual(
+                len(error_lines), 2,
+                'Expected exactly two errors, got %r' % error_lines)
             log_args, log_kwargs = self.logger.log_dict['error'][0]
+            self.assertEqual(str(log_kwargs['exc_info'][1]), 'Ow!')
+            log_args, log_kwargs = self.logger.log_dict['error'][1]
             self.assertEqual(str(log_kwargs['exc_info'][1]), 'Ow!')
 
     def test_removes_zbf(self):
