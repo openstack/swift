@@ -1965,23 +1965,22 @@ class TestUtils(unittest.TestCase):
             self.assertIn('my error message', log_msg)
 
             # test eventlet.Timeout
-            connection_timeout = ConnectionTimeout(42, 'my error message')
-            log_exception(connection_timeout)
-            log_msg = strip_value(sio)
-            self.assertNotIn('Traceback', log_msg)
-            self.assertTrue('ConnectionTimeout' in log_msg)
-            self.assertTrue('(42s)' in log_msg)
-            self.assertNotIn('my error message', log_msg)
-            connection_timeout.cancel()
+            with ConnectionTimeout(42, 'my error message') \
+                    as connection_timeout:
+                log_exception(connection_timeout)
+                log_msg = strip_value(sio)
+                self.assertNotIn('Traceback', log_msg)
+                self.assertTrue('ConnectionTimeout' in log_msg)
+                self.assertTrue('(42s)' in log_msg)
+                self.assertNotIn('my error message', log_msg)
 
-            message_timeout = MessageTimeout(42, 'my error message')
-            log_exception(message_timeout)
-            log_msg = strip_value(sio)
-            self.assertNotIn('Traceback', log_msg)
-            self.assertTrue('MessageTimeout' in log_msg)
-            self.assertTrue('(42s)' in log_msg)
-            self.assertTrue('my error message' in log_msg)
-            message_timeout.cancel()
+            with MessageTimeout(42, 'my error message') as message_timeout:
+                log_exception(message_timeout)
+                log_msg = strip_value(sio)
+                self.assertNotIn('Traceback', log_msg)
+                self.assertTrue('MessageTimeout' in log_msg)
+                self.assertTrue('(42s)' in log_msg)
+                self.assertTrue('my error message' in log_msg)
 
             # test BadStatusLine
             log_exception(http_client.BadStatusLine(''))
