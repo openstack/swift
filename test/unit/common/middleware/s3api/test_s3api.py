@@ -107,7 +107,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # will be short-circuited
 
         # check all defaults
-        expected = Config()
+        expected = dict(Config())
         expected.update({
             'auth_pipeline_check': True,
             'check_bucket_owner': False,
@@ -126,7 +126,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
         # check all non-defaults are loaded
         conf = {
-            'storage_domain': 'somewhere',
+            'storage_domain': 'somewhere,some.other.where',
             'location': 'us-west-1',
             'force_swift_request_proxy_log': True,
             'dns_compliant_bucket_names': False,
@@ -148,6 +148,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         s3api = S3ApiMiddleware(None, conf)
         conf['cors_preflight_allow_origin'] = \
             conf['cors_preflight_allow_origin'].split(',')
+        conf['storage_domains'] = conf.pop('storage_domain').split(',')
         self.assertEqual(conf, s3api.conf)
 
         # test allow_origin list with a '*' fails.

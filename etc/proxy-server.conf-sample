@@ -592,8 +592,8 @@ use = egg:swift#s3api
 # you don't expect.
 # s3_acl = false
 #
-# Specify a host name of your Swift cluster.  This enables virtual-hosted style
-# requests.
+# Specify a (comma-separated) list of host names for your Swift cluster.
+# This enables virtual-hosted style requests.
 # storage_domain =
 #
 # Enable pipeline order check for SLO, s3token, authtoken, keystoneauth
