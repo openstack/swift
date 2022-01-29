@@ -618,11 +618,9 @@ class TestObjectUpdater(unittest.TestCase):
 
         # final update has Timeout
         ou.logger.clear()
-        mock_connect = mock.MagicMock()
-        mock_connect.getresponse = mock.MagicMock(side_effect=Timeout(99))
-
-        with mock.patch('swift.obj.updater.http_connect',
-                        return_value=mock_connect):
+        with Timeout(99) as exc, \
+                mock.patch('swift.obj.updater.http_connect') as mock_connect:
+            mock_connect.return_value.getresponse.side_effect = exc
             ou.run_once()
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.get_increment_counts(),
@@ -639,12 +637,9 @@ class TestObjectUpdater(unittest.TestCase):
 
         # final update has ConnectionTimeout
         ou.logger.clear()
-        mock_connect = mock.MagicMock()
-        mock_connect.getresponse = mock.MagicMock(
-            side_effect=ConnectionTimeout(9))
-
-        with mock.patch('swift.obj.updater.http_connect',
-                        return_value=mock_connect):
+        with ConnectionTimeout(9) as exc, \
+                mock.patch('swift.obj.updater.http_connect') as mock_connect:
+            mock_connect.return_value.getresponse.side_effect = exc
             ou.run_once()
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.get_increment_counts(),
