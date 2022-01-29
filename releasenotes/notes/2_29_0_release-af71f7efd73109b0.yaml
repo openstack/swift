@@ -1,0 +1,167 @@
+---
+features:
+  - |
+    S3 API improvements
+
+    * CORS preflights are now allowed for pre-signed URLs.
+
+    * The ``storage_domain`` option now accepts a comma-separated list of
+      storage domains. This allows multiple storage domains to configured
+      for use with virtual-host style addressing.
+
+    * Reduced the overhead of retrieving bucket and object ACLs.
+
+  - |
+    Replication, reconstruction, and diskfile improvements
+
+    * The reconstructor now uses the replication network to fetch fragments
+      for reconstruction.
+
+    * Added the ability to limit how many objects per handoff partition
+      will be reverted in a reconstructor cycle using the new
+      ``max_objects_per_revert`` option. This may be useful to reduce
+      ssync timeouts and lock contention, ensuring that progress is made
+      during rebalances.
+
+  - |
+    Object updater improvements
+
+    * Added the ability to ratelimit updates (approximately) per-container
+      using the new ``max_objects_per_container_per_second`` option. This may
+      be used to limit requests to already-overloaded containers while still
+      making progress on updates to other containers.
+
+    * Added timing stats by response code.
+
+    * Updates are now sent over the replication network.
+
+  - |
+    Memcache improvements
+
+    * Added the ability to configure a chance to skip checking memcache when
+      querying shard ranges. This allows some fraction of traffic to go to
+      disk and refresh memcache before the key ages out. Recommended values
+      for the new ``container_updating_shard_ranges_skip_cache_pct`` and
+      ``container_listing_shard_ranges_skip_cache_pct`` options are in the
+      range of 0.0 to 0.1.
+
+    * Added stats for shard range cache hits, misses, and skips.
+
+  - |
+    Added object-reconstructor stats to recon.
+
+  - |
+    Added a new ``swift.common.registry`` module. This includes helper
+    functions ``register_sensitive_header`` and ``register_sensitive_param``
+    which third party middleware authors may use to flag headers and query
+    parameters for redaction when logging. For more information, see `the
+    documentation <https://docs.openstack.org/swift/latest/misc.html#
+    module-swift.common.registry>`__.
+
+  - |
+    Added the ability to configure project-scope read-only roles for
+    keystoneauth using the new ``project_reader_roles`` option.
+
+  - |
+    The ``cname_lookup`` middleware now works with dnspython 2.0 and later.
+
+  - |
+    The internal clients used by the container-reconciler, container-sharder,
+    container-sync, and object-expirer daemons now use a more-descriptive
+    ``<daemon>-ic`` log name, rather than ``swift``. If you previously
+    configured the ``log_name`` option in ``internal-client.conf``, you must
+    now use the ``set log_name = <value>`` syntax to configure it, even if
+    no value is set in the ``[DEFAULT]`` section. This may be done prior to
+    upgrading.
+
+  - |
+    Removed translations from most logging.
+
+deprecations:
+  - |
+    The ``StatsdClient.set_prefix`` method is now deprecated and
+    may be removed in a future release; by extension, so is the
+    ``LogAdapter.set_statsd_prefix`` method. Middleware developers should
+    use the ``statsd_tail_prefix`` argument to ``get_logger`` instead.
+
+fixes:
+  - |
+    S3 API fixes
+
+    * Fixed the types of configured values in ``/info`` response.
+
+    * Fixed a server error when trying to copy objects with non-ASCII names.
+
+    * Fixed a server error when uploading objects with very long names.
+      A ``KeyTooLongError`` is now returned.
+
+    * Fixed an error when multi-deleting MPUs when SLO async-deletes
+      are enabled.
+
+    * Fixed an error that allowed list-uploads and list-parts requests to
+      return incomplete or out-of-order results.
+
+    * Fixed several bugs when dealing with non-ASCII object names and
+      multipart uploads.
+
+  - |
+    Replication, reconstruction, and diskfile fixes
+
+    * Ensure that non-durable data and .meta files are purged from handoffs
+      after syncing.
+
+    * Fixed tracebacks when there's a race to mark a file durable or delete it.
+
+    * Improved cooperative multitasking during ssync.
+
+    * Upon detecting a ring change, the reconstructor now only aborts the
+      jobs for that ring and continues processing jobs for other rings.
+
+    * Fixed a traceback when logging about a lock timeout in the replicator.
+
+  - |
+    Fixed a security issue where tempurl and s3api signatures were logged in
+    full. This allowed an attacker with access to log data to perform replay
+    attacks, potentially accessing or overwriting cluster data. Now, such
+    signatures are redacted in a manner similar to auth tokens; see the
+    ``reveal_sensitive_prefix`` option in ``proxy-server.conf``.
+
+    See CVE-2017-8761 for more information.
+
+  - |
+    Fixed a race condition where swift would attempt to quarantine
+    recently-deleted object updates.
+
+  - |
+    Improved handling of timeouts and other errors when obtaining a
+    connection to memcached.
+
+  - |
+    The ``swift-recon`` tool now queries each object-server IP only once
+    when reporting disk usage. Previously, each port in the ring would be
+    queried; when using servers-per-port, this could dramatically overstate
+    the disk capacity in the cluster.
+
+  - |
+    Fixed a bug that allowed some statsd metrics to be annotated with the
+    wrong backend layer.
+
+  - |
+    Fixed a traceback in the account-server when there's no account
+    database on disk to receive a container update. The account-server
+    now correctly 404s.
+
+  - |
+    The container-updater will quarantine container databases if all
+    replicas for the account respond 404.
+
+  - |
+    Fixed a proxy-server error when the read-only middleware tried to
+    handle non-Swift paths (such as may be used by third-party middleware).
+
+  - |
+    Some client behaviors that the proxy previously logged at warning have
+    been lowered to info.
+
+  - |
+    Various other minor bug fixes and improvements.
