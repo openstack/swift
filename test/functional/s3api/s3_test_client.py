@@ -98,6 +98,13 @@ class Connection(object):
                             upload.cancel_upload()
 
                         for obj in bucket.list_versions():
+                            if six.PY2:
+                                if not isinstance(obj.name, bytes):
+                                    obj.name = obj.name.encode('utf-8')
+                                if obj.version_id is not None and \
+                                        not isinstance(obj.version_id, bytes):
+                                    obj.version_id = \
+                                        obj.version_id.encode('utf-8')
                             bucket.delete_key(
                                 obj.name, version_id=obj.version_id)
 

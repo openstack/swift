@@ -144,7 +144,7 @@ def _make_complete_body(req, s3_etag, yielded_anything):
 
     SubElement(result_elem, 'Location').text = host_url + req.path
     SubElement(result_elem, 'Bucket').text = req.container_name
-    SubElement(result_elem, 'Key').text = req.object_name
+    SubElement(result_elem, 'Key').text = wsgi_to_str(req.object_name)
     SubElement(result_elem, 'ETag').text = '"%s"' % s3_etag
     body = tostring(result_elem, xml_declaration=not yielded_anything)
     if yielded_anything:
@@ -452,7 +452,7 @@ class UploadsController(Controller):
 
         result_elem = Element('InitiateMultipartUploadResult')
         SubElement(result_elem, 'Bucket').text = req.container_name
-        SubElement(result_elem, 'Key').text = req.object_name
+        SubElement(result_elem, 'Key').text = wsgi_to_str(req.object_name)
         SubElement(result_elem, 'UploadId').text = upload_id
 
         body = tostring(result_elem)
@@ -498,9 +498,10 @@ class UploadController(Controller):
         part_num_marker = req.get_validated_param(
             'part-number-marker', 0)
 
+        object_name = wsgi_to_str(req.object_name)
         query = {
             'format': 'json',
-            'prefix': '%s/%s/' % (req.object_name, upload_id),
+            'prefix': '%s/%s/' % (object_name, upload_id),
             'delimiter': '/',
             'marker': '',
         }
@@ -516,7 +517,10 @@ class UploadController(Controller):
             if not new_objects:
                 break
             objects.extend(new_objects)
-            query['marker'] = new_objects[-1]['name']
+            if six.PY2:
+                query['marker'] = new_objects[-1]['name'].encode('utf-8')
+            else:
+                query['marker'] = new_objects[-1]['name']
 
         last_part = 0
 
@@ -542,10 +546,9 @@ class UploadController(Controller):
 
         result_elem = Element('ListPartsResult')
         SubElement(result_elem, 'Bucket').text = req.container_name
-        name = req.object_name
         if encoding_type == 'url':
-            name = quote(name)
-        SubElement(result_elem, 'Key').text = name
+            object_name = quote(object_name)
+        SubElement(result_elem, 'Key').text = object_name
         SubElement(result_elem, 'UploadId').text = upload_id
 
         initiator_elem = SubElement(result_elem, 'Initiator')
@@ -613,7 +616,10 @@ class UploadController(Controller):
                 container = req.container_name + MULTIUPLOAD_SUFFIX
                 obj = bytes_to_wsgi(o['name'].encode('utf-8'))
                 req.get_response(self.app, container=container, obj=obj)
-            query['marker'] = objects[-1]['name']
+            if six.PY2:
+                query['marker'] = objects[-1]['name'].encode('utf-8')
+            else:
+                query['marker'] = objects[-1]['name']
             resp = req.get_response(self.app, 'GET', container, '',
                                     query=query)
             objects = json.loads(resp.body)
