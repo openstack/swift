@@ -23,8 +23,10 @@ from six.moves.urllib.parse import unquote
 
 from swift.common.utils import get_logger, split_path, StatsdClient
 from swift.common.middleware import proxy_logging
+from swift.common.registry import register_sensitive_header, \
+    register_sensitive_param, get_sensitive_headers
 from swift.common.swob import Request, Response
-from swift.common import constraints
+from swift.common import constraints, registry
 from swift.common.storage_policy import StoragePolicy
 from test.debug_logger import debug_logger
 from test.unit import patch_policies
@@ -712,6 +714,14 @@ class TestProxyLogging(unittest.TestCase):
         self.assertTrue(callable(factory))
         self.assertTrue(callable(factory(FakeApp())))
 
+    def test_sensitive_headers_registered(self):
+        with mock.patch.object(registry, '_sensitive_headers', set()):
+            self.assertNotIn('x-auth-token', get_sensitive_headers())
+            self.assertNotIn('x-storage-token', get_sensitive_headers())
+            proxy_logging.filter_factory({})(FakeApp())
+            self.assertIn('x-auth-token', get_sensitive_headers())
+            self.assertIn('x-storage-token', get_sensitive_headers())
+
     def test_unread_body(self):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeApp(['some', 'stuff']), {})
@@ -921,89 +931,90 @@ class TestProxyLogging(unittest.TestCase):
 
     def test_log_auth_token(self):
         auth_token = 'b05bf940-0464-4c0e-8c70-87717d2d73e8'
+        with mock.patch.object(registry, '_sensitive_headers', set()):
+            # Default - reveal_sensitive_prefix is 16
+            # No x-auth-token header
+            app = proxy_logging.filter_factory({})(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], '-')
+            # Has x-auth-token header
+            app = proxy_logging.filter_factory({})(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'HTTP_X_AUTH_TOKEN': auth_token})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], 'b05bf940-0464-4c...', log_parts)
 
-        # Default - reveal_sensitive_prefix is 16
-        # No x-auth-token header
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], '-')
-        # Has x-auth-token header
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
-                                          'HTTP_X_AUTH_TOKEN': auth_token})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], 'b05bf940-0464-4c...')
+            # Truncate to first 8 characters
+            app = proxy_logging.filter_factory(
+                {'reveal_sensitive_prefix': '8'})(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], '-')
+            app = proxy_logging.filter_factory(
+                {'reveal_sensitive_prefix': '8'})(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'HTTP_X_AUTH_TOKEN': auth_token})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], 'b05bf940...')
 
-        # Truncate to first 8 characters
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
-            'reveal_sensitive_prefix': '8'})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], '-')
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
-            'reveal_sensitive_prefix': '8'})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
-                                          'HTTP_X_AUTH_TOKEN': auth_token})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], 'b05bf940...')
+            # Token length and reveal_sensitive_prefix are same (no truncate)
+            app = proxy_logging.filter_factory(
+                {'reveal_sensitive_prefix': str(len(auth_token))})(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'HTTP_X_AUTH_TOKEN': auth_token})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], auth_token)
 
-        # Token length and reveal_sensitive_prefix are same (no truncate)
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
-            'reveal_sensitive_prefix': str(len(auth_token))})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
-                                          'HTTP_X_AUTH_TOKEN': auth_token})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], auth_token)
+            # No effective limit on auth token
+            app = proxy_logging.filter_factory(
+                {'reveal_sensitive_prefix': constraints.MAX_HEADER_SIZE}
+            )(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'HTTP_X_AUTH_TOKEN': auth_token})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], auth_token)
 
-        # No effective limit on auth token
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
-            'reveal_sensitive_prefix': constraints.MAX_HEADER_SIZE})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
-                                          'HTTP_X_AUTH_TOKEN': auth_token})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], auth_token)
+            # Don't log x-auth-token
+            app = proxy_logging.filter_factory(
+                {'reveal_sensitive_prefix': '0'})(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], '-')
+            app = proxy_logging.filter_factory(
+                {'reveal_sensitive_prefix': '0'})(FakeApp())
+            app.access_logger = debug_logger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'HTTP_X_AUTH_TOKEN': auth_token})
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+            log_parts = self._log_parts(app)
+            self.assertEqual(log_parts[9], '...')
 
-        # Don't log x-auth-token
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
-            'reveal_sensitive_prefix': '0'})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], '-')
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
-            'reveal_sensitive_prefix': '0'})
-        app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
-                                          'HTTP_X_AUTH_TOKEN': auth_token})
-        resp = app(req.environ, start_response)
-        resp_body = b''.join(resp)
-        log_parts = self._log_parts(app)
-        self.assertEqual(log_parts[9], '...')
-
-        # Avoids pyflakes error, "local variable 'resp_body' is assigned to
-        # but never used
-        self.assertTrue(resp_body is not None)
+            # Avoids pyflakes error, "local variable 'resp_body' is assigned to
+            # but never used
+            self.assertTrue(resp_body is not None)
 
     def test_ensure_fields(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
@@ -1151,3 +1162,109 @@ class TestProxyLogging(unittest.TestCase):
             b''.join(resp)
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[20], '1')
+
+    def test_obscure_req(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = debug_logger()
+
+        params = [('param_one',
+                   'some_long_string_that_might_need_to_be_obscured'),
+                  ('param_two',
+                   "super_secure_param_that_needs_to_be_obscured")]
+        headers = {'X-Auth-Token': 'this_is_my_auth_token',
+                   'X-Other-Header': 'another_header_that_we_may_obscure'}
+
+        req = Request.blank('a/c/o', environ={'REQUEST_METHOD': 'GET'},
+                            headers=headers)
+        req.params = params
+
+        # if nothing is sensitive, nothing will be obscured
+        with mock.patch.object(registry, '_sensitive_params', set()):
+            with mock.patch.object(registry, '_sensitive_headers', set()):
+                app.obscure_req(req)
+        # show that nothing changed
+        for header, expected_value in headers.items():
+            self.assertEqual(req.headers[header], expected_value)
+
+        for param, expected_value in params:
+            self.assertEqual(req.params[param], expected_value)
+
+        # If an obscured param or header doesn't exist in a req, that's fine
+        with mock.patch.object(registry, '_sensitive_params', set()):
+            with mock.patch.object(registry, '_sensitive_headers', set()):
+                register_sensitive_header('X-Not-Exist')
+                register_sensitive_param('non-existent-param')
+                app.obscure_req(req)
+
+        # show that nothing changed
+        for header, expected_value in headers.items():
+            self.assertEqual(req.headers[header], expected_value)
+
+        for param, expected_value in params:
+            self.assertEqual(req.params[param], expected_value)
+
+        def obscured_test(params, headers, params_to_add, headers_to_add,
+                          expected_params, expected_headers):
+            with mock.patch.object(registry, '_sensitive_params', set()):
+                with mock.patch.object(registry, '_sensitive_headers', set()):
+                    app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+                    app.access_logger = debug_logger()
+                    req = Request.blank('a/c/o',
+                                        environ={'REQUEST_METHOD': 'GET'},
+                                        headers=dict(headers))
+                    req.params = params
+                    for param in params_to_add:
+                        register_sensitive_param(param)
+
+                    for header in headers_to_add:
+                        register_sensitive_header(header)
+
+                    app.obscure_req(req)
+                    for header, expected_value in expected_headers.items():
+                        self.assertEqual(req.headers[header], expected_value)
+
+                    for param, expected_value in expected_params:
+                        self.assertEqual(req.params[param], expected_value)
+
+        # first just 1 param
+        expected_params = list(params)
+        expected_params[0] = ('param_one', 'some_long_string...')
+        obscured_test(params, headers, ['param_one'], [], expected_params,
+                      headers)
+        # case sensitive
+        expected_params = list(params)
+        obscured_test(params, headers, ['Param_one'], [], expected_params,
+                      headers)
+        # Other param
+        expected_params = list(params)
+        expected_params[1] = ('param_two', 'super_secure_par...')
+        obscured_test(params, headers, ['param_two'], [], expected_params,
+                      headers)
+        # both
+        expected_params[0] = ('param_one', 'some_long_string...')
+        obscured_test(params, headers, ['param_two', 'param_one'], [],
+                      expected_params, headers)
+
+        # Now the headers
+        # first just 1 header
+        expected_headers = headers.copy()
+        expected_headers["X-Auth-Token"] = 'this_is_my_auth_...'
+        obscured_test(params, headers, [], ['X-Auth-Token'], params,
+                      expected_headers)
+        # case insensitive
+        obscured_test(params, headers, [], ['x-auth-token'], params,
+                      expected_headers)
+        # Other headers
+        expected_headers = headers.copy()
+        expected_headers["X-Other-Header"] = 'another_header_t...'
+        obscured_test(params, headers, [], ['X-Other-Header'], params,
+                      expected_headers)
+        # both
+        expected_headers["X-Auth-Token"] = 'this_is_my_auth_...'
+        obscured_test(params, headers, [], ['X-Auth-Token', 'X-Other-Header'],
+                      params, expected_headers)
+
+        # all together
+        obscured_test(params, headers, ['param_two', 'param_one'],
+                      ['X-Auth-Token', 'X-Other-Header'],
+                      expected_params, expected_headers)

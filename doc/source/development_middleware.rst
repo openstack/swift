@@ -178,9 +178,21 @@ Middleware may advertize its availability and capabilities via Swift's
 :ref:`discoverability` support by using
 :func:`.register_swift_info`::
 
-    from swift.common.utils import register_swift_info
+    from swift.common.registry import register_swift_info
     def webhook_factory(global_conf, **local_conf):
         register_swift_info('webhook')
+        def webhook_filter(app):
+            return WebhookMiddleware(app)
+        return webhook_filter
+
+If a middleware handles sensitive information in headers or query parameters
+that may need redaction when logging, use the :func:`.register_sensitive_header`
+and :func:`.register_sensitive_param` functions. This should be done in the
+filter factory::
+
+    from swift.common.registry import register_sensitive_header
+    def webhook_factory(global_conf, **local_conf):
+        register_sensitive_header('webhook-api-key')
         def webhook_filter(app):
             return WebhookMiddleware(app)
         return webhook_filter

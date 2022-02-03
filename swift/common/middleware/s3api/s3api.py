@@ -160,7 +160,8 @@ from swift.common.utils import get_logger, config_true_value, \
     config_positive_int_value, split_path, closing_if_possible, list_from_csv
 from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.s3api.acl_handlers import get_acl_handler
-from swift.common.registry import register_swift_info
+from swift.common.registry import register_swift_info, \
+    register_sensitive_header, register_sensitive_param
 
 
 class ListingEtagMiddleware(object):
@@ -463,6 +464,10 @@ def filter_factory(global_conf, **local_conf):
         min_segment_size=int(conf.get('min_segment_size', 5242880)),
         s3_acl=config_true_value(conf.get('s3_acl', False)),
     )
+
+    register_sensitive_header('authorization')
+    register_sensitive_param('Signature')
+    register_sensitive_param('X-Amz-Signature')
 
     def s3api_filter(app):
         return S3ApiMiddleware(ListingEtagMiddleware(app), conf)

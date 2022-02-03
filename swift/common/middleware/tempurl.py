@@ -315,7 +315,7 @@ from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
     HTTPBadRequest, wsgi_to_str
 from swift.common.utils import split_path, get_valid_utf8_str, \
     get_hmac, streq_const_time, quote, get_logger, strict_b64decode
-from swift.common.registry import register_swift_info
+from swift.common.registry import register_swift_info, register_sensitive_param
 
 
 DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
@@ -872,5 +872,7 @@ def filter_factory(global_conf, **local_conf):
 
     register_swift_info('tempurl', **info_conf)
     conf.update(info_conf)
+
+    register_sensitive_param('temp_url_sig')
 
     return lambda app: TempURL(app, conf)

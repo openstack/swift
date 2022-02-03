@@ -38,10 +38,11 @@ import six
 from six.moves.urllib.parse import quote
 from time import time, strftime, gmtime
 
-from swift.common.middleware import tempauth, tempurl
+from swift.common.middleware import tempauth, tempurl, proxy_logging
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response
 from swift.common import utils, registry
+from test.debug_logger import debug_logger
 
 
 class FakeApp(object):
@@ -205,6 +206,31 @@ class TestTempURL(unittest.TestCase):
         account_keys = []
         for sig in (sig1, sig2):
             self.assert_valid_sig(expires, path, account_keys, sig, environ)
+
+    def test_signature_trim(self):
+        # Insert proxy logging into the pipeline
+        p_logging = proxy_logging.filter_factory({})(self.app)
+        self.auth = tempauth.filter_factory({'reseller_prefix': ''})(
+            p_logging)
+        self.tempurl = tempurl.filter_factory({})(self.auth)
+
+        sig = 'valid_sigs_will_be_exactly_40_characters'
+        expires = int(time() + 1000)
+        p_logging.access_logger.logger = debug_logger('fake')
+        resp = self._make_request(
+            '/v1/a/c/o?temp_url_sig=%s&temp_url_expires=%d' % (sig, expires))
+
+        with mock.patch('swift.common.middleware.tempurl.TempURL._get_keys',
+                        return_value=[('key', tempurl.CONTAINER_SCOPE)]):
+            with mock.patch(
+                    'swift.common.middleware.tempurl.TempURL._get_hmacs',
+                    return_value=[(sig, tempurl.CONTAINER_SCOPE)]):
+                resp.get_response(self.tempurl)
+        trimmed_sig_qs = '%s...' % sig[:16]
+        info_lines = p_logging.access_logger. \
+            logger.get_lines_for_level('info')
+
+        self.assertIn(trimmed_sig_qs, info_lines[0])
 
     @mock.patch('swift.common.middleware.tempurl.time', return_value=0)
     def test_get_valid_with_filename(self, mock_time):

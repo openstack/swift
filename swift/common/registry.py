@@ -16,6 +16,7 @@
 # Used by get_swift_info and register_swift_info to store information about
 # the swift cluster.
 from copy import deepcopy
+import six
 
 _swift_info = {}
 _swift_admin_info = {}
@@ -84,3 +85,35 @@ def register_swift_info(name='swift', admin=False, **kwargs):
         if "." in key:
             raise ValueError('Cannot use "." in a swift_info key: %s' % key)
         dict_to_use[name][key] = val
+
+
+_sensitive_headers = set()
+_sensitive_params = set()
+
+
+def get_sensitive_headers():
+    return frozenset(_sensitive_headers)
+
+
+def register_sensitive_header(header):
+    if not isinstance(header, str):
+        raise TypeError
+    if six.PY2:
+        header.decode('ascii')
+    else:
+        header.encode('ascii')
+    _sensitive_headers.add(header)
+
+
+def get_sensitive_params():
+    return frozenset(_sensitive_params)
+
+
+def register_sensitive_param(query_param):
+    if not isinstance(query_param, str):
+        raise TypeError
+    if six.PY2:
+        query_param.decode('ascii')
+    else:
+        query_param.encode('ascii')
+    _sensitive_params.add(query_param)
