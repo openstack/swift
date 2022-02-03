@@ -37,6 +37,6 @@ fi
 if is_rhel8; then
     # Install CentOS OpenStack repos so that we have access to some extra
     # packages.
-    sudo dnf install -y centos-release-openstack-ussuri
+    sudo dnf install -y centos-release-openstack-xena
     sudo dnf install -y liberasurecode-devel
 fi
