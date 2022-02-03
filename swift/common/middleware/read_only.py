@@ -14,8 +14,8 @@
 # limitations under the License.
 from swift.common.constraints import check_account_format
 from swift.common.swob import HTTPMethodNotAllowed, Request
-from swift.common.utils import get_logger, config_true_value, \
-    register_swift_info
+from swift.common.utils import get_logger, config_true_value
+from swift.common.registry import register_swift_info
 from swift.proxy.controllers.base import get_info
 
 """

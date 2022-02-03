@@ -19,7 +19,7 @@ import os
 import time
 import mock
 import unittest
-from swift.common import swob, utils
+from swift.common import swob, utils, registry
 from swift.common.middleware import versioned_writes, copy
 from swift.common.swob import Request
 from test.unit.common.middleware import helpers
@@ -1515,19 +1515,19 @@ class VersionedWritesCopyingTestCase(VersionedWritesBaseTestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         versioned_writes.filter_factory({})('have to pass in an app')
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         # in default, versioned_writes is not in swift_info
         self.assertNotIn('versioned_writes', swift_info)
 
     def test_registered_explicitly_set(self):
         versioned_writes.filter_factory(
             {'allow_versioned_writes': 'true'})('have to pass in an app')
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('versioned_writes', swift_info)
         self.assertEqual(
             swift_info['versioned_writes'].get('allowed_flags'),

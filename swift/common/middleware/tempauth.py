@@ -191,7 +191,8 @@ from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.middleware.acl import (
     clean_acl, parse_acl, referrer_allowed, acls_from_account_info)
 from swift.common.utils import cache_from_env, get_logger, \
-    split_path, config_true_value, register_swift_info
+    split_path, config_true_value
+from swift.common.registry import register_swift_info
 from swift.common.utils import config_read_reseller_options, quote
 from swift.proxy.controllers.base import get_account_info
 

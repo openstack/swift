@@ -41,7 +41,8 @@ The filter returns HTTPBadRequest if path is invalid.
 '''
 
 import re
-from swift.common.utils import get_logger, register_swift_info
+from swift.common.utils import get_logger
+from swift.common.registry import register_swift_info
 
 from swift.common.swob import Request, HTTPBadRequest
 

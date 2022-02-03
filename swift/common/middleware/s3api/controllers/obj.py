@@ -20,7 +20,8 @@ from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT
 from swift.common.request_helpers import update_etag_is_at_header
 from swift.common.swob import Range, content_range_header_value, \
     normalize_etag
-from swift.common.utils import public, list_from_csv, get_swift_info
+from swift.common.utils import public, list_from_csv
+from swift.common.registry import get_swift_info
 
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE

@@ -54,7 +54,7 @@ account size has been updated.
 
 from swift.common.swob import HTTPForbidden, HTTPBadRequest, \
     HTTPRequestEntityTooLarge, wsgify
-from swift.common.utils import register_swift_info
+from swift.common.registry import register_swift_info
 from swift.proxy.controllers.base import get_account_info
 
 

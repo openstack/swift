@@ -15,7 +15,7 @@
 import unittest
 import mock
 
-from swift.common import utils
+from swift.common import registry
 from swift.common.middleware import crypto
 
 
@@ -24,36 +24,38 @@ class TestCrypto(unittest.TestCase):
         def do_test(conf, expect_enabled):
             fake_app = object()
 
-            with mock.patch.dict('swift.common.utils._swift_admin_info',
+            with mock.patch.dict('swift.common.registry._swift_admin_info',
                                  clear=True):
                 # we're not expecting utils._swift_info to be modified but mock
                 # it anyway just in case it is
-                with mock.patch.dict('swift.common.utils._swift_info',
+                with mock.patch.dict('swift.common.registry._swift_info',
                                      clear=True):
                     # Sanity checks...
-                    self.assertNotIn('encryption', utils._swift_admin_info)
+                    self.assertNotIn('encryption', registry._swift_admin_info)
                     self.assertNotIn('encryption',
-                                     utils.get_swift_info(admin=True))
-                    self.assertNotIn('encryption',
-                                     utils.get_swift_info(admin=True)['admin'])
+                                     registry.get_swift_info(admin=True))
+                    self.assertNotIn(
+                        'encryption',
+                        registry.get_swift_info(admin=True)['admin'])
 
                     factory = crypto.filter_factory(conf)
                     self.assertTrue(callable(factory))
                     filtered_app = factory(fake_app)
 
-                    self.assertNotIn('encryption', utils._swift_info)
-                    self.assertNotIn('encryption', utils.get_swift_info())
+                    self.assertNotIn('encryption', registry._swift_info)
+                    self.assertNotIn('encryption', registry.get_swift_info())
                     self.assertNotIn('encryption',
-                                     utils.get_swift_info(admin=True))
+                                     registry.get_swift_info(admin=True))
 
-                    self.assertIn('encryption', utils._swift_admin_info)
-                    self.assertDictEqual({'enabled': expect_enabled},
-                                         utils._swift_admin_info['encryption'])
-                    self.assertIn('encryption',
-                                  utils.get_swift_info(admin=True)['admin'])
+                    self.assertIn('encryption', registry._swift_admin_info)
                     self.assertDictEqual(
                         {'enabled': expect_enabled},
-                        utils.get_swift_info(
+                        registry._swift_admin_info['encryption'])
+                    self.assertIn('encryption',
+                                  registry.get_swift_info(admin=True)['admin'])
+                    self.assertDictEqual(
+                        {'enabled': expect_enabled},
+                        registry.get_swift_info(
                             admin=True)['admin']['encryption'])
 
             self.assertIsInstance(filtered_app, crypto.decrypter.Decrypter)

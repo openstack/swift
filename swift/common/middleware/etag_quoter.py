@@ -42,7 +42,8 @@ useful if some subset of applications expect Etags to be bare MD5s.
 from swift.common.constraints import valid_api_version
 from swift.common.http import is_success
 from swift.common.swob import Request
-from swift.common.utils import config_true_value, register_swift_info
+from swift.common.utils import config_true_value
+from swift.common.registry import register_swift_info
 from swift.proxy.controllers.base import get_account_info, get_container_info
 
 

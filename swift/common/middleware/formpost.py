@@ -132,9 +132,10 @@ from six.moves.urllib.parse import quote
 from swift.common.constraints import valid_api_version
 from swift.common.exceptions import MimeInvalid
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
-from swift.common.utils import streq_const_time, register_swift_info, \
-    parse_content_disposition, parse_mime_headers, \
-    iter_multipart_mime_documents, reiterate, close_if_possible
+from swift.common.utils import streq_const_time, parse_content_disposition, \
+    parse_mime_headers, iter_multipart_mime_documents, reiterate, \
+    close_if_possible
+from swift.common.registry import register_swift_info
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized, wsgi_to_str, str_to_wsgi
 from swift.proxy.controllers.base import get_account_info, get_container_info

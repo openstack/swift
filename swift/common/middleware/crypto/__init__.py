@@ -20,7 +20,8 @@ instance of an :class:`~swift.common.middleware.crypto.encrypter.Encrypter`.
 from swift.common.middleware.crypto.decrypter import Decrypter
 from swift.common.middleware.crypto.encrypter import Encrypter
 
-from swift.common.utils import config_true_value, register_swift_info
+from swift.common.utils import config_true_value
+from swift.common.registry import register_swift_info
 
 
 def filter_factory(global_conf, **local_conf):

@@ -16,8 +16,8 @@
 import json
 from time import time
 
-from swift.common.utils import public, get_hmac, get_swift_info, \
-    streq_const_time
+from swift.common.utils import public, get_hmac, streq_const_time
+from swift.common.registry import get_swift_info
 from swift.proxy.controllers.base import Controller, delay_denial
 from swift.common.swob import HTTPOk, HTTPForbidden, HTTPUnauthorized
 

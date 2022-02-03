@@ -17,7 +17,8 @@ from swift import gettext_ as _
 
 import eventlet
 
-from swift.common.utils import cache_from_env, get_logger, register_swift_info
+from swift.common.utils import cache_from_env, get_logger
+from swift.common.registry import register_swift_info
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.constraints import valid_api_version
 from swift.common.memcached import MemcacheConnectionError

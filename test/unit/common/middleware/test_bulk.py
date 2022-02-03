@@ -29,7 +29,7 @@ from eventlet import sleep
 from mock import patch, call
 from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
-from swift.common import utils, constraints
+from swift.common import utils, constraints, registry
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import bulk
 from swift.common.swob import Request, Response, HTTPException, \
@@ -1035,12 +1035,12 @@ class TestConfig(unittest.TestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         bulk.filter_factory({})
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertTrue('bulk_upload' in swift_info)
         self.assertTrue(isinstance(
             swift_info['bulk_upload'].get('max_containers_per_extraction'),

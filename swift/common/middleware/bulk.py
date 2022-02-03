@@ -206,8 +206,8 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify, \
     bytes_to_wsgi, str_to_wsgi, wsgi_unquote, wsgi_quote, wsgi_to_str
-from swift.common.utils import get_logger, register_swift_info, \
-    StreamingPile
+from swift.common.utils import get_logger, StreamingPile
+from swift.common.registry import register_swift_info
 from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
 from swift.common.request_helpers import is_user_meta

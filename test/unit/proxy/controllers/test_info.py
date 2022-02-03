@@ -20,15 +20,15 @@ from mock import Mock
 
 from swift.proxy.controllers import InfoController
 from swift.proxy.server import Application as ProxyApp
-from swift.common import utils
+from swift.common import utils, registry
 from swift.common.swob import Request, HTTPException
 
 
 class TestInfoController(unittest.TestCase):
 
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def get_controller(self, expose_info=None, disallowed_sections=None,
                        admin_key=None):
@@ -54,8 +54,8 @@ class TestInfoController(unittest.TestCase):
 
     def test_get_info(self):
         controller = self.get_controller(expose_info=True)
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'GET'})
@@ -80,8 +80,8 @@ class TestInfoController(unittest.TestCase):
 
     def test_get_info_cors(self):
         controller = self.get_controller(expose_info=True)
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'GET'},
@@ -99,8 +99,8 @@ class TestInfoController(unittest.TestCase):
 
     def test_head_info(self):
         controller = self.get_controller(expose_info=True)
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'HEAD'})
@@ -111,9 +111,9 @@ class TestInfoController(unittest.TestCase):
     def test_disallow_info(self):
         controller = self.get_controller(expose_info=True,
                                          disallowed_sections=['foo2'])
-        utils._swift_info = {'foo': {'bar': 'baz'},
-                             'foo2': {'bar2': 'baz2'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'},
+                                'foo2': {'bar2': 'baz2'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'GET'})
@@ -128,8 +128,8 @@ class TestInfoController(unittest.TestCase):
 
     def test_disabled_admin_info(self):
         controller = self.get_controller(expose_info=True, admin_key='')
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
         sig = utils.get_hmac('GET', '/info', expires, '')
@@ -144,8 +144,8 @@ class TestInfoController(unittest.TestCase):
     def test_get_admin_info(self):
         controller = self.get_controller(expose_info=True,
                                          admin_key='secret-admin-key')
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
         sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
@@ -165,8 +165,8 @@ class TestInfoController(unittest.TestCase):
     def test_head_admin_info(self):
         controller = self.get_controller(expose_info=True,
                                          admin_key='secret-admin-key')
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
         sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
@@ -191,8 +191,8 @@ class TestInfoController(unittest.TestCase):
     def test_get_admin_info_invalid_method(self):
         controller = self.get_controller(expose_info=True,
                                          admin_key='secret-admin-key')
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
         sig = utils.get_hmac('HEAD', '/info', expires, 'secret-admin-key')
@@ -207,8 +207,8 @@ class TestInfoController(unittest.TestCase):
     def test_get_admin_info_invalid_expires(self):
         controller = self.get_controller(expose_info=True,
                                          admin_key='secret-admin-key')
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = 1
         sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
@@ -233,8 +233,8 @@ class TestInfoController(unittest.TestCase):
     def test_get_admin_info_invalid_path(self):
         controller = self.get_controller(expose_info=True,
                                          admin_key='secret-admin-key')
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
         sig = utils.get_hmac('GET', '/foo', expires, 'secret-admin-key')
@@ -249,8 +249,8 @@ class TestInfoController(unittest.TestCase):
     def test_get_admin_info_invalid_key(self):
         controller = self.get_controller(expose_info=True,
                                          admin_key='secret-admin-key')
-        utils._swift_info = {'foo': {'bar': 'baz'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
         sig = utils.get_hmac('GET', '/foo', expires, 'invalid-admin-key')
@@ -266,9 +266,9 @@ class TestInfoController(unittest.TestCase):
         controller = self.get_controller(expose_info=True,
                                          disallowed_sections=['foo2'],
                                          admin_key='secret-admin-key')
-        utils._swift_info = {'foo': {'bar': 'baz'},
-                             'foo2': {'bar2': 'baz2'}}
-        utils._swift_admin_info = {'qux': {'quux': 'corge'}}
+        registry._swift_info = {'foo': {'bar': 'baz'},
+                                'foo2': {'bar2': 'baz2'}}
+        registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
         sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')

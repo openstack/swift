@@ -23,8 +23,8 @@ from swift.common import swob
 from swift.common.http import HTTP_OK
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
-from swift.common.utils import json, public, config_true_value, Timestamp, \
-    get_swift_info
+from swift.common.utils import json, public, config_true_value, Timestamp
+from swift.common.registry import get_swift_info
 
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.etree import Element, SubElement, \

@@ -201,9 +201,10 @@ import json
 import os
 from cgi import parse_header
 
-from swift.common.utils import get_logger, register_swift_info, split_path, \
+from swift.common.utils import get_logger, split_path, \
     MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible, \
     config_true_value, drain_and_close
+from swift.common.registry import register_swift_info
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest, \
     make_pre_authed_request

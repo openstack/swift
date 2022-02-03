@@ -28,7 +28,7 @@ from six.moves.urllib.parse import unquote, quote
 import swift.common.middleware.s3api
 from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.keystoneauth import KeystoneAuth
-from swift.common import swob, utils
+from swift.common import swob, registry
 from swift.common.swob import Request
 from swift.common.utils import md5
 
@@ -759,15 +759,15 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_mfa(self):
         self._test_unsupported_header('x-amz-mfa')
 
-    @mock.patch.object(utils, '_swift_admin_info', new_callable=dict)
+    @mock.patch.object(registry, '_swift_admin_info', new_callable=dict)
     def test_server_side_encryption(self, mock_info):
         sse_header = 'x-amz-server-side-encryption'
         self._test_unsupported_header(sse_header, 'AES256')
         self._test_unsupported_header(sse_header, 'aws:kms')
-        utils.register_swift_info('encryption', admin=True, enabled=False)
+        registry.register_swift_info('encryption', admin=True, enabled=False)
         self._test_unsupported_header(sse_header, 'AES256')
         self._test_unsupported_header(sse_header, 'aws:kms')
-        utils.register_swift_info('encryption', admin=True, enabled=True)
+        registry.register_swift_info('encryption', admin=True, enabled=True)
         # AES256 now works
         self.swift.register('PUT', '/v1/AUTH_X/bucket/object',
                             swob.HTTPCreated, {}, None)
@@ -870,7 +870,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_registered_defaults(self):
         conf_from_file = {k: str(v) for k, v in self.conf.items()}
         filter_factory(conf_from_file)
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertTrue('s3api' in swift_info)
         self.assertEqual(swift_info['s3api'].get('max_bucket_listing'),
                          self.conf['max_bucket_listing'])

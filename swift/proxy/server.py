@@ -34,8 +34,9 @@ from swift.common.ring import Ring
 from swift.common.utils import Watchdog, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
-    register_swift_info, parse_prefixed_conf, config_auto_int_value, \
+    parse_prefixed_conf, config_auto_int_value, \
     config_request_node_count_value, config_percent_value
+from swift.common.registry import register_swift_info
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController

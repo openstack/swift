@@ -26,7 +26,7 @@ import unittest
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import name_check
-from swift.common import utils
+from swift.common import registry
 
 MAX_LENGTH = 255
 FORBIDDEN_CHARS = '\'\"<>`'
@@ -117,12 +117,12 @@ class TestNameCheckMiddleware(unittest.TestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         name_check.filter_factory({})(FakeApp())
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertTrue('name_check' in swift_info)
         self.assertTrue(isinstance(
             swift_info['name_check'].get('maximum_length'),
@@ -139,7 +139,7 @@ class TestSwiftInfo(unittest.TestCase):
                 'forbidden_chars': '\'\"`',
                 'forbidden_regexp': r"/\./|/\.\./|/\.$"}
         name_check.filter_factory(conf)(FakeApp())
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertTrue('name_check' in swift_info)
         self.assertEqual(swift_info['name_check'].get('maximum_length'), 512)
         self.assertEqual(set(swift_info['name_check'].get('forbidden_chars')),
