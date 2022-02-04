@@ -125,7 +125,7 @@ class ContainerController(Controller):
             shard_ranges.reverse()
         return json.dumps([dict(sr) for sr in shard_ranges]).encode('ascii')
 
-    def _GET_using_cache(self, req):
+    def _GET_using_cache(self, req, info):
         # It may be possible to fulfil the request from cache: we only reach
         # here if request record_type is 'shard' or 'auto', so if the container
         # state is 'sharded' then look for cached shard ranges. However, if
@@ -134,12 +134,7 @@ class ContainerController(Controller):
         if get_newest:
             self.logger.debug(
                 'Skipping shard cache lookup (x-newest) for %s', req.path_qs)
-            info = None
-        else:
-            info = _get_info_from_caches(self.app, req.environ,
-                                         self.account_name,
-                                         self.container_name)
-        if (info and is_success(info['status']) and
+        elif (info and is_success(info['status']) and
                 info.get('sharding_state') == 'sharded'):
             # container is sharded so we may have the shard ranges cached
             headers = headers_from_container_info(info)
@@ -267,23 +262,56 @@ class ContainerController(Controller):
         req.params = params
 
         memcache = cache_from_env(req.environ, True)
-        if (req.method == 'GET' and
-                record_type != 'object' and
-                self.app.recheck_listing_shard_ranges > 0 and
-                memcache and
-                get_param(req, 'states') == 'listing' and
-                not config_true_value(
+        if (req.method == 'GET'
+                and get_param(req, 'states') == 'listing'
+                and record_type != 'object'):
+            may_get_listing_shards = True
+            info = _get_info_from_caches(self.app, req.environ,
+                                         self.account_name,
+                                         self.container_name)
+        else:
+            info = None
+            may_get_listing_shards = False
+
+        if (may_get_listing_shards and
+                self.app.recheck_listing_shard_ranges > 0
+                and memcache
+                and not config_true_value(
                     req.headers.get('x-backend-include-deleted', False))):
             # This GET might be served from cache or might populate cache.
             # 'x-backend-include-deleted' is not usually expected in requests
             # to the proxy (it is used from sharder to container servers) but
             # it is included in the conditions just in case because we don't
             # cache deleted shard ranges.
-            resp = self._GET_using_cache(req)
+            resp = self._GET_using_cache(req, info)
         else:
             resp = self._GETorHEAD_from_backend(req)
 
         resp_record_type = resp.headers.get('X-Backend-Record-Type', '')
+        cached_results = config_true_value(
+            resp.headers.get('x-backend-cached-results'))
+
+        if may_get_listing_shards and not cached_results:
+            if is_success(resp.status_int):
+                if resp_record_type == 'shard':
+                    # We got shard ranges from backend so increment the success
+                    # metric. Note: it's possible that later we find that shard
+                    # ranges can't be parsed
+                    self.logger.increment(
+                        'shard_listing.backend.%s' % resp.status_int)
+            elif info:
+                if (is_success(info['status'])
+                        and info.get('sharding_state') == 'sharded'):
+                    # We expected to get shard ranges from backend, but the
+                    # request failed. We can't be sure that the container is
+                    # sharded but we assume info was correct and increment the
+                    # failure metric
+                    self.logger.increment(
+                        'shard_listing.backend.%s' % resp.status_int)
+            # else:
+            #  The request failed, but in the absence of info we cannot assume
+            #  the container is sharded, so we don't increment the metric
+
         if all((req.method == "GET", record_type == 'auto',
                resp_record_type.lower() == 'shard')):
             resp = self._get_from_shards(req, resp)
