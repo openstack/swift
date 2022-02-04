@@ -145,14 +145,6 @@ require accuracy (``sample_rate=1``) while others may not.
 Then the LogAdapter object returned by ``get_logger()``, usually stored
 in ``self.logger``, has these new methods:
 
--  ``set_statsd_prefix(self, prefix)`` Sets the client library stat
-   prefix value which gets prefixed to every meter. The default prefix
-   is the ``name`` of the logger such as ``object-server``,
-   ``container-auditor``, and so on. This is currently used to turn
-   ``proxy-server`` into one of ``proxy-server.Account``,
-   ``proxy-server.Container``, or ``proxy-server.Object`` as soon as the
-   Controller object is determined and instantiated for the request.
-
 -  ``update_stats(self, metric, amount, sample_rate=1)`` Increments
    the supplied meter by the given amount. This is used when you need
    to add or subtract more that one from a counter, like incrementing

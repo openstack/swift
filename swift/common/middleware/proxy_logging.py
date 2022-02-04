@@ -133,8 +133,8 @@ class ProxyLoggingMiddleware(object):
                 access_log_conf[key] = value
         self.access_logger = logger or get_logger(
             access_log_conf,
-            log_route=conf.get('access_log_route', 'proxy-access'))
-        self.access_logger.set_statsd_prefix('proxy-server')
+            log_route=conf.get('access_log_route', 'proxy-access'),
+            statsd_tail_prefix='proxy-server')
         self.reveal_sensitive_prefix = int(
             conf.get('reveal_sensitive_prefix', 16))
         self.check_log_msg_template_validity()

@@ -209,13 +209,14 @@ class TempAuth(object):
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
-        self.logger = get_logger(conf, log_route='tempauth')
-        self.log_headers = config_true_value(conf.get('log_headers', 'f'))
         self.reseller_prefixes, self.account_rules = \
             config_read_reseller_options(conf, dict(require_group=''))
         self.reseller_prefix = self.reseller_prefixes[0]
-        self.logger.set_statsd_prefix('tempauth.%s' % (
-            self.reseller_prefix if self.reseller_prefix else 'NONE',))
+        statsd_tail_prefix = 'tempauth.%s' % (
+            self.reseller_prefix if self.reseller_prefix else 'NONE',)
+        self.logger = get_logger(conf, log_route='tempauth',
+                                 statsd_tail_prefix=statsd_tail_prefix)
+        self.log_headers = config_true_value(conf.get('log_headers', 'f'))
         self.auth_prefix = conf.get('auth_prefix', '/auth/')
         if not self.auth_prefix or not self.auth_prefix.strip('/'):
             self.logger.warning('Rewriting invalid auth prefix "%s" to '

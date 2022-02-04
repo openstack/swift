@@ -196,10 +196,10 @@ class Application(object):
         if conf is None:
             conf = {}
         if logger is None:
-            self.logger = get_logger(conf, log_route='proxy-server')
+            self.logger = get_logger(conf, log_route='proxy-server',
+                                     statsd_tail_prefix='proxy-server')
         else:
             self.logger = logger
-        self.logger.set_statsd_prefix('proxy-server')
         self._error_limiting = {}
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
