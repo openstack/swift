@@ -304,7 +304,7 @@ class UploadsController(Controller):
 
         query = {
             'format': 'json',
-            'limit': maxuploads + 1,
+            'marker': '',
         }
 
         if uploadid and keymarker:
@@ -315,12 +315,8 @@ class UploadsController(Controller):
             query.update({'prefix': req.params['prefix']})
 
         container = req.container_name + MULTIUPLOAD_SUFFIX
-        try:
-            resp = req.get_response(self.app, container=container, query=query)
-            objects = json.loads(resp.body)
-        except NoSuchBucket:
-            # Assume NoSuchBucket as no uploads
-            objects = []
+        uploads = []
+        prefixes = []
 
         def object_to_upload(object_info):
             obj, upid = object_info['name'].rsplit('/', 1)
@@ -329,24 +325,36 @@ class UploadsController(Controller):
                         'last_modified': object_info['last_modified']}
             return obj_dict
 
-        # uploads is a list consists of dict, {key, upload_id, last_modified}
-        # Note that pattern matcher will drop whole segments objects like as
-        # object_name/upload_id/1.
-        pattern = re.compile('/[0-9]+$')
-        uploads = [object_to_upload(obj) for obj in objects if
-                   pattern.search(obj.get('name', '')) is None]
+        is_part = re.compile('/[0-9]+$')
+        while len(uploads) < maxuploads:
+            try:
+                resp = req.get_response(self.app, container=container,
+                                        query=query)
+                objects = json.loads(resp.body)
+            except NoSuchBucket:
+                # Assume NoSuchBucket as no uploads
+                objects = []
+            if not objects:
+                break
 
-        prefixes = []
-        if 'delimiter' in req.params:
-            prefix = req.params.get('prefix', '')
-            delimiter = req.params['delimiter']
-            uploads, prefixes = separate_uploads(uploads, prefix, delimiter)
+            new_uploads = [object_to_upload(obj) for obj in objects if
+                           is_part.search(obj.get('name', '')) is None]
+            new_prefixes = []
+            if 'delimiter' in req.params:
+                prefix = req.params.get('prefix', '')
+                delimiter = req.params['delimiter']
+                new_uploads, new_prefixes = separate_uploads(
+                    new_uploads, prefix, delimiter)
+            uploads.extend(new_uploads)
+            prefixes.extend(new_prefixes)
+            if six.PY2:
+                query['marker'] = objects[-1]['name'].encode('utf-8')
+            else:
+                query['marker'] = objects[-1]['name']
 
+        truncated = len(uploads) >= maxuploads
         if len(uploads) > maxuploads:
             uploads = uploads[:maxuploads]
-            truncated = True
-        else:
-            truncated = False
 
         nextkeymarker = ''
         nextuploadmarker = ''

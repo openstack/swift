@@ -20,7 +20,7 @@ from mock import patch
 import os
 import time
 import unittest
-from six.moves.urllib.parse import quote, quote_plus
+from six.moves.urllib.parse import parse_qs, quote, quote_plus
 
 from swift.common import swob
 from swift.common.swob import Request
@@ -68,7 +68,12 @@ MULTIPARTS_TEMPLATE = \
      ('subdir/object/Z/1', '2014-05-07T19:47:58.592270', '0123456789abcdef',
       41),
      ('subdir/object/Z/2', '2014-05-07T19:47:58.592270', 'fedcba9876543210',
-      41))
+      41),
+     # NB: wsgi strings
+     ('subdir/object/completed\xe2\x98\x83/W/1', '2014-05-07T19:47:58.592270',
+      '0123456789abcdef', 41),
+     ('subdir/object/completed\xe2\x98\x83/W/2', '2014-05-07T19:47:58.592270',
+      'fedcba9876543210', 41))
 
 S3_ETAG = '"%s-2"' % md5(binascii.a2b_hex(
     '0123456789abcdef0123456789abcdef'
@@ -96,6 +101,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         # default to just returning everybody...
         self.swift.register('GET', self.segment_bucket, swob.HTTPOk, {},
                             json.dumps(objects))
+        self.swift.register('GET', '%s?format=json&marker=%s' % (
+                            self.segment_bucket, objects[-1]['name']),
+                            swob.HTTPOk, {}, json.dumps([]))
         # but for the listing when aborting an upload, break it up into pages
         self.swift.register(
             'GET', '%s?delimiter=/&format=json&marker=&prefix=object/X/' % (
@@ -201,16 +209,35 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidRequest')
 
-    def _test_bucket_multipart_uploads_GET(self, query=None,
+    def _test_bucket_multipart_uploads_GET(self, query='',
                                            multiparts=None):
-        segment_bucket = '/v1/AUTH_test/bucket+segments'
         objects = multiparts or MULTIPARTS_TEMPLATE
         objects = [{'name': item[0], 'last_modified': item[1],
                     'hash': item[2], 'bytes': item[3]}
                    for item in objects]
         object_list = json.dumps(objects).encode('ascii')
-        self.swift.register('GET', segment_bucket, swob.HTTPOk, {},
-                            object_list)
+        query_parts = parse_qs(query)
+        swift_query = {'format': 'json'}
+        if 'upload-id-marker' in query_parts and 'key-marker' in query_parts:
+            swift_query['marker'] = '%s/%s' % (
+                query_parts['key-marker'][0],
+                query_parts['upload-id-marker'][0])
+        elif 'key-marker' in query_parts:
+            swift_query['marker'] = '%s/~' % (query_parts['key-marker'][0])
+        if 'prefix' in query_parts:
+            swift_query['prefix'] = query_parts['prefix'][0]
+
+        self.swift.register(
+            'GET', '%s?%s' % (self.segment_bucket,
+                              '&'.join(['%s=%s' % (k, v)
+                                        for k, v in swift_query.items()])),
+            swob.HTTPOk, {}, object_list)
+        swift_query['marker'] = objects[-1]['name']
+        self.swift.register(
+            'GET', '%s?%s' % (self.segment_bucket,
+                              '&'.join(['%s=%s' % (k, v)
+                                        for k, v in swift_query.items()])),
+            swob.HTTPOk, {}, json.dumps([]))
 
         query = '?uploads&' + query if query else '?uploads'
         req = Request.blank('/bucket/%s' % query,
@@ -218,6 +245,59 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         return self.call_s3api(req)
+
+    def test_bucket_multipart_uploads_GET_paginated(self):
+        uploads = [
+            ['object/abc'] + ['object/abc/%d' % i for i in range(1, 1000)],
+            ['object/def'] + ['object/def/%d' % i for i in range(1, 1000)],
+            ['object/ghi'] + ['object/ghi/%d' % i for i in range(1, 1000)],
+        ]
+
+        objects = [
+            {'name': name, 'last_modified': '2014-05-07T19:47:50.592270',
+             'hash': 'HASH', 'bytes': 42}
+            for upload in uploads for name in upload
+        ]
+        end = 1000
+        while True:
+            if end == 1000:
+                self.swift.register(
+                    'GET', '%s?format=json' % (self.segment_bucket),
+                    swob.HTTPOk, {}, json.dumps(objects[:end]))
+            else:
+                self.swift.register(
+                    'GET', '%s?format=json&marker=%s' % (
+                        self.segment_bucket, objects[end - 1001]['name']),
+                    swob.HTTPOk, {}, json.dumps(objects[end - 1000:end]))
+            if not objects[end - 1000:end]:
+                break
+            end += 1000
+        req = Request.blank('/bucket/?uploads',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'ListMultipartUploadsResult')
+        self.assertEqual(elem.find('Bucket').text, 'bucket')
+        self.assertIsNone(elem.find('KeyMarker').text)
+        self.assertIsNone(elem.find('UploadIdMarker').text)
+        self.assertEqual(elem.find('NextUploadIdMarker').text, 'ghi')
+        self.assertEqual(elem.find('MaxUploads').text, '1000')
+        self.assertEqual(elem.find('IsTruncated').text, 'false')
+        self.assertEqual(len(elem.findall('Upload')), len(uploads))
+        expected_uploads = [(upload[0], '2014-05-07T19:47:50.592Z')
+                            for upload in uploads]
+        for u in elem.findall('Upload'):
+            name = u.find('Key').text + '/' + u.find('UploadId').text
+            initiated = u.find('Initiated').text
+            self.assertIn((name, initiated), expected_uploads)
+            self.assertEqual(u.find('Initiator/ID').text, 'test:tester')
+            self.assertEqual(u.find('Initiator/DisplayName').text,
+                             'test:tester')
+            self.assertEqual(u.find('Owner/ID').text, 'test:tester')
+            self.assertEqual(u.find('Owner/DisplayName').text, 'test:tester')
+            self.assertEqual(u.find('StorageClass').text, 'STANDARD')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl
     def test_bucket_multipart_uploads_GET(self):
@@ -361,8 +441,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEqual(query['format'], 'json')
-        self.assertEqual(query['limit'], '1001')
-        self.assertEqual(query['marker'], quote_plus('object/Y'))
+        self.assertEqual(query['marker'], quote_plus('object/Y/2'))
 
     @s3acl
     def test_bucket_multipart_uploads_GET_with_key_marker(self):
@@ -395,8 +474,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEqual(query['format'], 'json')
-        self.assertEqual(query['limit'], '1001')
-        self.assertEqual(query['marker'], quote_plus('object/~'))
+        self.assertEqual(query['marker'], quote_plus('object/Y/2'))
 
     @s3acl
     def test_bucket_multipart_uploads_GET_with_prefix(self):
@@ -423,7 +501,6 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEqual(query['format'], 'json')
-        self.assertEqual(query['limit'], '1001')
         self.assertEqual(query['prefix'], 'X')
 
     @s3acl
@@ -474,7 +551,6 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEqual(query['format'], 'json')
-        self.assertEqual(query['limit'], '1001')
         self.assertTrue(query.get('delimiter') is None)
 
     @s3acl
@@ -524,7 +600,6 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEqual(query['format'], 'json')
-        self.assertEqual(query['limit'], '1001')
         self.assertTrue(query.get('delimiter') is None)
 
     @s3acl
@@ -565,7 +640,6 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEqual(query['format'], 'json')
-        self.assertEqual(query['limit'], '1001')
         self.assertEqual(query['prefix'], quote_plus('dir/'))
         self.assertTrue(query.get('delimiter') is None)
 
