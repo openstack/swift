@@ -93,6 +93,8 @@ class FakeSwift(object):
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
         self.get_object_ring = lambda policy_index: FakeRing()
+        self.auto_create_account_prefix = '.'
+        self._pipeline_final_app = self
 
     def _find_response(self, method, path):
         path = normalize_path(path)

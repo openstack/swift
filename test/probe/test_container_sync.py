@@ -890,7 +890,7 @@ class TestContainerSyncAndVersioning(BaseTestContainerSync):
         int_client = self.make_internal_client()
         # TODO: what a terrible hack, maybe we need to extend internal
         # client to allow caller to become a swift_owner??
-        int_client.app.app.app.app.swift_owner_headers = []
+        int_client.app._pipeline_final_app.swift_owner_headers = []
         int_client.set_container_metadata(self.account, container_name,
                                           metadata=sync_headers)
 

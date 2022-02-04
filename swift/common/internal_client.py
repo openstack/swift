@@ -25,14 +25,13 @@ import zlib
 from time import gmtime, strftime, time
 from zlib import compressobj
 
-from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.exceptions import ClientException
 from swift.common.http import (HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES,
                                is_client_error, is_server_error)
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.swob import Request, bytes_to_wsgi
 from swift.common.utils import quote, close_if_possible, drain_and_close
-from swift.common.wsgi import loadapp, pipeline_property
+from swift.common.wsgi import loadapp
 
 if six.PY3:
     from eventlet.green.urllib import request as urllib2
@@ -148,24 +147,24 @@ class InternalClient(object):
     :param global_conf: a dict of options to update the loaded proxy config.
         Options in ``global_conf`` will override those in ``conf_path`` except
         where the ``conf_path`` option is preceded by ``set``.
+    :param app: Optionally provide a WSGI app for the internal client to use.
     """
 
     def __init__(self, conf_path, user_agent, request_tries,
                  allow_modify_pipeline=False, use_replication_network=False,
-                 global_conf=None):
+                 global_conf=None, app=None):
         if request_tries < 1:
             raise ValueError('request_tries must be positive')
-        self.app = loadapp(conf_path, global_conf=global_conf,
-                           allow_modify_pipeline=allow_modify_pipeline,)
+        self.app = app or loadapp(conf_path, global_conf=global_conf,
+                                  allow_modify_pipeline=allow_modify_pipeline,)
         self.user_agent = user_agent
         self.request_tries = request_tries
         self.use_replication_network = use_replication_network
-
-    get_object_ring = pipeline_property('get_object_ring')
-    container_ring = pipeline_property('container_ring')
-    account_ring = pipeline_property('account_ring')
-    auto_create_account_prefix = pipeline_property(
-        'auto_create_account_prefix', default=AUTO_CREATE_ACCOUNT_PREFIX)
+        self.get_object_ring = self.app._pipeline_final_app.get_object_ring
+        self.container_ring = self.app._pipeline_final_app.container_ring
+        self.account_ring = self.app._pipeline_final_app.account_ring
+        self.auto_create_account_prefix = \
+            self.app._pipeline_final_app.auto_create_account_prefix
 
     def make_request(
             self, method, path, headers, acceptable_statuses, body_file=None,

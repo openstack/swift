@@ -86,9 +86,7 @@ def make_path_info(account, container=None, obj=None):
 
 def get_client_app():
     app = FakeSwift()
-    with mock.patch('swift.common.internal_client.loadapp',
-                    new=lambda *args, **kwargs: app):
-        client = internal_client.InternalClient({}, 'test', 1)
+    client = internal_client.InternalClient({}, 'test', 1, app=app)
     return client, app
 
 
@@ -380,7 +378,7 @@ class TestInternalClient(unittest.TestCase):
 
     def test_init(self):
         conf_path = 'some_path'
-        app = object()
+        app = FakeSwift()
 
         user_agent = 'some_user_agent'
         request_tries = 123
@@ -405,28 +403,18 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(request_tries, client.request_tries)
         self.assertFalse(client.use_replication_network)
 
-        with mock.patch.object(
-                internal_client, 'loadapp', return_value=app) as mock_loadapp:
-            client = internal_client.InternalClient(
-                conf_path, user_agent, request_tries,
-                use_replication_network=True)
-
-        mock_loadapp.assert_called_once_with(
-            conf_path, global_conf=None, allow_modify_pipeline=False)
+        client = internal_client.InternalClient(
+            conf_path, user_agent, request_tries, app=app,
+            use_replication_network=True)
         self.assertEqual(app, client.app)
         self.assertEqual(user_agent, client.user_agent)
         self.assertEqual(request_tries, client.request_tries)
         self.assertTrue(client.use_replication_network)
 
         global_conf = {'log_name': 'custom'}
-        with mock.patch.object(
-                internal_client, 'loadapp', return_value=app) as mock_loadapp:
-            client = internal_client.InternalClient(
-                conf_path, user_agent, request_tries,
-                use_replication_network=True, global_conf=global_conf)
-
-        mock_loadapp.assert_called_once_with(
-            conf_path, global_conf=global_conf, allow_modify_pipeline=False)
+        client = internal_client.InternalClient(
+            conf_path, user_agent, request_tries, app=app,
+            use_replication_network=True, global_conf=global_conf)
         self.assertEqual(app, client.app)
         self.assertEqual(user_agent, client.user_agent)
         self.assertEqual(request_tries, client.request_tries)
