@@ -2526,7 +2526,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
         safe_iter = utils.GreenthreadSafeIterator(self.app.iter_nodes(
-            self.policy.object_ring, 0, policy=self.policy))
+            self.policy.object_ring, 0, self.logger, policy=self.policy))
         controller._fragment_GET_request = lambda *a, **k: next(safe_iter)
         pile = utils.GreenAsyncPile(self.policy.ec_ndata)
         for i in range(self.policy.ec_ndata):

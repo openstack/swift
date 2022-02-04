@@ -22,6 +22,7 @@ from swift.proxy.controllers import InfoController
 from swift.proxy.server import Application as ProxyApp
 from swift.common import utils
 from swift.common.swob import Request, HTTPException
+from test.debug_logger import debug_logger
 
 
 class TestInfoController(unittest.TestCase):
@@ -34,7 +35,7 @@ class TestInfoController(unittest.TestCase):
                        admin_key=None):
         disallowed_sections = disallowed_sections or []
 
-        app = Mock(spec=ProxyApp)
+        app = Mock(spec=ProxyApp, logger=debug_logger())
         return InfoController(app, None, expose_info,
                               disallowed_sections, admin_key)
 

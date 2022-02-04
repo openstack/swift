@@ -101,7 +101,8 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         concurrency = self.app.container_ring.replica_count \
             if self.app.get_policy_options(None).concurrent_gets else 1
-        node_iter = self.app.iter_nodes(self.app.container_ring, part)
+        node_iter = self.app.iter_nodes(self.app.container_ring, part,
+                                        self.logger)
         resp = self.GETorHEAD_base(
             req, 'Container', node_iter, part,
             req.swift_entity_path, concurrency)
@@ -131,7 +132,7 @@ class ContainerController(Controller):
         # X-Newest is true then we always fetch from the backend servers.
         get_newest = config_true_value(req.headers.get('x-newest', False))
         if get_newest:
-            self.app.logger.debug(
+            self.logger.debug(
                 'Skipping shard cache lookup (x-newest) for %s', req.path_qs)
             info = None
         else:
@@ -154,17 +155,17 @@ class ContainerController(Controller):
                     skip_chance = \
                         self.app.container_listing_shard_ranges_skip_cache
                     if skip_chance and random.random() < skip_chance:
-                        self.app.logger.increment('shard_listing.cache.skip')
+                        self.logger.increment('shard_listing.cache.skip')
                     else:
                         cached_ranges = memcache.get(cache_key)
-                        self.app.logger.increment('shard_listing.cache.%s' % (
+                        self.logger.increment('shard_listing.cache.%s' % (
                             'hit' if cached_ranges else 'miss'))
 
                 if cached_ranges is not None:
                     infocache[cache_key] = tuple(cached_ranges)
                     # shard ranges can be returned from cache
-                    self.app.logger.debug('Found %d shards in cache for %s',
-                                          len(cached_ranges), req.path_qs)
+                    self.logger.debug('Found %d shards in cache for %s',
+                                      len(cached_ranges), req.path_qs)
                     headers.update({'x-backend-record-type': 'shard',
                                     'x-backend-cached-results': 'true'})
                     shard_range_body = self._filter_resp_shard_ranges(
@@ -224,8 +225,8 @@ class ContainerController(Controller):
                     memcache = cache_from_env(req.environ, True)
                     if memcache and cached_ranges:
                         # cache in memcache only if shard ranges as expected
-                        self.app.logger.debug('Caching %d shards for %s',
-                                              len(cached_ranges), req.path_qs)
+                        self.logger.debug('Caching %d shards for %s',
+                                          len(cached_ranges), req.path_qs)
                         memcache.set(
                             cache_key, cached_ranges,
                             time=self.app.recheck_listing_shard_ranges)
@@ -340,8 +341,8 @@ class ContainerController(Controller):
         shard_listing_history.append((self.account_name, self.container_name))
         shard_ranges = [ShardRange.from_dict(data)
                         for data in json.loads(resp.body)]
-        self.app.logger.debug('GET listing from %s shards for: %s',
-                              len(shard_ranges), req.path_qs)
+        self.logger.debug('GET listing from %s shards for: %s',
+                          len(shard_ranges), req.path_qs)
         if not shard_ranges:
             # can't find ranges or there was a problem getting the ranges. So
             # return what we have.
@@ -404,7 +405,7 @@ class ContainerController(Controller):
                     if just_past < shard_range:
                         continue
 
-            self.app.logger.debug(
+            self.logger.debug(
                 'Getting listing part %d from shard %s %s with %s',
                 i, shard_range, shard_range.name, headers)
             objs, shard_resp = self._get_container_listing(
@@ -417,7 +418,7 @@ class ContainerController(Controller):
 
             if objs is None:
                 # give up if any non-success response from shard containers
-                self.app.logger.error(
+                self.logger.error(
                     'Aborting listing from shards due to bad response: %r'
                     % all_resp_status)
                 return HTTPServiceUnavailable(request=req)
@@ -426,12 +427,12 @@ class ContainerController(Controller):
                 shard_resp.headers[policy_key]
             )
             if shard_policy != req.headers[policy_key]:
-                self.app.logger.error(
+                self.logger.error(
                     'Aborting listing from shards due to bad shard policy '
                     'index: %s (expected %s)',
                     shard_policy, req.headers[policy_key])
                 return HTTPServiceUnavailable(request=req)
-            self.app.logger.debug(
+            self.logger.debug(
                 'Found %d objects in shard (state=%s), total = %d',
                 len(objs), sharding_state, len(objs) + len(objects))
 
@@ -457,7 +458,7 @@ class ContainerController(Controller):
         constrained = any(req.params.get(constraint) for constraint in (
             'marker', 'end_marker', 'path', 'prefix', 'delimiter'))
         if not constrained and len(objects) < req_limit:
-            self.app.logger.debug('Setting object count to %s' % len(objects))
+            self.logger.debug('Setting object count to %s' % len(objects))
             # prefer the actual listing stats over the potentially outdated
             # root stats. This condition is only likely when a sharded
             # container is shrinking or in tests; typically a sharded container

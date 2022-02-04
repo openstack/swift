@@ -34,7 +34,8 @@ class FakeApp(object):
     def __call__(self, env, start_response):
         if env.get('PATH_INFO') == '/info':
             controller = InfoController(
-                app=None, version=None, expose_info=True,
+                app=mock.Mock(logger=debug_logger()),
+                version=None, expose_info=True,
                 disallowed_sections=[], admin_key=None)
             handler = getattr(controller, env.get('REQUEST_METHOD'))
             return handler(swob.Request(env))(env, start_response)

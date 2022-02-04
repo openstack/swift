@@ -6369,6 +6369,71 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                 self.assertEqual(called, [12345])
 
 
+class TestSwiftLoggerAdapter(unittest.TestCase):
+    @reset_logger_state
+    def test_thread_locals(self):
+        logger = utils.get_logger({}, 'foo')
+        adapter1 = utils.SwiftLoggerAdapter(logger, {})
+        adapter2 = utils.SwiftLoggerAdapter(logger, {})
+        locals1 = ('tx_123', '1.2.3.4')
+        adapter1.thread_locals = locals1
+        self.assertEqual(adapter1.thread_locals, locals1)
+        self.assertEqual(adapter2.thread_locals, locals1)
+        self.assertEqual(logger.thread_locals, locals1)
+
+        locals2 = ('tx_456', '1.2.3.456')
+        logger.thread_locals = locals2
+        self.assertEqual(adapter1.thread_locals, locals2)
+        self.assertEqual(adapter2.thread_locals, locals2)
+        self.assertEqual(logger.thread_locals, locals2)
+        logger.thread_locals = (None, None)
+
+    def test_exception(self):
+        # verify that the adapter routes exception calls to utils.LogAdapter
+        # for special case handling
+        logger = utils.get_logger({})
+        adapter = utils.SwiftLoggerAdapter(logger, {})
+        try:
+            raise OSError(errno.ECONNREFUSED, 'oserror')
+        except OSError:
+            with mock.patch('logging.LoggerAdapter.error') as mocked:
+                adapter.exception('Caught')
+        mocked.assert_called_with('Caught: Connection refused')
+
+
+class TestMetricsPrefixLoggerAdapter(unittest.TestCase):
+    def test_metric_prefix(self):
+        logger = utils.get_logger({}, 'logger_name')
+        adapter1 = utils.MetricsPrefixLoggerAdapter(logger, {}, 'one')
+        adapter2 = utils.MetricsPrefixLoggerAdapter(logger, {}, 'two')
+        adapter3 = utils.SwiftLoggerAdapter(logger, {})
+        self.assertEqual('logger_name', logger.name)
+        self.assertEqual('logger_name', adapter1.logger.name)
+        self.assertEqual('logger_name', adapter2.logger.name)
+        self.assertEqual('logger_name', adapter3.logger.name)
+
+        with mock.patch.object(logger, 'increment') as mock_increment:
+            adapter1.increment('test1')
+            adapter2.increment('test2')
+            adapter3.increment('test3')
+            logger.increment('test')
+        self.assertEqual(
+            [mock.call('one.test1'), mock.call('two.test2'),
+             mock.call('test3'), mock.call('test')],
+            mock_increment.call_args_list)
+
+        adapter1.metric_prefix = 'not one'
+        with mock.patch.object(logger, 'increment') as mock_increment:
+            adapter1.increment('test1')
+            adapter2.increment('test2')
+            adapter3.increment('test3')
+            logger.increment('test')
+        self.assertEqual(
+            [mock.call('not one.test1'), mock.call('two.test2'),
+             mock.call('test3'), mock.call('test')],
+            mock_increment.call_args_list)
+
+
 class TestAuditLocationGenerator(unittest.TestCase):
 
     def test_drive_tree_access(self):
