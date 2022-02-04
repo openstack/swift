@@ -345,9 +345,10 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     RESPONSE_REASONS, str_to_wsgi, bytes_to_wsgi, wsgi_to_str, wsgi_quote
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
-    register_swift_info, RateLimitedIterator, quote, close_if_possible, \
-    closing_if_possible, LRUCache, StreamingPile, strict_b64decode, \
-    Timestamp, drain_and_close, get_expirer_container, md5
+    RateLimitedIterator, quote, close_if_possible, closing_if_possible, \
+    LRUCache, StreamingPile, strict_b64decode, Timestamp, drain_and_close, \
+    get_expirer_container, md5
+from swift.common.registry import register_swift_info
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
     get_container_update_override_key, update_ignore_range_header

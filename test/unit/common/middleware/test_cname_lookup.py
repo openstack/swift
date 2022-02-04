@@ -24,7 +24,7 @@ except ImportError:
     skip = True
 else:  # executed if the try has no errors
     skip = False
-from swift.common import utils
+from swift.common import registry
 from swift.common.middleware import cname_lookup
 from swift.common.swob import Request, HTTPMovedPermanently
 
@@ -437,17 +437,17 @@ class TestCNAMELookup(unittest.TestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         cname_lookup.filter_factory({})
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('cname_lookup', swift_info)
         self.assertEqual(swift_info['cname_lookup'].get('lookup_depth'), 1)
 
     def test_registered_nondefaults(self):
         cname_lookup.filter_factory({'lookup_depth': '2'})
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('cname_lookup', swift_info)
         self.assertEqual(swift_info['cname_lookup'].get('lookup_depth'), 2)

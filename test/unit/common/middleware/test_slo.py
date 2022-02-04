@@ -24,7 +24,7 @@ from mock import patch
 import six
 from io import BytesIO
 
-from swift.common import swob, utils
+from swift.common import swob, registry
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import slo
 from swift.common.swob import Request, HTTPException, str_to_wsgi, \
@@ -4534,12 +4534,12 @@ class TestSloBulkDeleter(unittest.TestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         mware = slo.filter_factory({})('have to pass in an app')
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertTrue('slo' in swift_info)
         self.assertEqual(swift_info['slo'].get('max_manifest_segments'),
                          mware.max_manifest_segments)
@@ -4564,7 +4564,7 @@ class TestSwiftInfo(unittest.TestCase):
             rate_limit_segments_per_sec=2, yield_frequency=5, concurrency=1,
             delete_concurrency=3, allow_async_delete='y')
         mware = slo.filter_factory(conf)('have to pass in an app')
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertTrue('slo' in swift_info)
         self.assertEqual(swift_info['slo'].get('max_manifest_segments'), 500)
         self.assertEqual(swift_info['slo'].get('min_segment_size'), 1)

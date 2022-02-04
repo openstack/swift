@@ -25,8 +25,8 @@ from swift.common.middleware.versioned_writes. \
 from swift.common.middleware.versioned_writes. \
     object_versioning import ObjectVersioningMiddleware
 
-from swift.common.utils import config_true_value, register_swift_info, \
-    get_swift_info
+from swift.common.utils import config_true_value
+from swift.common.registry import register_swift_info, get_swift_info
 
 
 def filter_factory(global_conf, **local_conf):

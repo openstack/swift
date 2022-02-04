@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.utils import public, get_swift_info, config_true_value
+from swift.common.utils import public, config_true_value
+from swift.common.registry import get_swift_info
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation

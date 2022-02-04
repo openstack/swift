@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from swift.common.swob import Request, Response
-from swift.common.utils import register_swift_info
+from swift.common.registry import register_swift_info
 
 
 class CrossDomainMiddleware(object):

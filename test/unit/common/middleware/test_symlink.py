@@ -25,7 +25,8 @@ from swift.common.middleware import symlink, copy, versioned_writes, \
     listing_formats
 from swift.common.swob import Request
 from swift.common.request_helpers import get_reserved_name
-from swift.common.utils import MD5_OF_EMPTY_STRING, get_swift_info
+from swift.common.utils import MD5_OF_EMPTY_STRING
+from swift.common.registry import get_swift_info
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.common.middleware.test_versioned_writes import FakeCache
 

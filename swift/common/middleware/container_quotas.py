@@ -54,7 +54,7 @@ For example::
 from swift.common.http import is_success
 from swift.common.swob import HTTPRequestEntityTooLarge, HTTPBadRequest, \
     wsgify
-from swift.common.utils import register_swift_info
+from swift.common.registry import register_swift_info
 from swift.proxy.controllers.base import get_container_info
 
 

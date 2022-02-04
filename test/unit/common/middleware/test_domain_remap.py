@@ -18,7 +18,7 @@ import unittest
 
 from swift.common.swob import Request, HTTPMovedPermanently
 from swift.common.middleware import domain_remap
-from swift.common import utils
+from swift.common import registry
 
 
 class FakeApp(object):
@@ -321,12 +321,12 @@ class TestDomainRemapClientMangling(unittest.TestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         domain_remap.filter_factory({})
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('domain_remap', swift_info)
         self.assertEqual(swift_info['domain_remap'], {
             'default_reseller_prefix': None})
@@ -334,7 +334,7 @@ class TestSwiftInfo(unittest.TestCase):
     def test_registered_nondefaults(self):
         domain_remap.filter_factory({'default_reseller_prefix': 'cupcake',
                                      'mangle_client_paths': 'yes'})
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('domain_remap', swift_info)
         self.assertEqual(swift_info['domain_remap'], {
             'default_reseller_prefix': 'cupcake'})

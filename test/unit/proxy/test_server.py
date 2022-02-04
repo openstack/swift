@@ -67,7 +67,7 @@ from swift.common.middleware import proxy_logging, versioned_writes, \
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
     APIVersionError, ChunkReadError
-from swift.common import utils, constraints
+from swift.common import utils, constraints, registry
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
     iter_multipart_mime_documents, public, mkdirs, NullLogger, md5
@@ -11295,8 +11295,8 @@ class TestProxyObjectPerformance(unittest.TestCase):
                  StoragePolicy(3, 'bert', object_ring=FakeRing())])
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         app = proxy_server.Application({},
@@ -11333,7 +11333,7 @@ class TestSwiftInfo(unittest.TestCase):
         # other items are added to swift info
         self.assertEqual(len(si), 17)
 
-        si = utils.get_swift_info()['swift']
+        si = registry.get_swift_info()['swift']
         # Tehse settings is by default excluded by disallowed_sections
         self.assertEqual(si['valid_api_versions'],
                          constraints.VALID_API_VERSIONS)

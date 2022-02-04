@@ -156,11 +156,11 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
 from swift.common.middleware.s3api.s3request import get_request_class
 from swift.common.middleware.s3api.s3response import ErrorResponse, \
     InternalError, MethodNotAllowed, S3ResponseBase, S3NotImplemented
-from swift.common.utils import get_logger, register_swift_info, \
-    config_true_value, config_positive_int_value, split_path, \
-    closing_if_possible, list_from_csv
+from swift.common.utils import get_logger, config_true_value, \
+    config_positive_int_value, split_path, closing_if_possible, list_from_csv
 from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.s3api.acl_handlers import get_acl_handler
+from swift.common.registry import register_swift_info
 
 
 class ListingEtagMiddleware(object):

@@ -25,8 +25,8 @@ import six
 from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
-from swift.common.utils import split_path, json, get_swift_info, \
-    close_if_possible, md5
+from swift.common.utils import split_path, json, close_if_possible, md5
+from swift.common.registry import get_swift_info
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_NO_CONTENT, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, \

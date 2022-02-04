@@ -41,7 +41,7 @@ from time import time, strftime, gmtime
 from swift.common.middleware import tempauth, tempurl
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response
-from swift.common import utils
+from swift.common import utils, registry
 
 
 class FakeApp(object):
@@ -1571,12 +1571,12 @@ class TestTempURL(unittest.TestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
         tempurl.filter_factory({})
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('tempurl', swift_info)
         info = swift_info['tempurl']
         self.assertEqual(set(info['methods']),
@@ -1599,7 +1599,7 @@ class TestSwiftInfo(unittest.TestCase):
             'outgoing_allow_headers': 'x-object-meta-* content-type',
             'allowed_digests': 'sha512 md5 not-a-valid-digest',
         })
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('tempurl', swift_info)
         info = swift_info['tempurl']
         self.assertEqual(set(info['methods']),

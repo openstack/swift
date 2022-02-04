@@ -314,8 +314,8 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
     HTTPBadRequest, wsgi_to_str
 from swift.common.utils import split_path, get_valid_utf8_str, \
-    register_swift_info, get_hmac, streq_const_time, quote, get_logger, \
-    strict_b64decode
+    get_hmac, streq_const_time, quote, get_logger, strict_b64decode
+from swift.common.registry import register_swift_info
 
 
 DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
@@ -498,7 +498,7 @@ class TempURL(object):
         if env['REQUEST_METHOD'] == 'OPTIONS':
             return self.app(env, start_response)
         info = self._get_temp_url_info(env)
-        temp_url_sig, temp_url_expires, temp_url_prefix, filename,\
+        temp_url_sig, temp_url_expires, temp_url_prefix, filename, \
             inline_disposition, temp_url_ip_range = info
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)

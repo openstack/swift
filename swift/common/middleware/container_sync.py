@@ -19,8 +19,9 @@ from swift.common.constraints import valid_api_version
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import HTTPBadRequest, HTTPUnauthorized, wsgify
 from swift.common.utils import (
-    config_true_value, get_logger, register_swift_info, streq_const_time)
+    config_true_value, get_logger, streq_const_time)
 from swift.proxy.controllers.base import get_container_info
+from swift.common.registry import register_swift_info
 
 
 class ContainerSync(object):

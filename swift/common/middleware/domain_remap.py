@@ -100,8 +100,8 @@ storage end points as sync destinations.
 
 from swift.common.middleware import RewriteContext
 from swift.common.swob import Request, HTTPBadRequest, wsgi_quote
-from swift.common.utils import config_true_value, list_from_csv, \
-    register_swift_info
+from swift.common.utils import config_true_value, list_from_csv
+from swift.common.registry import register_swift_info
 
 
 class _DomainRemapContext(RewriteContext):

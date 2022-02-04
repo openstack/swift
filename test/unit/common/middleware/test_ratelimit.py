@@ -24,7 +24,7 @@ from swift.common.middleware import ratelimit
 from swift.proxy.controllers.base import get_cache_key, \
     headers_to_container_info
 from swift.common.swob import Request
-from swift.common import utils
+from swift.common import registry
 
 threading = eventlet.patcher.original('threading')
 
@@ -546,8 +546,8 @@ class TestRateLimit(unittest.TestCase):
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
-        utils._swift_info = {}
-        utils._swift_admin_info = {}
+        registry._swift_info = {}
+        registry._swift_admin_info = {}
 
     def test_registered_defaults(self):
 
@@ -568,7 +568,7 @@ class TestSwiftInfo(unittest.TestCase):
                        'container_listing_ratelimit_50': 50}
 
         ratelimit.filter_factory(test_limits)('have to pass in an app')
-        swift_info = utils.get_swift_info()
+        swift_info = registry.get_swift_info()
         self.assertIn('ratelimit', swift_info)
         self.assertEqual(swift_info['ratelimit']
                          ['account_ratelimit'], 1.0)

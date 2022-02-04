@@ -131,7 +131,8 @@ from six.moves.urllib.parse import urlparse
 
 from swift.common.request_helpers import html_escape
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    quote, register_swift_info, get_logger
+    quote, get_logger
+from swift.common.registry import register_swift_info
 from swift.common.wsgi import make_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound, \
