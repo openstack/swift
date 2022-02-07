@@ -16,7 +16,6 @@
 Pluggable Back-end for Account Server
 """
 
-from uuid import uuid4
 
 import sqlite3
 
@@ -154,7 +153,7 @@ class AccountBroker(DatabaseBroker):
         conn.execute('''
             UPDATE account_stat SET account = ?, created_at = ?, id = ?,
                    put_timestamp = ?, status_changed_at = ?
-            ''', (self.account, Timestamp.now().internal, str(uuid4()),
+            ''', (self.account, Timestamp.now().internal, self._new_db_id(),
                   put_timestamp, put_timestamp))
 
     def create_policy_stat_table(self, conn):

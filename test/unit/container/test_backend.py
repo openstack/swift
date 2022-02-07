@@ -18,6 +18,7 @@ import base64
 import errno
 import os
 import inspect
+import shutil
 import unittest
 from time import sleep, time
 from uuid import uuid4
@@ -3328,13 +3329,39 @@ class TestContainerBroker(unittest.TestCase):
         hashc = '%032x' % (int(hasha, 16) ^ int(hashb, 16))
         self.assertEqual(broker.get_info()['hash'], hashc)
 
-    def test_newid(self):
+    @with_tempdir
+    def test_newid(self, tempdir):
         # test DatabaseBroker.newid
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        db_path = os.path.join(
+            tempdir, "d1234", 'contianers', 'part', 'suffix', 'hsh')
+        os.makedirs(db_path)
+        broker = ContainerBroker(os.path.join(db_path, 'my.db'),
+                                 account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
         id = broker.get_info()['id']
         broker.newid('someid')
         self.assertNotEqual(id, broker.get_info()['id'])
+        # ends in the device name (from the path) unless it's an old
+        # container with just a uuid4 (tested in legecy broker
+        # tests e.g *BeforeMetaData)
+        if len(id) > 36:
+            self.assertTrue(id.endswith('d1234'))
+        # But the newid'ed version will now have the decide
+        self.assertTrue(broker.get_info()['id'].endswith('d1234'))
+
+        # if we move the broker (happens after an rsync)
+        new_db_path = os.path.join(
+            tempdir, "d5678", 'containers', 'part', 'suffix', 'hsh')
+        os.makedirs(new_db_path)
+        shutil.copy(os.path.join(db_path, 'my.db'),
+                    os.path.join(new_db_path, 'my.db'))
+
+        new_broker = ContainerBroker(os.path.join(new_db_path, 'my.db'),
+                                     account='a', container='c')
+        new_broker.newid(id)
+        # ends in the device name (from the path)
+        self.assertFalse(new_broker.get_info()['id'].endswith('d1234'))
+        self.assertTrue(new_broker.get_info()['id'].endswith('d5678'))
 
     def test_get_items_since(self):
         # test DatabaseBroker.get_items_since

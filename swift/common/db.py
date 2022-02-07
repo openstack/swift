@@ -592,6 +592,10 @@ class DatabaseBroker(object):
                 _('Broker error trying to rollback locked connection'))
             conn.close()
 
+    def _new_db_id(self):
+        device_name = os.path.basename(self.get_device_path())
+        return "%s-%s" % (str(uuid4()), device_name)
+
     def newid(self, remote_id):
         """
         Re-id the database.  This should be called after an rsync.
@@ -601,7 +605,7 @@ class DatabaseBroker(object):
         with self.get() as conn:
             row = conn.execute('''
                 UPDATE %s_stat SET id=?
-            ''' % self.db_type, (str(uuid4()),))
+            ''' % self.db_type, (self._new_db_id(),))
             row = conn.execute('''
                 SELECT ROWID FROM %s ORDER BY ROWID DESC LIMIT 1
             ''' % self.db_contains_type).fetchone()

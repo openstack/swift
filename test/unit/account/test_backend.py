@@ -30,6 +30,7 @@ from contextlib import contextmanager
 import random
 import mock
 import base64
+import shutil
 
 import six
 
@@ -1070,6 +1071,40 @@ class TestAccountBroker(unittest.TestCase):
             nrows = conn.execute(
                 "SELECT COUNT(*) FROM policy_stat").fetchall()[0][0]
         self.assertEqual(nrows, 2)
+
+    @with_tempdir
+    def test_newid(self, tempdir):
+        # test DatabaseBroker.newid
+        db_path = os.path.join(
+            tempdir, "d1234", 'accounts', 'part', 'suffix', 'hsh')
+        os.makedirs(db_path)
+        broker = AccountBroker(os.path.join(db_path, 'my.db'),
+                               account='a')
+        broker.initialize(Timestamp('1').internal, 0)
+        id = broker.get_info()['id']
+        broker.newid('someid')
+        self.assertNotEqual(id, broker.get_info()['id'])
+        # ends in the device name (from the path) unless it's an old
+        # container with just a uuid4 (tested in legecy broker
+        # tests e.g *BeforeMetaData)
+        if len(id) > 36:
+            self.assertTrue(id.endswith('d1234'))
+        # But the newid'ed version will now have the decide
+        self.assertTrue(broker.get_info()['id'].endswith('d1234'))
+
+        # if we move the broker (happens after an rsync)
+        new_db_path = os.path.join(
+            tempdir, "d5678", 'contianers', 'part', 'suffix', 'hsh')
+        os.makedirs(new_db_path)
+        shutil.copy(os.path.join(db_path, 'my.db'),
+                    os.path.join(new_db_path, 'my.db'))
+
+        new_broker = AccountBroker(os.path.join(new_db_path, 'my.db'),
+                                   account='a')
+        new_broker.newid(id)
+        # ends in the device name (from the path)
+        self.assertFalse(new_broker.get_info()['id'].endswith('d1234'))
+        self.assertTrue(new_broker.get_info()['id'].endswith('d5678'))
 
 
 def prespi_AccountBroker_initialize(self, conn, put_timestamp, **kwargs):

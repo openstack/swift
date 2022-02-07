@@ -579,7 +579,7 @@ class ContainerBroker(DatabaseBroker):
                 put_timestamp, status_changed_at, storage_policy_index)
             VALUES (?, ?, ?, ?, ?, ?, ?);
         """, (self.account, self.container, Timestamp.now().internal,
-              str(uuid4()), put_timestamp, put_timestamp,
+              self._new_db_id(), put_timestamp, put_timestamp,
               storage_policy_index))
 
     def create_policy_stat_table(self, conn, storage_policy_index=0):
