@@ -1880,7 +1880,7 @@ class StatsdClient(object):
         self._host = host
         self._port = port
         self._base_prefix = base_prefix
-        self.set_prefix(tail_prefix)
+        self._set_prefix(tail_prefix)
         self._default_sample_rate = default_sample_rate
         self._sample_rate_factor = sample_rate_factor
         self.random = random
@@ -1921,15 +1921,44 @@ class StatsdClient(object):
         else:
             self._target = (host, port)
 
-    def set_prefix(self, new_prefix):
-        if new_prefix and self._base_prefix:
-            self._prefix = '.'.join([self._base_prefix, new_prefix, ''])
-        elif new_prefix:
-            self._prefix = new_prefix + '.'
+    def _set_prefix(self, tail_prefix):
+        """
+        Modifies the prefix that is added to metric names. The resulting prefix
+        is the concatenation of the component parts `base_prefix` and
+        `tail_prefix`. Only truthy components are included. Each included
+        component is followed by a period, e.g.::
+
+            <base_prefix>.<tail_prefix>.
+            <tail_prefix>.
+            <base_prefix>.
+            <the empty string>
+
+        Note: this method is expected to be called from the constructor only,
+        but exists to provide backwards compatible functionality for the
+        deprecated set_prefix() method.
+
+        :param tail_prefix: The new value of tail_prefix
+        """
+        if tail_prefix and self._base_prefix:
+            self._prefix = '.'.join([self._base_prefix, tail_prefix, ''])
+        elif tail_prefix:
+            self._prefix = tail_prefix + '.'
         elif self._base_prefix:
             self._prefix = self._base_prefix + '.'
         else:
             self._prefix = ''
+
+    def set_prefix(self, tail_prefix):
+        """
+        This method is deprecated; use the ``tail_prefix`` argument of the
+        constructor when instantiating the class instead.
+        """
+        warnings.warn(
+            'set_prefix() is deprecated; use the ``tail_prefix`` argument of '
+            'the constructor when instantiating the class instead.',
+            DeprecationWarning
+        )
+        self._set_prefix(tail_prefix)
 
     def _send(self, m_name, m_value, m_type, sample_rate):
         if sample_rate is None:
@@ -2015,7 +2044,7 @@ def timing_stats(**dec_kwargs):
 class SwiftLoggerAdapter(logging.LoggerAdapter):
     """
     A logging.LoggerAdapter subclass that also passes through StatsD method
-    calls. Adds an optional metric_prefix to statsd metric names.
+    calls.
 
     Like logging.LoggerAdapter, you have to subclass this and override the
     process() method to accomplish anything useful.
@@ -2229,6 +2258,10 @@ class LogAdapter(logging.LoggerAdapter, object):
 
     def set_statsd_prefix(self, prefix):
         """
+        This method is deprecated. Callers should use the
+        ``statsd_tail_prefix`` argument of ``get_logger`` when instantiating a
+        logger.
+
         The StatsD client prefix defaults to the "name" of the logger.  This
         method may override that default with a specific value.  Currently used
         in the proxy-server to differentiate the Account, Container, and Object
@@ -2334,7 +2367,7 @@ class LogLevelFilter(object):
 
 
 def get_logger(conf, name=None, log_to_console=False, log_route=None,
-               fmt="%(server)s: %(message)s"):
+               fmt="%(server)s: %(message)s", statsd_tail_prefix=None):
     """
     Get the current system logger using config settings.
 
@@ -2365,6 +2398,8 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                       is used as the name attribute of the
                       ``logging.LogAdapter`` that is returned.
     :param fmt: Override log format
+    :param statsd_tail_prefix: tail prefix to pass to statsd client; if None
+        then the tail prefix defaults to the value of ``name``.
     :return: an instance of ``LogAdapter``
     """
     # note: log_name is typically specified in conf (i.e. defined by
@@ -2443,8 +2478,10 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
             'log_statsd_default_sample_rate', 1))
         sample_rate_factor = float(conf.get(
             'log_statsd_sample_rate_factor', 1))
+        if statsd_tail_prefix is None:
+            statsd_tail_prefix = name
         statsd_client = StatsdClient(statsd_host, statsd_port, base_prefix,
-                                     name, default_sample_rate,
+                                     statsd_tail_prefix, default_sample_rate,
                                      sample_rate_factor, logger=logger)
         logger.statsd_client = statsd_client
     else:

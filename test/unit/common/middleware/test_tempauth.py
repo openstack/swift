@@ -24,7 +24,7 @@ from six.moves.urllib.parse import quote, urlparse
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response
-from swift.common.utils import split_path
+from swift.common.utils import split_path, StatsdClient
 from test.unit import FakeMemcache
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
@@ -96,6 +96,34 @@ class TestAuth(unittest.TestCase):
         req = Request.blank(path, **kwargs)
         req.environ['swift.cache'] = FakeMemcache()
         return req
+
+    def test_statsd_prefix(self):
+        app = FakeApp()
+        ath = auth.filter_factory({'log_statsd_host': 'example.com'})(app)
+        self.assertIsNotNone(ath.logger.logger.statsd_client)
+        self.assertIsInstance(ath.logger.logger.statsd_client,
+                              StatsdClient)
+        self.assertEqual('tempauth.AUTH_.',
+                         ath.logger.logger.statsd_client._prefix)
+
+        ath = auth.filter_factory({'log_statsd_metric_prefix': 'foo',
+                                   'log_name': 'bar',
+                                   'log_statsd_host': 'example.com'})(app)
+        self.assertIsNotNone(ath.logger.logger.statsd_client)
+        self.assertIsInstance(ath.logger.logger.statsd_client,
+                              StatsdClient)
+        self.assertEqual('foo.tempauth.AUTH_.',
+                         ath.logger.logger.statsd_client._prefix)
+
+        ath = auth.filter_factory({'log_statsd_metric_prefix': 'foo',
+                                   'log_name': 'bar',
+                                   'log_statsd_host': 'example.com',
+                                   'reseller_prefix': 'TEST'})(app)
+        self.assertIsNotNone(ath.logger.logger.statsd_client)
+        self.assertIsInstance(ath.logger.logger.statsd_client,
+                              StatsdClient)
+        self.assertEqual('foo.tempauth.TEST_.',
+                         ath.logger.logger.statsd_client._prefix)
 
     def test_reseller_prefix_init(self):
         app = FakeApp()

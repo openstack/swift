@@ -21,7 +21,7 @@ from logging.handlers import SysLogHandler
 import six
 from six.moves.urllib.parse import unquote
 
-from swift.common.utils import get_logger, split_path
+from swift.common.utils import get_logger, split_path, StatsdClient
 from swift.common.middleware import proxy_logging
 from swift.common.swob import Request, Response
 from swift.common import constraints
@@ -148,6 +148,26 @@ class TestProxyLogging(unittest.TestCase):
                                          for emv in exp_metrics_and_values]
         self.assertEqual(got_metrics_values_and_kwargs,
                          exp_metrics_values_and_kwargs)
+
+    def test_logger_statsd_prefix(self):
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), {'log_statsd_host': 'example.com'})
+        self.assertIsNotNone(app.access_logger.logger.statsd_client)
+        self.assertIsInstance(app.access_logger.logger.statsd_client,
+                              StatsdClient)
+        self.assertEqual('proxy-server.',
+                         app.access_logger.logger.statsd_client._prefix)
+
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), {'log_statsd_metric_prefix': 'foo',  # set base prefix
+                        'access_log_name': 'bar',  # not used as tail prefix
+                        'log_name': 'baz',  # not used as tail prefix
+                        'log_statsd_host': 'example.com'})
+        self.assertIsNotNone(app.access_logger.logger.statsd_client)
+        self.assertIsInstance(app.access_logger.logger.statsd_client,
+                              StatsdClient)
+        self.assertEqual('foo.proxy-server.',
+                         app.access_logger.logger.statsd_client._prefix)
 
     def test_log_request_statsd_invalid_stats_types(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})

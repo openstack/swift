@@ -69,7 +69,7 @@ from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
     APIVersionError, ChunkReadError
 from swift.common import utils, constraints, registry
 from swift.common.utils import hash_path, storage_directory, \
-    parse_content_type, parse_mime_headers, \
+    parse_content_type, parse_mime_headers, StatsdClient, \
     iter_multipart_mime_documents, public, mkdirs, NullLogger, md5
 from swift.common.wsgi import loadapp, ConfigString, SwiftHttpProtocol
 from swift.proxy.controllers import base as proxy_base
@@ -1336,11 +1336,25 @@ class TestProxyServer(unittest.TestCase):
                         path_parts.get('disallowed_sections'))
 
     def test_statsd_prefix(self):
-        app = proxy_server.Application({}, logger=debug_logger(),
+        app = proxy_server.Application({'log_statsd_host': 'example.com'},
                                        account_ring=FakeRing(),
                                        container_ring=FakeRing())
-        self.assertEqual([(('proxy-server',), {})],
-                         app.logger.log_dict['set_statsd_prefix'])
+        self.assertIsNotNone(app.logger.logger.statsd_client)
+        self.assertIsInstance(app.logger.logger.statsd_client,
+                              StatsdClient)
+        self.assertEqual('proxy-server.',
+                         app.logger.logger.statsd_client._prefix)
+
+        app = proxy_server.Application({'log_statsd_metric_prefix': 'foo',
+                                        'log_name': 'bar',
+                                        'log_statsd_host': 'example.com'},
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing())
+        self.assertIsNotNone(app.logger.logger.statsd_client)
+        self.assertIsInstance(app.logger.logger.statsd_client,
+                              StatsdClient)
+        self.assertEqual('foo.proxy-server.',
+                         app.logger.logger.statsd_client._prefix)
 
 
 @patch_policies([
@@ -2147,7 +2161,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self.assertEqual('proxy-server', app.logger.name)
         self.assertEqual('swift', app.logger.server)
         mock_statsd.assert_called_once_with(
-            'example.com', 8125, '', 'swift', 1.0, 1.0,
+            'example.com', 8125, '', 'proxy-server', 1.0, 1.0,
             logger=app.logger.logger)
 
         conf_sections = """
@@ -2170,9 +2184,9 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self.assertEqual('proxy-server', app.logger.name)
         # server is defined by log_name option
         self.assertEqual('test-name', app.logger.server)
-        # statsd prefix is defined by log_name option
+        # statsd tail prefix is hard-wired 'proxy-server'
         mock_statsd.assert_called_once_with(
-            'example.com', 8125, '', 'test-name', 1.0, 1.0,
+            'example.com', 8125, '', 'proxy-server', 1.0, 1.0,
             logger=app.logger.logger)
 
 
