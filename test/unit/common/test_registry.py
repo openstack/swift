@@ -231,10 +231,10 @@ class TestSensitiveRegistry(unittest.TestCase):
         self.assertFalse(registry._sensitive_headers)
 
         registry.register_sensitive_header('Some-Header')
-        expected_headers = {'Some-Header'}
+        expected_headers = {'some-header'}
         self.assertEqual(expected_headers, registry._sensitive_headers)
 
-        expected_headers.add("New-Header")
+        expected_headers.add("new-header")
         registry.register_sensitive_header("New-Header")
         self.assertEqual(expected_headers, registry._sensitive_headers)
 
@@ -271,13 +271,13 @@ class TestSensitiveRegistry(unittest.TestCase):
         self.assertFalse(registry.get_sensitive_headers())
 
         registry.register_sensitive_header('Header1')
-        self.assertEqual(registry.get_sensitive_headers(), {'Header1'})
+        self.assertEqual(registry.get_sensitive_headers(), {'header1'})
         self.assertEqual(registry.get_sensitive_headers(),
                          registry._sensitive_headers)
 
         registry.register_sensitive_header('Header2')
         self.assertEqual(registry.get_sensitive_headers(),
-                         {'Header1', 'Header2'})
+                         {'header1', 'header2'})
         self.assertEqual(registry.get_sensitive_headers(),
                          registry._sensitive_headers)
 

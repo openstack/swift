@@ -83,6 +83,16 @@ MemCacheD
     :members:
     :show-inheritance:
 
+.. _registry:
+
+Middleware Registry
+===================
+
+.. automodule:: swift.common.registry
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. _request_helpers:
 
 Request Helpers
