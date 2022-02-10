@@ -34,7 +34,7 @@ from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
     parse_override_options, round_robin_iter, Everything, get_db_files, \
-    parse_db_filename, quote, RateLimitedIterator
+    parse_db_filename, quote, RateLimitedIterator, config_auto_int_value
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE, \
@@ -238,6 +238,8 @@ class Replicator(Daemon):
         self.extract_device_re = re.compile('%s%s([^%s]+)' % (
             self.root, os.path.sep, os.path.sep))
         self.handoffs_only = config_true_value(conf.get('handoffs_only', 'no'))
+        self.handoff_delete = config_auto_int_value(
+            conf.get('handoff_delete', 'auto'), 0)
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -554,7 +556,13 @@ class Replicator(Daemon):
             reason = '%s new rows' % max_row_delta
             self.logger.debug(log_template, reason)
             return True
-        if not (responses and all(responses)):
+        if self.handoff_delete:
+            # delete handoff if we have had handoff_delete successes
+            successes_count = len([resp for resp in responses if resp])
+            delete_handoff = successes_count >= self.handoff_delete
+        else:
+            delete_handoff = responses and all(responses)
+        if not delete_handoff:
             reason = '%s/%s success' % (responses.count(True), len(responses))
             self.logger.debug(log_template, reason)
             return True
@@ -773,11 +781,12 @@ class Replicator(Daemon):
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
 
-        if self.handoffs_only:
+        if self.handoffs_only or self.handoff_delete:
             self.logger.warning(
-                'Starting replication pass with handoffs_only enabled. '
-                'This mode is not intended for normal '
-                'operation; use handoffs_only with care.')
+                'Starting replication pass with handoffs_only '
+                'and/or handoffs_delete enabled. '
+                'These modes are not intended for normal '
+                'operation; use these options with care.')
 
         self._local_device_ids = set()
         found_local = False
@@ -820,10 +829,11 @@ class Replicator(Daemon):
                 self._replicate_object, part, object_file, node_id)
         self.cpool.waitall()
         self.logger.info(_('Replication run OVER'))
-        if self.handoffs_only:
+        if self.handoffs_only or self.handoff_delete:
             self.logger.warning(
-                'Finished replication pass with handoffs_only enabled. '
-                'If handoffs_only is no longer required, disable it.')
+                'Finished replication pass with handoffs_only and/or '
+                'handoffs_delete enabled. If these are no longer required, '
+                'disable them.')
         self._report_stats()
 
     def run_forever(self, *args, **kwargs):

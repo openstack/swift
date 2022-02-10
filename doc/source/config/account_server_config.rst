@@ -170,9 +170,9 @@ ionice_priority                None            I/O scheduling priority of server
 [account-replicator]
 ********************
 
-==================== =========================  ===============================
+==================== =========================  =====================================
 Option               Default                    Description
--------------------- -------------------------  -------------------------------
+-------------------- -------------------------  -------------------------------------
 log_name             account-replicator         Label used when logging
 log_facility         LOG_LOCAL0                 Syslog log facility
 log_level            INFO                       Logging level
@@ -256,7 +256,26 @@ ionice_priority      None                       I/O scheduling priority of serve
                                                 Work only with ionice_class.
                                                 Ignored if IOPRIO_CLASS_IDLE
                                                 is set.
-==================== =========================  ===============================
+handoffs_only        no                         When handoffs_only mode is enabled
+                                                the replicator will *only* replicate
+                                                from handoff nodes to primary nodes
+                                                and will not sync primary nodes
+                                                with other primary nodes.
+handoff_delete       auto                       the number of replicas which are
+                                                ensured in swift. If the number
+                                                less than the number of replicas
+                                                is set, account-replicator
+                                                could delete local handoffs even
+                                                if all replicas are not ensured in
+                                                the cluster. The replicator would
+                                                remove local handoff account database
+                                                after syncing when the number of
+                                                successful responses is greater than
+                                                or equal to this number. By default
+                                                handoff partitions will be removed
+                                                when it has successfully replicated
+                                                to all the canonical nodes.
+==================== =========================  =====================================
 
 *****************
 [account-auditor]
