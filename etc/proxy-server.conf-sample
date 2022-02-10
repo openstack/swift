@@ -86,6 +86,9 @@ bind_port = 8080
 # cors_expose_headers =
 #
 # client_timeout = 60.0
+#
+# Note: enabling evenlet_debug might reveal sensitive information, for example
+# signatures for temp urls
 # eventlet_debug = false
 #
 # You can set scheduling priority of processes. Niceness values range from -20
@@ -998,16 +1001,17 @@ use = egg:swift#proxy_logging
 # list like this: access_log_headers_only = Host, X-Object-Meta-Mtime
 # access_log_headers_only =
 #
-# By default, the X-Auth-Token is logged. To obscure the value,
-# set reveal_sensitive_prefix to the number of characters to log.
-# For example, if set to 12, only the first 12 characters of the
-# token appear in the log. An unauthorized access of the log file
-# won't allow unauthorized usage of the token. However, the first
-# 12 or so characters is unique enough that you can trace/debug
-# token usage. Set to 0 to suppress the token completely (replaced
-# by '...' in the log).
-# Note: reveal_sensitive_prefix will not affect the value
-# logged with access_log_headers=True.
+# The default log format includes several sensitive values in logs:
+#   * X-Auth-Token header
+#   * temp_url_sig query parameter
+#   * Authorization header
+#   * X-Amz-Signature query parameter
+# To prevent an unauthorized access of the log file leading to an unauthorized
+# access of cluster data, only a portion of these values are written, with the
+# remainder replaced by '...' in the log. Set reveal_sensitive_prefix to the
+# number of characters to log.  Set to 0 to suppress the values entirely; set
+# to something large (1000, say) to write full values. Note that some values
+# may start appearing in full at values as low as 33.
 # reveal_sensitive_prefix = 16
 #
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods

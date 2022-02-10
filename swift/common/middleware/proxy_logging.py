@@ -84,6 +84,8 @@ from swift.common.utils import (get_logger, get_remote_client,
                                 LogStringFormatter)
 
 from swift.common.storage_policy import POLICIES
+from swift.common.registry import get_sensitive_headers, \
+    get_sensitive_params, register_sensitive_header
 
 
 class ProxyLoggingMiddleware(object):
@@ -200,6 +202,24 @@ class ProxyLoggingMiddleware(object):
             return value[:self.reveal_sensitive_prefix] + '...'
         return value
 
+    def obscure_req(self, req):
+        for header in get_sensitive_headers():
+            if header in req.headers:
+                req.headers[header] = \
+                    self.obscure_sensitive(req.headers[header])
+
+        obscure_params = get_sensitive_params()
+        new_params = []
+        any_obscured = False
+        for k, v in req.params.items():
+            if k in obscure_params:
+                new_params.append((k, self.obscure_sensitive(v)))
+                any_obscured = True
+            else:
+                new_params.append((k, v))
+        if any_obscured:
+            req.params = new_params
+
     def log_request(self, req, status_int, bytes_received, bytes_sent,
                     start_time, end_time, resp_headers=None, ttfb=0,
                     wire_status_int=None):
@@ -215,6 +235,7 @@ class ProxyLoggingMiddleware(object):
         :param resp_headers: dict of the response headers
         :param wire_status_int: the on the wire status int
         """
+        self.obscure_req(req)
         resp_headers = resp_headers or {}
         logged_headers = None
         if self.log_hdrs:
@@ -270,8 +291,7 @@ class ProxyLoggingMiddleware(object):
                 req.environ.get('SERVER_PROTOCOL'),
             'status_int': status_int,
             'auth_token':
-                self.obscure_sensitive(
-                    req.headers.get('x-auth-token')),
+                req.headers.get('x-auth-token'),
             'bytes_recvd': bytes_received,
             'bytes_sent': bytes_sent,
             'transaction_id': req.environ.get('swift.trans_id'),
@@ -444,6 +464,12 @@ class ProxyLoggingMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+
+    # Normally it would be the middleware that uses the header that
+    # would register it, but because there could be 3rd party auth middlewares
+    # that use 'x-auth-token' or 'x-storage-token' we special case it here.
+    register_sensitive_header('x-auth-token')
+    register_sensitive_header('x-storage-token')
 
     def proxy_logger(app):
         return ProxyLoggingMiddleware(app, conf)

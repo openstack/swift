@@ -760,8 +760,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_mfa(self):
         self._test_unsupported_header('x-amz-mfa')
 
-    @mock.patch.object(registry, '_swift_admin_info', new_callable=dict)
-    def test_server_side_encryption(self, mock_info):
+    @mock.patch.object(registry, '_swift_admin_info', dict())
+    def test_server_side_encryption(self):
         sse_header = 'x-amz-server-side-encryption'
         self._test_unsupported_header(sse_header, 'AES256')
         self._test_unsupported_header(sse_header, 'aws:kms')
@@ -868,6 +868,19 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(elem.find('./Method').text, 'POST')
         self.assertEqual(elem.find('./ResourceType').text, 'ACL')
 
+    @mock.patch.object(registry, '_sensitive_headers', set())
+    @mock.patch.object(registry, '_sensitive_params', set())
+    def test_registered_sensitive_info(self):
+        self.assertFalse(registry.get_sensitive_headers())
+        self.assertFalse(registry.get_sensitive_params())
+        filter_factory(self.conf)
+        sensitive = registry.get_sensitive_headers()
+        self.assertIn('authorization', sensitive)
+        sensitive = registry.get_sensitive_params()
+        self.assertIn('X-Amz-Signature', sensitive)
+        self.assertIn('Signature', sensitive)
+
+    @mock.patch.object(registry, '_swift_info', dict())
     def test_registered_defaults(self):
         conf_from_file = {k: str(v) for k, v in self.conf.items()}
         filter_factory(conf_from_file)

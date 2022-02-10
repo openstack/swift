@@ -15,14 +15,19 @@
 
 from swift.common import registry, utils
 
+import mock
 import unittest
 
 
 class TestSwiftInfo(unittest.TestCase):
 
-    def tearDown(self):
-        registry._swift_info = {}
-        registry._swift_admin_info = {}
+    def setUp(self):
+        patcher = mock.patch.object(registry, '_swift_info', dict())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(registry, '_swift_admin_info', dict())
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_register_swift_info(self):
         registry.register_swift_info(foo='bar')
@@ -211,3 +216,81 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(registry._swift_info['swift']['foo'], 'bar')
         self.assertEqual(registry.get_swift_info(admin=True),
                          utils.get_swift_info(admin=True))
+
+
+class TestSensitiveRegistry(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(registry, '_sensitive_headers', set())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(registry, '_sensitive_params', set())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_register_sensitive_header(self):
+        self.assertFalse(registry._sensitive_headers)
+
+        registry.register_sensitive_header('Some-Header')
+        expected_headers = {'Some-Header'}
+        self.assertEqual(expected_headers, registry._sensitive_headers)
+
+        expected_headers.add("New-Header")
+        registry.register_sensitive_header("New-Header")
+        self.assertEqual(expected_headers, registry._sensitive_headers)
+
+        for header_not_str in (1, None, 1.1):
+            with self.assertRaises(TypeError):
+                registry.register_sensitive_header(header_not_str)
+            self.assertEqual(expected_headers, registry._sensitive_headers)
+
+        with self.assertRaises(UnicodeError):
+            registry.register_sensitive_header('\xe2\x98\x83')
+        self.assertEqual(expected_headers, registry._sensitive_headers)
+
+    def test_register_sensitive_param(self):
+        self.assertFalse(registry._sensitive_params)
+
+        registry.register_sensitive_param('some_param')
+        expected_params = {'some_param'}
+        self.assertEqual(expected_params, registry._sensitive_params)
+
+        expected_params.add("another")
+        registry.register_sensitive_param("another")
+        self.assertEqual(expected_params, registry._sensitive_params)
+
+        for param_not_str in (1, None, 1.1):
+            with self.assertRaises(TypeError):
+                registry.register_sensitive_param(param_not_str)
+            self.assertEqual(expected_params, registry._sensitive_params)
+
+        with self.assertRaises(UnicodeError):
+            registry.register_sensitive_param('\xe2\x98\x83')
+        self.assertEqual(expected_params, registry._sensitive_params)
+
+    def test_get_sensitive_headers(self):
+        self.assertFalse(registry.get_sensitive_headers())
+
+        registry.register_sensitive_header('Header1')
+        self.assertEqual(registry.get_sensitive_headers(), {'Header1'})
+        self.assertEqual(registry.get_sensitive_headers(),
+                         registry._sensitive_headers)
+
+        registry.register_sensitive_header('Header2')
+        self.assertEqual(registry.get_sensitive_headers(),
+                         {'Header1', 'Header2'})
+        self.assertEqual(registry.get_sensitive_headers(),
+                         registry._sensitive_headers)
+
+    def test_get_sensitive_params(self):
+        self.assertFalse(registry.get_sensitive_params())
+
+        registry.register_sensitive_param('Param1')
+        self.assertEqual(registry.get_sensitive_params(), {'Param1'})
+        self.assertEqual(registry.get_sensitive_params(),
+                         registry._sensitive_params)
+
+        registry.register_sensitive_param('param')
+        self.assertEqual(registry.get_sensitive_params(),
+                         {'Param1', 'param'})
+        self.assertEqual(registry.get_sensitive_params(),
+                         registry._sensitive_params)
