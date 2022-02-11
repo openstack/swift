@@ -71,7 +71,10 @@ import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
 import six
-if not six.PY2:
+if six.PY2:
+    from eventlet.green import httplib as green_http_client
+else:
+    from eventlet.green.http import client as green_http_client
     utf16_decoder = codecs.getdecoder('utf-16')
     utf16_encoder = codecs.getencoder('utf-16')
 from six.moves import cPickle as pickle
@@ -2242,7 +2245,8 @@ class LogAdapter(logging.LoggerAdapter, object):
                 emsg = _('Broken pipe')
             else:
                 call = self._exception
-        elif isinstance(exc, http_client.BadStatusLine):
+        elif isinstance(exc, (http_client.BadStatusLine,
+                              green_http_client.BadStatusLine)):
             # Use error(); not really exceptional
             emsg = '%s: %s' % (exc.__class__.__name__, exc.line)
         elif isinstance(exc, eventlet.Timeout):

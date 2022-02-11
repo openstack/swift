@@ -84,6 +84,11 @@ from swift.common.swob import Request, Response
 from test.unit import requires_o_tmpfile_support_in_tmp, \
     quiet_eventlet_exceptions
 
+if six.PY2:
+    import eventlet.green.httplib as green_http_client
+else:
+    import eventlet.green.http.client as green_http_client
+
 threading = eventlet.patcher.original('threading')
 
 
@@ -1984,6 +1989,13 @@ class TestUtils(unittest.TestCase):
 
             # test BadStatusLine
             log_exception(http_client.BadStatusLine(''))
+            log_msg = strip_value(sio)
+            self.assertNotIn('Traceback', log_msg)
+            self.assertIn('BadStatusLine', log_msg)
+            self.assertIn("''", log_msg)
+
+            # green version is separate :-(
+            log_exception(green_http_client.BadStatusLine(''))
             log_msg = strip_value(sio)
             self.assertNotIn('Traceback', log_msg)
             self.assertIn('BadStatusLine', log_msg)
