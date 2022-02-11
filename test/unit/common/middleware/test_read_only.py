@@ -48,7 +48,7 @@ class TestReadOnly(unittest.TestCase):
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={}):
             for method in read_methods + write_methods:
-                req = Request.blank('/v/a')
+                req = Request.blank('/v1/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
                 self.assertEqual(resp, [b'Some Content'])
@@ -64,13 +64,13 @@ class TestReadOnly(unittest.TestCase):
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={}):
             for method in read_methods:
-                req = Request.blank('/v/a')
+                req = Request.blank('/v1/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
                 self.assertEqual(resp, [b'Some Content'])
 
             for method in write_methods:
-                req = Request.blank('/v/a')
+                req = Request.blank('/v1/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
                 self.assertEqual(ro_resp, resp)
@@ -84,13 +84,13 @@ class TestReadOnly(unittest.TestCase):
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'true'}}):
             for method in read_methods:
-                req = Request.blank('/v/a')
+                req = Request.blank('/v1/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
                 self.assertEqual(resp, [b'Some Content'])
 
             for method in write_methods:
-                req = Request.blank('/v/a')
+                req = Request.blank('/v1/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
                 self.assertEqual(ro_resp, resp)
@@ -104,7 +104,7 @@ class TestReadOnly(unittest.TestCase):
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'false'}}):
             for method in read_methods + write_methods:
-                req = Request.blank('/v/a')
+                req = Request.blank('/v1/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
                 self.assertEqual(resp, [b'Some Content'])
@@ -120,7 +120,7 @@ class TestReadOnly(unittest.TestCase):
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'false'}}):
             for method in read_methods + write_methods:
-                req = Request.blank('/v/a')
+                req = Request.blank('/v1/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
                 self.assertEqual(resp, [b'Some Content'])
@@ -136,7 +136,7 @@ class TestReadOnly(unittest.TestCase):
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={}):
-            req = Request.blank('/v/a')
+            req = Request.blank('/v1/a')
             req.method = "DELETE"
             resp = ro(req.environ, start_response)
             self.assertEqual(resp, [b'Some Content'])
@@ -151,7 +151,7 @@ class TestReadOnly(unittest.TestCase):
 
         with mock.patch('swift.common.middleware.read_only.get_info',
                         return_value={'sysmeta': {'read-only': 'on'}}):
-            req = Request.blank('/v/a')
+            req = Request.blank('/v1/a')
             req.method = "DELETE"
             resp = ro(req.environ, start_response)
             self.assertEqual(resp, [b'Some Content'])
@@ -172,7 +172,7 @@ class TestReadOnly(unittest.TestCase):
         with mock.patch('swift.common.middleware.read_only.get_info',
                         get_fake_read_only):
             headers = {'Destination-Account': 'b'}
-            req = Request.blank('/v/a', headers=headers)
+            req = Request.blank('/v1/a', headers=headers)
             req.method = "COPY"
             resp = ro(req.environ, start_response)
             self.assertEqual(resp, [b'Some Content'])
@@ -191,7 +191,7 @@ class TestReadOnly(unittest.TestCase):
         with mock.patch('swift.common.middleware.read_only.get_info',
                         get_fake_read_only):
             headers = {'Destination-Account': 'b'}
-            req = Request.blank('/v/a', headers=headers)
+            req = Request.blank('/v1/a', headers=headers)
             req.method = "COPY"
             resp = ro(req.environ, start_response)
             self.assertEqual(ro_resp, resp)
@@ -212,7 +212,7 @@ class TestReadOnly(unittest.TestCase):
                 'account_read_only',
                 fake_account_read_only):
             headers = {'Destination-Account': 'b'}
-            req = Request.blank('/v/a', headers=headers)
+            req = Request.blank('/v1/a', headers=headers)
             req.method = "COPY"
             resp = ro(req.environ, start_response)
             self.assertEqual(resp, [b'Some Content'])
@@ -228,10 +228,38 @@ class TestReadOnly(unittest.TestCase):
                 'account_read_only',
                 return_value='true'):
             headers = {'Destination-Account': 'b'}
-            req = Request.blank('/v/a', headers=headers)
+            req = Request.blank('/v1/a', headers=headers)
             req.method = "COPY"
             resp = ro(req.environ, start_response)
             self.assertEqual(ro_resp, resp)
+
+    def test_global_read_only_non_swift_path(self):
+        conf = {}
+
+        ro = read_only.filter_factory(conf)(FakeApp())
+        ro.logger = debug_logger()
+
+        def fake_account_read_only(self, req, account):
+            return 'on'
+
+        with mock.patch(
+                'swift.common.middleware.read_only.ReadOnlyMiddleware.' +
+                'account_read_only',
+                fake_account_read_only):
+            req = Request.blank('/auth/v3.14')
+            req.method = "POST"
+            resp = ro(req.environ, start_response)
+            self.assertEqual(resp, [b'Some Content'])
+
+            req = Request.blank('/v1')
+            req.method = "PUT"
+            resp = ro(req.environ, start_response)
+            self.assertEqual(resp, [b'Some Content'])
+
+            req = Request.blank('/v1.0/')
+            req.method = "DELETE"
+            resp = ro(req.environ, start_response)
+            self.assertEqual(resp, [b'Some Content'])
 
 
 if __name__ == '__main__':

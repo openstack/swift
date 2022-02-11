@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from swift.common.constraints import check_account_format
+from swift.common.constraints import check_account_format, valid_api_version
 from swift.common.swob import HTTPMethodNotAllowed, Request
 from swift.common.utils import get_logger, config_true_value
 from swift.common.registry import register_swift_info
@@ -79,7 +79,9 @@ class ReadOnlyMiddleware(object):
             return self.app(env, start_response)
 
         try:
-            version, account, container, obj = req.split_path(1, 4, True)
+            version, account, container, obj = req.split_path(2, 4, True)
+            if not valid_api_version(version):
+                raise ValueError
         except ValueError:
             return self.app(env, start_response)
 
