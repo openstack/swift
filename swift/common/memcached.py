@@ -56,7 +56,7 @@ from eventlet.pools import Pool
 from eventlet import Timeout
 from six.moves import range
 from swift.common import utils
-from swift.common.utils import md5
+from swift.common.utils import md5, human_readable
 
 DEFAULT_MEMCACHED_PORT = 11211
 
@@ -73,6 +73,7 @@ TRY_COUNT = 3
 # will be considered failed for ERROR_LIMIT_DURATION seconds.
 ERROR_LIMIT_COUNT = 10
 ERROR_LIMIT_TIME = ERROR_LIMIT_DURATION = 60
+DEFAULT_ITEM_SIZE_WARNING_THRESHOLD = -1
 
 
 def md5hash(key):
@@ -172,13 +173,15 @@ class MemcacheRing(object):
     Simple, consistent-hashed memcache client.
     """
 
-    def __init__(self, servers, connect_timeout=CONN_TIMEOUT,
-                 io_timeout=IO_TIMEOUT, pool_timeout=POOL_TIMEOUT,
-                 tries=TRY_COUNT, allow_pickle=False, allow_unpickle=False,
-                 max_conns=2, tls_context=None, logger=None,
-                 error_limit_count=ERROR_LIMIT_COUNT,
-                 error_limit_time=ERROR_LIMIT_TIME,
-                 error_limit_duration=ERROR_LIMIT_DURATION):
+    def __init__(
+            self, servers, connect_timeout=CONN_TIMEOUT,
+            io_timeout=IO_TIMEOUT, pool_timeout=POOL_TIMEOUT,
+            tries=TRY_COUNT, allow_pickle=False, allow_unpickle=False,
+            max_conns=2, tls_context=None, logger=None,
+            error_limit_count=ERROR_LIMIT_COUNT,
+            error_limit_time=ERROR_LIMIT_TIME,
+            error_limit_duration=ERROR_LIMIT_DURATION,
+            item_size_warning_threshold=DEFAULT_ITEM_SIZE_WARNING_THRESHOLD):
         self._ring = {}
         self._errors = dict(((serv, []) for serv in servers))
         self._error_limited = dict(((serv, 0) for serv in servers))
@@ -203,6 +206,7 @@ class MemcacheRing(object):
             self.logger = logging.getLogger()
         else:
             self.logger = logger
+        self.item_size_warning_threshold = item_size_warning_threshold
 
     def _exception_occurred(self, server, e, action='talking',
                             sock=None, fp=None, got_connection=True):
@@ -325,6 +329,13 @@ class MemcacheRing(object):
                             "Error setting value in memcached: "
                             "%(server)s: %(msg)s",
                             {'server': server, 'msg': msg})
+                    if 0 <= self.item_size_warning_threshold <= len(value):
+                        self.logger.warning(
+                            "Item size larger than warning threshold: "
+                            "%d (%s) >= %d (%s)", len(value),
+                            human_readable(len(value)),
+                            self.item_size_warning_threshold,
+                            human_readable(self.item_size_warning_threshold))
                     self._return_conn(server, fp, sock)
                     return
             except (Exception, Timeout) as e:

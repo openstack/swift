@@ -49,11 +49,13 @@ class EmptyConfigParser(object):
 def get_config_parser(memcache_servers='1.2.3.4:5',
                       memcache_serialization_support='1',
                       memcache_max_connections='4',
-                      section='memcache'):
+                      section='memcache',
+                      item_size_warning_threshold='75'):
     _srvs = memcache_servers
     _sers = memcache_serialization_support
     _maxc = memcache_max_connections
     _section = section
+    _warn_threshold = item_size_warning_threshold
 
     class SetConfigParser(object):
 
@@ -64,7 +66,7 @@ def get_config_parser(memcache_servers='1.2.3.4:5',
                 'memcache_servers': memcache_servers,
                 'memcache_serialization_support':
                 memcache_serialization_support,
-                'memcache_max_connections': memcache_max_connections,
+                'memcache_max_connections': memcache_max_connections
             }
 
         def read(self, path):
@@ -85,6 +87,10 @@ def get_config_parser(memcache_servers='1.2.3.4:5',
                     if _maxc == 'error':
                         raise NoOptionError(option, section)
                     return _maxc
+                elif option == 'item_size_warning_threshold':
+                    if _warn_threshold == 'error':
+                        raise NoOptionError(option, section)
+                    return _warn_threshold
                 else:
                     raise NoOptionError(option, section)
             else:
@@ -114,12 +120,19 @@ class TestCacheMiddleware(unittest.TestCase):
                       {'memcache_servers': '6.7.8.9:10'},
                       {'memcache_serialization_support': '0'},
                       {'memcache_max_connections': '30'},
+                      {'item_size_warning_threshold': 75},
                       {'memcache_servers': '6.7.8.9:10',
                        'memcache_serialization_support': '0'},
                       {'memcache_servers': '6.7.8.9:10',
                        'memcache_max_connections': '30'},
                       {'memcache_serialization_support': '0',
-                       'memcache_max_connections': '30'}
+                       'memcache_max_connections': '30'},
+                      {'memcache_servers': '6.7.8.9:10',
+                       'item_size_warning_threshold': '75'},
+                      {'memcache_serialization_support': '0',
+                       'item_size_warning_threshold': '75'},
+                      {'item_size_warning_threshold': '75',
+                       'memcache_max_connections': '30'},
                       ):
                 with self.assertRaises(Exception) as catcher:
                     memcache.MemcacheMiddleware(FakeApp(), d)
@@ -134,7 +147,8 @@ class TestCacheMiddleware(unittest.TestCase):
                 memcache.MemcacheMiddleware(
                     FakeApp(), {'memcache_servers': '1.2.3.4:5',
                                 'memcache_serialization_support': '2',
-                                'memcache_max_connections': '30'})
+                                'memcache_max_connections': '30',
+                                'item_size_warning_threshold': '80'})
             except Exception as err:
                 exc = err
         self.assertIsNone(exc)
@@ -147,6 +161,7 @@ class TestCacheMiddleware(unittest.TestCase):
         self.assertEqual(app.memcache._allow_unpickle, False)
         self.assertEqual(
             app.memcache._client_cache['127.0.0.1:11211'].max_size, 2)
+        self.assertEqual(app.memcache.item_size_warning_threshold, -1)
 
     def test_conf_inline(self):
         with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
@@ -154,12 +169,14 @@ class TestCacheMiddleware(unittest.TestCase):
                 FakeApp(),
                 {'memcache_servers': '6.7.8.9:10',
                  'memcache_serialization_support': '0',
-                 'memcache_max_connections': '5'})
+                 'memcache_max_connections': '5',
+                 'item_size_warning_threshold': '75'})
         self.assertEqual(app.memcache_servers, '6.7.8.9:10')
         self.assertEqual(app.memcache._allow_pickle, True)
         self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['6.7.8.9:10'].max_size, 5)
+        self.assertEqual(app.memcache.item_size_warning_threshold, 75)
 
     def test_conf_inline_ratelimiting(self):
         with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
@@ -234,6 +251,17 @@ class TestCacheMiddleware(unittest.TestCase):
         self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['6.7.8.9:10'].max_size, 4)
+
+    def test_conf_inline_bad_item_warning_threshold(self):
+        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
+            with self.assertRaises(ValueError) as err:
+                memcache.MemcacheMiddleware(
+                    FakeApp(),
+                    {'memcache_servers': '6.7.8.9:10',
+                     'memcache_serialization_support': '0',
+                     'item_size_warning_threshold': 'bad42'})
+        self.assertIn('invalid literal for int() with base 10:',
+                      str(err.exception))
 
     def test_conf_from_extra_conf(self):
         with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
@@ -332,6 +360,7 @@ class TestCacheMiddleware(unittest.TestCase):
         # tries is limited to server count
         self.assertEqual(memcache_ring._tries, 1)
         self.assertEqual(memcache_ring._io_timeout, 2.0)
+        self.assertEqual(memcache_ring.item_size_warning_threshold, -1)
 
     @with_tempdir
     def test_real_config_with_options(self, tempdir):
@@ -351,6 +380,7 @@ class TestCacheMiddleware(unittest.TestCase):
         tries = 4
         io_timeout = 1.0
         tls_enabled = true
+        item_size_warning_threshold = 1000
         """
         config_path = os.path.join(tempdir, 'test.conf')
         with open(config_path, 'w') as f:
@@ -370,6 +400,7 @@ class TestCacheMiddleware(unittest.TestCase):
         self.assertIsInstance(
             list(memcache_ring._client_cache.values())[0]._tls_context,
             ssl.SSLContext)
+        self.assertEqual(memcache_ring.item_size_warning_threshold, 1000)
 
     @with_tempdir
     def test_real_memcache_config(self, tempdir):
@@ -399,6 +430,7 @@ class TestCacheMiddleware(unittest.TestCase):
         io_timeout = 1.0
         error_suppression_limit = 0
         error_suppression_interval = 1.5
+        item_size_warning_threshold = 50
         """
         memcache_config_path = os.path.join(tempdir, 'memcache.conf')
         with open(memcache_config_path, 'w') as f:
@@ -415,6 +447,7 @@ class TestCacheMiddleware(unittest.TestCase):
         self.assertEqual(memcache_ring._error_limit_count, 0)
         self.assertEqual(memcache_ring._error_limit_time, 1.5)
         self.assertEqual(memcache_ring._error_limit_duration, 1.5)
+        self.assertEqual(memcache_ring.item_size_warning_threshold, 50)
 
 
 if __name__ == '__main__':

@@ -20,7 +20,7 @@ from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from swift.common.memcached import (
     MemcacheRing, CONN_TIMEOUT, POOL_TIMEOUT, IO_TIMEOUT, TRY_COUNT,
-    ERROR_LIMIT_COUNT, ERROR_LIMIT_TIME)
+    ERROR_LIMIT_COUNT, ERROR_LIMIT_TIME, DEFAULT_ITEM_SIZE_WARNING_THRESHOLD)
 from swift.common.utils import get_logger, config_true_value
 
 
@@ -103,6 +103,9 @@ class MemcacheMiddleware(object):
             'error_suppression_interval', ERROR_LIMIT_TIME))
         error_suppression_limit = float(memcache_options.get(
             'error_suppression_limit', ERROR_LIMIT_COUNT))
+        item_size_warning_threshold = int(memcache_options.get(
+            'item_size_warning_threshold',
+            DEFAULT_ITEM_SIZE_WARNING_THRESHOLD))
 
         if not self.memcache_servers:
             self.memcache_servers = '127.0.0.1:11211'
@@ -126,7 +129,8 @@ class MemcacheMiddleware(object):
             logger=self.logger,
             error_limit_count=error_suppression_limit,
             error_limit_time=error_suppression_interval,
-            error_limit_duration=error_suppression_interval)
+            error_limit_duration=error_suppression_interval,
+            item_size_warning_threshold=item_size_warning_threshold)
 
     def __call__(self, env, start_response):
         env['swift.cache'] = self.memcache

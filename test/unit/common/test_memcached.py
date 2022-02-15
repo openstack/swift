@@ -15,7 +15,6 @@
 # limitations under the License.
 
 """Tests for swift.common.utils"""
-
 from collections import defaultdict
 import errno
 import io
@@ -33,7 +32,7 @@ from eventlet import GreenPool, sleep, Queue
 from eventlet.pools import Pool
 
 from swift.common import memcached
-from swift.common.utils import md5
+from swift.common.utils import md5, human_readable
 from mock import patch, MagicMock
 from test.debug_logger import debug_logger
 
@@ -946,6 +945,56 @@ class TestMemcached(unittest.TestCase):
                 next(conn_generator)
 
             self.assertEqual(1, mock_sock.close.call_count)
+
+    def test_item_size_warning_threshold(self):
+        mock = MockMemcached()
+        mocked_pool = MockedMemcachePool([(mock, mock)] * 2)
+
+        def do_test(d, threshold, should_warn, error=False):
+            self.logger.clear()
+            try:
+                memcache_client = memcached.MemcacheRing(
+                    ['1.2.3.4:11211'], item_size_warning_threshold=threshold,
+                    logger=self.logger)
+                memcache_client._client_cache['1.2.3.4:11211'] = mocked_pool
+                memcache_client.set('some_key', d, serialize=False)
+                warning_lines = self.logger.get_lines_for_level('warning')
+                if should_warn:
+                    self.assertIn(
+                        'Item size larger than warning threshold: '
+                        '%d (%s) >= %d (%s)' % (
+                            len(d), human_readable(len(d)), threshold,
+                            human_readable(threshold)),
+                        warning_lines[0])
+                else:
+                    self.assertFalse(warning_lines)
+            except ValueError as err:
+                if not err:
+                    self.fail(err)
+                else:
+                    self.assertIn(
+                        'Config option must be a number, greater than 0, '
+                        'less than 100, not "%s".' % threshold,
+                        str(err))
+
+        data = '1' * 100
+        # let's start with something easy, say warning at 80
+        for data_size, warn in ((79, False), (80, True), (81, True),
+                                (99, True), (100, True)):
+            do_test(data[:data_size], 80, warn)
+
+        # if we set the threshold to -1 will turn off the warning
+        for data_size, warn in ((79, False), (80, False), (81, False),
+                                (99, False), (100, False)):
+            do_test(data[:data_size], -1, warn)
+
+        # Changing to 0 should warn on everything
+        for data_size, warn in ((0, True), (1, True), (50, True),
+                                (99, True), (100, True)):
+            do_test(data[:data_size], 0, warn)
+
+        # Let's do a big number
+        do_test('1' * 2048576, 1000000, True)
 
 
 if __name__ == '__main__':
