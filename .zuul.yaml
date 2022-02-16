@@ -623,13 +623,11 @@
       - swift-jobs-arm64
     check:
       jobs:
-        - swift-tox-func-encryption-py36-centos-8:
+        - swift-tox-func-py36-centos-8-stream-fips:
             irrelevant-files: &functest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(cors|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-py36-centos-8-stream-fips:
-            irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-encryption-py36-centos-8-stream-fips:
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-ec-py36-centos-8-stream-fips:
