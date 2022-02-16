@@ -421,51 +421,52 @@ class TestInternalClient(unittest.TestCase):
         self.assertTrue(client.use_replication_network)
 
     def test_make_request_sets_user_agent(self):
-        class InternalClient(internal_client.InternalClient):
+        class FakeApp(FakeSwift):
             def __init__(self, test):
+                super(FakeApp, self).__init__()
                 self.test = test
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 1
-                self.use_replication_network = False
 
-            def fake_app(self, env, start_response):
+            def __call__(self, env, start_response):
                 self.test.assertNotIn(
                     'HTTP_X_BACKEND_USE_REPLICATION_NETWORK', env)
-                self.test.assertEqual(self.user_agent, env['HTTP_USER_AGENT'])
+                self.test.assertEqual(self.backend_user_agent,
+                                      "some_agent")
                 start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
-        client = InternalClient(self)
+        client = internal_client.InternalClient(
+            None, 'some_agent', 1, use_replication_network=False,
+            app=FakeApp(self))
         client.make_request('GET', '/', {}, (200,))
 
     def test_make_request_defaults_replication_network_header(self):
-        class InternalClient(internal_client.InternalClient):
+        class FakeApp(FakeSwift):
             def __init__(self, test):
+                super(FakeApp, self).__init__()
                 self.test = test
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 1
-                self.use_replication_network = False
                 self.expected_header_value = None
 
-            def fake_app(self, env, start_response):
+            def __call__(self, env, start_response):
                 if self.expected_header_value is None:
                     self.test.assertNotIn(
                         'HTTP_X_BACKEND_USE_REPLICATION_NETWORK', env)
                 else:
                     hdr_val = env['HTTP_X_BACKEND_USE_REPLICATION_NETWORK']
                     self.test.assertEqual(self.expected_header_value, hdr_val)
+                self.test.assertEqual(self.backend_user_agent,
+                                      'some_agent')
                 start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
-        client = InternalClient(self)
+        client = internal_client.InternalClient(
+            None, 'some_agent', 1, use_replication_network=False,
+            app=FakeApp(self))
         client.make_request('GET', '/', {}, (200,))
         # Caller can still override
-        client.expected_header_value = 'false'
+        client.app.expected_header_value = 'false'
         client.make_request('GET', '/', {
             request_helpers.USE_REPLICATION_NETWORK_HEADER: 'false'}, (200,))
-        client.expected_header_value = 'true'
+        client.app.expected_header_value = 'true'
         client.make_request('GET', '/', {
             request_helpers.USE_REPLICATION_NETWORK_HEADER: 'true'}, (200,))
 
@@ -473,49 +474,42 @@ class TestInternalClient(unittest.TestCase):
         client.use_replication_network = True
 
         client.make_request('GET', '/', {}, (200,))
-        client.expected_header_value = 'false'
+        client.app.expected_header_value = 'false'
         client.make_request('GET', '/', {
             request_helpers.USE_REPLICATION_NETWORK_HEADER: 'false'}, (200,))
-        client.expected_header_value = 'on'
+        client.app.expected_header_value = 'on'
         client.make_request('GET', '/', {
             request_helpers.USE_REPLICATION_NETWORK_HEADER: 'on'}, (200,))
 
     def test_make_request_sets_query_string(self):
         captured_envs = []
 
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self, test):
-                self.test = test
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 1
-                self.use_replication_network = False
-
-            def fake_app(self, env, start_response):
+        class FakeApp(FakeSwift):
+            def __call__(self, env, start_response):
                 captured_envs.append(env)
                 start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
-        client = InternalClient(self)
+        client = internal_client.InternalClient(
+            None, 'some_agent', 1, use_replication_network=False,
+            app=FakeApp())
         params = {'param1': 'p1', 'tasty': 'soup'}
         client.make_request('GET', '/', {}, (200,), params=params)
         actual_params = dict(parse_qsl(captured_envs[0]['QUERY_STRING'],
                                        keep_blank_values=True,
                                        strict_parsing=True))
         self.assertEqual(params, actual_params)
+        self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                         'some_agent')
 
     def test_make_request_retries(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self, test):
-                self.test = test
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
+        class FakeApp(FakeSwift):
+            def __init__(self):
+                super(FakeApp, self).__init__()
                 self.request_tries = 4
-                self.use_replication_network = False
                 self.tries = 0
-                self.sleep_called = 0
 
-            def fake_app(self, env, start_response):
+            def __call__(self, env, start_response):
                 self.tries += 1
                 if self.tries < self.request_tries:
                     start_response(
@@ -524,11 +518,19 @@ class TestInternalClient(unittest.TestCase):
                     start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, *args, **kwargs):
+                self.test = kwargs.pop('test')
+                super(InternalClient, self).__init__(*args, **kwargs)
+                self.sleep_called = 0
+
             def sleep(self, seconds):
                 self.sleep_called += 1
                 self.test.assertEqual(2 ** (self.sleep_called), seconds)
 
-        client = InternalClient(self)
+        client = InternalClient(
+            None, 'some_agent', 4, use_replication_network=False,
+            app=FakeApp(), test=self)
 
         old_sleep = internal_client.sleep
         internal_client.sleep = client.sleep
@@ -539,7 +541,9 @@ class TestInternalClient(unittest.TestCase):
             internal_client.sleep = old_sleep
 
         self.assertEqual(3, client.sleep_called)
-        self.assertEqual(4, client.tries)
+        self.assertEqual(4, client.app.tries)
+        self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                         'some_agent')
 
     def test_base_request_timeout(self):
         # verify that base_request passes timeout arg on to urlopen
@@ -586,48 +590,46 @@ class TestInternalClient(unittest.TestCase):
                 '/?format=json&marker=d', actual_requests[2].selector)
 
     def test_make_request_method_path_headers(self):
-        class InternalClient(internal_client.InternalClient):
+        class FakeApp(FakeSwift):
             def __init__(self):
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
+                super(FakeApp, self).__init__()
                 self.env = None
 
-            def fake_app(self, env, start_response):
+            def __call__(self, env, start_response):
                 self.env = env
                 start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
-        client = InternalClient()
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False,
+            app=FakeApp())
 
         for method in 'GET PUT HEAD'.split():
             client.make_request(method, '/', {}, (200,))
-            self.assertEqual(client.env['REQUEST_METHOD'], method)
+            self.assertEqual(client.app.env['REQUEST_METHOD'], method)
 
         for path in '/one /two/three'.split():
             client.make_request('GET', path, {'X-Test': path}, (200,))
-            self.assertEqual(client.env['PATH_INFO'], path)
-            self.assertEqual(client.env['HTTP_X_TEST'], path)
+            self.assertEqual(client.app.env['PATH_INFO'], path)
+            self.assertEqual(client.app.env['HTTP_X_TEST'], path)
+        self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                         'some_agent')
 
     def test_make_request_error_case(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self):
-                self.logger = debug_logger('test-ic')
-                # wrap the fake app with ProxyLoggingMiddleware
-                self.app = ProxyLoggingMiddleware(
-                    self.fake_app, {}, self.logger)
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
-
-            def fake_app(self, env, start_response):
+        class FakeApp(FakeSwift):
+            def __call__(self, env, start_response):
                 body = b'fake error response'
                 start_response('409 Conflict',
                                [('Content-Length', str(len(body)))])
                 return [body]
 
-        client = InternalClient()
+        final_fake_app = FakeApp()
+        fake_app = ProxyLoggingMiddleware(
+            final_fake_app, {}, final_fake_app.logger)
+        fake_app._pipeline_final_app = final_fake_app
+
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False, app=fake_app)
         with self.assertRaises(internal_client.UnexpectedResponse), \
                 mock.patch('swift.common.internal_client.sleep'):
             client.make_request('DELETE', '/container', {}, (200,))
@@ -635,27 +637,23 @@ class TestInternalClient(unittest.TestCase):
         # Since we didn't provide an X-Timestamp, retrying gives us a chance to
         # succeed (assuming the failure was due to clock skew between servers)
         expected = (' HTTP/1.0 409 ',)
-        loglines = client.logger.get_lines_for_level('info')
+        logger = client.app._pipeline_final_app.logger
+        loglines = logger.get_lines_for_level('info')
         for expected, logline in zip_longest(expected, loglines):
             if not expected:
                 self.fail('Unexpected extra log line: %r' % logline)
             self.assertIn(expected, logline)
+        self.assertEqual(client.app.app.backend_user_agent, 'some_agent')
 
     def test_make_request_acceptable_status_not_2xx(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self, resp_status):
-                self.logger = debug_logger('test-ic')
-                # wrap the fake app with ProxyLoggingMiddleware
-                self.app = ProxyLoggingMiddleware(
-                    self.fake_app, {}, self.logger)
-                self.user_agent = 'some_agent'
-                self.resp_status = resp_status
-                self.request_tries = 3
-                self.use_replication_network = False
+        class FakeApp(FakeSwift):
+            def __init__(self):
+                super(FakeApp, self).__init__()
                 self.closed_paths = []
                 self.fully_read_paths = []
+                self.resp_status = None
 
-            def fake_app(self, env, start_response):
+            def __call__(self, env, start_response):
                 body = b'fake error response'
                 start_response(self.resp_status,
                                [('Content-Length', str(len(body)))])
@@ -664,15 +662,25 @@ class TestInternalClient(unittest.TestCase):
                                         env['PATH_INFO'])
 
         def do_test(resp_status):
-            client = InternalClient(resp_status)
+            final_fake_app = FakeApp()
+            fake_app = ProxyLoggingMiddleware(
+                final_fake_app, {}, final_fake_app.logger)
+            fake_app._pipeline_final_app = final_fake_app
+            final_fake_app.resp_status = resp_status
+            client = internal_client.InternalClient(
+                None, "some_agent", 3, use_replication_network=False,
+                app=fake_app)
             with self.assertRaises(internal_client.UnexpectedResponse) as ctx,\
                     mock.patch('swift.common.internal_client.sleep'):
                 # This is obvious strange tests to expect only 400 Bad Request
                 # but this test intended to avoid extra body drain if it's
                 # correct object body with 2xx.
                 client.make_request('GET', '/cont/obj', {}, (400,))
-            loglines = client.logger.get_lines_for_level('info')
-            return (client.fully_read_paths, client.closed_paths,
+            logger = client.app._pipeline_final_app.logger
+            loglines = logger.get_lines_for_level('info')
+            self.assertEqual(client.app.app.backend_user_agent, 'some_agent')
+            return (client.app._pipeline_final_app.fully_read_paths,
+                    client.app._pipeline_final_app.closed_paths,
                     ctx.exception.resp, loglines)
 
         fully_read_paths, closed_paths, resp, loglines = do_test('200 OK')
@@ -705,18 +713,14 @@ class TestInternalClient(unittest.TestCase):
             self.assertIn(expected, logline)
 
     def test_make_request_codes(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self):
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
-
-            def fake_app(self, env, start_response):
+        class FakeApp(FakeSwift):
+            def __call__(self, env, start_response):
                 start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
-        client = InternalClient()
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False,
+            app=FakeApp())
 
         try:
             old_sleep = internal_client.sleep
@@ -742,6 +746,8 @@ class TestInternalClient(unittest.TestCase):
                 client.make_request('GET', '/', {}, (111,))
             self.assertTrue(str(raised.exception).startswith(
                 'Unexpected response'))
+            self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                             'some_agent')
         finally:
             internal_client.sleep = old_sleep
 
@@ -756,23 +762,21 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(0, offset)
                 self.test.assertEqual(0, whence)
 
-        class InternalClient(internal_client.InternalClient):
+        class FakeApp(FakeSwift):
             def __init__(self, status):
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
+                super(FakeApp, self).__init__()
                 self.status = status
-                self.call_count = 0
 
-            def fake_app(self, env, start_response):
-                self.call_count += 1
+            def __call__(self, env, start_response):
                 start_response(self.status, [('Content-Length', '0')])
+                self._calls.append('')
                 return []
 
         def do_test(status, expected_calls):
             fobj = FileObject(self)
-            client = InternalClient(status)
+            client = internal_client.InternalClient(
+                None, 'some_agent', 3, use_replication_network=False,
+                app=FakeApp(status))
 
             with mock.patch.object(internal_client, 'sleep', not_sleep):
                 with self.assertRaises(Exception) as exc_mgr:
@@ -780,23 +784,23 @@ class TestInternalClient(unittest.TestCase):
                 self.assertEqual(int(status[:3]),
                                  exc_mgr.exception.resp.status_int)
 
-            self.assertEqual(client.call_count, fobj.seek_called)
-            self.assertEqual(client.call_count, expected_calls)
+            self.assertEqual(client.app.call_count, fobj.seek_called)
+            self.assertEqual(client.app.call_count, expected_calls)
+            self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                             'some_agent')
 
         do_test('404 Not Found', 1)
         do_test('503 Service Unavailable', 3)
 
     def test_make_request_request_exception(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self):
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-
-            def fake_app(self, env, start_response):
+        class FakeApp(FakeSwift):
+            def __call__(self, env, start_response):
                 raise Exception()
 
-        client = InternalClient()
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, app=FakeApp())
+        self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                         'some_agent')
         try:
             old_sleep = internal_client.sleep
             internal_client.sleep = not_sleep
@@ -849,23 +853,21 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.make_request_called)
 
     def test_get_metadata_invalid_status(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self):
-                self.user_agent = 'test'
-                self.request_tries = 1
-                self.use_replication_network = False
-                self.app = self.fake_app
 
-            def fake_app(self, environ, start_response):
+        class FakeApp(FakeSwift):
+            def __call__(self, environ, start_response):
                 start_response('404 Not Found', [('x-foo', 'bar')])
                 return [b'nope']
 
-        client = InternalClient()
+        client = internal_client.InternalClient(
+            None, 'test', 1, use_replication_network=False, app=FakeApp())
         self.assertRaises(internal_client.UnexpectedResponse,
                           client._get_metadata, 'path')
         metadata = client._get_metadata('path', metadata_prefix='x-',
                                         acceptable_statuses=(4,))
         self.assertEqual(metadata, {'foo': 'bar'})
+        self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                         'test')
 
     def test_make_path(self):
         account, container, obj = path_parts()
@@ -1122,6 +1124,7 @@ class TestInternalClient(unittest.TestCase):
             'Host': 'localhost:80',
             'User-Agent': 'test'
         })], app._calls)
+        self.assertEqual(app.backend_user_agent, 'test')
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
 
@@ -1134,6 +1137,7 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, len(app._calls))
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
+        self.assertEqual(app.backend_user_agent, 'test')
 
     def test_get_account_info(self):
         class Response(object):
@@ -1233,10 +1237,11 @@ class TestInternalClient(unittest.TestCase):
             'X-Backend-Allow-Reserved-Names': 'true',
             'Host': 'localhost:80',
             'X-Account-Meta-Color': 'Blue',
-            'User-Agent': 'test',
+            'User-Agent': 'test'
         })], app._calls)
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
+        self.assertEqual(app.backend_user_agent, 'test')
 
     def test_set_account_metadata_plumbing(self):
         account, container, obj = path_parts()
@@ -1295,6 +1300,7 @@ class TestInternalClient(unittest.TestCase):
             'Host': 'localhost:80',
             'User-Agent': 'test'
         })], app._calls)
+        self.assertEqual(app.backend_user_agent, 'test')
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
 
@@ -1332,6 +1338,7 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, len(app._calls))
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
+        self.assertEqual(app.backend_user_agent, 'test')
 
     def test_delete_container_plumbing(self):
         class InternalClient(internal_client.InternalClient):
@@ -1396,10 +1403,11 @@ class TestInternalClient(unittest.TestCase):
             'X-Backend-Allow-Reserved-Names': 'true',
             'Host': 'localhost:80',
             'X-Container-Meta-Color': 'Blue',
-            'User-Agent': 'test',
+            'User-Agent': 'test'
         })], app._calls)
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
+        self.assertEqual(app.backend_user_agent, 'test')
 
     def test_set_container_metadata_plumbing(self):
         account, container, obj = path_parts()
@@ -1423,6 +1431,7 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, len(app._calls))
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
+        self.assertEqual(app.backend_user_agent, 'test')
 
         app.register('DELETE', path, swob.HTTPNotFound, {})
         client.delete_object(account, container, obj)
@@ -1445,23 +1454,19 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.get_metadata_called)
 
     def test_get_metadata_extra_headers(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self):
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
-
-            def fake_app(self, env, start_response):
+        class FakeApp(FakeSwift):
+            def __call__(self, env, start_response):
                 self.req_env = env
                 start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
-        client = InternalClient()
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False,
+            app=FakeApp())
         headers = {'X-Foo': 'bar'}
         client.get_object_metadata('account', 'container', 'obj',
                                    headers=headers)
-        self.assertEqual(client.req_env['HTTP_X_FOO'], 'bar')
+        self.assertEqual(client.app.req_env['HTTP_X_FOO'], 'bar')
 
     def test_get_object(self):
         account, container, obj = path_parts()
@@ -1482,49 +1487,49 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(app.call_count, 1)
         req_headers.update({
             'host': 'localhost:80',  # from swob.Request.blank
-            'user-agent': 'test',  # from InternalClient.make_request
             'x-backend-allow-reserved-names': 'true',  # also from IC
             'x-backend-storage-policy-index': '2',  # from proxy-server app
+            'user-agent': 'test',
         })
         self.assertEqual(app.calls_with_headers, [(
             'GET', path_info + '?symlink=get', HeaderKeyDict(req_headers))])
 
     def test_iter_object_lines(self):
-        class InternalClient(internal_client.InternalClient):
+        class FakeApp(FakeSwift):
             def __init__(self, lines):
+                super(FakeApp, self).__init__()
                 self.lines = lines
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
 
-            def fake_app(self, env, start_response):
+            def __call__(self, env, start_response):
                 start_response('200 Ok', [('Content-Length', '0')])
                 return [b'%s\n' % x for x in self.lines]
 
         lines = b'line1 line2 line3'.split()
-        client = InternalClient(lines)
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False,
+            app=FakeApp(lines))
         ret_lines = []
         for line in client.iter_object_lines('account', 'container', 'object'):
             ret_lines.append(line)
         self.assertEqual(lines, ret_lines)
+        self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
+                         'some_agent')
 
     def test_iter_object_lines_compressed_object(self):
-        class InternalClient(internal_client.InternalClient):
+        class FakeApp(FakeSwift):
             def __init__(self, lines):
+                super(FakeApp, self).__init__()
                 self.lines = lines
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
 
-            def fake_app(self, env, start_response):
+            def __call__(self, env, start_response):
                 start_response('200 Ok', [('Content-Length', '0')])
                 return internal_client.CompressingFileReader(
                     BytesIO(b'\n'.join(self.lines)))
 
         lines = b'line1 line2 line3'.split()
-        client = InternalClient(lines)
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False,
+            app=FakeApp(lines))
         ret_lines = []
         for line in client.iter_object_lines(
                 'account', 'container', 'object.gz'):
@@ -1532,18 +1537,14 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(lines, ret_lines)
 
     def test_iter_object_lines_404(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self):
-                self.app = self.fake_app
-                self.user_agent = 'some_agent'
-                self.request_tries = 3
-                self.use_replication_network = False
-
-            def fake_app(self, env, start_response):
+        class FakeApp(FakeSwift):
+            def __call__(self, env, start_response):
                 start_response('404 Not Found', [])
                 return [b'one\ntwo\nthree']
 
-        client = InternalClient()
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False,
+            app=FakeApp())
         lines = []
         for line in client.iter_object_lines(
                 'some_account', 'some_container', 'some_object',
@@ -1562,10 +1563,11 @@ class TestInternalClient(unittest.TestCase):
             'X-Backend-Allow-Reserved-Names': 'true',
             'Host': 'localhost:80',
             'X-Object-Meta-Color': 'Blue',
-            'User-Agent': 'test',
+            'User-Agent': 'test'
         })], app._calls)
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
+        self.assertEqual(app.backend_user_agent, 'test')
 
     def test_set_object_metadata_plumbing(self):
         account, container, obj = path_parts()
@@ -1594,6 +1596,7 @@ class TestInternalClient(unittest.TestCase):
         })], app._calls)
         self.assertEqual({}, app.unread_requests)
         self.assertEqual({}, app.unclosed_requests)
+        self.assertEqual(app.backend_user_agent, 'test')
 
     def test_upload_object_plumbing(self):
         class InternalClient(internal_client.InternalClient):

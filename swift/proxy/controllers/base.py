@@ -26,7 +26,6 @@
 
 from six.moves.urllib.parse import quote
 
-import os
 import time
 import json
 import functools
@@ -1783,7 +1782,7 @@ class Controller(object):
             referer = ''
         headers['x-trans-id'] = self.trans_id
         headers['connection'] = 'close'
-        headers['user-agent'] = 'proxy-server %s' % os.getpid()
+        headers['user-agent'] = self.app.backend_user_agent
         headers['referer'] = referer
         return headers
 

@@ -94,6 +94,7 @@ class FakeSwift(object):
         self.container_ring = FakeRing()
         self.get_object_ring = lambda policy_index: FakeRing()
         self.auto_create_account_prefix = '.'
+        self.backend_user_agent = "fake_swift"
         self._pipeline_final_app = self
 
     def _find_response(self, method, path):
