@@ -21,6 +21,8 @@ import unittest
 from tempfile import mkdtemp
 from shutil import rmtree, copy
 from uuid import uuid4
+
+import mock
 import six.moves.cPickle as pickle
 
 import base64
@@ -1042,6 +1044,55 @@ class TestDatabaseBroker(TestDbBase):
                          [{'one': '2'}, {'one': '3'}])
         self.assertEqual(broker.get_items_since(3, 2), [])
         self.assertEqual(broker.get_items_since(999, 2), [])
+
+    def test_get_syncs(self):
+        broker = DatabaseBroker(self.db_path)
+        broker.db_type = 'test'
+        broker.db_contains_type = 'test'
+        uuid1 = str(uuid4())
+
+        def _initialize(conn, timestamp, **kwargs):
+            conn.execute('CREATE TABLE test (one TEXT)')
+            conn.execute('CREATE TABLE test_stat (id TEXT)')
+            conn.execute('INSERT INTO test_stat (id) VALUES (?)', (uuid1,))
+            conn.execute('INSERT INTO test (one) VALUES ("1")')
+            conn.commit()
+            pass
+        broker._initialize = _initialize
+        broker.initialize(normalize_timestamp('1'))
+
+        for incoming in (True, False):
+            # Can't mock out timestamp now, because the update_at in the sync
+            # tables are cuase by a trigger inside sqlite which uses it's own
+            # now method. So instead track the time before and after to make
+            # sure we're getting the right timestamps.
+            ts0 = Timestamp.now()
+            broker.merge_syncs([
+                {'sync_point': 0, 'remote_id': 'remote_0'},
+                {'sync_point': 1, 'remote_id': 'remote_1'}], incoming)
+
+            time.sleep(0.005)
+            broker.merge_syncs([
+                {'sync_point': 2, 'remote_id': 'remote_2'}], incoming)
+
+            ts1 = Timestamp.now()
+            expected_syncs = [{'sync_point': 0, 'remote_id': 'remote_0'},
+                              {'sync_point': 1, 'remote_id': 'remote_1'},
+                              {'sync_point': 2, 'remote_id': 'remote_2'}]
+
+            self.assertEqual(expected_syncs, broker.get_syncs(incoming))
+
+            # if we want the updated_at timestamps too then:
+            expected_syncs[0]['updated_at'] = mock.ANY
+            expected_syncs[1]['updated_at'] = mock.ANY
+            expected_syncs[2]['updated_at'] = mock.ANY
+            actual_syncs = broker.get_syncs(incoming, include_timestamp=True)
+            self.assertEqual(expected_syncs, actual_syncs)
+            # Note that most of the time, we expect these all to be ==
+            # but we've been known to see sizeable delays in the gate at times
+            self.assertTrue(all([
+                str(int(ts0)) <= s['updated_at'] <= str(int(ts1))
+                for s in actual_syncs]))
 
     def test_get_sync(self):
         broker = DatabaseBroker(self.db_path)

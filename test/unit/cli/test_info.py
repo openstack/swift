@@ -29,7 +29,7 @@ from swift.common.storage_policy import StoragePolicy, POLICIES
 from swift.cli.info import (print_db_info_metadata, print_ring_locations,
                             print_info, print_obj_metadata, print_obj,
                             InfoSystemExit, print_item_locations,
-                            parse_get_node_args)
+                            parse_get_node_args, print_db_syncs)
 from swift.account.server import AccountController
 from swift.container.server import ContainerController
 from swift.container.backend import UNSHARDED, SHARDED
@@ -665,6 +665,40 @@ Shard Ranges (3):
         self.assertIn(exp_acct_msg, out.getvalue())
         self.assertIn(exp_cont_msg, out.getvalue())
         self.assertIn(exp_obj_msg, out.getvalue())
+
+    def test_print_db_syncs(self):
+        # first the empty case
+        for incoming in (True, False):
+            out = StringIO()
+            with mock.patch('sys.stdout', out):
+                print_db_syncs(incoming, [])
+            if incoming:
+                exp_heading = 'Incoming Syncs:'
+            else:
+                exp_heading = 'Outgoing Syncs:'
+            exp_heading += '\n  Sync Point\tRemote ID\tUpdated At'
+            self.assertIn(exp_heading, out.getvalue())
+
+        # now add some syncs
+        ts0 = utils.Timestamp(1)
+        ts1 = utils.Timestamp(2)
+        syncs = [{'sync_point': 0, 'remote_id': 'remote_0',
+                  'updated_at': str(int(ts0))},
+                 {'sync_point': 1, 'remote_id': 'remote_1',
+                  'updated_at': str(int(ts1))}]
+
+        template_output = """%s:\n  Sync Point\tRemote ID\tUpdated At
+  0         \tremote_0 \t%s (%s)
+  1         \tremote_1 \t%s (%s)
+"""
+        for incoming in (True, False):
+            out = StringIO()
+            with mock.patch('sys.stdout', out):
+                print_db_syncs(incoming, syncs)
+            output = template_output % (
+                'Incoming Syncs' if incoming else 'Outgoing Syncs',
+                ts0.isoformat, str(int(ts0)), ts1.isoformat, str(int(ts1)))
+            self.assertEqual(output, out.getvalue())
 
     def test_print_item_locations_account_container_object_dashed_ring(self):
         out = StringIO()

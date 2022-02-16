@@ -198,6 +198,28 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
           'real value is set in the config file on each storage node.')
 
 
+def get_max_len_sync_item(syncs, item, title):
+    def map_func(element):
+        return str(element[item])
+    return max(list(map(len, map(map_func, syncs))) + [len(title)])
+
+
+def print_db_syncs(incoming, syncs):
+    max_sync_point_len = get_max_len_sync_item(syncs, 'sync_point',
+                                               "Sync Point")
+    max_remote_len = get_max_len_sync_item(syncs, 'remote_id', "Remote ID")
+    print('%s Syncs:' % ('Incoming' if incoming else 'Outgoing'))
+    print('  %s\t%s\t%s' % ("Sync Point".ljust(max_sync_point_len),
+                            "Remote ID".ljust(max_remote_len),
+                            "Updated At"))
+    for sync in syncs:
+        print('  %s\t%s\t%s (%s)' % (
+            str(sync['sync_point']).ljust(max_sync_point_len),
+            sync['remote_id'].ljust(max_remote_len),
+            Timestamp(sync['updated_at']).isoformat,
+            sync['updated_at']))
+
+
 def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False,
                            verbose=False):
     """
@@ -439,7 +461,7 @@ def print_obj_metadata(metadata, drop_prefixes=False):
 
 
 def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
-               drop_prefixes=False, verbose=False):
+               drop_prefixes=False, verbose=False, sync=False):
     if db_type not in ('account', 'container'):
         print("Unrecognized DB type: internal error")
         raise InfoSystemExit()
@@ -473,6 +495,11 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
             info['shard_ranges'] = sranges
     print_db_info_metadata(
         db_type, info, broker.metadata, drop_prefixes, verbose)
+    if sync:
+        # Print incoming / outgoing sync tables.
+        for incoming in (True, False):
+            print_db_syncs(incoming, broker.get_syncs(incoming,
+                                                      include_timestamp=True))
     try:
         ring = Ring(swift_dir, ring_name=db_type)
     except Exception:
