@@ -1603,7 +1603,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 len(created_ranges))
         return len(created_ranges)
 
-    def _cleave_shard_range(self, broker, cleaving_context, shard_range):
+    def _cleave_shard_range(self, broker, cleaving_context, shard_range,
+                            own_shard_range):
         self.logger.info("Cleaving '%s' from row %s into %s for %r",
                          quote(broker.path),
                          cleaving_context.last_cleave_to_row,
@@ -1618,15 +1619,6 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         except DeviceUnavailable as duex:
             self.logger.warning(str(duex))
             self._increment_stat('cleaved', 'failure', statsd=True)
-            return CLEAVE_FAILED
-
-        own_shard_range = broker.get_own_shard_range(no_default=True)
-        if own_shard_range is None:
-            # A default should never be SHRINKING or SHRUNK but because we
-            # may write own_shard_range back to broker, let's make sure
-            # it can't be defaulted.
-            self.logger.warning('Failed to get own_shard_range for %s',
-                                quote(broker.path))
             return CLEAVE_FAILED
 
         # only cleave from the retiring db - misplaced objects handler will
@@ -1796,6 +1788,15 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             self.logger.debug('Starting to cleave (%s todo): %s',
                               cleaving_context.ranges_todo, quote(broker.path))
 
+        own_shard_range = broker.get_own_shard_range(no_default=True)
+        if own_shard_range is None:
+            # A default should never be SHRINKING or SHRUNK but because we
+            # may write own_shard_range back to broker, let's make sure
+            # it can't be defaulted.
+            self.logger.warning('Failed to get own_shard_range for %s',
+                                quote(broker.path))
+            ranges_todo = []  # skip cleaving
+
         ranges_done = []
         for shard_range in ranges_todo:
             if cleaving_context.cleaving_done:
@@ -1820,7 +1821,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 break
 
             cleave_result = self._cleave_shard_range(
-                broker, cleaving_context, shard_range)
+                broker, cleaving_context, shard_range, own_shard_range)
 
             if cleave_result == CLEAVE_SUCCESS:
                 ranges_done.append(shard_range)
