@@ -1603,24 +1603,10 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 len(created_ranges))
         return len(created_ranges)
 
-    def _cleave_shard_range(self, broker, cleaving_context, shard_range,
-                            own_shard_range):
-        self.logger.info("Cleaving '%s' from row %s into %s for %r",
-                         quote(broker.path),
-                         cleaving_context.last_cleave_to_row,
-                         quote(shard_range.name), shard_range)
-        self._increment_stat('cleaved', 'attempted')
+    def _cleave_shard_broker(self, broker, cleaving_context, shard_range,
+                             own_shard_range, shard_broker, put_timestamp,
+                             shard_part, node_id):
         start = time.time()
-        policy_index = broker.storage_policy_index
-        try:
-            shard_part, shard_broker, node_id, put_timestamp = \
-                self._get_shard_broker(shard_range, broker.root_path,
-                                       policy_index)
-        except DeviceUnavailable as duex:
-            self.logger.warning(str(duex))
-            self._increment_stat('cleaved', 'failure', statsd=True)
-            return CLEAVE_FAILED
-
         # only cleave from the retiring db - misplaced objects handler will
         # deal with any objects in the fresh db
         source_broker = broker.get_brokers()[0]
@@ -1736,6 +1722,27 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             quote(broker.path), shard_range, elapsed)
         self._increment_stat('cleaved', 'success', statsd=True)
         return CLEAVE_SUCCESS
+
+    def _cleave_shard_range(self, broker, cleaving_context, shard_range,
+                            own_shard_range):
+        self.logger.info("Cleaving '%s' from row %s into %s for %r",
+                         quote(broker.path),
+                         cleaving_context.last_cleave_to_row,
+                         quote(shard_range.name), shard_range)
+        self._increment_stat('cleaved', 'attempted')
+        policy_index = broker.storage_policy_index
+        try:
+            shard_part, shard_broker, node_id, put_timestamp = \
+                self._get_shard_broker(shard_range, broker.root_path,
+                                       policy_index)
+        except DeviceUnavailable as duex:
+            self.logger.warning(str(duex))
+            self._increment_stat('cleaved', 'failure', statsd=True)
+            return CLEAVE_FAILED
+        else:
+            return self._cleave_shard_broker(
+                broker, cleaving_context, shard_range, own_shard_range,
+                shard_broker, put_timestamp, shard_part, node_id)
 
     def _cleave(self, broker):
         # Returns True if misplaced objects have been moved and the entire
