@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from six.moves import queue
 
 import six.moves.cPickle as pickle
 import errno
@@ -21,6 +22,7 @@ import sys
 import time
 import uuid
 from random import random, shuffle
+from collections import deque
 
 from eventlet import spawn, Timeout
 
@@ -31,7 +33,7 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, RateLimitedIterator, split_path, \
     eventlet_monkey_patch, get_redirect_data, ContextPool, hash_path, \
-    non_negative_float, config_positive_int_value
+    non_negative_float, config_positive_int_value, non_negative_int
 from swift.common.daemon import Daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -41,33 +43,98 @@ from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR, \
     HTTP_MOVED_PERMANENTLY
 
 
+class RateLimiterBucket(object):
+    def __init__(self, update_delta):
+        self.update_delta = update_delta
+        self.last_time = 0
+        self.deque = deque()
+
+    @property
+    def wait_until(self):
+        return self.last_time + self.update_delta
+
+    def __len__(self):
+        return len(self.deque)
+
+    def __bool__(self):
+        return bool(self.deque)
+
+    __nonzero__ = __bool__  # py2
+
+    def __lt__(self, other):
+        # used to sort buckets by readiness
+        if isinstance(other, RateLimiterBucket):
+            return self.wait_until < other.wait_until
+        return self.wait_until < other
+
+
 class BucketizedUpdateSkippingLimiter(object):
     """
-    Wrap an iterator to filter elements that show up too often.
+    Wrap an iterator to rate-limit updates on a per-bucket basis, where updates
+    are mapped to buckets by hashing their destination path. If an update is
+    rate-limited then it is placed on a deferral queue and may be sent later if
+    the wrapped iterator is exhausted before the ``drain_until`` time is
+    reached.
+
+    The deferral queue has constrained size and once the queue is full updates
+    are evicted using a first-in-first-out policy. This policy is used because
+    updates on the queue may have been made obsolete by newer updates written
+    to disk, and this is more likely for updates that have been on the queue
+    longest.
+
+    The iterator increments stats as follows:
+
+      * The `deferrals` stat is incremented for each update that is
+        rate-limited. Note that a individual update is rate-limited at most
+        once.
+      * The `skips` stat is incremented for each rate-limited update that is
+        not eventually yielded. This includes updates that are evicted from the
+        deferral queue and all updates that remain in the deferral queue when
+        ``drain_until`` time is reached and the iterator terminates.
+      * The `drains` stat is incremented for each rate-limited update that is
+        eventually yielded.
+
+    Consequently, when this iterator terminates, the sum of `skips` and
+    `drains` is equal to the number of `deferrals`.
 
     :param update_iterable: an async_pending update iterable
+    :param logger: a logger instance
+    :param stats: a SweepStats instance
     :param num_buckets: number of buckets to divide container hashes into, the
                         more buckets total the less containers to a bucket
                         (once a busy container slows down a bucket the whole
-                        bucket starts skipping)
-    :param max_elements_per_group_per_second: tunable, when skipping kicks in
-    :param skip_f: function to call with update_ctx when skipping it
+                        bucket starts deferring)
+    :param max_elements_per_group_per_second: tunable, when deferring kicks in
+    :param max_deferred_elements: maximum number of deferred elements before
+        skipping starts. Each bucket may defer updates, but once the total
+        number of deferred updates summed across all buckets reaches this
+        value then all buckets will skip subsequent updates.
+    :param drain_until: time at which any remaining deferred elements must be
+        skipped and the iterator stops. Once the wrapped iterator has been
+        exhausted, this iterator will drain deferred elements from its buckets
+        until either all buckets have drained or this time is reached.
     """
 
-    def __init__(self, update_iterable, num_buckets,
-                 max_elements_per_group_per_second,
-                 skip_f=lambda update_ctx: None):
+    def __init__(self, update_iterable, logger, stats, num_buckets=1000,
+                 max_elements_per_group_per_second=50,
+                 max_deferred_elements=0,
+                 drain_until=0):
         self.iterator = iter(update_iterable)
+        self.logger = logger
+        self.stats = stats
         # if we want a smaller "blast radius" we could make this number bigger
         self.num_buckets = max(num_buckets, 1)
-        # an array might be more efficient; but this is pretty cheap
-        self.next_update = [0.0 for _ in range(self.num_buckets)]
         try:
             self.bucket_update_delta = 1.0 / max_elements_per_group_per_second
         except ZeroDivisionError:
             self.bucket_update_delta = -1
-        self.skip_f = skip_f
+        self.max_deferred_elements = max_deferred_elements
+        self.deferred_buckets = deque()
+        self.drain_until = drain_until
         self.salt = str(uuid.uuid4())
+        self.buckets = [RateLimiterBucket(self.bucket_update_delta)
+                        for _ in range(self.num_buckets)]
+        self.buckets_ordered_by_readiness = None
 
     def __iter__(self):
         return self
@@ -76,15 +143,77 @@ class BucketizedUpdateSkippingLimiter(object):
         acct, cont = split_update_path(update)
         return int(hash_path(acct, cont, self.salt), 16) % self.num_buckets
 
+    def _get_time(self):
+        return time.time()
+
     def next(self):
+        # first iterate over the wrapped iterator...
         for update_ctx in self.iterator:
-            bucket_key = self._bucket_key(update_ctx['update'])
-            now = time.time()
-            if self.next_update[bucket_key] > now:
-                self.skip_f(update_ctx)
-                continue
-            self.next_update[bucket_key] = now + self.bucket_update_delta
-            return update_ctx
+            bucket = self.buckets[self._bucket_key(update_ctx['update'])]
+            now = self._get_time()
+            if now >= bucket.wait_until:
+                # no need to ratelimit, just return next update
+                bucket.last_time = now
+                return update_ctx
+
+            self.stats.deferrals += 1
+            self.logger.increment("deferrals")
+            if self.max_deferred_elements > 0:
+                if len(self.deferred_buckets) >= self.max_deferred_elements:
+                    # create space to defer this update by popping the least
+                    # recent deferral from the least recently deferred bucket;
+                    # updates read from disk recently are preferred over those
+                    # read from disk less recently.
+                    oldest_deferred_bucket = self.deferred_buckets.popleft()
+                    oldest_deferred_bucket.deque.popleft()
+                    self.stats.skips += 1
+                    self.logger.increment("skips")
+                # append the update to the bucket's queue and append the bucket
+                # to the queue of deferred buckets
+                # note: buckets may have multiple entries in deferred_buckets,
+                # one for each deferred update in that particular bucket
+                bucket.deque.append(update_ctx)
+                self.deferred_buckets.append(bucket)
+            else:
+                self.stats.skips += 1
+                self.logger.increment("skips")
+
+        if self.buckets_ordered_by_readiness is None:
+            # initialise a queue of those buckets with deferred elements;
+            # buckets are queued in the chronological order in which they are
+            # ready to serve an element
+            self.buckets_ordered_by_readiness = queue.PriorityQueue()
+            for bucket in self.buckets:
+                if bucket:
+                    self.buckets_ordered_by_readiness.put(bucket)
+
+        # now drain the buckets...
+        undrained_elements = []
+        while not self.buckets_ordered_by_readiness.empty():
+            now = self._get_time()
+            bucket = self.buckets_ordered_by_readiness.get_nowait()
+            if now < self.drain_until:
+                # wait for next element to be ready
+                time.sleep(max(0, bucket.wait_until - now))
+                # drain the most recently deferred element
+                item = bucket.deque.pop()
+                if bucket:
+                    # bucket has more deferred elements, re-insert in queue in
+                    # correct chronological position
+                    bucket.last_time = self._get_time()
+                    self.buckets_ordered_by_readiness.put(bucket)
+                self.stats.drains += 1
+                self.logger.increment("drains")
+                return item
+            else:
+                # time to stop iterating: gather all un-drained elements
+                undrained_elements.extend(bucket.deque)
+
+        if undrained_elements:
+            # report final batch of skipped elements
+            self.stats.skips += len(undrained_elements)
+            self.logger.update_stats("skips", len(undrained_elements))
+
         raise StopIteration()
 
     __next__ = next
@@ -93,9 +222,18 @@ class BucketizedUpdateSkippingLimiter(object):
 class SweepStats(object):
     """
     Stats bucket for an update sweep
+
+    A measure of the rate at which updates are being rate-limited is:
+
+        deferrals / (deferrals + successes + failures - drains)
+
+    A measure of the rate at which updates are not being sent during a sweep
+    is:
+
+        skips / (skips + successes + failures)
     """
     def __init__(self, errors=0, failures=0, quarantines=0, successes=0,
-                 unlinks=0, redirects=0, skips=0):
+                 unlinks=0, redirects=0, skips=0, deferrals=0, drains=0):
         self.errors = errors
         self.failures = failures
         self.quarantines = quarantines
@@ -103,10 +241,13 @@ class SweepStats(object):
         self.unlinks = unlinks
         self.redirects = redirects
         self.skips = skips
+        self.deferrals = deferrals
+        self.drains = drains
 
     def copy(self):
         return type(self)(self.errors, self.failures, self.quarantines,
-                          self.successes, self.unlinks)
+                          self.successes, self.unlinks, self.redirects,
+                          self.skips, self.deferrals, self.drains)
 
     def since(self, other):
         return type(self)(self.errors - other.errors,
@@ -115,7 +256,9 @@ class SweepStats(object):
                           self.successes - other.successes,
                           self.unlinks - other.unlinks,
                           self.redirects - other.redirects,
-                          self.skips - other.skips)
+                          self.skips - other.skips,
+                          self.deferrals - other.deferrals,
+                          self.drains - other.drains)
 
     def reset(self):
         self.errors = 0
@@ -125,6 +268,8 @@ class SweepStats(object):
         self.unlinks = 0
         self.redirects = 0
         self.skips = 0
+        self.deferrals = 0
+        self.drains = 0
 
     def __str__(self):
         keys = (
@@ -135,6 +280,8 @@ class SweepStats(object):
             (self.errors, 'errors'),
             (self.redirects, 'redirects'),
             (self.skips, 'skips'),
+            (self.deferrals, 'deferrals'),
+            (self.drains, 'drains'),
         )
         return ', '.join('%d %s' % pair for pair in keys)
 
@@ -191,6 +338,9 @@ class ObjectUpdater(Daemon):
                                          DEFAULT_RECON_CACHE_PATH)
         self.rcache = os.path.join(self.recon_cache_path, RECON_OBJECT_FILE)
         self.stats = SweepStats()
+        self.max_deferred_updates = non_negative_int(
+            conf.get('max_deferred_updates', 10000))
+        self.begin = time.time()
 
     def _listdir(self, path):
         try:
@@ -214,7 +364,7 @@ class ObjectUpdater(Daemon):
         time.sleep(random() * self.interval)
         while True:
             self.logger.info('Begin object update sweep')
-            begin = time.time()
+            self.begin = time.time()
             pids = []
             # read from container ring to ensure it's fresh
             self.get_container_ring().get_nodes('')
@@ -248,7 +398,7 @@ class ObjectUpdater(Daemon):
                     sys.exit()
             while pids:
                 pids.remove(os.wait()[0])
-            elapsed = time.time() - begin
+            elapsed = time.time() - self.begin
             self.logger.info('Object update sweep completed: %.02fs',
                              elapsed)
             dump_recon_cache({'object_updater_sweep': elapsed},
@@ -259,7 +409,7 @@ class ObjectUpdater(Daemon):
     def run_once(self, *args, **kwargs):
         """Run the updater once."""
         self.logger.info('Begin object update single threaded sweep')
-        begin = time.time()
+        self.begin = time.time()
         self.stats.reset()
         for device in self._listdir(self.devices):
             try:
@@ -271,7 +421,7 @@ class ObjectUpdater(Daemon):
                 self.logger.warning('Skipping: %s', err)
                 continue
             self.object_sweep(dev_path)
-        elapsed = time.time() - begin
+        elapsed = time.time() - self.begin
         self.logger.info(
             ('Object update single-threaded sweep completed: '
              '%(elapsed).02fs, %(stats)s'),
@@ -404,18 +554,15 @@ class ObjectUpdater(Daemon):
         self.logger.info("Object update sweep starting on %s (pid: %d)",
                          device, my_pid)
 
-        def skip_counting_f(update_ctx):
-            # in the future we could defer update_ctx
-            self.stats.skips += 1
-            self.logger.increment("skips")
-
         ap_iter = RateLimitedIterator(
             self._iter_async_pendings(device),
             elements_per_second=self.max_objects_per_second)
         ap_iter = BucketizedUpdateSkippingLimiter(
-            ap_iter, self.per_container_ratelimit_buckets,
+            ap_iter, self.logger, self.stats,
+            self.per_container_ratelimit_buckets,
             self.max_objects_per_container_per_second,
-            skip_f=skip_counting_f)
+            max_deferred_elements=self.max_deferred_updates,
+            drain_until=self.begin + self.interval)
         with ContextPool(self.concurrency) as pool:
             for update_ctx in ap_iter:
                 pool.spawn(self.process_object_update, **update_ctx)
@@ -440,8 +587,10 @@ class ObjectUpdater(Daemon):
              '%(successes)d successes, %(failures)d failures, '
              '%(quarantines)d quarantines, '
              '%(unlinks)d unlinks, %(errors)d errors, '
-             '%(redirects)d redirects '
-             '%(skips)d skips '
+             '%(redirects)d redirects, '
+             '%(skips)d skips, '
+             '%(deferrals)d deferrals, '
+             '%(drains)d drains '
              '(pid: %(pid)d)'),
             {'device': device,
              'elapsed': time.time() - start_time,
@@ -452,7 +601,10 @@ class ObjectUpdater(Daemon):
              'unlinks': sweep_totals.unlinks,
              'errors': sweep_totals.errors,
              'redirects': sweep_totals.redirects,
-             'skips': sweep_totals.skips})
+             'skips': sweep_totals.skips,
+             'deferrals': sweep_totals.deferrals,
+             'drains': sweep_totals.drains
+             })
 
     def process_object_update(self, update_path, device, policy, update,
                               **kwargs):

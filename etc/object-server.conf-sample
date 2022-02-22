@@ -483,6 +483,12 @@ use = egg:swift#recon
 # be an integer greater than 0.
 # per_container_ratelimit_buckets = 1000
 #
+# Updates that cannot be sent due to per-container rate-limiting may be
+# deferred and re-tried at the end of the updater cycle. This option constrains
+# the size of the in-memory data structure used to store deferred updates.
+# Must be an integer value greater than or equal to 0.
+# max_deferred_updates = 10000
+#
 # slowdown will sleep that amount between objects. Deprecated; use
 # objects_per_second instead.
 # slowdown = 0.01
