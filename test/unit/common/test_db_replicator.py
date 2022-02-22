@@ -1066,7 +1066,9 @@ class TestDBReplicator(unittest.TestCase):
 
         temp_dir = mkdtemp()
         try:
-            temp_suf_dir = os.path.join(temp_dir, '16e')
+            temp_part_dir = os.path.join(temp_dir, '140')
+            os.mkdir(temp_part_dir)
+            temp_suf_dir = os.path.join(temp_part_dir, '16e')
             os.mkdir(temp_suf_dir)
             temp_hash_dir = os.path.join(temp_suf_dir,
                                          '166e33924a08ede4204871468c11e16e')
@@ -1079,6 +1081,7 @@ class TestDBReplicator(unittest.TestCase):
 
             # sanity-checks
             self.assertTrue(os.path.exists(temp_dir))
+            self.assertTrue(os.path.exists(temp_part_dir))
             self.assertTrue(os.path.exists(temp_suf_dir))
             self.assertTrue(os.path.exists(temp_hash_dir))
             self.assertTrue(os.path.exists(temp_file.name))
@@ -1090,6 +1093,7 @@ class TestDBReplicator(unittest.TestCase):
             replicator.delete_db(temp_file)
 
             self.assertTrue(os.path.exists(temp_dir))
+            self.assertTrue(os.path.exists(temp_part_dir))
             self.assertTrue(os.path.exists(temp_suf_dir))
             self.assertFalse(os.path.exists(temp_hash_dir))
             self.assertFalse(os.path.exists(temp_file.name))
@@ -1103,6 +1107,7 @@ class TestDBReplicator(unittest.TestCase):
             replicator.delete_db(temp_file2)
 
             self.assertTrue(os.path.exists(temp_dir))
+            self.assertFalse(os.path.exists(temp_part_dir))
             self.assertFalse(os.path.exists(temp_suf_dir))
             self.assertFalse(os.path.exists(temp_hash_dir))
             self.assertFalse(os.path.exists(temp_file.name))
@@ -2186,13 +2191,7 @@ class TestReplicatorSync(unittest.TestCase):
         # running replicator will remove the deleted db
         daemon = self._run_once(node, daemon=daemon)
         self.assertEqual(1, daemon.stats['remove'])
-        # we still have a part dir (but it's empty)
-        suff = os.listdir(os.path.join(part_root, part))
-        self.assertEqual(0, len(suff))
-        # run it again and there's nothing to do...
-        daemon = self._run_once(node, daemon=daemon)
-        self.assertEqual(0, daemon.stats['attempted'])
-        # but empty part dir is cleaned up!
+        # which also takes out the empty part dir
         parts = os.listdir(part_root)
         self.assertEqual(0, len(parts))
 

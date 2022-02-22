@@ -710,16 +710,22 @@ class Replicator(Daemon):
         suf_dir = os.path.dirname(hash_dir)
         with lock_parent_directory(object_file):
             shutil.rmtree(hash_dir, True)
-        try:
-            os.rmdir(suf_dir)
-        except OSError as err:
-            if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
-                self.logger.exception(
-                    _('ERROR while trying to clean up %s') % suf_dir)
-                return False
         self.stats['remove'] += 1
         device_name = self.extract_device(object_file)
         self.logger.increment('removes.' + device_name)
+
+        for parent_dir in (suf_dir, os.path.dirname(suf_dir)):
+            try:
+                os.rmdir(parent_dir)
+            except OSError as err:
+                if err.errno == errno.ENOTEMPTY:
+                    break
+                elif err.errno == errno.ENOENT:
+                    continue
+                else:
+                    self.logger.exception(
+                        'ERROR while trying to clean up %s', parent_dir)
+                    return False
         return True
 
     def extract_device(self, object_file):
