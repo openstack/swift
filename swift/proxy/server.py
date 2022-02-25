@@ -36,7 +36,7 @@ from swift.common.utils import Watchdog, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     parse_prefixed_conf, config_auto_int_value, node_to_string, \
-    config_request_node_count_value, config_percent_value
+    config_request_node_count_value, config_percent_value, cap_length
 from swift.common.registry import register_swift_info
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
@@ -736,7 +736,7 @@ class Application(object):
             else:
                 fmt = 'ERROR %(status)d %(body)s Trying to %(method)s ' \
                       '%(path)s From %(type)s Server'
-                values['body'] = body[:1024]
+                values['body'] = cap_length(body, 1024)
             self.error_occurred(node, fmt % values)
         else:
             ok = True
