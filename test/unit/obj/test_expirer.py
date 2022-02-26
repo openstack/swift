@@ -110,26 +110,31 @@ class TestObjectExpirer(TestCase):
         self.logger = debug_logger('test-expirer')
 
         self.ts = make_timestamp_iter()
+        self.empty_time = str(int(time() - 864000))
         self.past_time = str(int(time() - 86400))
+        self.just_past_time = str(int(time() - 1))
         self.future_time = str(int(time() + 86400))
         # Dummy task queue for test
         self.fake_swift = FakeInternalClient({
             '.expiring_objects': {
                 # this task container will be checked
+                self.empty_time: [],
                 self.past_time: [
                     # tasks ready for execution
                     self.past_time + '-a0/c0/o0',
                     self.past_time + '-a1/c1/o1',
                     self.past_time + '-a2/c2/o2',
                     self.past_time + '-a3/c3/o3',
-                    self.past_time + '-a4/c4/o4',
-                    self.past_time + '-a5/c5/o5',
-                    self.past_time + '-a6/c6/o6',
-                    self.past_time + '-a7/c7/o7',
+                    self.past_time + '-a4/c4/o4'],
+                self.just_past_time: [
+                    self.just_past_time + '-a5/c5/o5',
+                    self.just_past_time + '-a6/c6/o6',
+                    self.just_past_time + '-a7/c7/o7',
                     # task objects for unicode test
-                    self.past_time + u'-a8/c8/o8\u2661',
-                    self.past_time + u'-a9/c9/o9\xf8',
-                    # this task will be skipped
+                    self.just_past_time + u'-a8/c8/o8\u2661',
+                    self.just_past_time + u'-a9/c9/o9\xf8',
+                    # this task will be skipped and prevent us from even
+                    # *trying* to delete the container
                     self.future_time + '-a10/c10/o10'],
                 # this task container will be skipped
                 self.future_time: [
@@ -138,14 +143,20 @@ class TestObjectExpirer(TestCase):
         self.expirer = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                              swift=self.fake_swift)
 
-        # target object paths which should be expirerd now
-        self.expired_target_path_list = [
-            swob.wsgi_to_str(tgt) for tgt in (
-                'a0/c0/o0', 'a1/c1/o1', 'a2/c2/o2', 'a3/c3/o3', 'a4/c4/o4',
-                'a5/c5/o5', 'a6/c6/o6', 'a7/c7/o7',
-                'a8/c8/o8\xe2\x99\xa1', 'a9/c9/o9\xc3\xb8',
-            )
-        ]
+        # map of times to target object paths which should be expirerd now
+        self.expired_target_paths = {
+            self.past_time: [
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0', 'a1/c1/o1', 'a2/c2/o2', 'a3/c3/o3', 'a4/c4/o4',
+                )
+            ],
+            self.just_past_time: [
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a5/c5/o5', 'a6/c6/o6', 'a7/c7/o7',
+                    'a8/c8/o8\xe2\x99\xa1', 'a9/c9/o9\xc3\xb8',
+                )
+            ],
+        }
 
     def make_fake_ic(self, app):
         app._pipeline_final_app = mock.MagicMock()
@@ -329,7 +340,11 @@ class TestObjectExpirer(TestCase):
         expected = {
             self.past_time: [
                 self.past_time + '-' + target_path
-                for target_path in self.expired_target_path_list]}
+                for target_path in self.expired_target_paths[self.past_time]],
+            self.just_past_time: [
+                self.just_past_time + '-' + target_path
+                for target_path
+                in self.expired_target_paths[self.just_past_time]]}
         self.assertEqual(deleted_objects, expected)
 
     def test_delete_object(self):
@@ -605,7 +620,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(
             self.expirer.logger.get_lines_for_level('info'), [
                 'Pass beginning for task account .expiring_objects; '
-                '2 possible containers; 12 possible objects',
+                '4 possible containers; 12 possible objects',
                 'Pass completed in 0s; 10 objects expired',
             ])
 
@@ -628,7 +643,10 @@ class TestObjectExpirer(TestCase):
             x.run_once()
         self.assertEqual(calls, [([
             self.make_task(self.past_time, target_path)
-            for target_path in self.expired_target_path_list
+            for target_path in self.expired_target_paths[self.past_time]
+        ] + [
+            self.make_task(self.just_past_time, target_path)
+            for target_path in self.expired_target_paths[self.just_past_time]
         ], 2)])
 
     def test_skip_task_account_without_task_container(self):
@@ -649,16 +667,32 @@ class TestObjectExpirer(TestCase):
         my_index = 0
         divisor = 1
 
+        # empty container gets deleted inline
+        task_account_container_list = [('.expiring_objects', self.empty_time)]
+        with mock.patch.object(self.expirer.swift, 'delete_container') \
+                as mock_delete_container:
+            self.assertEqual(
+                list(self.expirer.iter_task_to_expire(
+                    task_account_container_list, my_index, divisor)),
+                [])
+        self.assertEqual(mock_delete_container.mock_calls, [
+            mock.call('.expiring_objects', self.empty_time,
+                      acceptable_statuses=(2, 404, 409))])
+
         task_account_container_list = [('.expiring_objects', self.past_time)]
 
         expected = [
             self.make_task(self.past_time, target_path)
-            for target_path in self.expired_target_path_list]
+            for target_path in self.expired_target_paths[self.past_time]]
 
-        self.assertEqual(
-            list(self.expirer.iter_task_to_expire(
-                task_account_container_list, my_index, divisor)),
-            expected)
+        with mock.patch.object(self.expirer.swift, 'delete_container') \
+                as mock_delete_container:
+            self.assertEqual(
+                list(self.expirer.iter_task_to_expire(
+                    task_account_container_list, my_index, divisor)),
+                expected)
+        # not empty; not deleted
+        self.assertEqual(mock_delete_container.mock_calls, [])
 
         # the task queue has invalid task object
         invalid_aco_dict = deepcopy(self.fake_swift.aco_dict)
@@ -713,7 +747,9 @@ class TestObjectExpirer(TestCase):
         expected = [
             self.make_task(self.past_time, target_path,
                            is_async_delete=True)
-            for target_path in self.expired_target_path_list]
+            for target_path in (
+                self.expired_target_paths[self.past_time] +
+                self.expired_target_paths[self.just_past_time])]
 
         self.assertEqual(
             list(x.iter_task_to_expire(
@@ -737,8 +773,10 @@ class TestObjectExpirer(TestCase):
             self.expirer.run_once()
 
         # iter_objects is called only for past_time, not future_time
-        self.assertEqual(mock_method.call_args_list,
-                         [mock.call('.expiring_objects', self.past_time)])
+        self.assertEqual(mock_method.call_args_list, [
+            mock.call('.expiring_objects', self.empty_time),
+            mock.call('.expiring_objects', self.past_time),
+            mock.call('.expiring_objects', self.just_past_time)])
 
     def test_object_timestamp_break(self):
         with mock.patch.object(self.expirer, 'delete_actual_object') \
@@ -750,7 +788,10 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(
             mock_method.call_args_list,
             [mock.call(target_path, self.past_time, False)
-             for target_path in self.expired_target_path_list])
+             for target_path in self.expired_target_paths[self.past_time]] +
+            [mock.call(target_path, self.just_past_time, False)
+             for target_path
+             in self.expired_target_paths[self.just_past_time]])
 
     def test_failed_delete_keeps_entry(self):
         def deliberately_blow_up(actual_obj, timestamp):
@@ -776,7 +817,11 @@ class TestObjectExpirer(TestCase):
             mock_method.call_args_list,
             [mock.call('.expiring_objects', self.past_time,
              self.past_time + '-' + target_path)
-             for target_path in self.expired_target_path_list])
+             for target_path in self.expired_target_paths[self.past_time]] +
+            [mock.call('.expiring_objects', self.just_past_time,
+             self.just_past_time + '-' + target_path)
+             for target_path
+             in self.expired_target_paths[self.just_past_time]])
 
     def test_success_gets_counted(self):
         self.assertEqual(self.expirer.report_objects, 0)
@@ -812,29 +857,37 @@ class TestObjectExpirer(TestCase):
             raise Exception('failed to delete container')
 
         def fail_delete_actual_object(actual_obj, timestamp, is_async_delete):
-            raise Exception('failed to delete actual object')
+            if timestamp == self.just_past_time:
+                raise Exception('failed to delete actual object')
 
         with mock.patch.object(self.fake_swift, 'delete_container',
                                fail_delete_container), \
                 mock.patch.object(self.expirer, 'delete_actual_object',
-                                  fail_delete_actual_object):
+                                  fail_delete_actual_object), \
+                mock.patch.object(self.expirer, 'pop_queue') as mock_pop:
             self.expirer.run_once()
 
         error_lines = self.expirer.logger.get_lines_for_level('error')
 
         self.assertEqual(error_lines, [
+            'Exception while deleting container .expiring_objects %s failed '
+            'to delete container: ' % self.empty_time
+        ] + [
             'Exception while deleting object %s %s %s '
             'failed to delete actual object: ' % (
-                '.expiring_objects', self.past_time,
-                self.past_time + '-' + target_path)
-            for target_path in self.expired_target_path_list] + [
-            'Exception while deleting container %s %s '
-            'failed to delete container: ' % (
-                '.expiring_objects', self.past_time)])
+                '.expiring_objects', self.just_past_time,
+                self.just_past_time + '-' + target_path)
+            for target_path in self.expired_target_paths[self.just_past_time]
+        ])
         self.assertEqual(self.expirer.logger.get_lines_for_level('info'), [
             'Pass beginning for task account .expiring_objects; '
-            '2 possible containers; 12 possible objects',
-            'Pass completed in 0s; 0 objects expired',
+            '4 possible containers; 12 possible objects',
+            'Pass completed in 0s; 5 objects expired',
+        ])
+        self.assertEqual(mock_pop.mock_calls, [
+            mock.call('.expiring_objects', self.past_time,
+                      self.past_time + '-' + target_path)
+            for target_path in self.expired_target_paths[self.past_time]
         ])
 
     def test_run_forever_initial_sleep_random(self):
