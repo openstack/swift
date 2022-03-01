@@ -71,7 +71,8 @@ from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, wsgi_to_str
 from swift.common.utils import json, public, reiterate, md5
 from swift.common.db import utf8encode
-from swift.common.request_helpers import get_container_update_override_key
+from swift.common.request_helpers import get_container_update_override_key, \
+    get_param
 
 from six.moves.urllib.parse import quote, urlparse
 
@@ -174,16 +175,16 @@ class PartController(Controller):
                                   'Unexpected query string parameter')
 
         try:
-            part_number = int(req.params['partNumber'])
+            part_number = int(get_param(req, 'partNumber'))
             if part_number < 1 or self.conf.max_upload_part_num < part_number:
                 raise Exception()
         except Exception:
             err_msg = 'Part number must be an integer between 1 and %d,' \
                       ' inclusive' % self.conf.max_upload_part_num
-            raise InvalidArgument('partNumber', req.params['partNumber'],
+            raise InvalidArgument('partNumber', get_param(req, 'partNumber'),
                                   err_msg)
 
-        upload_id = req.params['uploadId']
+        upload_id = get_param(req, 'uploadId')
         _get_upload_info(req, self.app, upload_id)
 
         req.container_name += MULTIUPLOAD_SUFFIX
@@ -292,13 +293,13 @@ class UploadsController(Controller):
                     non_delimited_uploads.append(upload)
             return non_delimited_uploads, sorted(common_prefixes)
 
-        encoding_type = req.params.get('encoding-type')
+        encoding_type = get_param(req, 'encoding-type')
         if encoding_type is not None and encoding_type != 'url':
             err_msg = 'Invalid Encoding Method specified in Request'
             raise InvalidArgument('encoding-type', encoding_type, err_msg)
 
-        keymarker = req.params.get('key-marker', '')
-        uploadid = req.params.get('upload-id-marker', '')
+        keymarker = get_param(req, 'key-marker', '')
+        uploadid = get_param(req, 'upload-id-marker', '')
         maxuploads = req.get_validated_param(
             'max-uploads', DEFAULT_MAX_UPLOADS, DEFAULT_MAX_UPLOADS)
 
@@ -312,7 +313,7 @@ class UploadsController(Controller):
         elif keymarker:
             query.update({'marker': '%s/~' % (keymarker)})
         if 'prefix' in req.params:
-            query.update({'prefix': req.params['prefix']})
+            query.update({'prefix': get_param(req, 'prefix')})
 
         container = req.container_name + MULTIUPLOAD_SUFFIX
         uploads = []
@@ -341,8 +342,8 @@ class UploadsController(Controller):
                            is_part.search(obj.get('name', '')) is None]
             new_prefixes = []
             if 'delimiter' in req.params:
-                prefix = req.params.get('prefix', '')
-                delimiter = req.params['delimiter']
+                prefix = get_param(req, 'prefix', '')
+                delimiter = get_param(req, 'delimiter')
                 new_uploads, new_prefixes = separate_uploads(
                     new_uploads, prefix, delimiter)
             uploads.extend(new_uploads)
@@ -369,9 +370,10 @@ class UploadsController(Controller):
         SubElement(result_elem, 'NextKeyMarker').text = nextkeymarker
         SubElement(result_elem, 'NextUploadIdMarker').text = nextuploadmarker
         if 'delimiter' in req.params:
-            SubElement(result_elem, 'Delimiter').text = req.params['delimiter']
+            SubElement(result_elem, 'Delimiter').text = \
+                get_param(req, 'delimiter')
         if 'prefix' in req.params:
-            SubElement(result_elem, 'Prefix').text = req.params['prefix']
+            SubElement(result_elem, 'Prefix').text = get_param(req, 'prefix')
         SubElement(result_elem, 'MaxUploads').text = str(maxuploads)
         if encoding_type is not None:
             SubElement(result_elem, 'EncodingType').text = encoding_type
@@ -492,12 +494,12 @@ class UploadController(Controller):
             except ValueError:
                 return False
 
-        encoding_type = req.params.get('encoding-type')
+        encoding_type = get_param(req, 'encoding-type')
         if encoding_type is not None and encoding_type != 'url':
             err_msg = 'Invalid Encoding Method specified in Request'
             raise InvalidArgument('encoding-type', encoding_type, err_msg)
 
-        upload_id = req.params['uploadId']
+        upload_id = get_param(req, 'uploadId')
         _get_upload_info(req, self.app, upload_id)
 
         maxparts = req.get_validated_param(
@@ -572,7 +574,7 @@ class UploadController(Controller):
         SubElement(result_elem, 'MaxParts').text = str(maxparts)
         if 'encoding-type' in req.params:
             SubElement(result_elem, 'EncodingType').text = \
-                req.params['encoding-type']
+                get_param(req, 'encoding-type')
         SubElement(result_elem, 'IsTruncated').text = \
             'true' if truncated else 'false'
 
@@ -595,7 +597,7 @@ class UploadController(Controller):
         """
         Handles Abort Multipart Upload.
         """
-        upload_id = req.params['uploadId']
+        upload_id = get_param(req, 'uploadId')
         _get_upload_info(req, self.app, upload_id)
 
         # First check to see if this multi-part upload was already
@@ -641,7 +643,7 @@ class UploadController(Controller):
         """
         Handles Complete Multipart Upload.
         """
-        upload_id = req.params['uploadId']
+        upload_id = get_param(req, 'uploadId')
         resp = _get_upload_info(req, self.app, upload_id)
         headers = {'Accept': 'application/json',
                    sysmeta_header('object', 'upload-id'): upload_id}
