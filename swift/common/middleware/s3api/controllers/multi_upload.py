@@ -609,9 +609,10 @@ class UploadController(Controller):
         # must be a multipart upload abort.
         # We must delete any uploaded segments for this UploadID and then
         # delete the object in the main container as well
+        object_name = wsgi_to_str(req.object_name)
         query = {
             'format': 'json',
-            'prefix': '%s/%s/' % (req.object_name, upload_id),
+            'prefix': '%s/%s/' % (object_name, upload_id),
             'delimiter': '/',
         }
 
