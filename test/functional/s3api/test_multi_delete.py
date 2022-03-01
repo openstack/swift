@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import six
 import unittest
 import os
 import test.functional as tf
@@ -56,14 +57,17 @@ class TestS3ApiMultiDelete(S3ApiBase):
 
         return tostring(elem, use_s3ns=False)
 
-    def test_delete_multi_objects(self):
+    def _test_delete_multi_objects(self, with_non_ascii=False):
         bucket = 'bucket'
-        put_objects = ['obj%s' % var for var in range(4)]
+        if with_non_ascii:
+            put_objects = [u'\N{SNOWMAN}obj%s' % var for var in range(4)]
+        else:
+            put_objects = ['obj%s' % var for var in range(4)]
         self._prepare_test_delete_multi_objects(bucket, put_objects)
         query = 'delete'
 
         # Delete an object via MultiDelete API
-        req_objects = ['obj0']
+        req_objects = put_objects[:1]
         xml = self._gen_multi_delete_xml(req_objects)
         content_md5 = calculate_md5(xml)
         status, headers, body = \
@@ -78,10 +82,13 @@ class TestS3ApiMultiDelete(S3ApiBase):
         resp_objects = elem.findall('Deleted')
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
-            self.assertTrue(o.find('Key').text in req_objects)
+            key = o.find('Key').text
+            if six.PY2:
+                key = key.decode('utf-8')
+            self.assertTrue(key in req_objects)
 
         # Delete 2 objects via MultiDelete API
-        req_objects = ['obj1', 'obj2']
+        req_objects = put_objects[1:3]
         xml = self._gen_multi_delete_xml(req_objects)
         content_md5 = calculate_md5(xml)
         status, headers, body = \
@@ -93,10 +100,17 @@ class TestS3ApiMultiDelete(S3ApiBase):
         resp_objects = elem.findall('Deleted')
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
-            self.assertTrue(o.find('Key').text in req_objects)
+            key = o.find('Key').text
+            if six.PY2:
+                key = key.decode('utf-8')
+            self.assertTrue(key in req_objects)
 
+        if with_non_ascii:
+            fake_objs = [u'\N{SNOWMAN}obj%s' % var for var in range(4, 6)]
+        else:
+            fake_objs = ['obj%s' % var for var in range(4, 6)]
         # Delete 2 objects via MultiDelete API but one (obj4) doesn't exist.
-        req_objects = ['obj3', 'obj4']
+        req_objects = [put_objects[-1], fake_objs[0]]
         xml = self._gen_multi_delete_xml(req_objects)
         content_md5 = calculate_md5(xml)
         status, headers, body = \
@@ -109,10 +123,13 @@ class TestS3ApiMultiDelete(S3ApiBase):
         # S3 assumes a NoSuchKey object as deleted.
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
-            self.assertTrue(o.find('Key').text in req_objects)
+            key = o.find('Key').text
+            if six.PY2:
+                key = key.decode('utf-8')
+            self.assertTrue(key in req_objects)
 
         # Delete 2 objects via MultiDelete API but no objects exist
-        req_objects = ['obj4', 'obj5']
+        req_objects = fake_objs[:2]
         xml = self._gen_multi_delete_xml(req_objects)
         content_md5 = calculate_md5(xml)
         status, headers, body = \
@@ -124,7 +141,16 @@ class TestS3ApiMultiDelete(S3ApiBase):
         resp_objects = elem.findall('Deleted')
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
-            self.assertTrue(o.find('Key').text in req_objects)
+            key = o.find('Key').text
+            if six.PY2:
+                key = key.decode('utf-8')
+            self.assertTrue(key in req_objects)
+
+    def test_delete_multi_objects(self):
+        self._test_delete_multi_objects()
+
+    def test_delete_multi_objects_with_non_ascii(self):
+        self._test_delete_multi_objects(with_non_ascii=True)
 
     def test_delete_multi_objects_error(self):
         bucket = 'bucket'

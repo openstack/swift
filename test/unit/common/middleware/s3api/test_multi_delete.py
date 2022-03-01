@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2014 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,6 +40,9 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             swob.HTTPOk, {}, None)
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key2',
                             swob.HTTPNotFound, {}, None)
+        self.swift.register('HEAD',
+                            '/v1/AUTH_test/bucket/business/caf\xc3\xa9',
+                            swob.HTTPOk, {}, None)
         self.ts = make_timestamp_iter()
 
     @s3acl
@@ -70,6 +74,9 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             swob.HTTPOk,
                             {'x-static-large-object': 'True'},
                             None)
+        self.swift.register('DELETE',
+                            '/v1/AUTH_test/bucket/business/caf\xc3\xa9',
+                            swob.HTTPNoContent, {}, None)
         slo_delete_resp = {
             'Number Not Found': 0,
             'Response Status': '200 OK',
@@ -88,7 +95,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             swob.HTTPNoContent, {}, None)
 
         elem = Element('Delete')
-        for key in ['Key1', 'Key2', 'Key3', 'Key4']:
+        for key in ['Key1', 'Key2', 'Key3', 'Key4', 'business/café']:
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
@@ -106,7 +113,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
 
         elem = fromstring(body)
-        self.assertEqual(len(elem.findall('Deleted')), 4)
+        self.assertEqual(len(elem.findall('Deleted')), 5)
         self.assertEqual(len(elem.findall('Error')), 0)
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
@@ -119,6 +126,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/bucket/Key4?symlink=get'),
             ('DELETE',
              '/v1/AUTH_test/bucket/Key4?async=on&multipart-manifest=delete'),
+            ('HEAD', '/v1/AUTH_test/bucket/business/caf\xc3\xa9?symlink=get'),
+            ('DELETE', '/v1/AUTH_test/bucket/business/caf\xc3\xa9'),
         ])
 
     @s3acl
