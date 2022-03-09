@@ -29,13 +29,14 @@ from six.moves import urllib, zip, zip_longest
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
-from swift.common.middleware.s3api.utils import mktime
+from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, mktime
 from swift.common.utils import md5
 
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code, get_error_msg, \
     calculate_md5
+from test.functional.swift_test_client import Connection as SwiftConnection
 
 
 def setUpModule():
@@ -112,7 +113,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
     def test_object_multi_upload(self):
         bucket = 'bucket'
-        keys = [u'obj1\N{SNOWMAN}', 'obj2', 'obj3']
+        keys = [u'obj1\N{SNOWMAN}', u'obj2\N{SNOWMAN}', 'obj3']
         bad_content_md5 = base64.b64encode(b'a' * 16).strip().decode('ascii')
         headers = [{'Content-Type': 'foo/bar', 'x-amz-meta-baz': 'quux'},
                    {'Content-MD5': bad_content_md5},
@@ -421,6 +422,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # Abort Multipart Uploads
         # note that uploads[1] has part data while uploads[2] does not
+        sw_conn = SwiftConnection(tf.config)
+        sw_conn.authenticate()
         for key, upload_id in uploads[1:]:
             query = 'uploadId=%s' % upload_id
             status, headers, body = \
@@ -432,6 +435,11 @@ class TestS3ApiMultiUpload(S3ApiBase):
                              'text/html; charset=UTF-8')
             self.assertTrue('content-length' in headers)
             self.assertEqual(headers['content-length'], '0')
+            # Check if all parts have been deleted
+            segments = sw_conn.get_account().container(
+                bucket + MULTIUPLOAD_SUFFIX).files(
+                    parms={'prefix': '%s/%s' % (key, upload_id)})
+            self.assertFalse(segments)
 
         # Check object
         def check_obj(req_headers, exp_status):
