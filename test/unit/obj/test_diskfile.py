@@ -1589,6 +1589,27 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 ('/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/' +
                  'made-up-filename'))
 
+    def test_get_diskfile_from_hash_no_data(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'cleanup_ondisk_files')) as cleanup, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta, \
+                mock.patch(self._manager_mock(
+                    'quarantine_renamer')) as quarantine_renamer:
+            osexc = OSError()
+            osexc.errno = errno.ENODATA
+            cleanup.side_effect = osexc
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
+            quarantine_renamer.assert_called_once_with(
+                '/srv/dev/',
+                ('/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/' +
+                 'made-up-filename'))
+
     def test_get_diskfile_from_hash_no_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
@@ -4660,6 +4681,21 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
         self.assertRaises(DiskFileQuarantined, df.open)
+
+        # make sure the right thing got quarantined; the suffix dir should not
+        # have moved, as that could have many objects in it
+        self.assertFalse(os.path.exists(hashdir))
+        self.assertTrue(os.path.exists(os.path.dirname(hashdir)))
+
+    def test_quarantine_hashdir_not_listable(self):
+        df, df_data = self._create_test_file(b'1234567890', account="abc",
+                                             container='123', obj='xyz')
+        hashdir = df._datadir
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz', policy=POLICIES.legacy)
+        with mock.patch('os.listdir',
+                        side_effect=OSError(errno.ENODATA, 'nope')):
+            self.assertRaises(DiskFileQuarantined, df.open)
 
         # make sure the right thing got quarantined; the suffix dir should not
         # have moved, as that could have many objects in it
@@ -8495,6 +8531,38 @@ class TestSuffixHashes(unittest.TestCase):
             df_mgr = self.df_router[policy]
             hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
                                        policy)
+            self.assertEqual(hashes, {})
+            # and hash path is quarantined
+            self.assertFalse(os.path.exists(df._datadir))
+            # each device a quarantined directory
+            quarantine_base = os.path.join(self.devices,
+                                           self.existing_device, 'quarantined')
+            # the quarantine path is...
+            quarantine_path = os.path.join(
+                quarantine_base,  # quarantine root
+                diskfile.get_data_dir(policy),  # per-policy data dir
+                os.path.basename(df._datadir)  # name of quarantined file
+            )
+            self.assertTrue(os.path.exists(quarantine_path))
+
+    def test_hash_suffix_cleanup_ondisk_files_enodata_quarantined(self):
+        for policy in self.iter_policies():
+            df = self.df_router[policy].get_diskfile(
+                self.existing_device, '0', 'a', 'c', 'o', policy=policy)
+            # make everything down to the hash directory
+            os.makedirs(df._datadir)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            orig_listdir = os.listdir
+
+            def fake_listdir(path):
+                if path == df._datadir:
+                    raise OSError(errno.ENODATA, 'nope')
+                return orig_listdir(path)
+
+            df_mgr = self.df_router[policy]
+            with mock.patch('os.listdir', side_effect=fake_listdir):
+                hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
+                                           policy)
             self.assertEqual(hashes, {})
             # and hash path is quarantined
             self.assertFalse(os.path.exists(df._datadir))
