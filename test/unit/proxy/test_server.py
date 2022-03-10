@@ -6484,6 +6484,7 @@ class TestReplicatedObjectController(
         self.assertEqual(200, resp.status_int)
         self.assertEqual('http://foo.bar',
                          resp.headers['access-control-allow-origin'])
+        self.assertEqual('Origin', resp.headers['vary'])
         self.assertEqual('red', resp.headers['x-object-meta-color'])
         # X-Super-Secret is in the response, but not "exposed"
         self.assertEqual('hush', resp.headers['x-super-secret'])
@@ -6506,6 +6507,7 @@ class TestReplicatedObjectController(
         self.assertEqual(200, resp.status_int)
         self.assertEqual('*',
                          resp.headers['access-control-allow-origin'])
+        self.assertNotIn('vary', resp.headers)
 
         # test allow_origin empty
         container_cors = {'allow_origin': ''}
@@ -6514,6 +6516,7 @@ class TestReplicatedObjectController(
         self.assertEqual(200, resp.status_int)
         self.assertEqual('http://foo.bar',
                          resp.headers['access-control-allow-origin'])
+        self.assertEqual('Origin', resp.headers['vary'])
 
     def test_CORS_valid_strict(self):
         # test expose_headers to non-allowed origins
@@ -6535,6 +6538,7 @@ class TestReplicatedObjectController(
         self.assertEqual(200, resp.status_int)
         self.assertEqual('*',
                          resp.headers['access-control-allow-origin'])
+        self.assertNotIn('vary', resp.headers)
         self.assertEqual('red', resp.headers['x-object-meta-color'])
         # X-Super-Secret is in the response, but not "exposed"
         self.assertEqual('hush', resp.headers['x-super-secret'])
@@ -6554,6 +6558,7 @@ class TestReplicatedObjectController(
             container_cors=container_cors, strict_mode=True)
         self.assertNotIn('access-control-expose-headers', resp.headers)
         self.assertNotIn('access-control-allow-origin', resp.headers)
+        self.assertNotIn('vary', resp.headers)
 
         # test proxy server cors_allow_origin option
         self.app.cors_allow_origin = ['http://foo.bar']
@@ -6561,6 +6566,7 @@ class TestReplicatedObjectController(
             container_cors=container_cors, strict_mode=True)
         self.assertEqual('http://foo.bar',
                          resp.headers['access-control-allow-origin'])
+        self.assertEqual('Origin', resp.headers['vary'])
         self.assertEqual(expected_exposed, exposed)
 
     def test_CORS_valid_with_obj_headers(self):
