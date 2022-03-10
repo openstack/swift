@@ -21,7 +21,7 @@ from swift.obj import server
 
 
 if __name__ == '__main__':
-    conf_file, options = parse_options()
+    conf_file, options = parse_options(test_config=True)
     sys.exit(run_wsgi(conf_file, 'object-server',
                       global_conf_callback=server.global_conf_callback,
                       **options))
