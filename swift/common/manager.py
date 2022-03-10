@@ -180,6 +180,17 @@ def kill_group(pid, sig):
     os.kill(-pid, sig)
 
 
+def get_child_pids(pid):
+    """
+    Get the current set of all child PIDs for a PID.
+
+    :param pid: process id
+    """
+    output = subprocess.check_output(
+        ["ps", "--ppid", str(pid), "--no-headers", "-o", "pid"])
+    return {int(pid) for pid in output.split()}
+
+
 def format_server_name(servername):
     """
     Formats server name as swift compatible server names
@@ -700,9 +711,7 @@ class Server(object):
                 print('Removing pid file %s with invalid pid' % pid_file)
                 remove_file(pid_file)
                 continue
-            ps_cmd = ['ps', '--ppid', str(pid), '--no-headers', '-o', 'pid']
-            for pid in subprocess.check_output(ps_cmd).split():
-                pid = int(pid)
+            for pid in get_child_pids(pid):
                 if self._signal_pid(sig, pid, pid_file, kwargs.get('verbose')):
                     pids[pid] = pid_file
         return pids
