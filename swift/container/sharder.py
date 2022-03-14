@@ -446,6 +446,48 @@ def rank_paths(paths, shard_range_to_span):
 
 
 class CleavingContext(object):
+    """
+    Encapsulates metadata associated with the process of cleaving a retiring
+    DB. This metadata includes:
+
+      * ``ref``: The unique part of the key that is used when persisting a
+        serialized ``CleavingContext`` as sysmeta in the DB. The unique part of
+        the key is based off the DB id. This ensures that each context is
+        associated with a specific DB file. The unique part of the key is
+        included in the ``CleavingContext`` but should not be modified by any
+        caller.
+
+      * ``cursor``: the upper bound of the last shard range to have been
+        cleaved from the retiring DB.
+
+      * ``max_row``: the retiring DB's max row; this is updated to the value of
+        the retiring DB's ``max_row`` every time a ``CleavingContext`` is
+        loaded for that DB, and may change during the process of cleaving the
+        DB.
+
+      * ``cleave_to_row``: the value of ``max_row`` at the moment when cleaving
+        starts for the DB. When cleaving completes (i.e. the cleave cursor has
+        reached the upper bound of the cleaving namespace), ``cleave_to_row``
+        is compared to the current ``max_row``: if the two values are not equal
+        then rows have been added to the DB which may not have been cleaved, in
+        which case the ``CleavingContext`` is ``reset`` and cleaving is
+        re-started.
+
+      * ``last_cleave_to_row``: the minimum DB row from which cleaving should
+        select objects to cleave; this is initially set to None i.e. all rows
+        should be cleaved. If the ``CleavingContext`` is ``reset`` then the
+        ``last_cleave_to_row`` is set to the current value of
+        ``cleave_to_row``, which in turn is set to the current value of
+        ``max_row`` by a subsequent call to ``start``. The repeated cleaving
+        therefore only selects objects in rows greater than the
+        ``last_cleave_to_row``, rather than cleaving the whole DB again.
+
+      * ``ranges_done``: the number of shard ranges that have been cleaved from
+        the retiring DB.
+
+      * ``ranges_todo``: the number of shard ranges that are yet to be
+        cleaved from the retiring DB.
+    """
     def __init__(self, ref, cursor='', max_row=None, cleave_to_row=None,
                  last_cleave_to_row=None, cleaving_done=False,
                  misplaced_done=False, ranges_done=0, ranges_todo=0):
@@ -499,9 +541,9 @@ class CleavingContext(object):
     @classmethod
     def load_all(cls, broker):
         """
-        Returns all cleaving contexts stored in the broker.
+        Returns all cleaving contexts stored in the broker's DB.
 
-        :param broker:
+        :param broker: an instance of :class:`ContainerBroker`
         :return: list of tuples of (CleavingContext, timestamp)
         """
         brokers = broker.get_brokers()
@@ -521,17 +563,11 @@ class CleavingContext(object):
     @classmethod
     def load(cls, broker):
         """
-        Returns a context dict for tracking the progress of cleaving this
-        broker's retiring DB. The context is persisted in sysmeta using a key
-        that is based off the retiring db id and max row. This form of
-        key ensures that a cleaving context is only loaded for a db that
-        matches the id and max row when the context was created; if a db is
-        modified such that its max row changes then a different context, or no
-        context, will be loaded.
+        Returns a CleavingContext tracking the cleaving progress of the given
+        broker's DB.
 
-        :return: A dict to which cleave progress metadata may be added. The
-            dict initially has a key ``ref`` which should not be modified by
-            any caller.
+        :param broker: an instances of :class:`ContainerBroker`
+        :return: An instance of :class:`CleavingContext`.
         """
         brokers = broker.get_brokers()
         ref = cls._make_ref(brokers[0])
@@ -542,6 +578,12 @@ class CleavingContext(object):
         return cls(**data)
 
     def store(self, broker):
+        """
+        Persists the serialized ``CleavingContext`` as sysmeta in the given
+        broker's DB.
+
+        :param broker: an instances of :class:`ContainerBroker`
+        """
         broker.set_sharding_sysmeta('Context-' + self.ref,
                                     json.dumps(dict(self)))
 
