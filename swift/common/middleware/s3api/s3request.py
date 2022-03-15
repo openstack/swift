@@ -401,7 +401,8 @@ class SigV4Mixin(object):
         """
         It won't require bucket name in canonical_uri for v4.
         """
-        return swob.wsgi_to_bytes(self.environ.get('RAW_PATH_INFO', self.path))
+        return swob.wsgi_to_bytes(swob.wsgi_quote(
+            self.environ.get('PATH_INFO', self.path), safe='-_.~/'))
 
     def _canonical_request(self):
         # prepare 'canonical_request'
