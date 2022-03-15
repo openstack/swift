@@ -1,0 +1,41 @@
+---
+deprecations:
+  - |
+    This is the final stable branch that will support Python 2.7.
+
+fixes:
+  - |
+    Fixed s3v4 signature calculation when the client sends an un-encoded
+    path in the request.
+
+  - |
+    Fixed multiple issues in s3api involving Multipart Uploads with
+    non-ASCII names.
+
+  - |
+    The object-updater now defers rate-limited updates to the end of its
+    cycle; these deferred updates will be processed (at the limited rate)
+    until the configured ``interval`` elapses. A new ``max_deferred_updates``
+    option may be used to bound the deferral queue.
+
+  - |
+    Empty account and container partition directories are now cleaned up
+    immediately after replication, rather than needing to wait for an
+    additional replication cycle.
+
+  - |
+    The object-expirer now only cleans up empty containers. Previously, it
+    would attempt to delete all processed containers, regardless of whether
+    there were entries which were skipped or had errors.
+
+  - |
+    A new ``item_size_warning_threshold`` option may be used to monitor for
+    values that are approaching the limit of what can be stored in memcache.
+    See the memcache sample config for more information.
+
+  - |
+    Internal clients now correctly use their configured ``User-Agent`` in
+    backend requests, rather than only using it for logging.
+
+  - |
+    Various other minor bug fixes and improvements.
