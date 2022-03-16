@@ -299,7 +299,6 @@ __all__ = ['TempURL', 'filter_factory',
 
 import binascii
 from calendar import timegm
-import functools
 import hashlib
 import six
 from os.path import basename
@@ -750,7 +749,7 @@ class TempURL(object):
         if not request_method:
             request_method = env['REQUEST_METHOD']
 
-        digest = functools.partial(hashlib.new, hash_algorithm)
+        digest = getattr(hashlib, hash_algorithm)
 
         return [
             (get_hmac(
