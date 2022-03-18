@@ -12,14 +12,82 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import array
 from collections import defaultdict
+import contextlib
 import optparse
 import re
 import socket
+import sys
 
 from swift.common import exceptions
 from swift.common.utils import expand_ipv6, is_valid_ip, is_valid_ipv4, \
     is_valid_ipv6
+
+
+BYTES_TO_TYPE_CODE = {
+    # We don't support 1 byte arrays. For backwards compatibility reasons.
+    2: 'H',
+    # Note that on some platforms, array.array('I') will be limited to 2-byte
+    # values. At the same time, however, using 'L' would get us 8-byte values
+    # on many platforms we care about. Use 'I' for now; hold off on writing
+    # custom array (de)serialization methods until someone actually complains.
+    4: 'I',
+    # This just seems excessive; besides, array.array() only takes it on py33+
+    # 8: 'Q',
+}
+
+
+def none_dev_id(dev_id_bytes):
+    '''
+    we can't store None's in the replica2part2dev array, so we high-jack
+    the max value for magic to represent the part is not currently
+    assigned to any device.
+    '''
+    return 2 ** (8 * dev_id_bytes) - 1
+
+
+def calc_dev_id_bytes(max_dev_id):
+    if max_dev_id < 0:
+        raise ValueError("Can't have negative device IDs")
+    for x in sorted(BYTES_TO_TYPE_CODE):
+        if max_dev_id < none_dev_id(x):
+            return x
+    else:
+        # > 4B devices??
+        raise exceptions.DevIdBytesTooSmall('Way too many devices!')
+
+
+def resize_array(old_arr, new_dev_id_bytes):
+    """
+    Copy an array to use a new itemsize, while preserving none_dev_id values
+    """
+    old_none_dev = none_dev_id(old_arr.itemsize)
+    new_none_dev = none_dev_id(new_dev_id_bytes)
+    return array.array(
+        BYTES_TO_TYPE_CODE[new_dev_id_bytes],
+        (new_none_dev if dev_id == old_none_dev else dev_id
+         for dev_id in old_arr))
+
+
+@contextlib.contextmanager
+def network_order_array(arr):
+    if sys.byteorder == 'little':
+        # Switch to network-order for serialization
+        arr.byteswap()
+    try:
+        yield arr
+    finally:
+        if sys.byteorder == 'little':
+            # Didn't make a copy; switch it back
+            arr.byteswap()
+
+
+def read_network_order_array(type_code, data):
+    arr = array.array(type_code, data)
+    if sys.byteorder == 'little':
+        arr.byteswap()
+    return arr
 
 
 def tiers_for_dev(dev):

@@ -31,6 +31,7 @@ from swift.cli import ringbuilder
 from swift.cli.ringbuilder import EXIT_SUCCESS, EXIT_WARNING, EXIT_ERROR
 from swift.common import exceptions
 from swift.common.ring import RingBuilder
+from swift.common.ring.io import RingReader
 from swift.common.ring.composite_builder import CompositeRingBuilder
 
 from test.unit import Timeout, write_stub_builder
@@ -2121,7 +2122,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
 
         expected = "%s, build version 6, id %s\n" \
             "64 partitions, 3.000000 replicas, 4 regions, 4 zones, " \
-            "4 devices, 100.00 balance, 0.00 dispersion\n" \
+            "4 devices, 2-byte IDs, 100.00 balance, 0.00 dispersion\n" \
             "The minimum number of hours before a partition can be " \
             "reassigned is 1 (0:00:00 remaining)\n" \
             "The overload factor is 0.00%% (0.000000)\n" \
@@ -2397,6 +2398,23 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
     def test_rebalance_remove_zero_weighted_device(self):
         self.create_sample_ring()
         ring = RingBuilder.load(self.tmpfile)
+        ring.set_dev_weight(2, 0.0)
+        ring.rebalance()
+        ring.pretend_min_part_hours_passed()
+        ring.remove_dev(2)
+        ring.save(self.tmpfile)
+
+        # Test rebalance after remove 0 weighted device
+        argv = ["", self.tmpfile, "rebalance", "3"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertTrue(ring.validate())
+        self.assertEqual(len(ring.devs), 4)
+        self.assertIsNone(ring.devs[2])
+
+    def test_rebalance_remove_off_end_trims_dev_list(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
         ring.set_dev_weight(3, 0.0)
         ring.rebalance()
         ring.pretend_min_part_hours_passed()
@@ -2408,7 +2426,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         ring = RingBuilder.load(self.tmpfile)
         self.assertTrue(ring.validate())
-        self.assertIsNone(ring.devs[3])
+        self.assertEqual(len(ring.devs), 3)
 
     def test_rebalance_resets_time_remaining(self):
         self.create_sample_ring()
@@ -2546,12 +2564,32 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "write_ring"]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
+        for version in ("1", "2"):
+            argv = ["", self.tmpfile, "write_ring", "--format-version",
+                    version]
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+            with RingReader.open("%s.ring.gz" % self.tmpfile) as reader:
+                self.assertEqual(int(version), reader.version)
+
+        exp_results = {'valid_exit_codes': [EXIT_ERROR]}
+        out, err = self.run_srb("write_ring", "--format-version", "3",
+                                exp_results=exp_results)
+        self.assertIn('invalid choice', err)
+
     def test_write_empty_ring(self):
         ring = RingBuilder(6, 3, 1)
         ring.save(self.tmpfile)
-        exp_results = {'valid_exit_codes': [2]}
+        exp_results = {'valid_exit_codes': [EXIT_ERROR]}
         out, err = self.run_srb("write_ring", exp_results=exp_results)
-        self.assertEqual('Unable to write empty ring.\n', out)
+        exp_out = 'Unable to write empty ring.\n'
+        self.assertEqual(exp_out, out[-len(exp_out):])
+        self.assertIn("Defaulting to --format-version=1", out)
+
+        for version in (1, 2):
+            out, err = self.run_srb("write_ring",
+                                    "--format-version={}".format(version),
+                                    exp_results=exp_results)
+            self.assertEqual(exp_out, out)
 
     def test_write_builder(self):
         # Test builder file already exists
@@ -2636,6 +2674,133 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
 
         argv = ["", self.tmpfile + '.builder', "rebalance"]
         self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+
+    def test_version_serialization_default(self):
+        self.create_sample_ring()
+        rb = RingBuilder.load(self.tmpfile)
+        rb.rebalance()
+        rd = rb.get_ring()
+        rd.save(self.tmpfile + ".ring.gz")
+
+        ring_file = os.path.join(os.path.dirname(self.tmpfile),
+                                 os.path.basename(self.tmpfile) + ".ring.gz")
+
+        argv = ["", ring_file, "version"]
+        mock_stdout = io.StringIO()
+        with mock.patch("sys.stdout", mock_stdout):
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        expected = ("%s.ring.gz: Serialization version: 1 (2-byte IDs), "
+                    "build version: 5\n" % self.tmpfile)
+        self.assertEqual(expected, mock_stdout.getvalue())
+
+    def test_version_serialization_1(self):
+        self.create_sample_ring()
+        rb = RingBuilder.load(self.tmpfile)
+        rb.rebalance()
+        rd = rb.get_ring()
+        rd.save(self.tmpfile + ".ring.gz", format_version=1)
+
+        ring_file = os.path.join(os.path.dirname(self.tmpfile),
+                                 os.path.basename(self.tmpfile) + ".ring.gz")
+
+        argv = ["", ring_file, "version"]
+        mock_stdout = io.StringIO()
+        with mock.patch("sys.stdout", mock_stdout):
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        expected = ("%s.ring.gz: Serialization version: 1 (2-byte IDs), "
+                    "build version: 5\n" % self.tmpfile)
+        self.assertEqual(expected, mock_stdout.getvalue())
+
+    def test_version_serialization_2(self):
+        self.create_sample_ring()
+        rb = RingBuilder.load(self.tmpfile)
+        rb.rebalance()
+        rd = rb.get_ring()
+        rd.save(self.tmpfile + ".ring.gz", format_version=2)
+
+        ring_file = os.path.join(os.path.dirname(self.tmpfile),
+                                 os.path.basename(self.tmpfile) + ".ring.gz")
+
+        argv = ["", ring_file, "version"]
+        mock_stdout = io.StringIO()
+        with mock.patch("sys.stdout", mock_stdout):
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        expected = ("%s.ring.gz: Serialization version: 2 (2-byte IDs), "
+                    "build version: 5\n" % self.tmpfile)
+        self.assertEqual(expected, mock_stdout.getvalue())
+
+    def test_version_from_builder_file(self):
+        self.create_sample_ring()
+        rb = RingBuilder.load(self.tmpfile)
+        rb.rebalance()
+        rd = rb.get_ring()
+        rd.save(self.tmpfile + ".ring.gz", format_version=2)
+
+        # read version from ring when builder file given as argument
+        argv = ["", self.tmpfile, "version"]
+        mock_stdout = io.StringIO()
+        with mock.patch("sys.stdout", mock_stdout):
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        # output still reports ring file
+        expected = ("%s.ring.gz: Serialization version: 2 (2-byte IDs), "
+                    "build version: 5\n" % self.tmpfile)
+        self.assertEqual(expected, mock_stdout.getvalue())
+
+    def test_version_with_builder_file_missing(self):
+        self.create_sample_ring()
+        rb = RingBuilder.load(self.tmpfile)
+        rb.rebalance()
+        rd = rb.get_ring()
+        rd.save(self.tmpfile + ".ring.gz", format_version=2)
+
+        # remove the builder to hit some interesting except blocks in main
+        os.unlink(self.tmpfile)
+
+        test_args = [
+            # explicit ring file version of course works when builder missing
+            self.tmpfile + ".ring.gz",
+            # even when builder file is missing you can still implicitly
+            # identify the ring file and read the version
+            self.tmpfile,
+        ]
+
+        for path in test_args:
+            argv = ["", path, "version"]
+            mock_stdout = io.StringIO()
+            with mock.patch("sys.stdout", mock_stdout):
+                self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+            expected = ("%s.ring.gz: Serialization version: 2 (2-byte IDs), "
+                        "build version: 5\n" % self.tmpfile)
+            self.assertEqual(expected, mock_stdout.getvalue())
+
+        # but of course if the path is nonsensical we get an error
+        argv = ["", self.tmpfile + ".nonsense", "version"]
+        with self.assertRaises(FileNotFoundError):
+            ringbuilder.main(argv)
+
+    def test_version_from_builder_file_with_ring_missing(self):
+        self.create_sample_ring()
+        rb = RingBuilder.load(self.tmpfile)
+        rb.rebalance()
+        # Don't even bother to write the ring
+
+        test_args = [
+            self.tmpfile + ".ring.gz",
+            # If provided with the (existing) builder, we can infer the
+            # (nonexisting) ring
+            self.tmpfile,
+        ]
+
+        for path in test_args:
+            argv = ["", path, "version"]
+            # Gotta have a ring to get the version info
+            with self.assertRaises(FileNotFoundError):
+                ringbuilder.main(argv)
 
     def test_warn_at_risk(self):
         # check that warning is generated when rebalance does not achieve

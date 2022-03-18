@@ -98,6 +98,8 @@ from random import shuffle
 from swift.common.exceptions import RingBuilderError
 from swift.common.ring import RingBuilder
 from swift.common.ring import RingData
+from swift.common.ring.utils import calc_dev_id_bytes
+from swift.common.ring.utils import resize_array
 from collections import defaultdict
 from itertools import combinations
 
@@ -198,6 +200,9 @@ def _make_composite_ring(builders):
     :return: a new RingData instance built from the component builders
     :raises ValueError: if the builders are invalid with respect to each other
     """
+    total_devices = sum(len(builder.devs) for builder in builders)
+    dev_id_bytes = calc_dev_id_bytes(total_devices)
+
     composite_r2p2d = []
     composite_devs = []
     device_offset = 0
@@ -205,7 +210,9 @@ def _make_composite_ring(builders):
         # copy all devs list and replica2part2dev table to be able
         # to modify the id for each dev
         devs = copy.deepcopy(builder.devs)
-        r2p2d = copy.deepcopy(builder._replica2part2dev)
+        # Note that resize_array() always makes a copy
+        r2p2d = [resize_array(p2d, dev_id_bytes)
+                 for p2d in builder._replica2part2dev]
         for part2dev in r2p2d:
             for part, dev in enumerate(part2dev):
                 part2dev[part] += device_offset
