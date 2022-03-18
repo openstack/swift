@@ -362,7 +362,7 @@
 
 - job:
     name: swift-func-cors
-    parent: swift-probetests-centos-7
+    parent: swift-probetests-centos-8-stream
     description: |
       Setup a SAIO dev environment and run Swift's CORS functional tests
     timeout: 1200
