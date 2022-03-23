@@ -5,7 +5,7 @@
       <interleave>
         <optional>
           <element name="Quiet">
-            <data type="boolean"/>
+            <data type="string"/>
           </element>
         </optional>
         <oneOrMore>

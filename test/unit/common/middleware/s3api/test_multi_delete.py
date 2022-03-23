@@ -249,26 +249,28 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
                             swob.HTTPNotFound, {}, None)
 
-        elem = Element('Delete')
-        SubElement(elem, 'Quiet').text = 'true'
-        for key in ['Key1', 'Key2']:
-            obj = SubElement(elem, 'Object')
-            SubElement(obj, 'Key').text = key
-        body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(
-            md5(body, usedforsecurity=False).digest()).strip()
+        for true_value in ('true', 'True', 'TRUE', 'trUE'):
+            elem = Element('Delete')
+            SubElement(elem, 'Quiet').text = true_value
+            for key in ['Key1', 'Key2']:
+                obj = SubElement(elem, 'Object')
+                SubElement(obj, 'Key').text = key
+            body = tostring(elem, use_s3ns=False)
+            content_md5 = base64.b64encode(
+                md5(body, usedforsecurity=False).digest()).strip()
 
-        req = Request.blank('/bucket?delete',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header(),
-                                     'Content-MD5': content_md5},
-                            body=body)
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '200')
+            req = Request.blank('/bucket?delete',
+                                environ={'REQUEST_METHOD': 'POST'},
+                                headers={
+                                    'Authorization': 'AWS test:tester:hmac',
+                                    'Date': self.get_date_header(),
+                                    'Content-MD5': content_md5},
+                                body=body)
+            status, headers, body = self.call_s3api(req)
+            self.assertEqual(status.split()[0], '200')
 
-        elem = fromstring(body)
-        self.assertEqual(len(elem.findall('Deleted')), 0)
+            elem = fromstring(body)
+            self.assertEqual(len(elem.findall('Deleted')), 0)
 
     @s3acl
     def test_object_multi_DELETE_no_key(self):

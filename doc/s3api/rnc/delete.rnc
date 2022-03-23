@@ -1,6 +1,6 @@
 start =
   element Delete {
-    element Quiet { xsd:boolean }? &
+    element Quiet { xsd:string }? &
     element Object {
       element Key { xsd:string } &
       element VersionId { xsd:string }?
