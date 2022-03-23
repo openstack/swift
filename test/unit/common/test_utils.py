@@ -5832,6 +5832,125 @@ class TestAffinityLocalityPredicate(unittest.TestCase):
                           utils.affinity_locality_predicate, 'r1z1=1')
 
 
+class TestEventletRateLimiter(unittest.TestCase):
+    def test_init(self):
+        rl = utils.EventletRateLimiter(0.1)
+        self.assertEqual(0.1, rl.max_rate)
+        self.assertEqual(0.0, rl.running_time)
+        self.assertEqual(5000, rl.rate_buffer_ms)
+
+        rl = utils.EventletRateLimiter(
+            0.2, rate_buffer=2, running_time=1234567.8)
+        self.assertEqual(0.2, rl.max_rate)
+        self.assertEqual(1234567.8, rl.running_time)
+        self.assertEqual(2000, rl.rate_buffer_ms)
+
+    def test_non_blocking(self):
+        rate_limiter = utils.EventletRateLimiter(0.1, rate_buffer=0)
+        with patch('time.time',) as mock_time:
+            with patch('eventlet.sleep') as mock_sleep:
+                mock_time.return_value = 0
+                self.assertTrue(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+
+                mock_time.return_value = 9.99
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+                mock_time.return_value = 10.0
+                self.assertTrue(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+
+        rate_limiter = utils.EventletRateLimiter(0.1, rate_buffer=20)
+        with patch('time.time',) as mock_time:
+            with patch('eventlet.sleep') as mock_sleep:
+                mock_time.return_value = 20.0
+                self.assertTrue(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+                self.assertTrue(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+                self.assertTrue(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_sleep.assert_not_called()
+
+    def _do_test(self, max_rate, running_time, start_time, rate_buffer,
+                 incr_by=1.0):
+        rate_limiter = utils.EventletRateLimiter(
+            max_rate,
+            running_time=1000 * running_time,  # msecs
+            rate_buffer=rate_buffer)
+        grant_times = []
+        current_time = [start_time]
+
+        def mock_time():
+            return current_time[0]
+
+        def mock_sleep(duration):
+            current_time[0] += duration
+
+        with patch('time.time', mock_time):
+            with patch('eventlet.sleep', mock_sleep):
+                for i in range(5):
+                    rate_limiter.wait(incr_by=incr_by)
+                    grant_times.append(current_time[0])
+        return [round(t, 6) for t in grant_times]
+
+    def test_ratelimit(self):
+        grant_times = self._do_test(1, 0, 1, 0)
+        self.assertEqual([1, 2, 3, 4, 5], grant_times)
+
+        grant_times = self._do_test(10, 0, 1, 0)
+        self.assertEqual([1, 1.1, 1.2, 1.3, 1.4], grant_times)
+
+        grant_times = self._do_test(.1, 0, 1, 0)
+        self.assertEqual([1, 11, 21, 31, 41], grant_times)
+
+        grant_times = self._do_test(.1, 11, 1, 0)
+        self.assertEqual([11, 21, 31, 41, 51], grant_times)
+
+    def test_incr_by(self):
+        grant_times = self._do_test(1, 0, 1, 0, incr_by=2.5)
+        self.assertEqual([1, 3.5, 6, 8.5, 11], grant_times)
+
+    def test_burst(self):
+        grant_times = self._do_test(1, 1, 4, 0)
+        self.assertEqual([4, 5, 6, 7, 8], grant_times)
+
+        grant_times = self._do_test(1, 1, 4, 1)
+        self.assertEqual([4, 5, 6, 7, 8], grant_times)
+
+        grant_times = self._do_test(1, 1, 4, 2)
+        self.assertEqual([4, 5, 6, 7, 8], grant_times)
+
+        grant_times = self._do_test(1, 1, 4, 3)
+        self.assertEqual([4, 4, 4, 4, 5], grant_times)
+
+        grant_times = self._do_test(1, 1, 4, 4)
+        self.assertEqual([4, 4, 4, 4, 5], grant_times)
+
+        grant_times = self._do_test(1, 1, 3, 3)
+        self.assertEqual([3, 3, 3, 4, 5], grant_times)
+
+        grant_times = self._do_test(1, 0, 2, 3)
+        self.assertEqual([2, 2, 2, 3, 4], grant_times)
+
+        grant_times = self._do_test(1, 1, 3, 3)
+        self.assertEqual([3, 3, 3, 4, 5], grant_times)
+
+        grant_times = self._do_test(1, 0, 3, 3)
+        self.assertEqual([3, 3, 3, 3, 4], grant_times)
+
+        grant_times = self._do_test(1, 1, 3, 3)
+        self.assertEqual([3, 3, 3, 4, 5], grant_times)
+
+        grant_times = self._do_test(1, 0, 4, 3)
+        self.assertEqual([4, 5, 6, 7, 8], grant_times)
+
+
 class TestRateLimitedIterator(unittest.TestCase):
 
     def run_under_pseudo_time(

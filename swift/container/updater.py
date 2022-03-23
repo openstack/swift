@@ -31,7 +31,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout, LockTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, \
-    dump_recon_cache, majority_size, Timestamp, ratelimit_sleep, \
+    dump_recon_cache, majority_size, Timestamp, EventletRateLimiter, \
     eventlet_monkey_patch
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
@@ -59,10 +59,10 @@ class ContainerUpdater(Daemon):
                 float(conf.get('slowdown', '0.01')) + 0.01)
         else:
             containers_per_second = 50
-        self.containers_running_time = 0
         self.max_containers_per_second = \
             float(conf.get('containers_per_second',
                            containers_per_second))
+        self.rate_limiter = EventletRateLimiter(self.max_containers_per_second)
         self.node_timeout = float(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.no_changes = 0
@@ -226,9 +226,7 @@ class ContainerUpdater(Daemon):
                         self.logger.exception(
                             "Error processing container %s: %s", dbfile, e)
 
-                    self.containers_running_time = ratelimit_sleep(
-                        self.containers_running_time,
-                        self.max_containers_per_second)
+                    self.rate_limiter.wait()
 
     def process_container(self, dbfile):
         """
