@@ -248,7 +248,7 @@ class TestKeymaster(unittest.TestCase):
     def test_missing_conf_section(self):
         sample_conf = "[default]\nuser = %s\n" % getuser()
         with tmpfile(sample_conf) as conf_file:
-            self.assertRaisesRegexp(
+            self.assertRaisesRegex(
                 ValueError, 'Unable to find keymaster config section in.*',
                 keymaster.KeyMaster, self.swift, {
                     'keymaster_config_path': conf_file})

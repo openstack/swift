@@ -47,6 +47,10 @@ warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
     'Support for it is now deprecated in cryptography, '
     'and will be removed in the next release.'))
 
+if sys.version_info < (3, 2):
+    import unittest
+    unittest.TestCase.assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
+
 from eventlet.green import socket
 
 # make unittests pass on all locale

@@ -176,11 +176,11 @@ class TestRunDaemon(unittest.TestCase):
             # test missing section
             sample_conf = "[default]\nuser = %s\n" % getuser()
             with tmpfile(sample_conf) as conf_file:
-                self.assertRaisesRegexp(SystemExit,
-                                        'Unable to find my-daemon '
-                                        'config section in.*',
-                                        daemon.run_daemon, MyDaemon,
-                                        conf_file, once=True)
+                self.assertRaisesRegex(SystemExit,
+                                       'Unable to find my-daemon '
+                                       'config section in.*',
+                                       daemon.run_daemon, MyDaemon,
+                                       conf_file, once=True)
 
     def test_run_daemon_diff_tz(self):
         old_tz = os.environ.get('TZ', '')

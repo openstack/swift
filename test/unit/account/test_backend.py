@@ -1896,7 +1896,7 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
                 broker, 'create_policy_stat_table',
                 side_effect=sqlite3.OperationalError('foobar')):
             with broker.get() as conn:
-                self.assertRaisesRegexp(
+                self.assertRaisesRegex(
                     sqlite3.OperationalError, '.*foobar.*',
                     broker._migrate_add_storage_policy_index,
                     conn=conn)
