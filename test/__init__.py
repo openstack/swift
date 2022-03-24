@@ -50,6 +50,7 @@ warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
 if sys.version_info < (3, 2):
     import unittest
     unittest.TestCase.assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
+    unittest.TestCase.assertRegex = unittest.TestCase.assertRegexpMatches
 
 from eventlet.green import socket
 

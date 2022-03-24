@@ -90,7 +90,7 @@ class TestS3ApiPresignedUrls(S3ApiBase):
         for o in resp_objects:
             self.assertIn(o.find('Key').text, req_objects)
             self.assertIsNotNone(o.find('LastModified').text)
-            self.assertRegexpMatches(
+            self.assertRegex(
                 o.find('LastModified').text,
                 r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
             self.assertIsNotNone(o.find('ETag').text)

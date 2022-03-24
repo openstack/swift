@@ -382,7 +382,7 @@ class TestReceiver(unittest.TestCase):
             body_lines1,
             [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
              b':UPDATES: START', b':UPDATES: END'])
-        self.assertRegexpMatches(
+        self.assertRegex(
             b''.join(body_lines2),
             br"^:ERROR: 0 '0\.0[0-9]+ seconds: "
             br"/.+/sda1/objects/1/.lock-replication'$")
