@@ -5878,11 +5878,12 @@ class TestEventletRateLimiter(unittest.TestCase):
                 mock_sleep.assert_not_called()
 
     def _do_test(self, max_rate, running_time, start_time, rate_buffer,
-                 incr_by=1.0):
+                 burst_after_idle=False, incr_by=1.0):
         rate_limiter = utils.EventletRateLimiter(
             max_rate,
             running_time=1000 * running_time,  # msecs
-            rate_buffer=rate_buffer)
+            rate_buffer=rate_buffer,
+            burst_after_idle=burst_after_idle)
         grant_times = []
         current_time = [start_time]
 
@@ -5948,6 +5949,20 @@ class TestEventletRateLimiter(unittest.TestCase):
         self.assertEqual([3, 3, 3, 4, 5], grant_times)
 
         grant_times = self._do_test(1, 0, 4, 3)
+        self.assertEqual([4, 5, 6, 7, 8], grant_times)
+
+    def test_burst_after_idle(self):
+        grant_times = self._do_test(1, 1, 4, 1, burst_after_idle=True)
+        self.assertEqual([4, 4, 5, 6, 7], grant_times)
+
+        grant_times = self._do_test(1, 1, 4, 2, burst_after_idle=True)
+        self.assertEqual([4, 4, 4, 5, 6], grant_times)
+
+        grant_times = self._do_test(1, 0, 4, 3, burst_after_idle=True)
+        self.assertEqual([4, 4, 4, 4, 5], grant_times)
+
+        # running_time = start_time prevents burst on start-up
+        grant_times = self._do_test(1, 4, 4, 3, burst_after_idle=True)
         self.assertEqual([4, 5, 6, 7, 8], grant_times)
 
 
