@@ -652,6 +652,9 @@ class UploadController(Controller):
             _key = key.lower()
             if _key.startswith('x-amz-meta-'):
                 headers['x-object-meta-' + _key[11:]] = val
+            elif _key in ('content-encoding', 'content-language',
+                          'content-disposition', 'expires', 'cache-control'):
+                headers[key] = val
 
         hct_header = sysmeta_header('object', 'has-content-type')
         if resp.sysmeta_headers.get(hct_header) == 'yes':

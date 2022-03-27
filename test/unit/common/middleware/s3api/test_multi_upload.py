@@ -654,6 +654,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             'Authorization': 'AWS test:tester:hmac',
             'Date': self.get_date_header(),
             'x-amz-meta-foo': 'bar',
+            'content-encoding': 'gzip',
         })
         req = Request.blank('/bucket/object?uploads',
                             environ={'REQUEST_METHOD': 'POST',
@@ -665,6 +666,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         _, _, req_headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req_headers.get('X-Object-Meta-Foo'), 'bar')
+        self.assertEqual(req_headers.get('Content-Encoding'), 'gzip')
         self.assertNotIn('Etag', req_headers)
         self.assertNotIn('Content-MD5', req_headers)
         if bucket_exists:
@@ -964,7 +966,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'NoSuchBucket')
 
-    def test_object_multipart_upload_complete(self):
+    def _do_test_object_multipart_upload_complete(self):
         content_md5 = base64.b64encode(md5(
             XML.encode('ascii'), usedforsecurity=False).digest())
         req = Request.blank('/bucket/object?uploadId=X',
@@ -1000,6 +1002,31 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         h = 'X-Object-Sysmeta-Container-Update-Override-Etag'
         self.assertEqual(headers.get(h), override_etag)
         self.assertEqual(headers.get('X-Object-Sysmeta-S3Api-Upload-Id'), 'X')
+
+    def test_object_multipart_upload_complete(self):
+        self._do_test_object_multipart_upload_complete()
+
+    def test_object_multipart_upload_complete_other_headers(self):
+        headers = {'x-object-meta-foo': 'bar',
+                   'content-type': 'application/directory',
+                   'x-object-sysmeta-s3api-has-content-type': 'yes',
+                   'x-object-sysmeta-s3api-content-type': 'baz/quux',
+                   'content-encoding': 'gzip',
+                   'content-language': 'de-DE',
+                   'content-disposition': 'attachment',
+                   'expires': 'Fri, 25 Mar 2022 09:34:00 GMT',
+                   'cache-control': 'no-cache'
+                   }
+        self.swift.register('HEAD', self.segment_bucket + '/object/X',
+                            swob.HTTPOk, headers, None)
+        self._do_test_object_multipart_upload_complete()
+        _, _, headers = self.swift.calls_with_headers[-2]
+        self.assertEqual('gzip', headers.get('Content-Encoding'))
+        self.assertEqual('de-DE', headers.get('Content-Language'))
+        self.assertEqual('attachment', headers.get('Content-Disposition'))
+        self.assertEqual('Fri, 25 Mar 2022 09:34:00 GMT',
+                         headers.get('Expires'))
+        self.assertEqual('no-cache', headers.get('Cache-Control'))
 
     def test_object_multipart_upload_complete_non_ascii(self):
         wsgi_snowman = '\xe2\x98\x83'

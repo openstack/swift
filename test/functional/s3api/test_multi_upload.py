@@ -115,7 +115,11 @@ class TestS3ApiMultiUpload(S3ApiBase):
         bucket = 'bucket'
         keys = [u'obj1\N{SNOWMAN}', u'obj2\N{SNOWMAN}', 'obj3']
         bad_content_md5 = base64.b64encode(b'a' * 16).strip().decode('ascii')
-        headers = [{'Content-Type': 'foo/bar', 'x-amz-meta-baz': 'quux'},
+        headers = [{'Content-Type': 'foo/bar', 'x-amz-meta-baz': 'quux',
+                    'Content-Encoding': 'gzip', 'Content-Language': 'en-US',
+                    'Expires': 'Thu, 01 Dec 1994 16:00:00 GMT',
+                    'Cache-Control': 'no-cache',
+                    'Content-Disposition': 'attachment'},
                    {'Content-MD5': bad_content_md5},
                    {'Etag': 'nonsense'}]
         uploads = []
@@ -346,6 +350,11 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(status, 200)
         self.assertEqual(headers['content-length'], str(exp_size))
         self.assertEqual(headers['content-type'], 'foo/bar')
+        self.assertEqual(headers['content-encoding'], 'gzip')
+        self.assertEqual(headers['content-language'], 'en-US')
+        self.assertEqual(headers['content-disposition'], 'attachment')
+        self.assertEqual(headers['expires'], 'Thu, 01 Dec 1994 16:00:00 GMT')
+        self.assertEqual(headers['cache-control'], 'no-cache')
         self.assertEqual(headers['x-amz-meta-baz'], 'quux')
 
         swift_etag = '"%s"' % md5(
