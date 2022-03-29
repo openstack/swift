@@ -2540,8 +2540,14 @@ class BaseDiskFile(object):
         self._data_file = file_info.get('data_file')
         if not self._data_file:
             raise self._construct_exception_from_ts_file(**file_info)
-        self._fp = self._construct_from_data_file(
-            current_time=current_time, modernize=modernize, **file_info)
+        try:
+            self._fp = self._construct_from_data_file(
+                current_time=current_time, modernize=modernize, **file_info)
+        except IOError as e:
+            if e.errno == errno.ENODATA:
+                raise self._quarantine(
+                    file_info['data_file'],
+                    "Failed to open %s: %s" % (file_info['data_file'], e))
         # This method must populate the internal _metadata attribute.
         self._metadata = self._metadata or {}
         return self
