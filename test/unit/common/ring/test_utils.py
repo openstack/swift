@@ -664,8 +664,9 @@ class TestUtils(unittest.TestCase):
         }
         self.assertEqual(device, expected)
 
-    @unittest.skipIf(sys.version_info >= (3,),
-                     "Seed-specific tests don't work well on py3")
+    @unittest.skipIf(sys.version_info < (3,),
+                     "Seed-specific tests don't work well between python "
+                     "versions. This test is now PY3 only")
     def test_dispersion_report(self):
         rb = ring.RingBuilder(8, 3, 0)
         rb.add_dev({'id': 0, 'region': 1, 'zone': 0, 'weight': 100,
@@ -700,10 +701,10 @@ class TestUtils(unittest.TestCase):
         rb.rebalance(seed=100)
         rb.validate()
 
-        self.assertEqual(rb.dispersion, 18.489583333333332)
+        self.assertEqual(rb.dispersion, 16.796875)
         report = dispersion_report(rb)
         self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.1')
-        self.assertEqual(report['max_dispersion'], 22.68370607028754)
+        self.assertEqual(report['max_dispersion'], 20.967741935483872)
 
         def build_tier_report(max_replicas, placed_parts, dispersion,
                               replicas):
@@ -718,11 +719,11 @@ class TestUtils(unittest.TestCase):
         # sometimes they're both on the same server.
         expected = [
             ['r1z1', build_tier_report(
-                2, 627, 18.341307814992025, [0, 0, 141, 115])],
+                2, 621, 17.55233494363929, [0, 0, 147, 109])],
             ['r1z1-127.0.0.1', build_tier_report(
-                1, 313, 22.68370607028754, [14, 171, 71, 0])],
+                1, 310, 20.967741935483872, [11, 180, 65, 0])],
             ['r1z1-127.0.0.2', build_tier_report(
-                1, 314, 22.611464968152866, [13, 172, 71, 0])],
+                1, 311, 20.578778135048232, [9, 183, 64, 0])],
         ]
         report = dispersion_report(rb, 'r1z1[^/]*$', verbose=True)
         graph = report['graph']
@@ -747,9 +748,9 @@ class TestUtils(unittest.TestCase):
         # can't move all the part-replicas in one rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
-        self.assertEqual(rb.dispersion, 3.90625)
-        self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.2')
-        self.assertEqual(report['max_dispersion'], 8.152173913043478)
+        self.assertEqual(rb.dispersion, 2.8645833333333335)
+        self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.1')
+        self.assertEqual(report['max_dispersion'], 6.593406593406593)
         # do a sencond rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
