@@ -3105,12 +3105,26 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(1, utils.non_negative_float(True))
         self.assertEqual(0, utils.non_negative_float(False))
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as cm:
             utils.non_negative_float(-1.1)
-        with self.assertRaises(ValueError):
+        self.assertEqual(
+            'Value must be a non-negative float number, not "-1.1".',
+            str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
             utils.non_negative_float('-1.1')
-        with self.assertRaises(ValueError):
+        self.assertEqual(
+            'Value must be a non-negative float number, not "-1.1".',
+            str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
             utils.non_negative_float('one')
+        self.assertEqual(
+            'Value must be a non-negative float number, not "one".',
+            str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            utils.non_negative_float(None)
+        self.assertEqual(
+            'Value must be a non-negative float number, not "None".',
+            str(cm.exception))
 
     def test_non_negative_int(self):
         self.assertEqual(0, utils.non_negative_int('0'))

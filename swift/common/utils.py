@@ -367,9 +367,13 @@ def non_negative_float(value):
     :raises ValueError: if the value cannot be cast to a float or is negative.
     :return: a float
     """
-    value = float(value)
-    if value < 0:
-        raise ValueError
+    try:
+        value = float(value)
+        if value < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError('Value must be a non-negative float number, not "%s".'
+                         % value)
     return value
 
 
