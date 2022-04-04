@@ -22,7 +22,7 @@
     - name: install swift
       become: true
       shell:
-        cmd: python setup.py develop
+        cmd: python3 setup.py develop
         executable: /bin/bash
         chdir: '{{ zuul.project.src_dir }}'
 
@@ -37,6 +37,6 @@
       include_role:
         name: tox
       vars:
-        tox_envlist: func
+        tox_envlist: func-py3
         tox_environment:
           SWIFT_TEST_CONFIG_FILE: /home/{{ ansible_ssh_user }}/test.conf

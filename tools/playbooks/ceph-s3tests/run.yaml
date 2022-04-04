@@ -28,11 +28,16 @@
           repo: "https://github.com/tipabu/s3compat.git"
           dest: "{{ ansible_env.HOME }}/s3compat"
 
+    - name: Install virtualenv
+      pip:
+        name: virtualenv
+      become: true
+
     - name: Install s3compat requirements
       pip:
           requirements: "{{ ansible_env.HOME }}/s3compat/requirements.txt"
           virtualenv: "{{ ansible_env.HOME }}/venv"
-          virtualenv_python: python2
+          virtualenv_python: python3
       become: true
 
     - name: Run s3compat tests

@@ -33,7 +33,7 @@
 
     - name: build swift
       shell:
-        cmd: python setup.py sdist
+        cmd: python3 setup.py sdist
         executable: /bin/bash
         chdir: '{{ zuul.project.src_dir }}'
 

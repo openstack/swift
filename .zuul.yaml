@@ -305,12 +305,13 @@
     name: swift-tox-func-s3api-ceph-s3tests-tempauth
     parent: unittests
     voting: false
-    nodeset: centos-7
+    nodeset: centos-8-stream
     description: |
       Setup a SAIO dev environment and run ceph-s3tests
     timeout: 5400
     vars:
       s3_acl: yes
+      bindep_profile: test py36
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -375,18 +376,18 @@
     post-run: tools/playbooks/cors/post.yaml
 
 - nodeset:
-    name: swift-five-nodes
+    name: swift-five-nodes-py3
     nodes:
       - name: test-runner1
-        label: centos-7
+        label: centos-8-stream
       - name: proxy1
-        label: centos-7
+        label: centos-8-stream
       - name: account1
-        label: centos-7
+        label: centos-8-stream
       - name: container1
-        label: centos-7
+        label: centos-8-stream
       - name: object1
-        label: centos-7
+        label: centos-8-stream
     groups:
       - name: test-runner
         nodes:
@@ -418,10 +419,12 @@
 - job:
     name: swift-multinode-rolling-upgrade
     parent: multinode
-    nodeset: swift-five-nodes
+    nodeset: swift-five-nodes-py3
     description: |
       Build a 4 node swift cluster and run functional tests
     timeout: 5400
+    vars:
+      bindep_profile: test py36
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
       - tools/playbooks/common/install_dependencies.yaml
@@ -430,18 +433,6 @@
       - tools/playbooks/multinode_setup/make_rings.yaml
     run: tools/playbooks/multinode_setup/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
-
-- job:
-    name: swift-multinode-rolling-upgrade-rocky
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/rocky
-
-- job:
-    name: swift-multinode-rolling-upgrade-stein
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/stein
 
 - job:
     name: swift-multinode-rolling-upgrade-train
