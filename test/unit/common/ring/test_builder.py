@@ -2488,8 +2488,9 @@ class TestRingBuilder(unittest.TestCase):
             (0, 0, '127.0.0.1', 3): [0, 256, 0, 0],
         })
 
-    @unittest.skipIf(sys.version_info >= (3,),
-                     "Seed-specific tests don't work well on py3")
+    @unittest.skipIf(sys.version_info < (3,),
+                     "Seed-specific tests don't work well between python "
+                     "versions. This test is now PY3 only")
     def test_undispersable_zone_converge_on_balance(self):
         rb = ring.RingBuilder(8, 6, 0)
         dev_id = 0
@@ -2502,7 +2503,7 @@ class TestRingBuilder(unittest.TestCase):
                 rb.add_dev({'id': dev_id, 'region': r, 'zone': z,
                             'weight': 1000, 'ip': ip, 'port': 10000,
                             'device': 'd%s' % dev_id})
-        rb.rebalance(seed=7)
+        rb.rebalance(seed=5)
 
         # sanity, all balanced and 0 dispersion
         self.assertEqual(rb.get_balance(), 0)
@@ -2519,7 +2520,7 @@ class TestRingBuilder(unittest.TestCase):
                         'weight': 1000, 'ip': ip, 'port': 10000,
                         'device': 'd%s' % dev_id})
 
-        changed_part, _, _ = rb.rebalance(seed=7)
+        changed_part, _, _ = rb.rebalance(seed=5)
 
         # sanity, all part but only one replica moved to new devices
         self.assertEqual(changed_part, 2 ** 8)
@@ -2531,8 +2532,8 @@ class TestRingBuilder(unittest.TestCase):
         # N.B. since we mostly end up grabbing parts by "weight forced" some
         # seeds given some specific ring state will randomly pick bad
         # part-replicas that end up going back down onto the same devices
-        changed_part, _, _ = rb.rebalance(seed=7)
-        self.assertEqual(changed_part, 14)
+        changed_part, _, _ = rb.rebalance(seed=5)
+        self.assertEqual(changed_part, 15)
         # ... this isn't a really "desirable" behavior, but even with bad luck,
         # things do get better
         self.assertEqual(rb.get_balance(), 47.265625)
@@ -2540,13 +2541,14 @@ class TestRingBuilder(unittest.TestCase):
 
         # but if you stick with it, eventually the next rebalance, will get to
         # move "the right" part-replicas, resulting in near optimal balance
-        changed_part, _, _ = rb.rebalance(seed=7)
-        self.assertEqual(changed_part, 240)
-        self.assertEqual(rb.get_balance(), 0.390625)
+        changed_part, _, _ = rb.rebalance(seed=5)
+        self.assertEqual(changed_part, 167)
+        self.assertEqual(rb.get_balance(), 14.453125)
         self.assertEqual(rb.dispersion, 16.6015625)
 
-    @unittest.skipIf(sys.version_info >= (3,),
-                     "Seed-specific tests don't work well on py3")
+    @unittest.skipIf(sys.version_info < (3,),
+                     "Seed-specific tests don't work well between python "
+                     "versions. This test is now PY3 only")
     def test_undispersable_server_converge_on_balance(self):
         rb = ring.RingBuilder(8, 6, 0)
         dev_id = 0
@@ -2580,7 +2582,7 @@ class TestRingBuilder(unittest.TestCase):
 
         # but the first time, those are still unbalance becase ring builder
         # can move only one replica for each part
-        self.assertEqual(rb.get_balance(), 16.9921875)
+        self.assertEqual(rb.get_balance(), 17.96875)
         self.assertEqual(rb.dispersion, 9.9609375)
 
         rb.rebalance(seed=7)
