@@ -4649,6 +4649,21 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 DiskFileQuarantined,
                 self._get_open_disk_file)
 
+    def test_quarantine_ioerror_enodata(self):
+        df = self._get_open_disk_file()
+
+        def my_open(filename, mode, *args, **kwargs):
+            if mode == 'rb':
+                raise IOError(errno.ENODATA, '-ENODATA fool!')
+            return open(filename, mode, *args, **kwargs)
+
+        with mock.patch('swift.obj.diskfile.open', my_open):
+            with self.assertRaises(DiskFileQuarantined) as err:
+                df.open()
+            self.assertEqual(
+                'Failed to open %s: [Errno 61] -ENODATA fool!' % df._data_file,
+                str(err.exception))
+
     def test_quarantine_hashdir_not_a_directory(self):
         df, df_data = self._create_test_file(b'1234567890', account="abc",
                                              container='123', obj='xyz')
