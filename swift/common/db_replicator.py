@@ -174,6 +174,7 @@ class ReplConnection(BufferedHTTPConnection):
             response.data = response.read()
             return response
         except (Exception, Timeout):
+            self.close()
             self.logger.exception(
                 _('ERROR reading HTTP response from %s'), self.node)
             return None

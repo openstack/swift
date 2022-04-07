@@ -352,7 +352,17 @@ class TestDBReplicator(unittest.TestCase):
         def other_req(method, path, body, headers):
             raise Exception('blah')
         conn.request = other_req
+
+        class Closeable(object):
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        conn.sock = fake_sock = Closeable()
         self.assertIsNone(conn.replicate(1, 2, 3))
+        self.assertTrue(fake_sock.closed)
+        self.assertEqual(None, conn.sock)
 
     def test_rsync_file(self):
         replicator = TestReplicator({})
