@@ -82,6 +82,7 @@ Request
    - format: format
    - prefix: prefix
    - delimiter: delimiter
+   - reverse: reverse
    - X-Auth-Token: X-Auth-Token
    - X-Service-Token: X-Service-Token
    - X-Newest: X-Newest

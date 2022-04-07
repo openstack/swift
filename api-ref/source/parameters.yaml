@@ -1130,6 +1130,14 @@ prefix:
   in: query
   required: false
   type: string
+reverse:
+  description: |
+    By default, listings are returned sorted by name, ascending. If you include
+    the ``reverse=true`` query parameter, the listing will be returned sorted
+    by name, descending.
+  in: query
+  required: false
+  type: boolean
 swiftinfo_expires:
   description: |
     The time at which ``swiftinfo_sig`` expires. The time is in
