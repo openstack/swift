@@ -35,7 +35,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
     rsync_module_interpolation, mkdirs, config_true_value, \
     config_auto_int_value, storage_directory, \
     load_recon_cache, PrefixLoggerAdapter, parse_override_options, \
-    distribute_evenly
+    distribute_evenly, listdir
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -508,7 +508,7 @@ class ObjectReplicator(Daemon):
         """
 
         def tpool_get_suffixes(path):
-            return [suff for suff in os.listdir(path)
+            return [suff for suff in listdir(path)
                     if len(suff) == 3 and isdir(join(path, suff))]
 
         stats = self.stats_for_dev[job['device']]
@@ -847,7 +847,7 @@ class ObjectReplicator(Daemon):
                 except Exception:
                     self.logger.exception('ERROR creating %s' % obj_path)
                 continue
-            for partition in os.listdir(obj_path):
+            for partition in listdir(obj_path):
                 if (override_partitions is not None and partition.isdigit()
                         and int(partition) not in override_partitions):
                     continue
