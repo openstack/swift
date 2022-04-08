@@ -5,6 +5,7 @@ Page through large lists of containers or objects
 If you have a large number of containers or objects, you can use the
 ``marker``, ``limit``, and ``end_marker`` parameters to control
 how many items are returned in a list and where the list starts or ends.
+If you want to page backwards you can use the ``reverse`` parameter.
 
 * marker
     When you request a list of containers or objects, Object Storage
@@ -28,6 +29,11 @@ how many items are returned in a list and where the list starts or ends.
     Limits the result set to names that are less than the
     ``end_marker`` parameter value. You must URL-encode the
     ``end_marker`` value before you send the HTTP request.
+
+* reverse
+    By default, listings are returned sorted by name, ascending. If you
+    include the ``reverse=true`` query parameter, the listing will be
+    returned sorted by name, descending.
 
 To page through a large list of containers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -101,3 +107,31 @@ Assume the following list of container names:
 
    You receive a result set of all container names before the
    ``end-marker`` value.
+
+#. Use the ``reverse`` parameter to work from the back of the
+   list:
+
+   .. code-block:: console
+
+      # curl -i $publicURL/?reverse=true -X GET -H \"
+         X-Auth-Token: $token"
+
+   .. code-block:: console
+
+      pears
+      oranges
+      kiwis
+      bananas
+      apples
+
+#. You can also combine parameters:
+
+   .. code-block:: console
+
+      # curl -i $publicURL/?reverse=true&end_marker=kiwis -X GET -H \"
+         X-Auth-Token: $token"
+
+   .. code-block:: console
+
+      pears
+      oranges
