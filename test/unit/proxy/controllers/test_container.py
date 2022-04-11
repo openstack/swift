@@ -1030,9 +1030,11 @@ class TestContainerController(TestRingBase):
              % ([200, 200, 503],)], errors[-1:])
 
     def test_GET_sharded_container_with_delimiter(self):
-        shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
+        shard_bounds = (('', 'ha/ppy'), ('ha/ppy', 'ha/ptic'),
+                        ('ha/ptic', 'ham'), ('ham', 'pie'), ('pie', ''))
         shard_ranges = [
-            ShardRange('.shards_a/c_%s' % upper, Timestamp.now(), lower, upper)
+            ShardRange('.shards_a/c_%s' % upper.replace('/', ''),
+                       Timestamp.now(), lower, upper)
             for lower, upper in shard_bounds]
         sr_dicts = [dict(sr) for sr in shard_ranges]
         shard_resp_hdrs = {'X-Backend-Sharding-State': 'unsharded',
@@ -1056,7 +1058,7 @@ class TestContainerController(TestRingBase):
                     'content_type': 'text/plain',
                     'deleted': 0,
                     'last_modified': next(self.ts_iter).isoformat}
-        sr_2_obj = {'name': 'pumpkin',
+        sr_5_obj = {'name': 'pumpkin',
                     'bytes': 1,
                     'hash': 'hash',
                     'content_type': 'text/plain',
@@ -1068,26 +1070,107 @@ class TestContainerController(TestRingBase):
             (200, sr_dicts, root_shard_resp_hdrs),
             (200, [sr_0_obj, subdir], shard_resp_hdrs),
             (200, [], shard_resp_hdrs),
-            (200, [sr_2_obj], shard_resp_hdrs)
+            (200, [], shard_resp_hdrs),
+            (200, [sr_5_obj], shard_resp_hdrs)
         ]
         expected_requests = [
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing', delimiter='/')),  # 200
             (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
-             dict(marker='', end_marker='ham\x00', limit=str(limit),
+             dict(marker='', end_marker='ha/ppy\x00', limit=str(limit),
                   states='listing', delimiter='/')),  # 200
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='ha/', end_marker='ham\x00', states='listing',
+                  limit=str(limit - 2), delimiter='/')),  # 200
+            (shard_ranges[3].name, {'X-Backend-Record-Type': 'auto'},
              dict(marker='ha/', end_marker='pie\x00', states='listing',
                   limit=str(limit - 2), delimiter='/')),  # 200
-            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
+            (shard_ranges[4].name, {'X-Backend-Record-Type': 'auto'},
              dict(marker='ha/', end_marker='', states='listing',
-                  limit=str(limit - 2), delimiter='/'))  # 200
+                  limit=str(limit - 2), delimiter='/')),  # 200
         ]
 
-        expected_objects = [sr_0_obj, subdir, sr_2_obj]
+        expected_objects = [sr_0_obj, subdir, sr_5_obj]
         resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
             query_string='?delimiter=/')
+        self.check_response(resp, root_resp_hdrs)
+
+    def test_GET_sharded_container_with_delimiter_and_reverse(self):
+        shard_points = ('', 'ha.d', 'ha/ppy', 'ha/ptic', 'ham', 'pie', '')
+        shard_bounds = tuple(zip(shard_points, shard_points[1:]))
+        shard_ranges = [
+            ShardRange('.shards_a/c_%s' % upper.replace('/', ''),
+                       Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds]
+        sr_dicts = [dict(sr) for sr in shard_ranges]
+        shard_resp_hdrs = {'X-Backend-Sharding-State': 'unsharded',
+                           'X-Container-Object-Count': 2,
+                           'X-Container-Bytes-Used': 4,
+                           'X-Backend-Storage-Policy-Index': 0}
+
+        limit = CONTAINER_LISTING_LIMIT
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Timestamp': '99',
+                          # pretend root object stats are not yet updated
+                          'X-Container-Object-Count': 6,
+                          'X-Container-Bytes-Used': 12,
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        sr_0_obj = {'name': 'apple',
+                    'bytes': 1,
+                    'hash': 'hash',
+                    'content_type': 'text/plain',
+                    'deleted': 0,
+                    'last_modified': next(self.ts_iter).isoformat}
+        sr_1_obj = {'name': 'ha.ggle',
+                    'bytes': 1,
+                    'hash': 'hash',
+                    'content_type': 'text/plain',
+                    'deleted': 0,
+                    'last_modified': next(self.ts_iter).isoformat}
+        sr_5_obj = {'name': 'pumpkin',
+                    'bytes': 1,
+                    'hash': 'hash',
+                    'content_type': 'text/plain',
+                    'deleted': 0,
+                    'last_modified': next(self.ts_iter).isoformat}
+        subdir = {'subdir': 'ha/'}
+        mock_responses = [
+            # status, body, headers
+            (200, list(reversed(sr_dicts)), root_shard_resp_hdrs),
+            (200, [sr_5_obj], shard_resp_hdrs),
+            (200, [], shard_resp_hdrs),
+            (200, [subdir], shard_resp_hdrs),
+            (200, [sr_1_obj], shard_resp_hdrs),
+            (200, [sr_0_obj], shard_resp_hdrs),
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing', delimiter='/', reverse='on')),  # 200
+            (shard_ranges[5].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='pie', states='listing',
+                  limit=str(limit), delimiter='/', reverse='on')),  # 200
+            (shard_ranges[4].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='pumpkin', end_marker='ham', states='listing',
+                  limit=str(limit - 1), delimiter='/', reverse='on')),  # 200
+            (shard_ranges[3].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='pumpkin', end_marker='ha/ptic', states='listing',
+                  limit=str(limit - 1), delimiter='/', reverse='on')),  # 200
+            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='ha/', end_marker='ha.d', limit=str(limit - 2),
+                  states='listing', delimiter='/', reverse='on')),  # 200
+            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='ha.ggle', end_marker='', limit=str(limit - 3),
+                  states='listing', delimiter='/', reverse='on')),  # 200
+        ]
+
+        expected_objects = [sr_5_obj, subdir, sr_1_obj, sr_0_obj]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?delimiter=/&reverse=on', reverse=True)
         self.check_response(resp, root_resp_hdrs)
 
     def test_GET_sharded_container_shard_redirects_to_root(self):
