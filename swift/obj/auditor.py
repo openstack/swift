@@ -368,6 +368,7 @@ class ObjectAuditor(Daemon):
             return pid
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            os.environ.pop('NOTIFY_SOCKET', None)
             if zero_byte_fps:
                 kwargs['zero_byte_fps'] = self.conf_zero_byte_fps
                 if sleep_between_zbf_scanner:

@@ -158,6 +158,7 @@ class ContainerUpdater(Daemon):
                     pid2filename[pid] = tmpfilename
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                    os.environ.pop('NOTIFY_SOCKET', None)
                     eventlet_monkey_patch()
                     self.no_changes = 0
                     self.successes = 0

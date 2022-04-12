@@ -159,7 +159,7 @@ class DaemonStrategy(object):
         except KeyboardInterrupt:
             self.logger.notice('User quit')
         finally:
-            self.cleanup()
+            self.cleanup(stopping=True)
         self.running = False
 
     def _fork(self, once, **kwargs):
@@ -167,6 +167,8 @@ class DaemonStrategy(object):
         if pid == 0:
             signal.signal(signal.SIGHUP, signal.SIG_DFL)
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            # only MAINPID should be sending notifications
+            os.environ.pop('NOTIFY_SOCKET', None)
 
             self.daemon.run(once, **kwargs)
 
@@ -245,7 +247,15 @@ class DaemonStrategy(object):
         self.daemon.post_multiprocess_run()
         return 0
 
-    def cleanup(self):
+    def cleanup(self, stopping=False):
+        """
+        Cleanup worker processes
+
+        :param stopping: if set, tell systemd we're stopping
+        """
+
+        if stopping:
+            utils.systemd_notify(self.logger, "STOPPING=1")
         for p in self.spawned_pids():
             try:
                 os.kill(p, signal.SIGTERM)
