@@ -26,7 +26,7 @@ from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
 from swift.common.utils import split_path, json, get_swift_info, \
-    close_if_possible
+    close_if_possible, streq_const_time
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_NO_CONTENT, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, \
@@ -159,7 +159,7 @@ class SigV4Mixin(object):
                 derived_secret, scope_piece.encode('utf8'), sha256).digest()
         valid_signature = hmac.new(
             derived_secret, self.string_to_sign, sha256).hexdigest()
-        return user_signature == valid_signature
+        return streq_const_time(user_signature, valid_signature)
 
     @property
     def _is_query_auth(self):
@@ -564,7 +564,7 @@ class S3Request(swob.Request):
             secret, self.string_to_sign, sha1).digest()).strip()
         if not six.PY2:
             valid_signature = valid_signature.decode('ascii')
-        return user_signature == valid_signature
+        return streq_const_time(user_signature, valid_signature)
 
     @property
     def timestamp(self):
