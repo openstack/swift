@@ -28,11 +28,11 @@ import errno
 import os
 import os.path
 import signal
+import socket
 import subprocess
 import sys
-import time
 
-from swift.common.manager import get_child_pids
+from swift.common.utils import NotificationServer
 
 
 EXIT_BAD_PID = 2  # similar to argparse exiting 2 on an unknown arg
@@ -97,37 +97,32 @@ def main(args=None):
 
     if args.wait:
         try:
-            original_children = get_child_pids(args.pid)
-            children_since_reload = set()
+            with NotificationServer(args.pid, args.timeout) as notifications:
+                if args.verbose:
+                    print("Sending USR1 signal")
+                os.kill(args.pid, signal.SIGUSR1)
 
-            if args.verbose:
-                print("Sending USR1 signal")
-            os.kill(args.pid, signal.SIGUSR1)
+                try:
+                    ready = False
+                    while not ready:
+                        data = notifications.receive()
+                        for data in data.split(b"\n"):
+                            if args.verbose:
+                                if data in (b"READY=1", b"RELOADING=1",
+                                            b"STOPPING=1"):
+                                    print("Process is %s" %
+                                          data.decode("ascii")[:-2])
+                                else:
+                                    print("Received notification %r" % data)
 
-            start = time.time()
-            while time.time() - start < args.timeout:
-                children = get_child_pids(args.pid)
-                new_children = (children - original_children
-                                - children_since_reload)
-                if new_children:
-                    if args.verbose:
-                        print("Found new children: %s" % ", ".join(
-                            str(pid) for pid in new_children))
-                    children_since_reload |= new_children
-                if children_since_reload - children:
-                    # At least one new child exited; presumably, it was
-                    # the temporary child waiting to shutdown sockets
-                    break
-                # We want this to be fairly low, since the temporary child
-                # may not hang around very long
-                time.sleep(0.1)
-            else:
-                print("Timed out reloading %s" % script, file=sys.stderr)
-                exit(EXIT_RELOAD_TIMEOUT)
-
-        except subprocess.CalledProcessError:
-            # This could pop during any of the calls to get_child_pids
-            print("Process seems to have died!", file=sys.stderr)
+                            if data == b"READY=1":
+                                ready = True
+                except socket.timeout:
+                    print("Timed out reloading %s" % script, file=sys.stderr)
+                    exit(EXIT_RELOAD_TIMEOUT)
+        except OSError as e:
+            print("Could not bind notification socket: %s" % e,
+                  file=sys.stderr)
             exit(EXIT_RELOAD_FAILED)
     else:  # --no-wait
         if args.verbose:
