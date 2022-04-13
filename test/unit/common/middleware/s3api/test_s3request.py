@@ -761,8 +761,13 @@ class TestRequest(S3ApiTestCase):
             '/johnsmith/',
         ])
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
-        self.assertTrue(sigv2_req.check_signature(
-            'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'))
+        secret = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+        self.assertTrue(sigv2_req.check_signature(secret))
+
+        with patch('swift.common.middleware.s3api.s3request.streq_const_time',
+                   return_value=True) as mock_eq:
+            self.assertTrue(sigv2_req.check_signature(secret))
+        mock_eq.assert_called_once()
 
 
 class TestHashingInput(S3ApiTestCase):
