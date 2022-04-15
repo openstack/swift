@@ -334,6 +334,12 @@ class BucketNotEmpty(ErrorResponse):
     _msg = 'The bucket you tried to delete is not empty'
 
 
+class VersionedBucketNotEmpty(BucketNotEmpty):
+    _msg = 'The bucket you tried to delete is not empty. ' \
+           'You must delete all versions in the bucket.'
+    _code = 'BucketNotEmpty'
+
+
 class CredentialsNotSupported(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'This request does not support credentials.'

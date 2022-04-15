@@ -1369,10 +1369,50 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(code, 'InternalError')
 
         # bucket not empty is now validated at s3api
+        self.swift._responses.get(('HEAD', '/v1/AUTH_test/bucket'))
         self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
                             {'X-Container-Object-Count': '1'}, None)
-        code = self._test_method_error('DELETE', '/bucket', swob.HTTPConflict)
-        self.assertEqual(code, 'BucketNotEmpty')
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('409 Conflict', status)
+        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
+        self.assertNotIn('You must delete all versions in the bucket',
+                         self._get_error_message(body))
+
+    @s3acl
+    def test_bucket_DELETE_error_with_enabled_versioning(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+                            {'X-Container-Object-Count': '1',
+                             'X-Container-Sysmeta-Versions-Enabled': 'True'},
+                            None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('409 Conflict', status)
+        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
+        self.assertIn('You must delete all versions in the bucket',
+                      self._get_error_message(body))
+
+    @s3acl
+    def test_bucket_DELETE_error_with_suspended_versioning(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+                            {'X-Container-Object-Count': '1',
+                             'X-Container-Sysmeta-Versions-Enabled': 'False'},
+                            None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('409 Conflict', status)
+        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
+        self.assertIn('You must delete all versions in the bucket',
+                      self._get_error_message(body))
 
     @s3acl
     def test_bucket_DELETE(self):
