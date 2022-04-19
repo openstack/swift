@@ -59,7 +59,7 @@ Authentication
 
 * `Keystone <https://github.com/openstack/keystone>`_ - Official Identity
   Service for OpenStack.
-* `Swauth <https://github.com/openstack/swauth>`_ - An alternative Swift
+* `Swauth <https://opendev.org/x/swauth/>`_ - **RETIRED**: An alternative Swift
   authentication service that only requires Swift itself.
 * `Basicauth <https://github.com/CloudVPS/swift-basicauth>`_ - HTTP Basic
   authentication support (keystone backed).

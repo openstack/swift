@@ -916,9 +916,6 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             pipeline.return_value = 's3api s3token keystoneauth proxy-server'
             self.s3api.check_pipeline(self.conf)
 
-            pipeline.return_value = 's3api swauth proxy-server'
-            self.s3api.check_pipeline(self.conf)
-
             # Note that authtoken would need to have delay_auth_decision=True
             pipeline.return_value = 's3api authtoken s3token keystoneauth ' \
                 'proxy-server'
@@ -950,9 +947,6 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
             pipeline.return_value = 's3api s3token authtoken keystoneauth ' \
                 'proxy-server'
-            self.s3api.check_pipeline(self.conf)
-
-            pipeline.return_value = 's3api swauth proxy-server'
             self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 's3api authtoken s3token keystoneauth ' \

@@ -373,8 +373,6 @@ Extending Auth
 
 TempAuth is written as wsgi middleware, so implementing your own auth is as
 easy as writing new wsgi middleware, and plugging it in to the proxy server.
-The `Swauth <https://github.com/openstack/swauth>`_ project is an example of
-an additional auth service.
 
 See :doc:`development_auth` for detailed information on extending the
 auth system.
