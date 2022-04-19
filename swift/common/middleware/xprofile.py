@@ -86,10 +86,10 @@ from six.moves import urllib
 from swift import gettext_ as _
 from swift.common.utils import get_logger, config_true_value
 from swift.common.swob import Request
-from x_profile.exceptions import NotFoundException, MethodNotAllowed,\
-    ProfileException
-from x_profile.html_viewer import HTMLViewer
-from x_profile.profile_model import ProfileLog
+from swift.common.middleware.x_profile.exceptions import NotFoundException, \
+    MethodNotAllowed, ProfileException
+from swift.common.middleware.x_profile.html_viewer import HTMLViewer
+from swift.common.middleware.x_profile.profile_model import ProfileLog
 
 
 DEFAULT_PROFILE_PREFIX = '/tmp/log/swift/profile/default.profile'
@@ -107,7 +107,10 @@ PROFILE_EXEC_LAZY = """
 app_iter_ = self.app(environ, start_response)
 """
 
-thread = patcher.original('thread')  # non-monkeypatched module needed
+if six.PY3:
+    thread = patcher.original('_thread')  # non-monkeypatched module needed
+else:
+    thread = patcher.original('thread')  # non-monkeypatched module needed
 
 
 # This monkey patch code fix the problem of eventlet profile tool

@@ -21,9 +21,10 @@ import string
 import tempfile
 
 from swift import gettext_ as _
-from exceptions import PLOTLIBNotInstalled, ODFLIBNotInstalled,\
-    NotFoundException, MethodNotAllowed, DataLoadFailure, ProfileException
-from profile_model import Stats2
+from swift.common.middleware.x_profile.exceptions import PLOTLIBNotInstalled,\
+    ODFLIBNotInstalled, NotFoundException, MethodNotAllowed, DataLoadFailure,\
+    ProfileException
+from swift.common.middleware.x_profile.profile_model import Stats2
 
 PLOTLIB_INSTALLED = True
 try:

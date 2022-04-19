@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import re
-from UserDict import DictMixin
+from collections import MutableMapping
 from functools import partial
 
 from swift.common import swob
@@ -219,7 +219,7 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
             tag = re.sub('\W', '', snake_to_camel(key))
             elem = SubElement(parent, tag)
 
-            if isinstance(value, (dict, DictMixin)):
+            if isinstance(value, (dict, MutableMapping)):
                 self._dict_to_etree(elem, value)
             else:
                 try:

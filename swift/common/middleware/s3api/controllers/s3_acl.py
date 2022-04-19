@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from urllib import quote
+from six.moves.urllib.parse import quote
 from swift.common.utils import public
 
 from swift.common.middleware.s3api.controllers.base import Controller
