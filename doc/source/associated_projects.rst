@@ -57,7 +57,7 @@ Application Bindings
 Authentication
 --------------
 
-* `Keystone <https://github.com/openstack/keystone>`_ - Official Identity
+* `Keystone <https://opendev.org/openstack/keystone>`_ - Official Identity
   Service for OpenStack.
 * `Swauth <https://opendev.org/x/swauth/>`_ - **RETIRED**: An alternative Swift
   authentication service that only requires Swift itself.
@@ -72,19 +72,10 @@ Command Line Access
   access to Swift with direct (no proxy) access capabilities as well.
 
 
-External Integration
---------------------
-
-* `1space <https://github.com/swiftstack/1space>`_ -
-  Multi-cloud synchronization tool - supports Swift and S3 APIs
-* `swift-metadata-sync <https://github.com/swiftstack/swift-metadata-sync>`_ -
-  Propagate OpenStack Swift object metadata into Elasticsearch
-
-
 Log Processing
 --------------
 
-* `slogging <https://github.com/openstack/slogging>`_ - Basic stats and
+* `slogging <https://opendev.org/x/slogging>`_ - Basic stats and
   logging tools.
 
 
@@ -106,7 +97,7 @@ Content Distribution Network Integration
 Alternative API
 ---------------
 
-* `ProxyFS <https://github.com/swiftstack/ProxyFS>`_ - Integrated file and
+* `ProxyFS <https://github.com/NVIDIA/proxyfs>`_ - Integrated file and
   object access for Swift object storage
 * `SwiftHLM <https://github.com/ibm-research/SwiftHLM>`_ - a middleware for
   using OpenStack Swift with tape and other high latency media storage
@@ -118,7 +109,6 @@ Benchmarking/Load Generators
 
 * `getput <https://github.com/markseger/getput>`_ - getput tool suite
 * `COSbench <https://github.com/intel-cloud/cosbench>`_ - COSbench tool suite
-* `ssbench <https://github.com/swiftstack/ssbench>`_ - ssbench tool suite
 
 
 .. _custom-logger-hooks-label:
@@ -131,7 +121,7 @@ Custom Logger Hooks
 
 Storage Backends (DiskFile API implementations)
 -----------------------------------------------
-* `Swift-on-File <https://github.com/openstack/swiftonfile>`_ -
+* `Swift-on-File <https://opendev.org/x/swiftonfile>`_ -
   Enables objects created using Swift API to be accessed as files on a POSIX
   filesystem and vice versa.
 * `swift-scality-backend <https://github.com/scality/ScalitySproxydSwift>`_ -
@@ -142,15 +132,13 @@ Developer Tools
 * `SAIO bash scripts <https://github.com/ntata/swift-setup-scripts>`_ -
   Well commented simple bash scripts for Swift all in one setup.
 * `vagrant-swift-all-in-one
-  <https://github.com/swiftstack/vagrant-swift-all-in-one>`_ - Quickly setup a
+  <https://github.com/NVIDIA/vagrant-swift-all-in-one>`_ - Quickly setup a
   standard development environment using Vagrant and Chef cookbooks in an
   Ubuntu virtual machine.
 * `SAIO Ansible playbook <https://github.com/thiagodasilva/ansible-saio>`_ -
   Quickly setup a standard development environment using Vagrant and Ansible in
   a Fedora virtual machine (with built-in `Swift-on-File
-  <https://github.com/openstack/swiftonfile>`_ support).
-* `runway <https://github.com/swiftstack/runway>`_ - Runway sets up a
-  swift-all-in-one (SAIO) dev environment in an lxc container.
+  <https://opendev.org/x/swiftonfile>`_ support).
 * `Multi Swift <https://github.com/ntata/multi-swift-POC>`_ -
   Bash scripts to spin up multiple Swift clusters sharing the same hardware
 
@@ -158,7 +146,7 @@ Developer Tools
 Other
 -----
 
-* `Glance <https://github.com/openstack/glance>`_ - Provides services for
+* `Glance <https://opendev.org/openstack/glance>`_ - Provides services for
   discovering, registering, and retrieving virtual machine images
   (for OpenStack Compute [Nova], for example).
 * `Django Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ -
@@ -166,9 +154,9 @@ Other
 * `Swift-account-stats <https://github.com/redhat-cip/swift-account-stats>`_ -
   Swift-account-stats is a tool to report statistics on Swift usage at
   tenant and global levels.
-* `PyECLib <https://github.com/openstack/pyeclib>`_ - High-level erasure code
+* `PyECLib <https://opendev.org/openstack/pyeclib>`_ - High-level erasure code
   library used by Swift
-* `liberasurecode <https://github.com/openstack/liberasurecode>`_ - Low-level
+* `liberasurecode <https://opendev.org/openstack/liberasurecode>`_ - Low-level
   erasure code library used by PyECLib
 * `Swift Browser <https://github.com/mgeisler/swift-browser>`_ - JavaScript
   interface for Swift
@@ -176,4 +164,3 @@ Other
   web browser
 * `swiftbackmeup <https://github.com/redhat-cip/swiftbackmeup>`_ -
   Utility that allows one to create backups and upload them to OpenStack Swift
-* `s3compat <https://github.com/swiftstack/s3compat>`_ - S3 API compatibility checker
