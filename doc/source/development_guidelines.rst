@@ -184,6 +184,26 @@ using config files found in ``$HOME/my_tests`` and policy 'silver'::
     SWIFT_TEST_POLICY=silver tox -e func
 
 
+S3 API cross-compatibility tests
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The cross-compatibility tests in directory `test/s3api` are intended to verify
+that the Swift S3 API behaves in the same way as the AWS S3 API. They should
+pass when run against either a Swift endpoint (with S3 API enabled) or an AWS
+S3 endpoint.
+
+To run against an AWS S3 endpoint, the `/etc/swift/test.conf` file must be
+edited to provide AWS key IDs and secrets. Alternatively, an AWS CLI style
+credentials file can be loaded by setting the ``SWIFT_TEST_AWS_CONFIG_FILE``
+environment variable, e.g.::
+
+    SWIFT_TEST_AWS_CONFIG_FILE=~/.aws/credentials nosetests ./test/s3api
+
+.. note::
+  When using ``SWIFT_TEST_AWS_CONFIG_FILE``, the region defaults to
+  ``us-east-1`` and only the default credentials are loaded.
+
+
 ------------
 Coding Style
 ------------

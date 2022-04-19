@@ -23,7 +23,7 @@ import boto3
 from botocore.exceptions import ClientError
 from six.moves import urllib
 
-from swift.common.utils import config_true_value
+from swift.common.utils import config_true_value, readconf
 
 from test import get_config
 
@@ -38,6 +38,30 @@ if not config_true_value(os.environ.get('BOTO3_DEBUG')):
 
 class ConfigError(Exception):
     '''Error test conf misconfigurations'''
+
+
+def load_aws_config(conf_file):
+    """
+    Read user credentials from an AWS CLI style credentials file and translate
+    to a swift test config. Currently only supports a single user.
+
+    :param conf_file: path to AWS credentials file
+    """
+    conf = readconf(conf_file, 'default')
+    global _CONFIG
+    _CONFIG = {
+        'endpoint': 'https://s3.amazonaws.com',
+        'region': 'us-east-1',
+        'access_key1': conf.get('aws_access_key_id'),
+        'secret_key1': conf.get('aws_secret_access_key'),
+        'session_token1': conf.get('aws_session_token')
+    }
+
+
+aws_config_file = os.environ.get('SWIFT_TEST_AWS_CONFIG_FILE')
+if aws_config_file:
+    load_aws_config(aws_config_file)
+    print('Loaded test config from %s' % aws_config_file)
 
 
 def get_opt_or_error(option):
@@ -94,6 +118,7 @@ def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):
     region = get_opt('region', 'us-east-1')
     access_key = get_opt_or_error('access_key%d' % user)
     secret_key = get_opt_or_error('secret_key%d' % user)
+    session_token = get_opt('session_token%d' % user)
 
     ca_cert = get_opt('ca_cert')
     if ca_cert is not None:
@@ -115,6 +140,7 @@ def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):
         }),
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
+        aws_session_token=session_token
     )
 
 
