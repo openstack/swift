@@ -298,7 +298,6 @@ __all__ = ['TempURL', 'filter_factory',
            'DEFAULT_OUTGOING_REMOVE_HEADERS',
            'DEFAULT_OUTGOING_ALLOW_HEADERS']
 
-import binascii
 from calendar import timegm
 import six
 from os.path import basename
@@ -313,7 +312,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
     HTTPBadRequest, wsgi_to_str
 from swift.common.utils import split_path, get_valid_utf8_str, \
-    get_hmac, streq_const_time, quote, get_logger, strict_b64decode
+    get_hmac, streq_const_time, quote, get_logger, extract_digest_and_algorithm
 from swift.common.registry import register_swift_info, register_sensitive_param
 
 
@@ -505,23 +504,10 @@ class TempURL(object):
         if not temp_url_sig or not temp_url_expires:
             return self._invalid(env, start_response)
 
-        if ':' in temp_url_sig:
-            hash_algorithm, temp_url_sig = temp_url_sig.split(':', 1)
-            if ('-' in temp_url_sig or '_' in temp_url_sig) and not (
-                    '+' in temp_url_sig or '/' in temp_url_sig):
-                temp_url_sig = temp_url_sig.replace('-', '+').replace('_', '/')
-            try:
-                temp_url_sig = binascii.hexlify(strict_b64decode(
-                    temp_url_sig + '=='))
-                if not six.PY2:
-                    temp_url_sig = temp_url_sig.decode('ascii')
-            except ValueError:
-                return self._invalid(env, start_response)
-        elif len(temp_url_sig) == 40:
-            hash_algorithm = 'sha1'
-        elif len(temp_url_sig) == 64:
-            hash_algorithm = 'sha256'
-        else:
+        try:
+            hash_algorithm, temp_url_sig = extract_digest_and_algorithm(
+                temp_url_sig)
+        except ValueError:
             return self._invalid(env, start_response)
         if hash_algorithm not in self.allowed_digests:
             return self._invalid(env, start_response)

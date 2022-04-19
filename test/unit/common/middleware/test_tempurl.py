@@ -220,7 +220,8 @@ class TestTempURL(unittest.TestCase):
         self.tempurl = tempurl.filter_factory({
             'allowed_digests': 'sha1'})(self.auth)
 
-        sig = 'valid_sigs_will_be_exactly_40_characters'
+        # valid sig should be exactly 40 hex chars
+        sig = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
         expires = int(time() + 1000)
         p_logging.access_logger.logger = debug_logger('fake')
         resp = self._make_request(

@@ -84,11 +84,11 @@ desired.
 The expires attribute is the Unix timestamp before which the form
 must be submitted before it is invalidated.
 
-The signature attribute is the HMAC-SHA1 signature of the form. Here is
+The signature attribute is the HMAC signature of the form. Here is
 sample code for computing the signature::
 
     import hmac
-    from hashlib import sha1
+    from hashlib import sha512
     from time import time
     path = '/v1/account/container/object_prefix'
     redirect = 'https://srv.com/some-page'  # set to '' if redirect not in form
@@ -98,7 +98,7 @@ sample code for computing the signature::
     key = 'mykey'
     hmac_body = '%s\n%s\n%s\n%s\n%s' % (path, redirect,
         max_file_size, max_file_count, expires)
-    signature = hmac.new(key, hmac_body, sha1).hexdigest()
+    signature = hmac.new(key, hmac_body, sha512).hexdigest()
 
 The key is the value of either the account (X-Account-Meta-Temp-URL-Key,
 X-Account-Meta-Temp-Url-Key-2) or the container
@@ -123,7 +123,7 @@ the file are simply ignored).
 __all__ = ['FormPost', 'filter_factory', 'READ_CHUNK_SIZE', 'MAX_VALUE_LENGTH']
 
 import hmac
-from hashlib import sha1
+import hashlib
 from time import time
 
 import six
@@ -131,10 +131,11 @@ from six.moves.urllib.parse import quote
 
 from swift.common.constraints import valid_api_version
 from swift.common.exceptions import MimeInvalid
-from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
+from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata, \
+    SUPPORTED_DIGESTS
 from swift.common.utils import streq_const_time, parse_content_disposition, \
     parse_mime_headers, iter_multipart_mime_documents, reiterate, \
-    close_if_possible
+    close_if_possible, get_logger, extract_digest_and_algorithm
 from swift.common.registry import register_swift_info
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized, wsgi_to_str, str_to_wsgi
@@ -210,6 +211,11 @@ class FormPost(object):
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
+        # Defaulting to SUPPORTED_DIGESTS just so we don't completely
+        # deprecate sha1 yet. We'll change this to DEFAULT_ALLOWED_DIGESTS
+        # later.
+        self.allowed_digests = conf.get(
+            'allowed_digests', SUPPORTED_DIGESTS)
 
     def __call__(self, env, start_response):
         """
@@ -405,13 +411,22 @@ class FormPost(object):
             hmac_body = hmac_body.encode('utf-8')
 
         has_valid_sig = False
+        signature = attributes.get('signature', '')
+        try:
+            hash_algorithm, signature = extract_digest_and_algorithm(signature)
+        except ValueError:
+            raise FormUnauthorized('invalid signature')
+        if hash_algorithm not in self.allowed_digests:
+            raise FormUnauthorized('invalid signature')
+        if six.PY2:
+            hash_algorithm = getattr(hashlib, hash_algorithm)
+
         for key in keys:
             # Encode key like in swift.common.utls.get_hmac.
             if not isinstance(key, six.binary_type):
                 key = key.encode('utf8')
-            sig = hmac.new(key, hmac_body, sha1).hexdigest()
-            if streq_const_time(sig, (attributes.get('signature') or
-                                      'invalid')):
+            sig = hmac.new(key, hmac_body, hash_algorithm).hexdigest()
+            if streq_const_time(sig, signature):
                 has_valid_sig = True
         if not has_valid_sig:
             raise FormUnauthorized('invalid signature')
@@ -467,6 +482,18 @@ def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
 
-    register_swift_info('formpost')
-
+    logger = get_logger(conf, log_route='formpost')
+    allowed_digests = set(conf.get('allowed_digests', '').split()) or \
+        SUPPORTED_DIGESTS
+    not_supported = allowed_digests - SUPPORTED_DIGESTS
+    if not_supported:
+        logger.warning('The following digest algorithms are configured but '
+                       'not supported: %s', ', '.join(not_supported))
+        allowed_digests -= not_supported
+    if not allowed_digests:
+        raise ValueError('No valid digest algorithms are configured '
+                         'for formpost')
+    info = {'allowed_digests': sorted(allowed_digests)}
+    register_swift_info('formpost', **info)
+    conf.update(info)
     return lambda app: FormPost(app, conf)
