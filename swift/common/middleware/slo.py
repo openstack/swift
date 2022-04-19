@@ -808,7 +808,8 @@ class SloGetContext(WSGIContext):
         plain_listing_iter = self._segment_listing_iterator(
             req, ver, account, segments, byteranges)
 
-        def is_small_segment((seg_dict, start_byte, end_byte)):
+        def is_small_segment(args):
+            seg_dict, start_byte, end_byte = args
             start = 0 if start_byte is None else start_byte
             end = int(seg_dict['bytes']) - 1 if end_byte is None else end_byte
             is_small = (end - start + 1) < self.slo.rate_limit_under_size
