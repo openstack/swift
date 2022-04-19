@@ -20,7 +20,7 @@ from mock import Mock
 
 from swift.proxy.controllers import InfoController
 from swift.proxy.server import Application as ProxyApp
-from swift.common import utils, registry
+from swift.common import registry, digest
 from swift.common.swob import Request, HTTPException
 from test.debug_logger import debug_logger
 
@@ -133,7 +133,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('GET', '/info', expires, '')
+        sig = digest.get_hmac('GET', '/info', expires, '')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -149,7 +149,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
+        sig = digest.get_hmac('GET', '/info', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -170,7 +170,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
+        sig = digest.get_hmac('GET', '/info', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -180,7 +180,7 @@ class TestInfoController(unittest.TestCase):
         self.assertEqual('200 OK', str(resp))
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('HEAD', '/info', expires, 'secret-admin-key')
+        sig = digest.get_hmac('HEAD', '/info', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -196,7 +196,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('HEAD', '/info', expires, 'secret-admin-key')
+        sig = digest.get_hmac('HEAD', '/info', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -212,7 +212,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = 1
-        sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
+        sig = digest.get_hmac('GET', '/info', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -222,7 +222,7 @@ class TestInfoController(unittest.TestCase):
         self.assertEqual('401 Unauthorized', str(resp))
 
         expires = 'abc'
-        sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
+        sig = digest.get_hmac('GET', '/info', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -238,7 +238,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('GET', '/foo', expires, 'secret-admin-key')
+        sig = digest.get_hmac('GET', '/foo', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -254,7 +254,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('GET', '/foo', expires, 'invalid-admin-key')
+        sig = digest.get_hmac('GET', '/foo', expires, 'invalid-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(
@@ -272,7 +272,7 @@ class TestInfoController(unittest.TestCase):
         registry._swift_admin_info = {'qux': {'quux': 'corge'}}
 
         expires = int(time.time() + 86400)
-        sig = utils.get_hmac('GET', '/info', expires, 'secret-admin-key')
+        sig = digest.get_hmac('GET', '/info', expires, 'secret-admin-key')
         path = '/info?swiftinfo_sig={sig}&swiftinfo_expires={expires}'.format(
             sig=sig, expires=expires)
         req = Request.blank(

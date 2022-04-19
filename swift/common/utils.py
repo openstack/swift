@@ -25,7 +25,6 @@ import errno
 import fcntl
 import grp
 import hashlib
-import hmac
 import json
 import math
 import operator
@@ -280,90 +279,6 @@ try:
 except (InvalidHashPathConfigError, IOError):
     # could get monkey patched or lazy loaded
     pass
-
-
-def extract_digest_and_algorithm(value):
-    """
-    Returns a tuple of (digest_algorithm, hex_encoded_digest)
-    from a client-provided string of the form::
-
-       <hex-encoded digest>
-
-    or::
-
-       <algorithm>:<base64-encoded digest>
-
-    Note that hex-encoded strings must use one of sha1, sha256, or sha512.
-
-    :raises: ValueError on parse failures
-    """
-    if ':' in value:
-        algo, value = value.split(':', 1)
-        # accept both standard and url-safe base64
-        if ('-' in value or '_' in value) and not (
-                '+' in value or '/' in value):
-            value = value.replace('-', '+').replace('_', '/')
-        value = binascii.hexlify(strict_b64decode(value + '=='))
-        if not six.PY2:
-            value = value.decode('ascii')
-    else:
-        try:
-            binascii.unhexlify(value)  # make sure it decodes
-        except TypeError:
-            # This is just for py2
-            raise ValueError('Non-hexadecimal digit found')
-        algo = {
-            40: 'sha1',
-            64: 'sha256',
-            128: 'sha512',
-        }.get(len(value))
-        if not algo:
-            raise ValueError('Bad digest length')
-    return algo, value
-
-
-def get_hmac(request_method, path, expires, key, digest="sha1",
-             ip_range=None):
-    """
-    Returns the hexdigest string of the HMAC (see RFC 2104) for
-    the request.
-
-    :param request_method: Request method to allow.
-    :param path: The path to the resource to allow access to.
-    :param expires: Unix timestamp as an int for when the URL
-                    expires.
-    :param key: HMAC shared secret.
-    :param digest: constructor or the string name for the digest to use in
-                   calculating the HMAC
-                   Defaults to SHA1
-    :param ip_range: The ip range from which the resource is allowed
-                     to be accessed. We need to put the ip_range as the
-                     first argument to hmac to avoid manipulation of the path
-                     due to newlines being valid in paths
-                     e.g. /v1/a/c/o\\n127.0.0.1
-    :returns: hexdigest str of the HMAC for the request using the specified
-              digest algorithm.
-    """
-    # These are the three mandatory fields.
-    parts = [request_method, str(expires), path]
-    formats = [b"%s", b"%s", b"%s"]
-
-    if ip_range:
-        parts.insert(0, ip_range)
-        formats.insert(0, b"ip=%s")
-
-    if not isinstance(key, six.binary_type):
-        key = key.encode('utf8')
-
-    message = b'\n'.join(
-        fmt % (part if isinstance(part, six.binary_type)
-               else part.encode("utf-8"))
-        for fmt, part in zip(formats, parts))
-
-    if six.PY2 and isinstance(digest, six.string_types):
-        digest = getattr(hashlib, digest)
-
-    return hmac.new(key, message, digest).hexdigest()
 
 
 def backward(f, blocksize=4096):

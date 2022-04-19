@@ -28,8 +28,9 @@ from io import BytesIO
 
 from swift.common.swob import Request, Response, wsgi_quote
 from swift.common.middleware import tempauth, formpost
+from swift.common.middleware.tempurl import DEFAULT_ALLOWED_DIGESTS
 from swift.common.utils import split_path
-from swift.common import registry
+from swift.common import registry, digest as digest_utils
 from swift.proxy.controllers.base import get_cache_key
 from test.debug_logger import debug_logger
 
@@ -1656,8 +1657,11 @@ class TestFormPost(unittest.TestCase):
         self.assertIsNone(exc_info)
         self.assertTrue(b'FormPost: invalid starting boundary' in body)
 
-    def test_redirect_allowed_and_unsupported_digests(self):
+    def test_redirect_allowed_deprecated_and_unsupported_digests(self):
+        logger = debug_logger()
+
         def do_test(digest):
+            logger.clear()
             key = b'abc'
             sig, env, body = self._make_sig_env_body(
                 '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
@@ -1670,7 +1674,11 @@ class TestFormPost(unittest.TestCase):
             self.app = FakeApp(iter([('201 Created', {}, b''),
                                      ('201 Created', {}, b'')]))
             self.auth = tempauth.filter_factory({})(self.app)
-            self.formpost = formpost.filter_factory({})(self.auth)
+            with mock.patch('swift.common.middleware.formpost.get_logger',
+                            return_value=logger):
+                self.formpost = formpost.filter_factory(
+                    {
+                        'allowed_digests': DEFAULT_ALLOWED_DIGESTS})(self.auth)
             status = [None]
             headers = [None]
             exc_info = [None]
@@ -1696,6 +1704,12 @@ class TestFormPost(unittest.TestCase):
             self.assertEqual(len(self.app.requests), 2)
             self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
             self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
+            if algorithm in digest_utils.DEPRECATED_DIGESTS:
+                self.assertIn(
+                    'The following digest algorithms are configured but '
+                    'deprecated: %s. Support will be removed in a '
+                    'future release.' % algorithm,
+                    logger.get_lines_for_level('warning'))
 
         # unsupported
         _body, status, _headers, _exc_info = do_test("md5")
@@ -2252,7 +2266,9 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertIn('formpost', swift_info)
         info = swift_info['formpost']
         self.assertIn('allowed_digests', info)
+        self.assertIn('deprecated_digests', info)
         self.assertEqual(info['allowed_digests'], ['sha1', 'sha256', 'sha512'])
+        self.assertEqual(info['deprecated_digests'], ['sha1'])
 
     def test_non_default_methods(self):
         logger = debug_logger()
@@ -2265,7 +2281,9 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertIn('formpost', swift_info)
         info = swift_info['formpost']
         self.assertIn('allowed_digests', info)
+        self.assertIn('deprecated_digests', info)
         self.assertEqual(info['allowed_digests'], ['sha1', 'sha512'])
+        self.assertEqual(info['deprecated_digests'], ['sha1'])
         warning_lines = logger.get_lines_for_level('warning')
         self.assertIn(
             'The following digest algorithms are configured '
@@ -2273,6 +2291,15 @@ class TestSwiftInfo(unittest.TestCase):
             warning_lines[0])
         self.assertIn('not-a-valid-digest', warning_lines[0])
         self.assertIn('md5', warning_lines[0])
+
+    def test_no_deprecated_digests(self):
+        formpost.filter_factory({'allowed_digests': 'sha256 sha512'})
+        swift_info = registry.get_swift_info()
+        self.assertIn('formpost', swift_info)
+        info = swift_info['formpost']
+        self.assertIn('allowed_digests', info)
+        self.assertNotIn('deprecated_digests', info)
+        self.assertEqual(info['allowed_digests'], ['sha256', 'sha512'])
 
     def test_bad_config(self):
         with self.assertRaises(ValueError):
