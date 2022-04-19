@@ -13,3 +13,14 @@
         copy_links: true
         verify_host: true
       when: s3_tests_output.stat.exists == true
+    - name: Check for s3-tests output summary
+      stat:
+        path: '{{ ansible_env.HOME }}/s3compat/output/ceph-s3-summary.log'
+      register: s3_tests_output_summary
+    - zuul_return:
+        data:
+          zuul:
+            artifacts:
+              - name: s3compat test summary
+                url: output/ceph-s3-summary.log
+      when: s3_tests_output_summary.stat.exists == true
