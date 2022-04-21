@@ -377,6 +377,10 @@ def cors_validation(func):
                     resp.headers['Access-Control-Allow-Origin'] = '*'
                 else:
                     resp.headers['Access-Control-Allow-Origin'] = req_origin
+                    if 'Vary' in resp.headers:
+                        resp.headers['Vary'] += ', Origin'
+                    else:
+                        resp.headers['Vary'] = 'Origin'
 
             return resp
         else:
