@@ -44,6 +44,11 @@ from test.probe.common import ReplProbeTest, get_server_number, \
     wait_for_server_to_hangup, ENABLED_POLICIES
 import mock
 
+try:
+    from swiftclient.requests_compat import requests as client_requests
+except ImportError:
+    # legacy location
+    from swiftclient.client import requests as client_requests
 
 MIN_SHARD_CONTAINER_THRESHOLD = 4
 MAX_SHARD_CONTAINER_THRESHOLD = 100
@@ -118,8 +123,8 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def setUp(self):
         client.logger.setLevel(client.logging.WARNING)
-        client.requests.logging.getLogger().setLevel(
-            client.requests.logging.WARNING)
+        client_requests.logging.getLogger().setLevel(
+            client_requests.logging.WARNING)
         super(BaseTestContainerSharding, self).setUp()
         _, self.admin_token = get_auth(
             PROXY_BASE_URL + '/auth/v1.0', 'admin:admin', 'admin')
