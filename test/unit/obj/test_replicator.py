@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import collections
+import io
 import json
 import unittest
 import os
@@ -2095,6 +2096,157 @@ class TestObjectReplicator(unittest.TestCase):
                             os.path.join(job['path']))
         self.assertEqual(expected_reqs, [
             (r['method'], r['ip'], r['path']) for r in request_log.requests])
+
+    def test_rsync_failure_logging(self):
+        with mock.patch('swift.obj.replicator.subprocess.Popen') as mock_popen:
+            mock_popen.return_value.stdout = io.BytesIO(b'\n'.join([
+                b'',
+                b'cd+++++++++ suf',
+                b'cd+++++++++ suf/hash1',
+                b'<f+++++++++ suf/hash1/1637956993.28907.data',
+                b'',
+                b'cd+++++++++ suf/hash2',
+                b'<f+++++++++ suf/hash2/1615174984.55017.data',
+                b'',
+                b'cd+++++++++ suf/hash3',
+                b'<f+++++++++ suf/hash3/1616276756.37760.data',
+                b'<f+++++++++ suf/hash3/1637954870.98055.meta',
+                b'',
+                b'Oh no, some error!',
+            ]))
+            mock_popen.return_value.wait.return_value = 5
+            self.assertEqual(5, self.replicator._rsync([
+                'rsync', '--recursive', '--whole-file', '--human-readable',
+                '--xattrs', '--itemize-changes', '--ignore-existing',
+                '--timeout=30', '--contimeout=30', '--bwlimit=100M',
+                '--exclude=rsync-tempfile-pattern',
+                '/srv/node/d1/objects/part/suf',
+                '192.168.50.30::object/d8/objects/241']))
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(error_lines[:5], [
+            '<f+++++++++ suf/hash1/1637956993.28907.data',
+            '<f+++++++++ suf/hash2/1615174984.55017.data',
+            '<f+++++++++ suf/hash3/1616276756.37760.data',
+            '<f+++++++++ suf/hash3/1637954870.98055.meta',
+            'Oh no, some error!',
+        ])
+        expected_start = "Bad rsync return code: 5 <- ['rsync', '--recursive'"
+        self.assertEqual(error_lines[5][:len(expected_start)], expected_start,
+                         'Expected %r to start with %r' % (error_lines[5],
+                                                           expected_start))
+        self.assertFalse(error_lines[6:])
+        self.assertFalse(self.logger.get_lines_for_level('info'))
+        self.assertFalse(self.logger.get_lines_for_level('debug'))
+
+    def test_rsync_failure_logging_no_transfer(self):
+        with mock.patch('swift.obj.replicator.subprocess.Popen') as mock_popen:
+            mock_popen.return_value.stdout = io.BytesIO(b'\n'.join([
+                b'',
+                b'cd+++++++++ suf',
+                b'cd+++++++++ suf/hash1',
+                b'<f+++++++++ suf/hash1/1637956993.28907.data',
+                b'',
+                b'cd+++++++++ suf/hash2',
+                b'<f+++++++++ suf/hash2/1615174984.55017.data',
+                b'',
+                b'cd+++++++++ suf/hash3',
+                b'<f+++++++++ suf/hash3/1616276756.37760.data',
+                b'<f+++++++++ suf/hash3/1637954870.98055.meta',
+                b'',
+                b'Oh no, some error!',
+            ]))
+            mock_popen.return_value.wait.return_value = 5
+            self.replicator.log_rsync_transfers = False
+            self.assertEqual(5, self.replicator._rsync([
+                'rsync', '--recursive', '--whole-file', '--human-readable',
+                '--xattrs', '--itemize-changes', '--ignore-existing',
+                '--timeout=30', '--contimeout=30', '--bwlimit=100M',
+                '--exclude=rsync-tempfile-pattern',
+                '/srv/node/d1/objects/part/suf',
+                '192.168.50.30::object/d8/objects/241']))
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(error_lines[0], 'Oh no, some error!')
+        expected_start = "Bad rsync return code: 5 <- ['rsync', '--recursive'"
+        self.assertEqual(error_lines[1][:len(expected_start)], expected_start,
+                         'Expected %r to start with %r' % (error_lines[1],
+                                                           expected_start))
+        self.assertFalse(error_lines[2:])
+        self.assertFalse(self.logger.get_lines_for_level('info'))
+        self.assertFalse(self.logger.get_lines_for_level('debug'))
+
+    def test_rsync_success_logging(self):
+        with mock.patch('swift.obj.replicator.subprocess.Popen') as mock_popen:
+            mock_popen.return_value.stdout = io.BytesIO(b'\n'.join([
+                b'',
+                b'cd+++++++++ suf',
+                b'cd+++++++++ suf/hash1',
+                b'<f+++++++++ suf/hash1/1637956993.28907.data',
+                b'',
+                b'cd+++++++++ suf/hash2',
+                b'<f+++++++++ suf/hash2/1615174984.55017.data',
+                b'',
+                b'cd+++++++++ suf/hash3',
+                b'<f+++++++++ suf/hash3/1616276756.37760.data',
+                b'<f+++++++++ suf/hash3/1637954870.98055.meta',
+                b'',
+                b'Yay! It worked!',
+            ]))
+            mock_popen.return_value.wait.return_value = 0
+            self.assertEqual(0, self.replicator._rsync([
+                'rsync', '--recursive', '--whole-file', '--human-readable',
+                '--xattrs', '--itemize-changes', '--ignore-existing',
+                '--timeout=30', '--contimeout=30', '--bwlimit=100M',
+                '--exclude=rsync-tempfile-pattern',
+                '/srv/node/d1/objects/part/suf',
+                '192.168.50.30::object/d8/objects/241']))
+        self.assertFalse(self.logger.get_lines_for_level('error'))
+        debug_lines = self.logger.get_lines_for_level('debug')
+        self.assertEqual(debug_lines, [
+            '<f+++++++++ suf/hash1/1637956993.28907.data',
+            '<f+++++++++ suf/hash2/1615174984.55017.data',
+            '<f+++++++++ suf/hash3/1616276756.37760.data',
+            '<f+++++++++ suf/hash3/1637954870.98055.meta',
+            'Yay! It worked!',
+        ])
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(info_lines, [
+            'Successful rsync of /srv/node/d1/objects/part/... to '
+            '192.168.50.30::object/d8/objects/241 (0.000)'])
+
+    def test_rsync_success_logging_no_transfer(self):
+        with mock.patch('swift.obj.replicator.subprocess.Popen') as mock_popen:
+            mock_popen.return_value.stdout = io.BytesIO(b'\n'.join([
+                b'',
+                b'cd+++++++++ sf1',
+                b'cd+++++++++ sf1/hash1',
+                b'<f+++++++++ sf1/hash1/1637956993.28907.data',
+                b'',
+                b'cd+++++++++ sf1/hash2',
+                b'<f+++++++++ sf1/hash2/1615174984.55017.data',
+                b'',
+                b'cd+++++++++ sf2/hash3',
+                b'<f+++++++++ sf2/hash3/1616276756.37760.data',
+                b'<f+++++++++ sf2/hash3/1637954870.98055.meta',
+                b'',
+                b'Yay! It worked!',
+            ]))
+            mock_popen.return_value.wait.return_value = 0
+            self.replicator.log_rsync_transfers = False
+            self.assertEqual(0, self.replicator._rsync([
+                'rsync', '--recursive', '--whole-file', '--human-readable',
+                '--xattrs', '--itemize-changes', '--ignore-existing',
+                '--timeout=30', '--contimeout=30', '--bwlimit=100M',
+                '--exclude=rsync-tempfile-pattern',
+                '/srv/node/d1/objects/part/sf1',
+                '/srv/node/d1/objects/part/sf2',
+                '192.168.50.30::object/d8/objects/241']))
+        self.assertFalse(self.logger.get_lines_for_level('error'))
+        debug_lines = self.logger.get_lines_for_level('debug')
+        self.assertEqual(debug_lines, ['Yay! It worked!'])
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(info_lines, [
+            'Successful rsync of /srv/node/d1/objects/part/... to '
+            '192.168.50.30::object/d8/objects/241 (0.000)'])
 
     def test_do_listdir(self):
         # Test if do_listdir is enabled for every 10th partition to rehash
