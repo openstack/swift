@@ -410,17 +410,22 @@ def track(f):
 
 class FakeMemcache(object):
 
-    def __init__(self):
+    def __init__(self, error_on_set=None, error_on_get=None):
         self.store = {}
         self.calls = []
         self.error_on_incr = False
+        self.error_on_get = error_on_get or []
+        self.error_on_set = error_on_set or []
         self.init_incr_return_neg = False
 
     def clear_calls(self):
         del self.calls[:]
 
     @track
-    def get(self, key):
+    def get(self, key, raise_on_error=False):
+        if self.error_on_get and self.error_on_get.pop(0):
+            if raise_on_error:
+                raise MemcacheConnectionError()
         return self.store.get(key)
 
     @property
@@ -428,7 +433,10 @@ class FakeMemcache(object):
         return self.store.keys
 
     @track
-    def set(self, key, value, serialize=True, time=0):
+    def set(self, key, value, serialize=True, time=0, raise_on_error=False):
+        if self.error_on_set and self.error_on_set.pop(0):
+            if raise_on_error:
+                raise MemcacheConnectionError()
         if serialize:
             value = json.loads(json.dumps(value))
         else:

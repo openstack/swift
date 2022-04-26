@@ -2148,7 +2148,7 @@ class TestContainerController(TestRingBase):
             'X-Backend-Sharding-State': sharding_state})
         self.assertEqual(
             [mock.call.get('container/a/c'),
-             mock.call.get('shard-listing/a/c'),
+             mock.call.get('shard-listing/a/c', raise_on_error=True),
              mock.call.set('shard-listing/a/c', self.sr_dicts,
                            time=exp_recheck_listing),
              # Since there was a backend request, we go ahead and cache
@@ -2177,7 +2177,7 @@ class TestContainerController(TestRingBase):
             'X-Backend-Sharding-State': sharding_state})
         self.assertEqual(
             [mock.call.get('container/a/c'),
-             mock.call.get('shard-listing/a/c')],
+             mock.call.get('shard-listing/a/c', raise_on_error=True)],
             self.memcache.calls)
         self.assertIn('swift.infocache', req.environ)
         self.assertIn('shard-listing/a/c', req.environ['swift.infocache'])
@@ -2237,7 +2237,7 @@ class TestContainerController(TestRingBase):
             'X-Backend-Sharding-State': sharding_state})
         self.assertEqual(
             [mock.call.get('container/a/c'),
-             mock.call.get('shard-listing/a/c')],
+             mock.call.get('shard-listing/a/c', raise_on_error=True)],
             self.memcache.calls)
         self.assertIn('swift.infocache', req.environ)
         self.assertIn('shard-listing/a/c', req.environ['swift.infocache'])
@@ -2390,13 +2390,46 @@ class TestContainerController(TestRingBase):
         # deleted from cache
         self.assertEqual(
             [mock.call.get('container/a/c'),
-             mock.call.get('shard-listing/a/c'),
+             mock.call.get('shard-listing/a/c', raise_on_error=True),
              mock.call.set('container/a/c', mock.ANY, time=6.0)],
             self.memcache.calls)
         self.assertEqual(404, self.memcache.calls[2][1][1]['status'])
         self.assertEqual(b'', resp.body)
         self.assertEqual(404, resp.status_int)
         self.assertEqual({'container.shard_listing.cache.miss': 1,
+                          'container.shard_listing.backend.404': 1},
+                         self.logger.get_increment_counts())
+
+    def test_GET_shard_ranges_read_from_cache_error(self):
+        self._setup_shard_range_stubs()
+        self.memcache = FakeMemcache()
+        self.memcache.delete_all()
+        self.logger.clear()
+        info = headers_to_container_info(self.root_resp_hdrs)
+        info['status'] = 200
+        info['sharding_state'] = 'sharded'
+        self.memcache.set('container/a/c', info)
+        self.memcache.clear_calls()
+        self.memcache.error_on_get = [False, True]
+
+        req = self._build_request({'X-Backend-Record-Type': 'shard'},
+                                  {'states': 'listing'}, {})
+        backend_req, resp = self._capture_backend_request(
+            req, 404, b'', {}, num_resp=2 * self.CONTAINER_REPLICAS)
+        self._check_backend_req(
+            req, backend_req,
+            extra_hdrs={'X-Backend-Record-Type': 'shard',
+                        'X-Backend-Override-Shard-Name-Filter': 'sharded'})
+        self.assertNotIn('X-Backend-Cached-Results', resp.headers)
+        self.assertEqual(
+            [mock.call.get('container/a/c'),
+             mock.call.get('shard-listing/a/c', raise_on_error=True),
+             mock.call.set('container/a/c', mock.ANY, time=6.0)],
+            self.memcache.calls)
+        self.assertEqual(404, self.memcache.calls[2][1][1]['status'])
+        self.assertEqual(b'', resp.body)
+        self.assertEqual(404, resp.status_int)
+        self.assertEqual({'container.shard_listing.cache.error': 1,
                           'container.shard_listing.backend.404': 1},
                          self.logger.get_increment_counts())
 
@@ -2417,7 +2450,7 @@ class TestContainerController(TestRingBase):
         resp = req.get_response(self.app)
         self.assertEqual(
             [mock.call.get('container/a/c'),
-             mock.call.get('shard-listing/a/c')],
+             mock.call.get('shard-listing/a/c', raise_on_error=True)],
             self.memcache.calls)
         self.assertEqual({'container.shard_listing.cache.hit': 1},
                          self.logger.get_increment_counts())
