@@ -266,7 +266,7 @@ use = egg:swift#recon
 # bandwidth limit for rsync in kB/s. 0 means unlimited
 # rsync_bwlimit = 0
 #
-# passed to rsync for io op timeout
+# passed to rsync for both io op timeout and connection timeout
 # rsync_io_timeout = 30
 #
 # Allow rsync to compress data which is transmitted to destination node
