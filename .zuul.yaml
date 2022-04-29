@@ -600,7 +600,6 @@
      jobs:
        - swift-tox-py38-arm64
        - swift-tox-py39-arm64
-       - swift-probetests-centos-8-stream-arm64
        - swift-tox-func-encryption-py38-arm64
        - swift-tox-func-py38-arm64
 
