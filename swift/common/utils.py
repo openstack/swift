@@ -1324,6 +1324,15 @@ class Timestamp(object):
 
     @property
     def isoformat(self):
+        """
+        Get an isoformat string representation of the 'normal' part of the
+        Timestamp with microsecond precision and no trailing timezone, for
+        example:
+
+            1970-01-01T00:00:00.000000
+
+        :return: an isoformat string
+        """
         t = float(self.normal)
         if six.PY3:
             # On Python 3, round manually using ROUND_HALF_EVEN rounding
@@ -1349,6 +1358,21 @@ class Timestamp(object):
         if len(isoformat) < len("1970-01-01T00:00:00.000000"):
             isoformat += ".000000"
         return isoformat
+
+    @classmethod
+    def from_isoformat(cls, date_string):
+        """
+        Parse an isoformat string representation of time to a Timestamp object.
+
+        :param date_string: a string formatted as per an Timestamp.isoformat
+            property.
+        :return: an instance of  this class.
+        """
+        start = datetime.datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%f")
+        delta = start - EPOCH
+        # This calculation is based on Python 2.7's Modules/datetimemodule.c,
+        # function delta_to_microseconds(), but written in Python.
+        return cls(delta.total_seconds())
 
     def ceil(self):
         """
@@ -1506,13 +1530,7 @@ def last_modified_date_to_timestamp(last_modified_date_str):
     Convert a last modified date (like you'd get from a container listing,
     e.g. 2014-02-28T23:22:36.698390) to a float.
     """
-    start = datetime.datetime.strptime(last_modified_date_str,
-                                       '%Y-%m-%dT%H:%M:%S.%f')
-    delta = start - EPOCH
-
-    # This calculation is based on Python 2.7's Modules/datetimemodule.c,
-    # function delta_to_microseconds(), but written in Python.
-    return Timestamp(delta.total_seconds())
+    return Timestamp.from_isoformat(last_modified_date_str)
 
 
 def normalize_delete_at_timestamp(timestamp, high_precision=False):

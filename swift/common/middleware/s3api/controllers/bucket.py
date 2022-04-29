@@ -34,7 +34,7 @@ from swift.common.middleware.s3api.s3response import \
     MalformedXML, InvalidLocationConstraint, NoSuchBucket, \
     BucketNotEmpty, VersionedBucketNotEmpty, InternalError, \
     ServiceUnavailable, NoSuchKey
-from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX
+from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, S3Timestamp
 
 MAX_PUT_BUCKET_BODY_SIZE = 10240
 
@@ -291,7 +291,7 @@ class BucketController(Controller):
             contents = SubElement(elem, 'Contents')
             SubElement(contents, 'Key').text = name
         SubElement(contents, 'LastModified').text = \
-            o['last_modified'][:-3] + 'Z'
+            S3Timestamp.from_isoformat(o['last_modified']).s3xmlformat
         if contents.tag != 'DeleteMarker':
             if 's3_etag' in o:
                 # New-enough MUs are already in the right format

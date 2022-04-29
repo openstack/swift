@@ -397,7 +397,7 @@ class UploadsController(Controller):
             SubElement(owner_elem, 'DisplayName').text = req.user_id
             SubElement(upload_elem, 'StorageClass').text = 'STANDARD'
             SubElement(upload_elem, 'Initiated').text = \
-                u['last_modified'][:-3] + 'Z'
+                S3Timestamp.from_isoformat(u['last_modified']).s3xmlformat
 
         for p in prefixes:
             elem = SubElement(result_elem, 'CommonPrefixes')
@@ -582,7 +582,7 @@ class UploadController(Controller):
             part_elem = SubElement(result_elem, 'Part')
             SubElement(part_elem, 'PartNumber').text = i['name'].split('/')[-1]
             SubElement(part_elem, 'LastModified').text = \
-                i['last_modified'][:-3] + 'Z'
+                S3Timestamp.from_isoformat(i['last_modified']).s3xmlformat
             SubElement(part_elem, 'ETag').text = '"%s"' % i['hash']
             SubElement(part_elem, 'Size').text = str(i['bytes'])
 

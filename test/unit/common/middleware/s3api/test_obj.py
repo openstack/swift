@@ -28,6 +28,7 @@ import json
 from swift.common import swob
 from swift.common.swob import Request
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
+from test.unit import mock_timestamp_now
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
@@ -872,33 +873,29 @@ class TestS3ApiObj(S3ApiTestCase):
 
     @s3acl
     def test_object_PUT_copy_metadata_replace(self):
-        date_header = self.get_date_header()
-        timestamp = mktime(date_header)
-        allowed_last_modified = [S3Timestamp(timestamp).s3xmlformat]
-        status, headers, body = \
-            self._test_object_PUT_copy(
-                swob.HTTPOk,
-                {'X-Amz-Metadata-Directive': 'REPLACE',
-                 'X-Amz-Meta-Something': 'oh hai',
-                 'X-Amz-Meta-Unreadable-Prefix': '\x04w',
-                 'X-Amz-Meta-Unreadable-Suffix': 'h\x04',
-                 'X-Amz-Meta-Lots-Of-Unprintable': 5 * '\x04',
-                 'Cache-Control': 'hello',
-                 'content-disposition': 'how are you',
-                 'content-encoding': 'good and you',
-                 'content-language': 'great',
-                 'content-type': 'so',
-                 'expires': 'yeah',
-                 'x-robots-tag': 'bye'})
-        date_header = self.get_date_header()
-        timestamp = mktime(date_header)
-        allowed_last_modified.append(S3Timestamp(timestamp).s3xmlformat)
+        with mock_timestamp_now(klass=S3Timestamp) as now:
+            status, headers, body = \
+                self._test_object_PUT_copy(
+                    swob.HTTPOk,
+                    {'X-Amz-Metadata-Directive': 'REPLACE',
+                     'X-Amz-Meta-Something': 'oh hai',
+                     'X-Amz-Meta-Unreadable-Prefix': '\x04w',
+                     'X-Amz-Meta-Unreadable-Suffix': 'h\x04',
+                     'X-Amz-Meta-Lots-Of-Unprintable': 5 * '\x04',
+                     'Cache-Control': 'hello',
+                     'content-disposition': 'how are you',
+                     'content-encoding': 'good and you',
+                     'content-language': 'great',
+                     'content-type': 'so',
+                     'expires': 'yeah',
+                     'x-robots-tag': 'bye'})
 
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Content-Type'], 'application/xml')
         self.assertIsNone(headers.get('etag'))
         elem = fromstring(body, 'CopyObjectResult')
-        self.assertIn(elem.find('LastModified').text, allowed_last_modified)
+        self.assertEqual(S3Timestamp(now.ceil()).s3xmlformat,
+                         elem.find('LastModified').text)
         self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
         _, _, headers = self.swift.calls_with_headers[-1]
@@ -926,34 +923,30 @@ class TestS3ApiObj(S3ApiTestCase):
 
     @s3acl
     def test_object_PUT_copy_metadata_copy(self):
-        date_header = self.get_date_header()
-        timestamp = mktime(date_header)
-        allowed_last_modified = [S3Timestamp(timestamp).s3xmlformat]
-        status, headers, body = \
-            self._test_object_PUT_copy(
-                swob.HTTPOk,
-                {'X-Amz-Metadata-Directive': 'COPY',
-                 'X-Amz-Meta-Something': 'oh hai',
-                 'X-Amz-Meta-Unreadable-Prefix': '\x04w',
-                 'X-Amz-Meta-Unreadable-Suffix': 'h\x04',
-                 'X-Amz-Meta-Lots-Of-Unprintable': 5 * '\x04',
-                 'Cache-Control': 'hello',
-                 'content-disposition': 'how are you',
-                 'content-encoding': 'good and you',
-                 'content-language': 'great',
-                 'content-type': 'so',
-                 'expires': 'yeah',
-                 'x-robots-tag': 'bye'})
-        date_header = self.get_date_header()
-        timestamp = mktime(date_header)
-        allowed_last_modified.append(S3Timestamp(timestamp).s3xmlformat)
+        with mock_timestamp_now(klass=S3Timestamp) as now:
+            status, headers, body = \
+                self._test_object_PUT_copy(
+                    swob.HTTPOk,
+                    {'X-Amz-Metadata-Directive': 'COPY',
+                     'X-Amz-Meta-Something': 'oh hai',
+                     'X-Amz-Meta-Unreadable-Prefix': '\x04w',
+                     'X-Amz-Meta-Unreadable-Suffix': 'h\x04',
+                     'X-Amz-Meta-Lots-Of-Unprintable': 5 * '\x04',
+                     'Cache-Control': 'hello',
+                     'content-disposition': 'how are you',
+                     'content-encoding': 'good and you',
+                     'content-language': 'great',
+                     'content-type': 'so',
+                     'expires': 'yeah',
+                     'x-robots-tag': 'bye'})
 
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Content-Type'], 'application/xml')
         self.assertIsNone(headers.get('etag'))
 
         elem = fromstring(body, 'CopyObjectResult')
-        self.assertIn(elem.find('LastModified').text, allowed_last_modified)
+        self.assertEqual(S3Timestamp(now.ceil()).s3xmlformat,
+                         elem.find('LastModified').text)
         self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
         _, _, headers = self.swift.calls_with_headers[-1]

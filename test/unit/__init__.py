@@ -1042,9 +1042,9 @@ def make_timestamp_iter(offset=0):
 
 
 @contextmanager
-def mock_timestamp_now(now=None):
+def mock_timestamp_now(now=None, klass=Timestamp):
     if now is None:
-        now = Timestamp.now()
+        now = klass.now()
     with mocklib.patch('swift.common.utils.Timestamp.now',
                        classmethod(lambda c: now)):
         yield now

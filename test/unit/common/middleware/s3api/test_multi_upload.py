@@ -51,29 +51,41 @@ XML = '<CompleteMultipartUpload>' \
     '</CompleteMultipartUpload>'
 
 OBJECTS_TEMPLATE = \
-    (('object/X/1', '2014-05-07T19:47:51.592270', '0123456789abcdef', 100),
-     ('object/X/2', '2014-05-07T19:47:52.592270', 'fedcba9876543210', 200))
+    (('object/X/1', '2014-05-07T19:47:51.592270', '0123456789abcdef', 100,
+      '2014-05-07T19:47:52.000Z'),
+     ('object/X/2', '2014-05-07T19:47:52.592270', 'fedcba9876543210', 200,
+      '2014-05-07T19:47:53.000Z'))
 
 MULTIPARTS_TEMPLATE = \
-    (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1),
-     ('object/X/1', '2014-05-07T19:47:51.592270', '0123456789abcdef', 11),
-     ('object/X/2', '2014-05-07T19:47:52.592270', 'fedcba9876543210', 21),
-     ('object/Y', '2014-05-07T19:47:53.592270', 'HASH', 2),
-     ('object/Y/1', '2014-05-07T19:47:54.592270', '0123456789abcdef', 12),
-     ('object/Y/2', '2014-05-07T19:47:55.592270', 'fedcba9876543210', 22),
-     ('object/Z', '2014-05-07T19:47:56.592270', 'HASH', 3),
-     ('object/Z/1', '2014-05-07T19:47:57.592270', '0123456789abcdef', 13),
-     ('object/Z/2', '2014-05-07T19:47:58.592270', 'fedcba9876543210', 23),
-     ('subdir/object/Z', '2014-05-07T19:47:58.592270', 'HASH', 4),
+    (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1,
+      '2014-05-07T19:47:51.000Z'),
+     ('object/X/1', '2014-05-07T19:47:51.592270', '0123456789abcdef', 11,
+      '2014-05-07T19:47:52.000Z'),
+     ('object/X/2', '2014-05-07T19:47:52.592270', 'fedcba9876543210', 21,
+      '2014-05-07T19:47:53.000Z'),
+     ('object/Y', '2014-05-07T19:47:53.592270', 'HASH', 2,
+      '2014-05-07T19:47:54.000Z'),
+     ('object/Y/1', '2014-05-07T19:47:54.592270', '0123456789abcdef', 12,
+      '2014-05-07T19:47:55.000Z'),
+     ('object/Y/2', '2014-05-07T19:47:55.592270', 'fedcba9876543210', 22,
+      '2014-05-07T19:47:56.000Z'),
+     ('object/Z', '2014-05-07T19:47:56.592270', 'HASH', 3,
+      '2014-05-07T19:47:57.000Z'),
+     ('object/Z/1', '2014-05-07T19:47:57.592270', '0123456789abcdef', 13,
+      '2014-05-07T19:47:58.000Z'),
+     ('object/Z/2', '2014-05-07T19:47:58.592270', 'fedcba9876543210', 23,
+      '2014-05-07T19:47:59.000Z'),
+     ('subdir/object/Z', '2014-05-07T19:47:58.592270', 'HASH', 4,
+      '2014-05-07T19:47:59.000Z'),
      ('subdir/object/Z/1', '2014-05-07T19:47:58.592270', '0123456789abcdef',
-      41),
+      41, '2014-05-07T19:47:59.000Z'),
      ('subdir/object/Z/2', '2014-05-07T19:47:58.592270', 'fedcba9876543210',
-      41),
+      41, '2014-05-07T19:47:59.000Z'),
      # NB: wsgi strings
      ('subdir/object/completed\xe2\x98\x83/W/1', '2014-05-07T19:47:58.592270',
-      '0123456789abcdef', 41),
+      '0123456789abcdef', 41, '2014-05-07T19:47:59.000Z'),
      ('subdir/object/completed\xe2\x98\x83/W/2', '2014-05-07T19:47:58.592270',
-      'fedcba9876543210', 41))
+      'fedcba9876543210', 41, '2014-05-07T19:47:59'))
 
 S3_ETAG = '"%s-2"' % md5(binascii.a2b_hex(
     '0123456789abcdef0123456789abcdef'
@@ -285,7 +297,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(elem.find('MaxUploads').text, '1000')
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         self.assertEqual(len(elem.findall('Upload')), len(uploads))
-        expected_uploads = [(upload[0], '2014-05-07T19:47:50.592Z')
+        expected_uploads = [(upload[0], '2014-05-07T19:47:51.000Z')
                             for upload in uploads]
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
@@ -310,7 +322,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(elem.find('MaxUploads').text, '1000')
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         self.assertEqual(len(elem.findall('Upload')), 4)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in MULTIPARTS_TEMPLATE]
+        objects = [(o[0], o[4]) for o in MULTIPARTS_TEMPLATE]
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
             initiated = u.find('Initiated').text
@@ -417,9 +429,12 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_bucket_multipart_uploads_GET_with_id_and_key_marker(self):
         query = 'upload-id-marker=Y&key-marker=object'
         multiparts = \
-            (('object/Y', '2014-05-07T19:47:53.592270', 'HASH', 2),
-             ('object/Y/1', '2014-05-07T19:47:54.592270', 'HASH', 12),
-             ('object/Y/2', '2014-05-07T19:47:55.592270', 'HASH', 22))
+            (('object/Y', '2014-05-07T19:47:53.592270', 'HASH', 2,
+              '2014-05-07T19:47:54.000Z'),
+             ('object/Y/1', '2014-05-07T19:47:54.592270', 'HASH', 12,
+              '2014-05-07T19:47:55.000Z'),
+             ('object/Y/2', '2014-05-07T19:47:55.592270', 'HASH', 22,
+              '2014-05-07T19:47:56.000Z'))
 
         status, headers, body = \
             self._test_bucket_multipart_uploads_GET(query, multiparts)
@@ -427,7 +442,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(elem.find('KeyMarker').text, 'object')
         self.assertEqual(elem.find('UploadIdMarker').text, 'Y')
         self.assertEqual(len(elem.findall('Upload')), 1)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in multiparts]
+        objects = [(o[0], o[4]) for o in multiparts]
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
             initiated = u.find('Initiated').text
@@ -447,12 +462,18 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_bucket_multipart_uploads_GET_with_key_marker(self):
         query = 'key-marker=object'
         multiparts = \
-            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1),
-             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11),
-             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21),
-             ('object/Y', '2014-05-07T19:47:53.592270', 'HASH', 2),
-             ('object/Y/1', '2014-05-07T19:47:54.592270', 'HASH', 12),
-             ('object/Y/2', '2014-05-07T19:47:55.592270', 'HASH', 22))
+            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1,
+              '2014-05-07T19:47:51.000Z'),
+             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11,
+              '2014-05-07T19:47:52.000Z'),
+             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21,
+              '2014-05-07T19:47:53.000Z'),
+             ('object/Y', '2014-05-07T19:47:53.592270', 'HASH', 2,
+              '2014-05-07T19:47:54.000Z'),
+             ('object/Y/1', '2014-05-07T19:47:54.592270', 'HASH', 12,
+              '2014-05-07T19:47:55.000Z'),
+             ('object/Y/2', '2014-05-07T19:47:55.592270', 'HASH', 22,
+              '2014-05-07T19:47:56.000Z'))
         status, headers, body = \
             self._test_bucket_multipart_uploads_GET(query, multiparts)
         elem = fromstring(body, 'ListMultipartUploadsResult')
@@ -460,11 +481,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(elem.find('NextKeyMarker').text, 'object')
         self.assertEqual(elem.find('NextUploadIdMarker').text, 'Y')
         self.assertEqual(len(elem.findall('Upload')), 2)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in multiparts]
+        objects = [(o[0], o[4]) for o in multiparts]
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
             initiated = u.find('Initiated').text
-            self.assertTrue((name, initiated) in objects)
+            self.assertIn((name, initiated), objects)
         self.assertEqual(status.split()[0], '200')
 
         _, path, _ = self.swift.calls_with_headers[-1]
@@ -480,14 +501,17 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_bucket_multipart_uploads_GET_with_prefix(self):
         query = 'prefix=X'
         multiparts = \
-            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1),
-             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11),
-             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21))
+            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1,
+              '2014-05-07T19:47:51.000Z'),
+             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11,
+              '2014-05-07T19:47:52.000Z'),
+             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21,
+              '2014-05-07T19:47:53.000Z'))
         status, headers, body = \
             self._test_bucket_multipart_uploads_GET(query, multiparts)
         elem = fromstring(body, 'ListMultipartUploadsResult')
         self.assertEqual(len(elem.findall('Upload')), 1)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in multiparts]
+        objects = [(o[0], o[4]) for o in multiparts]
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
             initiated = u.find('Initiated').text
@@ -507,38 +531,56 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_bucket_multipart_uploads_GET_with_delimiter(self):
         query = 'delimiter=/'
         multiparts = \
-            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1),
-             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11),
-             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21),
-             ('object/Y', '2014-05-07T19:47:50.592270', 'HASH', 2),
-             ('object/Y/1', '2014-05-07T19:47:51.592270', 'HASH', 21),
-             ('object/Y/2', '2014-05-07T19:47:52.592270', 'HASH', 22),
-             ('object/Z', '2014-05-07T19:47:50.592270', 'HASH', 3),
-             ('object/Z/1', '2014-05-07T19:47:51.592270', 'HASH', 31),
-             ('object/Z/2', '2014-05-07T19:47:52.592270', 'HASH', 32),
-             ('subdir/object/X', '2014-05-07T19:47:50.592270', 'HASH', 4),
-             ('subdir/object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 41),
-             ('subdir/object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 42),
-             ('subdir/object/Y', '2014-05-07T19:47:50.592270', 'HASH', 5),
-             ('subdir/object/Y/1', '2014-05-07T19:47:51.592270', 'HASH', 51),
-             ('subdir/object/Y/2', '2014-05-07T19:47:52.592270', 'HASH', 52),
-             ('subdir2/object/Z', '2014-05-07T19:47:50.592270', 'HASH', 6),
-             ('subdir2/object/Z/1', '2014-05-07T19:47:51.592270', 'HASH', 61),
-             ('subdir2/object/Z/2', '2014-05-07T19:47:52.592270', 'HASH', 62))
+            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1,
+              '2014-05-07T19:47:51.000Z'),
+             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11,
+              '2014-05-07T19:47:52.000Z'),
+             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21,
+              '2014-05-07T19:47:53.000Z'),
+             ('object/Y', '2014-05-07T19:47:50.592270', 'HASH', 2,
+              '2014-05-07T19:47:51.000Z'),
+             ('object/Y/1', '2014-05-07T19:47:51.592270', 'HASH', 21,
+              '2014-05-07T19:47:52.000Z'),
+             ('object/Y/2', '2014-05-07T19:47:52.592270', 'HASH', 22,
+              '2014-05-07T19:47:53.000Z'),
+             ('object/Z', '2014-05-07T19:47:50.592270', 'HASH', 3,
+              '2014-05-07T19:47:51.000Z'),
+             ('object/Z/1', '2014-05-07T19:47:51.592270', 'HASH', 31,
+              '2014-05-07T19:47:52.000Z'),
+             ('object/Z/2', '2014-05-07T19:47:52.592270', 'HASH', 32,
+              '2014-05-07T19:47:53.000Z'),
+             ('subdir/object/X', '2014-05-07T19:47:50.592270', 'HASH', 4,
+              '2014-05-07T19:47:51.000Z'),
+             ('subdir/object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 41,
+              '2014-05-07T19:47:52.000Z'),
+             ('subdir/object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 42,
+              '2014-05-07T19:47:53.000Z'),
+             ('subdir/object/Y', '2014-05-07T19:47:50.592270', 'HASH', 5,
+              '2014-05-07T19:47:51.000Z'),
+             ('subdir/object/Y/1', '2014-05-07T19:47:51.592270', 'HASH', 51,
+              '2014-05-07T19:47:52.000Z'),
+             ('subdir/object/Y/2', '2014-05-07T19:47:52.592270', 'HASH', 52,
+              '2014-05-07T19:47:53.000Z'),
+             ('subdir2/object/Z', '2014-05-07T19:47:50.592270', 'HASH', 6,
+              '2014-05-07T19:47:51.000Z'),
+             ('subdir2/object/Z/1', '2014-05-07T19:47:51.592270', 'HASH', 61,
+              '2014-05-07T19:47:52.000Z'),
+             ('subdir2/object/Z/2', '2014-05-07T19:47:52.592270', 'HASH', 62,
+              '2014-05-07T19:47:53.000Z'))
 
         status, headers, body = \
             self._test_bucket_multipart_uploads_GET(query, multiparts)
         elem = fromstring(body, 'ListMultipartUploadsResult')
         self.assertEqual(len(elem.findall('Upload')), 3)
         self.assertEqual(len(elem.findall('CommonPrefixes')), 2)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in multiparts
+        objects = [(o[0], o[4]) for o in multiparts
                    if o[0].startswith('o')]
         prefixes = set([o[0].split('/')[0] + '/' for o in multiparts
                        if o[0].startswith('s')])
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
             initiated = u.find('Initiated').text
-            self.assertTrue((name, initiated) in objects)
+            self.assertIn((name, initiated), objects)
         for p in elem.findall('CommonPrefixes'):
             prefix = p.find('Prefix').text
             self.assertTrue(prefix in prefixes)
@@ -557,31 +599,43 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_bucket_multipart_uploads_GET_with_multi_chars_delimiter(self):
         query = 'delimiter=subdir'
         multiparts = \
-            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1),
-             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11),
-             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21),
+            (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1,
+              '2014-05-07T19:47:51.000Z'),
+             ('object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 11,
+              '2014-05-07T19:47:52.000Z'),
+             ('object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 21,
+              '2014-05-07T19:47:53.000Z'),
              ('dir/subdir/object/X', '2014-05-07T19:47:50.592270',
-              'HASH', 3),
+              'HASH', 3, '2014-05-07T19:47:51.000Z'),
              ('dir/subdir/object/X/1', '2014-05-07T19:47:51.592270',
-              'HASH', 31),
+              'HASH', 31, '2014-05-07T19:47:52.000Z'),
              ('dir/subdir/object/X/2', '2014-05-07T19:47:52.592270',
-              'HASH', 32),
-             ('subdir/object/X', '2014-05-07T19:47:50.592270', 'HASH', 4),
-             ('subdir/object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 41),
-             ('subdir/object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 42),
-             ('subdir/object/Y', '2014-05-07T19:47:50.592270', 'HASH', 5),
-             ('subdir/object/Y/1', '2014-05-07T19:47:51.592270', 'HASH', 51),
-             ('subdir/object/Y/2', '2014-05-07T19:47:52.592270', 'HASH', 52),
-             ('subdir2/object/Z', '2014-05-07T19:47:50.592270', 'HASH', 6),
-             ('subdir2/object/Z/1', '2014-05-07T19:47:51.592270', 'HASH', 61),
-             ('subdir2/object/Z/2', '2014-05-07T19:47:52.592270', 'HASH', 62))
+              'HASH', 32, '2014-05-07T19:47:53.000Z'),
+             ('subdir/object/X', '2014-05-07T19:47:50.592270', 'HASH', 4,
+              '2014-05-07T19:47:51.000Z'),
+             ('subdir/object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 41,
+              '2014-05-07T19:47:52.000Z'),
+             ('subdir/object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 42,
+              '2014-05-07T19:47:53.000Z'),
+             ('subdir/object/Y', '2014-05-07T19:47:50.592270', 'HASH', 5,
+              '2014-05-07T19:47:51.000Z'),
+             ('subdir/object/Y/1', '2014-05-07T19:47:51.592270', 'HASH', 51,
+              '2014-05-07T19:47:52.000Z'),
+             ('subdir/object/Y/2', '2014-05-07T19:47:52.592270', 'HASH', 52,
+              '2014-05-07T19:47:53.000Z'),
+             ('subdir2/object/Z', '2014-05-07T19:47:50.592270', 'HASH', 6,
+              '2014-05-07T19:47:51.000Z'),
+             ('subdir2/object/Z/1', '2014-05-07T19:47:51.592270', 'HASH', 61,
+              '2014-05-07T19:47:52.000Z'),
+             ('subdir2/object/Z/2', '2014-05-07T19:47:52.592270', 'HASH', 62,
+              '2014-05-07T19:47:53.000Z'))
 
         status, headers, body = \
             self._test_bucket_multipart_uploads_GET(query, multiparts)
         elem = fromstring(body, 'ListMultipartUploadsResult')
         self.assertEqual(len(elem.findall('Upload')), 1)
         self.assertEqual(len(elem.findall('CommonPrefixes')), 2)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in multiparts
+        objects = [(o[0], o[4]) for o in multiparts
                    if o[0].startswith('object')]
         prefixes = ('dir/subdir', 'subdir')
         for u in elem.findall('Upload'):
@@ -607,27 +661,30 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         query = 'prefix=dir/&delimiter=/'
         multiparts = \
             (('dir/subdir/object/X', '2014-05-07T19:47:50.592270',
-              'HASH', 4),
+              'HASH', 4, '2014-05-07T19:47:51.000Z'),
              ('dir/subdir/object/X/1', '2014-05-07T19:47:51.592270',
-              'HASH', 41),
+              'HASH', 41, '2014-05-07T19:47:52.000Z'),
              ('dir/subdir/object/X/2', '2014-05-07T19:47:52.592270',
-              'HASH', 42),
-             ('dir/object/X', '2014-05-07T19:47:50.592270', 'HASH', 5),
-             ('dir/object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 51),
-             ('dir/object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 52))
+              'HASH', 42, '2014-05-07T19:47:53.000Z'),
+             ('dir/object/X', '2014-05-07T19:47:50.592270', 'HASH', 5,
+              '2014-05-07T19:47:51.000Z'),
+             ('dir/object/X/1', '2014-05-07T19:47:51.592270', 'HASH', 51,
+              '2014-05-07T19:47:52.000Z'),
+             ('dir/object/X/2', '2014-05-07T19:47:52.592270', 'HASH', 52,
+              '2014-05-07T19:47:53.000Z'))
 
         status, headers, body = \
             self._test_bucket_multipart_uploads_GET(query, multiparts)
         elem = fromstring(body, 'ListMultipartUploadsResult')
         self.assertEqual(len(elem.findall('Upload')), 1)
         self.assertEqual(len(elem.findall('CommonPrefixes')), 1)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in multiparts
+        objects = [(o[0], o[4]) for o in multiparts
                    if o[0].startswith('dir/o')]
         prefixes = ['dir/subdir/']
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
             initiated = u.find('Initiated').text
-            self.assertTrue((name, initiated) in objects)
+            self.assertIn((name, initiated), objects)
         for p in elem.findall('CommonPrefixes'):
             prefix = p.find('Prefix').text
             self.assertTrue(prefix in prefixes)
@@ -1838,6 +1895,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
              'hash': hex(i),
              'bytes': 100 * i}
             for i in range(1, 2000)]
+        ceil_last_modified = ['2014-05-07T19:%02d:%02d.000Z'
+                              % (47 if (i + 1) % 60 else 48, (i + 1) % 60)
+                              for i in range(1, 2000)]
         swift_sorted = sorted(swift_parts, key=lambda part: part['name'])
         self.swift.register('GET',
                             "%s?delimiter=/&format=json&marker=&"
@@ -1872,7 +1932,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             s3_parts.append(partnum)
             self.assertEqual(
                 p.find('LastModified').text,
-                swift_parts[partnum - 1]['last_modified'][:-3] + 'Z')
+                ceil_last_modified[partnum - 1])
             self.assertEqual(p.find('ETag').text.strip(),
                              '"%s"' % swift_parts[partnum - 1]['hash'])
             self.assertEqual(p.find('Size').text,
@@ -1970,7 +2030,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         for p in elem.findall('Part'):
             partnum = int(p.find('PartNumber').text)
             self.assertEqual(p.find('LastModified').text,
-                             OBJECTS_TEMPLATE[partnum - 1][1][:-3] + 'Z')
+                             OBJECTS_TEMPLATE[partnum - 1][4])
             self.assertEqual(p.find('ETag').text,
                              '"%s"' % OBJECTS_TEMPLATE[partnum - 1][2])
             self.assertEqual(p.find('Size').text,

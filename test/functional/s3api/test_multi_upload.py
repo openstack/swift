@@ -29,7 +29,8 @@ from six.moves import urllib, zip, zip_longest
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
-from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, mktime
+from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, mktime, \
+    S3Timestamp
 from swift.common.utils import md5
 
 from test.functional.s3api import S3ApiBase
@@ -213,7 +214,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(headers['content-type'], 'text/html; charset=UTF-8')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '0')
-        expected_parts_list = [(headers['etag'], mktime(headers['date']))]
+        expected_parts_list = [(headers['etag'],
+                                mktime(headers['last-modified']))]
 
         # Upload Part Copy
         key, upload_id = uploads[1]
@@ -242,8 +244,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue('etag' not in headers)
         elem = fromstring(body, 'CopyPartResult')
 
-        last_modified = elem.find('LastModified').text
-        self.assertTrue(last_modified is not None)
+        copy_resp_last_modified = elem.find('LastModified').text
+        self.assertIsNotNone(copy_resp_last_modified)
 
         self.assertEqual(resp_etag, etag)
 
@@ -256,15 +258,10 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(200, status)
         elem = fromstring(body, 'ListPartsResult')
 
-        # FIXME: COPY result drops milli/microseconds but GET doesn't
-        last_modified_gets = [p.find('LastModified').text
-                              for p in elem.iterfind('Part')]
-        self.assertEqual(
-            last_modified_gets[0].rsplit('.', 1)[0],
-            last_modified.rsplit('.', 1)[0],
-            '%r != %r' % (last_modified_gets[0], last_modified))
-        # There should be *exactly* two parts in the result
-        self.assertEqual(1, len(last_modified_gets))
+        listing_last_modified = [p.find('LastModified').text
+                                 for p in elem.iterfind('Part')]
+        # There should be *exactly* one parts in the result
+        self.assertEqual(listing_last_modified, [copy_resp_last_modified])
 
         # List Parts
         key, upload_id = uploads[0]
@@ -299,15 +296,10 @@ class TestS3ApiMultiUpload(S3ApiBase):
         for (expected_etag, expected_date), p in \
                 zip(expected_parts_list, elem.findall('Part')):
             last_modified = p.find('LastModified').text
-            self.assertTrue(last_modified is not None)
-            # TODO: sanity check
-            #       (kota_) How do we check the sanity?
-            #       the last-modified header drops milli-seconds info
-            #       by the constraint of the format.
-            #       For now, we can do either the format check or round check
-            # last_modified_from_xml = mktime(last_modified)
-            # self.assertEqual(expected_date,
-            #                   last_modified_from_xml)
+            self.assertIsNotNone(last_modified)
+            last_modified_from_xml = S3Timestamp.from_s3xmlformat(
+                last_modified)
+            self.assertEqual(expected_date, float(last_modified_from_xml))
             self.assertEqual(expected_etag, p.find('ETag').text)
             self.assertEqual(self.min_segment_size, int(p.find('Size').text))
             etags.append(p.find('ETag').text)
@@ -496,7 +488,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertIsNotNone(o.find('LastModified').text)
         self.assertRegex(
             o.find('LastModified').text,
-            r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+            r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.000Z$')
         self.assertEqual(o.find('ETag').text, exp_etag)
         self.assertEqual(o.find('Size').text, str(exp_size))
         self.assertIsNotNone(o.find('StorageClass').text)
@@ -932,8 +924,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue('etag' not in headers)
         elem = fromstring(body, 'CopyPartResult')
 
-        last_modified = elem.find('LastModified').text
-        self.assertTrue(last_modified is not None)
+        copy_resp_last_modified = elem.find('LastModified').text
+        self.assertIsNotNone(copy_resp_last_modified)
 
         self.assertEqual(resp_etag, etag)
 
@@ -945,16 +937,10 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         elem = fromstring(body, 'ListPartsResult')
 
-        # FIXME: COPY result drops milli/microseconds but GET doesn't
-        last_modified_gets = [p.find('LastModified').text
-                              for p in elem.iterfind('Part')]
-        self.assertEqual(
-            last_modified_gets[0].rsplit('.', 1)[0],
-            last_modified.rsplit('.', 1)[0],
-            '%r != %r' % (last_modified_gets[0], last_modified))
-
+        listing_last_modified = [p.find('LastModified').text
+                                 for p in elem.iterfind('Part')]
         # There should be *exactly* one parts in the result
-        self.assertEqual(1, len(last_modified_gets))
+        self.assertEqual(listing_last_modified, [copy_resp_last_modified])
 
         # Abort Multipart Upload
         key, upload_id = uploads[0]
@@ -1044,8 +1030,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue('etag' not in headers)
         elem = fromstring(body, 'CopyPartResult')
 
-        last_modifieds = [elem.find('LastModified').text]
-        self.assertTrue(last_modifieds[0] is not None)
+        copy_resp_last_modifieds = [elem.find('LastModified').text]
+        self.assertTrue(copy_resp_last_modifieds[0] is not None)
 
         self.assertEqual(resp_etag, etags[0])
 
@@ -1062,8 +1048,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue('etag' not in headers)
         elem = fromstring(body, 'CopyPartResult')
 
-        last_modifieds.append(elem.find('LastModified').text)
-        self.assertTrue(last_modifieds[1] is not None)
+        copy_resp_last_modifieds.append(elem.find('LastModified').text)
+        self.assertTrue(copy_resp_last_modifieds[1] is not None)
 
         self.assertEqual(resp_etag, etags[1])
 
@@ -1075,15 +1061,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         elem = fromstring(body, 'ListPartsResult')
 
-        # FIXME: COPY result drops milli/microseconds but GET doesn't
-        last_modified_gets = [p.find('LastModified').text
-                              for p in elem.iterfind('Part')]
-        self.assertEqual(
-            [lm.rsplit('.', 1)[0] for lm in last_modified_gets],
-            [lm.rsplit('.', 1)[0] for lm in last_modifieds])
-
-        # There should be *exactly* two parts in the result
-        self.assertEqual(2, len(last_modified_gets))
+        listing_last_modified = [p.find('LastModified').text
+                                 for p in elem.iterfind('Part')]
+        self.assertEqual(listing_last_modified, copy_resp_last_modifieds)
 
         # Abort Multipart Upload
         key, upload_id = uploads[0]
