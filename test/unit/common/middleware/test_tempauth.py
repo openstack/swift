@@ -627,6 +627,15 @@ class TestAuth(unittest.TestCase):
                                auth.DEFAULT_TOKEN_LIFE - 0.5, delta=0.5)
         self.assertGreater(len(resp.headers['x-auth-token']), 10)
 
+    def test_get_token_memcache_error(self):
+        test_auth = auth.filter_factory({'user_ac_user': 'testing'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        req.environ['swift.cache'] = FakeMemcache(error_on_set=[True])
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 503)
+
     def test_get_token_success_other_auth_prefix(self):
         test_auth = auth.filter_factory({'user_ac_user': 'testing',
                                          'auth_prefix': '/other/'})(FakeApp())
