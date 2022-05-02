@@ -138,7 +138,7 @@ class DaemonStrategy(object):
 
         def kill_children(*args):
             self.running = False
-            self.logger.info('SIGTERM received')
+            self.logger.notice('SIGTERM received (%s)', os.getpid())
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             os.killpg(0, signal.SIGTERM)
             os._exit(0)
