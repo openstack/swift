@@ -32,6 +32,7 @@ from test.debug_logger import debug_logger
 
 
 class MyDaemon(daemon.Daemon):
+    WORKERS_HEALTHCHECK_INTERVAL = 0
 
     def __init__(self, conf):
         self.conf = conf
