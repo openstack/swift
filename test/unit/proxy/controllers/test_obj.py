@@ -1627,6 +1627,31 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         policy_opts.rebalance_missing_suppression_count = 2
         do_test([Timeout(), 404, 404], 503)
 
+        # overloaded primary after double rebalance
+        # ... opts should increase rebalance_missing_suppression_count
+        policy_opts.rebalance_missing_suppression_count = 2
+        do_test([Timeout(), 404, 404], 503)
+
+        # two primaries out, but no rebalance
+        # ... default is fine for tombstones
+        policy_opts.rebalance_missing_suppression_count = 1
+        do_test([Timeout(), Exception('kaboom!'), 404], 404,
+                include_timestamp=True)
+        # ... but maybe not ideal for missing names
+        # (N.B. 503 isn't really a BAD response here)
+        do_test([Timeout(), Exception('kaboom!'), 404], 503)
+        # still ... ops might think they should tune it down
+        policy_opts.rebalance_missing_suppression_count = 0
+        do_test([Timeout(), Exception('kaboom!'), 404], 404)
+        # and we could maybe leave it like this for the next rebalance
+        do_test([Timeout(), 404, 404], 404)
+        # ... but it gets bad when faced with timeouts, b/c we can't trust a
+        # single primary 404 response during rebalance
+        do_test([Timeout(), Timeout(), 404], 404)
+        # ops needs to fix configs to get the 503
+        policy_opts.rebalance_missing_suppression_count = 1
+        do_test([Timeout(), Timeout(), 404], 503)
+
     def test_GET_primaries_mixed_explode_and_timeout(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         primaries = []
