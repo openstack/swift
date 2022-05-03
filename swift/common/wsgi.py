@@ -866,8 +866,11 @@ class ServersPerPortStrategy(StrategyBase):
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.ring_check_interval = float(conf.get('ring_check_interval', 15))
 
-        bind_ip = conf.get('bind_ip', '0.0.0.0')
-        self.cache = BindPortsCache(self.swift_dir, bind_ip)
+        # typically ring_ip will be the same as bind_ip, but in a container the
+        # bind_ip might be differnt than the host ip address used to lookup
+        # devices/ports in the ring
+        ring_ip = conf.get('ring_ip', conf.get('bind_ip', '0.0.0.0'))
+        self.cache = BindPortsCache(self.swift_dir, ring_ip)
 
     def _reload_bind_ports(self):
         self.bind_ports = self.cache.all_bind_ports_for_node()

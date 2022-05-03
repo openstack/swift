@@ -1604,6 +1604,35 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
         # This is one of the workers for port 6006 that already got reaped.
         self.assertIsNone(self.strategy.register_worker_exit(89))
 
+    def test_servers_per_port_in_container(self):
+        # normally there's no configured ring_ip
+        conf = {
+            'bind_ip': '1.2.3.4',
+        }
+        self.strategy = wsgi.ServersPerPortStrategy(conf, self.logger, 1)
+        self.assertEqual(self.mock_cache_class.call_args,
+                         mock.call('/etc/swift', '1.2.3.4'))
+        self.assertEqual({6006, 6007},
+                         self.strategy.cache.all_bind_ports_for_node())
+        ports = {item[1][0] for item in self.strategy.new_worker_socks()}
+        self.assertEqual({6006, 6007}, ports)
+
+        # but in a container we can override it
+        conf = {
+            'bind_ip': '1.2.3.4',
+            'ring_ip': '2.3.4.5'
+        }
+        self.strategy = wsgi.ServersPerPortStrategy(conf, self.logger, 1)
+        # N.B. our fake BindPortsCache always returns {6006, 6007}, but a real
+        # BindPortsCache would only return ports for devices that match the ip
+        # address in the ring
+        self.assertEqual(self.mock_cache_class.call_args,
+                         mock.call('/etc/swift', '2.3.4.5'))
+        self.assertEqual({6006, 6007},
+                         self.strategy.cache.all_bind_ports_for_node())
+        ports = {item[1][0] for item in self.strategy.new_worker_socks()}
+        self.assertEqual({6006, 6007}, ports)
+
     def test_shutdown_sockets(self):
         pid = 88
         for s, i in self.strategy.new_worker_socks():

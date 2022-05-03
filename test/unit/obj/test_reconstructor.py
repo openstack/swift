@@ -271,7 +271,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         policy=policy, frag_index=scenarios[part_num](obj_set),
                         timestamp=utils.Timestamp(t))
 
-        ips = utils.whataremyips(self.reconstructor.bind_ip)
+        ips = utils.whataremyips(self.reconstructor.ring_ip)
         for policy in [p for p in POLICIES if p.policy_type == EC_POLICY]:
             self.ec_policy = policy
             self.ec_obj_ring = self.reconstructor.load_object_ring(
@@ -1286,7 +1286,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # verify reconstructor only deletes reverted nondurable fragments older
         # commit_window
         shutil.rmtree(self.ec_obj_path)
-        ips = utils.whataremyips(self.reconstructor.bind_ip)
+        ips = utils.whataremyips(self.reconstructor.ring_ip)
         local_devs = [dev for dev in self.ec_obj_ring.devs
                       if dev and dev['replication_ip'] in ips and
                       dev['replication_port'] ==
@@ -1348,7 +1348,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # visited by the reconstructor, despite having timestamp older than
         # reclaim_age
         shutil.rmtree(self.ec_obj_path)
-        ips = utils.whataremyips(self.reconstructor.bind_ip)
+        ips = utils.whataremyips(self.reconstructor.ring_ip)
         local_devs = [dev for dev in self.ec_obj_ring.devs
                       if dev and dev['replication_ip'] in ips and
                       dev['replication_port'] ==
@@ -1396,7 +1396,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # reclaim_age and commit_window is zero; this test illustrates the
         # potential data loss bug that commit_window addresses
         shutil.rmtree(self.ec_obj_path)
-        ips = utils.whataremyips(self.reconstructor.bind_ip)
+        ips = utils.whataremyips(self.reconstructor.ring_ip)
         local_devs = [dev for dev in self.ec_obj_ring.devs
                       if dev and dev['replication_ip'] in ips and
                       dev['replication_port'] ==
@@ -1446,7 +1446,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # survive being visited by the reconstructor if its timestamp is older
         # than reclaim_age
         shutil.rmtree(self.ec_obj_path)
-        ips = utils.whataremyips(self.reconstructor.bind_ip)
+        ips = utils.whataremyips(self.reconstructor.ring_ip)
         local_devs = [dev for dev in self.ec_obj_ring.devs
                       if dev and dev['replication_ip'] in ips and
                       dev['replication_port'] ==
@@ -1494,7 +1494,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # verify reconstructor only deletes objects that were actually reverted
         # when ssync is limited by max_objects_per_revert
         shutil.rmtree(self.ec_obj_path)
-        ips = utils.whataremyips(self.reconstructor.bind_ip)
+        ips = utils.whataremyips(self.reconstructor.ring_ip)
         local_devs = [dev for dev in self.ec_obj_ring.devs
                       if dev and dev['replication_ip'] in ips and
                       dev['replication_port'] ==
@@ -3084,6 +3084,36 @@ class BaseTestObjectReconstructor(unittest.TestCase):
 
 
 class TestObjectReconstructor(BaseTestObjectReconstructor):
+    def test_ring_ip_and_bind_ip(self):
+        # make clean base_conf
+        base_conf = dict(self.conf)
+        for key in ('bind_ip', 'ring_ip'):
+            base_conf.pop(key, None)
+
+        # default ring_ip is always 0.0.0.0
+        self.conf = base_conf
+        self._configure_reconstructor()
+        self.assertEqual('0.0.0.0', self.reconstructor.ring_ip)
+
+        # bind_ip works fine for legacy configs
+        self.conf = dict(base_conf)
+        self.conf['bind_ip'] = '192.168.1.42'
+        self._configure_reconstructor()
+        self.assertEqual('192.168.1.42', self.reconstructor.ring_ip)
+
+        # ring_ip works fine by-itself
+        self.conf = dict(base_conf)
+        self.conf['ring_ip'] = '192.168.1.43'
+        self._configure_reconstructor()
+        self.assertEqual('192.168.1.43', self.reconstructor.ring_ip)
+
+        # if you have both ring_ip wins
+        self.conf = dict(base_conf)
+        self.conf['bind_ip'] = '192.168.1.44'
+        self.conf['ring_ip'] = '192.168.1.45'
+        self._configure_reconstructor()
+        self.assertEqual('192.168.1.45', self.reconstructor.ring_ip)
+
     def test_handoffs_only_default(self):
         # sanity neither option added to default conf
         self.conf.pop('handoffs_first', None)
@@ -3276,7 +3306,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'replication_ip': '127.0.0.88',  # not local via IP
             'replication_port': self.port,
         })
-        self.reconstructor.bind_ip = '0.0.0.0'  # use whataremyips
+        self.reconstructor.ring_ip = '0.0.0.0'  # use whataremyips
         with mock.patch('swift.obj.reconstructor.whataremyips',
                         return_value=[self.ip]), \
                 mock.patch.object(self.policy.object_ring, '_devs',
@@ -3331,7 +3361,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'replication_ip': '127.0.0.88',  # not local via IP
             'replication_port': self.port,
         })
-        self.reconstructor.bind_ip = '0.0.0.0'  # use whataremyips
+        self.reconstructor.ring_ip = '0.0.0.0'  # use whataremyips
         with mock.patch('swift.obj.reconstructor.whataremyips',
                         return_value=[self.ip]), \
                 mock.patch.object(self.policy.object_ring, '_devs',
@@ -3372,7 +3402,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'replication_ip': self.ip,
             'replication_port': self.port,
         } for i, dev in enumerate(local_devs)]
-        self.reconstructor.bind_ip = '0.0.0.0'  # use whataremyips
+        self.reconstructor.ring_ip = '0.0.0.0'  # use whataremyips
         with mock.patch('swift.obj.reconstructor.whataremyips',
                         return_value=[self.ip]), \
                 mock.patch.object(self.policy.object_ring, '_devs',

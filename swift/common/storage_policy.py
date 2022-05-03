@@ -37,11 +37,11 @@ DEFAULT_EC_OBJECT_SEGMENT_SIZE = 1048576
 
 
 class BindPortsCache(object):
-    def __init__(self, swift_dir, bind_ip):
+    def __init__(self, swift_dir, ring_ip):
         self.swift_dir = swift_dir
         self.mtimes_by_ring_path = {}
         self.portsets_by_ring_path = {}
-        self.my_ips = set(whataremyips(bind_ip))
+        self.my_ips = set(whataremyips(ring_ip))
 
     def all_bind_ports_for_node(self):
         """

@@ -22,6 +22,12 @@ bind_port = 6200
 # feature.
 # servers_per_port = 0
 #
+# If running in a container, servers_per_port may not be able to use the
+# bind_ip to lookup the ports in the ring.  You may instead override the port
+# lookup in the ring using the ring_ip.  Any devices/ports associted with the
+# ring_ip will be used when listening on the configured bind_ip address.
+# ring_ip = <bind_ip>
+#
 # Maximum concurrent requests per worker
 # max_clients = 1024
 #
