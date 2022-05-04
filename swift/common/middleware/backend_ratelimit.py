@@ -14,7 +14,6 @@
 # limitations under the License.
 import os
 import time
-from collections import defaultdict
 
 from swift.common.request_helpers import split_and_validate_path
 from swift.common.swob import Request, HTTPTooManyBackendRequests, \
@@ -35,31 +34,26 @@ class BackendRateLimitMiddleware(object):
     """
     Backend rate-limiting middleware.
 
-    Rate-limits requests to backend storage node devices. Each device is
-    independently rate-limited. All requests with a 'GET', 'HEAD', 'PUT',
-    'POST', 'DELETE', 'UPDATE' or 'REPLICATE' method are included in a device's
-    rate limit.
+    Rate-limits requests to backend storage node devices. Each (device, request
+    method) combination is independently rate-limited. All requests with a
+    'GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'UPDATE' or 'REPLICATE' method are
+    rate limited on a per-device basis by both a method-specific rate and an
+    overall device rate limit.
 
-    If a request would cause the rate-limit to be exceeded then a response with
-    a 529 status code is returned.
+    If a request would cause the rate-limit to be exceeded for the method
+    and/or device then a response with a 529 status code is returned.
     """
     def __init__(self, app, filter_conf, logger=None):
         self.app = app
         self.filter_conf = filter_conf
-        self.current_conf = {}
         self.logger = logger or get_logger(self.filter_conf,
                                            log_route='backend_ratelimit')
-        self.requests_per_device_per_second = \
-            DEFAULT_REQUESTS_PER_DEVICE_PER_SECOND
         self.requests_per_device_rate_buffer = \
             DEFAULT_REQUESTS_PER_DEVICE_RATE_BUFFER
-        # map device -> RateLimiter
-        self.rate_limiters = defaultdict(
-            lambda: EventletRateLimiter(
-                max_rate=self.requests_per_device_per_second,
-                rate_buffer=self.requests_per_device_rate_buffer,
-                running_time=time.time(),
-                burst_after_idle=True))
+        # map (device, method) -> rate
+        self.requests_per_device_per_second = {}
+        # map (device, method) -> RateLimiter, populated on-demand
+        self.rate_limiters = {}
 
         # some config options are *only* read from filter conf at startup...
         default_conf_path = os.path.join(
@@ -82,24 +76,35 @@ class BackendRateLimitMiddleware(object):
         self._load_config_file()
 
     def _refresh_ratelimiters(self):
-        for dev, rl in self.rate_limiters.items():
-            rl.set_max_rate(self.requests_per_device_per_second)
+        # note: if we ever wanted to prune the ratelimiters (in case devices
+        # have been removed) we could inspect each ratelimiter's running_time
+        # and remove those with very old running_time
+        for (dev, method), rl in self.rate_limiters.items():
+            rl.set_max_rate(self.requests_per_device_per_second[method])
             rl.set_rate_buffer(self.requests_per_device_rate_buffer)
 
     def _apply_config(self, conf):
-        self.current_conf = conf
         modified = False
-        new_value = non_negative_float(
-            conf.get('requests_per_device_per_second',
-                     DEFAULT_REQUESTS_PER_DEVICE_PER_SECOND))
-        if new_value != self.requests_per_device_per_second:
-            self.requests_per_device_per_second = new_value
-            modified = True
-        new_value = non_negative_float(
+        reqs_per_device_rate_buffer = non_negative_float(
             conf.get('requests_per_device_rate_buffer',
                      DEFAULT_REQUESTS_PER_DEVICE_RATE_BUFFER))
-        if new_value != self.requests_per_device_rate_buffer:
-            self.requests_per_device_rate_buffer = new_value
+
+        # note: 'None' key holds the aggregate per-device limit for all methods
+        reqs_per_device_per_second = {None: non_negative_float(
+            conf.get('requests_per_device_per_second', 0.0))}
+        for method in RATE_LIMITED_METHODS:
+            val = non_negative_float(
+                conf.get('%s_requests_per_device_per_second'
+                         % method.lower(), 0.0))
+            reqs_per_device_per_second[method] = val
+
+        if reqs_per_device_rate_buffer != self.requests_per_device_rate_buffer:
+            self.requests_per_device_rate_buffer = reqs_per_device_rate_buffer
+            modified = True
+        if reqs_per_device_per_second != self.requests_per_device_per_second:
+            self.requests_per_device_per_second = reqs_per_device_per_second
+            self.is_any_rate_limit_configured = any(
+                self.requests_per_device_per_second.values())
             modified = True
         if modified:
             self._refresh_ratelimiters()
@@ -112,7 +117,7 @@ class BackendRateLimitMiddleware(object):
         # filter conf value or default value. If the conf file cannot be read
         # or is invalid, then the current config is left unchanged.
         try:
-            new_conf = dict(self.filter_conf)  # filter_conf not current_conf
+            new_conf = dict(self.filter_conf)  # filter_conf not current conf
             new_conf.update(
                 readconf(self.conf_path, BACKEND_RATELIMIT_CONFIG_SECTION))
             modified = self._apply_config(new_conf)
@@ -150,6 +155,46 @@ class BackendRateLimitMiddleware(object):
                     # always reset last loaded time to avoid re-try storm
                     self._last_config_reload_attempt = now
 
+    def _get_ratelimiter(self, device, method=None):
+        """
+        Get a rate limiter for the (device, method) combination. If a rate
+        limiter does not yet exist for the given (device, method) combination
+        then it is created and added to the map of rate limiters.
+
+        :param: the device.
+        :method: the request method; if None then the aggregate rate limiter
+            for all requests to the device is returned.
+        :returns: an instance of ``EventletRateLimiter``.
+        """
+        try:
+            rl = self.rate_limiters[(device, method)]
+        except KeyError:
+            rl = EventletRateLimiter(
+                max_rate=self.requests_per_device_per_second[method],
+                rate_buffer=self.requests_per_device_rate_buffer,
+                running_time=time.time(),
+                burst_after_idle=True)
+            self.rate_limiters[(device, method)] = rl
+        return rl
+
+    def _is_allowed(self, device, method):
+        """
+        Evaluate backend rate-limiting policies for the incoming request.
+
+        A request is allowed when neither the per-(device, method) rate-limit
+        nor the per-device rate-limit has been reached.
+
+        Note: a request will be disallowed if the aggregate per-device
+        rate-limit has been reached, even if the per-(device, method)
+        rate-limit has not been reached for the request's method.
+
+        :param: the device.
+        :method: the request method.
+        :returns: boolean, is_allowed.
+        """
+        return (self._get_ratelimiter(device, None).is_allowed()
+                and self._get_ratelimiter(device, method).is_allowed())
+
     def __call__(self, env, start_response):
         """
         WSGI entry point.
@@ -160,7 +205,7 @@ class BackendRateLimitMiddleware(object):
         self._maybe_reload_config()
         req = Request(env)
         handler = self.app
-        if (self.requests_per_device_per_second
+        if (self.is_any_rate_limit_configured
                 and req.method in RATE_LIMITED_METHODS):
             try:
                 device, partition, _ = split_and_validate_path(req, 1, 3, True)
@@ -169,8 +214,7 @@ class BackendRateLimitMiddleware(object):
                 # request may not have device/partition e.g. a healthcheck req
                 pass
             else:
-                rate_limiter = self.rate_limiters[device]
-                if not rate_limiter.is_allowed():
+                if not self._is_allowed(device, req.method):
                     self.logger.increment('backend.ratelimit')
                     handler = HTTPTooManyBackendRequests()
         return handler(env, start_response)
