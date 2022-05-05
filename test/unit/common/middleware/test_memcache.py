@@ -37,7 +37,7 @@ class FakeApp(object):
 class ExcConfigParser(object):
 
     def read(self, path):
-        raise Exception('read called with %r' % path)
+        raise RuntimeError('read called with %r' % path)
 
 
 class EmptyConfigParser(object):
@@ -47,12 +47,10 @@ class EmptyConfigParser(object):
 
 
 def get_config_parser(memcache_servers='1.2.3.4:5',
-                      memcache_serialization_support='1',
                       memcache_max_connections='4',
                       section='memcache',
                       item_size_warning_threshold='75'):
     _srvs = memcache_servers
-    _sers = memcache_serialization_support
     _maxc = memcache_max_connections
     _section = section
     _warn_threshold = item_size_warning_threshold
@@ -64,8 +62,6 @@ def get_config_parser(memcache_servers='1.2.3.4:5',
                 raise NoSectionError(section_name)
             return {
                 'memcache_servers': memcache_servers,
-                'memcache_serialization_support':
-                memcache_serialization_support,
                 'memcache_max_connections': memcache_max_connections
             }
 
@@ -78,10 +74,6 @@ def get_config_parser(memcache_servers='1.2.3.4:5',
                     if _srvs == 'error':
                         raise NoOptionError(option, section)
                     return _srvs
-                elif option == 'memcache_serialization_support':
-                    if _sers == 'error':
-                        raise NoOptionError(option, section)
-                    return _sers
                 elif option in ('memcache_max_connections',
                                 'max_connections'):
                     if _maxc == 'error':
@@ -118,23 +110,14 @@ class TestCacheMiddleware(unittest.TestCase):
         with mock.patch.object(memcache, 'ConfigParser', ExcConfigParser):
             for d in ({},
                       {'memcache_servers': '6.7.8.9:10'},
-                      {'memcache_serialization_support': '0'},
                       {'memcache_max_connections': '30'},
                       {'item_size_warning_threshold': 75},
                       {'memcache_servers': '6.7.8.9:10',
-                       'memcache_serialization_support': '0'},
-                      {'memcache_servers': '6.7.8.9:10',
-                       'memcache_max_connections': '30'},
-                      {'memcache_serialization_support': '0',
-                       'memcache_max_connections': '30'},
-                      {'memcache_servers': '6.7.8.9:10',
-                       'item_size_warning_threshold': '75'},
-                      {'memcache_serialization_support': '0',
                        'item_size_warning_threshold': '75'},
                       {'item_size_warning_threshold': '75',
                        'memcache_max_connections': '30'},
                       ):
-                with self.assertRaises(Exception) as catcher:
+                with self.assertRaises(RuntimeError) as catcher:
                     memcache.MemcacheMiddleware(FakeApp(), d)
                 self.assertEqual(
                     str(catcher.exception),
@@ -142,23 +125,15 @@ class TestCacheMiddleware(unittest.TestCase):
 
     def test_conf_set_no_read(self):
         with mock.patch.object(memcache, 'ConfigParser', ExcConfigParser):
-            exc = None
-            try:
-                memcache.MemcacheMiddleware(
-                    FakeApp(), {'memcache_servers': '1.2.3.4:5',
-                                'memcache_serialization_support': '2',
-                                'memcache_max_connections': '30',
-                                'item_size_warning_threshold': '80'})
-            except Exception as err:
-                exc = err
-        self.assertIsNone(exc)
+            memcache.MemcacheMiddleware(
+                FakeApp(), {'memcache_servers': '1.2.3.4:5',
+                            'memcache_max_connections': '30',
+                            'item_size_warning_threshold': '80'})
 
     def test_conf_default(self):
         with mock.patch.object(memcache, 'ConfigParser', EmptyConfigParser):
             app = memcache.MemcacheMiddleware(FakeApp(), {})
         self.assertEqual(app.memcache_servers, '127.0.0.1:11211')
-        self.assertEqual(app.memcache._allow_pickle, False)
-        self.assertEqual(app.memcache._allow_unpickle, False)
         self.assertEqual(
             app.memcache._client_cache['127.0.0.1:11211'].max_size, 2)
         self.assertEqual(app.memcache.item_size_warning_threshold, -1)
@@ -168,12 +143,9 @@ class TestCacheMiddleware(unittest.TestCase):
             app = memcache.MemcacheMiddleware(
                 FakeApp(),
                 {'memcache_servers': '6.7.8.9:10',
-                 'memcache_serialization_support': '0',
                  'memcache_max_connections': '5',
                  'item_size_warning_threshold': '75'})
         self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(app.memcache._allow_pickle, True)
-        self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['6.7.8.9:10'].max_size, 5)
         self.assertEqual(app.memcache.item_size_warning_threshold, 75)
@@ -209,20 +181,16 @@ class TestCacheMiddleware(unittest.TestCase):
                                get_config_parser(section='foobar')):
             app = memcache.MemcacheMiddleware(FakeApp(), {})
         self.assertEqual(app.memcache_servers, '127.0.0.1:11211')
-        self.assertEqual(app.memcache._allow_pickle, False)
-        self.assertEqual(app.memcache._allow_unpickle, False)
         self.assertEqual(
             app.memcache._client_cache['127.0.0.1:11211'].max_size, 2)
 
     def test_conf_extra_no_option(self):
         replacement_parser = get_config_parser(
-            memcache_servers='error', memcache_serialization_support='error',
+            memcache_servers='error',
             memcache_max_connections='error')
         with mock.patch.object(memcache, 'ConfigParser', replacement_parser):
             app = memcache.MemcacheMiddleware(FakeApp(), {})
         self.assertEqual(app.memcache_servers, '127.0.0.1:11211')
-        self.assertEqual(app.memcache._allow_pickle, False)
-        self.assertEqual(app.memcache._allow_unpickle, False)
         self.assertEqual(
             app.memcache._client_cache['127.0.0.1:11211'].max_size, 2)
 
@@ -231,11 +199,8 @@ class TestCacheMiddleware(unittest.TestCase):
             app = memcache.MemcacheMiddleware(
                 FakeApp(),
                 {'memcache_servers': '6.7.8.9:10',
-                 'memcache_serialization_support': '0',
                  'max_connections': '5'})
         self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(app.memcache._allow_pickle, True)
-        self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['6.7.8.9:10'].max_size, 5)
 
@@ -244,11 +209,8 @@ class TestCacheMiddleware(unittest.TestCase):
             app = memcache.MemcacheMiddleware(
                 FakeApp(),
                 {'memcache_servers': '6.7.8.9:10',
-                 'memcache_serialization_support': '0',
                  'max_connections': 'bad42'})
         self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(app.memcache._allow_pickle, True)
-        self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['6.7.8.9:10'].max_size, 4)
 
@@ -267,8 +229,6 @@ class TestCacheMiddleware(unittest.TestCase):
         with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
             app = memcache.MemcacheMiddleware(FakeApp(), {})
         self.assertEqual(app.memcache_servers, '1.2.3.4:5')
-        self.assertEqual(app.memcache._allow_pickle, False)
-        self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['1.2.3.4:5'].max_size, 4)
 
@@ -277,8 +237,6 @@ class TestCacheMiddleware(unittest.TestCase):
                 memcache_max_connections='bad42')):
             app = memcache.MemcacheMiddleware(FakeApp(), {})
         self.assertEqual(app.memcache_servers, '1.2.3.4:5')
-        self.assertEqual(app.memcache._allow_pickle, False)
-        self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['1.2.3.4:5'].max_size, 2)
 
@@ -286,11 +244,8 @@ class TestCacheMiddleware(unittest.TestCase):
         with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
             app = memcache.MemcacheMiddleware(
                 FakeApp(),
-                {'memcache_servers': '6.7.8.9:10',
-                 'memcache_serialization_support': '0'})
+                {'memcache_servers': '6.7.8.9:10'})
         self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(app.memcache._allow_pickle, True)
-        self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['6.7.8.9:10'].max_size, 4)
 
@@ -301,20 +256,15 @@ class TestCacheMiddleware(unittest.TestCase):
                 {'memcache_servers': '6.7.8.9:10',
                  'memcache_max_connections': '42'})
         self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(app.memcache._allow_pickle, False)
-        self.assertEqual(app.memcache._allow_unpickle, True)
         self.assertEqual(
             app.memcache._client_cache['6.7.8.9:10'].max_size, 42)
 
     def test_filter_factory(self):
         factory = memcache.filter_factory({'max_connections': '3'},
-                                          memcache_servers='10.10.10.10:10',
-                                          memcache_serialization_support='1')
+                                          memcache_servers='10.10.10.10:10')
         thefilter = factory('myapp')
         self.assertEqual(thefilter.app, 'myapp')
         self.assertEqual(thefilter.memcache_servers, '10.10.10.10:10')
-        self.assertEqual(thefilter.memcache._allow_pickle, False)
-        self.assertEqual(thefilter.memcache._allow_unpickle, True)
         self.assertEqual(
             thefilter.memcache._client_cache['10.10.10.10:10'].max_size, 3)
 

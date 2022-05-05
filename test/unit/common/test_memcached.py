@@ -767,24 +767,18 @@ class TestMemcached(unittest.TestCase):
 
     def test_serialization(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
-                                                 allow_pickle=True,
                                                  logger=self.logger)
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
-        memcache_client._allow_pickle = False
-        memcache_client._allow_unpickle = True
-        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
-        memcache_client._allow_unpickle = False
+        self.assertEqual(len(mock.cache), 1)
+        key = next(iter(mock.cache))
+        self.assertEqual(mock.cache[key][0], b'2')  # JSON_FLAG
+        # Pretend we've got some really old pickle data in there
+        mock.cache[key] = (b'1',) + mock.cache[key][1:]
         self.assertIsNone(memcache_client.get('some_key'))
-        memcache_client.set('some_key', [1, 2, 3])
-        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
-        memcache_client._allow_unpickle = True
-        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
-        memcache_client._allow_pickle = True
-        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
 
     def test_connection_pooling(self):
         with patch('swift.common.memcached.socket') as mock_module:

@@ -33,7 +33,6 @@ class MemcacheMiddleware(object):
         self.app = app
         self.logger = get_logger(conf, log_route='memcache')
         self.memcache_servers = conf.get('memcache_servers')
-        serialization_format = conf.get('memcache_serialization_support')
         try:
             # Originally, while we documented using memcache_max_connections
             # we only accepted max_connections
@@ -44,7 +43,6 @@ class MemcacheMiddleware(object):
 
         memcache_options = {}
         if (not self.memcache_servers
-                or serialization_format is None
                 or max_conns <= 0):
             path = os.path.join(conf.get('swift_dir', '/etc/swift'),
                                 'memcache.conf')
@@ -60,13 +58,6 @@ class MemcacheMiddleware(object):
                     try:
                         self.memcache_servers = \
                             memcache_conf.get('memcache', 'memcache_servers')
-                    except (NoSectionError, NoOptionError):
-                        pass
-                if serialization_format is None:
-                    try:
-                        serialization_format = \
-                            memcache_conf.get('memcache',
-                                              'memcache_serialization_support')
                     except (NoSectionError, NoOptionError):
                         pass
                 if max_conns <= 0:
@@ -111,10 +102,6 @@ class MemcacheMiddleware(object):
             self.memcache_servers = '127.0.0.1:11211'
         if max_conns <= 0:
             max_conns = 2
-        if serialization_format is None:
-            serialization_format = 2
-        else:
-            serialization_format = int(serialization_format)
 
         self.memcache = MemcacheRing(
             [s.strip() for s in self.memcache_servers.split(',') if s.strip()],
@@ -122,8 +109,6 @@ class MemcacheMiddleware(object):
             pool_timeout=pool_timeout,
             tries=tries,
             io_timeout=io_timeout,
-            allow_pickle=(serialization_format == 0),
-            allow_unpickle=(serialization_format <= 1),
             max_conns=max_conns,
             tls_context=self.tls_context,
             logger=self.logger,
