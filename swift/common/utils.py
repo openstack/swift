@@ -1350,6 +1350,18 @@ class Timestamp(object):
             isoformat += ".000000"
         return isoformat
 
+    def ceil(self):
+        """
+        Return the 'normal' part of the timestamp rounded up to the nearest
+        integer number of seconds.
+
+        This value should be used whenever the second-precision Last-Modified
+        time of a resource is required.
+
+        :return: a float value with second precision.
+        """
+        return math.ceil(float(self))
+
     def __eq__(self, other):
         if other is None:
             return False
