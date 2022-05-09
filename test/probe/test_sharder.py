@@ -133,6 +133,7 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
         self.memcache = MemcacheRing(['127.0.0.1:11211'])
+        self.container_replicators = Manager(['container-replicator'])
 
     def init_brain(self, container_name):
         self.container_to_shard = container_name
@@ -371,9 +372,13 @@ class BaseTestContainerSharding(ReplProbeTest):
                 else:
                     self.fail('No shard sysmeta found in %s' % headers)
 
-    def assert_container_state(self, node, expected_state, num_shard_ranges):
+    def assert_container_state(self, node, expected_state, num_shard_ranges,
+                               account=None, container=None, part=None):
+        account = account or self.account
+        container = container or self.container_to_shard
+        part = part or self.brain.part
         headers, shard_ranges = direct_client.direct_get_container(
-            node, self.brain.part, self.account, self.container_to_shard,
+            node, part, account, container,
             headers={'X-Backend-Record-Type': 'shard'})
         self.assertEqual(num_shard_ranges, len(shard_ranges))
         self.assertIn('X-Backend-Sharding-State', headers)
@@ -383,7 +388,7 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def assert_subprocess_success(self, cmd_args):
         try:
-            subprocess.check_output(cmd_args, stderr=subprocess.STDOUT)
+            return subprocess.check_output(cmd_args, stderr=subprocess.STDOUT)
         except Exception as exc:
             # why not 'except CalledProcessError'? because in my py3.6 tests
             # the CalledProcessError wasn't caught by that! despite type(exc)
@@ -3330,3 +3335,174 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assertEqual(1, len(sharded_shard_ranges), root_shard_ranges)
 
         self.assert_container_listing(expected_obj_names)
+
+    def test_manage_shard_ranges_repair_root_shrinking_gaps(self):
+        # provoke shrinking/shrunk gaps by prematurely repairing a transient
+        # overlap in root container; repair the gap.
+        # note: be careful not to add a container listing to this test which
+        # would get shard ranges into memcache
+        obj_names = self._make_object_names(4)
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        # run replicators first time to get sync points set
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % self.brain.part)
+
+        # shard root
+        root_0_db_file = self.get_db_file(self.brain.part, self.brain.nodes[0])
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            root_0_db_file,
+            'find_and_replace', '2', '--enable'])
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % self.brain.part)
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'unsharded', 2)
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        # get shards to update state from parent...
+        self.sharders_once()
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'sharded', 2)
+
+        # sanity check, all is well
+        msg = self.assert_subprocess_success([
+            'swift-manage-shard-ranges', root_0_db_file, 'repair', '--gaps',
+            '--dry-run'])
+        self.assertIn(b'No repairs necessary.', msg)
+
+        # shard first shard into 2 sub-shards while root node 0 is disabled
+        self.stop_container_servers(node_numbers=slice(0, 1))
+        shard_ranges = self.get_container_shard_ranges()
+        shard_brokers = [self.get_shard_broker(shard_ranges[0], node_index=i)
+                         for i in range(3)]
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            shard_brokers[0].db_file,
+            'find_and_replace', '1', '--enable'])
+        shard_part, shard_nodes = self.brain.ring.get_nodes(
+            shard_ranges[0].account, shard_ranges[0].container)
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % shard_part)
+        # TODO: get this assertion working (node filtering wonky??)
+        # for node in [n for n in shard_nodes if n != self.brain.nodes[0]]:
+        #     self.assert_container_state(
+        #         node, 'unsharded', 2, account=shard_ranges[0].account,
+        #         container=shard_ranges[0].container, part=shard_part)
+        self.sharders_once(additional_args='--partitions=%s' % shard_part)
+        # get shards to update state from parent...
+        self.sharders_once()
+        # TODO: get this assertion working (node filtering wonky??)
+        # for node in [n for n in shard_nodes if n != self.brain.nodes[0]]:
+        #     self.assert_container_state(
+        #         node, 'sharded', 2, account=shard_ranges[0].account,
+        #         container=shard_ranges[0].container, part=shard_part)
+
+        # put an object into the second of the 2 sub-shards so that the shard
+        # will update the root next time the sharder is run; do this before
+        # restarting root node 0 so that the object update is definitely
+        # redirected to a sub-shard by root node 1 or 2.
+        new_obj_name = obj_names[0] + 'a'
+        self.put_objects([new_obj_name])
+
+        # restart root node 0
+        self.brain.servers.start(number=self.brain.node_numbers[0])
+        # node 0 DB doesn't know about the sub-shards
+        root_brokers = [self.get_broker(self.brain.part, node)
+                        for node in self.brain.nodes]
+        broker = root_brokers[0]
+        self.assertEqual(
+            [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[1]),
+             (ShardRange.ACTIVE, False, obj_names[1], ShardRange.MAX)],
+            [(sr.state, sr.deleted, sr.lower, sr.upper)
+             for sr in broker.get_shard_ranges(include_deleted=True)])
+
+        for broker in root_brokers[1:]:
+            self.assertEqual(
+                [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[0]),
+                 (ShardRange.ACTIVE, False, obj_names[0], obj_names[1]),
+                 (ShardRange.SHARDED, True, ShardRange.MIN, obj_names[1]),
+                 (ShardRange.ACTIVE, False, obj_names[1], ShardRange.MAX)],
+                [(sr.state, sr.deleted, sr.lower, sr.upper)
+                 for sr in broker.get_shard_ranges(include_deleted=True)])
+
+        sub_shard = root_brokers[1].get_shard_ranges()[1]
+        self.assertEqual(obj_names[0], sub_shard.lower)
+        self.assertEqual(obj_names[1], sub_shard.upper)
+        sub_shard_part, nodes = self.get_part_and_node_numbers(sub_shard)
+        # we want the sub-shard to update root node 0 but not the sharded
+        # shard, but there is a small chance the two will be in same partition
+        # TODO: how can we work around this?
+        self.assertNotEqual(sub_shard_part, shard_part,
+                            'You were unlucky, try again')
+        self.sharders_once(additional_args='--partitions=%s' % sub_shard_part)
+
+        # now root node 0 has the original shards plus one of the sub-shards
+        # but all are active :(
+        self.assertEqual(
+            [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[1]),
+             # note: overlap!
+             (ShardRange.ACTIVE, False, obj_names[0], obj_names[1]),
+             (ShardRange.ACTIVE, False, obj_names[1], ShardRange.MAX)],
+            [(sr.state, sr.deleted, sr.lower, sr.upper)
+             for sr in root_brokers[0].get_shard_ranges(include_deleted=True)])
+
+        # we are allowed to fix the overlap...
+        msg = self.assert_subprocess_success([
+            'swift-manage-shard-ranges', root_0_db_file, 'repair', '--yes'])
+        self.assertIn(
+            b'Repairs necessary to remove overlapping shard ranges.', msg)
+
+        self.assertEqual(
+            [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[1]),
+             (ShardRange.SHRINKING, False, obj_names[0], obj_names[1]),
+             (ShardRange.ACTIVE, False, obj_names[1], ShardRange.MAX)],
+            [(sr.state, sr.deleted, sr.lower, sr.upper)
+             for sr in root_brokers[0].get_shard_ranges(include_deleted=True)])
+
+        self.sharders_once()
+        self.sharders_once()
+        self.container_replicators.once()
+
+        # boo :'( ... we made gap
+        for broker in root_brokers:
+            self.assertEqual(
+                [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[0]),
+                 (ShardRange.SHARDED, True, ShardRange.MIN, obj_names[1]),
+                 (ShardRange.SHRUNK, True, obj_names[0], obj_names[1]),
+                 (ShardRange.ACTIVE, False, obj_names[1], ShardRange.MAX)],
+                [(sr.state, sr.deleted, sr.lower, sr.upper)
+                 for sr in broker.get_shard_ranges(include_deleted=True)])
+
+        msg = self.assert_subprocess_success([
+            'swift-manage-shard-ranges', root_0_db_file, 'repair', '--gaps',
+            '--yes'])
+        self.assertIn(b'Repairs necessary to fill gaps.', msg)
+
+        self.sharders_once()
+        self.sharders_once()
+        self.container_replicators.once()
+
+        # yay! we fixed the gap (without creating an overlap)
+        for broker in root_brokers:
+            self.assertEqual(
+                [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[0]),
+                 (ShardRange.SHARDED, True, ShardRange.MIN, obj_names[1]),
+                 (ShardRange.SHRUNK, True, obj_names[0], obj_names[1]),
+                 (ShardRange.ACTIVE, False, obj_names[0], ShardRange.MAX)],
+                [(sr.state, sr.deleted, sr.lower, sr.upper)
+                 for sr in broker.get_shard_ranges(include_deleted=True)])
+
+        msg = self.assert_subprocess_success([
+            'swift-manage-shard-ranges', root_0_db_file, 'repair',
+            '--dry-run'])
+        self.assertIn(b'No repairs necessary.', msg)
+        msg = self.assert_subprocess_success([
+            'swift-manage-shard-ranges', root_0_db_file, 'repair', '--gaps',
+            '--dry-run'])
+        self.assertIn(b'No repairs necessary.', msg)
+
+        self.assert_container_listing(
+            [obj_names[0], new_obj_name] + obj_names[1:])

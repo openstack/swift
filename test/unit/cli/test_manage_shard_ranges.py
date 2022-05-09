@@ -62,7 +62,8 @@ class TestManageShardRanges(unittest.TestCase):
         ]
 
         self.overlap_shard_data_1 = [
-            {'index': 0, 'lower': '', 'upper': 'obj10', 'object_count': 1},
+            {'index': 0, 'lower': '', 'upper': 'obj10',
+             'object_count': 1},
             {'index': 1, 'lower': 'obj10', 'upper': 'obj20',
              'object_count': 1},
             {'index': 2, 'lower': 'obj20', 'upper': 'obj30',
@@ -79,7 +80,8 @@ class TestManageShardRanges(unittest.TestCase):
              'object_count': 1},
             {'index': 8, 'lower': 'obj78', 'upper': 'obj88',
              'object_count': 1},
-            {'index': 9, 'lower': 'obj88', 'upper': '', 'object_count': 1},
+            {'index': 9, 'lower': 'obj88', 'upper': '',
+             'object_count': 1},
         ]
 
         self.overlap_shard_data_2 = [
@@ -1074,22 +1076,22 @@ class TestManageShardRanges(unittest.TestCase):
             'Donor shard range(s) with total of 2018 rows:',
             "  '.shards_a",
             "    objects:        10, tombstones:       999, lower: 'obj29'",
-            "      state:    active,                        upper: 'obj39'",
+            "      state:    active, deleted: 0             upper: 'obj39'",
             "  '.shards_a",
             "    objects:        10, tombstones:       999, lower: 'obj39'",
-            "      state:    active,                        upper: 'obj49'",
+            "      state:    active, deleted: 0             upper: 'obj49'",
             'can be compacted into acceptor shard range:',
             "  '.shards_a",
             "    objects:    100001, tombstones:       999, lower: 'obj49'",
-            "      state:    active,                        upper: 'obj59'",
+            "      state:    active, deleted: 0             upper: 'obj59'",
             'Donor shard range(s) with total of 1009 rows:',
             "  '.shards_a",
             "    objects:        10, tombstones:       999, lower: 'obj69'",
-            "      state:    active,                        upper: 'obj79'",
+            "      state:    active, deleted: 0             upper: 'obj79'",
             'can be compacted into acceptor shard range:',
             "  '.shards_a",
             "    objects:    100001, tombstones:       999, lower: 'obj79'",
-            "      state:    active,                        upper: 'obj89'",
+            "      state:    active, deleted: 0             upper: 'obj89'",
             'Total of 2 shard sequences identified for compaction.',
             'Once applied to the broker these changes will result in '
             'shard range compaction the next time the sharder runs.',
@@ -1634,7 +1636,7 @@ class TestManageShardRanges(unittest.TestCase):
         updated_ranges = broker.get_shard_ranges()
         self.assert_shard_ranges_equal([], updated_ranges)
 
-    def test_repair_gaps_one_incomplete_sequence(self):
+    def test_repair_one_incomplete_sequence(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         with mock_timestamp_now(next(self.ts_iter)):
@@ -1656,7 +1658,7 @@ class TestManageShardRanges(unittest.TestCase):
         updated_ranges = broker.get_shard_ranges()
         self.assert_shard_ranges_equal(shard_ranges, updated_ranges)
 
-    def test_repair_gaps_overlapping_incomplete_sequences(self):
+    def test_repair_overlapping_incomplete_sequences(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         with mock_timestamp_now(next(self.ts_iter)):
@@ -1684,6 +1686,374 @@ class TestManageShardRanges(unittest.TestCase):
         expected = sorted(shard_ranges + overlap_shard_ranges,
                           key=ShardRange.sort_key)
         self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    def test_repair_gaps(self):
+        def do_test(missing_index, expander_index, missing_state=None):
+            broker = self._make_broker()
+            broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+            for shard in self.shard_data:
+                shard['state'] = ShardRange.ACTIVE
+            with mock_timestamp_now(next(self.ts_iter)):
+                all_shard_ranges = make_shard_ranges(
+                    broker, self.shard_data, '.shards_')
+            shard_ranges = list(all_shard_ranges)
+            if missing_state is None:
+                missing_range = shard_ranges.pop(missing_index)
+                exp_gap_contents = []
+            else:
+                missing_range = shard_ranges[missing_index]
+                missing_range.state = missing_state
+                exp_gap_contents = [
+                    "      '%s'" % missing_range.name, mock.ANY, mock.ANY]
+            broker.merge_shard_ranges(shard_ranges)
+            self.assertTrue(broker.is_root_container())
+            out = StringIO()
+            err = StringIO()
+            with mock_timestamp_now(next(self.ts_iter)) as ts_now, \
+                    mock.patch('sys.stdout', out), \
+                    mock.patch('sys.stderr', err):
+                ret = main([broker.db_file, 'repair', '--gaps', '--yes'])
+            self.assertEqual(0, ret)
+            err_lines = err.getvalue().split('\n')
+            self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+            out_lines = out.getvalue().split('\n')
+            expander = all_shard_ranges[expander_index]
+            if missing_index < expander_index:
+                expander.lower = missing_range.lower
+            else:
+                expander.upper = missing_range.upper
+            expander.state_timestamp = expander.timestamp
+            expander.meta_timestamp = expander.timestamp
+            expander.timestamp = ts_now
+            self.assertEqual(
+                ['Found 1 gaps:',
+                 '  gap: %r - %r' % (missing_range.lower, missing_range.upper),
+                 '    apparent gap contents:']
+                + exp_gap_contents +
+                ['    gap can be fixed by expanding neighbor range:',
+                 "      '%s'" % expander.name] +
+                [mock.ANY] * 2 +
+                ['',
+                 'Repairs necessary to fill gaps.',
+                 'The following expanded shard range(s) will be applied to '
+                 'the DB:',
+                 "    '%s'" % expander.name] +
+                [mock.ANY] * 2 +
+                ['',
+                 'It is recommended that no other concurrent changes are made '
+                 'to the ',
+                 'shard ranges while fixing gaps. If necessary, abort '
+                 'this change ',
+                 'and stop any auto-sharding processes before repeating '
+                 'this command.',
+                 '',
+                 'Run container-replicator to replicate the changes to '
+                 'other nodes.',
+                 'Run container-sharder on all nodes to fill gaps.',
+                 ''],
+                out_lines)
+            updated_ranges = broker.get_shard_ranges()
+            self.assert_shard_ranges_equal(shard_ranges, updated_ranges)
+            os.remove(broker.db_file)
+
+        for i in range(len(self.shard_data) - 1):
+            do_test(i, i + 1)
+
+        do_test(len(self.shard_data) - 1, len(self.shard_data) - 2)
+
+        for i in range(len(self.shard_data) - 1):
+            do_test(i, i + 1, ShardRange.SHRINKING)
+
+        do_test(len(self.shard_data) - 1, len(self.shard_data) - 2,
+                ShardRange.SHRINKING)
+
+    def test_repair_gaps_multiple_missing(self):
+        def do_test(broker, max_expanding):
+            broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+            states = [
+                ShardRange.ACTIVE,
+                ShardRange.SHRINKING,
+                ShardRange.SHRUNK,
+                ShardRange.ACTIVE,
+                ShardRange.SHRUNK,
+                ShardRange.SHRINKING,
+                ShardRange.ACTIVE,
+                ShardRange.SHRINKING,
+                ShardRange.SHRUNK,
+                ShardRange.SHARDED,
+            ]
+            for i, shard in enumerate(self.shard_data):
+                shard['state'] = states[i]
+                if states[i] in (ShardRange.SHRUNK, ShardRange.SHARDED):
+                    shard['deleted'] = 1
+            with mock_timestamp_now(next(self.ts_iter)):
+                shard_ranges = make_shard_ranges(
+                    broker, self.shard_data, '.shards_')
+            broker.merge_shard_ranges(shard_ranges)
+            self.assertTrue(broker.is_root_container())
+            orig_shard_ranges = broker.get_shard_ranges(include_deleted=True)
+            out = StringIO()
+            err = StringIO()
+            args = [broker.db_file, 'repair', '--gaps', '--yes']
+            if max_expanding is not None:
+                args.extend(['--max-expanding', str(max_expanding)])
+            with mock_timestamp_now(next(self.ts_iter)) as ts_now, \
+                    mock.patch('sys.stdout', out), \
+                    mock.patch('sys.stderr', err):
+                ret = main(args)
+            self.assertEqual(0, ret)
+            err_lines = err.getvalue().split('\n')
+            self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+            out_lines = out.getvalue().split('\n')
+            os.remove(broker.db_file)
+            return orig_shard_ranges, out_lines, ts_now
+
+        # max-expanding 1
+        broker = self._make_broker()
+        orig_shard_ranges, out_lines, ts_now = do_test(broker, 1)
+        orig_shard_ranges[3].timestamp = ts_now
+        orig_shard_ranges[3].lower = orig_shard_ranges[1].lower
+        self.assertEqual(
+            ['Found 3 gaps:',
+             '  gap: %r - %r' % (orig_shard_ranges[1].lower,
+                                 orig_shard_ranges[2].upper),
+             '    apparent gap contents:']
+            + [mock.ANY] * 6 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[3].name] +
+            [mock.ANY] * 2 +
+            ['  gap: %r - %r' % (orig_shard_ranges[4].lower,
+                                 orig_shard_ranges[5].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 6 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 2 +
+            ['  gap: %r - %r' % (orig_shard_ranges[7].lower,
+                                 orig_shard_ranges[9].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 9 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 2 +
+            ['',
+             'Repairs necessary to fill gaps.',
+             'The following expanded shard range(s) will be applied to the '
+             'DB:',
+             "    '%s'" % orig_shard_ranges[3].name] +
+            [mock.ANY] * 6 +
+            ['',
+             'Run container-replicator to replicate the changes to '
+             'other nodes.',
+             'Run container-sharder on all nodes to fill gaps.',
+             ''],
+            out_lines)
+        updated_ranges = broker.get_shard_ranges(include_deleted=True)
+        self.assert_shard_ranges_equal(
+            sorted(orig_shard_ranges, key=lambda s: s.name),
+            sorted(updated_ranges, key=lambda s: s.name))
+
+        # max-expanding 2
+        broker = self._make_broker()
+        orig_shard_ranges, out_lines, ts_now = do_test(broker, 2)
+        orig_shard_ranges[3].timestamp = ts_now
+        orig_shard_ranges[3].lower = orig_shard_ranges[1].lower
+        orig_shard_ranges[6].timestamp = ts_now
+        orig_shard_ranges[6].lower = orig_shard_ranges[4].lower
+        self.assertEqual(
+            ['Found 3 gaps:',
+             '  gap: %r - %r' % (orig_shard_ranges[1].lower,
+                                 orig_shard_ranges[2].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 6 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[3].name] +
+            [mock.ANY] * 2 +
+            ['  gap: %r - %r' % (orig_shard_ranges[4].lower,
+                                 orig_shard_ranges[5].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 6 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 2 +
+            ['  gap: %r - %r' % (orig_shard_ranges[7].lower,
+                                 orig_shard_ranges[9].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 9 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 2 +
+            ['',
+             'Repairs necessary to fill gaps.',
+             'The following expanded shard range(s) will be applied to the '
+             'DB:',
+             "    '%s'" % orig_shard_ranges[3].name] +
+            [mock.ANY] * 2 +
+            ["    '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 6 +
+            ['',
+             'Run container-replicator to replicate the changes to '
+             'other nodes.',
+             'Run container-sharder on all nodes to fill gaps.',
+             ''],
+            out_lines)
+        updated_ranges = broker.get_shard_ranges(include_deleted=True)
+        self.assert_shard_ranges_equal(
+            sorted(orig_shard_ranges, key=lambda s: s.name),
+            sorted(updated_ranges, key=lambda s: s.name))
+
+        # max-expanding unlimited
+        broker = self._make_broker()
+        orig_shard_ranges, out_lines, ts_now = do_test(broker, None)
+        orig_shard_ranges[3].timestamp = ts_now
+        orig_shard_ranges[3].lower = orig_shard_ranges[1].lower
+        orig_shard_ranges[6].timestamp = ts_now
+        orig_shard_ranges[6].lower = orig_shard_ranges[4].lower
+        orig_shard_ranges[6].upper = orig_shard_ranges[9].upper
+        self.assertEqual(
+            ['Found 3 gaps:',
+             '  gap: %r - %r' % (orig_shard_ranges[1].lower,
+                                 orig_shard_ranges[2].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 6 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[3].name] +
+            [mock.ANY] * 2 +
+            ['  gap: %r - %r' % (orig_shard_ranges[4].lower,
+                                 orig_shard_ranges[5].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 6 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 2 +
+            ['  gap: %r - %r' % (orig_shard_ranges[7].lower,
+                                 orig_shard_ranges[9].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 9 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 2 +
+            ['',
+             'Repairs necessary to fill gaps.',
+             'The following expanded shard range(s) will be applied to the '
+             'DB:',
+             "    '%s'" % orig_shard_ranges[3].name] +
+            [mock.ANY] * 2 +
+            ["    '%s'" % orig_shard_ranges[6].name] +
+            [mock.ANY] * 6 +
+            ['',
+             'Run container-replicator to replicate the changes to '
+             'other nodes.',
+             'Run container-sharder on all nodes to fill gaps.',
+             ''],
+            out_lines)
+        updated_ranges = broker.get_shard_ranges(include_deleted=True)
+        self.assert_shard_ranges_equal(
+            sorted(orig_shard_ranges, key=lambda s: s.name),
+            sorted(updated_ranges, key=lambda s: s.name))
+
+    def test_repair_gaps_complete_sequence(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        for shard in self.shard_data:
+            shard['state'] = ShardRange.ACTIVE
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        with mock_timestamp_now(next(self.ts_iter)), \
+                mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair', '--gaps', '--yes'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Found one complete sequence of %d shard ranges with no gaps.'
+             % len(self.shard_data),
+             'No repairs necessary.'], out_lines[:2])
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal(shard_ranges, updated_ranges)
+
+    def test_repair_gaps_with_overlap(self):
+        # verify that overlaps don't look like gaps
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        for shard in self.shard_data:
+            shard['state'] = ShardRange.ACTIVE
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        # create a gap
+        shard_ranges[3].state = ShardRange.SHRINKING
+        # create an overlap
+        shard_ranges[5].lower = 'obj45'
+        self.assertLess(shard_ranges[5].lower, shard_ranges[4].upper)
+        broker.merge_shard_ranges(shard_ranges)
+        orig_shard_ranges = broker.get_shard_ranges()
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        with mock_timestamp_now(next(self.ts_iter)) as ts_now, \
+                mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair', '--gaps', '--yes'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Found 1 gaps:',
+             '  gap: %r - %r' % (shard_ranges[3].lower,
+                                 shard_ranges[3].upper),
+             '    apparent gap contents:'] +
+            [mock.ANY] * 3 +
+            ['    gap can be fixed by expanding neighbor range:',
+             "      '%s'" % shard_ranges[4].name] +
+            [mock.ANY] * 2 +
+            ['',
+             'Repairs necessary to fill gaps.',
+             'The following expanded shard range(s) will be applied to the '
+             'DB:',
+             "    '%s'" % shard_ranges[4].name] +
+            [mock.ANY] * 6 +
+            ['',
+             'Run container-replicator to replicate the changes to '
+             'other nodes.',
+             'Run container-sharder on all nodes to fill gaps.',
+             ''],
+            out_lines)
+        orig_shard_ranges[4].lower = shard_ranges[3].lower
+        orig_shard_ranges[4].timestamp = ts_now
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal(orig_shard_ranges, updated_ranges)
+
+    def test_repair_gaps_not_root(self):
+        broker = self._make_broker()
+        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
+        broker.merge_shard_ranges(shard_ranges)
+        # make broker appear to not be a root container
+        out = StringIO()
+        err = StringIO()
+        broker.set_sharding_sysmeta('Quoted-Root', 'not_a/c')
+        self.assertFalse(broker.is_root_container())
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair', '--gaps'])
+        self.assertEqual(1, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['WARNING: Shard containers cannot be repaired.',
+             'This command should be used on a root container.'],
+            out_lines[:2]
+        )
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal(shard_ranges, updated_ranges)
 
     def test_repair_not_needed(self):
         broker = self._make_broker()
@@ -1978,9 +2348,9 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(2, cm.exception.code)
         err_lines = err.getvalue().split('\n')
         runner = os.path.basename(sys.argv[0])
-        self.assertEqual(
+        self.assertIn(
             'usage: %s path_to_file repair [-h] [--yes | --dry-run]' % runner,
             err_lines[0])
         self.assertIn(
             "argument --yes/-y: not allowed with argument --dry-run/-n",
-            err_lines[1])
+            err_lines[-2], err_lines)
