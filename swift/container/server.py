@@ -17,7 +17,6 @@ import json
 import os
 import time
 import traceback
-import math
 
 from eventlet import Timeout
 
@@ -598,7 +597,7 @@ class ContainerController(BaseStorageServer):
                                 is_sys_or_user_meta('container', key)))
         headers['Content-Type'] = out_content_type
         resp = HTTPNoContent(request=req, headers=headers, charset='utf-8')
-        resp.last_modified = math.ceil(float(headers['X-PUT-Timestamp']))
+        resp.last_modified = Timestamp(headers['X-PUT-Timestamp']).ceil()
         return resp
 
     def update_data_record(self, record):
@@ -804,7 +803,7 @@ class ContainerController(BaseStorageServer):
 
         ret = Response(request=req, headers=resp_headers, body=body,
                        content_type=out_content_type, charset='utf-8')
-        ret.last_modified = math.ceil(float(resp_headers['X-PUT-Timestamp']))
+        ret.last_modified = Timestamp(resp_headers['X-PUT-Timestamp']).ceil()
         if not ret.body:
             ret.status_int = HTTP_NO_CONTENT
         return ret

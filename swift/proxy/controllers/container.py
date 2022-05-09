@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import json
-import math
 import random
 
 import six
@@ -170,8 +169,8 @@ class ContainerController(Controller):
                     # GETorHEAD_base does not, so don't set it here either
                     resp = Response(request=req, body=shard_range_body)
                     update_headers(resp, headers)
-                    resp.last_modified = math.ceil(
-                        float(headers['x-put-timestamp']))
+                    resp.last_modified = Timestamp(
+                        headers['x-put-timestamp']).ceil()
                     resp.environ['swift_x_timestamp'] = headers.get(
                         'x-timestamp')
                     resp.accept_ranges = 'bytes'

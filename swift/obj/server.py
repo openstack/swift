@@ -24,7 +24,6 @@ import multiprocessing
 import time
 import traceback
 import socket
-import math
 
 from eventlet import sleep, wsgi, Timeout, tpool
 from eventlet.greenthread import spawn
@@ -1113,7 +1112,7 @@ class ObjectController(BaseStorageServer):
                             key.lower() in self.allowed_headers):
                         response.headers[key] = value
                 response.etag = metadata['ETag']
-                response.last_modified = math.ceil(float(file_x_ts))
+                response.last_modified = file_x_ts.ceil()
                 response.content_length = obj_size
                 try:
                     response.content_encoding = metadata[
@@ -1181,7 +1180,7 @@ class ObjectController(BaseStorageServer):
                 response.headers[key] = value
         response.etag = metadata['ETag']
         ts = Timestamp(metadata['X-Timestamp'])
-        response.last_modified = math.ceil(float(ts))
+        response.last_modified = ts.ceil()
         # Needed for container sync feature
         response.headers['X-Timestamp'] = ts.normal
         response.headers['X-Backend-Timestamp'] = ts.internal
