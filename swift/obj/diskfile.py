@@ -330,7 +330,11 @@ def quarantine_renamer(device_path, corrupted_file_path):
     to_dir = join(device_path, 'quarantined',
                   get_data_dir(policy),
                   basename(from_dir))
-    invalidate_hash(dirname(from_dir))
+    if len(basename(from_dir)) == 3:
+        # quarantining whole suffix
+        invalidate_hash(from_dir)
+    else:
+        invalidate_hash(dirname(from_dir))
     try:
         renamer(from_dir, to_dir, fsync=False)
     except OSError as e:
@@ -1173,10 +1177,10 @@ class BaseDiskFileManager(object):
                 ondisk_info = self.cleanup_ondisk_files(
                     hsh_path, policy=policy)
             except OSError as err:
+                partition_path = dirname(path)
+                objects_path = dirname(partition_path)
+                device_path = dirname(objects_path)
                 if err.errno == errno.ENOTDIR:
-                    partition_path = dirname(path)
-                    objects_path = dirname(partition_path)
-                    device_path = dirname(objects_path)
                     # The made-up filename is so that the eventual dirpath()
                     # will result in this object directory that we care about.
                     # Some failures will result in an object directory
@@ -1189,6 +1193,24 @@ class BaseDiskFileManager(object):
                         'Quarantined %(hsh_path)s to %(quar_path)s because '
                         'it is not a directory', {'hsh_path': hsh_path,
                                                   'quar_path': quar_path})
+                    continue
+                elif err.errno == errno.ENODATA:
+                    try:
+                        # We've seen cases where bad sectors lead to ENODATA
+                        # here; use a similar hack as above
+                        quar_path = quarantine_renamer(
+                            device_path,
+                            join(hsh_path, "made-up-filename"))
+                        orig_path = hsh_path
+                    except (OSError, IOError):
+                        # We've *also* seen the bad sectors lead to us needing
+                        # to quarantine the whole suffix
+                        quar_path = quarantine_renamer(device_path, hsh_path)
+                        orig_path = path
+                    logging.exception(
+                        'Quarantined %(orig_path)s to %(quar_path)s because '
+                        'it could not be listed', {'orig_path': orig_path,
+                                                   'quar_path': quar_path})
                     continue
                 raise
             if not ondisk_info['files']:
@@ -1526,6 +1548,24 @@ class BaseDiskFileManager(object):
                     'Quarantined %(object_path)s to %(quar_path)s because '
                     'it is not a directory', {'object_path': object_path,
                                               'quar_path': quar_path})
+                raise DiskFileNotExist()
+            elif err.errno == errno.ENODATA:
+                try:
+                    # We've seen cases where bad sectors lead to ENODATA here;
+                    # use a similar hack as above
+                    quar_path = self.quarantine_renamer(
+                        dev_path,
+                        join(object_path, "made-up-filename"))
+                    orig_path = object_path
+                except (OSError, IOError):
+                    # We've *also* seen the bad sectors lead to us needing to
+                    # quarantine the whole suffix, not just the hash dir
+                    quar_path = self.quarantine_renamer(dev_path, object_path)
+                    orig_path = os.path.dirname(object_path)
+                logging.exception(
+                    'Quarantined %(orig_path)s to %(quar_path)s because '
+                    'it could not be listed', {'orig_path': orig_path,
+                                               'quar_path': quar_path})
                 raise DiskFileNotExist()
             if err.errno != errno.ENOENT:
                 raise
@@ -2528,6 +2568,20 @@ class BaseDiskFile(object):
                     # want this one file and not its parent.
                     os.path.join(self._datadir, "made-up-filename"),
                     "Expected directory, found file at %s" % self._datadir)
+            elif err.errno == errno.ENODATA:
+                try:
+                    # We've seen cases where bad sectors lead to ENODATA here
+                    raise self._quarantine(
+                        # similar hack to above
+                        os.path.join(self._datadir, "made-up-filename"),
+                        "Failed to list directory at %s" % self._datadir)
+                except (OSError, IOError):
+                    # We've *also* seen the bad sectors lead to us needing to
+                    # quarantine the whole suffix, not just the hash dir
+                    raise self._quarantine(
+                        # skip the above hack to rename the suffix
+                        self._datadir,
+                        "Failed to list directory at %s" % self._datadir)
             elif err.errno != errno.ENOENT:
                 raise DiskFileError(
                     "Error listing directory %s: %s" % (self._datadir, err))
