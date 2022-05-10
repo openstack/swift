@@ -201,7 +201,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         items = []
         for o in objects:
             items.append((o.find('./Key').text, o.find('./ETag').text))
-            self.assertEqual('2011-01-05T02:19:14.275Z',
+            self.assertEqual('2011-01-05T02:19:15.000Z',
                              o.find('./LastModified').text)
         expected = [
             (i[0].encode('utf-8') if six.PY2 else i[0],
@@ -210,6 +210,37 @@ class TestS3ApiBucket(S3ApiTestCase):
             for i in self.objects
         ]
         self.assertEqual(items, expected)
+
+    def test_bucket_GET_last_modified_rounding(self):
+        objects_list = [
+            {'name': 'a', 'last_modified': '2011-01-05T02:19:59.275290',
+             'content_type': 'application/octet-stream',
+             'hash': 'ahash', 'bytes': '12345'},
+            {'name': 'b', 'last_modified': '2011-01-05T02:19:59.000000',
+             'content_type': 'application/octet-stream',
+             'hash': 'ahash', 'bytes': '12345'},
+        ]
+        self.swift.register(
+            'GET', '/v1/AUTH_test/junk',
+            swob.HTTPOk, {'Content-Type': 'application/json'},
+            json.dumps(objects_list))
+        req = Request.blank('/junk',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+        elem = fromstring(body, 'ListBucketResult')
+        name = elem.find('./Name').text
+        self.assertEqual(name, 'junk')
+        objects = elem.iterchildren('Contents')
+        actual = [(obj.find('./Key').text, obj.find('./LastModified').text)
+                  for obj in objects]
+        self.assertEqual(
+            [('a', '2011-01-05T02:20:00.000Z'),
+             ('b', '2011-01-05T02:19:59.000Z')],
+            actual)
 
     def test_bucket_GET_url_encoded(self):
         bucket_name = 'junk'
@@ -229,7 +260,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         items = []
         for o in objects:
             items.append((o.find('./Key').text, o.find('./ETag').text))
-            self.assertEqual('2011-01-05T02:19:14.275Z',
+            self.assertEqual('2011-01-05T02:19:15.000Z',
                              o.find('./LastModified').text)
 
         self.assertEqual(items, [
@@ -673,9 +704,9 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual([v.find('./VersionId').text for v in versions],
                          ['null' for v in objects])
         # Last modified in self.objects is 2011-01-05T02:19:14.275290 but
-        # the returned value is 2011-01-05T02:19:14.275Z
+        # the returned value is rounded up to 2011-01-05T02:19:15Z
         self.assertEqual([v.find('./LastModified').text for v in versions],
-                         [v[1][:-3] + 'Z' for v in objects])
+                         ['2011-01-05T02:19:15.000Z'] * len(objects))
         self.assertEqual([v.find('./ETag').text for v in versions],
                          [PFS_ETAG if v[0] == 'pfs-obj' else
                           '"0-N"' if v[0] == 'slo' else '"0"'

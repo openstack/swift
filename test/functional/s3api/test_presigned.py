@@ -92,7 +92,7 @@ class TestS3ApiPresignedUrls(S3ApiBase):
             self.assertIsNotNone(o.find('LastModified').text)
             self.assertRegex(
                 o.find('LastModified').text,
-                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.000Z$')
             self.assertIsNotNone(o.find('ETag').text)
             self.assertEqual(o.find('Size').text, '0')
             self.assertIsNotNone(o.find('StorageClass').text is not None)

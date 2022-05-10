@@ -81,21 +81,6 @@ class TestS3ApiUtils(unittest.TestCase):
         self.assertFalse(utils.validate_bucket_name('bucket.', False))
         self.assertFalse(utils.validate_bucket_name('a' * 256, False))
 
-    def test_s3timestamp(self):
-        expected = '1970-01-01T00:00:01.000Z'
-        # integer
-        ts = utils.S3Timestamp(1)
-        self.assertEqual(expected, ts.s3xmlformat)
-        # milliseconds unit should be floored
-        ts = utils.S3Timestamp(1.1)
-        self.assertEqual(expected, ts.s3xmlformat)
-        # float (microseconds) should be floored too
-        ts = utils.S3Timestamp(1.000001)
-        self.assertEqual(expected, ts.s3xmlformat)
-        # Bigger float (milliseconds) should be floored too
-        ts = utils.S3Timestamp(1.9)
-        self.assertEqual(expected, ts.s3xmlformat)
-
     def test_mktime(self):
         date_headers = [
             'Thu, 01 Jan 1970 00:00:00 -0000',
@@ -128,6 +113,48 @@ class TestS3ApiUtils(unittest.TestCase):
         finally:
             os.environ['TZ'] = orig_tz
             time.tzset()
+
+
+class TestS3Timestamp(unittest.TestCase):
+    def test_s3xmlformat(self):
+        expected = '1970-01-01T00:00:01.000Z'
+        # integer
+        ts = utils.S3Timestamp(1)
+        self.assertEqual(expected, ts.s3xmlformat)
+        # milliseconds unit should be rounded up
+        expected = '1970-01-01T00:00:02.000Z'
+        ts = utils.S3Timestamp(1.1)
+        self.assertEqual(expected, ts.s3xmlformat)
+        # float (microseconds) should be floored too
+        ts = utils.S3Timestamp(1.000001)
+        self.assertEqual(expected, ts.s3xmlformat)
+        # Bigger float (milliseconds) should be floored too
+        ts = utils.S3Timestamp(1.9)
+        self.assertEqual(expected, ts.s3xmlformat)
+
+    def test_from_s3xmlformat(self):
+        ts = utils.S3Timestamp.from_s3xmlformat('2014-06-10T22:47:32.000Z')
+        self.assertIsInstance(ts, utils.S3Timestamp)
+        self.assertEqual(1402440452, float(ts))
+        self.assertEqual('2014-06-10T22:47:32.000000', ts.isoformat)
+
+        ts = utils.S3Timestamp.from_s3xmlformat('1970-01-01T00:00:00.000Z')
+        self.assertIsInstance(ts, utils.S3Timestamp)
+        self.assertEqual(0.0, float(ts))
+        self.assertEqual('1970-01-01T00:00:00.000000', ts.isoformat)
+
+        ts = utils.S3Timestamp(1402440452.0)
+        self.assertIsInstance(ts, utils.S3Timestamp)
+        ts1 = utils.S3Timestamp.from_s3xmlformat(ts.s3xmlformat)
+        self.assertIsInstance(ts1, utils.S3Timestamp)
+        self.assertEqual(ts, ts1)
+
+    def test_from_isoformat(self):
+        ts = utils.S3Timestamp.from_isoformat('2014-06-10T22:47:32.054580')
+        self.assertIsInstance(ts, utils.S3Timestamp)
+        self.assertEqual(1402440452.05458, float(ts))
+        self.assertEqual('2014-06-10T22:47:32.054580', ts.isoformat)
+        self.assertEqual('2014-06-10T22:47:33.000Z', ts.s3xmlformat)
 
 
 class TestConfig(unittest.TestCase):

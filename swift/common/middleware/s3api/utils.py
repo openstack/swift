@@ -15,6 +15,7 @@
 
 import base64
 import calendar
+import datetime
 import email.utils
 import re
 import six
@@ -108,9 +109,19 @@ def validate_bucket_name(name, dns_compliant_bucket_names):
 
 
 class S3Timestamp(utils.Timestamp):
+    S3_XML_FORMAT = "%Y-%m-%dT%H:%M:%S.000Z"
+
     @property
     def s3xmlformat(self):
-        return self.isoformat[:-7] + '.000Z'
+        dt = datetime.datetime.utcfromtimestamp(self.ceil())
+        return dt.strftime(self.S3_XML_FORMAT)
+
+    @classmethod
+    def from_s3xmlformat(cls, date_string):
+        dt = datetime.datetime.strptime(date_string, cls.S3_XML_FORMAT)
+        dt = dt.replace(tzinfo=utils.UTC)
+        seconds = calendar.timegm(dt.timetuple())
+        return cls(seconds)
 
     @property
     def amz_date_format(self):
