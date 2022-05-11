@@ -1665,9 +1665,9 @@ class ContainerBroker(DatabaseBroker):
             if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
                 raise
 
-    def _get_shard_range_rows(self, connection=None, include_deleted=False,
-                              states=None, include_own=False,
-                              exclude_others=False):
+    def _get_shard_range_rows(self, connection=None, includes=None,
+                              include_deleted=False, states=None,
+                              include_own=False, exclude_others=False):
         """
         Returns a list of shard range rows.
 
@@ -1676,6 +1676,8 @@ class ContainerBroker(DatabaseBroker):
         ``exclude_others=True``.
 
         :param connection: db connection
+        :param includes: restricts the returned list to the shard range that
+            includes the given value
         :param include_deleted: include rows marked as deleted
         :param states: include only rows matching the given state(s); can be an
             int or a list of ints.
@@ -1719,6 +1721,9 @@ class ContainerBroker(DatabaseBroker):
             if exclude_others:
                 conditions.append('name = ?')
                 params.append(self.path)
+            if includes is not None:
+                conditions.extend(('lower < ?', "(upper = '' OR upper >= ?)"))
+                params.extend((includes, includes))
             if conditions:
                 condition = ' WHERE ' + ' AND '.join(conditions)
             columns = SHARD_RANGE_KEYS[:-2]
@@ -1833,16 +1838,18 @@ class ContainerBroker(DatabaseBroker):
         shard_ranges = [
             ShardRange(*row)
             for row in self._get_shard_range_rows(
-                include_deleted=include_deleted, states=states,
-                include_own=include_own,
+                includes=includes, include_deleted=include_deleted,
+                states=states, include_own=include_own,
                 exclude_others=exclude_others)]
 
         shard_ranges.sort(key=ShardRange.sort_key)
+        if includes:
+            return shard_ranges[:1] if shard_ranges else []
 
         shard_ranges = filter_shard_ranges(shard_ranges, includes,
                                            marker, end_marker)
 
-        if not includes and fill_gaps:
+        if fill_gaps:
             own_shard_range = self._own_shard_range()
             if shard_ranges:
                 last_upper = shard_ranges[-1].upper
