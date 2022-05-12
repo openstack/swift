@@ -1493,6 +1493,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             num_found += part_num_found
 
         if num_found:
+            # the found stat records the number of DBs in which any misplaced
+            # rows were found, not the total number of misplaced rows
             self._increment_stat('misplaced', 'found', statsd=True)
             self.logger.debug('Moved %s misplaced objects' % num_found)
         self._increment_stat('misplaced', 'success' if success else 'failure')
