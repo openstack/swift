@@ -3403,8 +3403,9 @@ class TestSharder(BaseTestSharder):
 
         # and then more misplaced updates arrive
         newer_objects = [
-            ['a', self.ts_encoded(), 51, 'text/plain', 'etag_a', 0, 0],
+            ['a-deleted', self.ts_encoded(), 51, 'text/plain', 'etag_a', 1, 0],
             ['z', self.ts_encoded(), 52, 'text/plain', 'etag_z', 0, 0],
+            ['z-deleted', self.ts_encoded(), 52, 'text/plain', 'etag_z', 1, 0],
         ]
         for obj in newer_objects:
             broker.put_object(*obj)
@@ -3420,7 +3421,7 @@ class TestSharder(BaseTestSharder):
             any_order=True
         )
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
-                          'found': 1, 'placed': 2, 'unplaced': 0}
+                          'found': 1, 'placed': 3, 'unplaced': 0}
         self._assert_stats(expected_stats, sharder, 'misplaced')
         self.assertEqual(
             1, sharder.logger.get_increment_counts()['misplaced_found'])
