@@ -25,10 +25,15 @@ if $programname contains 'proxy' then /var/log/swift/proxy.log
 #if $programname == 'container-updater' then /var/log/swift/container-updater.log
 #if $programname == 'container-auditor' then /var/log/swift/container-auditor.log
 #if $programname == 'container-sync' then /var/log/swift/container-sync.log
+#if $programname == 'container-sharder' then /var/log/swift/container-sharder.log
+#if $programname == 'container-reconciler' then /var/log/swift/container-reconciler.log
 #if $programname == 'object-server' then /var/log/swift/object-server.log
 #if $programname == 'object-replicator' then /var/log/swift/object-replicator.log
 #if $programname == 'object-updater' then /var/log/swift/object-updater.log
 #if $programname == 'object-auditor' then /var/log/swift/object-auditor.log
+#if $programname == 'object-expirer' then /var/log/swift/object-expirer.log
+#if $programname == 'object-reconstructor' then /var/log/swift/object-reconstructor.log
+#if $programname == 'object-relinker' then /var/log/swift/object-relinker.log
 
 # Use the following to discard logs that don't match any of the above to avoid
 # them filling up /var/log/messages.
