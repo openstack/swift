@@ -4413,6 +4413,23 @@ class TestReplicatedObjectController(
                 expected[device] = '10.0.0.%d:100%d' % (i, i)
             self.assertEqual(container_headers, expected)
 
+            # shard lookup in memcache may error...
+            req = Request.blank(
+                '/v1/a/c/o', {'swift.cache': cache},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+            cache.error_on_get = [False, True]
+            with mock.patch('random.random', return_value=1.0), \
+                    mocked_http_conn(*status_codes, headers=resp_headers,
+                                     body=body):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.get_increment_counts()
+            self.assertEqual({'object.shard_updating.cache.skip': 1,
+                              'object.shard_updating.cache.hit': 1,
+                              'object.shard_updating.cache.error': 1,
+                              'object.shard_updating.backend.200': 2}, stats)
+
         do_test('POST', 'sharding')
         do_test('POST', 'sharded')
         do_test('DELETE', 'sharding')

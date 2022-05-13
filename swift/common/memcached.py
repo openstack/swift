@@ -254,6 +254,7 @@ class MemcacheRing(object):
         """
         pos = bisect(self._sorted, key)
         served = []
+        any_yielded = False
         while len(served) < self._tries:
             pos = (pos + 1) % len(self._sorted)
             server = self._ring[self._sorted[pos]]
@@ -266,6 +267,7 @@ class MemcacheRing(object):
             try:
                 with MemcachePoolTimeout(self._pool_timeout):
                     fp, sock = self._client_cache[server].get()
+                any_yielded = True
                 yield server, fp, sock
             except MemcachePoolTimeout as e:
                 self._exception_occurred(
@@ -277,13 +279,15 @@ class MemcacheRing(object):
                 # object.
                 self._exception_occurred(
                     server, e, action='connecting', sock=sock)
+        if not any_yielded:
+            self.logger.error('All memcached servers error-limited')
 
     def _return_conn(self, server, fp, sock):
         """Returns a server connection to the pool."""
         self._client_cache[server].put((fp, sock))
 
     def set(self, key, value, serialize=True, time=0,
-            min_compress_len=0):
+            min_compress_len=0, raise_on_error=False):
         """
         Set a key/value pair in memcache
 
@@ -296,6 +300,8 @@ class MemcacheRing(object):
                                  added to keep the signature compatible with
                                  python-memcached interface. This
                                  implementation ignores it.
+        :param raise_on_error: if True, propagate Timeouts and other errors.
+                               By default, errors are ignored.
         """
         key = md5hash(key)
         timeout = sanitize_timeout(time)
@@ -332,13 +338,18 @@ class MemcacheRing(object):
                     return
             except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
+        if raise_on_error:
+            raise MemcacheConnectionError(
+                "No memcached connections succeeded.")
 
-    def get(self, key):
+    def get(self, key, raise_on_error=False):
         """
         Gets the object specified by key.  It will also unserialize the object
         before returning if it is serialized in memcache with JSON.
 
         :param key: key
+        :param raise_on_error: if True, propagate Timeouts and other errors.
+                               By default, errors are treated as cache misses.
         :returns: value of the key in memcache
         """
         key = md5hash(key)
@@ -366,6 +377,9 @@ class MemcacheRing(object):
                     return value
             except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
+        if raise_on_error:
+            raise MemcacheConnectionError(
+                "No memcached connections succeeded.")
 
     def incr(self, key, delta=1, time=0):
         """

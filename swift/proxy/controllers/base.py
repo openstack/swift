@@ -40,6 +40,7 @@ from eventlet import sleep
 from eventlet.timeout import Timeout
 import six
 
+from swift.common.memcached import MemcacheConnectionError
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
@@ -2400,9 +2401,13 @@ class Controller(object):
             if skip_chance and random.random() < skip_chance:
                 self.logger.increment('shard_updating.cache.skip')
             else:
-                cached_ranges = memcache.get(cache_key)
-                self.logger.increment('shard_updating.cache.%s' % (
-                    'hit' if cached_ranges else 'miss'))
+                try:
+                    cached_ranges = memcache.get(
+                        cache_key, raise_on_error=True)
+                    cache_state = 'hit' if cached_ranges else 'miss'
+                except MemcacheConnectionError:
+                    cache_state = 'error'
+                self.logger.increment('shard_updating.cache.%s' % cache_state)
 
         if cached_ranges:
             shard_ranges = [

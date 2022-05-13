@@ -19,6 +19,7 @@ import random
 import six
 from six.moves.urllib.parse import unquote
 
+from swift.common.memcached import MemcacheConnectionError
 from swift.common.utils import public, private, csv_append, Timestamp, \
     config_true_value, ShardRange, cache_from_env, filter_shard_ranges
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
@@ -151,9 +152,14 @@ class ContainerController(Controller):
                     if skip_chance and random.random() < skip_chance:
                         self.logger.increment('shard_listing.cache.skip')
                     else:
-                        cached_ranges = memcache.get(cache_key)
-                        self.logger.increment('shard_listing.cache.%s' % (
-                            'hit' if cached_ranges else 'miss'))
+                        try:
+                            cached_ranges = memcache.get(
+                                cache_key, raise_on_error=True)
+                            cache_state = 'hit' if cached_ranges else 'miss'
+                        except MemcacheConnectionError:
+                            cache_state = 'error'
+                        self.logger.increment(
+                            'shard_listing.cache.%s' % cache_state)
 
                 if cached_ranges is not None:
                     infocache[cache_key] = tuple(cached_ranges)
