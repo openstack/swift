@@ -30,7 +30,7 @@ from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import (
     config_auto_int_value, dump_recon_cache, get_logger, list_from_csv,
-    listdir, load_pkg_resource, parse_prefixed_conf, ratelimit_sleep,
+    listdir, load_pkg_resource, parse_prefixed_conf, EventletRateLimiter,
     readconf, round_robin_iter, unlink_paths_older_than, PrefixLoggerAdapter)
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 
@@ -85,8 +85,10 @@ class AuditorWorker(object):
             self.auditor_type = 'ZBF'
         self.log_time = int(conf.get('log_time', 3600))
         self.last_logged = 0
-        self.files_running_time = 0
-        self.bytes_running_time = 0
+        self.files_rate_limiter = EventletRateLimiter(
+            self.max_files_per_second)
+        self.bytes_rate_limiter = EventletRateLimiter(
+            self.max_bytes_per_second)
         self.bytes_processed = 0
         self.total_bytes_processed = 0
         self.total_files_processed = 0
@@ -146,8 +148,7 @@ class AuditorWorker(object):
             loop_time = time.time()
             self.failsafe_object_audit(location)
             self.logger.timing_since('timing', loop_time)
-            self.files_running_time = ratelimit_sleep(
-                self.files_running_time, self.max_files_per_second)
+            self.files_rate_limiter.wait()
             self.total_files_processed += 1
             now = time.time()
             if now - self.last_logged >= self.log_time:
@@ -266,10 +267,7 @@ class AuditorWorker(object):
                 with closing(reader):
                     for chunk in reader:
                         chunk_len = len(chunk)
-                        self.bytes_running_time = ratelimit_sleep(
-                            self.bytes_running_time,
-                            self.max_bytes_per_second,
-                            incr_by=chunk_len)
+                        self.bytes_rate_limiter.wait(incr_by=chunk_len)
                         self.bytes_processed += chunk_len
                         self.total_bytes_processed += chunk_len
             for watcher in self.watchers:

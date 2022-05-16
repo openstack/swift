@@ -22,7 +22,7 @@ from eventlet import Timeout
 
 import swift.common.db
 from swift.common.utils import get_logger, audit_location_generator, \
-    config_true_value, dump_recon_cache, ratelimit_sleep
+    config_true_value, dump_recon_cache, EventletRateLimiter
 from swift.common.daemon import Daemon
 from swift.common.exceptions import DatabaseAuditorException
 from swift.common.recon import DEFAULT_RECON_CACHE_PATH, \
@@ -56,9 +56,9 @@ class DatabaseAuditor(Daemon):
         self.logging_interval = 3600  # once an hour
         self.passes = 0
         self.failures = 0
-        self.running_time = 0
         self.max_dbs_per_second = \
             float(conf.get('{}s_per_second'.format(self.server_type), 200))
+        self.rate_limiter = EventletRateLimiter(self.max_dbs_per_second)
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -88,8 +88,7 @@ class DatabaseAuditor(Daemon):
                 reported = time.time()
                 self.passes = 0
                 self.failures = 0
-            self.running_time = ratelimit_sleep(
-                self.running_time, self.max_dbs_per_second)
+            self.rate_limiter.wait()
         return reported
 
     def run_forever(self, *args, **kwargs):

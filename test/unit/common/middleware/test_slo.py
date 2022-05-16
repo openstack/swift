@@ -2423,7 +2423,7 @@ class TestSloGetManifest(SloTestCase):
             status, headers, body = self.call_slo(req)
 
         self.assertEqual(status, '200 OK')  # sanity check
-        self.assertEqual(sleeps, [2.0, 2.0, 2.0, 2.0, 2.0])
+        self.assertEqual(sleeps, [1.0] * 11)
 
         # give the client the first 4 segments without ratelimiting; we'll
         # sleep less
@@ -2435,7 +2435,7 @@ class TestSloGetManifest(SloTestCase):
             status, headers, body = self.call_slo(req)
 
         self.assertEqual(status, '200 OK')  # sanity check
-        self.assertEqual(sleeps, [2.0, 2.0, 2.0])
+        self.assertEqual(sleeps, [1.0] * 7)
 
         # ratelimit segments under 35 bytes; this affects a-f
         del sleeps[:]
@@ -2446,7 +2446,7 @@ class TestSloGetManifest(SloTestCase):
             status, headers, body = self.call_slo(req)
 
         self.assertEqual(status, '200 OK')  # sanity check
-        self.assertEqual(sleeps, [2.0, 2.0])
+        self.assertEqual(sleeps, [1.0] * 5)
 
         # ratelimit segments under 36 bytes; this now affects a-g, netting
         # us one more sleep than before
@@ -2458,7 +2458,7 @@ class TestSloGetManifest(SloTestCase):
             status, headers, body = self.call_slo(req)
 
         self.assertEqual(status, '200 OK')  # sanity check
-        self.assertEqual(sleeps, [2.0, 2.0, 2.0])
+        self.assertEqual(sleeps, [1.0] * 6)
 
     def test_get_manifest_with_submanifest(self):
         req = Request.blank(

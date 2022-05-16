@@ -1652,7 +1652,7 @@ class TestObjectUpdater(unittest.TestCase):
                          len(self._find_async_pending_files()))
         # indexes 0, 2 succeed; 1, 3, 4 deferred but 1 is bumped from deferral
         # queue by 4; 4, 3 are then drained
-        latencies = [0, 0.05, .051, 0, 0, 0, .11, .01]
+        latencies = [0, 0.05, .051, 0, 0, 0, .11]
         expected_success = 4
 
         contexts_fed_in = []
@@ -1693,7 +1693,7 @@ class TestObjectUpdater(unittest.TestCase):
                                   fake_object_update), \
                 mock.patch('swift.obj.updater.RateLimitedIterator',
                            fake_rate_limited_iterator), \
-                mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+                mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
             daemon.run_once()
         self.assertEqual(expected_success, daemon.stats.successes)
         expected_skipped = expected_total - expected_success
@@ -1719,7 +1719,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual([aorder[o] for o in expected_updates_sent],
                          [aorder[o] for o in actual_updates_sent])
 
-        self.assertEqual([0, 0, 0, 0, 0, 1, 1, 1], captured_skips_stats)
+        self.assertEqual([0, 0, 0, 0, 0, 1, 1], captured_skips_stats)
 
         expected_deferrals = [
             [],
@@ -1729,7 +1729,6 @@ class TestObjectUpdater(unittest.TestCase):
             [objs_fed_in[1], objs_fed_in[3]],
             [objs_fed_in[3], objs_fed_in[4]],
             [objs_fed_in[3]],  # note: rightmost element is drained
-            [objs_fed_in[3]],
         ]
         self.assertEqual(
             expected_deferrals,
@@ -1776,7 +1775,7 @@ class TestObjectUpdater(unittest.TestCase):
         # first pass: 0, 2 and 5 succeed, 1, 3, 4, 6 deferred
         # last 2 deferred items sent before interval elapses
         latencies = [0, .05, 0.051, 0, 0, .11, 0, 0,
-                     0.1, 0, 0.1, 0]  # total 0.42
+                     0.1, 0.1, 0]  # total 0.411
         expected_success = 5
 
         contexts_fed_in = []
@@ -1820,7 +1819,7 @@ class TestObjectUpdater(unittest.TestCase):
                                   fake_object_update), \
                 mock.patch('swift.obj.updater.RateLimitedIterator',
                            fake_rate_limited_iterator), \
-                mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+                mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
             daemon.run_once()
         self.assertEqual(expected_success, daemon.stats.successes)
         expected_skipped = expected_total - expected_success
@@ -1840,7 +1839,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(expected_updates_sent, actual_updates_sent)
 
         # skips (un-drained deferrals) not reported until end of cycle
-        self.assertEqual([0] * 12, captured_skips_stats)
+        self.assertEqual([0] * 10, captured_skips_stats)
 
         objs_fed_in = [ctx['update']['obj'] for ctx in contexts_fed_in]
         expected_deferrals = [
@@ -1856,8 +1855,6 @@ class TestObjectUpdater(unittest.TestCase):
             # note: rightmost element is drained
             [objs_fed_in[1], objs_fed_in[3], objs_fed_in[4], objs_fed_in[6]],
             [objs_fed_in[1], objs_fed_in[3], objs_fed_in[4]],
-            [objs_fed_in[1], objs_fed_in[3], objs_fed_in[4]],
-            [objs_fed_in[1], objs_fed_in[3]],
             [objs_fed_in[1], objs_fed_in[3]],
         ]
         self.assertEqual(
@@ -1911,21 +1908,21 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         it = object_updater.BucketizedUpdateSkippingLimiter(
             [3, 1], self.logger, self.stats, 1000, 10)
         self.assertEqual(1000, it.num_buckets)
-        self.assertEqual(0.1, it.bucket_update_delta)
+        self.assertEqual([10] * 1000, [b.max_rate for b in it.buckets])
         self.assertEqual([3, 1], [x for x in it.iterator])
 
         # rate of 0 implies unlimited
         it = object_updater.BucketizedUpdateSkippingLimiter(
             iter([3, 1]), self.logger, self.stats, 9, 0)
         self.assertEqual(9, it.num_buckets)
-        self.assertEqual(-1, it.bucket_update_delta)
+        self.assertEqual([0] * 9, [b.max_rate for b in it.buckets])
         self.assertEqual([3, 1], [x for x in it.iterator])
 
         # num_buckets is collared at 1
         it = object_updater.BucketizedUpdateSkippingLimiter(
             iter([3, 1]), self.logger, self.stats, 0, 1)
         self.assertEqual(1, it.num_buckets)
-        self.assertEqual(1, it.bucket_update_delta)
+        self.assertEqual([1], [b.max_rate for b in it.buckets])
         self.assertEqual([3, 1], [x for x in it.iterator])
 
     def test_iteration_unlimited(self):
@@ -1963,7 +1960,7 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         # enough capacity for all deferrals
         with mock.patch('swift.obj.updater.time.time',
                         side_effect=[now, now, now, now, now, now]):
-            with mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+            with mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
                 it = object_updater.BucketizedUpdateSkippingLimiter(
                     iter(update_ctxs[:3]), self.logger, self.stats, 1, 10,
                     max_deferred_elements=2,
@@ -1982,7 +1979,7 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         # only space for one deferral
         with mock.patch('swift.obj.updater.time.time',
                         side_effect=[now, now, now, now, now]):
-            with mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+            with mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
                 it = object_updater.BucketizedUpdateSkippingLimiter(
                     iter(update_ctxs[:3]), self.logger, self.stats, 1, 10,
                     max_deferred_elements=1,
@@ -2000,7 +1997,7 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         # only time for one deferral
         with mock.patch('swift.obj.updater.time.time',
                         side_effect=[now, now, now, now, now + 20, now + 20]):
-            with mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+            with mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
                 it = object_updater.BucketizedUpdateSkippingLimiter(
                     iter(update_ctxs[:3]), self.logger, self.stats, 1, 10,
                     max_deferred_elements=2,
@@ -2019,7 +2016,7 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         with mock.patch('swift.obj.updater.time.time',
                         side_effect=[now, now, now, now, now,
                                      now + 20, now + 20]):
-            with mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+            with mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
                 it = object_updater.BucketizedUpdateSkippingLimiter(
                     iter(update_ctxs), self.logger, self.stats, 1, 10,
                     max_deferred_elements=2,
@@ -2048,7 +2045,7 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         # deferrals stick in both buckets
         with mock.patch('swift.obj.updater.time.time',
                         side_effect=[next(time_iter) for _ in range(12)]):
-            with mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+            with mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
                 it = object_updater.BucketizedUpdateSkippingLimiter(
                     iter(update_ctxs_1 + update_ctxs_2),
                     self.logger, self.stats, 4, 10,
@@ -2073,7 +2070,7 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         # oldest deferral bumped from one bucket due to max_deferrals == 3
         with mock.patch('swift.obj.updater.time.time',
                         side_effect=[next(time_iter) for _ in range(10)]):
-            with mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+            with mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
                 it = object_updater.BucketizedUpdateSkippingLimiter(
                     iter(update_ctxs_1 + update_ctxs_2),
                     self.logger, self.stats, 4, 10,
@@ -2097,7 +2094,7 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
         # older deferrals bumped from one bucket due to max_deferrals == 2
         with mock.patch('swift.obj.updater.time.time',
                         side_effect=[next(time_iter) for _ in range(10)]):
-            with mock.patch('swift.obj.updater.time.sleep') as mock_sleep:
+            with mock.patch('swift.common.utils.eventlet.sleep') as mock_sleep:
                 it = object_updater.BucketizedUpdateSkippingLimiter(
                     iter(update_ctxs_1 + update_ctxs_2),
                     self.logger, self.stats, 4, 10,
@@ -2119,16 +2116,8 @@ class TestBucketizedUpdateSkippingLimiter(unittest.TestCase):
 
 
 class TestRateLimiterBucket(unittest.TestCase):
-    def test_wait_until(self):
-        b1 = object_updater.RateLimiterBucket(10)
-        self.assertEqual(10, b1.wait_until)
-        b1.last_time = b1.wait_until
-        self.assertEqual(20, b1.wait_until)
-        b1.last_time = 12345.678
-        self.assertEqual(12355.678, b1.wait_until)
-
     def test_len(self):
-        b1 = object_updater.RateLimiterBucket(10)
+        b1 = object_updater.RateLimiterBucket(0.1)
         b1.deque.append(1)
         b1.deque.append(2)
         self.assertEqual(2, len(b1))
@@ -2136,7 +2125,7 @@ class TestRateLimiterBucket(unittest.TestCase):
         self.assertEqual(1, len(b1))
 
     def test_bool(self):
-        b1 = object_updater.RateLimiterBucket(10)
+        b1 = object_updater.RateLimiterBucket(0.1)
         self.assertFalse(b1)
         b1.deque.append(1)
         self.assertTrue(b1)
@@ -2148,13 +2137,13 @@ class TestRateLimiterBucket(unittest.TestCase):
         b1 = object_updater.RateLimiterBucket(10)
         b2 = object_updater.RateLimiterBucket(10)
 
-        b2.last_time = next(time_iter)
+        b2.running_time = next(time_iter)
         buckets = PriorityQueue()
         buckets.put(b1)
         buckets.put(b2)
         self.assertEqual([b1, b2], [buckets.get_nowait() for _ in range(2)])
 
-        b1.last_time = next(time_iter)
+        b1.running_time = next(time_iter)
         buckets.put(b1)
         buckets.put(b2)
         self.assertEqual([b2, b1], [buckets.get_nowait() for _ in range(2)])
