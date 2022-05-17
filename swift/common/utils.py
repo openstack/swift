@@ -3484,21 +3484,31 @@ class AbstractRateLimiter(object):
     # 1,000 milliseconds = 1 second
     clock_accuracy = 1000.0
 
-    def __init__(self, max_rate, rate_buffer=5, running_time=0):
+    def __init__(self, max_rate, rate_buffer=5, burst_after_idle=False,
+                 running_time=0):
         """
         :param max_rate: The maximum rate per second allowed for the process.
             Must be > 0 to engage rate-limiting behavior.
         :param rate_buffer: Number of seconds the rate counter can drop and be
             allowed to catch up (at a faster than listed rate). A larger number
             will result in larger spikes in rate but better average accuracy.
+        :param burst_after_idle: If False (the default) then the rate_buffer
+            allowance is lost after the rate limiter has not been called for
+            more than rate_buffer seconds. If True then the rate_buffer
+            allowance is preserved during idle periods which means that a burst
+            of requests may be granted immediately after the idle period.
         :param running_time: The running time in milliseconds of the next
             allowable request. Setting this to any time in the past will cause
             the rate limiter to immediately allow requests; setting this to a
             future time will cause the rate limiter to deny requests until that
-            time.
+            time. If ``burst_after_idle`` is True then this can
+            be set to current time (ms) to avoid an initial burst, or set to
+            running_time < (current time - rate_buffer ms) to allow an initial
+            burst.
         """
         self.max_rate = max_rate
         self.rate_buffer_ms = rate_buffer * self.clock_accuracy
+        self.burst_after_idle = burst_after_idle
         self.running_time = running_time
         self.time_per_incr = (self.clock_accuracy / self.max_rate
                               if self.max_rate else 0)
@@ -3535,6 +3545,8 @@ class AbstractRateLimiter(object):
         # Convert rate_buffer to milliseconds and compare
         if now - self.running_time > self.rate_buffer_ms:
             self.running_time = now
+            if self.burst_after_idle:
+                self.running_time -= self.rate_buffer_ms
 
         if now >= self.running_time:
             self.running_time += time_per_request
@@ -3557,9 +3569,11 @@ class AbstractRateLimiter(object):
 
 
 class EventletRateLimiter(AbstractRateLimiter):
-    def __init__(self, max_rate, rate_buffer=5, running_time=0):
+    def __init__(self, max_rate, rate_buffer=5, running_time=0,
+                 burst_after_idle=False):
         super(EventletRateLimiter, self).__init__(
-            max_rate, rate_buffer, running_time)
+            max_rate, rate_buffer=rate_buffer, running_time=running_time,
+            burst_after_idle=burst_after_idle)
 
     def _sleep(self, seconds):
         eventlet.sleep(seconds)
