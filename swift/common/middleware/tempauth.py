@@ -183,9 +183,10 @@ import base64
 
 from eventlet import Timeout
 import six
+from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Response, Request, wsgi_to_str
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
-    HTTPUnauthorized, HTTPMethodNotAllowed
+    HTTPUnauthorized, HTTPMethodNotAllowed, HTTPServiceUnavailable
 
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.middleware.acl import (
@@ -690,7 +691,7 @@ class TempAuth(object):
             self.logger.increment('errors')
             start_response('500 Server Error',
                            [('Content-Type', 'text/plain')])
-            return ['Internal server error.\n']
+            return [b'Internal server error.\n']
 
     def handle_request(self, req):
         """
@@ -719,6 +720,25 @@ class TempAuth(object):
         else:
             req.response = handler(req)
         return req.response
+
+    def _create_new_token(self, memcache_client,
+                          account, account_user, account_id):
+        # Generate new token
+        token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
+        expires = time() + self.token_life
+        groups = self._get_user_groups(account, account_user, account_id)
+        # Save token
+        memcache_token_key = '%s/token/%s' % (self.reseller_prefix, token)
+        memcache_client.set(memcache_token_key, (expires, groups),
+                            time=float(expires - time()),
+                            raise_on_error=True)
+        # Record the token with the user info for future use.
+        memcache_user_key = \
+            '%s/user/%s' % (self.reseller_prefix, account_user)
+        memcache_client.set(memcache_user_key, token,
+                            time=float(expires - time()),
+                            raise_on_error=True)
+        return token, expires
 
     def handle_get_token(self, req):
         """
@@ -827,19 +847,11 @@ class TempAuth(object):
                     token = candidate_token
         # Create a new token if one didn't exist
         if not token:
-            # Generate new token
-            token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
-            expires = time() + self.token_life
-            groups = self._get_user_groups(account, account_user, account_id)
-            # Save token
-            memcache_token_key = '%s/token/%s' % (self.reseller_prefix, token)
-            memcache_client.set(memcache_token_key, (expires, groups),
-                                time=float(expires - time()))
-            # Record the token with the user info for future use.
-            memcache_user_key = \
-                '%s/user/%s' % (self.reseller_prefix, account_user)
-            memcache_client.set(memcache_user_key, token,
-                                time=float(expires - time()))
+            try:
+                token, expires = self._create_new_token(
+                    memcache_client, account, account_user, account_id)
+            except MemcacheConnectionError:
+                return HTTPServiceUnavailable(request=req)
         resp = Response(request=req, headers={
             'x-auth-token': token, 'x-storage-token': token,
             'x-auth-token-expires': str(int(expires - time()))})
