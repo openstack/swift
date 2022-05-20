@@ -317,10 +317,31 @@
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
       - tools/playbooks/saio_single_node_setup/add_s3api.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
+      - tools/playbooks/common/restart_swift.yaml
     run: tools/playbooks/ceph-s3tests/run.yaml
     post-run:
       - tools/playbooks/probetests/post.yaml
       - tools/playbooks/ceph-s3tests/post.yaml
+
+- job:
+    name: swift-tox-func-s3api-tests-tempauth
+    parent: unittests
+    nodeset: centos-8-stream
+    description: |
+      Setup a SAIO dev environment and run our s3api test suite
+    timeout: 1800
+    vars:
+      s3_acl: yes
+      bindep_profile: test py36
+    pre-run:
+      - tools/playbooks/common/install_dependencies.yaml
+      - tools/playbooks/saio_single_node_setup/setup_saio.yaml
+      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
+      - tools/playbooks/saio_single_node_setup/make_rings.yaml
+      - tools/playbooks/common/restart_swift.yaml
+    run: tools/playbooks/s3api-tests/run.yaml
+    post-run:
+      - tools/playbooks/probetests/post.yaml
 
 - job:
     name: swift-probetests-centos-7
@@ -616,7 +637,7 @@
         - swift-tox-func-py36-centos-8-stream-fips:
             irrelevant-files: &functest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(cors|probe)/.*$
+              - ^test/(cors|probe|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-tox-func-encryption-py36-centos-8-stream-fips:
             irrelevant-files: *functest-irrelevant-files
@@ -633,7 +654,7 @@
         - swift-tox-py27:
             irrelevant-files: &unittest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(cors|functional|probe)/.*$
+              - ^test/(cors|functional|probe|s3api)/.*$
         - swift-tox-py36:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py39:
@@ -661,7 +682,7 @@
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
-              - ^test/(unit|functional|probe)/.*$
+              - ^test/(unit|functional|probe|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
             irrelevant-files:
@@ -669,14 +690,21 @@
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               # Also keep doc/s3api -- it holds known failures for these tests
               - ^doc/(requirements.txt|(manpages|source)/.*)$
-              - ^test/(cors|unit|probe)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+        - swift-tox-func-s3api-tests-tempauth:
+            irrelevant-files:
+              - ^(api-ref|releasenotes)/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
+              - ^test/(cors|unit|functional|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-probetests-centos-7:
             irrelevant-files: &probetest-irrelevant-files
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
-              - ^test/(cors|unit|functional)/.*$
+              - ^test/(cors|unit|functional|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-probetests-centos-8-stream:
             irrelevant-files: *probetest-irrelevant-files
@@ -722,6 +750,7 @@
         - swift-tox-func-encryption-py38
         - swift-tox-func-ec-py38
         - swift-func-cors
+        - swift-tox-func-s3api-tests-tempauth
         - swift-probetests-centos-7:
             irrelevant-files: *probetest-irrelevant-files
         - swift-probetests-centos-8-stream:
