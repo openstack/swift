@@ -182,6 +182,8 @@ class ObjectReplicator(Daemon):
         self.default_headers = {
             'Content-Length': '0',
             'user-agent': 'object-replicator %s' % os.getpid()}
+        self.log_rsync_transfers = config_true_value(
+            conf.get('log_rsync_transfers', True))
         self.rsync_error_log_line_length = \
             int(conf.get('rsync_error_log_line_length', 0))
         self.handoffs_first = config_true_value(conf.get('handoffs_first',
@@ -413,8 +415,10 @@ class ObjectReplicator(Daemon):
                 continue
             if result.startswith('cd+'):
                 continue
+            if result.startswith('<') and not self.log_rsync_transfers:
+                continue
             if not ret_val:
-                self.logger.info(result)
+                self.logger.debug(result)
             else:
                 self.logger.error(result)
         if ret_val:
@@ -426,7 +430,8 @@ class ObjectReplicator(Daemon):
             log_method = self.logger.info if results else self.logger.debug
             log_method(
                 "Successful rsync of %(src)s to %(dst)s (%(time).03f)",
-                {'src': args[-2], 'dst': args[-1], 'time': total_time})
+                {'src': args[-2][:-3] + '...', 'dst': args[-1],
+                 'time': total_time})
         return ret_val
 
     def rsync(self, node, job, suffixes):

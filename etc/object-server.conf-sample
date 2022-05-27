@@ -291,6 +291,13 @@ use = egg:swift#recon
 # ring_check_interval = 15.0
 # recon_cache_path = /var/cache/swift
 #
+# By default, per-file rsync transfers are logged at debug if successful and
+# error on failure. During large rebalances (which both increase the number
+# of diskfiles transferred and increases the likelihood of failures), this
+# can overwhelm log aggregation while providing little useful insights.
+# Change this to false to disable per-file logging.
+# log_rsync_transfers = true
+#
 # limits how long rsync error log lines are
 # 0 means to log the entire line
 # rsync_error_log_line_length = 0
