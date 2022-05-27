@@ -1548,6 +1548,7 @@ class TestUtils(unittest.TestCase):
                     self.handleError(record)
 
         logger = logging.getLogger()
+        logger.setLevel(logging.DEBUG)
         handler = CrashyLogger()
         logger.addHandler(handler)
 
