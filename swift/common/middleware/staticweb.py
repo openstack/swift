@@ -282,7 +282,7 @@ class _StaticWebContext(WSGIContext):
         body = b''.join(resp)
         if body:
             listing = json.loads(body)
-        if not listing:
+        if prefix and not listing:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
         headers = {'Content-Type': 'text/html; charset=UTF-8'}

@@ -61,6 +61,7 @@ meta_map = {
                      'web-error': 'error.html'}},
     'c13': {'meta': {'web-listings': 'f',
                      'web-listings-css': 'listing.css'}},
+    'c14': {'meta': {'web-listings': 't'}},
 }
 
 
@@ -271,6 +272,8 @@ class FakeApp(object):
         elif env['PATH_INFO'] == '/v1/a/c12/200error.html':
             return Response(status='200 Ok', body='error file')(env,
                                                                 start_response)
+        elif env['PATH_INFO'] == '/v1/a/c14':
+            return self.listing(env, start_response)
         else:
             raise Exception('Unknown path %r' % env['PATH_INFO'])
 
@@ -344,6 +347,13 @@ class FakeApp(object):
                   "last_modified":"2011-03-24T04:27:52.709100"},
                  {"subdir":"\u2603/\u2603/"}]
             '''.strip()
+        elif env['PATH_INFO'] == '/v1/a/c14' and env['QUERY_STRING'] == \
+                'delimiter=/':
+            headers.update({'X-Container-Object-Count': '0',
+                            'X-Container-Bytes-Used': '0',
+                            'X-Container-Read': '.r:*',
+                            'Content-Type': 'application/json; charset=utf-8'})
+            body = '[]'
         elif 'prefix=' in env['QUERY_STRING']:
             return Response(status='204 No Content')(env, start_response)
         else:
@@ -776,6 +786,16 @@ class TestStaticWeb(unittest.TestCase):
             self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
         self.assertIn(b'index file', resp.body)
+
+    def test_container13empty(self):
+        resp = Request.blank(
+            '/v1/a/c14/').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn(b'Listing of /v1/a/c14/', resp.body)
+        self.assertIn(b'</style>', resp.body)
+        self.assertNotIn(b'<link', resp.body)
+        self.assertNotIn(b'listing.css', resp.body)
+        self.assertNotIn(b'<td', resp.body)
 
     def test_container_404_has_css(self):
         resp = Request.blank('/v1/a/c13/').get_response(
