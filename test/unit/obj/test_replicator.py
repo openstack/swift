@@ -2287,6 +2287,7 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_replicate_skipped_partpower_increase(self):
         _create_test_rings(self.testdir, next_part_power=4)
+        self.replicator.get_local_devices()  # refresh rings
         self.replicator.replicate()
         self.assertEqual(0, self.replicator.job_count)
         self.assertEqual(0, self.replicator.total_stats.attempted)
