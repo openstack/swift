@@ -173,7 +173,7 @@ from swift.container.sharder import make_shard_ranges, sharding_enabled, \
     CleavingContext, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, find_overlapping_ranges, \
     find_paths, rank_paths, finalize_shrinking, DEFAULT_SHARDER_CONF, \
-    ContainerSharderConf
+    ContainerSharderConf, find_paths_with_gaps
 
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1
@@ -225,8 +225,8 @@ def _print_shard_range(sr, level=0):
     print(indent + '%r' % sr.name)
     print(indent + '  objects: %9d, tombstones: %9d, lower: %r'
           % (sr.object_count, sr.tombstones, sr.lower_str))
-    print(indent + '    state: %9s,                        upper: %r'
-          % (sr.state_text, sr.upper_str))
+    print(indent + '    state: %9s, deleted: %d             upper: %r'
+          % (sr.state_text, sr.deleted, sr.upper_str))
 
 
 @contextmanager
@@ -596,6 +596,78 @@ def _find_overlapping_donors(shard_ranges, own_sr, args):
     return acceptor_path, overlapping_donors
 
 
+def _fix_gaps(broker, args, paths_with_gaps):
+    timestamp = Timestamp.now()
+    solutions = []
+    print('Found %d gaps:' % len(paths_with_gaps))
+    for start_path, gap_range, end_path in paths_with_gaps:
+        if end_path[0].state == ShardRange.ACTIVE:
+            expanding_range = end_path[0]
+            solutions.append((gap_range, expanding_range))
+        elif start_path[-1].state == ShardRange.ACTIVE:
+            expanding_range = start_path[-1]
+            solutions.append((gap_range, expanding_range))
+        else:
+            expanding_range = None
+        print('  gap: %r - %r'
+              % (gap_range.lower, gap_range.upper))
+        print('    apparent gap contents:')
+        for sr in broker.get_shard_ranges(marker=gap_range.lower,
+                                          end_marker=gap_range.upper,
+                                          include_deleted=True):
+            _print_shard_range(sr, 3)
+        if expanding_range:
+            print('    gap can be fixed by expanding neighbor range:')
+            _print_shard_range(expanding_range, 3)
+        else:
+            print('Warning: cannot fix gap: non-ACTIVE neighbors')
+
+    if args.max_expanding >= 0:
+        solutions = solutions[:args.max_expanding]
+
+    # it's possible that an expanding range is used twice, expanding both down
+    # and up; if so, we only want one copy of it in our merged shard ranges
+    expanding_ranges = {}
+    for gap_range, expanding_range in solutions:
+        expanding_range.expand([gap_range])
+        expanding_range.timestamp = timestamp
+        expanding_ranges[expanding_range.name] = expanding_range
+
+    print('')
+    print('Repairs necessary to fill gaps.')
+    print('The following expanded shard range(s) will be applied to the DB:')
+    for expanding_range in sorted(expanding_ranges.values(),
+                                  key=lambda s: s.lower):
+        _print_shard_range(expanding_range, 2)
+    print('')
+    print(
+        'It is recommended that no other concurrent changes are made to the \n'
+        'shard ranges while fixing gaps. If necessary, abort this change \n'
+        'and stop any auto-sharding processes before repeating this command.'
+    )
+    print('')
+
+    if not _proceed(args):
+        return EXIT_USER_QUIT
+
+    broker.merge_shard_ranges(list(expanding_ranges.values()))
+    print('Run container-replicator to replicate the changes to other nodes.')
+    print('Run container-sharder on all nodes to fill gaps.')
+    return EXIT_SUCCESS
+
+
+def repair_gaps(broker, args):
+    shard_ranges = broker.get_shard_ranges()
+    paths_with_gaps = find_paths_with_gaps(shard_ranges)
+    if paths_with_gaps:
+        return _fix_gaps(broker, args, paths_with_gaps)
+    else:
+        print('Found one complete sequence of %d shard ranges with no gaps.'
+              % len(shard_ranges))
+        print('No repairs necessary.')
+        return EXIT_SUCCESS
+
+
 def print_repair_solution(acceptor_path, overlapping_donors):
     print('Donors:')
     for donor in sorted(overlapping_donors):
@@ -647,12 +719,7 @@ def find_repair_solution(shard_ranges, own_sr, args):
     return acceptor_path, overlapping_donors
 
 
-def repair_shard_ranges(broker, args):
-    if not broker.is_root_container():
-        print('WARNING: Shard containers cannot be repaired.')
-        print('This command should be used on a root container.')
-        return EXIT_ERROR
-
+def repair_overlaps(broker, args):
     shard_ranges = broker.get_shard_ranges()
     if not shard_ranges:
         print('No shards found, nothing to do.')
@@ -680,6 +747,17 @@ def repair_shard_ranges(broker, args):
     print('Run container-replicator to replicate the changes to other nodes.')
     print('Run container-sharder on all nodes to repair shards.')
     return EXIT_SUCCESS
+
+
+def repair_shard_ranges(broker, args):
+    if not broker.is_root_container():
+        print('WARNING: Shard containers cannot be repaired.')
+        print('This command should be used on a root container.')
+        return EXIT_ERROR
+    if args.gaps:
+        return repair_gaps(broker, args)
+    else:
+        return repair_overlaps(broker, args)
 
 
 def analyze_shard_ranges(args):
@@ -720,13 +798,17 @@ def _add_find_args(parser):
         'than minimum-shard-size rows.')
 
 
-def _add_replace_args(parser):
+def _add_account_prefix_arg(parser):
     parser.add_argument(
         '--shards_account_prefix', metavar='shards_account_prefix', type=str,
         required=False, default='.shards_',
         help="Prefix for shards account. The default is '.shards_'. This "
              "should only be changed if the auto_create_account_prefix option "
              "has been similarly changed in swift.conf.")
+
+
+def _add_replace_args(parser):
+    _add_account_prefix_arg(parser)
     parser.add_argument(
         '--replace-timeout', type=int, default=600,
         help='Minimum DB timeout to use when replacing shard ranges.')
@@ -754,6 +836,14 @@ def _add_prompt_args(parser):
         '--dry-run', '-n', action='store_true', default=False,
         help='Do not apply any shard range changes to broker. '
              'Cannot be used with --yes option.')
+
+
+def _add_max_expanding_arg(parser):
+    parser.add_argument('--max-expanding', nargs='?',
+                        type=_positive_int,
+                        default=USE_SHARDER_DEFAULT,
+                        help='Maximum number of shards that should be '
+                             'expanded. Defaults to unlimited.')
 
 
 def _make_parser():
@@ -876,11 +966,7 @@ def _make_parser():
                                      'than 1 may result in temporary gaps in '
                                      'object listings until all selected '
                                      'shards have shrunk.')
-    compact_parser.add_argument('--max-expanding', nargs='?',
-                                type=_positive_int,
-                                default=USE_SHARDER_DEFAULT,
-                                help='Maximum number of shards that should be '
-                                     'expanded. Defaults to unlimited.')
+    _add_max_expanding_arg(compact_parser)
     compact_parser.set_defaults(func=compact_shard_ranges)
 
     # repair
@@ -889,6 +975,12 @@ def _make_parser():
         help='Repair overlapping shard ranges. No action will be taken '
              'without user confirmation unless the -y option is used.')
     _add_prompt_args(repair_parser)
+    # TODO: maybe this should be a separate subcommand given that it needs
+    #  some extra options vs repairing overlaps?
+    repair_parser.add_argument(
+        '--gaps', action='store_true', default=False,
+        help='Repair gaps in shard ranges.')
+    _add_max_expanding_arg(repair_parser)
     repair_parser.set_defaults(func=repair_shard_ranges)
 
     # analyze

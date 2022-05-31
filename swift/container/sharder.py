@@ -80,25 +80,78 @@ def make_shard_ranges(broker, shard_data, shards_account_prefix):
     return shard_ranges
 
 
-def find_missing_ranges(shard_ranges):
-    """
-    Find any ranges in the entire object namespace that are not covered by any
-    shard range in the given list.
+def _find_discontinuity(paths, start):
+    # select the path that reaches furthest from start into the namespace
+    start_paths = [path for path in paths if path.lower == start]
+    start_paths.sort(key=lambda p: p.upper)
+    longest_start_path = start_paths[-1]
+    # search for paths that end further into the namespace (note: these must
+    # have a lower that differs from the start_path upper, otherwise they would
+    # be part of the start_path longer!)
+    end_paths = [path for path in paths
+                 if path.upper > longest_start_path.upper]
+    if end_paths:
+        # select those that begin nearest the start of the namespace
+        end_paths.sort(key=lambda p: p.lower)
+        end_paths = [p for p in end_paths if p.lower == end_paths[0].lower]
+        # select the longest of those
+        end_paths.sort(key=lambda p: p.upper)
+        longest_end_path = end_paths[-1]
+    else:
+        longest_end_path = None
+    return longest_start_path, longest_end_path
 
-    :param shard_ranges: A list of :class:`~swift.utils.ShardRange`
-    :return: a list of missing ranges
+
+def find_paths_with_gaps(shard_ranges):
     """
-    gaps = []
-    if not shard_ranges:
-        return ((ShardRange.MIN, ShardRange.MAX),)
-    if shard_ranges[0].lower > ShardRange.MIN:
-        gaps.append((ShardRange.MIN, shard_ranges[0].lower))
-    for first, second in zip(shard_ranges, shard_ranges[1:]):
-        if first.upper < second.lower:
-            gaps.append((first.upper, second.lower))
-    if shard_ranges[-1].upper < ShardRange.MAX:
-        gaps.append((shard_ranges[-1].upper, ShardRange.MAX))
-    return gaps
+    Find gaps in the shard ranges and pairs of shard range paths that lead to
+    and from those gaps. For each gap a single pair of adjacent paths is
+    selected. The concatenation of all selected paths and gaps will span the
+    entire namespace with no overlaps.
+
+    :param shard_ranges: a list of instances of ShardRange.
+    :return: A list of tuples of ``(start_path, gap_range, end_path)`` where
+        ``start_path`` is a list of ShardRanges leading to the gap,
+        ``gap_range`` is a ShardRange synthesized to describe the namespace
+        gap, and ``end_path`` is a list of ShardRanges leading from the gap.
+        When gaps start or end at the namespace minimum or maximum bounds,
+        ``start_path`` and ``end_path`` may be 'null' paths that contain a
+        single ShardRange covering either the minimum or maximum of the
+        namespace.
+    """
+    timestamp = Timestamp.now()
+    shard_ranges = ShardRangeList(shard_ranges)
+    # note: find_paths results do not include shrinking ranges
+    paths = find_paths(shard_ranges)
+    # add paths covering no namespace at start and end of namespace to ensure
+    # that a start_path and end_path is always found even when there is a gap
+    # at the start or end of the namespace
+    null_start = ShardRange('null/start', timestamp,
+                            lower=ShardRange.MIN,
+                            upper=ShardRange.MIN,
+                            state=ShardRange.FOUND)
+    null_end = ShardRange('null/end', timestamp,
+                          lower=ShardRange.MAX,
+                          upper=ShardRange.MAX,
+                          state=ShardRange.FOUND)
+    paths.extend([ShardRangeList([null_start]), ShardRangeList([null_end])])
+    paths_with_gaps = []
+    start = null_start.lower
+    while True:
+        start_path, end_path = _find_discontinuity(paths, start)
+        if end_path is None:
+            # end of namespace reached
+            break
+        start = end_path.lower
+        if start_path.upper > end_path.lower:
+            # overlap
+            continue
+        gap_range = ShardRange('gap/index_%06d' % len(paths_with_gaps),
+                               timestamp,
+                               lower=start_path.upper,
+                               upper=end_path.lower)
+        paths_with_gaps.append((start_path, gap_range, end_path))
+    return paths_with_gaps
 
 
 def find_overlapping_ranges(shard_ranges):
@@ -1040,12 +1093,12 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         if own_shard_range.state in (ShardRange.SHARDING, ShardRange.SHARDED):
             shard_ranges = [sr for sr in broker.get_shard_ranges()
                             if sr.state != ShardRange.SHRINKING]
-            missing_ranges = find_missing_ranges(shard_ranges)
-            if missing_ranges:
+            paths_with_gaps = find_paths_with_gaps(shard_ranges)
+            if paths_with_gaps:
                 warnings.append(
                     'missing range(s): %s' %
-                    ' '.join(['%s-%s' % (lower, upper)
-                              for lower, upper in missing_ranges]))
+                    ' '.join(['%s-%s' % (gap.lower, gap.upper)
+                              for (_, gap, _) in paths_with_gaps]))
 
         for state in ShardRange.STATES:
             if state == ShardRange.SHRINKING:
@@ -1970,6 +2023,10 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             # hammering the root
             own_shard_range.reported = True
             broker.merge_shard_ranges(own_shard_range)
+            self.logger.debug(
+                'updated root objs=%d, tombstones=%s (%s)',
+                own_shard_range.object_count, own_shard_range.tombstones,
+                quote(broker.path))
 
     def _process_broker(self, broker, node, part):
         broker.get_info()  # make sure account/container are populated
