@@ -41,6 +41,11 @@ def swift_acl_translate(acl, group='', user='', xml=False):
     #      ['HTTP_X_CONTAINER_READ', group + ':' + user]]
     swift_acl['private'] = [['X-Container-Write', '.'],
                             ['X-Container-Read', '.']]
+
+    # Swift doesn't have per-object ACLs, so this is best-effort
+    swift_acl['bucket-owner-full-control'] = swift_acl['private']
+    swift_acl['bucket-owner-read'] = swift_acl['private']
+
     if xml:
         # We are working with XML and need to parse it
         try:
@@ -62,7 +67,7 @@ def swift_acl_translate(acl, group='', user='', xml=False):
             else:
                 acl = 'unsupported'
 
-    if acl == 'authenticated-read':
+    if acl in ('authenticated-read', 'log-delivery-write'):
         raise S3NotImplemented()
     elif acl not in swift_acl:
         raise ACLError()
