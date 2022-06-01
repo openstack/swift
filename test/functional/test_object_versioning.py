@@ -2578,7 +2578,7 @@ class TestHistoryLocationWithVersioning(TestVersionsLocationWithVersioning):
 
 class TestVersioningAccountTempurl(TestObjectVersioningBase):
     env = TestTempurlEnv
-    digest_name = 'sha1'
+    digest_name = 'sha256'
 
     def setUp(self):
         self.env.versions_header_key = 'X-Versions-Enabled'
@@ -2689,7 +2689,7 @@ class TestVersioningAccountTempurl(TestObjectVersioningBase):
 
 class TestVersioningContainerTempurl(TestObjectVersioningBase):
     env = TestContainerTempurlEnv
-    digest_name = 'sha1'
+    digest_name = 'sha256'
 
     def setUp(self):
         self.env.versions_header_key = 'X-Versions-Enabled'

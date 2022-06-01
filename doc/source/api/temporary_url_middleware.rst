@@ -38,7 +38,7 @@ parameters:
 .. code::
 
     https://swift-cluster.example.com/v1/my_account/container/object
-    ?temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709
+    ?temp_url_sig=732fcac368abb10c78a4cbe95c3fab7f311584532bf779abd5074e13cbe8b88b
     &temp_url_expires=1323479485
     &filename=My+Test+File.pdf
 
@@ -47,9 +47,11 @@ The example shows these elements:
 
 **Object URL**: Required. The full path URL to the object.
 
-**temp\_url\_sig**: Required. An HMAC-SHA1 cryptographic signature that defines
+**temp\_url\_sig**: Required. An HMAC cryptographic signature that defines
 the allowed HTTP method, expiration date, full path to the object, and the
-secret key for the temporary URL.
+secret key for the temporary URL. The digest used (for example, SHA-256 or
+SHA-512) must be supported by the cluster; supported digests will be listed
+in the ``tempurl.allowed_digests`` key in the cluster's capabilities.
 
 **temp\_url\_expires**: Required. An expiration date as a UNIX Epoch timestamp
 or ISO 8601 UTC timestamp. For example, ``1390852007`` or
@@ -72,7 +74,7 @@ by all object names for which the URL is valid.
 .. code::
 
     https://swift-cluster.example.com/v1/my_account/container/my_prefix/object
-    ?temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709
+    ?temp_url_sig=732fcac368abb10c78a4cbe95c3fab7f311584532bf779abd5074e13cbe8b88b
     &temp_url_expires=2011-12-10T01:11:25Z
     &temp_url_prefix=my_prefix
 
@@ -117,15 +119,15 @@ Note
 Changing these headers invalidates any previously generated temporary
 URLs within 60 seconds, which is the memcache time for the key.
 
-HMAC-SHA1 signature for temporary URLs
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+HMAC signature for temporary URLs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Temporary URL middleware uses an HMAC-SHA1 cryptographic signature. This
+Temporary URL middleware uses an HMAC cryptographic signature. This
 signature includes these elements:
 
 -  The allowed method. Typically, **GET** or **PUT**.
 
--  Expiry time. In the example for the HMAC-SHA1 signature for temporary
+-  Expiry time. In the example for the HMAC-SHA256 signature for temporary
    URLs below, the expiry time is set to ``86400`` seconds (or 1 day)
    into the future. Please be aware that you have to use a UNIX timestamp
    for generating the signature (in the API request it is also allowed to
@@ -141,12 +143,12 @@ signature includes these elements:
 These sample Python codes show how to compute a signature for use with
 temporary URLs:
 
-**Example HMAC-SHA1 signature for object-based temporary URLs**
+**Example HMAC-SHA256 signature for object-based temporary URLs**
 
 .. code::
 
     import hmac
-    from hashlib import sha1
+    from hashlib import sha256
     from time import time
     method = 'GET'
     duration_in_seconds = 60*60*24
@@ -154,14 +156,14 @@ temporary URLs:
     path = '/v1/my_account/container/object'
     key = 'MYKEY'
     hmac_body = '%s\n%s\n%s' % (method, expires, path)
-    signature = hmac.new(key, hmac_body, sha1).hexdigest()
+    signature = hmac.new(key, hmac_body, sha256).hexdigest()
 
-**Example HMAC-SHA1 signature for prefix-based temporary URLs**
+**Example HMAC-SHA512 signature for prefix-based temporary URLs**
 
 .. code::
 
     import hmac
-    from hashlib import sha1
+    from hashlib import sha512
     from time import time
     method = 'GET'
     duration_in_seconds = 60*60*24
@@ -169,9 +171,9 @@ temporary URLs:
     path = 'prefix:/v1/my_account/container/my_prefix'
     key = 'MYKEY'
     hmac_body = '%s\n%s\n%s' % (method, expires, path)
-    signature = hmac.new(key, hmac_body, sha1).hexdigest()
+    signature = hmac.new(key, hmac_body, sha512).hexdigest()
 
-Do not URL-encode the path when you generate the HMAC-SHA1 signature.
+Do not URL-encode the path when you generate the HMAC signature.
 However, when you make the actual HTTP request, you should properly
 URL-encode the URL.
 
@@ -199,6 +201,11 @@ parameters. For example, you might run this command:
 .. code::
 
     $ swift tempurl GET 3600 /v1/my_account/container/object MYKEY
+
+.. note::
+
+    The ``swift`` tool is not yet updated and continues to use the
+    deprecated cipher SHA1.
 
 This command returns the path:
 

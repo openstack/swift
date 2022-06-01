@@ -40,7 +40,6 @@ import uuid
 import functools
 import platform
 import email.parser
-from hashlib import sha1
 from random import random, shuffle
 from contextlib import contextmanager, closing
 import ctypes
@@ -283,7 +282,7 @@ except (InvalidHashPathConfigError, IOError):
     pass
 
 
-def get_hmac(request_method, path, expires, key, digest=sha1,
+def get_hmac(request_method, path, expires, key, digest="sha1",
              ip_range=None):
     """
     Returns the hexdigest string of the HMAC (see RFC 2104) for
@@ -294,7 +293,8 @@ def get_hmac(request_method, path, expires, key, digest=sha1,
     :param expires: Unix timestamp as an int for when the URL
                     expires.
     :param key: HMAC shared secret.
-    :param digest: constructor for the digest to use in calculating the HMAC
+    :param digest: constructor or the string name for the digest to use in
+                   calculating the HMAC
                    Defaults to SHA1
     :param ip_range: The ip range from which the resource is allowed
                      to be accessed. We need to put the ip_range as the
@@ -319,6 +319,9 @@ def get_hmac(request_method, path, expires, key, digest=sha1,
         fmt % (part if isinstance(part, six.binary_type)
                else part.encode("utf-8"))
         for fmt, part in zip(formats, parts))
+
+    if six.PY2 and isinstance(digest, six.string_types):
+        digest = getattr(hashlib, digest)
 
     return hmac.new(key, message, digest).hexdigest()
 
