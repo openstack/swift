@@ -16,6 +16,7 @@
 import unittest
 
 from swift.common.swob import Request
+from swift.common.middleware.s3api import s3response
 from swift.common.middleware.s3api.acl_utils import handle_acl_header
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
@@ -26,29 +27,47 @@ class TestS3ApiAclUtils(S3ApiTestCase):
     def setUp(self):
         super(TestS3ApiAclUtils, self).setUp()
 
-    def test_handle_acl_header(self):
-        def check_generated_acl_header(acl, targets):
-            req = Request.blank('/bucket',
-                                headers={'X-Amz-Acl': acl})
+    def check_generated_acl_header(self, acl, expected):
+        req = Request.blank('/bucket',
+                            headers={'X-Amz-Acl': acl})
+        try:
             handle_acl_header(req)
-            for target in targets:
+        except s3response.ErrorResponse as e:
+            if isinstance(e, expected):
+                self.assertEqual(expected._status, e._status)
+            else:
+                raise
+        else:
+            for target in expected:
                 self.assertTrue(target[0] in req.headers)
                 self.assertEqual(req.headers[target[0]], target[1])
 
-        check_generated_acl_header('public-read',
-                                   [('X-Container-Read', '.r:*,.rlistings')])
-        check_generated_acl_header('public-read-write',
-                                   [('X-Container-Read', '.r:*,.rlistings'),
-                                    ('X-Container-Write', '.r:*')])
-        check_generated_acl_header('private',
-                                   [('X-Container-Read', '.'),
-                                    ('X-Container-Write', '.')])
-        check_generated_acl_header('bucket-owner-full-control',
-                                   [('X-Container-Read', '.'),
-                                    ('X-Container-Write', '.')])
-        check_generated_acl_header('bucket-owner-read',
-                                   [('X-Container-Read', '.'),
-                                    ('X-Container-Write', '.')])
+    def test_canned_acl_header(self):
+        # https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html#canned-acl
+        self.check_generated_acl_header(
+            'private',
+            [('X-Container-Read', '.'), ('X-Container-Write', '.')])
+        self.check_generated_acl_header(
+            'public-read', [('X-Container-Read', '.r:*,.rlistings')])
+        self.check_generated_acl_header(
+            'public-read-write', [('X-Container-Read', '.r:*,.rlistings'),
+                                  ('X-Container-Write', '.r:*')])
+        self.check_generated_acl_header(
+            'aws-exec-read', s3response.InvalidArgument)
+        self.check_generated_acl_header(
+            'authenticated-read', s3response.S3NotImplemented)
+        self.check_generated_acl_header(
+            'bucket-owner-read', [('X-Container-Read', '.'),
+                                  ('X-Container-Write', '.')])
+        self.check_generated_acl_header(
+            'bucket-owner-full-control', [('X-Container-Read', '.'),
+                                          ('X-Container-Write', '.')])
+        self.check_generated_acl_header(
+            'log-delivery-write', s3response.S3NotImplemented)
+
+        # the 400 response is the catch all
+        self.check_generated_acl_header(
+            'some-non-sense', s3response.InvalidArgument)
 
 
 if __name__ == '__main__':
