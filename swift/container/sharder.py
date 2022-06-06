@@ -2146,7 +2146,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         self._zero_stats()
         self._local_device_ids = set()
         dirs = []
-        self.ips = whataremyips(bind_ip=self.bind_ip)
+        self.ips = whataremyips(self.bind_ip)
         for node in self.ring.devs:
             device_path = self._check_node(node)
             if not device_path:

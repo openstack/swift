@@ -2745,25 +2745,25 @@ def expand_ipv6(address):
     return socket.inet_ntop(socket.AF_INET6, packed_ip)
 
 
-def whataremyips(bind_ip=None):
+def whataremyips(ring_ip=None):
     """
     Get "our" IP addresses ("us" being the set of services configured by
     one `*.conf` file). If our REST listens on a specific address, return it.
     Otherwise, if listen on '0.0.0.0' or '::' return all addresses, including
     the loopback.
 
-    :param str bind_ip: Optional bind_ip from a config file; may be IP address
-                        or hostname.
+    :param str ring_ip: Optional ring_ip/bind_ip from a config file; may be
+                        IP address or hostname.
     :returns: list of Strings of ip addresses
     """
-    if bind_ip:
+    if ring_ip:
         # See if bind_ip is '0.0.0.0'/'::'
         try:
             _, _, _, _, sockaddr = socket.getaddrinfo(
-                bind_ip, None, 0, socket.SOCK_STREAM, 0,
+                ring_ip, None, 0, socket.SOCK_STREAM, 0,
                 socket.AI_NUMERICHOST)[0]
             if sockaddr[0] not in ('0.0.0.0', '::'):
-                return [bind_ip]
+                return [ring_ip]
         except socket.gaierror:
             pass
 

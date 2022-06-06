@@ -261,6 +261,36 @@ class TestObjectReplicator(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
         rmtree(self.recon_cache, ignore_errors=1)
 
+    def test_ring_ip_and_bind_ip(self):
+        # make clean base_conf
+        base_conf = dict(self.conf)
+        for key in ('bind_ip', 'ring_ip'):
+            base_conf.pop(key, None)
+
+        # default ring_ip is always 0.0.0.0
+        self.conf = base_conf
+        self._create_replicator()
+        self.assertEqual('0.0.0.0', self.replicator.ring_ip)
+
+        # bind_ip works fine for legacy configs
+        self.conf = dict(base_conf)
+        self.conf['bind_ip'] = '192.168.1.42'
+        self._create_replicator()
+        self.assertEqual('192.168.1.42', self.replicator.ring_ip)
+
+        # ring_ip works fine by-itself
+        self.conf = dict(base_conf)
+        self.conf['ring_ip'] = '192.168.1.43'
+        self._create_replicator()
+        self.assertEqual('192.168.1.43', self.replicator.ring_ip)
+
+        # if you have both ring_ip wins
+        self.conf = dict(base_conf)
+        self.conf['bind_ip'] = '192.168.1.44'
+        self.conf['ring_ip'] = '192.168.1.45'
+        self._create_replicator()
+        self.assertEqual('192.168.1.45', self.replicator.ring_ip)
+
     def test_handoff_replication_setting_warnings(self):
         conf_tests = [
             # (config, expected_warning)

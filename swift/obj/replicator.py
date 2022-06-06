@@ -134,7 +134,7 @@ class ObjectReplicator(Daemon):
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.bind_ip = conf.get('bind_ip', '0.0.0.0')
+        self.ring_ip = conf.get('ring_ip', conf.get('bind_ip', '0.0.0.0'))
         self.servers_per_port = int(conf.get('servers_per_port', '0') or 0)
         self.port = None if self.servers_per_port else \
             int(conf.get('bind_port', 6200))
@@ -307,7 +307,7 @@ class ObjectReplicator(Daemon):
         This is the device names, e.g. "sdq" or "d1234" or something, not
         the full ring entries.
         """
-        ips = whataremyips(self.bind_ip)
+        ips = whataremyips(self.ring_ip)
         local_devices = set()
         for policy in self.policies:
             self.load_object_ring(policy)
@@ -901,7 +901,7 @@ class ObjectReplicator(Daemon):
             policies will be returned
         """
         jobs = []
-        ips = whataremyips(self.bind_ip)
+        ips = whataremyips(self.ring_ip)
         for policy in self.policies:
             # Skip replication if next_part_power is set. In this case
             # every object is hard-linked twice, but the replicator can't
