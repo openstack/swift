@@ -43,6 +43,12 @@ class TestS3ApiAclUtils(S3ApiTestCase):
         check_generated_acl_header('private',
                                    [('X-Container-Read', '.'),
                                     ('X-Container-Write', '.')])
+        check_generated_acl_header('bucket-owner-full-control',
+                                   [('X-Container-Read', '.'),
+                                    ('X-Container-Write', '.')])
+        check_generated_acl_header('bucket-owner-read',
+                                   [('X-Container-Read', '.'),
+                                    ('X-Container-Write', '.')])
 
 
 if __name__ == '__main__':
