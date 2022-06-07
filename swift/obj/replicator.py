@@ -608,8 +608,9 @@ class ObjectReplicator(Daemon):
         try:
             tpool.execute(shutil.rmtree, path)
         except OSError as e:
-            if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
-                # If there was a race to create or delete, don't worry
+            if e.errno not in (errno.ENOENT, errno.ENOTEMPTY, errno.ENODATA):
+                # Don't worry if there was a race to create or delete,
+                # or some disk corruption that happened after the sync
                 raise
 
     def delete_handoff_objs(self, job, delete_objs):

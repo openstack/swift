@@ -8560,6 +8560,59 @@ class TestSuffixHashes(unittest.TestCase):
             )
             self.assertTrue(os.path.exists(quarantine_path))
 
+    def test_auditor_hashdir_not_listable(self):
+        def list_locations(dirname, datadir):
+            return [(loc.path, loc.device, loc.partition, loc.policy)
+                    for loc in diskfile.object_audit_location_generator(
+                    devices=dirname, datadir=datadir, mount_check=False)]
+
+        real_listdir = os.listdir
+
+        def splode_if_endswith(suffix, err):
+            def sploder(path):
+                if path.endswith(suffix):
+                    raise OSError(err, os.strerror(err))
+                else:
+                    return real_listdir(path)
+
+            return sploder
+
+        with temptree([]) as tmpdir:
+            hashdir1 = os.path.join(tmpdir, "sdf", "objects", "2607", "b54",
+                                    "fe450ec990a88cc4b252b181bab04b54")
+            os.makedirs(hashdir1)
+            with open(os.path.join(hashdir1, '1656032666.98003.ts'), 'w'):
+                pass
+            hashdir2 = os.path.join(tmpdir, "sdf", "objects", "2809", "afd",
+                                    "7089ab48d955ab0851fc51cc17a34afd")
+            os.makedirs(hashdir2)
+            with open(os.path.join(hashdir2, '1656080624.31899.ts'), 'w'):
+                pass
+
+            expected = [(hashdir2, 'sdf', '2809', POLICIES[0])]
+
+            # Parts that look like files are just skipped
+            with mock.patch('os.listdir', splode_if_endswith(
+                    "2607", errno.ENOTDIR)):
+                self.assertEqual(expected, list_locations(tmpdir, 'objects'))
+            diskfile.clear_auditor_status(tmpdir, 'objects')
+            # ENODATA on a suffix is ok
+            with mock.patch('os.listdir', splode_if_endswith(
+                    "b54", errno.ENODATA)):
+                self.assertEqual(expected, list_locations(tmpdir, 'objects'))
+            diskfile.clear_auditor_status(tmpdir, 'objects')
+
+            # sanity the other way
+            expected = [(hashdir1, 'sdf', '2607', POLICIES[0])]
+            with mock.patch('os.listdir', splode_if_endswith(
+                    "2809", errno.ENODATA)):
+                self.assertEqual(expected, list_locations(tmpdir, 'objects'))
+            diskfile.clear_auditor_status(tmpdir, 'objects')
+            with mock.patch('os.listdir', splode_if_endswith(
+                    "afd", errno.ENOTDIR)):
+                self.assertEqual(expected, list_locations(tmpdir, 'objects'))
+            diskfile.clear_auditor_status(tmpdir, 'objects')
+
     def test_hash_suffix_cleanup_ondisk_files_enodata_quarantined(self):
         for policy in self.iter_policies():
             df = self.df_router[policy].get_diskfile(
