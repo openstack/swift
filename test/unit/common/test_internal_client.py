@@ -25,7 +25,8 @@ from textwrap import dedent
 import six
 from six.moves import range, zip_longest
 from six.moves.urllib.parse import quote, parse_qsl
-from swift.common import exceptions, internal_client, request_helpers, swob
+from swift.common import exceptions, internal_client, request_helpers, swob, \
+    utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
@@ -438,6 +439,35 @@ class TestInternalClient(unittest.TestCase):
             None, 'some_agent', 1, use_replication_network=False,
             app=FakeApp(self))
         client.make_request('GET', '/', {}, (200,))
+
+    def test_make_request_clears_txn_id_after_calling_app(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test, logger):
+                def fake_app(env, start_response):
+                    self.app.logger.txn_id = 'foo'
+                    self.app.logger.debug('Inside of request')
+                    start_response('200 Ok', [('Content-Length', '0')])
+                    return []
+
+                self.test = test
+                self.user_agent = 'some_agent'
+                self.app = fake_app
+                self.app.logger = logger
+                self.request_tries = 1
+                self.use_replication_network = False
+
+        fake_logger = debug_logger()
+        logger = utils.LogAdapter(fake_logger, 'test-server')
+        logger.debug('Before request')
+        client = InternalClient(self, logger)
+        client.make_request('GET', '/', {}, (200,))
+        logger.debug('After request')
+        self.assertEqual([(args[0], kwargs['extra'].get('txn_id'))
+                          for args, kwargs in fake_logger.log_dict['debug']], [
+            ('Before request', None),
+            ('Inside of request', 'foo'),
+            ('After request', None),
+        ])
 
     def test_make_request_defaults_replication_network_header(self):
         class FakeApp(FakeSwift):

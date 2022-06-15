@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from eventlet import sleep, Timeout
+from eventlet import sleep, Timeout, spawn
 from eventlet.green import httplib, socket
 import json
 import six
@@ -206,7 +206,8 @@ class InternalClient(object):
             if params:
                 req.params = params
             try:
-                resp = req.get_response(self.app)
+                # execute in a separate greenthread to not polute corolocals
+                resp = spawn(req.get_response, self.app).wait()
             except (Exception, Timeout):
                 exc_type, exc_value, exc_traceback = exc_info()
             else:
