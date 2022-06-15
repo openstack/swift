@@ -340,7 +340,7 @@ DEFAULT_OUTGOING_REMOVE_HEADERS = 'x-object-meta-*'
 #: '*' to indicate a prefix match.
 DEFAULT_OUTGOING_ALLOW_HEADERS = 'x-object-meta-public-*'
 
-DEFAULT_ALLOWED_DIGESTS = 'sha256 sha512'
+DEFAULT_ALLOWED_DIGESTS = 'sha1 sha256 sha512'
 DEPRECATED_DIGESTS = {'sha1'}
 SUPPORTED_DIGESTS = set(DEFAULT_ALLOWED_DIGESTS.split()) | DEPRECATED_DIGESTS
 
@@ -855,9 +855,15 @@ def filter_factory(global_conf, **local_conf):
 
     deprecated = allowed_digests & DEPRECATED_DIGESTS
     if deprecated:
-        logger.warning('The following digest algorithms are configured but '
-                       'deprecated: %s. Support will be removed in a future '
-                       'release.', ', '.join(deprecated))
+        if not conf.get('allowed_digests'):
+            logger.warning('The following digest algorithms are allowed by '
+                           'default but deprecated: %s. Support will be '
+                           'disabled by default in a future release, and '
+                           'later removed entirely.', ', '.join(deprecated))
+        else:
+            logger.warning('The following digest algorithms are configured '
+                           'but deprecated: %s. Support will be removed in a '
+                           'future release.', ', '.join(deprecated))
 
     if not allowed_digests:
         raise ValueError('No valid digest algorithms are configured '

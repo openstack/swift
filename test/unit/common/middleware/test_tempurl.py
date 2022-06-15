@@ -131,11 +131,9 @@ class TestTempURL(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
 
     def assert_valid_sig(self, expires, path, keys, sig, environ=None,
-                         prefix=None, tempurl=None):
+                         prefix=None):
         if not environ:
             environ = {}
-        if tempurl is None:
-            tempurl = self.tempurl
         if six.PY3 and isinstance(sig, six.binary_type):
             sig = sig.decode('utf-8')
         environ['QUERY_STRING'] = 'temp_url_sig=%s&temp_url_expires=%s' % (
@@ -143,8 +141,8 @@ class TestTempURL(unittest.TestCase):
         if prefix is not None:
             environ['QUERY_STRING'] += '&temp_url_prefix=%s' % prefix
         req = self._make_request(path, keys=keys, environ=environ)
-        tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
-        resp = req.get_response(tempurl)
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['content-disposition'],
                          'attachment; filename="o"; ' + "filename*=UTF-8''o")
@@ -161,11 +159,8 @@ class TestTempURL(unittest.TestCase):
         key = b'abc'
         hmac_body = ('%s\n%i\n%s' % (method, expires, path)).encode('utf-8')
 
-        tempurl1 = tempurl.filter_factory({
-            'allowed_digests': 'sha1'})(self.auth)
-        tempurl1.logger = self.logger
         sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
-        self.assert_valid_sig(expires, path, [key], sig, tempurl=tempurl1)
+        self.assert_valid_sig(expires, path, [key], sig)
 
         sig = hmac.new(key, hmac_body, hashlib.sha256).hexdigest()
         self.assert_valid_sig(expires, path, [key], sig)
@@ -1629,7 +1624,7 @@ class TestSwiftInfo(unittest.TestCase):
                          set(('x-object-meta-*',)))
         self.assertEqual(set(info['outgoing_allow_headers']),
                          set(('x-object-meta-public-*',)))
-        self.assertEqual(info['allowed_digests'], ['sha256', 'sha512'])
+        self.assertEqual(info['allowed_digests'], ['sha1', 'sha256', 'sha512'])
 
     def test_non_default_methods(self):
         tempurl.filter_factory({
