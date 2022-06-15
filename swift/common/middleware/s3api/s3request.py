@@ -916,6 +916,8 @@ class S3Request(swob.Request):
         src_resp = self.get_response(app, 'HEAD', src_bucket,
                                      swob.str_to_wsgi(src_obj),
                                      headers=headers, query=query)
+        # we can't let this HEAD req spoil our COPY
+        self.headers.pop('x-backend-storage-policy-index')
         if src_resp.status_int == 304:  # pylint: disable-msg=E1101
             raise PreconditionFailed()
 

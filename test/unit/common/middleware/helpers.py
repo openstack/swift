@@ -189,7 +189,8 @@ class FakeSwift(object):
 
         # simulate object GET/HEAD
         elif method in ('GET', 'HEAD') and obj:
-            req.headers['X-Backend-Storage-Policy-Index'] = '2'
+            req.headers['X-Backend-Storage-Policy-Index'] = headers.get(
+                'x-backend-storage-policy-index', '2')
 
         # note: tests may assume this copy of req_headers is case insensitive
         # so we deliberately use a HeaderKeyDict

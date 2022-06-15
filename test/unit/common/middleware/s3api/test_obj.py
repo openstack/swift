@@ -835,6 +835,30 @@ class TestS3ApiObj(S3ApiTestCase):
                    return_value=timestamp):
             return self.call_s3api(req)
 
+    def test_simple_object_copy(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, {
+                                'x-backend-storage-policy-index': '1',
+                            }, None)
+        req = Request.blank(
+            '/bucket/object', method='PUT',
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+                'X-Amz-Copy-Source': '/some/source',
+                'Date': self.get_date_header(),
+            },
+        )
+        timestamp = time.time()
+        with patch('swift.common.middleware.s3api.utils.time.time',
+                   return_value=timestamp):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        head_call, put_call = self.swift.calls_with_headers
+        self.assertEqual(
+            head_call.headers['x-backend-storage-policy-index'], '1')
+        self.assertEqual(put_call.headers['x-copy-from'], '/some/source')
+        self.assertNotIn('x-backend-storage-policy-index', put_call.headers)
+
     @s3acl
     def test_object_PUT_copy(self):
         def do_test(src_path):
