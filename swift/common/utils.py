@@ -282,6 +282,46 @@ except (InvalidHashPathConfigError, IOError):
     pass
 
 
+def extract_digest_and_algorithm(value):
+    """
+    Returns a tuple of (digest_algorithm, hex_encoded_digest)
+    from a client-provided string of the form::
+
+       <hex-encoded digest>
+
+    or::
+
+       <algorithm>:<base64-encoded digest>
+
+    Note that hex-encoded strings must use one of sha1, sha256, or sha512.
+
+    :raises: ValueError on parse failures
+    """
+    if ':' in value:
+        algo, value = value.split(':', 1)
+        # accept both standard and url-safe base64
+        if ('-' in value or '_' in value) and not (
+                '+' in value or '/' in value):
+            value = value.replace('-', '+').replace('_', '/')
+        value = binascii.hexlify(strict_b64decode(value + '=='))
+        if not six.PY2:
+            value = value.decode('ascii')
+    else:
+        try:
+            binascii.unhexlify(value)  # make sure it decodes
+        except TypeError:
+            # This is just for py2
+            raise ValueError('Non-hexadecimal digit found')
+        algo = {
+            40: 'sha1',
+            64: 'sha256',
+            128: 'sha512',
+        }.get(len(value))
+        if not algo:
+            raise ValueError('Bad digest length')
+    return algo, value
+
+
 def get_hmac(request_method, path, expires, key, digest="sha1",
              ip_range=None):
     """

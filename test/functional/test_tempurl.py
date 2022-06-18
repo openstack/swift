@@ -840,7 +840,7 @@ class TestTempurlAlgorithms(Base):
         else:
             raise ValueError('Unrecognized encoding: %r' % encoding)
 
-    def _do_test(self, digest, encoding, expect_failure=False):
+    def _do_test(self, digest, encoding):
         expires = int(time()) + 86400
         sig = self.get_sig(expires, digest, encoding)
 
@@ -852,24 +852,14 @@ class TestTempurlAlgorithms(Base):
 
         parms = {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
 
-        if expect_failure:
-            with self.assertRaises(ResponseError):
-                self.env.obj.read(parms=parms, cfg={'no_auth_token': True})
-            self.assert_status([401])
+        contents = self.env.obj.read(
+            parms=parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(contents, b"obj contents")
 
-            # ditto for HEADs
-            with self.assertRaises(ResponseError):
-                self.env.obj.info(parms=parms, cfg={'no_auth_token': True})
-            self.assert_status([401])
-        else:
-            contents = self.env.obj.read(
-                parms=parms,
-                cfg={'no_auth_token': True})
-            self.assertEqual(contents, b"obj contents")
-
-            # GET tempurls also allow HEAD requests
-            self.assertTrue(self.env.obj.info(
-                parms=parms, cfg={'no_auth_token': True}))
+        # GET tempurls also allow HEAD requests
+        self.assertTrue(self.env.obj.info(
+            parms=parms, cfg={'no_auth_token': True}))
 
     @requires_digest('sha1')
     def test_sha1(self):
@@ -889,8 +879,7 @@ class TestTempurlAlgorithms(Base):
 
     @requires_digest('sha512')
     def test_sha512(self):
-        # 128 chars seems awfully long for a signature -- let's require base64
-        self._do_test('sha512', 'hex', expect_failure=True)
+        self._do_test('sha512', 'hex')
         self._do_test('sha512', 'base64')
         self._do_test('sha512', 'base64-no-padding')
         self._do_test('sha512', 'url-safe-base64')

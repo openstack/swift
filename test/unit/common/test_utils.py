@@ -3836,6 +3836,79 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(u'abc_%EC%9D%BC%EC%98%81',
                          utils.quote(u'abc_\uc77c\uc601'))
 
+    def test_extract_digest_and_algorithm(self):
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f'),
+            ('sha1', 'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f'))
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'sha1:sw3eTSuFYrhJZGbDtGsrmsUFRGE='),
+            ('sha1', 'b30dde4d2b8562b8496466c3b46b2b9ac5054461'))
+        # also good with '=' stripped
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'sha1:sw3eTSuFYrhJZGbDtGsrmsUFRGE'),
+            ('sha1', 'b30dde4d2b8562b8496466c3b46b2b9ac5054461'))
+
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'b963712313cd4236696fb4c4cf11fc56'
+                'ff4158e0bcbf1d4424df147783fd1045'),
+            ('sha256', 'b963712313cd4236696fb4c4cf11fc56'
+                       'ff4158e0bcbf1d4424df147783fd1045'))
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'sha256:uWNxIxPNQjZpb7TEzxH8Vv9BWOC8vx1EJN8Ud4P9EEU='),
+            ('sha256', 'b963712313cd4236696fb4c4cf11fc56'
+                       'ff4158e0bcbf1d4424df147783fd1045'))
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'sha256:uWNxIxPNQjZpb7TEzxH8Vv9BWOC8vx1EJN8Ud4P9EEU'),
+            ('sha256', 'b963712313cd4236696fb4c4cf11fc56'
+                       'ff4158e0bcbf1d4424df147783fd1045'))
+
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                '26df3d9d59da574d6f8d359cb2620b1b'
+                '86737215c38c412dfee0a410acea1ac4'
+                '285ad0c37229ca74e715c443979da17d'
+                '3d77a97d2ac79cc5e395b05bfa4bdd30'),
+            ('sha512', '26df3d9d59da574d6f8d359cb2620b1b'
+                       '86737215c38c412dfee0a410acea1ac4'
+                       '285ad0c37229ca74e715c443979da17d'
+                       '3d77a97d2ac79cc5e395b05bfa4bdd30'))
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'sha512:Jt89nVnaV01vjTWcsmILG4ZzchXDjEEt/uCkEKzq'
+                'GsQoWtDDcinKdOcVxEOXnaF9PXepfSrHnMXjlbBb+kvdMA=='),
+            ('sha512', '26df3d9d59da574d6f8d359cb2620b1b'
+                       '86737215c38c412dfee0a410acea1ac4'
+                       '285ad0c37229ca74e715c443979da17d'
+                       '3d77a97d2ac79cc5e395b05bfa4bdd30'))
+        self.assertEqual(
+            utils.extract_digest_and_algorithm(
+                'sha512:Jt89nVnaV01vjTWcsmILG4ZzchXDjEEt_uCkEKzq'
+                'GsQoWtDDcinKdOcVxEOXnaF9PXepfSrHnMXjlbBb-kvdMA'),
+            ('sha512', '26df3d9d59da574d6f8d359cb2620b1b'
+                       '86737215c38c412dfee0a410acea1ac4'
+                       '285ad0c37229ca74e715c443979da17d'
+                       '3d77a97d2ac79cc5e395b05bfa4bdd30'))
+
+        with self.assertRaises(ValueError):
+            utils.extract_digest_and_algorithm('')
+        with self.assertRaises(ValueError):
+            utils.extract_digest_and_algorithm(
+                'exactly_forty_chars_but_not_hex_encoded!')
+        # Too short (md5)
+        with self.assertRaises(ValueError):
+            utils.extract_digest_and_algorithm(
+                'd41d8cd98f00b204e9800998ecf8427e')
+        # but you can slip it in via the prefix notation!
+        self.assertEqual(
+            utils.extract_digest_and_algorithm('md5:1B2M2Y8AsgTpgAmY7PhCfg'),
+            ('md5', 'd41d8cd98f00b204e9800998ecf8427e'))
+
     def test_get_hmac(self):
         self.assertEqual(
             utils.get_hmac('GET', '/path', 1, 'abc'),
