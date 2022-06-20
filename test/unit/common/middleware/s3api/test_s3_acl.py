@@ -379,6 +379,17 @@ class TestS3ApiS3Acl(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
 
+    def test_grant_all_users_with_uppercase_type(self):
+        req = Request.blank('/bucket/object?acl',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'x-amz-grant-read':
+                                     'URI="http://acs.amazonaws.com/groups/'
+                                     'global/AllUsers"'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
     def test_grant_invalid_uri(self):
         req = Request.blank('/bucket/object?acl',
                             environ={'REQUEST_METHOD': 'PUT'},
