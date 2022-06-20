@@ -423,9 +423,10 @@ class TestProxyLogging(unittest.TestCase):
                 'template which can be edited in config: '
                 '{protocol} {path} {method} '
                 '{path.anonymized} {container.anonymized} '
-                '{request_time} {start_time.datetime} {end_time} {ttfb}')})
+                '{request_time} {start_time.datetime} {end_time} {ttfb} '
+                '{domain}')})
         app.access_logger = debug_logger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank('/', headers={'Host': 'example.com'})
         with mock.patch('time.time',
                         mock.MagicMock(
                             side_effect=[10000000.0, 10000000.5, 10000001.0])):
@@ -443,6 +444,7 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[13], '26/Apr/1970/17/46/40')
         self.assertEqual(log_parts[14], '10000001.000000000')
         self.assertEqual(log_parts[15], '0.5')
+        self.assertEqual(log_parts[16], 'example.com')
         self.assertEqual(resp_body, b'FAKE APP')
 
     def test_log_msg_template_s3api(self):

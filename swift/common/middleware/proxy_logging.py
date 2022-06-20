@@ -151,6 +151,8 @@ class ProxyLoggingMiddleware(object):
                                        self.anonymization_salt),
             'remote_addr': StrAnonymizer('4.3.2.1', self.anonymization_method,
                                          self.anonymization_salt),
+            'domain': StrAnonymizer('', self.anonymization_method,
+                                    self.anonymization_salt),
             'path': StrAnonymizer('/', self.anonymization_method,
                                   self.anonymization_salt),
             'referer': StrAnonymizer('ref', self.anonymization_method,
@@ -236,6 +238,10 @@ class ProxyLoggingMiddleware(object):
         :param wire_status_int: the on the wire status int
         """
         self.obscure_req(req)
+        domain = req.environ.get('HTTP_HOST',
+                                 req.environ.get('SERVER_NAME', None))
+        if ':' in domain:
+            domain, port = domain.rsplit(':', 1)
         resp_headers = resp_headers or {}
         logged_headers = None
         if self.log_hdrs:
@@ -267,6 +273,8 @@ class ProxyLoggingMiddleware(object):
             'remote_addr': StrAnonymizer(req.remote_addr,
                                          self.anonymization_method,
                                          self.anonymization_salt),
+            'domain': StrAnonymizer(domain, self.anonymization_method,
+                                    self.anonymization_salt),
             'path': StrAnonymizer(req.path_qs, self.anonymization_method,
                                   self.anonymization_salt),
             'referer': StrAnonymizer(req.referer, self.anonymization_method,
