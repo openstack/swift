@@ -6,17 +6,17 @@
 # Mario Cho <hephaex@gmail.com>, 2014
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
-# SeongSoo Cho <ppiyakk2@printf.kr>, 2019. #zanata
+# Seongsoo Cho <ppiyakk2@printf.kr>, 2019. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2020-10-07 00:36+0000\n"
+"POT-Creation-Date: 2022-05-27 18:57+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "PO-Revision-Date: 2019-10-14 12:04+0000\n"
-"Last-Translator: SeongSoo Cho <ppiyakk2@printf.kr>\n"
+"Last-Translator: Seongsoo Cho <ppiyakk2@printf.kr>\n"
 "Language: ko_KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -29,33 +29,6 @@ msgid ""
 msgstr ""
 "\n"
 "사용자 종료"
-
-#, python-format
-msgid " - %s"
-msgstr " - %s"
-
-#, python-format
-msgid " - parallel, %s"
-msgstr " - 병렬, %s"
-
-#, python-format
-msgid ""
-"%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% synced"
-msgstr ""
-"%(checked)d개 접미부를 검사함 - %(hashed).2f%%개 해시됨, %(synced).2f%%개 동"
-"기화됨"
-
-#, python-format
-msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
-msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid ""
-"%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
-"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-msgstr ""
-"%(replicated)d/%(total)d(%(percentage).2f%%)개 파티션이 %(time).2f초"
-"(%(rate).2f/초, %(remaining)s 남음) 안에 복제됨"
 
 #, python-format
 msgid "%(server)s #%(number)d not running (%(conf)s)"
@@ -78,10 +51,6 @@ msgid "%(success)s successes, %(failure)s failures"
 msgstr "%(success)s개 성공, %(failure)s개 실패"
 
 #, python-format
-msgid "%(type)s returning 503 for %(statuses)s"
-msgstr "%(type)s에서 %(statuses)s에 대해 503을 리턴함"
-
-#, python-format
 msgid "%(type)s: %(value)s"
 msgstr "%(type)s: %(value)s"
 
@@ -94,27 +63,8 @@ msgid "%s does not exist"
 msgstr "%s이(가) 존재하지 않음"
 
 #, python-format
-msgid "%s is not mounted"
-msgstr "%s이(가) 마운트되지 않음"
-
-#, python-format
-msgid "%s responded as unmounted"
-msgstr "%s이(가) 마운트 해제된 것으로 응답"
-
-#, python-format
 msgid "%s: Connection reset by peer"
 msgstr "%s: 피어에서 연결 재설정"
-
-msgid "Account"
-msgstr "계정"
-
-#, python-format
-msgid "Account audit \"once\" mode completed: %.02fs"
-msgstr "계정 감사 \"한 번\"모드가 완료: %.02fs"
-
-#, python-format
-msgid "Account audit pass completed: %.02fs"
-msgstr "정상으로 판정난 계정: %.02fs"
 
 #, python-format
 msgid ""
@@ -125,41 +75,6 @@ msgstr ""
 #, python-format
 msgid "Audit Failed for %(path)s: %(err)s"
 msgstr "%(path)s 검사 실패: %(err)s"
-
-#, python-format
-msgid "Audit passed for %s"
-msgstr "%s 검사 완료"
-
-#, python-format
-msgid "Bad rsync return code: %(ret)d <- %(args)s"
-msgstr "잘못된 rsync 리턴 코드: %(ret)d <- %(args)s"
-
-msgid "Begin account audit \"once\" mode"
-msgstr "계정 감사 \"한 번\"모드로 시작"
-
-msgid "Begin account audit pass."
-msgstr "계정 검사 시작."
-
-msgid "Begin container audit \"once\" mode"
-msgstr "컨테이너 감사 \"일 회\" 모드 시작"
-
-msgid "Begin container audit pass."
-msgstr "컨테이너 감사 전달이 시작됩니다."
-
-msgid "Begin container sync \"once\" mode"
-msgstr "컨테이너 동기화 \"일 회\" 모드 시작"
-
-msgid "Begin container update single threaded sweep"
-msgstr "컨테이너 업데이트 단일 스레드 스윕 시작"
-
-msgid "Begin container update sweep"
-msgstr "컨테이너 업데이트 스윕 시작"
-
-msgid "Begin object update single threaded sweep"
-msgstr "오브젝트 업데이트 단일 스레드 스윕 시작"
-
-msgid "Begin object update sweep"
-msgstr "오브젝트 업데이트 스윕 시작"
 
 msgid "Beginning replication run"
 msgstr "복제 실행 시작"
@@ -175,30 +90,6 @@ msgstr "파일 %s에 액세스할 수 없습니다."
 msgid "Can not load profile data from %s."
 msgstr "%s에서 프로파일 데이터를 로드할 수 없습니다."
 
-#, python-format
-msgid "Client did not read from proxy within %ss"
-msgstr "클라이언트에서 %ss 내에 프록시를 읽을 수 없었음"
-
-msgid "Client disconnected without sending enough data"
-msgstr "데이터를 모두 전송하기 전에 클라이언트 연결이 끊어짐"
-
-msgid "Client disconnected without sending last chunk"
-msgstr "마지막 청크를 전송하기 전에 클라이언트 연결이 끊어짐"
-
-#, python-format
-msgid ""
-"Client path %(client)s does not match path stored in object metadata %(meta)s"
-msgstr ""
-"클라이언트 경로 %(client)s이(가) 오브젝트 메타데이터 %(meta)s에 저장된 경로"
-"와 일치하지 않음"
-
-msgid ""
-"Configuration option internal_client_conf_path not defined. Using default "
-"configuration, See internal-client.conf-sample for options"
-msgstr ""
-"구성 옵션 internal_client_conf_path가 정의되지 않았습니다. 기본 구성 사용 시 "
-"internal-client.conf-sample에서 옵션을 참조하십시오."
-
 msgid "Connection refused"
 msgstr "연결이 거부됨"
 
@@ -208,41 +99,6 @@ msgstr "Connection reset"
 msgid "Connection timeout"
 msgstr "연결 제한시간 초과"
 
-msgid "Container"
-msgstr "컨테이너"
-
-#, python-format
-msgid "Container audit \"once\" mode completed: %.02fs"
-msgstr "컨테이너 감사 \"일 회\" 모드 완료: %.02fs"
-
-#, python-format
-msgid "Container audit pass completed: %.02fs"
-msgstr "컨테이너 감사 전달 완료: %.02fs"
-
-#, python-format
-msgid "Container sync \"once\" mode completed: %.02fs"
-msgstr "컨테이너 동기화 \"일 회\" 모드 완료: %.02fs"
-
-#, python-format
-msgid ""
-"Container update single threaded sweep completed: %(elapsed).02fs, "
-"%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"컨테이너 업데이트 단일 스레드 스윕 완료: %(elapsed).02fs, %(success)s개 성"
-"공, %(fail)s개 실패, %(no_change)s개 변경 없음"
-
-#, python-format
-msgid "Container update sweep completed: %.02fs"
-msgstr "컨테이너 업데이트 스윕 완료: %.02fs"
-
-#, python-format
-msgid ""
-"Container update sweep of %(path)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"%(path)s의 컨테이너 업데이트 스윕 완료: %(elapsed).02fs, %(success)s개 성공, "
-"%(fail)s개 실패, %(no_change)s개 변경 없음"
-
 #, python-format
 msgid "Could not load %(conf)r: %(error)s"
 msgstr "%(conf)r를 로드할 수 없음: %(error)s"
@@ -251,86 +107,12 @@ msgstr "%(conf)r를 로드할 수 없음: %(error)s"
 msgid "Data download error: %s"
 msgstr "데이터 다운로드 오류: %s"
 
-#, python-format
-msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
-msgstr "오류 %(db_file)s: %(validate_sync_to_err)s"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From %(type)s Server"
-msgstr "오류 %(status)d %(body)s, %(type)s 서버 발신"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
-msgstr "오류 %(status)d %(body)s, 오브젝트 서버 발신, 회신: %(path)s"
-
-#, python-format
-msgid "ERROR %(status)d Expect: 100-continue From Object Server"
-msgstr "오류 %(status)d. 예상: 100-continue, 오브젝트 서버 발신"
-
-#, python-format
-msgid ""
-"ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): Response %(status)s %(reason)s"
-msgstr ""
-"오류. %(ip)s:%(port)s/%(device)s(으)로 계정 업데이트 실패(나중에 다시 시도): "
-"응답 %(status)s %(reason)s"
-
-#, python-format
-msgid "ERROR Client read timeout (%ss)"
-msgstr "ERROR 클라이언트 읽기 시간 초과 (%ss)"
-
-#, python-format
-msgid ""
-"ERROR Container update failed (saving for async update later): %(status)d "
-"response from %(ip)s:%(port)s/%(dev)s"
-msgstr ""
-"오류. 컨테이너 업데이트 실패(이후 비동기 업데이트용으로 저장): %(status)d응"
-"답. 출처: %(ip)s:%(port)s/%(dev)s"
-
-#, python-format
-msgid "ERROR Could not get account info %s"
-msgstr "오류는 %s의 계정 정보를 얻을 수 없습니다"
-
-#, python-format
-msgid "ERROR Could not get container info %s"
-msgstr "오류. 컨테이너 정보 %s을(를) 가져올 수 없음"
-
-#, python-format
-msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
-msgstr "오류. 디스크 파일 %(data_file)s 닫기 실패: %(exc)s : %(stack)s"
-
-msgid "ERROR Exception causing client disconnect"
-msgstr "오류. 예외로 인해 클라이언트 연결이 끊어짐"
-
-#, python-format
-msgid "ERROR Exception transferring data to object servers %s"
-msgstr "ERROR 오브젝트 서버 %s에 데이터를 전송하는 중에 예외 발생"
-
 msgid "ERROR Failed to get my own IPs?"
 msgstr "오류. 자체 IP를 가져오는 중 오류 발생 여부"
-
-msgid "ERROR Insufficient Storage"
-msgstr "오류. 스토리지 공간이 충분하지 않음"
-
-#, python-format
-msgid "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
-msgstr "오류. 오브젝트 %(obj)s의 감사가 실패하여 격리됨: %(err)s"
-
-#, python-format
-msgid "ERROR Pickle problem, quarantining %s"
-msgstr "오류. 문제가 발생함, %s 격리 중"
 
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "오류. 원격 드라이브가 마운트되지 않음. %s"
-
-#, python-format
-msgid "ERROR Syncing %(db_file)s %(row)s"
-msgstr "%(db_file)s %(row)s 동기화 오류"
-
-#, python-format
-msgid "ERROR Syncing %s"
-msgstr "%s 동기화 오류"
 
 #, python-format
 msgid ""
@@ -339,49 +121,8 @@ msgid ""
 msgstr ""
 "오류 - 파티션 %s 의 복제 수 만큼 충분한 handoff 노드가 존재하지 않습니다"
 
-#, python-format
-msgid "ERROR Trying to audit %s"
-msgstr "%s 감사 중 오류 발생"
-
-msgid "ERROR Unhandled exception in request"
-msgstr "오류. 요청에 처리되지 않은 예외가 있음"
-
-#, python-format
-msgid "ERROR __call__ error with %(method)s %(path)s "
-msgstr "오류. %(method)s %(path)s에 __call__ 오류 발생"
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later)"
-msgstr ""
-"오류. %(ip)s:%(port)s/%(device)s(으)로 계정 업데이트 실패(나중에 다시 시도)"
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): "
-msgstr ""
-"오류. %(ip)s:%(port)s/%(device)s(으)로 계정 업데이트 실패(나중에 다시 시도): "
-
-#, python-format
-msgid "ERROR async pending file with unexpected name %s"
-msgstr "오류. 비동기 보류 파일에 예상치 못한 이름 %s을(를) 사용함"
-
 msgid "ERROR auditing"
 msgstr "검사 오류"
-
-#, python-format
-msgid "ERROR auditing: %s"
-msgstr "감사 오류: %s"
-
-#, python-format
-msgid ""
-"ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for async "
-"update later)"
-msgstr ""
-"오류. %(ip)s:%(port)s/%(dev)s(으)로 컨테이너 업데이트 실패(이후 비동기 업데이"
-"트용으로 저장)"
 
 #, python-format
 msgid "ERROR reading HTTP response from %s"
@@ -401,37 +142,6 @@ msgstr "%(file)s을(를) 노드 %(node)s과(와) 동기화하는 중 오류 발�
 
 msgid "ERROR trying to replicate"
 msgstr "복제 중 오류 발생"
-
-#, python-format
-msgid "ERROR while trying to clean up %s"
-msgstr "%s 정리 중 오류 발생"
-
-#, python-format
-msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
-msgstr "%(type)s 서버 %(ip)s:%(port)s/%(device)s 오류, 회신: %(info)s"
-
-#, python-format
-msgid "ERROR with loading suppressions from %s: "
-msgstr "%s에서 억제를 로드하는 중 오류 발생: "
-
-#, python-format
-msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
-msgstr "원격 서버 %(ip)s:%(port)s/%(device)s에 오류 발생"
-
-#, python-format
-msgid "ERROR:  Failed to get paths to drive partitions: %s"
-msgstr "오류: 드라이브 파티션에 대한 경로를 가져오지 못함: %s"
-
-#, python-format
-msgid "ERROR: Unable to access %(path)s: %(error)s"
-msgstr "오류: %(path)s에 액세스할 수 없음: %(error)s"
-
-#, python-format
-msgid "ERROR: Unable to run auditing: %s"
-msgstr "오류: 감사를 실행할 수 없음: %s"
-
-msgid "Error hashing suffix"
-msgstr "접미부를 해싱하는 중 오류 발생"
 
 #, python-format
 msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
@@ -463,22 +173,6 @@ msgstr "조정 데이터를 검색하는 중에 오류 발생"
 msgid "Error sending UDP message to %(target)r: %(err)s"
 msgstr "%(target)r에 UDP 메시지 전송 중 에러 발생: %(err)s"
 
-msgid "Error syncing handoff partition"
-msgstr "핸드오프 파티션 동기화 중 오류 발생"
-
-msgid "Error syncing partition"
-msgstr "파티션 동기 오류 "
-
-#, python-format
-msgid "Error syncing with node: %s"
-msgstr "노드 동기 오류: %s"
-
-#, python-format
-msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
-msgstr ""
-"%(path)s policy#%(policy)d frag#%(frag_index)s을(를) 다시 빌드하려는 중 오류 "
-"발생"
-
 msgid "Error: An error occurred"
 msgstr "오류: 오류 발생"
 
@@ -490,26 +184,11 @@ msgid "Error: unable to locate %s"
 msgstr "오류: %s을(를) 찾을 수 없음"
 
 #, python-format
-msgid "Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "%(ip)s:%(port)s/%(device)s 예외"
-
-#, python-format
-msgid "Expect: 100-continue on %s"
-msgstr "%s에서 100-continue 예상"
-
-#, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s에서 %(found_domain)s(으)로의 다음 CNAME 체인"
 
 msgid "Found configs:"
 msgstr "구성 발견:"
-
-msgid ""
-"Handoffs first mode still has handoffs remaining.  Aborting current "
-"replication pass."
-msgstr ""
-"핸드오프 첫 모드에 여전히 핸드오프가 남아 있습니다. 현재 복제 전달을 중단합니"
-"다."
 
 msgid "Host unreachable"
 msgstr "호스트 도달 불가능"
@@ -527,14 +206,6 @@ msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "올바르지 않은 보류 항목 %(file)s: %(entry)s"
 
 #, python-format
-msgid "Invalid response %(resp)s from %(full_path)s"
-msgstr "%(full_path)s에서 올바르지 않은 응답 %(resp)s"
-
-#, python-format
-msgid "Invalid response %(resp)s from %(ip)s"
-msgstr "%(ip)s의 올바르지 않은 응답 %(resp)s"
-
-#, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
@@ -544,13 +215,6 @@ msgstr ""
 
 msgid "Invalid swift_bytes"
 msgstr "swift_bytes 가 유효하지 않습니다."
-
-#, python-format
-msgid "Killing long-running rsync: %s"
-msgstr "장기 실행 중인 rsync 강제 종료: %s"
-
-msgid "Lockup detected.. killing live coros."
-msgstr "잠금 발견.. 활성 coros를 강제 종료합니다."
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
@@ -582,109 +246,11 @@ msgstr "인덱스가 %s인 정책이 없음"
 msgid "No realm key for %r"
 msgstr "%r에 대한 영역 키가 없음"
 
-#, python-format
-msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
-msgstr "노드 오류로 %(ip)s:%(port)s(%(device)s)이(가) 제한됨"
-
-#, python-format
-msgid "Not enough object servers ack'ed (got %d)"
-msgstr "승인된 오브젝트 서버가 부족함(%d을(를) 받음)"
-
-#, python-format
-msgid ""
-"Not found %(sync_from)r => %(sync_to)r                       - object "
-"%(obj_name)r"
-msgstr ""
-"찾을 수 없음 %(sync_from)r => %(sync_to)r                       - 오브젝"
-"트%(obj_name)r"
-
-#, python-format
-msgid "Nothing reconstructed for %s seconds."
-msgstr "%s초 동안 재구성된 것이 없습니다."
-
-#, python-format
-msgid "Nothing replicated for %s seconds."
-msgstr "%s초 동안 복제된 것이 없습니다."
-
-msgid "Object"
-msgstr "오브젝트"
-
-msgid "Object PUT"
-msgstr "Object PUT"
-
-#, python-format
-msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
-msgstr ""
-"Object PUT에서 409에 대해 202를 리턴함: %(req_timestamp)s <= %(timestamps)r"
-
-#, python-format
-msgid "Object PUT returning 412, %(statuses)r"
-msgstr "Object PUT에서 412를 리턴함, %(statuses)r"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s) \"%(mode)s\" mode completed: %(elapsed).02fs. Total "
-"quarantined: %(quars)d, Total errors: %(errors)d, Total files/sec: "
-"%(frate).2f, Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"오브젝트 감사(%(type)s) \"%(mode)s\" 모드 완료: %(elapsed).02fs. 총 격리 항"
-"목: %(quars)d, 총 오류 수: %(errors)d, 총 파일/초: %(frate).2f, 총 바이트/"
-"초: %(brate).2f, 감사 시간: %(audit).2f, 속도: %(audit_rate).2f"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"오브젝트 감사(%(type)s). %(start_time)s 이후: 로컬: %(passes)d개 통과, "
-"%(quars)d개 격리, %(errors)d개 오류, 파일/초: %(frate).2f, 바이트/초: "
-"%(brate).2f, 총 시간: %(total).2f, 감사 시간: %(audit).2f, 속도: "
-"%(audit_rate).2f"
-
-#, python-format
-msgid "Object audit stats: %s"
-msgstr "오브젝트 감사 통계: %s"
-
-#, python-format
-msgid "Object reconstruction complete (once). (%.02f minutes)"
-msgstr "오브젝트 재구성 완료(일 회). (%.02f분)"
-
-#, python-format
-msgid "Object reconstruction complete. (%.02f minutes)"
-msgstr "오브젝트 재구성 완료. (%.02f분)"
-
-#, python-format
-msgid "Object replication complete (once). (%.02f minutes)"
-msgstr "오브젝트 복제 완료(일 회). (%.02f분)"
-
-#, python-format
-msgid "Object replication complete. (%.02f minutes)"
-msgstr "오브젝트 복제 완료. (%.02f분)"
-
-#, python-format
-msgid "Object servers returned %s mismatched etags"
-msgstr "오브젝트 서버에서 %s개의 불일치 etag를 리턴함"
-
-#, python-format
-msgid "Object update sweep completed: %.02fs"
-msgstr "오브젝트 업데이트 스윕 완료: %.02fs"
-
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "X-Container-Sync-To에 매개변수, 조회, 단편이 허용되지 않음"
 
-#, python-format
-msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
-msgstr "파티션 시간: 최대 %(max).4f초, 최소 %(min).4f초, 중간 %(med).4f초"
-
 msgid "Path required in X-Container-Sync-To"
 msgstr "X-Container-Sync-To에 경로가 필요함"
-
-#, python-format
-msgid "Problem cleaning up %s"
-msgstr "%s 정리 문제 발생"
 
 #, python-format
 msgid "Profiling Error: %s"
@@ -693,15 +259,6 @@ msgstr "프로파일링 오류: %s"
 #, python-format
 msgid "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
 msgstr "%(db_dir)s을 %(quar_path)s로 격리합니다. 이유: %(reason)s"
-
-#, python-format
-msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
-msgstr "디렉토리가 아니어서 %(hsh_path)s을(를) %(quar_path)s에 격리함"
-
-#, python-format
-msgid ""
-"Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
-msgstr "디렉토리가 아니어서 %(object_path)s을(를) %(quar_path)s에 격리함"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -715,14 +272,6 @@ msgstr ""
 #, python-format
 msgid "Removed %(remove)d dbs"
 msgstr "%(remove)d 데이터베이스를 제거함"
-
-#, python-format
-msgid "Removing %s objects"
-msgstr "%s 오브젝트 제거 중"
-
-#, python-format
-msgid "Removing partition: %s"
-msgstr "파티션 제거: %s"
 
 #, python-format
 msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
@@ -744,52 +293,12 @@ msgid "Returning 497 because of blacklisting: %s"
 msgstr "블랙리스트 지정으로 인해 497이 리턴됨: %s"
 
 #, python-format
-msgid ""
-"Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
-"Sleep) %(e)s"
-msgstr ""
-"%(acc)s/%(cont)s/%(obj)s(으)로 %(meth)s에 대한 498을 리턴합니다. 전송률 제한"
-"(최대 휴면) %(e)s"
-
-msgid "Ring change detected. Aborting current reconstruction pass."
-msgstr "링 변경이 발견되었습니다. 현재 재구성 전달을 중단합니다."
-
-msgid "Ring change detected. Aborting current replication pass."
-msgstr "링 변경이 발견되었습니다. 현재 복제 전달을 중단합니다."
-
-#, python-format
 msgid "Running %s once"
 msgstr "%s을(를) 한 번 실행"
-
-msgid "Running object reconstructor in script mode."
-msgstr "오브젝트 재구성자를 스크립트 모드로 실행 중입니다."
-
-msgid "Running object replicator in script mode."
-msgstr "오브젝트 복제자를 스크립트 모드로 실행 중입니다."
 
 #, python-format
 msgid "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
 msgstr "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
-
-#, python-format
-msgid ""
-"Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
-"skipped, %(fail)s failed"
-msgstr ""
-"%(time)s 이후: %(sync)s 동기화됨 [%(delete)s 삭제, %(put)s 배치], %(skip)s 건"
-"너뜀, %(fail)s 실패"
-
-#, python-format
-msgid ""
-"Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
-"audit"
-msgstr "검사 경과 시간 %(time)s: 계정 검사A: %(passed)s 정상 ,%(failed)s 실패"
-
-#, python-format
-msgid ""
-"Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
-"audit"
-msgstr "%(time)s 이후: 컨테이너 감사: %(pass)s 감사 전달, %(fail)s 감사 실패"
 
 #, python-format
 msgid "Skipping %(datadir)s because %(err)s"
@@ -803,54 +312,8 @@ msgstr "마운트되지 않는 %s를 건너 뛰기"
 msgid "Starting %s"
 msgstr "%s 시작 중"
 
-msgid "Starting object reconstruction pass."
-msgstr "오브젝트 재구성 전달을 시작합니다."
-
-msgid "Starting object reconstructor in daemon mode."
-msgstr "오브젝트 재구성자를 디먼 모드로 시작합니다."
-
-msgid "Starting object replication pass."
-msgstr "오브젝트 복제 전달을 시작합니다."
-
-msgid "Starting object replicator in daemon mode."
-msgstr "오브젝트 복제자를 디먼 모드로 시작합니다."
-
-#, python-format
-msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
-msgstr "%(dst)s(%(time).03f)에서 %(src)s의 rsync 성공"
-
 msgid "The file type are forbidden to access!"
 msgstr "이 파일 유형에 대한 액세스가 금지되었습니다!"
-
-#, python-format
-msgid ""
-"The total %(key)s for the container (%(total)s) does not match the sum of "
-"%(key)s across policies (%(sum)s)"
-msgstr ""
-"컨테이너의 총 %(key)s가 (%(total)s) 과  %(key)s의 총합 (%(sum)s)가 일치하지 "
-"않습니다."
-
-#, python-format
-msgid "Trying to %(method)s %(path)s"
-msgstr "%(method)s %(path)s 시도 중"
-
-#, python-format
-msgid "Trying to GET %(full_path)s"
-msgstr "GET %(full_path)s 시도 중"
-
-msgid "Trying to read during GET"
-msgstr "가져오기 중 읽기를 시도함"
-
-msgid "Trying to send to client"
-msgstr "클라이언트로 전송 시도 중"
-
-#, python-format
-msgid "Trying to sync suffixes with %s"
-msgstr "%s과(와) 접미사를 동기화하려고 시도"
-
-#, python-format
-msgid "Trying to write to %s"
-msgstr "%s에 쓰기 시도 중"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "미발견 예외"
@@ -883,21 +346,6 @@ msgstr "디렉토리에서 fsync() 를 수행할 수 없음 %(dir)s: %(err)s"
 #, python-format
 msgid "Unable to read config from %s"
 msgstr "%s에서 구성을 읽을 수 없음"
-
-#, python-format
-msgid "Unauth %(sync_from)r => %(sync_to)r"
-msgstr "권한 부여 해제 %(sync_from)r => %(sync_to)r"
-
-msgid "Unhandled exception"
-msgstr "처리되지 않은 예외"
-
-#, python-format
-msgid "Update report failed for %(container)s %(dbfile)s"
-msgstr "%(container)s %(dbfile)s의 업데이트 보고서 실패"
-
-#, python-format
-msgid "Update report sent for %(container)s %(dbfile)s"
-msgstr "%(container)s %(dbfile)s의 업데이트 보고서를 발송함"
 
 msgid ""
 "WARNING: SSL should only be enabled for testing purposes. Use external SSL "

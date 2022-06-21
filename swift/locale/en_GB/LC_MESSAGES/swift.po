@@ -4,19 +4,18 @@
 #
 # Translators:
 # Andi Chandler <andi@gowling.com>, 2016. #zanata
-# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 # Andi Chandler <andi@gowling.com>, 2018. #zanata
 # Andi Chandler <andi@gowling.com>, 2019. #zanata
-# Andi Chandler <andi@gowling.com>, 2020. #zanata
+# Andi Chandler <andi@gowling.com>, 2022. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2020-10-07 00:36+0000\n"
+"POT-Creation-Date: 2022-05-27 18:57+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2020-10-10 02:32+0000\n"
+"PO-Revision-Date: 2022-06-01 06:49+0000\n"
 "Last-Translator: Andi Chandler <andi@gowling.com>\n"
 "Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -30,44 +29,6 @@ msgid ""
 msgstr ""
 "\n"
 "user quit"
-
-#, python-format
-msgid " - %s"
-msgstr " - %s"
-
-#, python-format
-msgid " - parallel, %s"
-msgstr " - parallel, %s"
-
-#, python-format
-msgid ""
-"%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% synced"
-msgstr ""
-"%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% synced"
-
-#, python-format
-msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
-msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid ""
-"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions reconstructed in "
-"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-msgstr ""
-"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions reconstructed in "
-"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-
-#, python-format
-msgid ""
-"%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
-"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-msgstr ""
-"%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
-"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-
-#, python-format
-msgid "%(replication_ip)s/%(device)s responded as unmounted"
-msgstr "%(replication_ip)s/%(device)s responded as unmounted"
 
 #, python-format
 msgid "%(server)s #%(number)d not running (%(conf)s)"
@@ -86,12 +47,16 @@ msgid "%(server)s running (%(pid)s - %(pid_file)s)"
 msgstr "%(server)s running (%(pid)s - %(pid_file)s)"
 
 #, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "%(success)s successes, %(failure)s failures"
+msgid "%(server_type)s audit \"once\" mode completed: %(elapsed).02fs"
+msgstr "%(server_type)s audit \"once\" mode completed: %(elapsed).02fs"
 
 #, python-format
-msgid "%(type)s returning 503 for %(statuses)s"
-msgstr "%(type)s returning 503 for %(statuses)s"
+msgid "%(server_type)s audit pass completed: %(elapsed).02fs"
+msgstr "%(server_type)s audit pass completed: %(elapsed).02fs"
+
+#, python-format
+msgid "%(success)s successes, %(failure)s failures"
+msgstr "%(success)s successes, %(failure)s failures"
 
 #, python-format
 msgid "%(type)s: %(value)s"
@@ -106,33 +71,8 @@ msgid "%s does not exist"
 msgstr "%s does not exist"
 
 #, python-format
-msgid "%s is not mounted"
-msgstr "%s is not mounted"
-
-#, python-format
-msgid "%s responded as unmounted"
-msgstr "%s responded as unmounted"
-
-#, python-format
 msgid "%s: Connection reset by peer"
 msgstr "%s: Connection reset by peer"
-
-msgid "Account"
-msgstr "Account"
-
-#, python-format
-msgid "Account audit \"once\" mode completed: %.02fs"
-msgstr "Account audit \"once\" mode completed: %.02fs"
-
-#, python-format
-msgid "Account audit pass completed: %.02fs"
-msgstr "Account audit pass completed: %.02fs"
-
-#, python-format
-msgid ""
-"Adding required filter %(filter_name)s to pipeline at position %(insert_at)d"
-msgstr ""
-"Adding required filter %(filter_name)s to pipeline at position %(insert_at)d"
 
 #, python-format
 msgid ""
@@ -145,50 +85,20 @@ msgid "Audit Failed for %(path)s: %(err)s"
 msgstr "Audit Failed for %(path)s: %(err)s"
 
 #, python-format
-msgid "Audit passed for %s"
-msgstr "Audit passed for %s"
-
-#, python-format
 msgid "Bad key for %(name)r: %(err)s"
 msgstr "Bad key for %(name)r: %(err)s"
 
-#, python-format
-msgid "Bad rsync return code: %(ret)d <- %(args)s"
-msgstr "Bad rsync return code: %(ret)d <- %(args)s"
+msgid "Begin {} audit \"once\" mode"
+msgstr "Begin {} audit \"once\" mode"
 
-msgid "Begin account audit \"once\" mode"
-msgstr "Begin account audit \"once\" mode"
-
-msgid "Begin account audit pass."
-msgstr "Begin account audit pass."
-
-msgid "Begin container audit \"once\" mode"
-msgstr "Begin container audit \"once\" mode"
-
-msgid "Begin container audit pass."
-msgstr "Begin container audit pass."
-
-msgid "Begin container sync \"once\" mode"
-msgstr "Begin container sync \"once\" mode"
-
-msgid "Begin container update single threaded sweep"
-msgstr "Begin container update single threaded sweep"
-
-msgid "Begin container update sweep"
-msgstr "Begin container update sweep"
-
-#, python-format
-msgid "Begin object audit \"%(mode)s\" mode (%(audi_type)s%(description)s)"
-msgstr "Begin object audit \"%(mode)s\" mode (%(audi_type)s%(description)s)"
-
-msgid "Begin object update single threaded sweep"
-msgstr "Begin object update single threaded sweep"
-
-msgid "Begin object update sweep"
-msgstr "Begin object update sweep"
+msgid "Begin {} audit pass."
+msgstr "Begin {} audit pass."
 
 msgid "Beginning replication run"
 msgstr "Beginning replication run"
+
+msgid "Broken pipe"
+msgstr "Broken pipe"
 
 msgid "Broker error trying to rollback locked connection"
 msgstr "Broker error trying to rollback locked connection"
@@ -201,37 +111,6 @@ msgstr "Can not access the file %s."
 msgid "Can not load profile data from %s."
 msgstr "Can not load profile data from %s."
 
-#, python-format
-msgid "Cannot read %(auditor_status)s (%(err)s)"
-msgstr "Cannot read %(auditor_status)s (%(err)s)"
-
-#, python-format
-msgid "Cannot write %(auditor_status)s (%(err)s)"
-msgstr "Cannot write %(auditor_status)s (%(err)s)"
-
-#, python-format
-msgid "Client did not read from proxy within %ss"
-msgstr "Client did not read from proxy within %ss"
-
-msgid "Client disconnected without sending enough data"
-msgstr "Client disconnected without sending enough data"
-
-msgid "Client disconnected without sending last chunk"
-msgstr "Client disconnected without sending last chunk"
-
-#, python-format
-msgid ""
-"Client path %(client)s does not match path stored in object metadata %(meta)s"
-msgstr ""
-"Client path %(client)s does not match path stored in object metadata %(meta)s"
-
-msgid ""
-"Configuration option internal_client_conf_path not defined. Using default "
-"configuration, See internal-client.conf-sample for options"
-msgstr ""
-"Configuration option internal_client_conf_path not defined. Using default "
-"configuration, See internal-client.conf-sample for options"
-
 msgid "Connection refused"
 msgstr "Connection refused"
 
@@ -240,57 +119,6 @@ msgstr "Connection reset"
 
 msgid "Connection timeout"
 msgstr "Connection timeout"
-
-msgid "Container"
-msgstr "Container"
-
-#, python-format
-msgid "Container audit \"once\" mode completed: %.02fs"
-msgstr "Container audit \"once\" mode completed: %.02fs"
-
-#, python-format
-msgid "Container audit pass completed: %.02fs"
-msgstr "Container audit pass completed: %.02fs"
-
-#, python-format
-msgid "Container sync \"once\" mode completed: %.02fs"
-msgstr "Container sync \"once\" mode completed: %.02fs"
-
-#, python-format
-msgid ""
-"Container sync report: %(container)s, time window start: %(start)s, time "
-"window end: %(end)s, puts: %(puts)s, posts: %(posts)s, deletes: %(deletes)s, "
-"bytes: %(bytes)s, sync_point1: %(point1)s, sync_point2: %(point2)s, "
-"total_rows: %(total)s"
-msgstr ""
-"Container sync report: %(container)s, time window start: %(start)s, time "
-"window end: %(end)s, puts: %(puts)s, posts: %(posts)s, deletes: %(deletes)s, "
-"bytes: %(bytes)s, sync_point1: %(point1)s, sync_point2: %(point2)s, "
-"total_rows: %(total)s"
-
-#, python-format
-msgid ""
-"Container update single threaded sweep completed: %(elapsed).02fs, "
-"%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"Container update single threaded sweep completed: %(elapsed).02fs, "
-"%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
-
-#, python-format
-msgid "Container update sweep completed: %.02fs"
-msgstr "Container update sweep completed: %.02fs"
-
-#, python-format
-msgid ""
-"Container update sweep of %(path)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"Container update sweep of %(path)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures, %(no_change)s with no changes"
-
-#, python-format
-msgid "Could not autocreate account %r"
-msgstr "Could not autocreate account %r"
 
 #, python-format
 msgid ""
@@ -310,113 +138,15 @@ msgid "Did not get a keys dict"
 msgstr "Did not get a keys dict"
 
 #, python-format
-msgid "Directory %(directory)r does not map to a valid policy (%(error)s)"
-msgstr "Directory %(directory)r does not map to a valid policy (%(error)s)"
-
-#, python-format
-msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
-msgstr "ERROR %(db_file)s: %(validate_sync_to_err)s"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From %(type)s Server"
-msgstr "ERROR %(status)d %(body)s From %(type)s Server"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From Object Server"
-msgstr "ERROR %(status)d %(body)s From Object Server"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
-msgstr "ERROR %(status)d %(body)s From Object Server re: %(path)s"
-
-#, python-format
-msgid "ERROR %(status)d Expect: 100-continue From Object Server"
-msgstr "ERROR %(status)d Expect: 100-continue From Object Server"
-
-#, python-format
-msgid "ERROR %(status)d Trying to %(method)s %(path)s From %(type)s Server"
-msgstr "ERROR %(status)d Trying to %(method)s %(path)s From %(type)s Server"
-
-#, python-format
-msgid ""
-"ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): Response %(status)s %(reason)s"
-msgstr ""
-"ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): Response %(status)s %(reason)s"
-
-#, python-format
-msgid ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%(hosts)s\" vs \"%(devices)s\""
-msgstr ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%(hosts)s\" vs \"%(devices)s\""
-
-#, python-format
-msgid "ERROR Client read timeout (%ss)"
-msgstr "ERROR Client read timeout (%ss)"
-
-#, python-format
-msgid ""
-"ERROR Container update failed (saving for async update later): %(status)d "
-"response from %(ip)s:%(port)s/%(dev)s"
-msgstr ""
-"ERROR Container update failed (saving for async update later): %(status)d "
-"response from %(ip)s:%(port)s/%(dev)s"
-
-#, python-format
-msgid ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%(hosts)s\" vs \"%(devices)s\""
-msgstr ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%(hosts)s\" vs \"%(devices)s\""
-
-#, python-format
-msgid "ERROR Could not get account info %s"
-msgstr "ERROR Could not get account info %s"
-
-#, python-format
-msgid "ERROR Could not get container info %s"
-msgstr "ERROR Could not get container info %s"
-
-#, python-format
-msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
-msgstr "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
-
-msgid "ERROR Exception causing client disconnect"
-msgstr "ERROR Exception causing client disconnect"
-
-#, python-format
-msgid "ERROR Exception transferring data to object servers %s"
-msgstr "ERROR Exception transferring data to object servers %s"
+msgid "ERROR Could not get %(server_type)s info %(path)s"
+msgstr "ERROR Could not get %(server_type)s info %(path)s"
 
 msgid "ERROR Failed to get my own IPs?"
 msgstr "ERROR Failed to get my own IPs?"
 
-msgid "ERROR Insufficient Storage"
-msgstr "ERROR Insufficient Storage"
-
-#, python-format
-msgid "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
-msgstr "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
-
-#, python-format
-msgid "ERROR Pickle problem, quarantining %s"
-msgstr "ERROR Pickle problem, quarantining %s"
-
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "ERROR Remote drive not mounted %s"
-
-#, python-format
-msgid "ERROR Syncing %(db_file)s %(row)s"
-msgstr "ERROR Syncing %(db_file)s %(row)s"
-
-#, python-format
-msgid "ERROR Syncing %s"
-msgstr "ERROR Syncing %s"
 
 #, python-format
 msgid ""
@@ -426,51 +156,8 @@ msgstr ""
 "ERROR There are not enough hand-off nodes to reach replica count for "
 "partition %s"
 
-#, python-format
-msgid "ERROR Trying to audit %s"
-msgstr "ERROR Trying to audit %s"
-
-msgid "ERROR Unhandled exception in request"
-msgstr "ERROR Unhandled exception in request"
-
-#, python-format
-msgid "ERROR __call__ error with %(method)s %(path)s "
-msgstr "ERROR __call__ error with %(method)s %(path)s "
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later)"
-msgstr ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later)"
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): "
-msgstr ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): "
-
-#, python-format
-msgid "ERROR async pending file with unexpected name %s"
-msgstr "ERROR async pending file with unexpected name %s"
-
 msgid "ERROR auditing"
 msgstr "ERROR auditing"
-
-#, python-format
-msgid "ERROR auditing: %s"
-msgstr "ERROR auditing: %s"
-
-#, python-format
-msgid ""
-"ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for async "
-"update later)"
-msgstr ""
-"ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for async "
-"update later)"
 
 msgid "ERROR get_keys() missing callback"
 msgstr "ERROR get_keys() missing callback"
@@ -495,46 +182,6 @@ msgid "ERROR trying to replicate"
 msgstr "ERROR trying to replicate"
 
 #, python-format
-msgid "ERROR while trying to clean up %s"
-msgstr "ERROR while trying to clean up %s"
-
-#, python-format
-msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
-msgstr "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
-
-#, python-format
-msgid "ERROR with loading suppressions from %s: "
-msgstr "ERROR with loading suppressions from %s: "
-
-#, python-format
-msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
-msgstr "ERROR with remote server %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "ERROR:  Failed to get paths to drive partitions: %s"
-msgstr "ERROR:  Failed to get paths to drive partitions: %s"
-
-#, python-format
-msgid "ERROR: Unable to access %(path)s: %(error)s"
-msgstr "ERROR: Unable to access %(path)s: %(error)s"
-
-#, python-format
-msgid "ERROR: Unable to run auditing: %s"
-msgstr "ERROR: Unable to run auditing: %s"
-
-#, python-format
-msgid ""
-"Error code %(status)d is returned from remote server %(ip)s: %(port)s / "
-"%(device)s"
-msgstr ""
-"Error code %(status)d is returned from remote server %(ip)s: %(port)s / "
-"%(device)s"
-
-#, python-format
-msgid "Error decoding fragments for %r"
-msgstr "Error decoding fragments for %r"
-
-#, python-format
 msgid "Error decrypting %(resp_type)s: %(reason)s"
 msgstr "Error decrypting %(resp_type)s: %(reason)s"
 
@@ -549,9 +196,6 @@ msgstr "Error decrypting header %(header)s: %(error)s"
 #, python-format
 msgid "Error decrypting object: %s"
 msgstr "Error decrypting object: %s"
-
-msgid "Error hashing suffix"
-msgstr "Error hashing suffix"
 
 #, python-format
 msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
@@ -583,20 +227,6 @@ msgstr "Error retrieving recon data"
 msgid "Error sending UDP message to %(target)r: %(err)s"
 msgstr "Error sending UDP message to %(target)r: %(err)s"
 
-msgid "Error syncing handoff partition"
-msgstr "Error syncing hand-off partition"
-
-msgid "Error syncing partition"
-msgstr "Error syncing partition"
-
-#, python-format
-msgid "Error syncing with node: %s"
-msgstr "Error syncing with node: %s"
-
-#, python-format
-msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
-msgstr "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
-
 msgid "Error: An error occurred"
 msgstr "Error: An error occurred"
 
@@ -608,55 +238,11 @@ msgid "Error: unable to locate %s"
 msgstr "Error: unable to locate %s"
 
 #, python-format
-msgid "Exception fetching fragments for %r"
-msgstr "Exception fetching fragments for %r"
-
-msgid "Exception in top-level reconstruction loop"
-msgstr "Exception in top-level reconstruction loop"
-
-#, python-format
-msgid "Exception in top-level replication loop: %s"
-msgstr "Exception in top-level replication loop: %s"
-
-#, python-format
-msgid "Exception while deleting container %(account)s %(container)s %(err)s"
-msgstr "Exception while deleting container %(account)s %(container)s %(err)s"
-
-#, python-format
-msgid "Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "Exception with %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "Expect: 100-continue on %s"
-msgstr "Expect: 100-continue on %s"
-
-#, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 
 msgid "Found configs:"
 msgstr "Found configs:"
-
-msgid ""
-"Handoffs first mode still has handoffs remaining.  Aborting current "
-"replication pass."
-msgstr ""
-"Hand-offs first mode still has hand-offs remaining.  Aborting current "
-"replication pass."
-
-msgid ""
-"Handoffs only mode found no handoffs remaining. You should disable "
-"handoffs_only once all nodes are reporting no handoffs remaining."
-msgstr ""
-"Hand-offs only mode found no hand-offs remaining. You should disable "
-"handoffs_only once all nodes are reporting no hand-offs remaining."
-
-msgid ""
-"Handoffs only mode still has handoffs remaining. Next pass will continue to "
-"revert handoffs."
-msgstr ""
-"Hand-offs only mode still has hand-offs remaining. Next pass will continue "
-"to revert hand-offs."
 
 msgid "Host unreachable"
 msgstr "Host unreachable"
@@ -674,14 +260,6 @@ msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "Invalid pending entry %(file)s: %(entry)s"
 
 #, python-format
-msgid "Invalid response %(resp)s from %(full_path)s"
-msgstr "Invalid response %(resp)s from %(full_path)s"
-
-#, python-format
-msgid "Invalid response %(resp)s from %(ip)s"
-msgstr "Invalid response %(resp)s from %(ip)s"
-
-#, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
@@ -691,17 +269,6 @@ msgstr ""
 
 msgid "Invalid swift_bytes"
 msgstr "Invalid swift_bytes"
-
-#, python-format
-msgid "Killing long-running rsync: %s"
-msgstr "Killing long-running rsync: %s"
-
-#, python-format
-msgid "Loading JSON from %(auditor_status)s failed (%(err)s)"
-msgstr "Loading JSON from %(auditor_status)s failed (%(err)s)"
-
-msgid "Lockup detected.. killing live coros."
-msgstr "Lockup detected.. killing live coros."
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
@@ -737,171 +304,11 @@ msgstr "No policy with index %s"
 msgid "No realm key for %r"
 msgstr "No realm key for %r"
 
-#, python-format
-msgid "No space left on device for %(file)s (%(err)s)"
-msgstr "No space left on device for %(file)s (%(err)s)"
-
-#, python-format
-msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
-msgstr "Node error limited %(ip)s:%(port)s (%(device)s)"
-
-#, python-format
-msgid "Not enough object servers ack'ed (got %d)"
-msgstr "Not enough object servers ack'ed (got %d)"
-
-#, python-format
-msgid ""
-"Not found %(sync_from)r => %(sync_to)r                       - object "
-"%(obj_name)r"
-msgstr ""
-"Not found %(sync_from)r => %(sync_to)r                       - object "
-"%(obj_name)r"
-
-#, python-format
-msgid "Nothing reconstructed for %s seconds."
-msgstr "Nothing reconstructed for %s seconds."
-
-#, python-format
-msgid "Nothing replicated for %s seconds."
-msgstr "Nothing replicated for %s seconds."
-
-msgid "Object"
-msgstr "Object"
-
-msgid "Object PUT"
-msgstr "Object PUT"
-
-#, python-format
-msgid ""
-"Object PUT exceptions after last send, %(conns)s/%(nodes)s required "
-"connections"
-msgstr ""
-"Object PUT exceptions after last send, %(conns)s/%(nodes)s required "
-"connections"
-
-#, python-format
-msgid ""
-"Object PUT exceptions during send, %(conns)s/%(nodes)s required connections"
-msgstr ""
-"Object PUT exceptions during send, %(conns)s/%(nodes)s required connections"
-
-#, python-format
-msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
-msgstr "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
-
-#, python-format
-msgid "Object PUT returning 412, %(statuses)r"
-msgstr "Object PUT returning 412, %(statuses)r"
-
-#, python-format
-msgid "Object PUT returning 503, %(conns)s/%(nodes)s required connections"
-msgstr "Object PUT returning 503, %(conns)s/%(nodes)s required connections"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s) \"%(mode)s\" mode completed: %(elapsed).02fs. Total "
-"quarantined: %(quars)d, Total errors: %(errors)d, Total files/sec: "
-"%(frate).2f, Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"Object audit (%(type)s) \"%(mode)s\" mode completed: %(elapsed).02fs. Total "
-"quarantined: %(quars)d, Total errors: %(errors)d, Total files/sec: "
-"%(frate).2f, Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-
-#, python-format
-msgid "Object audit stats: %s"
-msgstr "Object audit stats: %s"
-
-#, python-format
-msgid "Object reconstruction complete (once). (%.02f minutes)"
-msgstr "Object reconstruction complete (once). (%.02f minutes)"
-
-#, python-format
-msgid "Object reconstruction complete. (%.02f minutes)"
-msgstr "Object reconstruction complete. (%.02f minutes)"
-
-#, python-format
-msgid "Object replication complete (once). (%.02f minutes)"
-msgstr "Object replication complete (once). (%.02f minutes)"
-
-#, python-format
-msgid "Object replication complete. (%.02f minutes)"
-msgstr "Object replication complete. (%.02f minutes)"
-
-#, python-format
-msgid "Object servers returned %s mismatched etags"
-msgstr "Object servers returned %s mismatched etags"
-
-#, python-format
-msgid "Object update sweep completed: %.02fs"
-msgstr "Object update sweep completed: %.02fs"
-
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "Params, queries, and fragments not allowed in X-Container-Sync-To"
 
-#, python-format
-msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
-msgstr "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
-
-#, python-format
-msgid ""
-"Pass beginning for task account %(account)s; %(container_count)s possible "
-"containers; %(obj_count)s possible objects"
-msgstr ""
-"Pass beginning for task account %(account)s; %(container_count)s possible "
-"containers; %(obj_count)s possible objects"
-
-#, python-format
-msgid "Pass completed in %(time)ds; %(objects)d objects expired"
-msgstr "Pass completed in %(time)ds; %(objects)d objects expired"
-
-#, python-format
-msgid "Pass so far %(time)ds; %(objects)d objects expired"
-msgstr "Pass so far %(time)ds; %(objects)d objects expired"
-
 msgid "Path required in X-Container-Sync-To"
 msgstr "Path required in X-Container-Sync-To"
-
-#, python-format
-msgid "Pipeline is \"%s\""
-msgstr "Pipeline is \"%s\""
-
-#, python-format
-msgid "Pipeline was modified. New pipeline is \"%s\"."
-msgstr "Pipeline was modified. New pipeline is \"%s\"."
-
-#, python-format
-msgid "Problem checking EC fragment %(datadir)s: %(err)s"
-msgstr "Problem checking EC fragment %(datadir)s: %(err)s"
-
-#, python-format
-msgid "Problem cleaning up %(datadir)s (%(err)s)"
-msgstr "Problem cleaning up %(datadir)s (%(err)s)"
-
-#, python-format
-msgid "Problem cleaning up %s"
-msgstr "Problem cleaning up %s"
-
-#, python-format
-msgid "Problem making data file durable %(file)s (%(err)s)"
-msgstr "Problem making data file durable %(file)s (%(err)s)"
-
-#, python-format
-msgid "Problem with fragment response: %s"
-msgstr "Problem with fragment response: %s"
 
 #, python-format
 msgid "Profiling Error: %s"
@@ -910,17 +317,6 @@ msgstr "Profiling Error: %s"
 #, python-format
 msgid "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
 msgstr "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
-
-#, python-format
-msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
-msgstr ""
-"Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
-
-#, python-format
-msgid ""
-"Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
-msgstr ""
-"Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -934,14 +330,6 @@ msgstr ""
 #, python-format
 msgid "Removed %(remove)d dbs"
 msgstr "Removed %(remove)d dbs"
-
-#, python-format
-msgid "Removing %s objects"
-msgstr "Removing %s objects"
-
-#, python-format
-msgid "Removing partition: %s"
-msgstr "Removing partition: %s"
 
 #, python-format
 msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
@@ -963,28 +351,12 @@ msgid "Returning 497 because of blacklisting: %s"
 msgstr "Returning 497 because of blacklisting: %s"
 
 #, python-format
-msgid ""
-"Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
-"Sleep) %(e)s"
-msgstr ""
-"Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
-"Sleep) %(e)s"
-
-msgid "Ring change detected. Aborting current reconstruction pass."
-msgstr "Ring change detected. Aborting current reconstruction pass."
-
-msgid "Ring change detected. Aborting current replication pass."
-msgstr "Ring change detected. Aborting current replication pass."
+msgid "Returning 498 for %(meth)s to %(path)s. Ratelimit (Max Sleep) %(e)s"
+msgstr "Returning 498 for %(meth)s to %(path)s. Ratelimit (Max Sleep) %(e)s"
 
 #, python-format
 msgid "Running %s once"
 msgstr "Running %s once"
-
-msgid "Running object reconstructor in script mode."
-msgstr "Running object reconstructor in script mode."
-
-msgid "Running object replicator in script mode."
-msgstr "Running object replicator in script mode."
 
 #, python-format
 msgid "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
@@ -992,27 +364,11 @@ msgstr "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
 
 #, python-format
 msgid ""
-"Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
-"skipped, %(fail)s failed"
+"Since %(time)s: %(server_type)s audits: %(pass)s passed audit, %(fail)s "
+"failed audit"
 msgstr ""
-"Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
-"skipped, %(fail)s failed"
-
-#, python-format
-msgid ""
-"Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
-"audit"
-msgstr ""
-"Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
-"audit"
-
-#, python-format
-msgid ""
-"Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
-"audit"
-msgstr ""
-"Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
-"audit"
+"Since %(time)s: %(server_type)s audits: %(pass)s passed audit, %(fail)s "
+"failed audit"
 
 #, python-format
 msgid "Skipping %(datadir)s because %(err)s"
@@ -1026,65 +382,8 @@ msgstr "Skipping %s as it is not mounted"
 msgid "Starting %s"
 msgstr "Starting %s"
 
-msgid "Starting object reconstruction pass."
-msgstr "Starting object reconstruction pass."
-
-msgid "Starting object reconstructor in daemon mode."
-msgstr "Starting object reconstructor in daemon mode."
-
-msgid "Starting object replication pass."
-msgstr "Starting object replication pass."
-
-msgid "Starting object replicator in daemon mode."
-msgstr "Starting object replicator in daemon mode."
-
-#, python-format
-msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
-msgstr "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
-
 msgid "The file type are forbidden to access!"
 msgstr "The file type are forbidden to access!"
-
-#, python-format
-msgid ""
-"The total %(key)s for the container (%(total)s) does not match the sum of "
-"%(key)s across policies (%(sum)s)"
-msgstr ""
-"The total %(key)s for the container (%(total)s) does not match the sum of "
-"%(key)s across policies (%(sum)s)"
-
-#, python-format
-msgid "Timeout fetching fragments for %r"
-msgstr "Timeout fetching fragments for %r"
-
-#, python-format
-msgid "Trying to %(method)s %(path)s"
-msgstr "Trying to %(method)s %(path)s"
-
-#, python-format
-msgid "Trying to GET %(full_path)s"
-msgstr "Trying to GET %(full_path)s"
-
-#, python-format
-msgid "Trying to get %(status_type)s status of PUT to %(path)s"
-msgstr "Trying to get %(status_type)s status of PUT to %(path)s"
-
-msgid "Trying to read during GET"
-msgstr "Trying to read during GET"
-
-msgid "Trying to read object during GET (retrying)"
-msgstr "Trying to read object during GET (retrying)"
-
-msgid "Trying to send to client"
-msgstr "Trying to send to client"
-
-#, python-format
-msgid "Trying to sync suffixes with %s"
-msgstr "Trying to sync suffixes with %s"
-
-#, python-format
-msgid "Trying to write to %s"
-msgstr "Trying to write to %s"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "UNCAUGHT EXCEPTION"
@@ -1092,10 +391,6 @@ msgstr "UNCAUGHT EXCEPTION"
 #, python-format
 msgid "Unable to find %(section)s config section in %(conf)s"
 msgstr "Unable to find %(section)s config section in %(conf)s"
-
-#, python-format
-msgid "Unable to load internal client from config: %(conf)r (%(error)s)"
-msgstr "Unable to load internal client from config: %(conf)r (%(error)s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
@@ -1121,29 +416,6 @@ msgstr "Unable to perform fsync() on directory %(dir)s: %(err)s"
 #, python-format
 msgid "Unable to read config from %s"
 msgstr "Unable to read config from %s"
-
-#, python-format
-msgid "Unauth %(sync_from)r => %(sync_to)r"
-msgstr "Unauth %(sync_from)r => %(sync_to)r"
-
-#, python-format
-msgid ""
-"Unexpected fragment data type (not quarantined) %(datadir)s: %(type)s at "
-"offset 0x%(offset)x"
-msgstr ""
-"Unexpected fragment data type (not quarantined) %(datadir)s: %(type)s at "
-"offset 0x%(offset)x"
-
-msgid "Unhandled exception"
-msgstr "Unhandled exception"
-
-#, python-format
-msgid "Update report failed for %(container)s %(dbfile)s"
-msgstr "Update report failed for %(container)s %(dbfile)s"
-
-#, python-format
-msgid "Update report sent for %(container)s %(dbfile)s"
-msgstr "Update report sent for %(container)s %(dbfile)s"
 
 msgid ""
 "WARNING: SSL should only be enabled for testing purposes. Use external SSL "
@@ -1194,16 +466,8 @@ msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Warning: Cannot ratelimit without a memcached client"
 
 #, python-format
-msgid "autocreate account %r"
-msgstr "autocreate account %r"
-
-#, python-format
 msgid "method %s is not allowed."
 msgstr "method %s is not allowed."
-
-#, python-format
-msgid "next_part_power set in policy '%s'. Skipping"
-msgstr "next_part_power set in policy '%s'. Skipping"
 
 msgid "no log file found"
 msgstr "no log file found"
@@ -1217,11 +481,3 @@ msgstr "plotting results failed due to %s"
 
 msgid "python-matplotlib not installed."
 msgstr "python-matplotlib not installed."
-
-#, python-format
-msgid ""
-"sorting_method is set to '%(method)s', not 'affinity'; %(label)s "
-"read_affinity setting will have no effect."
-msgstr ""
-"sorting_method is set to '%(method)s', not 'affinity'; %(label)s "
-"read_affinity setting will have no effect."
