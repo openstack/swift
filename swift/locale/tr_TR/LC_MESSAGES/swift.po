@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2020-10-07 00:36+0000\n"
+"POT-Creation-Date: 2022-05-27 18:57+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -29,39 +29,8 @@ msgstr ""
 "kullanıcı çıktı"
 
 #, python-format
-msgid " - %s"
-msgstr " - %s"
-
-#, python-format
-msgid " - parallel, %s"
-msgstr " - paralel, %s"
-
-#, python-format
-msgid ""
-"%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% synced"
-msgstr ""
-"%(checked)d sonek kontrol edildi - %(hashed).2f%% özetlenen, %(synced).2f%% "
-"eşzamanlanan"
-
-#, python-format
-msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
-msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid ""
-"%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
-"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-msgstr ""
-"%(replicated)d/%(total)d (%(percentage).2f%%) bölüm %(time).2fs (%(rate).2f/"
-"sn, %(remaining)s kalan) içinde çoğaltıldı"
-
-#, python-format
 msgid "%(success)s successes, %(failure)s failures"
 msgstr "%(success)s başarı, %(failure)s başarısızlık"
-
-#, python-format
-msgid "%(type)s returning 503 for %(statuses)s"
-msgstr "%(type)s %(statuses)s için 503 döndürüyor"
 
 #, python-format
 msgid "%s already started..."
@@ -72,63 +41,13 @@ msgid "%s does not exist"
 msgstr "%s mevcut değil"
 
 #, python-format
-msgid "%s is not mounted"
-msgstr "%s bağlı değil"
-
-#, python-format
-msgid "%s responded as unmounted"
-msgstr "%s bağlı değil olarak yanıt verdi"
-
-#, python-format
 msgid "%s: Connection reset by peer"
 msgstr "%s: Bağlantı eş tarafından sıfırlandı"
-
-msgid "Account"
-msgstr "Hesap"
-
-#, python-format
-msgid "Account audit \"once\" mode completed: %.02fs"
-msgstr "Hesap denetimi \"bir kere\" kipi tamamlandı: %.02fs"
-
-#, python-format
-msgid "Account audit pass completed: %.02fs"
-msgstr "Hesap denetimi geçişi tamamlandı: %.02fs"
 
 #, python-format
 msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr "%(count)d db %(time).5f saniyede çoğaltılmaya çalışıldı (%(rate).5f/s)"
-
-#, python-format
-msgid "Bad rsync return code: %(ret)d <- %(args)s"
-msgstr "Kötü rsync dönüş kodu: %(ret)d <- %(args)s"
-
-msgid "Begin account audit \"once\" mode"
-msgstr "Hesap denetimi \"bir kere\" kipini başlat"
-
-msgid "Begin account audit pass."
-msgstr "Hesap denetimi başlatma geçildi."
-
-msgid "Begin container audit \"once\" mode"
-msgstr "Kap denetimine \"bir kere\" kipinde başla"
-
-msgid "Begin container audit pass."
-msgstr "Kap denetimi geçişini başlat."
-
-msgid "Begin container sync \"once\" mode"
-msgstr "Kap eşzamanlamayı \"bir kere\" kipinde başlat"
-
-msgid "Begin container update single threaded sweep"
-msgstr "Kap güncelleme tek iş iplikli süpürmeye başla"
-
-msgid "Begin container update sweep"
-msgstr "Kap güncelleme süpürmesine başla"
-
-msgid "Begin object update single threaded sweep"
-msgstr "Nesne güncelleme tek iş iplikli süpürmeye başla"
-
-msgid "Begin object update sweep"
-msgstr "Nesne güncelleme süpürmesine başla"
 
 msgid "Beginning replication run"
 msgstr "Çoğaltmanın çalıştırılmasına başlanıyor"
@@ -144,196 +63,25 @@ msgstr "%s dosyasına erişilemiyor."
 msgid "Can not load profile data from %s."
 msgstr "%s'den profil verisi yüklenemiyor."
 
-#, python-format
-msgid "Client did not read from proxy within %ss"
-msgstr "İstemci %ss içinde vekilden okumadı"
-
-msgid "Client disconnected without sending enough data"
-msgstr "İstemci yeterli veri göndermeden bağlantıyı kesti"
-
-#, python-format
-msgid ""
-"Client path %(client)s does not match path stored in object metadata %(meta)s"
-msgstr ""
-"İstemci yolu %(client)s nesne metadata'sında kayıtlı yol ile eşleşmiyor "
-"%(meta)s"
-
-msgid ""
-"Configuration option internal_client_conf_path not defined. Using default "
-"configuration, See internal-client.conf-sample for options"
-msgstr ""
-"Yapılandırma seçeneği internal_client_conf_path belirtilmemiş. Varsayılan "
-"yapılandırma kullanılıyor, seçenekleri çin internal-client.conf-sample'a "
-"bakın"
-
 msgid "Connection refused"
 msgstr "Bağlantı reddedildi"
 
 msgid "Connection timeout"
 msgstr "Bağlantı zaman aşımına uğradı"
 
-msgid "Container"
-msgstr "Kap"
-
-#, python-format
-msgid "Container audit \"once\" mode completed: %.02fs"
-msgstr "Kap denetimi \"bir kere\" kipinde tamamlandı: %.02fs"
-
-#, python-format
-msgid "Container audit pass completed: %.02fs"
-msgstr "Kap denetim geçişi tamamlandı: %.02fs"
-
-#, python-format
-msgid "Container sync \"once\" mode completed: %.02fs"
-msgstr "Kap eşzamanlama \"bir kere\" kipinde tamamlandı: %.02fs"
-
-#, python-format
-msgid ""
-"Container update single threaded sweep completed: %(elapsed).02fs, "
-"%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"Kap güncelleme tek iş iplikli süpürme tamamlandı: %(elapsed).02fs, "
-"%(success)s başarılı, %(fail)s başarısız, %(no_change)s değişiklik yok"
-
-#, python-format
-msgid "Container update sweep completed: %.02fs"
-msgstr "Kap güncelleme süpürme tamamlandı: %.02fs"
-
-#, python-format
-msgid ""
-"Container update sweep of %(path)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"%(path)s in kap güncelleme süpürmesi tamamlandı: %(elapsed).02fs, "
-"%(success)s başarılı, %(fail)s başarısız, %(no_change)s değişiklik yok"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "Veri indirme hatası: %s"
 
-#, python-format
-msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
-msgstr "HATA %(db_file)s: %(validate_sync_to_err)s"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From %(type)s Server"
-msgstr "HATA %(status)d %(body)s %(type)s Sunucudan"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
-msgstr "HATA %(status)d %(body)s Nesne Sunucu re'den: %(path)s"
-
-#, python-format
-msgid "ERROR %(status)d Expect: 100-continue From Object Server"
-msgstr "HATA %(status)d Beklenen: 100-Nesne Sunucusundan devam et"
-
-#, python-format
-msgid ""
-"ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): Response %(status)s %(reason)s"
-msgstr ""
-"HATA %(ip)s:%(port)s/%(device)s ile hesap güncelleme başarısız (sonra tekrar "
-"denenecek): Yanıt %(status)s %(reason)s"
-
-#, python-format
-msgid "ERROR Client read timeout (%ss)"
-msgstr "HATA İstemci okuma zaman aşımına uğradı (%ss)"
-
-#, python-format
-msgid ""
-"ERROR Container update failed (saving for async update later): %(status)d "
-"response from %(ip)s:%(port)s/%(dev)s"
-msgstr ""
-"HATA Kap güncelleme başarısız (daha sonraki async güncellemesi için "
-"kaydediliyor): %(ip)s:%(port)s/%(dev)s den %(status)d yanıtı"
-
-#, python-format
-msgid "ERROR Could not get account info %s"
-msgstr "HATA hesap bilgisi %s alınamadı"
-
-#, python-format
-msgid "ERROR Could not get container info %s"
-msgstr "HATA %s kap bilgisi alınamadı"
-
-#, python-format
-msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
-msgstr "HATA %(data_file)s disk dosyası kapatma başarısız: %(exc)s : %(stack)s"
-
-msgid "ERROR Exception causing client disconnect"
-msgstr "HATA İstisna istemci bağlantısının kesilmesine neden oluyor"
-
 msgid "ERROR Failed to get my own IPs?"
 msgstr "Kendi IP'lerimi alırken HATA?"
-
-msgid "ERROR Insufficient Storage"
-msgstr "HATA Yetersiz Depolama"
-
-#, python-format
-msgid "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
-msgstr ""
-"HATA Nesne %(obj)s denetimde başarısız oldu ve karantinaya alındı: %(err)s"
-
-#, python-format
-msgid "ERROR Pickle problem, quarantining %s"
-msgstr "HATA Picke problemi, %s karantinaya alınıyor"
 
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "HATA Uzak sürücü bağlı değil %s"
 
-#, python-format
-msgid "ERROR Syncing %(db_file)s %(row)s"
-msgstr "HATA %(db_file)s %(row)s eşzamanlamada"
-
-#, python-format
-msgid "ERROR Syncing %s"
-msgstr "HATA %s Eşzamanlama"
-
-#, python-format
-msgid "ERROR Trying to audit %s"
-msgstr "HATA %s denetimi denemesinde"
-
-msgid "ERROR Unhandled exception in request"
-msgstr "HATA İstekte ele alınmayan istisna var"
-
-#, python-format
-msgid "ERROR __call__ error with %(method)s %(path)s "
-msgstr "ERROR __call__ hatası %(method)s %(path)s "
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later)"
-msgstr ""
-"HATA %(ip)s:%(port)s/%(device)s ile hesap güncelleme başarısız (sonra "
-"yeniden denenecek)"
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): "
-msgstr ""
-"HATA hesap güncelleme başarısız %(ip)s:%(port)s/%(device)s (sonra tekrar "
-"denenecek):"
-
-#, python-format
-msgid "ERROR async pending file with unexpected name %s"
-msgstr "HATA beklenmeyen isimli async bekleyen dosya %s"
-
 msgid "ERROR auditing"
 msgstr "denetlemede HATA"
-
-#, python-format
-msgid "ERROR auditing: %s"
-msgstr "HATA denetim: %s"
-
-#, python-format
-msgid ""
-"ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for async "
-"update later)"
-msgstr ""
-"HATA kap güncelleme %(ip)s:%(port)s/%(dev)s ile başarısız oldu (sonraki "
-"async güncellemesi için kaydediliyor)"
 
 #, python-format
 msgid "ERROR reading HTTP response from %s"
@@ -353,37 +101,6 @@ msgstr "%(node)s düğümlü %(file)s eş zamanlamada HATA"
 
 msgid "ERROR trying to replicate"
 msgstr "Çoğaltmaya çalışmada HATA"
-
-#, python-format
-msgid "ERROR while trying to clean up %s"
-msgstr "%s temizlenmeye çalışırken HATA"
-
-#, python-format
-msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
-msgstr "HATA %(type)s sunucusu %(ip)s:%(port)s/%(device)s re: %(info)s"
-
-#, python-format
-msgid "ERROR with loading suppressions from %s: "
-msgstr "HATA %s den baskılamaların yüklenmesinde: "
-
-#, python-format
-msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
-msgstr "HATA uzuk sunucuda %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "ERROR:  Failed to get paths to drive partitions: %s"
-msgstr "HATA:  Sürücü bölümlerine olan yollar alınamadı: %s"
-
-#, python-format
-msgid "ERROR: Unable to access %(path)s: %(error)s"
-msgstr "HATA: %(path)s e erişilemiyor: %(error)s"
-
-#, python-format
-msgid "ERROR: Unable to run auditing: %s"
-msgstr "HATA: Denetim çalıştırılamıyor: %s"
-
-msgid "Error hashing suffix"
-msgstr "Sonek özetini çıkarmada hata"
 
 msgid "Error listing devices"
 msgstr "Aygıtları listelemede hata"
@@ -407,21 +124,6 @@ msgstr "swift.conf okunurken hata"
 msgid "Error retrieving recon data"
 msgstr "Recon verisini almada hata"
 
-msgid "Error syncing handoff partition"
-msgstr "Devir bölümünü eş zamanlamada hata"
-
-msgid "Error syncing partition"
-msgstr "Bölüm eşzamanlamada hata"
-
-#, python-format
-msgid "Error syncing with node: %s"
-msgstr "Düğüm ile eş zamanlamada hata: %s"
-
-#, python-format
-msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
-msgstr ""
-"Yeniden inşa denenirken hata %(path)s policy#%(policy)d frag#%(frag_index)s"
-
 msgid "Error: An error occurred"
 msgstr "Hata: Bir hata oluştu"
 
@@ -431,14 +133,6 @@ msgstr "Hata: yapılandırma yolu değişkeni eksik"
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr "Hata: %s bulunamıyor"
-
-#, python-format
-msgid "Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "%(ip)s:%(port)s/%(device)s ile istisna"
-
-#, python-format
-msgid "Expect: 100-continue on %s"
-msgstr "Beklenen: 100-%s üzerinden devam et"
 
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
@@ -463,27 +157,12 @@ msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "Geçersiz bekleyen girdi %(file)s: %(entry)s"
 
 #, python-format
-msgid "Invalid response %(resp)s from %(full_path)s"
-msgstr "%(full_path)s den geçersiz yanıt %(resp)s"
-
-#, python-format
-msgid "Invalid response %(resp)s from %(ip)s"
-msgstr "%(ip)s den geçersiz yanıt %(resp)s"
-
-#, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr ""
 "X-Container-Sync-To'da geçersiz şema %r, \"//\", \"http\", veya \"https\" "
 "olmalı."
-
-#, python-format
-msgid "Killing long-running rsync: %s"
-msgstr "Uzun süre çalışan rsync öldürülüyor: %s"
-
-msgid "Lockup detected.. killing live coros."
-msgstr "Kilitleme algılandı.. canlı co-rutinler öldürülüyor."
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
@@ -505,111 +184,15 @@ msgstr "%s indisine sahip ilke yok"
 msgid "No realm key for %r"
 msgstr "%r için realm anahtarı yok"
 
-#, python-format
-msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
-msgstr "Düğüm hatası sınırlandı %(ip)s:%(port)s (%(device)s)"
-
-#, python-format
-msgid "Not enough object servers ack'ed (got %d)"
-msgstr "Yeterince nesne sunucu ack'lenmedi (%d alındı)"
-
-#, python-format
-msgid ""
-"Not found %(sync_from)r => %(sync_to)r                       - object "
-"%(obj_name)r"
-msgstr ""
-"Bulunamadı %(sync_from)r => %(sync_to)r            - nesne %(obj_name)r"
-
-#, python-format
-msgid "Nothing reconstructed for %s seconds."
-msgstr "%s saniye boyunca hiçbir şey yeniden oluşturulmadı."
-
-#, python-format
-msgid "Nothing replicated for %s seconds."
-msgstr "%s saniyedir hiçbir şey çoğaltılmadı."
-
-msgid "Object"
-msgstr "Nesne"
-
-msgid "Object PUT"
-msgstr "Nesne PUT"
-
-#, python-format
-msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
-msgstr "Nesne PUT 409 için 202 döndürüyor: %(req_timestamp)s <= %(timestamps)r"
-
-#, python-format
-msgid "Object PUT returning 412, %(statuses)r"
-msgstr "Nesne PUT 412 döndürüyor, %(statuses)r"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s) \"%(mode)s\" mode completed: %(elapsed).02fs. Total "
-"quarantined: %(quars)d, Total errors: %(errors)d, Total files/sec: "
-"%(frate).2f, Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"Nesne denetimi (%(type)s) \"%(mode)s\" kipinde tamamlandı: %(elapsed).02fs. "
-"Toplam karantina: %(quars)d, Toplam hata: %(errors)d, Toplam dosya/sn: "
-"%(frate).2f, Toplam bayt/sn: %(brate).2f, Denetleme zamanı: %(audit).2f, "
-"Oran: %(audit_rate).2f"
-
-#, python-format
-msgid "Object audit stats: %s"
-msgstr "Nesne denetim istatistikleri: %s"
-
-#, python-format
-msgid "Object reconstruction complete (once). (%.02f minutes)"
-msgstr "Nesne yeniden oluşturma tamamlandı (bir kere). (%.02f dakika)"
-
-#, python-format
-msgid "Object reconstruction complete. (%.02f minutes)"
-msgstr "Nesne yeniden oluşturma tamamlandı. (%.02f dakika)"
-
-#, python-format
-msgid "Object replication complete (once). (%.02f minutes)"
-msgstr "Nesne çoğaltma tamamlandı (bir kere). (%.02f dakika)"
-
-#, python-format
-msgid "Object replication complete. (%.02f minutes)"
-msgstr "Nesne çoğaltma tamamlandı. (%.02f dakika)"
-
-#, python-format
-msgid "Object servers returned %s mismatched etags"
-msgstr "Nesne sunucuları %s eşleşmeyen etag döndürdü"
-
-#, python-format
-msgid "Object update sweep completed: %.02fs"
-msgstr "Nesne güncelleme süpürmesi tamamlandı: %.02fs"
-
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "X-Container-Sync-To'da parametre, sorgular, ve parçalara izin verilmez"
-
-#, python-format
-msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
-msgstr ""
-"Bölüm zamanları: azami %(max).4fs, asgari %(min).4fs, ortalama %(med).4fs"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "X-Container-Sync-To'de yol gerekli"
 
 #, python-format
-msgid "Problem cleaning up %s"
-msgstr "%s temizliğinde problem"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Profilleme Hatası: %s"
-
-#, python-format
-msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
-msgstr "%(hsh_path)s %(quar_path)s karantinasına alındı çünkü bir dizin değil"
-
-#, python-format
-msgid ""
-"Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
-msgstr ""
-"Bir dizin olmadığından %(object_path)s %(quar_path)s e karantinaya alındı"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -623,14 +206,6 @@ msgstr ""
 #, python-format
 msgid "Removed %(remove)d dbs"
 msgstr "%(remove)d db silindi"
-
-#, python-format
-msgid "Removing %s objects"
-msgstr "%s nesne kaldırılıyor"
-
-#, python-format
-msgid "Removing partition: %s"
-msgstr "Bölüm kaldırılıyor: %s"
 
 #, python-format
 msgid "Removing pid file %s with invalid pid"
@@ -648,53 +223,8 @@ msgid "Returning 497 because of blacklisting: %s"
 msgstr "Kara listeleme yüzünden 497 döndürülüyor: %s"
 
 #, python-format
-msgid ""
-"Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
-"Sleep) %(e)s"
-msgstr ""
-"%(acc)s/%(cont)s/%(obj)s ye %(meth)s için 498 döndürülüyor. Oran sınırı "
-"(Azami uyku) %(e)s"
-
-msgid "Ring change detected. Aborting current reconstruction pass."
-msgstr ""
-"Zincir değişikliği algılandı. Mevcut yeniden oluşturma geçişi iptal ediliyor."
-
-msgid "Ring change detected. Aborting current replication pass."
-msgstr "Zincir değişimi algılandı. Mevcut çoğaltma geçişi iptal ediliyor."
-
-#, python-format
 msgid "Running %s once"
 msgstr "%s bir kere çalıştırılıyor"
-
-msgid "Running object reconstructor in script mode."
-msgstr "Nesne yeniden oluşturma betik kipinde çalıştırılıyor."
-
-msgid "Running object replicator in script mode."
-msgstr "Nesne çoğaltıcı betik kipinde çalıştırılıyor."
-
-#, python-format
-msgid ""
-"Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
-"skipped, %(fail)s failed"
-msgstr ""
-"%(time)s den beri: %(sync)s eşzamanlandı [%(delete)s silme, %(put)s koyma], "
-"%(skip)s atlama, %(fail)s başarısız"
-
-#, python-format
-msgid ""
-"Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
-"audit"
-msgstr ""
-"%(time)s den beri: Hesap denetimleri: %(passed)s denetimi geçti, %(failed)s "
-"denetimi geçemedi"
-
-#, python-format
-msgid ""
-"Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
-"audit"
-msgstr ""
-"%(time)s den beri: Kap denetimleri: %(pass)s denetimi geçti, %(fail)s "
-"denetimde başarısız"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -704,54 +234,8 @@ msgstr "Bağlı olmadığından %s atlanıyor"
 msgid "Starting %s"
 msgstr "%s başlatılıyor"
 
-msgid "Starting object reconstruction pass."
-msgstr "Nesne yeniden oluşturma geçişi başlatılıyor."
-
-msgid "Starting object reconstructor in daemon mode."
-msgstr "Nesne yeniden oluşturma artalan işlemi kipinde başlatılıyor."
-
-msgid "Starting object replication pass."
-msgstr "Nesne çoğaltma geçişi başlatılıyor."
-
-msgid "Starting object replicator in daemon mode."
-msgstr "Nesne çoğaltıcı artalan işlemi kipinde başlatılıyor."
-
-#, python-format
-msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
-msgstr "%(dst)s (%(time).03f) de %(src)s başarılı rsync'i"
-
 msgid "The file type are forbidden to access!"
 msgstr "Dosya türüne erişim yasaklanmış!"
-
-#, python-format
-msgid ""
-"The total %(key)s for the container (%(total)s) does not match the sum of "
-"%(key)s across policies (%(sum)s)"
-msgstr ""
-"(%(total)s) kabı için %(key)s toplamı ilkeler arasındaki %(key)s toplamıyla "
-"eşleşmiyor (%(sum)s)"
-
-#, python-format
-msgid "Trying to %(method)s %(path)s"
-msgstr "%(method)s %(path)s deneniyor"
-
-#, python-format
-msgid "Trying to GET %(full_path)s"
-msgstr "%(full_path)s GET deneniyor"
-
-msgid "Trying to read during GET"
-msgstr "GET sırasında okuma deneniyor"
-
-msgid "Trying to send to client"
-msgstr "İstemciye gönderilmeye çalışılıyor"
-
-#, python-format
-msgid "Trying to sync suffixes with %s"
-msgstr "%s e sahip son ekler eşzamanlanmaya çalışılıyor"
-
-#, python-format
-msgid "Trying to write to %s"
-msgstr "%s'e yazmaya çalışılıyor"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "YAKALANMAYAN İSTİSNA"
@@ -772,21 +256,6 @@ msgstr ""
 #, python-format
 msgid "Unable to read config from %s"
 msgstr "%s'den yapılandırma okunamıyor"
-
-#, python-format
-msgid "Unauth %(sync_from)r => %(sync_to)r"
-msgstr "%(sync_from)r => %(sync_to)r yetki al"
-
-msgid "Unhandled exception"
-msgstr "Yakalanmamış istisna"
-
-#, python-format
-msgid "Update report failed for %(container)s %(dbfile)s"
-msgstr "%(container)s %(dbfile)s için güncelleme raporu başarısız"
-
-#, python-format
-msgid "Update report sent for %(container)s %(dbfile)s"
-msgstr "%(container)s %(dbfile)s için güncelleme raporu gönderildi"
 
 msgid ""
 "WARNING: SSL should only be enabled for testing purposes. Use external SSL "

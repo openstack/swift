@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2020-10-07 00:36+0000\n"
+"POT-Creation-Date: 2022-05-27 18:57+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -29,37 +29,8 @@ msgstr ""
 "用户退出"
 
 #, python-format
-msgid " - %s"
-msgstr "- %s"
-
-#, python-format
-msgid " - parallel, %s"
-msgstr "－平行，%s"
-
-#, python-format
-msgid ""
-"%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% synced"
-msgstr "%(checked)d后缀已被检查 %(hashed).2f%% hashed, %(synced).2f%% synced"
-
-#, python-format
-msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
-msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid ""
-"%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
-"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-msgstr ""
-"%(replicated)d/%(total)d (%(percentage).2f%%) 分区被复制 持续时间为 \"\n"
-"\"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
-
-#, python-format
 msgid "%(success)s successes, %(failure)s failures"
 msgstr "%(success)s成功，%(failure)s失败"
-
-#, python-format
-msgid "%(type)s returning 503 for %(statuses)s"
-msgstr "%(type)s 返回 503 在 %(statuses)s"
 
 #, python-format
 msgid "%s already started..."
@@ -70,63 +41,13 @@ msgid "%s does not exist"
 msgstr "%s不存在"
 
 #, python-format
-msgid "%s is not mounted"
-msgstr "%s未挂载"
-
-#, python-format
-msgid "%s responded as unmounted"
-msgstr "%s 响应为未安装"
-
-#, python-format
 msgid "%s: Connection reset by peer"
 msgstr "%s：已由同级重置连接"
-
-msgid "Account"
-msgstr "账号"
-
-#, python-format
-msgid "Account audit \"once\" mode completed: %.02fs"
-msgstr "账号审计\"once\"模式完成： %.02fs"
-
-#, python-format
-msgid "Account audit pass completed: %.02fs"
-msgstr "账号审计完成：%.02fs"
 
 #, python-format
 msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr "%(time).5f seconds (%(rate).5f/s)尝试复制%(count)d dbs"
-
-#, python-format
-msgid "Bad rsync return code: %(ret)d <- %(args)s"
-msgstr "Bad rsync返还代码：%(ret)d <- %(args)s"
-
-msgid "Begin account audit \"once\" mode"
-msgstr "开始账号审计\"once\"模式"
-
-msgid "Begin account audit pass."
-msgstr "开始账号审计通过"
-
-msgid "Begin container audit \"once\" mode"
-msgstr "开始容器审计\"once\" 模式"
-
-msgid "Begin container audit pass."
-msgstr "开始通过容器审计"
-
-msgid "Begin container sync \"once\" mode"
-msgstr "开始容器同步\"once\"模式"
-
-msgid "Begin container update single threaded sweep"
-msgstr "开始容器更新单线程扫除"
-
-msgid "Begin container update sweep"
-msgstr "开始容器更新扫除"
-
-msgid "Begin object update single threaded sweep"
-msgstr "开始对象更新单线程扫除"
-
-msgid "Begin object update sweep"
-msgstr "开始对象更新扫除"
 
 msgid "Beginning replication run"
 msgstr "开始运行复制"
@@ -142,193 +63,25 @@ msgstr "无法访问文件%s"
 msgid "Can not load profile data from %s."
 msgstr "无法从%s下载分析数据"
 
-#, python-format
-msgid "Client did not read from proxy within %ss"
-msgstr "客户尚未从代理处读取%ss"
-
-msgid "Client disconnected without sending enough data"
-msgstr "客户中断 尚未发送足够"
-
-msgid "Client disconnected without sending last chunk"
-msgstr "客户机已断开连接而未发送最后一个数据块"
-
-#, python-format
-msgid ""
-"Client path %(client)s does not match path stored in object metadata %(meta)s"
-msgstr "客户路径%(client)s与对象元数据中存储的路径%(meta)s不符"
-
-msgid ""
-"Configuration option internal_client_conf_path not defined. Using default "
-"configuration, See internal-client.conf-sample for options"
-msgstr ""
-"未定义配置选项 internal_client_conf_path。正在使用缺省配置。请参阅 internal-"
-"client.conf-sample 以了解各个选项"
-
 msgid "Connection refused"
 msgstr "连接被拒绝"
 
 msgid "Connection timeout"
 msgstr "连接超时"
 
-msgid "Container"
-msgstr "容器"
-
-#, python-format
-msgid "Container audit \"once\" mode completed: %.02fs"
-msgstr "容器审计\"once\"模式完成：%.02fs"
-
-#, python-format
-msgid "Container audit pass completed: %.02fs"
-msgstr "容器审计通过完成： %.02fs"
-
-#, python-format
-msgid "Container sync \"once\" mode completed: %.02fs"
-msgstr "容器同步\"once\"模式完成：%.02fs"
-
-#, python-format
-msgid ""
-"Container update single threaded sweep completed: %(elapsed).02fs, "
-"%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"容器更新单线程扫除完成：%(elapsed).02fs, %(success)s 成功, %(fail)s 失败, "
-"%(no_change)s 无更改"
-
-#, python-format
-msgid "Container update sweep completed: %.02fs"
-msgstr "容器更新扫除完成：%.02fs"
-
-#, python-format
-msgid ""
-"Container update sweep of %(path)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures, %(no_change)s with no changes"
-msgstr ""
-"通过路径%(path)s容器更新扫除完成：%(elapsed).02fs, %(success)s 成功, "
-"%(fail)s 失败, %(no_change)s 无更改"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "数据下载错误：%s"
 
-#, python-format
-msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
-msgstr "错误 %(db_file)s: %(validate_sync_to_err)s"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From %(type)s Server"
-msgstr "错误 %(status)d %(body)s 来自 %(type)s 服务器"
-
-#, python-format
-msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
-msgstr "错误 %(status)d %(body)s 来自 对象服务器 re: %(path)s"
-
-#, python-format
-msgid "ERROR %(status)d Expect: 100-continue From Object Server"
-msgstr "发生 %(status)d 错误，需要 100 - 从对象服务器继续"
-
-#, python-format
-msgid ""
-"ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): Response %(status)s %(reason)s"
-msgstr ""
-"出现错误 账号更新失败： %(ip)s:%(port)s/%(device)s (稍后尝试): 回应 "
-"%(status)s %(reason)s"
-
-#, python-format
-msgid "ERROR Client read timeout (%ss)"
-msgstr "错误 客户读取超时(%ss)"
-
-#, python-format
-msgid ""
-"ERROR Container update failed (saving for async update later): %(status)d "
-"response from %(ip)s:%(port)s/%(dev)s"
-msgstr ""
-"错误 容器更新失败(正在保存 稍后同步更新)：%(status)d回应来自%(ip)s:%(port)s/"
-"%(dev)s"
-
-#, python-format
-msgid "ERROR Could not get account info %s"
-msgstr "错误：无法获取账号信息%s"
-
-#, python-format
-msgid "ERROR Could not get container info %s"
-msgstr "错误：无法获取容器%s信息"
-
-#, python-format
-msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
-msgstr "磁盘文件错误%(data_file)s关闭失败: %(exc)s : %(stack)s"
-
-msgid "ERROR Exception causing client disconnect"
-msgstr "错误 异常导致客户端中断连接"
-
-#, python-format
-msgid "ERROR Exception transferring data to object servers %s"
-msgstr "错误：向对象服务器 %s 传输数据时发生异常"
-
 msgid "ERROR Failed to get my own IPs?"
 msgstr "错误 无法获得我方IPs?"
-
-msgid "ERROR Insufficient Storage"
-msgstr "错误 存储空间不足"
-
-#, python-format
-msgid "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
-msgstr "错误 对象%(obj)s审计失败并被隔离：%(err)s"
-
-#, python-format
-msgid "ERROR Pickle problem, quarantining %s"
-msgstr "错误 Pickle问题 隔离%s"
 
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "错误 远程驱动器无法挂载 %s"
 
-#, python-format
-msgid "ERROR Syncing %(db_file)s %(row)s"
-msgstr "同步错误 %(db_file)s %(row)s"
-
-#, python-format
-msgid "ERROR Syncing %s"
-msgstr "同步时发生错误%s"
-
-#, python-format
-msgid "ERROR Trying to audit %s"
-msgstr "错误 尝试开始审计%s"
-
-msgid "ERROR Unhandled exception in request"
-msgstr "错误 未处理的异常发出请求"
-
-#, python-format
-msgid "ERROR __call__ error with %(method)s %(path)s "
-msgstr "%(method)s %(path)s出现错误__call__ error"
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later)"
-msgstr "错误 账号更新失败 %(ip)s:%(port)s/%(device)s (稍后尝试)"
-
-#, python-format
-msgid ""
-"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
-"later): "
-msgstr "错误 账号更新失败%(ip)s:%(port)s/%(device)s (稍后尝试):"
-
-#, python-format
-msgid "ERROR async pending file with unexpected name %s"
-msgstr "执行同步等待文件 文件名不可知%s"
-
 msgid "ERROR auditing"
 msgstr "错误 审计"
-
-#, python-format
-msgid "ERROR auditing: %s"
-msgstr "审计错误：%s"
-
-#, python-format
-msgid ""
-"ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for async "
-"update later)"
-msgstr "错误 容器更新失败%(ip)s:%(port)s/%(dev)s(正在保存 稍后同步更新)"
 
 #, python-format
 msgid "ERROR reading HTTP response from %s"
@@ -348,37 +101,6 @@ msgstr "错误 同步 %(file)s 和 节点%(node)s"
 
 msgid "ERROR trying to replicate"
 msgstr "尝试复制时发生错误"
-
-#, python-format
-msgid "ERROR while trying to clean up %s"
-msgstr "清理时出现错误%s"
-
-#, python-format
-msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
-msgstr "%(type)s服务器发生错误 %(ip)s:%(port)s/%(device)s re: %(info)s"
-
-#, python-format
-msgid "ERROR with loading suppressions from %s: "
-msgstr "执行下载压缩时发生错误%s"
-
-#, python-format
-msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
-msgstr "远程服务器发生错误 %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "ERROR:  Failed to get paths to drive partitions: %s"
-msgstr "%s未挂载"
-
-#, python-format
-msgid "ERROR: Unable to access %(path)s: %(error)s"
-msgstr "出错，无法访问 %(path)s：%(error)s"
-
-#, python-format
-msgid "ERROR: Unable to run auditing: %s"
-msgstr "错误：无法执行审计：%s"
-
-msgid "Error hashing suffix"
-msgstr "执行Hashing后缀时发生错误"
 
 msgid "Error listing devices"
 msgstr "设备列表时出现错误"
@@ -402,20 +124,6 @@ msgstr "读取swift.conf时出现错误"
 msgid "Error retrieving recon data"
 msgstr "检索recon data时出现错误"
 
-msgid "Error syncing handoff partition"
-msgstr "执行同步切换分区时发生错误"
-
-msgid "Error syncing partition"
-msgstr "执行同步分区时发生错误"
-
-#, python-format
-msgid "Error syncing with node: %s"
-msgstr "执行同步时节点%s发生错误"
-
-#, python-format
-msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
-msgstr "尝试重建 %(path)s 策略时出错：#%(policy)d frag#%(frag_index)s"
-
 msgid "Error: An error occurred"
 msgstr "错误：一个错误发生了"
 
@@ -427,24 +135,11 @@ msgid "Error: unable to locate %s"
 msgstr "错误：无法查询到 %s"
 
 #, python-format
-msgid "Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "%(ip)s:%(port)s/%(device)s出现异常"
-
-#, python-format
-msgid "Expect: 100-continue on %s"
-msgstr "已知：100-continue on %s"
-
-#, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "跟随CNAME链从%(given_domain)s到%(found_domain)s"
 
 msgid "Found configs:"
 msgstr "找到配置"
-
-msgid ""
-"Handoffs first mode still has handoffs remaining.  Aborting current "
-"replication pass."
-msgstr "Handoffs 优先方式仍有 handoffs。正在中止当前复制过程。"
 
 msgid "Host unreachable"
 msgstr "无法连接到主机"
@@ -462,26 +157,11 @@ msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "不可用的等待输入%(file)s: %(entry)s"
 
 #, python-format
-msgid "Invalid response %(resp)s from %(full_path)s"
-msgstr "从 %(full_path)s 返回了无效响应 %(resp)s"
-
-#, python-format
-msgid "Invalid response %(resp)s from %(ip)s"
-msgstr "无效的回应%(resp)s来自%(ip)s"
-
-#, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr ""
 "在X-Container-Sync-To中%r是无效的方案，须为\"//\", \"http\", or \"https\"。"
-
-#, python-format
-msgid "Killing long-running rsync: %s"
-msgstr "终止long-running同步: %s"
-
-msgid "Lockup detected.. killing live coros."
-msgstr "检测到lockup。终止正在执行的coros"
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
@@ -503,121 +183,15 @@ msgstr "没有具备索引 %s 的策略"
 msgid "No realm key for %r"
 msgstr "%r权限key不存在"
 
-#, python-format
-msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
-msgstr "节点错误极限 %(ip)s:%(port)s (%(device)s)"
-
-#, python-format
-msgid "Not enough object servers ack'ed (got %d)"
-msgstr "没有足够的对象服务器应答（收到 %d）"
-
-#, python-format
-msgid ""
-"Not found %(sync_from)r => %(sync_to)r                       - object "
-"%(obj_name)r"
-msgstr "未找到： %(sync_from)r => %(sync_to)r - object %(obj_name)r"
-
-#, python-format
-msgid "Nothing reconstructed for %s seconds."
-msgstr "过去 %s 秒未重构任何对象。"
-
-#, python-format
-msgid "Nothing replicated for %s seconds."
-msgstr "%s秒无复制"
-
-msgid "Object"
-msgstr "对象"
-
-msgid "Object PUT"
-msgstr "对象上传"
-
-#, python-format
-msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
-msgstr ""
-"对象 PUT 正在返回 202（对于 409）：%(req_timestamp)s 小于或等于 "
-"%(timestamps)r"
-
-#, python-format
-msgid "Object PUT returning 412, %(statuses)r"
-msgstr "对象PUT返还 412，%(statuses)r "
-
-#, python-format
-msgid ""
-"Object audit (%(type)s) \"%(mode)s\" mode completed: %(elapsed).02fs. Total "
-"quarantined: %(quars)d, Total errors: %(errors)d, Total files/sec: "
-"%(frate).2f, Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"对象审计 (%(type)s) \\\"%(mode)s\\\"模式完成: %(elapsed).02fs 隔离总数: "
-"%(quars)d, 错误总数: %(errors)d, 文件／秒总和：%(frate).2f, bytes/sec总和: "
-"%(brate).2f, 审计时间: %(audit).2f, 速率: %(audit_rate).2f"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"对象审计 (%(type)s). 自 %(start_time)s 开始: 本地：%(passes)d 通"
-"过，%(quars)d 隔离，%(errors)d 错误，文件/秒：%(frate).2f，字节/秒："
-"%(brate).2f，总时间：%(total).2f，审计时间：%(audit).2f，速率："
-"%(audit_rate).2f"
-
-#, python-format
-msgid "Object audit stats: %s"
-msgstr "对象审计统计：%s"
-
-#, python-format
-msgid "Object reconstruction complete (once). (%.02f minutes)"
-msgstr "对象重构完成（一次）。（%.02f 分钟）"
-
-#, python-format
-msgid "Object reconstruction complete. (%.02f minutes)"
-msgstr "对象重构完成。（%.02f 分钟）"
-
-#, python-format
-msgid "Object replication complete (once). (%.02f minutes)"
-msgstr "对象复制完成(一次)。(%.02f minutes)"
-
-#, python-format
-msgid "Object replication complete. (%.02f minutes)"
-msgstr "对象复制完成。(%.02f minutes)"
-
-#, python-format
-msgid "Object servers returned %s mismatched etags"
-msgstr "对象服务器返还%s不匹配etags"
-
-#, python-format
-msgid "Object update sweep completed: %.02fs"
-msgstr "对象更新扫除完成：%.02fs"
-
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "在X-Container-Sync-To中，变量，查询和碎片不被允许"
-
-#, python-format
-msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
-msgstr "分区时间: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "在X-Container-Sync-To中路径是必须的"
 
 #, python-format
-msgid "Problem cleaning up %s"
-msgstr "问题清除%s"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "分析代码时出现错误：%s"
-
-#, python-format
-msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
-msgstr "隔离%(hsh_path)s和%(quar_path)s因为非目录"
-
-#, python-format
-msgid ""
-"Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
-msgstr "隔离%(object_path)s和%(quar_path)s因为非目录"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -630,14 +204,6 @@ msgstr "流量控制休眠日志：%(sleep)s for %(account)s/%(container)s/%(obj
 #, python-format
 msgid "Removed %(remove)d dbs"
 msgstr "删除%(remove)d dbs"
-
-#, python-format
-msgid "Removing %s objects"
-msgstr "正在移除 %s 个对象"
-
-#, python-format
-msgid "Removing partition: %s"
-msgstr "移除分区：%s"
 
 #, python-format
 msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
@@ -659,48 +225,8 @@ msgid "Returning 497 because of blacklisting: %s"
 msgstr "返回497因为黑名单：%s"
 
 #, python-format
-msgid ""
-"Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
-"Sleep) %(e)s"
-msgstr ""
-"返还498从%(meth)s到%(acc)s/%(cont)s/%(obj)s，流量控制(Max \"\n"
-"\"Sleep) %(e)s"
-
-msgid "Ring change detected. Aborting current reconstruction pass."
-msgstr "检测到环更改。正在中止当前重构过程。"
-
-msgid "Ring change detected. Aborting current replication pass."
-msgstr "Ring改变被检测到。退出现有的复制通过"
-
-#, python-format
 msgid "Running %s once"
 msgstr "运行%s一次"
-
-msgid "Running object reconstructor in script mode."
-msgstr "正以脚本方式运行对象重构程序。"
-
-msgid "Running object replicator in script mode."
-msgstr "在加密模式下执行对象复制"
-
-#, python-format
-msgid ""
-"Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
-"skipped, %(fail)s failed"
-msgstr ""
-"自%(time)s起：%(sync)s完成同步 [%(delete)s 删除, %(put)s 上传], \"\n"
-"\"%(skip)s 跳过, %(fail)s 失败"
-
-#, python-format
-msgid ""
-"Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
-"audit"
-msgstr "自%(time)s开始：账号审计：%(passed)s 通过审计，%(failed)s 失败"
-
-#, python-format
-msgid ""
-"Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
-"audit"
-msgstr "自%(time)s起：容器审计：%(pass)s通过审计, %(fail)s失败"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -710,52 +236,8 @@ msgstr "挂载失败 跳过%s"
 msgid "Starting %s"
 msgstr "启动%s"
 
-msgid "Starting object reconstruction pass."
-msgstr "正在启动对象重构过程。"
-
-msgid "Starting object reconstructor in daemon mode."
-msgstr "正以守护程序方式启动对象重构程序。"
-
-msgid "Starting object replication pass."
-msgstr "开始通过对象复制"
-
-msgid "Starting object replicator in daemon mode."
-msgstr "在守护模式下开始对象复制"
-
-#, python-format
-msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
-msgstr "成功的rsync %(src)s at %(dst)s (%(time).03f)"
-
 msgid "The file type are forbidden to access!"
 msgstr "该文件类型被禁止访问！"
-
-#, python-format
-msgid ""
-"The total %(key)s for the container (%(total)s) does not match the sum of "
-"%(key)s across policies (%(sum)s)"
-msgstr "容器(%(total)s)内%(key)s总数不符合协议%(key)s总数(%(sum)s)"
-
-#, python-format
-msgid "Trying to %(method)s %(path)s"
-msgstr "尝试执行%(method)s %(path)s"
-
-#, python-format
-msgid "Trying to GET %(full_path)s"
-msgstr "正尝试获取 %(full_path)s"
-
-msgid "Trying to read during GET"
-msgstr "执行GET时尝试读取"
-
-msgid "Trying to send to client"
-msgstr "尝试发送到客户端"
-
-#, python-format
-msgid "Trying to sync suffixes with %s"
-msgstr "正尝试使后缀与 %s 同步"
-
-#, python-format
-msgid "Trying to write to %s"
-msgstr "尝试执行书写%s"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕获的异常"
@@ -775,21 +257,6 @@ msgstr "无法查询到fallocate， posix_fallocate。保存为no-op"
 #, python-format
 msgid "Unable to read config from %s"
 msgstr "无法从%s读取设置"
-
-#, python-format
-msgid "Unauth %(sync_from)r => %(sync_to)r"
-msgstr "未授权%(sync_from)r => %(sync_to)r"
-
-msgid "Unhandled exception"
-msgstr "未处理的异常"
-
-#, python-format
-msgid "Update report failed for %(container)s %(dbfile)s"
-msgstr "%(container)s %(dbfile)s更新报告失败"
-
-#, python-format
-msgid "Update report sent for %(container)s %(dbfile)s"
-msgstr "更新报告发至%(container)s %(dbfile)s"
 
 msgid ""
 "WARNING: SSL should only be enabled for testing purposes. Use external SSL "

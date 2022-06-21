@@ -1,15 +1,16 @@
 # Andi Chandler <andi@gowling.com>, 2017. #zanata
 # Andi Chandler <andi@gowling.com>, 2018. #zanata
 # Andi Chandler <andi@gowling.com>, 2020. #zanata
+# Andi Chandler <andi@gowling.com>, 2022. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: Swift Release Notes\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2020-10-29 09:29+0000\n"
+"POT-Creation-Date: 2022-05-27 18:55+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2020-10-28 11:21+0000\n"
+"PO-Revision-Date: 2022-06-13 07:27+0000\n"
 "Last-Translator: Andi Chandler <andi@gowling.com>\n"
 "Language-Team: English (United Kingdom)\n"
 "Language: en_GB\n"
@@ -84,6 +85,15 @@ msgstr ""
 "with ``replication_server = true``, these daemons may log a flood of ``405 "
 "Method Not Allowed`` messages during a rolling upgrade. To avoid this, "
 "comment out the option and restart replication servers before upgrading."
+
+msgid "0 for success"
+msgstr "0 for success"
+
+msgid "1 for an unexpected outcome"
+msgstr "1 for an unexpected outcome"
+
+msgid "2 for invalid options"
+msgstr "2 for invalid options"
 
 msgid "2.10.0"
 msgstr "2.10.0"
@@ -163,6 +173,9 @@ msgstr "2.23.1"
 msgid "2.23.2"
 msgstr "2.23.2"
 
+msgid "2.23.3"
+msgstr "2.23.3"
+
 msgid "2.24.0"
 msgstr "2.24.0"
 
@@ -175,12 +188,41 @@ msgstr "2.25.1"
 msgid "2.26.0"
 msgstr "2.26.0"
 
+msgid "2.27.0"
+msgstr "2.27.0"
+
+msgid "2.28.0"
+msgstr "2.28.0"
+
+msgid "2.29.0"
+msgstr "2.29.0"
+
+msgid "2.29.1"
+msgstr "2.29.1"
+
+msgid "3 for user exit"
+msgstr "3 for user exit"
+
+msgid ""
+"A 'compact' command has been added to ``swift-manage-shard-ranges`` that "
+"enables sequences of contiguous shards with low object counts to be "
+"compacted into another existing shard, or into the root container."
+msgstr ""
+"A 'compact' command has been added to ``swift-manage-shard-ranges`` that "
+"enables sequences of contiguous shards with low object counts to be "
+"compacted into another existing shard, or into the root container."
+
 msgid ""
 "A PUT or POST to a container will now update the container's Last-Modified "
 "time, and that value will be included in a GET/HEAD response."
 msgstr ""
 "A PUT or POST to a container will now update the container's Last-Modified "
 "time, and that value will be included in a GET/HEAD response."
+
+msgid ""
+"A ``--no-auto-shard`` option has been added to ``swift-container-sharder``."
+msgstr ""
+"A ``--no-auto-shard`` option has been added to ``swift-container-sharder``."
 
 msgid ""
 "A composite ring comprises two or more component rings that are combined to "
@@ -2785,6 +2827,9 @@ msgstr ""
 msgid "WSGI server processes can now notify systemd when they are ready."
 msgstr "WSGI server processes can now notify systemd when they are ready."
 
+msgid "Wallaby Series Release Notes"
+msgstr "Wallaby Series Release Notes"
+
 msgid ""
 "We do not yet have CLI tools for creating composite rings, but the "
 "functionality has been enabled in the ring modules to support this advanced "
@@ -2889,8 +2934,22 @@ msgstr ""
 "X-Delete-At computation now uses X-Timestamp instead of system time. This "
 "prevents clock skew causing inconsistent expiry data."
 
+msgid "Xena Series Release Notes"
+msgstr "Xena Series Release Notes"
+
+msgid "Yoga Series Release Notes"
+msgstr "Yoga Series Release Notes"
+
 msgid "``Content-Type`` can now be updated when copying an object."
 msgstr "``Content-Type`` can now be updated when copying an object."
+
+msgid ""
+"``EIO`` errors during read now cause object diskfiles to be quarantined."
+msgstr ""
+"``EIO`` errors during read now cause object diskfiles to be quarantined."
+
+msgid "``EPIPE`` errors no longer log tracebacks."
+msgstr "``EPIPE`` errors no longer log tracebacks."
 
 msgid "``fallocate_reserve`` may be specified as a percentage in more places."
 msgstr "``fallocate_reserve`` may be specified as a percentage in more places."
@@ -2910,6 +2969,23 @@ msgstr "``swift-dispersion-populate``"
 
 msgid "``swift-drive-recon``"
 msgstr "``swift-drive-recon``"
+
+msgid ""
+"``swift-manage-shard-ranges`` can now accept a config file; this may be used "
+"to ensure consistency of threshold values with the container-sharder config."
+msgstr ""
+"``swift-manage-shard-ranges`` can now accept a config file; this may be used "
+"to ensure consistency of threshold values with the container-sharder config."
+
+msgid "``swift-manage-shard-ranges`` improvements:"
+msgstr "``swift-manage-shard-ranges`` improvements:"
+
+msgid ""
+"``swift-recon-cron`` now includes the last time it was run in the recon "
+"information."
+msgstr ""
+"``swift-recon-cron`` now includes the last time it was run in the recon "
+"information."
 
 msgid "``swift-recon``"
 msgstr "``swift-recon``"
