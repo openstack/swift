@@ -182,18 +182,19 @@ class Grantee(object):
         """
         Convert a grantee string in the HTTP header to an Grantee instance.
         """
-        type, value = grantee.split('=', 1)
+        grantee_type, value = grantee.split('=', 1)
+        grantee_type = grantee_type.lower()
         value = value.strip('"\'')
-        if type == 'id':
+        if grantee_type == 'id':
             return User(value)
-        elif type == 'emailAddress':
+        elif grantee_type == 'emailaddress':
             raise S3NotImplemented()
-        elif type == 'uri':
+        elif grantee_type == 'uri':
             # return a subclass instance of Group class
             subclass = get_group_subclass_from_uri(value)
             return subclass()
         else:
-            raise InvalidArgument(type, value,
+            raise InvalidArgument(grantee_type, value,
                                   'Argument format not recognized')
 
 
