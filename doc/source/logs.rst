@@ -59,6 +59,7 @@ remote_addr         The IP address of the other end of the TCP connection.
                     (anonymizable)
 end_time            Timestamp of the request. (timestamp)
 method              The HTTP verb in the request.
+domain              The domain in the request. (anonymizable)
 path                The path portion of the request. (anonymizable)
 protocol            The transport protocol used (currently one of http or
                     https).
