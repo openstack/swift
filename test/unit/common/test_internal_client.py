@@ -458,6 +458,9 @@ class TestInternalClient(unittest.TestCase):
 
         fake_logger = debug_logger()
         logger = utils.LogAdapter(fake_logger, 'test-server')
+        # Make sure there's no transaction ID set -- other tests may have
+        # polluted the logger
+        logger.txn_id = None
         logger.debug('Before request')
         client = InternalClient(self, logger)
         client.make_request('GET', '/', {}, (200,))
