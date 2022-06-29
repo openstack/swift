@@ -423,11 +423,12 @@ class TempURL(object):
     :param conf: The configuration dict for the middleware.
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, logger=None):
         #: The next WSGI application/filter in the paste.deploy pipeline.
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
+        self.logger = logger or get_logger(conf, log_route='tempurl')
 
         self.allowed_digests = conf.get(
             'allowed_digests', DEFAULT_ALLOWED_DIGESTS.split())
@@ -560,6 +561,7 @@ class TempURL(object):
                 break
         if not is_valid_hmac:
             return self._invalid(env, start_response)
+        self.logger.increment('tempurl.digests.%s' % hash_algorithm)
         # disallowed headers prevent accidentally allowing upload of a pointer
         # to data that the PUT tempurl would not otherwise allow access for.
         # It should be safe to provide a GET tempurl for data that an
@@ -867,4 +869,4 @@ def filter_factory(global_conf, **local_conf):
 
     register_sensitive_param('temp_url_sig')
 
-    return lambda app: TempURL(app, conf)
+    return lambda app: TempURL(app, conf, logger)

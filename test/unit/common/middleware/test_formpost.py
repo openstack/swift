@@ -134,6 +134,7 @@ class TestFormPost(unittest.TestCase):
         self.app = FakeApp()
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
+        self.logger = self.formpost.logger = debug_logger()
 
     def _make_request(self, path, tempurl_keys=(), **kwargs):
         req = Request.blank(path, **kwargs)
@@ -1489,10 +1490,8 @@ class TestFormPost(unittest.TestCase):
                 self._fake_cache_env('AUTH_test', [key]))
             env['swift.infocache'][get_cache_key(
                 'AUTH_test', 'container')] = {'meta': {}}
-            self.app = FakeApp(iter([('201 Created', {}, b''),
-                                     ('201 Created', {}, b'')]))
-            self.auth = tempauth.filter_factory({})(self.app)
-            self.formpost = formpost.filter_factory({})(self.auth)
+            self.auth.app = app = FakeApp(iter([('201 Created', {}, b''),
+                                                ('201 Created', {}, b'')]))
             status = [None]
             headers = [None]
             exc_info = [None]
@@ -1514,13 +1513,20 @@ class TestFormPost(unittest.TestCase):
             self.assertIsNone(location)
             self.assertIsNone(exc_info)
             self.assertTrue(b'201 Created' in body)
-            self.assertEqual(len(self.app.requests), 2)
-            self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
-            self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
+            self.assertEqual(len(app.requests), 2)
+            self.assertEqual(app.requests[0].body, b'Test File\nOne\n')
+            self.assertEqual(app.requests[1].body, b'Test\nFile\nTwo\n')
 
         for digest in ('sha1', 'sha256', 'sha512'):
             do_test(digest, True)
             do_test(digest, False)
+
+        # NB: one increment per *upload*, not client request
+        self.assertEqual(self.logger.get_increment_counts(), {
+            'formpost.digests.sha1': 4,
+            'formpost.digests.sha256': 4,
+            'formpost.digests.sha512': 4,
+        })
 
     def test_prefixed_and_not_prefixed_sigs_unsupported(self):
         def do_test(digest, prefixed):

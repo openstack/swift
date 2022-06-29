@@ -78,6 +78,7 @@ class TestTempURL(unittest.TestCase):
         self.app = FakeApp()
         self.auth = tempauth.filter_factory({'reseller_prefix': ''})(self.app)
         self.tempurl = tempurl.filter_factory({})(self.auth)
+        self.logger = self.tempurl.logger = debug_logger()
 
     def _make_request(self, path, environ=None, keys=(), container_keys=None,
                       **kwargs):
@@ -162,6 +163,7 @@ class TestTempURL(unittest.TestCase):
 
         tempurl1 = tempurl.filter_factory({
             'allowed_digests': 'sha1'})(self.auth)
+        tempurl1.logger = self.logger
         sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
         self.assert_valid_sig(expires, path, [key], sig, tempurl=tempurl1)
 
@@ -175,6 +177,12 @@ class TestTempURL(unittest.TestCase):
         sig = base64.b64encode(hmac.new(
             key, hmac_body, hashlib.sha512).digest())
         self.assert_valid_sig(expires, path, [key], b'sha512:' + sig)
+
+        self.assertEqual(self.logger.get_increment_counts(), {
+            'tempurl.digests.sha1': 1,
+            'tempurl.digests.sha256': 2,
+            'tempurl.digests.sha512': 1
+        })
 
     def test_get_valid_key2(self):
         method = 'GET'

@@ -206,11 +206,12 @@ class FormPost(object):
     :param conf: The configuration dict for the middleware.
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, logger=None):
         #: The next WSGI application/filter in the paste.deploy pipeline.
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
+        self.logger = logger or get_logger(conf, log_route='formpost')
         # Defaulting to SUPPORTED_DIGESTS just so we don't completely
         # deprecate sha1 yet. We'll change this to DEFAULT_ALLOWED_DIGESTS
         # later.
@@ -413,13 +414,12 @@ class FormPost(object):
         has_valid_sig = False
         signature = attributes.get('signature', '')
         try:
-            hash_algorithm, signature = extract_digest_and_algorithm(signature)
+            hash_name, signature = extract_digest_and_algorithm(signature)
         except ValueError:
             raise FormUnauthorized('invalid signature')
-        if hash_algorithm not in self.allowed_digests:
+        if hash_name not in self.allowed_digests:
             raise FormUnauthorized('invalid signature')
-        if six.PY2:
-            hash_algorithm = getattr(hashlib, hash_algorithm)
+        hash_algorithm = getattr(hashlib, hash_name) if six.PY2 else hash_name
 
         for key in keys:
             # Encode key like in swift.common.utls.get_hmac.
@@ -430,6 +430,7 @@ class FormPost(object):
                 has_valid_sig = True
         if not has_valid_sig:
             raise FormUnauthorized('invalid signature')
+        self.logger.increment('formpost.digests.%s' % hash_name)
 
         substatus = [None]
         subheaders = [None]
