@@ -582,7 +582,7 @@ def object_audit_location_generator(devices, datadir, mount_check=True,
             try:
                 suffixes = listdir(part_path)
             except OSError as e:
-                if e.errno != errno.ENOTDIR:
+                if e.errno not in (errno.ENOTDIR, errno.ENODATA):
                     raise
                 continue
             for asuffix in suffixes:
@@ -590,7 +590,7 @@ def object_audit_location_generator(devices, datadir, mount_check=True,
                 try:
                     hashes = listdir(suff_path)
                 except OSError as e:
-                    if e.errno != errno.ENOTDIR:
+                    if e.errno not in (errno.ENOTDIR, errno.ENODATA):
                         raise
                     continue
                 for hsh in hashes:

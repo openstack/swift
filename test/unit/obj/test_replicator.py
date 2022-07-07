@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import collections
+import errno
 import io
 import json
 import unittest
@@ -1461,6 +1462,45 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.replicate(override_devices=['sda'],
                                   override_partitions=[1])
         self.assertFalse(os.access(part_path, os.F_OK))
+
+    def _make_OSError(self, err):
+        return OSError(err, os.strerror(err))
+
+    def test_delete_partition_override_params_os_not_empty_error(self):
+        part_path = os.path.join(self.objects, '1')
+        with mock.patch('swift.obj.replicator.shutil.rmtree') as mockrmtree:
+            mockrmtree.side_effect = self._make_OSError(errno.ENOTEMPTY)
+            self.replicator.replicate(override_devices=['sda'],
+                                      override_partitions=[1],
+                                      override_policies=[0])
+            error_lines = self.replicator.logger.get_lines_for_level('error')
+            self.assertFalse(error_lines)
+            self.assertTrue(os.path.exists(part_path))
+            self.assertEqual([mock.call(part_path)], mockrmtree.call_args_list)
+
+    def test_delete_partition_ignores_os_no_entity_error(self):
+        part_path = os.path.join(self.objects, '1')
+        with mock.patch('swift.obj.replicator.shutil.rmtree') as mockrmtree:
+            mockrmtree.side_effect = self._make_OSError(errno.ENOENT)
+            self.replicator.replicate(override_devices=['sda'],
+                                      override_partitions=[1],
+                                      override_policies=[0])
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        self.assertFalse(error_lines)
+        self.assertTrue(os.path.exists(part_path))
+        self.assertEqual([mock.call(part_path)], mockrmtree.call_args_list)
+
+    def test_delete_partition_ignores_os_no_data_error(self):
+        part_path = os.path.join(self.objects, '1')
+        with mock.patch('swift.obj.replicator.shutil.rmtree') as mockrmtree:
+            mockrmtree.side_effect = self._make_OSError(errno.ENODATA)
+            self.replicator.replicate(override_devices=['sda'],
+                                      override_partitions=[1],
+                                      override_policies=[0])
+            error_lines = self.replicator.logger.get_lines_for_level('error')
+            self.assertFalse(error_lines)
+            self.assertTrue(os.path.exists(part_path))
+            self.assertEqual([mock.call(part_path)], mockrmtree.call_args_list)
 
     def test_delete_policy_override_params(self):
         df0 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o',
