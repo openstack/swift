@@ -72,24 +72,18 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def _maybe_skip_test(self):
         try:
-            cont_configs = [
+            self.cont_configs = [
                 utils.readconf(p, 'container-sharder')
                 for p in self.configs['container-sharder'].values()]
         except ValueError:
             raise SkipTest('No [container-sharder] section found in '
                            'container-server configs')
 
-        skip_reasons = []
-        auto_shard = all(config_true_value(c.get('auto_shard', False))
-                         for c in cont_configs)
-        if not auto_shard:
-            skip_reasons.append(
-                'auto_shard must be true in all container_sharder configs')
-
         self.max_shard_size = max(
             int(c.get('shard_container_threshold', '1000000'))
-            for c in cont_configs)
+            for c in self.cont_configs)
 
+        skip_reasons = []
         if not (MIN_SHARD_CONTAINER_THRESHOLD <= self.max_shard_size
                 <= MAX_SHARD_CONTAINER_THRESHOLD):
             skip_reasons.append(
@@ -98,7 +92,7 @@ class BaseTestContainerSharding(ReplProbeTest):
                  MAX_SHARD_CONTAINER_THRESHOLD))
 
         def skip_check(reason_list, option, required):
-            values = {int(c.get(option, required)) for c in cont_configs}
+            values = {int(c.get(option, required)) for c in self.cont_configs}
             if values != {required}:
                 reason_list.append('%s must be %s' % (option, required))
 
@@ -430,7 +424,18 @@ class BaseTestContainerSharding(ReplProbeTest):
                                       conf_index, custom_conf, **kwargs)
 
 
-class TestContainerShardingNonUTF8(BaseTestContainerSharding):
+class BaseAutoContainerSharding(BaseTestContainerSharding):
+
+    def _maybe_skip_test(self):
+        super(BaseAutoContainerSharding, self)._maybe_skip_test()
+        auto_shard = all(config_true_value(c.get('auto_shard', False))
+                         for c in self.cont_configs)
+        if not auto_shard:
+            raise SkipTest('auto_shard must be true '
+                           'in all container_sharder configs')
+
+
+class TestContainerShardingNonUTF8(BaseAutoContainerSharding):
     def test_sharding_listing(self):
         # verify parameterised listing of a container during sharding
         all_obj_names = self._make_object_names(4 * self.max_shard_size)
@@ -666,7 +671,7 @@ class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
             self.container_name = self.container_name.decode('utf8')
 
 
-class TestContainerShardingObjectVersioning(BaseTestContainerSharding):
+class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
     def _maybe_skip_test(self):
         super(TestContainerShardingObjectVersioning, self)._maybe_skip_test()
         try:
@@ -875,7 +880,7 @@ class TestContainerShardingObjectVersioning(BaseTestContainerSharding):
         self.assert_container_post_ok('sharded')
 
 
-class TestContainerSharding(BaseTestContainerSharding):
+class TestContainerSharding(BaseAutoContainerSharding):
     def _test_sharded_listing(self, run_replicators=False):
         obj_names = self._make_object_names(self.max_shard_size)
         self.put_objects(obj_names)
