@@ -53,13 +53,15 @@ from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
 from test.unit.common import test_db
 
 
-class TestContainerBroker(unittest.TestCase):
+class TestContainerBroker(test_db.TestDbBase):
     """Tests for ContainerBroker"""
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
                           'sqlite_sequence', 'policy_stat',
                           'container_info', 'shard_range'}
+    server_type = 'container'
 
     def setUp(self):
+        super(TestContainerBroker, self).setUp()
         self.ts = make_timestamp_iter()
 
     def _assert_shard_ranges(self, broker, expected, include_own=False):
@@ -70,8 +72,9 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_creation(self):
         # Test ContainerBroker.__init__
-        broker = ContainerBroker(':memory:', account='a', container='c')
-        self.assertEqual(broker._db_file, ':memory:')
+        db_file = self.get_db_path()
+        broker = ContainerBroker(db_file, account='a', container='c')
+        self.assertEqual(broker._db_file, db_file)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             curs = conn.cursor()
@@ -83,6 +86,8 @@ class TestContainerBroker(unittest.TestCase):
         # check the update trigger
         broker.put_object('blah', Timestamp.now().internal, 0, 'text/plain',
                           'etag', 0, 0)
+        # commit pending file into db
+        broker._commit_puts()
         with broker.get() as conn:
             with self.assertRaises(sqlite3.DatabaseError) as cm:
                 conn.execute('UPDATE object SET name="blah";')
@@ -98,7 +103,7 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_storage_policy_property(self):
         for policy in POLICIES:
-            broker = ContainerBroker(':memory:', account='a',
+            broker = ContainerBroker(self.get_db_path(), account='a',
                                      container='policy_%s' % policy.name)
             broker.initialize(next(self.ts).internal, policy.idx)
             with broker.get() as conn:
@@ -121,7 +126,8 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker throwing a conn away after
         # unhandled exception
         first_conn = None
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             first_conn = conn
@@ -618,11 +624,14 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual('.shards_a/cc', broker.root_path)
 
     def test_reclaim(self):
-        broker = ContainerBroker(':memory:', account='test_account',
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='test_account',
                                  container='test_container')
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
+        # commit pending file into db
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
@@ -640,6 +649,7 @@ class TestContainerBroker(unittest.TestCase):
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
         broker.delete_object('o', Timestamp.now().internal)
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
@@ -673,6 +683,7 @@ class TestContainerBroker(unittest.TestCase):
                           'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object('z', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
+        broker._commit_puts()
         # Test before deletion
         broker.reclaim(Timestamp.now().internal, time())
         broker.delete_db(Timestamp.now().internal)
@@ -689,7 +700,8 @@ class TestContainerBroker(unittest.TestCase):
         random.seed(now)
         random.shuffle(obj_specs)
         policy_indexes = list(p.idx for p in POLICIES)
-        broker = ContainerBroker(':memory:', account='test_account',
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='test_account',
                                  container='test_container')
         broker.initialize(Timestamp('1').internal, 0)
         for i, obj_spec in enumerate(obj_specs):
@@ -703,6 +715,8 @@ class TestContainerBroker(unittest.TestCase):
             else:
                 broker.put_object(obj_name, ts.internal, 0, 'text/plain',
                                   'etag', storage_policy_index=pidx)
+        # commit pending file into db
+        broker._commit_puts()
 
         def count_reclaimable(conn, reclaim_age):
             return conn.execute(
@@ -749,7 +763,8 @@ class TestContainerBroker(unittest.TestCase):
                         trace[1][2] > trace[2][2])
 
     def test_reclaim_with_duplicate_names(self):
-        broker = ContainerBroker(':memory:', account='test_account',
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='test_account',
                                  container='test_container')
         broker.initialize(Timestamp('1').internal, 0)
         now = time()
@@ -758,6 +773,8 @@ class TestContainerBroker(unittest.TestCase):
             for spidx in range(10):
                 obj_name = 'object%s' % i
                 broker.delete_object(obj_name, ages_ago.internal, spidx)
+        # commit pending file into db
+        broker._commit_puts()
         reclaim_age = now - (2 * 7 * 24 * 60 * 60)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -844,7 +861,8 @@ class TestContainerBroker(unittest.TestCase):
     def test_get_info_is_deleted(self):
         ts = make_timestamp_iter()
         start = next(ts)
-        broker = ContainerBroker(':memory:', account='test_account',
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='test_account',
                                  container='test_container')
         # create it
         broker.initialize(start.internal, POLICIES.default.idx)
@@ -893,10 +911,13 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_delete_object(self):
         # Test ContainerBroker.delete_object
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
+        # commit pending file into db
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
@@ -906,6 +927,7 @@ class TestContainerBroker(unittest.TestCase):
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
         broker.delete_object('o', Timestamp.now().internal)
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
@@ -916,7 +938,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_put_object(self):
         # Test ContainerBroker.put_object
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
 
         # Create initial object
@@ -924,6 +947,8 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('"{<object \'&\' name>}"', timestamp, 123,
                           'application/x-test',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
+        # commit pending file into db
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -945,6 +970,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('"{<object \'&\' name>}"', timestamp, 123,
                           'application/x-test',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -968,6 +994,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('"{<object \'&\' name>}"', timestamp, 124,
                           'application/x-test',
                           'aa0749bacbc79ec65fe206943d8fe449')
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -990,6 +1017,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('"{<object \'&\' name>}"', otimestamp, 124,
                           'application/x-test',
                           'aa0749bacbc79ec65fe206943d8fe449')
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -1011,6 +1039,7 @@ class TestContainerBroker(unittest.TestCase):
         dtimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
         broker.put_object('"{<object \'&\' name>}"', dtimestamp, 0, '', '',
                           deleted=1)
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -1033,6 +1062,7 @@ class TestContainerBroker(unittest.TestCase):
         timestamp = Timestamp.now().internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 0, '', '',
                           deleted=1)
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -1048,6 +1078,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('"{<object \'&\' name>}"', timestamp, 123,
                           'application/x-test',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -1096,6 +1127,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('"{<object \'&\' name>}"', timestamp, 456,
                           'application/x-test3',
                           '6af83e3196bf99f440f31f2e1a6c9afe')
+        broker._commit_puts()
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -1115,7 +1147,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_merge_shard_range_single_record(self):
         # Test ContainerBroker.merge_shard_range
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
 
         # Stash these for later
@@ -1420,7 +1453,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_merge_shard_ranges_deleted(self):
         # Test ContainerBroker.merge_shard_ranges sets deleted attribute
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         # put shard range
         broker.merge_shard_ranges(ShardRange('a/o', next(self.ts).internal))
@@ -1453,7 +1487,8 @@ class TestContainerBroker(unittest.TestCase):
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
                   'meta_timestamp': None}
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
 
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
                   '1', '2', None, None)
@@ -1627,7 +1662,8 @@ class TestContainerBroker(unittest.TestCase):
     def test_put_object_multiple_encoded_timestamps_using_memory(self):
         # Test ContainerBroker.put_object with differing data, content-type
         # and metadata timestamps
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         self._test_put_object_multiple_encoded_timestamps(broker)
 
     @with_tempdir
@@ -1961,7 +1997,8 @@ class TestContainerBroker(unittest.TestCase):
     def test_put_object_multiple_explicit_timestamps_using_memory(self):
         # Test ContainerBroker.put_object with differing data, content-type
         # and metadata timestamps passed as explicit args
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         self._test_put_object_multiple_explicit_timestamps(broker)
 
     @with_tempdir
@@ -1977,7 +2014,8 @@ class TestContainerBroker(unittest.TestCase):
         # Test container listing reports the most recent of data or metadata
         # timestamp as last-modified time
         ts = make_timestamp_iter()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(next(ts).internal, 0)
 
         # simple 'single' timestamp case
@@ -2030,7 +2068,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_put_misplaced_object_does_not_effect_container_stats(self):
         policy = random.choice(list(POLICIES))
         ts = make_timestamp_iter()
-        broker = ContainerBroker(':memory:',
+        broker = ContainerBroker(self.get_db_path(),
                                  account='a', container='c')
         broker.initialize(next(ts).internal, policy.idx)
         # migration tests may not honor policy on initialize
@@ -2057,7 +2095,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_has_multiple_policies(self):
         policy = random.choice(list(POLICIES))
         ts = make_timestamp_iter()
-        broker = ContainerBroker(':memory:',
+        broker = ContainerBroker(self.get_db_path(),
                                  account='a', container='c')
         broker.initialize(next(ts).internal, policy.idx)
         # migration tests may not honor policy on initialize
@@ -2069,18 +2107,21 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('correct_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=policy.idx)
+        # commit pending file into db
+        broker._commit_puts()
         self.assertFalse(broker.has_multiple_policies())
         other_policy = [p for p in POLICIES if p is not policy][0]
         broker.put_object('wrong_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=other_policy.idx)
+        broker._commit_puts()
         self.assertTrue(broker.has_multiple_policies())
 
     @patch_policies
     def test_get_policy_info(self):
         policy = random.choice(list(POLICIES))
         ts = make_timestamp_iter()
-        broker = ContainerBroker(':memory:',
+        broker = ContainerBroker(self.get_db_path(),
                                  account='a', container='c')
         broker.initialize(next(ts).internal, policy.idx)
         # migration tests may not honor policy on initialize
@@ -2097,6 +2138,8 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('correct_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=policy.idx)
+        # commit pending file into db
+        broker._commit_puts()
         policy_stats = broker.get_policy_stats()
         expected = {policy.idx: {'bytes_used': 123, 'object_count': 1}}
         self.assertEqual(policy_stats, expected)
@@ -2107,6 +2150,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('wrong_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=other_policy.idx)
+        broker._commit_puts()
         policy_stats = broker.get_policy_stats()
         expected = {
             policy.idx: {'bytes_used': 123, 'object_count': 1},
@@ -2117,7 +2161,7 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_policy_stat_tracking(self):
         ts = make_timestamp_iter()
-        broker = ContainerBroker(':memory:',
+        broker = ContainerBroker(self.get_db_path(),
                                  account='a', container='c')
         # Note: in subclasses of this TestCase that inherit the
         # ContainerBrokerMigrationMixin, passing POLICIES.default.idx here has
@@ -2149,6 +2193,8 @@ class TestContainerBroker(unittest.TestCase):
             # track the size of the latest timestamp put for each object
             # in each storage policy
             stats[policy_index][name] = size
+        # commit pending file into db
+        broker._commit_puts()
         policy_stats = broker.get_policy_stats()
         if POLICIES.default.idx not in stats:
             # unlikely, but check empty default index still in policy stats
@@ -2161,7 +2207,7 @@ class TestContainerBroker(unittest.TestCase):
                              sum(stats[policy_index].values()))
 
     def test_initialize_container_broker_in_default(self):
-        broker = ContainerBroker(':memory:', account='test1',
+        broker = ContainerBroker(self.get_db_path(), account='test1',
                                  container='test2')
 
         # initialize with no storage_policy_index argument
@@ -2200,7 +2246,7 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_get_info(self):
         # Test ContainerBroker.get_info
-        broker = ContainerBroker(':memory:', account='test1',
+        broker = ContainerBroker(self.get_db_path(), account='test1',
                                  container='test2')
         broker.initialize(Timestamp('1').internal, 0)
 
@@ -2341,7 +2387,7 @@ class TestContainerBroker(unittest.TestCase):
                     'db_state': 'collapsed'})
 
     def test_set_x_syncs(self):
-        broker = ContainerBroker(':memory:', account='test1',
+        broker = ContainerBroker(self.get_db_path(), account='test1',
                                  container='test2')
         broker.initialize(Timestamp('1').internal, 0)
 
@@ -2355,7 +2401,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['x_container_sync_point2'], 2)
 
     def test_get_report_info(self):
-        broker = ContainerBroker(':memory:', account='test1',
+        broker = ContainerBroker(self.get_db_path(), account='test1',
                                  container='test2')
         broker.initialize(Timestamp('1').internal, 0)
 
@@ -2527,7 +2573,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(get_rows(broker))
 
     def test_get_objects(self):
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         objects_0 = [{'name': 'obj_0_%d' % i,
                       'created_at': next(self.ts).normal,
@@ -2575,7 +2622,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(objects_0 + objects_1, actual)
 
     def test_get_objects_since_row(self):
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         obj_names = ['obj%03d' % i for i in range(20)]
         timestamps = [next(self.ts) for o in obj_names]
@@ -2625,7 +2673,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_list_objects_iter(self):
         # Test ContainerBroker.list_objects_iter
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         for obj1 in range(4):
             for obj2 in range(125):
@@ -2775,7 +2824,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual([row[0] for row in listing], ['3/0000', '3/0001'])
 
     def test_list_objects_iter_with_reserved_name(self):
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(next(self.ts).internal, 0)
 
         broker.put_object(
@@ -2934,10 +2984,13 @@ class TestContainerBroker(unittest.TestCase):
         }
         failures = []
         for expected in expectations:
-            broker = ContainerBroker(':memory:', account='a', container='c')
+            broker = ContainerBroker(self.get_db_path(),
+                                     account='a', container='c')
             broker.initialize(next(ts).internal, 0)
             for name in expected['objects']:
                 broker.put_object(name, next(ts).internal, **obj_create_params)
+            # commit pending file into db
+            broker._commit_puts()
             params = default_listing_params.copy()
             params.update(expected['params'])
             listing = list(o[0] for o in broker.list_objects_iter(**params))
@@ -2952,7 +3005,8 @@ class TestContainerBroker(unittest.TestCase):
     def test_list_objects_iter_non_slash(self):
         # Test ContainerBroker.list_objects_iter using a
         # delimiter that is not a slash
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         for obj1 in range(4):
             for obj2 in range(125):
@@ -3069,7 +3123,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_list_objects_iter_prefix_delim(self):
         # Test ContainerBroker.list_objects_iter
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
 
         broker.put_object(
@@ -3108,7 +3163,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_list_objects_iter_order_and_reverse(self):
         # Test ContainerBroker.list_objects_iter
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
 
         broker.put_object(
@@ -3150,7 +3206,8 @@ class TestContainerBroker(unittest.TestCase):
     def test_double_check_trailing_delimiter(self):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3230,7 +3287,8 @@ class TestContainerBroker(unittest.TestCase):
     def test_double_check_trailing_delimiter_non_slash(self):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3313,7 +3371,8 @@ class TestContainerBroker(unittest.TestCase):
                 s = s.encode('utf8')
             return md5(s, usedforsecurity=False).hexdigest()
 
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp(1).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3365,7 +3424,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_get_items_since(self):
         # test DatabaseBroker.get_items_since
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp(1).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3378,9 +3438,11 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_sync_merging(self):
         # exercise the DatabaseBroker sync functions a bit
-        broker1 = ContainerBroker(':memory:', account='a', container='c')
+        broker1 = ContainerBroker(self.get_db_path(), account='a',
+                                  container='c')
         broker1.initialize(Timestamp('1').internal, 0)
-        broker2 = ContainerBroker(':memory:', account='a', container='c')
+        broker2 = ContainerBroker(self.get_db_path(),
+                                  account='a', container='c')
         broker2.initialize(Timestamp('1').internal, 0)
         self.assertEqual(broker2.get_sync('12345'), -1)
         broker1.merge_syncs([{'sync_point': 3, 'remote_id': '12345'}])
@@ -3388,14 +3450,18 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(broker2.get_sync('12345'), 3)
 
     def test_merge_items(self):
-        broker1 = ContainerBroker(':memory:', account='a', container='c')
+        broker1 = ContainerBroker(self.get_db_path(), account='a',
+                                  container='c')
         broker1.initialize(Timestamp('1').internal, 0)
-        broker2 = ContainerBroker(':memory:', account='a', container='c')
+        broker2 = ContainerBroker(self.get_db_path(),
+                                  account='a', container='c')
         broker2.initialize(Timestamp('1').internal, 0)
         broker1.put_object('a', Timestamp(1).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1.put_object('b', Timestamp(2).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        # commit pending file into db
+        broker1._commit_puts()
         id = broker1.get_info()['id']
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
@@ -3404,6 +3470,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
         broker1.put_object('c', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         items = broker2.get_items_since(-1, 1000)
@@ -3431,19 +3498,24 @@ class TestContainerBroker(unittest.TestCase):
         snowman = u'\N{SNOWMAN}'
         if six.PY2:
             snowman = snowman.encode('utf-8')
-        broker1 = ContainerBroker(':memory:', account='a', container='c')
+        broker1 = ContainerBroker(self.get_db_path(), account='a',
+                                  container='c')
         broker1.initialize(Timestamp('1').internal, 0)
         id = broker1.get_info()['id']
-        broker2 = ContainerBroker(':memory:', account='a', container='c')
+        broker2 = ContainerBroker(self.get_db_path(),
+                                  account='a', container='c')
         broker2.initialize(Timestamp('1').internal, 0)
         broker1.put_object(snowman, Timestamp(2).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1.put_object('b', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        # commit pending file into db
+        broker1._commit_puts()
         broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
             broker2.get_sync(id), 1000))), id)
         broker1.put_object(snowman, Timestamp(4).internal, 0, 'text/plain',
                            'd41d8cd98f00b204e9800998ecf8427e')
+        broker1._commit_puts()
         broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
             broker2.get_sync(id), 1000))), id)
         items = broker2.get_items_since(-1, 1000)
@@ -3457,19 +3529,24 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_merge_items_overwrite(self):
         # test DatabaseBroker.merge_items
-        broker1 = ContainerBroker(':memory:', account='a', container='c')
+        broker1 = ContainerBroker(self.get_db_path(), account='a',
+                                  container='c')
         broker1.initialize(Timestamp('1').internal, 0)
         id = broker1.get_info()['id']
-        broker2 = ContainerBroker(':memory:', account='a', container='c')
+        broker2 = ContainerBroker(self.get_db_path(),
+                                  account='a', container='c')
         broker2.initialize(Timestamp('1').internal, 0)
         broker1.put_object('a', Timestamp(2).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1.put_object('b', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        # commit pending file into db
+        broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         broker1.put_object('a', Timestamp(4).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         items = broker2.get_items_since(-1, 1000)
@@ -3482,19 +3559,24 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_merge_items_post_overwrite_out_of_order(self):
         # test DatabaseBroker.merge_items
-        broker1 = ContainerBroker(':memory:', account='a', container='c')
+        broker1 = ContainerBroker(self.get_db_path(), account='a',
+                                  container='c')
         broker1.initialize(Timestamp('1').internal, 0)
         id = broker1.get_info()['id']
-        broker2 = ContainerBroker(':memory:', account='a', container='c')
+        broker2 = ContainerBroker(self.get_db_path(),
+                                  account='a', container='c')
         broker2.initialize(Timestamp('1').internal, 0)
         broker1.put_object('a', Timestamp(2).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1.put_object('b', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        # commit pending file into db
+        broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         broker1.put_object('a', Timestamp(4).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         items = broker2.get_items_since(-1, 1000)
@@ -3514,6 +3596,7 @@ class TestContainerBroker(unittest.TestCase):
                 self.assertEqual(rec['created_at'], Timestamp(3).internal)
         broker1.put_object('b', Timestamp(5).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         items = broker2.get_items_since(-1, 1000)
@@ -3527,7 +3610,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_set_storage_policy_index(self):
         ts = make_timestamp_iter()
-        broker = ContainerBroker(':memory:', account='test_account',
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='test_account',
                                  container='test_container')
         timestamp = next(ts)
         broker.initialize(timestamp.internal, 0)
@@ -3584,7 +3668,8 @@ class TestContainerBroker(unittest.TestCase):
     def test_set_storage_policy_index_empty(self):
         # Putting an object may trigger migrations, so test with a
         # never-had-an-object container to make sure we handle it
-        broker = ContainerBroker(':memory:', account='test_account',
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='test_account',
                                  container='test_container')
         broker.initialize(Timestamp('1').internal, 0)
         info = broker.get_info()
@@ -3595,7 +3680,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(2, info['storage_policy_index'])
 
     def test_reconciler_sync(self):
-        broker = ContainerBroker(':memory:', account='test_account',
+        broker = ContainerBroker(self.get_db_path(),
+                                 account='test_account',
                                  container='test_container')
         broker.initialize(Timestamp('1').internal, 0)
         self.assertEqual(-1, broker.get_reconciler_sync())
@@ -5234,6 +5320,7 @@ class TestContainerBroker(unittest.TestCase):
 class TestCommonContainerBroker(test_db.TestExampleBroker):
 
     broker_class = ContainerBroker
+    server_type = 'container'
 
     def setUp(self):
         super(TestCommonContainerBroker, self).setUp()
@@ -5248,7 +5335,7 @@ class TestCommonContainerBroker(test_db.TestExampleBroker):
                              storage_policy_index=int(self.policy))
 
 
-class ContainerBrokerMigrationMixin(object):
+class ContainerBrokerMigrationMixin(test_db.TestDbBase):
     """
     Mixin for running ContainerBroker against databases created with
     older schemas.
@@ -5263,6 +5350,7 @@ class ContainerBrokerMigrationMixin(object):
             return self.func.__get__(obj, obj_type)
 
     def setUp(self):
+        super(ContainerBrokerMigrationMixin, self).setUp()
         self._imported_create_object_table = \
             ContainerBroker.create_object_table
         ContainerBroker.create_object_table = \
@@ -5303,6 +5391,7 @@ class ContainerBrokerMigrationMixin(object):
             self._imported_create_shard_range_table
         ContainerBroker.create_policy_stat_table = \
             self._imported_create_policy_stat_table
+        # We need to manually teardown and clean the self.tempdir
 
 
 def premetadata_create_container_info_table(self, conn, put_timestamp,
@@ -5359,7 +5448,8 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
 
     def setUp(self):
         super(TestContainerBrokerBeforeMetadata, self).setUp()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         exc = None
         with broker.get() as conn:
@@ -5371,10 +5461,12 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
 
     def tearDown(self):
         super(TestContainerBrokerBeforeMetadata, self).tearDown()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT metadata FROM container_stat')
+        test_db.TestDbBase.tearDown(self)
 
 
 def prexsync_create_container_info_table(self, conn, put_timestamp,
@@ -5435,7 +5527,8 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
         super(TestContainerBrokerBeforeXSync, self).setUp()
         ContainerBroker.create_container_info_table = \
             prexsync_create_container_info_table
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         exc = None
         with broker.get() as conn:
@@ -5448,10 +5541,12 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
 
     def tearDown(self):
         super(TestContainerBrokerBeforeXSync, self).tearDown()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT x_container_sync_point1 FROM container_stat')
+        test_db.TestDbBase.tearDown(self)
 
 
 def prespi_create_object_table(self, conn, *args, **kwargs):
@@ -5552,7 +5647,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         ContainerBroker.create_container_info_table = \
             prespi_create_container_info_table
 
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -5563,10 +5659,12 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
 
     def tearDown(self):
         super(TestContainerBrokerBeforeSPI, self).tearDown()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT storage_policy_index FROM container_stat')
+        test_db.TestDbBase.tearDown(self)
 
     @patch_policies
     @with_tempdir
@@ -5760,7 +5858,8 @@ class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
 
     def setUp(self):
         super(TestContainerBrokerBeforeShardRanges, self).setUp()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -5770,11 +5869,13 @@ class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
 
     def tearDown(self):
         super(TestContainerBrokerBeforeShardRanges, self).tearDown()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT *
                             FROM shard_range''')
+        test_db.TestDbBase.tearDown(self)
 
 
 def pre_reported_create_shard_range_table(self, conn):
@@ -5828,7 +5929,8 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
         ContainerBroker.create_shard_range_table = \
             pre_reported_create_shard_range_table
 
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -5839,11 +5941,13 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
     def tearDown(self):
         super(TestContainerBrokerBeforeShardRangeReportedColumn,
               self).tearDown()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT reported
                             FROM shard_range''')
+        test_db.TestDbBase.tearDown(self)
 
     @with_tempdir
     def test_get_shard_ranges_attempts(self, tempdir):
@@ -6056,7 +6160,8 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
         ContainerBroker.create_shard_range_table = \
             pre_tombstones_create_shard_range_table
 
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -6067,11 +6172,13 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
     def tearDown(self):
         super(TestContainerBrokerBeforeShardRangeTombstonesColumn,
               self).tearDown()
-        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT tombstones
                             FROM shard_range''')
+        test_db.TestDbBase.tearDown(self)
 
 
 class TestUpdateNewItemFromExisting(unittest.TestCase):
