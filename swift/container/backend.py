@@ -868,7 +868,7 @@ class ContainerBroker(DatabaseBroker):
             try:
                 data = conn.execute(('''
                     SELECT account, container, created_at, put_timestamp,
-                        delete_timestamp, status_changed_at,
+                        delete_timestamp, status, status_changed_at,
                         object_count, bytes_used,
                         reported_put_timestamp, reported_delete_timestamp,
                         reported_object_count, reported_bytes_used, hash,
@@ -923,7 +923,7 @@ class ContainerBroker(DatabaseBroker):
         Get global data for the container.
 
         :returns: dict with keys: account, container, created_at,
-                  put_timestamp, delete_timestamp, status_changed_at,
+                  put_timestamp, delete_timestamp, status, status_changed_at,
                   object_count, bytes_used, reported_put_timestamp,
                   reported_delete_timestamp, reported_object_count,
                   reported_bytes_used, hash, id, x_container_sync_point1,
@@ -2005,17 +2005,25 @@ class ContainerBroker(DatabaseBroker):
                     self.path, err)
                 return False
 
-            # Set the created_at and hash in the container_info table the same
-            # in both brokers
+            # sync the retiring container stat into the fresh db. At least the
+            # things that either aren't covered through the normal
+            # broker api, and things that wont just be regenerated.
             try:
-                fresh_broker_conn.execute(
-                    'UPDATE container_stat SET created_at=?',
-                    (info['created_at'],))
+                sql = 'UPDATE container_stat SET created_at=?, '
+                sql += 'delete_timestamp=?, status=?, status_changed_at=?'
+                sql_data = (info['created_at'], info['delete_timestamp'],
+                            info['status'], info['status_changed_at'])
+                # 'reported_*' items are not sync'd because this is consistent
+                # with when a new DB is created after rsync'ing to another
+                # node (see _newid()). 'hash' should not be sync'd because
+                # this DB has no object rows.
+                fresh_broker_conn.execute(sql, sql_data)
                 fresh_broker_conn.commit()
             except sqlite3.OperationalError as err:
-                self.logger.error('Failed to set matching created_at time in '
-                                  'the fresh database for %s: %s',
-                                  self.path, err)
+                self.logger.error(
+                    'Failed to sync the container_stat table/view with the '
+                    'fresh database for %s: %s',
+                    self.path, err)
                 return False
 
         # Rename to the new database
