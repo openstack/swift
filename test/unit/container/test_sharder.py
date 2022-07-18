@@ -1663,6 +1663,9 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(cleaving_context.ranges_todo, 0)
         self.assertTrue(cleaving_context.cleaving_done)
 
+        self.assertEqual([ShardRange.CLEAVED] * 3,
+                         [sr.state for sr in broker.get_shard_ranges()])
+
     def test_cleave_root_empty_db_with_pre_existing_shard_db_handoff(self):
         broker = self._make_broker()
         broker.enable_sharding(Timestamp.now())
@@ -1694,6 +1697,10 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(cleaving_context.ranges_done, 1)
         self.assertEqual(cleaving_context.ranges_todo, 2)
         self.assertFalse(cleaving_context.cleaving_done)
+
+        self.assertEqual(
+            [ShardRange.CLEAVED, ShardRange.CREATED, ShardRange.CREATED],
+            [sr.state for sr in broker.get_shard_ranges()])
 
     def test_cleave_shard_range_no_own_shard_range(self):
         # create an unsharded broker that has shard ranges but no

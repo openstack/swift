@@ -1332,6 +1332,81 @@ class TestContainerSharding(BaseAutoContainerSharding):
     def test_sharded_listing_with_replicators(self):
         self._test_sharded_listing(run_replicators=True)
 
+    def test_listing_under_populated_replica(self):
+        # the leader node and one other primary have all the objects and will
+        # cleave to 4 shard ranges, but the third primary only has 1 object in
+        # the final shard range
+        obj_names = self._make_object_names(2 * self.max_shard_size)
+        self.brain.servers.stop(number=self.brain.node_numbers[2])
+        self.put_objects(obj_names)
+        self.brain.servers.start(number=self.brain.node_numbers[2])
+        subset_obj_names = [obj_names[-1]]
+        self.put_objects(subset_obj_names)
+        self.brain.servers.stop(number=self.brain.node_numbers[2])
+
+        # sanity check: the first 2 primaries will list all objects
+        self.assert_container_listing(obj_names, req_hdrs={'x-newest': 'true'})
+
+        # Run sharder on the fully populated nodes, starting with the leader
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        self.sharders.once(number=self.brain.node_numbers[0],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.sharders.once(number=self.brain.node_numbers[1],
+                           additional_args='--partitions=%s' % self.brain.part)
+
+        # Verify that the first 2 primary nodes have cleaved the first batch of
+        # 2 shard ranges
+        broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+        self.assertEqual('sharding', broker.get_db_state())
+        shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
+        self.assertLengthEqual(shard_ranges, 4)
+        self.assertEqual([ShardRange.CLEAVED, ShardRange.CLEAVED,
+                          ShardRange.CREATED, ShardRange.CREATED],
+                         [sr['state'] for sr in shard_ranges])
+        self.assertEqual(
+            {False},
+            set([ctx.done() for ctx, _ in CleavingContext.load_all(broker)]))
+
+        # listing is complete (from the fully populated primaries at least);
+        # the root serves the listing parts for the last 2 shard ranges which
+        # are not yet cleaved
+        self.assert_container_listing(obj_names, req_hdrs={'x-newest': 'true'})
+
+        # Run the sharder on the under-populated node to get it fully
+        # cleaved.
+        self.brain.servers.start(number=self.brain.node_numbers[2])
+        Manager(['container-replicator']).once(
+            number=self.brain.node_numbers[2])
+        self.sharders.once(number=self.brain.node_numbers[2],
+                           additional_args='--partitions=%s' % self.brain.part)
+
+        broker = self.get_broker(self.brain.part, self.brain.nodes[2])
+        self.assertEqual('sharded', broker.get_db_state())
+        shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
+        self.assertLengthEqual(shard_ranges, 4)
+        self.assertEqual([ShardRange.ACTIVE, ShardRange.ACTIVE,
+                          ShardRange.ACTIVE, ShardRange.ACTIVE],
+                         [sr['state'] for sr in shard_ranges])
+        self.assertEqual(
+            {True, False},
+            set([ctx.done() for ctx, _ in CleavingContext.load_all(broker)]))
+
+        # Get a consistent view of shard range states then check listing
+        Manager(['container-replicator']).once(
+            number=self.brain.node_numbers[2])
+        # oops, the listing is incomplete because the last 2 listing parts are
+        # now served by the under-populated shard ranges.
+        self.assert_container_listing(
+            obj_names[:self.max_shard_size] + subset_obj_names,
+            req_hdrs={'x-newest': 'true'})
+
+        # but once another replica has completed cleaving the listing is
+        # complete again
+        self.sharders.once(number=self.brain.node_numbers[1],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_listing(obj_names, req_hdrs={'x-newest': 'true'})
+
     def test_async_pendings(self):
         obj_names = self._make_object_names(self.max_shard_size * 2)
 
