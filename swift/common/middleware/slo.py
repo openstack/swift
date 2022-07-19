@@ -1532,6 +1532,8 @@ class StaticLargeObject(object):
                 except ValueError:
                     raise HTTPServerError('Unable to load SLO manifest')
             else:
+                # Drain and close GET request (prevents socket leaks)
+                drain_and_close(resp)
                 raise HTTPBadRequest('Not an SLO manifest')
         elif resp.status_int == HTTP_NOT_FOUND:
             raise HTTPNotFound('SLO manifest not found')
