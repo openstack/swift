@@ -2213,10 +2213,10 @@ class TestReplicatorSync(unittest.TestCase):
         for node in self._ring.devs:
             daemon = self._run_once(node)
             if node['device'] == 'sdc':
-                self.assertEqual(daemon._local_device_ids, set())
+                self.assertEqual(daemon._local_device_ids, {})
             else:
                 self.assertEqual(daemon._local_device_ids,
-                                 set([node['id']]))
+                                 {node['id']: node})
 
     def test_clean_up_after_deleted_brokers(self):
         broker = self._get_broker('a', 'c', node_index=0)

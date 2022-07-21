@@ -196,7 +196,7 @@ class Replicator(Daemon):
         self.cpool = GreenPool(size=concurrency)
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.ring = ring.Ring(swift_dir, ring_name=self.server_type)
-        self._local_device_ids = set()
+        self._local_device_ids = {}
         self.per_diff = int(conf.get('per_diff', 1000))
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = float(conf.get('interval') or
@@ -795,7 +795,7 @@ class Replicator(Daemon):
                 'These modes are not intended for normal '
                 'operation; use these options with care.')
 
-        self._local_device_ids = set()
+        self._local_device_ids = {}
         found_local = False
         for node in self.ring.devs:
             if node and is_local_device(ips, self.port,
@@ -822,7 +822,7 @@ class Replicator(Daemon):
                     time.time() - self.reclaim_age)
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
-                    self._local_device_ids.add(node['id'])
+                    self._local_device_ids[node['id']] = node
                     part_filt = self._partition_dir_filter(
                         node['id'], partitions_to_replicate)
                     dirs.append((datadir, node['id'], part_filt))

@@ -2635,6 +2635,75 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                          os.path.basename(rsync_calls[0][1]))
         self.assertFalse(rsync_calls[1:])
 
+    @mock.patch('swift.common.ring.ring.Ring.get_part_nodes', return_value=[])
+    def test_find_local_handoff_for_part(self, mock_part_nodes):
+
+        with mock.patch(
+                'swift.common.db_replicator.ring.Ring',
+                return_value=self._ring):
+            daemon = replicator.ContainerReplicator({}, logger=self.logger)
+
+        # First let's assume we find a primary node
+        ring_node1, ring_node2, ring_node3 = daemon.ring.devs[-3:]
+        mock_part_nodes.return_value = [ring_node1, ring_node2]
+        daemon._local_device_ids = {ring_node1['id']: ring_node1,
+                                    ring_node3['id']: ring_node3}
+        node = daemon.find_local_handoff_for_part(0)
+        self.assertEqual(node['id'], ring_node1['id'])
+
+        # And if we can't find one from the primaries get *some* local device
+        mock_part_nodes.return_value = []
+        daemon._local_device_ids = {ring_node3['id']: ring_node3}
+        node = daemon.find_local_handoff_for_part(0)
+        self.assertEqual(node['id'], ring_node3['id'])
+
+        # if there are more then 1 local_dev_id it'll randomly pick one, but
+        # not a zero-weight device
+        ring_node3['weight'] = 0
+        selected_node_ids = set()
+        local_dev_ids = {dev['id']: dev for dev in daemon.ring.devs[-3:]}
+        daemon._local_device_ids = local_dev_ids
+        for _ in range(15):
+            node = daemon.find_local_handoff_for_part(0)
+            self.assertIn(node['id'], local_dev_ids)
+            selected_node_ids.add(node['id'])
+            if len(selected_node_ids) == 3:
+                break  # unexpected
+        self.assertEqual(len(selected_node_ids), 2)
+        self.assertEqual([1, 1], [local_dev_ids[dev_id]['weight']
+                                  for dev_id in selected_node_ids])
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertFalse(warning_lines)
+
+        # ...unless all devices have zero-weight
+        ring_node3['weight'] = 0
+        ring_node2['weight'] = 0
+        selected_node_ids = set()
+        local_dev_ids = {dev['id']: dev for dev in daemon.ring.devs[-2:]}
+        daemon._local_device_ids = local_dev_ids
+        for _ in range(15):
+            self.logger.clear()
+            node = daemon.find_local_handoff_for_part(0)
+            self.assertIn(node['id'], local_dev_ids)
+            selected_node_ids.add(node['id'])
+            if len(selected_node_ids) == 2:
+                break  # expected
+        self.assertEqual(len(selected_node_ids), 2)
+        self.assertEqual([0, 0], [local_dev_ids[dev_id]['weight']
+                                  for dev_id in selected_node_ids])
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warning_lines), warning_lines)
+        self.assertIn(
+            'Could not find a non-zero weight device for handoff partition',
+            warning_lines[0])
+
+        # If there are also no local_dev_ids, then we'll get the RuntimeError
+        daemon._local_device_ids = {}
+        with self.assertRaises(RuntimeError) as dev_err:
+            daemon.find_local_handoff_for_part(0)
+        expected_error_string = 'Cannot find local handoff; no local devices'
+        self.assertEqual(str(dev_err.exception), expected_error_string)
+
 
 if __name__ == '__main__':
     unittest.main()

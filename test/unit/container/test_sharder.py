@@ -682,14 +682,14 @@ class TestSharder(BaseTestSharder):
             with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
-                sharder._local_device_ids = {'stale_node_id'}
+                sharder._local_device_ids = {'stale_node_id': {}}
                 sharder._one_shard_cycle(Everything(), Everything())
 
             lines = sharder.logger.get_lines_for_level('warning')
             expected = 'Skipping %s as it is not mounted' % \
                 unmounted_dev['device']
             self.assertIn(expected, lines[0])
-            self.assertEqual(device_ids, sharder._local_device_ids)
+            self.assertEqual(device_ids, set(sharder._local_device_ids.keys()))
             self.assertEqual(2, mock_process_broker.call_count)
             processed_paths = [call[0][0].path
                                for call in mock_process_broker.call_args_list]
@@ -741,14 +741,14 @@ class TestSharder(BaseTestSharder):
             with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker', side_effect=mock_processing
             ) as mock_process_broker:
-                sharder._local_device_ids = {'stale_node_id'}
+                sharder._local_device_ids = {'stale_node_id': {}}
                 sharder._one_shard_cycle(Everything(), Everything())
 
             lines = sharder.logger.get_lines_for_level('warning')
             expected = 'Skipping %s as it is not mounted' % \
                 unmounted_dev['device']
             self.assertIn(expected, lines[0])
-            self.assertEqual(device_ids, sharder._local_device_ids)
+            self.assertEqual(device_ids, set(sharder._local_device_ids.keys()))
             self.assertEqual(3, mock_process_broker.call_count)
             processed_paths = [call[0][0].path
                                for call in mock_process_broker.call_args_list]
@@ -799,10 +799,10 @@ class TestSharder(BaseTestSharder):
             with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
-                sharder._local_device_ids = {999}
+                sharder._local_device_ids = {999: {}}
                 sharder._one_shard_cycle(Everything(), Everything())
 
-            self.assertEqual(device_ids, sharder._local_device_ids)
+            self.assertEqual(device_ids, set(sharder._local_device_ids.keys()))
             self.assertEqual(3, mock_process_broker.call_count)
             processed_paths = [call[0][0].path
                                for call in mock_process_broker.call_args_list]
@@ -826,7 +826,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
-                sharder._local_device_ids = {999}
+                sharder._local_device_ids = {999: {}}
                 sharder._one_shard_cycle(Everything(), Everything())
 
             expected_in_progress_stats = {
@@ -866,7 +866,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch('eventlet.sleep'), \
                     mock.patch.object(sharder, '_process_broker') \
                     as mock_process_broker, mock_timestamp_now(ts_now):
-                sharder._local_device_ids = {999}
+                sharder._local_device_ids = {999: {}}
                 sharder._one_shard_cycle(Everything(), Everything())
 
             expected_in_progress_stats = {
@@ -896,7 +896,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch('eventlet.sleep'), \
                     mock.patch.object(sharder, '_process_broker') \
                     as mock_process_broker, mock_timestamp_now(ts_now):
-                sharder._local_device_ids = {999}
+                sharder._local_device_ids = {999: {}}
                 sharder._one_shard_cycle(Everything(), Everything())
             self._assert_stats(
                 expected_in_progress_stats, sharder, 'sharding_in_progress')
@@ -908,7 +908,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch('eventlet.sleep'), \
                     mock.patch.object(sharder, '_process_broker') \
                     as mock_process_broker, mock_timestamp_now(ts_now):
-                sharder._local_device_ids = {999}
+                sharder._local_device_ids = {999: {}}
                 sharder._one_shard_cycle(Everything(), Everything())
 
             expected_in_progress_stats = {
@@ -1005,7 +1005,8 @@ class TestSharder(BaseTestSharder):
                     'swift.common.db_replicator.ring.Ring',
                     return_value=fake_ring):
                 sharder = ContainerSharder(conf, logger=self.logger)
-                sharder._local_device_ids = {0, 1, 2}
+                sharder._local_device_ids = {dev['id']: dev
+                                             for dev in fake_ring.devs}
                 sharder._replicate_object = mock.MagicMock(
                     return_value=(True, [True] * sharder.ring.replica_count))
                 yield sharder
@@ -5558,9 +5559,10 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
 
         # advance time
-        with mock.patch('swift.container.sharder.time.time') as fake_time, \
-                self._mock_sharder() as sharder:
-            fake_time.return_value = 6048000 + float(delete_ts)
+        future_time = 6048000 + float(delete_ts)
+        with mock.patch(
+                'swift.container.sharder.time.time',
+                return_value=future_time), self._mock_sharder() as sharder:
             sharder._audit_container(broker)
         message = 'Reclaimable db stuck waiting for shrinking: %s (%s)' % (
             broker.db_file, broker.path)
@@ -5574,9 +5576,9 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges(shard_ranges)
 
         # no more warning
-        with mock.patch('swift.container.sharder.time.time') as fake_time, \
-                self._mock_sharder() as sharder:
-            fake_time.return_value = 6048000 + float(delete_ts)
+        with mock.patch(
+                'swift.container.sharder.time.time',
+                return_value=future_time), self._mock_sharder() as sharder:
             sharder._audit_container(broker)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
 
@@ -6049,7 +6051,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once()
-        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(dev_ids, set(sharder._local_device_ids.keys()))
         self.assertEqual(set(container_data),
                          set((call[0][0].path, call[0][1]['id'], call[0][2])
                              for call in mock_process_broker.call_args_list))
@@ -6061,7 +6063,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(partitions='0')
-        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(dev_ids, set(sharder._local_device_ids.keys()))
         self.assertEqual(set([container_data[0]]),
                          set((call[0][0].path, call[0][1]['id'], call[0][2])
                              for call in mock_process_broker.call_args_list))
@@ -6073,7 +6075,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(partitions='2,0')
-        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(dev_ids, set(sharder._local_device_ids.keys()))
         self.assertEqual(set([container_data[0], container_data[2]]),
                          set((call[0][0].path, call[0][1]['id'], call[0][2])
                              for call in mock_process_broker.call_args_list))
@@ -6085,7 +6087,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(partitions='2,0', devices='sdc')
-        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(dev_ids, set(sharder._local_device_ids.keys()))
         self.assertEqual(set([container_data[2]]),
                          set((call[0][0].path, call[0][1]['id'], call[0][2])
                              for call in mock_process_broker.call_args_list))
@@ -6097,7 +6099,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(devices='sdb,sdc')
-        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(dev_ids, set(sharder._local_device_ids.keys()))
         self.assertEqual(set(container_data[1:]),
                          set((call[0][0].path, call[0][1]['id'], call[0][2])
                              for call in mock_process_broker.call_args_list))
@@ -6402,6 +6404,56 @@ class TestSharder(BaseTestSharder):
                 ]}
             self._assert_recon_stats(expected_shrinking_candidates_data,
                                      sharder, 'shrinking_candidates')
+
+    @mock.patch('swift.common.ring.ring.Ring.get_part_nodes', return_value=[])
+    @mock.patch('swift.common.ring.ring.Ring.get_more_nodes', return_value=[])
+    def test_get_shard_broker_no_local_handoff_for_part(
+            self, mock_part_nodes, mock_more_nodes):
+        broker = self._make_broker()
+        broker.enable_sharding(Timestamp.now())
+
+        shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
+
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+
+        # first, let's assume there local_handoff_for_part fails because the
+        # node we're on is at zero weight for all disks. So it wont appear in
+        # the replica2part2dev table, meaning we wont get a node back.
+        # in this case, we'll fall back to one of our own devices which we
+        # determine from the ring.devs not the replica2part2dev table.
+        with self._mock_sharder() as sharder:
+            local_dev_ids = {dev['id']: dev for dev in sharder.ring.devs[-1:]}
+            sharder._local_device_ids = local_dev_ids
+            part, shard_broker, node_id, _ = sharder._get_shard_broker(
+                shard_ranges[0], broker.root_path, 0)
+            self.assertIn(node_id, local_dev_ids)
+
+        # if there are more then 1 local_dev_id it'll randomly pick one
+        selected_node_ids = set()
+        for _ in range(10):
+            with self._mock_sharder() as sharder:
+                local_dev_ids = {dev['id']: dev
+                                 for dev in sharder.ring.devs[-2:]}
+                sharder._local_device_ids = local_dev_ids
+                part, shard_broker, node_id, _ = sharder._get_shard_broker(
+                    shard_ranges[0], broker.root_path, 0)
+                self.assertIn(node_id, local_dev_ids)
+                selected_node_ids.add(node_id)
+            if len(selected_node_ids) == 2:
+                break
+        self.assertEqual(len(selected_node_ids), 2)
+
+        # If there are also no local_dev_ids, then we'll get the RuntimeError
+        with self._mock_sharder() as sharder:
+            sharder._local_device_ids = {}
+            with self.assertRaises(RuntimeError) as dev_err:
+                sharder._get_shard_broker(shard_ranges[0], broker.root_path, 0)
+
+        expected_error_string = 'Cannot find local handoff; no local devices'
+        self.assertEqual(str(dev_err.exception), expected_error_string)
 
 
 class TestCleavingContext(BaseTestSharder):

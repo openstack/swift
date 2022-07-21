@@ -31,7 +31,6 @@ from swift.common import internal_client
 from swift.common.constraints import check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
-from swift.common.exceptions import DeviceUnavailable
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring.utils import is_local_device
 from swift.common.swob import str_to_wsgi
@@ -1089,19 +1088,18 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         :param shard_range: a :class:`~swift.common.utils.ShardRange`
         :param root_path: the path of the shard's root container
         :param policy_index: the storage policy index
-        :returns: a tuple of ``(part, broker, node_id)`` where ``part`` is the
-            shard container's partition, ``broker`` is an instance of
+        :returns: a tuple of ``(part, broker, node_id, put_timestamp)`` where
+            ``part`` is the shard container's partition,
+            ``broker`` is an instance of
             :class:`~swift.container.backend.ContainerBroker`,
-            ``node_id`` is the id of the selected node.
+            ``node_id`` is the id of the selected node,
+            ``put_timestamp`` is the put_timestamp if the broker needed to
+            be initialized.
         """
         part = self.ring.get_part(shard_range.account, shard_range.container)
         node = self.find_local_handoff_for_part(part)
-        put_timestamp = Timestamp.now().internal
-        if not node:
-            raise DeviceUnavailable(
-                'No mounted devices found suitable for creating shard broker '
-                'for %s in partition %s' % (quote(shard_range.name), part))
 
+        put_timestamp = Timestamp.now().internal
         shard_broker = ContainerBroker.create_broker(
             os.path.join(self.root, node['device']), part, shard_range.account,
             shard_range.container, epoch=shard_range.epoch,
@@ -1830,18 +1828,12 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                          quote(shard_range.name), shard_range)
         self._increment_stat('cleaved', 'attempted')
         policy_index = broker.storage_policy_index
-        try:
-            shard_part, shard_broker, node_id, put_timestamp = \
-                self._get_shard_broker(shard_range, broker.root_path,
-                                       policy_index)
-        except DeviceUnavailable as duex:
-            self.logger.warning(str(duex))
-            self._increment_stat('cleaved', 'failure', statsd=True)
-            return CLEAVE_FAILED
-        else:
-            return self._cleave_shard_broker(
-                broker, cleaving_context, shard_range, own_shard_range,
-                shard_broker, put_timestamp, shard_part, node_id)
+        shard_part, shard_broker, node_id, put_timestamp = \
+            self._get_shard_broker(shard_range, broker.root_path,
+                                   policy_index)
+        return self._cleave_shard_broker(
+            broker, cleaving_context, shard_range, own_shard_range,
+            shard_broker, put_timestamp, shard_part, node_id)
 
     def _cleave(self, broker):
         # Returns True if misplaced objects have been moved and the entire
@@ -2184,7 +2176,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             self.logger.info('(Override partitions: %s)',
                              ', '.join(str(p) for p in partitions_to_shard))
         self._zero_stats()
-        self._local_device_ids = set()
+        self._local_device_ids = {}
         dirs = []
         self.ips = whataremyips(self.bind_ip)
         for node in self.ring.devs:
@@ -2195,7 +2187,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             if os.path.isdir(datadir):
                 # Populate self._local_device_ids so we can find devices for
                 # shard containers later
-                self._local_device_ids.add(node['id'])
+                self._local_device_ids[node['id']] = node
                 if node['device'] not in devices_to_shard:
                     continue
                 part_filt = self._partition_dir_filter(

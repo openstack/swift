@@ -14,10 +14,10 @@
 # limitations under the License.
 
 import os
-import itertools
 import json
 from collections import defaultdict
 from eventlet import Timeout
+from random import choice
 
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, SHARDED
@@ -27,7 +27,6 @@ from swift.container.reconciler import (
 from swift.common import db_replicator
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPOk, HTTPAccepted
-from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
 from swift.common.utils import Timestamp, majority_size, get_db_files
 
@@ -144,18 +143,37 @@ class ContainerReplicator(db_replicator.Replicator):
 
     def find_local_handoff_for_part(self, part):
         """
-        Look through devices in the ring for the first handoff device that was
-        identified during job creation as available on this node.
+        Find a device in the ring that is on this node on which to place a
+        partition. Preference is given to a device that is a primary location
+        for the partition. If no such device is found then a local device with
+        weight is chosen, and failing that any local device.
 
+        :param part: a partition
         :returns: a node entry from the ring
         """
-        nodes = self.ring.get_part_nodes(part)
-        more_nodes = self.ring.get_more_nodes(part)
+        if not self._local_device_ids:
+            raise RuntimeError('Cannot find local handoff; no local devices')
 
-        for node in itertools.chain(nodes, more_nodes):
+        for node in self.ring.get_part_nodes(part):
             if node['id'] in self._local_device_ids:
                 return node
-        return None
+
+        # don't attempt to minimize handoff depth: just choose any local
+        # device, but start by only picking a device with a weight, just in
+        # case some devices are being drained...
+        local_devs_with_weight = [
+            dev for dev in self._local_device_ids.values()
+            if dev.get('weight', 0)]
+        if local_devs_with_weight:
+            return choice(local_devs_with_weight)
+
+        # we have to return something, so choose any local device..
+        node = choice(list(self._local_device_ids.values()))
+        self.logger.warning(
+            "Could not find a non-zero weight device for handoff partition "
+            "%d, falling back device %s" %
+            (part, node['device']))
+        return node
 
     def get_reconciler_broker(self, timestamp):
         """
@@ -173,10 +191,6 @@ class ContainerReplicator(db_replicator.Replicator):
         account = MISPLACED_OBJECTS_ACCOUNT
         part = self.ring.get_part(account, container)
         node = self.find_local_handoff_for_part(part)
-        if not node:
-            raise DeviceUnavailable(
-                'No mounted devices found suitable to Handoff reconciler '
-                'container %s in partition %s' % (container, part))
         broker = ContainerBroker.create_broker(
             os.path.join(self.root, node['device']), part, account, container,
             logger=self.logger, put_timestamp=timestamp,
@@ -198,8 +212,9 @@ class ContainerReplicator(db_replicator.Replicator):
 
         try:
             reconciler = self.get_reconciler_broker(container)
-        except DeviceUnavailable as e:
-            self.logger.warning('DeviceUnavailable: %s', e)
+        except Exception:
+            self.logger.exception('Failed to get reconciler broker for '
+                                  'container %s', container)
             return False
         self.logger.debug('Adding %d objects to the reconciler at %s',
                           len(item_list), reconciler.db_file)
