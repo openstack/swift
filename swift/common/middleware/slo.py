@@ -1523,7 +1523,17 @@ class StaticLargeObject(object):
             new_env['PATH_INFO'] = (
                 '/%s/%s/%s' % (vrs, account, str_to_wsgi(obj_name.lstrip('/')))
             )
-        resp = Request.blank('', new_env).get_response(self.app)
+        # Just request the last byte of non-SLO objects so we don't waste
+        # a bunch of resources in drain_and_close() below
+        manifest_req = Request.blank('', new_env, range='bytes=-1')
+        update_ignore_range_header(manifest_req, 'X-Static-Large-Object')
+        resp = manifest_req.get_response(self.app)
+
+        if resp.is_success and config_true_value(resp.headers.get(
+                'X-Static-Large-Object')) and len(resp.body) == 1:
+            # pre-2.24.0 object-server
+            manifest_req = Request.blank('', new_env)
+            resp = manifest_req.get_response(self.app)
 
         if resp.is_success:
             if config_true_value(resp.headers.get('X-Static-Large-Object')):

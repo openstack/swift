@@ -1327,6 +1327,7 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Errors'], [])
 
     def test_handle_multipart_delete_segment_404(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/man?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE',
@@ -1345,6 +1346,7 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Number Not Found'], 1)
 
     def test_handle_multipart_delete_whole(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE'})
@@ -1356,7 +1358,40 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', '/v1/AUTH_test/deltest/c_3'),
             ('DELETE', ('/v1/AUTH_test/deltest/man-all-there'))]))
 
+    def test_handle_multipart_delete_whole_old_swift(self):
+        # behave like pre-2.24.0 swift; initial GET will return just one byte
+        self.app.can_ignore_range = False
+
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE'})
+        self.call_slo(req)
+        self.assertEqual(self.app.calls_with_headers[:2], [
+            ('GET',
+             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get',
+             {'Host': 'localhost:80',
+              'User-Agent': 'Mozzarella Foxfire MultipartDELETE',
+              'Range': 'bytes=-1',
+              'X-Backend-Ignore-Range-If-Metadata-Present':
+              'X-Static-Large-Object',
+              'X-Backend-Storage-Policy-Index': '2',
+              'Content-Length': '0'}),
+            ('GET',
+             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get',
+             {'Host': 'localhost:80',
+              'User-Agent': 'Mozzarella Foxfire MultipartDELETE',
+              'X-Backend-Storage-Policy-Index': '2',
+              'Content-Length': '0'}),
+        ])
+        self.assertEqual(set(self.app.calls), set([
+            ('GET',
+             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get'),
+            ('DELETE', '/v1/AUTH_test/deltest/b_2'),
+            ('DELETE', '/v1/AUTH_test/deltest/c_3'),
+            ('DELETE', ('/v1/AUTH_test/deltest/man-all-there'))]))
+
     def test_handle_multipart_delete_non_ascii(self):
+        self.app.can_ignore_range = True
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
         req = Request.blank(
@@ -1384,6 +1419,7 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', ('/v1/%s/deltest/man-all-there' % wsgi_acct))]))
 
     def test_handle_multipart_delete_nested(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-submanifest?' +
             'multipart-manifest=delete',
@@ -1403,6 +1439,7 @@ class TestSloDeleteManifest(SloTestCase):
              ('DELETE', '/v1/AUTH_test/deltest/manifest-with-submanifest')})
 
     def test_handle_multipart_delete_nested_too_many_segments(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-too-many-segs?' +
             'multipart-manifest=delete',
@@ -1417,6 +1454,7 @@ class TestSloDeleteManifest(SloTestCase):
                          'Too many buffered slo segments to delete.')
 
     def test_handle_multipart_delete_nested_404(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-missing-submanifest' +
             '?multipart-manifest=delete',
@@ -1440,6 +1478,7 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Errors'], [])
 
     def test_handle_multipart_delete_nested_401(self):
+        self.app.can_ignore_range = True
         self.app.register(
             'GET', '/v1/AUTH_test/deltest/submanifest',
             swob.HTTPUnauthorized, {}, None)
@@ -1457,6 +1496,7 @@ class TestSloDeleteManifest(SloTestCase):
                          [['/deltest/submanifest', '401 Unauthorized']])
 
     def test_handle_multipart_delete_nested_500(self):
+        self.app.can_ignore_range = True
         self.app.register(
             'GET', '/v1/AUTH_test/deltest/submanifest',
             swob.HTTPServerError, {}, None)
@@ -1475,6 +1515,7 @@ class TestSloDeleteManifest(SloTestCase):
                            'Unable to load SLO manifest or segment.']])
 
     def test_handle_multipart_delete_not_a_manifest(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/a_1?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE',
@@ -1493,6 +1534,7 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertFalse(self.app.unread_requests)
 
     def test_handle_multipart_delete_bad_json(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-badjson?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE',
@@ -1511,6 +1553,7 @@ class TestSloDeleteManifest(SloTestCase):
                            'Unable to load SLO manifest']])
 
     def test_handle_multipart_delete_401(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-unauth-segment' +
             '?multipart-manifest=delete',
@@ -1534,6 +1577,7 @@ class TestSloDeleteManifest(SloTestCase):
                          [['/deltest-unauth/q_17', '401 Unauthorized']])
 
     def test_handle_multipart_delete_client_content_type(self):
+        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE', 'CONTENT_TYPE': 'foo/bar'},
@@ -1565,6 +1609,7 @@ class TestSloDeleteManifest(SloTestCase):
               '/v1/AUTH_test/deltest/man_404?multipart-manifest=get')])
 
     def test_handle_async_delete_turned_off(self):
+        self.app.can_ignore_range = True
         self.slo.allow_async_delete = False
         req = Request.blank(
             '/v1/AUTH_test/deltest/man-all-there?'
@@ -1585,6 +1630,7 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', '/v1/AUTH_test/deltest/man-all-there')]))
 
     def test_handle_async_delete_whole(self):
+        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         now = Timestamp(time.time())
         exp_obj_cont = get_expirer_container(
@@ -1637,6 +1683,7 @@ class TestSloDeleteManifest(SloTestCase):
         ])
 
     def test_handle_async_delete_non_ascii(self):
+        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
@@ -1711,6 +1758,7 @@ class TestSloDeleteManifest(SloTestCase):
         ])
 
     def test_handle_async_delete_non_ascii_same_container(self):
+        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
@@ -1781,6 +1829,7 @@ class TestSloDeleteManifest(SloTestCase):
         ])
 
     def test_handle_async_delete_nested(self):
+        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-submanifest' +
@@ -1794,6 +1843,7 @@ class TestSloDeleteManifest(SloTestCase):
              'manifest-with-submanifest?multipart-manifest=get')])
 
     def test_handle_async_delete_too_many_containers(self):
+        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         self.app.register(
             'GET', '/v1/AUTH_test/deltest/man',
