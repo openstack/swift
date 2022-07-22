@@ -847,6 +847,51 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
         self.assertEqual(0, replicator.stats['failure'])
 
+    def test_handoff_delete(self):
+        def do_test(config, repl_to_node_results, expect_delete):
+            self.delete_db_calls = []
+            replicator = TestReplicator(config)
+            replicator.ring = FakeRingWithNodes().Ring('path')
+            replicator.brokerclass = FakeAccountBroker
+            mock_repl_to_node = mock.Mock()
+            mock_repl_to_node.side_effect = repl_to_node_results
+            replicator._repl_to_node = mock_repl_to_node
+            replicator.delete_db = self.stub_delete_db
+            orig_cleanup = replicator.cleanup_post_replicate
+            with mock.patch.object(replicator, 'cleanup_post_replicate',
+                                   side_effect=orig_cleanup) as mock_cleanup:
+                replicator._replicate_object('0', '/path/to/file', 'node_id')
+            mock_cleanup.assert_called_once_with(mock.ANY, mock.ANY,
+                                                 repl_to_node_results)
+            self.assertIsInstance(mock_cleanup.call_args[0][0],
+                                  replicator.brokerclass)
+            if expect_delete:
+                self.assertEqual(['/path/to/file'], self.delete_db_calls)
+            else:
+                self.assertNotEqual(['/path/to/file'], self.delete_db_calls)
+
+            self.assertEqual(repl_to_node_results.count(True),
+                             replicator.stats['success'])
+            self.assertEqual(repl_to_node_results.count(False),
+                             replicator.stats['failure'])
+
+        for cfg, repl_results, expected_delete in (
+                # Start with the sanilty check
+                ({}, [True] * 3, True),
+                ({}, [True, True, False], False),
+                ({'handoff_delete': 'auto'}, [True] * 3, True),
+                ({'handoff_delete': 'auto'}, [True, True, False], False),
+                ({'handoff_delete': 0}, [True] * 3, True),
+                ({'handoff_delete': 0}, [True, True, False], False),
+                # Now test a lower handoff delete
+                ({'handoff_delete': 2}, [True] * 3, True),
+                ({'handoff_delete': 2}, [True, True, False], True),
+                ({'handoff_delete': 2}, [True, False, False], False),
+                ({'handoff_delete': 1}, [True] * 3, True),
+                ({'handoff_delete': 1}, [True, True, False], True),
+                ({'handoff_delete': 1}, [True, False, False], True)):
+            do_test(cfg, repl_results, expected_delete)
+
     def test_replicate_object_delete_delegated_to_cleanup_post_replicate(self):
         replicator = TestReplicator({})
         replicator.ring = FakeRingWithNodes().Ring('path')
@@ -1860,11 +1905,13 @@ class TestHandoffsOnly(unittest.TestCase):
 
         self.assertEqual(
             self.logger.get_lines_for_level('warning'),
-            [('Starting replication pass with handoffs_only enabled. This '
-              'mode is not intended for normal operation; use '
-              'handoffs_only with care.'),
-             ('Finished replication pass with handoffs_only enabled. '
-              'If handoffs_only is no longer required, disable it.')])
+            [('Starting replication pass with handoffs_only and/or '
+              'handoffs_delete enabled. These '
+              'modes are not intended for normal operation; use '
+              'these options with care.'),
+             ('Finished replication pass with handoffs_only and/or '
+              'handoffs_delete enabled. If these are no longer required, '
+              'disable them.')])
 
     def test_skips_primary_partitions(self):
         replicator = TestReplicator({

@@ -197,8 +197,8 @@ use = egg:swift#recon
 # ionice_class =
 # ionice_priority =
 #
-# The handoffs_only mode option is for special-case emergency
-# situations such as full disks in the cluster. This option SHOULD NOT
+# The handoffs_only and handoff_delete options are for special-case emergency
+# situations such as full disks in the cluster. These options SHOULD NOT
 # BE ENABLED except in emergencies. When handoffs_only mode is enabled
 # the replicator will *only* replicate from handoff nodes to primary
 # nodes and will not sync primary nodes with other primary nodes.
@@ -215,6 +215,15 @@ use = egg:swift#recon
 # long-term use.
 #
 # handoffs_only = no
+#
+# handoff_delete is the number of replicas which are ensured in swift.
+# If the number less than the number of replicas is set, container-replicator
+# could delete local handoffs even if all replicas are not ensured in the
+# cluster. The replicator would remove local handoff container database after
+# syncing when the number of successful responses is greater than or equal to
+# this number. By default(auto), handoff partitions will be
+# removed  when it has successfully replicated to all the canonical nodes.
+# handoff_delete = auto
 
 [container-updater]
 # You can override the default log routing for this app here (don't use set!):
