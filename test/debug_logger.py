@@ -134,6 +134,9 @@ class FakeLogger(logging.Logger, CaptureLog):
         return [call[0][0] for call in self.log_dict['increment']]
 
     def get_increment_counts(self):
+        # note: this method reports the sum of stats sent via the increment
+        # method only; consider using get_stats_counts instead to get the sum
+        # of stats sent via both the increment and update_stats methods
         counts = {}
         for metric in self.get_increments():
             if metric not in counts:
@@ -143,6 +146,16 @@ class FakeLogger(logging.Logger, CaptureLog):
 
     def get_update_stats(self):
         return [call[0] for call in self.log_dict['update_stats']]
+
+    def get_stats_counts(self):
+        # return dict key->count for stats, aggregating calls to both the
+        # increment and update methods
+        counts = self.get_increment_counts()
+        for metric, step in self.get_update_stats():
+            if metric not in counts:
+                counts[metric] = 0
+            counts[metric] += step
+        return counts
 
     def setFormatter(self, obj):
         self.formatter = obj

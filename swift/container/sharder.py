@@ -853,11 +853,15 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         else:
             self.stats['sharding'][category][key] = max(current, value)
 
-    def _increment_stat(self, category, key, step=1, statsd=False):
-        self.stats['sharding'][category][key] += step
-        if statsd:
-            statsd_key = '%s_%s' % (category, key)
-            self.logger.increment(statsd_key)
+    def _increment_stat(self, category, key, statsd=False):
+        self._update_stat(category, key, step=1, statsd=statsd)
+
+    def _update_stat(self, category, key, step=1, statsd=False):
+        if step:
+            self.stats['sharding'][category][key] += step
+            if statsd:
+                statsd_key = '%s_%s' % (category, key)
+                self.logger.update_stats(statsd_key, step)
 
     def _make_stats_info(self, broker, node, own_shard_range):
         try:
@@ -1148,8 +1152,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             overlaps = find_overlapping_ranges(shard_ranges)
             if overlaps:
                 self._increment_stat('audit_root', 'has_overlap')
-                self._increment_stat('audit_root', 'num_overlap',
-                                     step=len(overlaps))
+                self._update_stat('audit_root', 'num_overlap',
+                                  step=len(overlaps))
                 all_overlaps = ', '.join(
                     [' '.join(['%s-%s' % (sr.lower, sr.upper)
                                for sr in overlapping_ranges])
@@ -1488,8 +1492,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             success &= self._replicate_and_delete(
                 src_broker, dest_shard_range, **dest_args)
 
-        self._increment_stat('misplaced', 'placed', step=placed)
-        self._increment_stat('misplaced', 'unplaced', step=unplaced)
+        self._update_stat('misplaced', 'placed', step=placed, statsd=True)
+        self._update_stat('misplaced', 'unplaced', step=unplaced, statsd=True)
         return success, placed, unplaced
 
     def _make_shard_range_fetcher(self, broker, src_shard_range):
@@ -1591,7 +1595,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             self._increment_stat('misplaced', 'found', statsd=True)
             self.logger.debug('Placed %s misplaced objects (%s unplaced)',
                               num_placed, num_unplaced)
-        self._increment_stat('misplaced', 'success' if success else 'failure')
+        self._increment_stat('misplaced', 'success' if success else 'failure',
+                             statsd=True)
         self.logger.debug('Finished handling misplaced objects')
         return success
 
@@ -1639,7 +1644,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         num_found = len(shard_ranges)
         self.logger.info(
             "Completed scan for shard ranges: %d found", num_found)
-        self._increment_stat('scanned', 'found', step=num_found)
+        self._update_stat('scanned', 'found', step=num_found)
         self._min_stat('scanned', 'min_time', round(elapsed / num_found, 3))
         self._max_stat('scanned', 'max_time', round(elapsed / num_found, 3))
 
