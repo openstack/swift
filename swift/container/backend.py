@@ -377,7 +377,10 @@ class ContainerBroker(DatabaseBroker):
         :param put_timestamp: initial timestamp if broker needs to be
             initialized
         :param storage_policy_index: the storage policy index
-        :return: a :class:`swift.container.backend.ContainerBroker` instance
+        :return: a tuple of (``broker``, ``initialized``) where ``broker`` is
+            an instance of :class:`swift.container.backend.ContainerBroker` and
+            ``initialized`` is True if the db file was initialized, False
+            otherwise.
         """
         hsh = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, hsh)
@@ -385,12 +388,14 @@ class ContainerBroker(DatabaseBroker):
             os.path.join(device_path, db_dir, hsh + '.db'), epoch)
         broker = ContainerBroker(db_path, account=account, container=container,
                                  logger=logger)
+        initialized = False
         if not os.path.exists(broker.db_file):
             try:
                 broker.initialize(put_timestamp, storage_policy_index)
+                initialized = True
             except DatabaseAlreadyExists:
                 pass
-        return broker
+        return broker, initialized
 
     def get_db_state(self):
         """

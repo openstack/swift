@@ -3702,16 +3702,20 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_create_broker(self, tempdir):
-        broker = ContainerBroker.create_broker(tempdir, 0, 'a', 'c')
+        broker, init = ContainerBroker.create_broker(tempdir, 0, 'a', 'c')
         hsh = hash_path('a', 'c')
         expected_path = os.path.join(
             tempdir, 'containers', '0', hsh[-3:], hsh, hsh + '.db')
         self.assertEqual(expected_path, broker.db_file)
         self.assertTrue(os.path.isfile(expected_path))
+        self.assertTrue(init)
+        broker, init = ContainerBroker.create_broker(tempdir, 0, 'a', 'c')
+        self.assertEqual(expected_path, broker.db_file)
+        self.assertFalse(init)
 
         ts = Timestamp.now()
-        broker = ContainerBroker.create_broker(tempdir, 0, 'a', 'c1',
-                                               put_timestamp=ts.internal)
+        broker, init = ContainerBroker.create_broker(tempdir, 0, 'a', 'c1',
+                                                     put_timestamp=ts.internal)
         hsh = hash_path('a', 'c1')
         expected_path = os.path.join(
             tempdir, 'containers', '0', hsh[-3:], hsh, hsh + '.db')
@@ -3719,15 +3723,17 @@ class TestContainerBroker(unittest.TestCase):
         self.assertTrue(os.path.isfile(expected_path))
         self.assertEqual(ts.internal, broker.get_info()['put_timestamp'])
         self.assertEqual(0, broker.get_info()['storage_policy_index'])
+        self.assertTrue(init)
 
         epoch = Timestamp.now()
-        broker = ContainerBroker.create_broker(tempdir, 0, 'a', 'c3',
-                                               epoch=epoch)
+        broker, init = ContainerBroker.create_broker(tempdir, 0, 'a', 'c3',
+                                                     epoch=epoch)
         hsh = hash_path('a', 'c3')
         expected_path = os.path.join(
             tempdir, 'containers', '0', hsh[-3:],
             hsh, '%s_%s.db' % (hsh, epoch.internal))
         self.assertEqual(expected_path, broker.db_file)
+        self.assertTrue(init)
 
     @with_tempdir
     def test_pending_file_name(self, tempdir):

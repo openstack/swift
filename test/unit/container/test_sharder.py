@@ -1254,11 +1254,16 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder._cleave(broker))
 
         expected = {'attempted': 1, 'success': 1, 'failure': 0,
-                    'min_time': mock.ANY, 'max_time': mock.ANY}
+                    'min_time': mock.ANY, 'max_time': mock.ANY,
+                    'db_created': 1, 'db_exists': 0}
         stats = self._assert_stats(expected, sharder, 'cleaved')
         self.assertIsInstance(stats['min_time'], float)
         self.assertIsInstance(stats['max_time'], float)
         self.assertLessEqual(stats['min_time'], stats['max_time'])
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts().get('cleaved_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('cleaved_db_exists'))
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[0], 0)
@@ -1316,6 +1321,15 @@ class TestSharder(BaseTestSharder):
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[1], 0)
 
+        expected = {'attempted': 1, 'success': 0, 'failure': 1,
+                    'min_time': mock.ANY, 'max_time': mock.ANY,
+                    'db_created': 1, 'db_exists': 0}
+        self._assert_stats(expected, sharder, 'cleaved')
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts().get('cleaved_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('cleaved_db_exists'))
+
         # cleaving state is unchanged
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(4, len(updated_shard_ranges))
@@ -1344,11 +1358,16 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder._cleave(broker))
 
         expected = {'attempted': 2, 'success': 2, 'failure': 0,
-                    'min_time': mock.ANY, 'max_time': mock.ANY}
+                    'min_time': mock.ANY, 'max_time': mock.ANY,
+                    'db_created': 1, 'db_exists': 1}
         stats = self._assert_stats(expected, sharder, 'cleaved')
         self.assertIsInstance(stats['min_time'], float)
         self.assertIsInstance(stats['max_time'], float)
         self.assertLessEqual(stats['min_time'], stats['max_time'])
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts().get('cleaved_db_created'))
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts().get('cleaved_db_exists'))
 
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
@@ -1405,11 +1424,16 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder._cleave(broker))
 
         expected = {'attempted': 1, 'success': 1, 'failure': 0,
-                    'min_time': mock.ANY, 'max_time': mock.ANY}
+                    'min_time': mock.ANY, 'max_time': mock.ANY,
+                    'db_created': 1, 'db_exists': 0}
         stats = self._assert_stats(expected, sharder, 'cleaved')
         self.assertIsInstance(stats['min_time'], float)
         self.assertIsInstance(stats['max_time'], float)
         self.assertLessEqual(stats['min_time'], stats['max_time'])
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts().get('cleaved_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('cleaved_db_exists'))
 
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_called_once_with(
@@ -1473,11 +1497,16 @@ class TestSharder(BaseTestSharder):
             self.assertTrue(sharder._cleave(broker))
 
         expected = {'attempted': 1, 'success': 1, 'failure': 0,
-                    'min_time': mock.ANY, 'max_time': mock.ANY}
+                    'min_time': mock.ANY, 'max_time': mock.ANY,
+                    'db_created': 1, 'db_exists': 0}
         stats = self._assert_stats(expected, sharder, 'cleaved')
         self.assertIsInstance(stats['min_time'], float)
         self.assertIsInstance(stats['max_time'], float)
         self.assertLessEqual(stats['min_time'], stats['max_time'])
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts().get('cleaved_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('cleaved_db_exists'))
 
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[4], 0)
@@ -3308,7 +3337,8 @@ class TestSharder(BaseTestSharder):
             sharder._move_misplaced_objects(broker)
         sharder._replicate_object.assert_not_called()
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
-                          'found': 0, 'placed': 0, 'unplaced': 0}
+                          'found': 0, 'placed': 0, 'unplaced': 0,
+                          'db_created': 0, 'db_exists': 0}
         self._assert_stats(expected_stats, sharder, 'misplaced')
         self.assertFalse(
             sharder.logger.get_stats_counts().get('misplaced_found'))
@@ -3316,6 +3346,10 @@ class TestSharder(BaseTestSharder):
             sharder.logger.get_stats_counts().get('misplaced_placed'))
         self.assertFalse(
             sharder.logger.get_stats_counts().get('misplaced_unplaced'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_exists'))
 
         # sharding - no misplaced objects
         self.assertTrue(broker.set_sharding_state())
@@ -3329,6 +3363,10 @@ class TestSharder(BaseTestSharder):
             sharder.logger.get_stats_counts().get('misplaced_placed'))
         self.assertFalse(
             sharder.logger.get_stats_counts().get('misplaced_unplaced'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_exists'))
 
         # pretend we cleaved up to end of second shard range
         context = CleavingContext.load(broker)
@@ -3344,6 +3382,10 @@ class TestSharder(BaseTestSharder):
             sharder.logger.get_stats_counts().get('misplaced_placed'))
         self.assertFalse(
             sharder.logger.get_stats_counts().get('misplaced_unplaced'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_exists'))
 
         # sharding - misplaced objects
         for obj in objects:
@@ -3361,6 +3403,10 @@ class TestSharder(BaseTestSharder):
             sharder.logger.get_stats_counts().get('misplaced_placed'))
         self.assertFalse(
             sharder.logger.get_stats_counts().get('misplaced_unplaced'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_exists'))
         self.assertFalse(os.path.exists(expected_shard_dbs[0]))
         self.assertFalse(os.path.exists(expected_shard_dbs[1]))
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
@@ -3376,12 +3422,17 @@ class TestSharder(BaseTestSharder):
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[1], 0)
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
-                          'found': 1, 'placed': 2, 'unplaced': 0}
+                          'found': 1, 'placed': 2, 'unplaced': 0,
+                          'db_created': 1, 'db_exists': 0}
         self._assert_stats(expected_stats, sharder, 'misplaced')
         self.assertEqual(
             1, sharder.logger.get_stats_counts()['misplaced_found'])
         self.assertEqual(
             2, sharder.logger.get_stats_counts()['misplaced_placed'])
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts()['misplaced_db_created'])
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_exists'))
 
         # check misplaced objects were moved
         self._check_objects(objects[:2], expected_shard_dbs[1])
@@ -3409,7 +3460,8 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder(conf={'cleave_row_batch_size': 2}) as sharder:
             sharder._move_misplaced_objects(broker)
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
-                          'found': 1, 'placed': 4, 'unplaced': 0}
+                          'found': 1, 'placed': 4, 'unplaced': 0,
+                          'db_created': 3, 'db_exists': 0}
         self._assert_stats(expected_stats, sharder, 'misplaced')
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in expected_shard_dbs[2:4]],
@@ -3420,6 +3472,10 @@ class TestSharder(BaseTestSharder):
             1, sharder.logger.get_stats_counts()['misplaced_found'])
         self.assertEqual(
             4, sharder.logger.get_stats_counts()['misplaced_placed'])
+        self.assertEqual(
+            3, sharder.logger.get_stats_counts()['misplaced_db_created'])
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_exists'))
 
         # check misplaced objects were moved
         self._check_objects(new_objects, expected_shard_dbs[0])
@@ -3436,12 +3492,17 @@ class TestSharder(BaseTestSharder):
             sharder._move_misplaced_objects(broker)
         sharder._replicate_object.assert_not_called()
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
-                          'found': 0, 'placed': 0, 'unplaced': 0}
+                          'found': 0, 'placed': 0, 'unplaced': 0,
+                          'db_created': 0, 'db_exists': 0}
         self._assert_stats(expected_stats, sharder, 'misplaced')
         self.assertFalse(
             sharder.logger.get_stats_counts().get('misplaced_found'))
         self.assertFalse(
             sharder.logger.get_stats_counts().get('misplaced_placed'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_created'))
+        self.assertFalse(
+            sharder.logger.get_stats_counts().get('misplaced_db_exists'))
 
         # and then more misplaced updates arrive
         newer_objects = [
@@ -3462,13 +3523,21 @@ class TestSharder(BaseTestSharder):
              for db in (expected_shard_dbs[0], expected_shard_dbs[-1])],
             any_order=True
         )
+        # shard broker for first shard range was already created but not
+        # removed due to mocked _replicate_object so expect one created and one
+        # existed db stat...
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
-                          'found': 1, 'placed': 3, 'unplaced': 0}
+                          'found': 1, 'placed': 3, 'unplaced': 0,
+                          'db_created': 1, 'db_exists': 1}
         self._assert_stats(expected_stats, sharder, 'misplaced')
         self.assertEqual(
             1, sharder.logger.get_stats_counts()['misplaced_found'])
         self.assertEqual(
             3, sharder.logger.get_stats_counts()['misplaced_placed'])
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts()['misplaced_db_created'])
+        self.assertEqual(
+            1, sharder.logger.get_stats_counts()['misplaced_db_exists'])
 
         # check new misplaced objects were moved
         self._check_objects(newer_objects[:1] + new_objects,

@@ -1104,7 +1104,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         node = self.find_local_handoff_for_part(part)
 
         put_timestamp = Timestamp.now().internal
-        shard_broker = ContainerBroker.create_broker(
+        shard_broker, initialized = ContainerBroker.create_broker(
             os.path.join(self.root, node['device']), part, shard_range.account,
             shard_range.container, epoch=shard_range.epoch,
             storage_policy_index=policy_index, put_timestamp=put_timestamp)
@@ -1124,6 +1124,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             'X-Container-Sysmeta-Sharding':
                 ('True', Timestamp.now().internal)})
 
+        put_timestamp = put_timestamp if initialized else None
         return part, shard_broker, node['id'], put_timestamp
 
     def _audit_root_container(self, broker):
@@ -1466,8 +1467,11 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 continue
 
             if dest_shard_range not in dest_brokers:
-                part, dest_broker, node_id, _junk = self._get_shard_broker(
-                    dest_shard_range, src_broker.root_path, policy_index)
+                part, dest_broker, node_id, put_timestamp = \
+                    self._get_shard_broker(
+                        dest_shard_range, src_broker.root_path, policy_index)
+                stat = 'db_exists' if put_timestamp is None else 'db_created'
+                self._increment_stat('misplaced', stat, statsd=True)
                 # save the broker info that was sampled prior to the *first*
                 # yielded objects for this destination
                 destination = {'part': part,
@@ -1836,6 +1840,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         shard_part, shard_broker, node_id, put_timestamp = \
             self._get_shard_broker(shard_range, broker.root_path,
                                    policy_index)
+        stat = 'db_exists' if put_timestamp is None else 'db_created'
+        self._increment_stat('cleaved', stat, statsd=True)
         return self._cleave_shard_broker(
             broker, cleaving_context, shard_range, own_shard_range,
             shard_broker, put_timestamp, shard_part, node_id)

@@ -191,10 +191,12 @@ class ContainerReplicator(db_replicator.Replicator):
         account = MISPLACED_OBJECTS_ACCOUNT
         part = self.ring.get_part(account, container)
         node = self.find_local_handoff_for_part(part)
-        broker = ContainerBroker.create_broker(
+        broker, initialized = ContainerBroker.create_broker(
             os.path.join(self.root, node['device']), part, account, container,
             logger=self.logger, put_timestamp=timestamp,
             storage_policy_index=0)
+        self.logger.increment('reconciler_db_created' if initialized
+                              else 'reconciler_db_exists')
         if self.reconciler_containers is not None:
             self.reconciler_containers[container] = part, broker, node['id']
         return broker
