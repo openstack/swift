@@ -121,6 +121,22 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
+    name: swift-tox-py310
+    parent: swift-tox-base
+    nodeset: ubuntu-jammy
+    description: |
+      Run unit-tests for swift under cPython version 3.10.
+
+      Uses tox with the ``py310`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py310
+      bindep_profile: test py310
+      python_version: '3.10'
+    post-run: tools/playbooks/common/cover-post.yaml
+
+- job:
     name: swift-tox-func-py27
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -675,6 +691,8 @@
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py39:
             irrelevant-files: *unittest-irrelevant-files
+        - swift-tox-py310:
+            irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests
         - swift-tox-func-py27:
@@ -762,6 +780,7 @@
         - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py39
+        - swift-tox-py310
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
         - swift-tox-func-ec-py27
