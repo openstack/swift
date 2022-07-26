@@ -309,10 +309,12 @@ from six.moves.urllib.parse import urlencode
 
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.digest import get_allowed_digests, \
+    extract_digest_and_algorithm, DEFAULT_ALLOWED_DIGESTS, get_hmac
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
     HTTPBadRequest, wsgi_to_str
 from swift.common.utils import split_path, get_valid_utf8_str, \
-    get_hmac, streq_const_time, quote, get_logger, extract_digest_and_algorithm
+    streq_const_time, quote, get_logger
 from swift.common.registry import register_swift_info, register_sensitive_param
 
 
@@ -339,10 +341,6 @@ DEFAULT_OUTGOING_REMOVE_HEADERS = 'x-object-meta-*'
 #: whitespace delimited list of header names and names can optionally end with
 #: '*' to indicate a prefix match.
 DEFAULT_OUTGOING_ALLOW_HEADERS = 'x-object-meta-public-*'
-
-DEFAULT_ALLOWED_DIGESTS = 'sha1 sha256 sha512'
-DEPRECATED_DIGESTS = {'sha1'}
-SUPPORTED_DIGESTS = set(DEFAULT_ALLOWED_DIGESTS.split()) | DEPRECATED_DIGESTS
 
 CONTAINER_SCOPE = 'container'
 ACCOUNT_SCOPE = 'account'
@@ -841,34 +839,14 @@ def filter_factory(global_conf, **local_conf):
         'incoming_allow_headers': DEFAULT_INCOMING_ALLOW_HEADERS,
         'outgoing_remove_headers': DEFAULT_OUTGOING_REMOVE_HEADERS,
         'outgoing_allow_headers': DEFAULT_OUTGOING_ALLOW_HEADERS,
-        'allowed_digests': DEFAULT_ALLOWED_DIGESTS,
     }
     info_conf = {k: conf.get(k, v).split() for k, v in defaults.items()}
 
-    allowed_digests = set(digest.lower()
-                          for digest in info_conf['allowed_digests'])
-    not_supported = allowed_digests - SUPPORTED_DIGESTS
-    if not_supported:
-        logger.warning('The following digest algorithms are configured but '
-                       'not supported: %s', ', '.join(not_supported))
-        allowed_digests -= not_supported
-
-    deprecated = allowed_digests & DEPRECATED_DIGESTS
-    if deprecated:
-        if not conf.get('allowed_digests'):
-            logger.warning('The following digest algorithms are allowed by '
-                           'default but deprecated: %s. Support will be '
-                           'disabled by default in a future release, and '
-                           'later removed entirely.', ', '.join(deprecated))
-        else:
-            logger.warning('The following digest algorithms are configured '
-                           'but deprecated: %s. Support will be removed in a '
-                           'future release.', ', '.join(deprecated))
-
-    if not allowed_digests:
-        raise ValueError('No valid digest algorithms are configured '
-                         'for tempurls')
+    allowed_digests, deprecated_digests = get_allowed_digests(
+        conf.get('allowed_digests', '').split(), logger)
     info_conf['allowed_digests'] = sorted(allowed_digests)
+    if deprecated_digests:
+        info_conf['deprecated_digests'] = sorted(deprecated_digests)
 
     register_swift_info('tempurl', **info_conf)
     conf.update(info_conf)

@@ -131,11 +131,12 @@ from six.moves.urllib.parse import quote
 
 from swift.common.constraints import valid_api_version
 from swift.common.exceptions import MimeInvalid
-from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata, \
-    SUPPORTED_DIGESTS
+from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
+from swift.common.digest import get_allowed_digests, \
+    extract_digest_and_algorithm, DEFAULT_ALLOWED_DIGESTS
 from swift.common.utils import streq_const_time, parse_content_disposition, \
     parse_mime_headers, iter_multipart_mime_documents, reiterate, \
-    close_if_possible, get_logger, extract_digest_and_algorithm
+    close_if_possible, get_logger
 from swift.common.registry import register_swift_info
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized, wsgi_to_str, str_to_wsgi
@@ -216,7 +217,7 @@ class FormPost(object):
         # deprecate sha1 yet. We'll change this to DEFAULT_ALLOWED_DIGESTS
         # later.
         self.allowed_digests = conf.get(
-            'allowed_digests', SUPPORTED_DIGESTS)
+            'allowed_digests', DEFAULT_ALLOWED_DIGESTS.split())
 
     def __call__(self, env, start_response):
         """
@@ -484,17 +485,11 @@ def filter_factory(global_conf, **local_conf):
     conf.update(local_conf)
 
     logger = get_logger(conf, log_route='formpost')
-    allowed_digests = set(conf.get('allowed_digests', '').split()) or \
-        SUPPORTED_DIGESTS
-    not_supported = allowed_digests - SUPPORTED_DIGESTS
-    if not_supported:
-        logger.warning('The following digest algorithms are configured but '
-                       'not supported: %s', ', '.join(not_supported))
-        allowed_digests -= not_supported
-    if not allowed_digests:
-        raise ValueError('No valid digest algorithms are configured '
-                         'for formpost')
+    allowed_digests, deprecated_digests = get_allowed_digests(
+        conf.get('allowed_digests', '').split(), logger)
     info = {'allowed_digests': sorted(allowed_digests)}
+    if deprecated_digests:
+        info['deprecated_digests'] = sorted(deprecated_digests)
     register_swift_info('formpost', **info)
     conf.update(info)
     return lambda app: FormPost(app, conf)

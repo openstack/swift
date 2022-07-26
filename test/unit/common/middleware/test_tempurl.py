@@ -1625,6 +1625,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(set(info['outgoing_allow_headers']),
                          set(('x-object-meta-public-*',)))
         self.assertEqual(info['allowed_digests'], ['sha1', 'sha256', 'sha512'])
+        self.assertEqual(info['deprecated_digests'], ['sha1'])
 
     def test_non_default_methods(self):
         tempurl.filter_factory({
@@ -1647,6 +1648,24 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(set(info['outgoing_allow_headers']),
                          set(('x-object-meta-*', 'content-type')))
         self.assertEqual(info['allowed_digests'], ['sha1', 'sha512'])
+        self.assertEqual(info['deprecated_digests'], ['sha1'])
+
+    def test_no_deprecated_digests(self):
+        tempurl.filter_factory({'allowed_digests': 'sha256 sha512'})
+        swift_info = registry.get_swift_info()
+        self.assertIn('tempurl', swift_info)
+        info = swift_info['tempurl']
+        self.assertEqual(set(info['methods']),
+                         set(('GET', 'HEAD', 'PUT', 'POST', 'DELETE')))
+        self.assertEqual(set(info['incoming_remove_headers']),
+                         set(('x-timestamp',)))
+        self.assertEqual(set(info['incoming_allow_headers']), set())
+        self.assertEqual(set(info['outgoing_remove_headers']),
+                         set(('x-object-meta-*',)))
+        self.assertEqual(set(info['outgoing_allow_headers']),
+                         set(('x-object-meta-public-*',)))
+        self.assertEqual(info['allowed_digests'], ['sha256', 'sha512'])
+        self.assertNotIn('deprecated_digests', info)
 
     def test_bad_config(self):
         with self.assertRaises(ValueError):

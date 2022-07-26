@@ -39,6 +39,17 @@ Container Sync Realms
     :members:
     :show-inheritance:
 
+
+.. _digest:
+
+Digest
+======
+
+.. automodule:: swift.common.digest
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. _direct_client:
 
 Direct Client
