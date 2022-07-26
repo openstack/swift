@@ -25,7 +25,7 @@ from contextlib import closing
 from gzip import GzipFile
 from tempfile import mkdtemp
 import time
-
+import warnings
 
 from eventlet import spawn, wsgi
 import mock
@@ -215,6 +215,10 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
     logging_prosv = proxy_logging.ProxyLoggingMiddleware(
         listing_formats.ListingFilter(prosrv, {}, logger=prosrv.logger),
         conf, logger=prosrv.logger)
+    # Yes, eventlet, we know -- we have to support bad clients, though
+    warnings.filterwarnings(
+        'ignore', module='eventlet',
+        message='capitalize_response_headers is disabled')
     prospa = spawn(wsgi.server, prolis, logging_prosv, nl,
                    protocol=SwiftHttpProtocol,
                    capitalize_response_headers=False)

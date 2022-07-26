@@ -250,7 +250,7 @@ def validate_hash_conf():
         if six.PY3:
             # Use Latin1 to accept arbitrary bytes in the hash prefix/suffix
             with open(SWIFT_CONF_FILE, encoding='latin1') as swift_conf_file:
-                hash_conf.readfp(swift_conf_file)
+                hash_conf.read_file(swift_conf_file)
         else:
             with open(SWIFT_CONF_FILE) as swift_conf_file:
                 hash_conf.readfp(swift_conf_file)
@@ -1950,7 +1950,7 @@ class StatsdClient(object):
         warnings.warn(
             'set_prefix() is deprecated; use the ``tail_prefix`` argument of '
             'the constructor when instantiating the class instead.',
-            DeprecationWarning
+            DeprecationWarning, stacklevel=2
         )
         self._set_prefix(tail_prefix)
 
@@ -2262,8 +2262,13 @@ class LogAdapter(logging.LoggerAdapter, object):
         in the proxy-server to differentiate the Account, Container, and Object
         controllers.
         """
+        warnings.warn(
+            'set_statsd_prefix() is deprecated; use the '
+            '``statsd_tail_prefix`` argument to ``get_logger`` instead.',
+            DeprecationWarning, stacklevel=2
+        )
         if self.logger.statsd_client:
-            self.logger.statsd_client.set_prefix(prefix)
+            self.logger.statsd_client._set_prefix(prefix)
 
     def statsd_delegate(statsd_func_name):
         """
@@ -3139,7 +3144,10 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
     if hasattr(conf_path, 'readline'):
         if hasattr(conf_path, 'seek'):
             conf_path.seek(0)
-        c.readfp(conf_path)
+        if six.PY2:
+            c.readfp(conf_path)
+        else:
+            c.read_file(conf_path)
     else:
         if os.path.isdir(conf_path):
             # read all configs in directory
@@ -3580,7 +3588,7 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
     """
     warnings.warn(
         'ratelimit_sleep() is deprecated; use the ``EventletRateLimiter`` '
-        'class instead.', DeprecationWarning
+        'class instead.', DeprecationWarning, stacklevel=2
     )
     rate_limit = EventletRateLimiter(max_rate, rate_buffer=rate_buffer,
                                      running_time=running_time)

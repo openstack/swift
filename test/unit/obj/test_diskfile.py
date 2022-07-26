@@ -19,7 +19,6 @@ import six.moves.cPickle as pickle
 import os
 import errno
 import itertools
-from unittest.util import safe_repr
 import mock
 import unittest
 import email
@@ -40,6 +39,7 @@ import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool
 from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
+from test import BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        patch_policies, EMPTY_ETAG, make_timestamp_iter,
@@ -1012,35 +1012,6 @@ class BaseDiskFileTestMixin(object):
         return '.'.join([
             mgr_cls.__module__, mgr_cls.__name__, manager_attribute_name])
 
-    def _assertDictContainsSubset(self, subset, dictionary, msg=None):
-        """Checks whether dictionary is a superset of subset."""
-        # This is almost identical to the method in python3.4 version of
-        # unitest.case.TestCase.assertDictContainsSubset, reproduced here to
-        # avoid the deprecation warning in the original when using python3.
-        missing = []
-        mismatched = []
-        for key, value in subset.items():
-            if key not in dictionary:
-                missing.append(key)
-            elif value != dictionary[key]:
-                mismatched.append('%s, expected: %s, actual: %s' %
-                                  (safe_repr(key), safe_repr(value),
-                                   safe_repr(dictionary[key])))
-
-        if not (missing or mismatched):
-            return
-
-        standardMsg = ''
-        if missing:
-            standardMsg = 'Missing: %s' % ','.join(safe_repr(m) for m in
-                                                   missing)
-        if mismatched:
-            if standardMsg:
-                standardMsg += '; '
-            standardMsg += 'Mismatched values: %s' % ','.join(mismatched)
-
-        self.fail(self._formatMessage(msg, standardMsg))
-
 
 class DiskFileManagerMixin(BaseDiskFileTestMixin):
     """
@@ -2008,7 +1979,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
 
 @patch_policies
-class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
+class TestDiskFileManager(DiskFileManagerMixin, BaseTestCase):
 
     mgr_cls = diskfile.DiskFileManager
 
@@ -2319,7 +2290,7 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
 
 @patch_policies(with_ec_default=True)
-class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
+class TestECDiskFileManager(DiskFileManagerMixin, BaseTestCase):
 
     mgr_cls = diskfile.ECDiskFileManager
 

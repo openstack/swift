@@ -40,7 +40,7 @@ from eventlet.green import httplib
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
-from test import listen_zero
+from test import listen_zero, BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
@@ -134,7 +134,7 @@ class TestTpoolSize(unittest.TestCase):
 
 
 @patch_policies(test_policies)
-class TestObjectController(unittest.TestCase):
+class TestObjectController(BaseTestCase):
     """Test swift.obj.server.ObjectController"""
 
     def setUp(self):
@@ -3996,7 +3996,7 @@ class TestObjectController(unittest.TestCase):
                     'X-Backend-Durable-Timestamp': ts_0.internal,
                     'X-Object-Sysmeta-Ec-Frag-Index': '0',
                     'X-Object-Meta-Test': 'abc'}
-                self.assertDictContainsSubset(expect, resp.headers)
+                self._assertDictContainsSubset(expect, resp.headers)
                 self.assertEqual(backend_frags, json.loads(
                     resp.headers['X-Backend-Fragments']))
 
@@ -4007,7 +4007,7 @@ class TestObjectController(unittest.TestCase):
                     'X-Backend-Timestamp': ts_2.internal,
                     'X-Backend-Data-Timestamp': ts_2.internal,
                     'X-Backend-Durable-Timestamp': ts_2.internal}
-                self.assertDictContainsSubset(expect, resp.headers)
+                self._assertDictContainsSubset(expect, resp.headers)
                 self.assertNotIn('X-Object-Meta-Test', resp.headers)
 
             # Sanity check: Request with no preferences should default to the
@@ -4067,7 +4067,7 @@ class TestObjectController(unittest.TestCase):
                     'X-Backend-Data-Timestamp': ts_2.internal,
                     'X-Backend-Durable-Timestamp': ts_0.internal,
                     'X-Object-Sysmeta-Ec-Frag-Index': '2'}
-                self.assertDictContainsSubset(expect, resp.headers)
+                self._assertDictContainsSubset(expect, resp.headers)
                 self.assertEqual(backend_frags, json.loads(
                     resp.headers['X-Backend-Fragments']))
                 self.assertNotIn('X-Object-Meta-Test', resp.headers)

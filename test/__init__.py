@@ -51,8 +51,9 @@ warnings.filterwarnings('ignore', message=(
     'Therefore, support for it is deprecated in cryptography '
     'and will be removed in a future release.'))
 
+import unittest
+
 if sys.version_info < (3, 2):
-    import unittest
     unittest.TestCase.assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
     unittest.TestCase.assertRegex = unittest.TestCase.assertRegexpMatches
 
@@ -132,3 +133,34 @@ def annotate_failure(msg):
             err_val = '%s Failed with %s' % (msg, err)
             err_typ = AssertionError
         reraise(err_typ, err_val, err_tb)
+
+
+class BaseTestCase(unittest.TestCase):
+    def _assertDictContainsSubset(self, subset, dictionary, msg=None):
+        """Checks whether dictionary is a superset of subset."""
+        # This is almost identical to the method in python3.4 version of
+        # unitest.case.TestCase.assertDictContainsSubset, reproduced here to
+        # avoid the deprecation warning in the original when using python3.
+        missing = []
+        mismatched = []
+        for key, value in subset.items():
+            if key not in dictionary:
+                missing.append(key)
+            elif value != dictionary[key]:
+                mismatched.append('%s, expected: %s, actual: %s' %
+                                  (safe_repr(key), safe_repr(value),
+                                   safe_repr(dictionary[key])))
+
+        if not (missing or mismatched):
+            return
+
+        standardMsg = ''
+        if missing:
+            standardMsg = 'Missing: %s' % ','.join(safe_repr(m) for m in
+                                                   missing)
+        if mismatched:
+            if standardMsg:
+                standardMsg += '; '
+            standardMsg += 'Mismatched values: %s' % ','.join(mismatched)
+
+        self.fail(self._formatMessage(msg, standardMsg))

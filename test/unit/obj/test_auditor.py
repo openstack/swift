@@ -27,6 +27,8 @@ from shutil import rmtree
 from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
+
+from test import BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import (
     DEFAULT_TEST_EC_TYPE, make_timestamp_iter, patch_policies,
@@ -111,7 +113,7 @@ class FakeRing2(object):
         return (1, nodes)
 
 
-class TestAuditorBase(unittest.TestCase):
+class TestAuditorBase(BaseTestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
@@ -1715,23 +1717,23 @@ class TestAuditWatchers(TestAuditorBase):
         # irrelevant; what matters is that it finds all the things.
         calls[2:5] = sorted(calls[2:5], key=lambda item: item[1]['name'])
 
-        self.assertDictContainsSubset({'name': '/a/c/o0',
-                                       'X-Object-Meta-Flavor': 'banana'},
-                                      calls[2][1])
+        self._assertDictContainsSubset({'name': '/a/c/o0',
+                                        'X-Object-Meta-Flavor': 'banana'},
+                                       calls[2][1])
         self.assertIn('node/sda/objects/0/', calls[2][2])  # data_file_path
         self.assertTrue(calls[2][2].endswith('.data'))  # data_file_path
         self.assertEqual({}, calls[2][3])
 
-        self.assertDictContainsSubset({'name': '/a/c/o1',
-                                       'X-Object-Meta-Flavor': 'orange'},
-                                      calls[3][1])
+        self._assertDictContainsSubset({'name': '/a/c/o1',
+                                        'X-Object-Meta-Flavor': 'orange'},
+                                       calls[3][1])
         self.assertIn('node/sda/objects/0/', calls[3][2])  # data_file_path
         self.assertTrue(calls[3][2].endswith('.data'))  # data_file_path
         self.assertEqual({}, calls[3][3])
 
-        self.assertDictContainsSubset({'name': '/a/c_ec/o',
-                                       'X-Object-Meta-Flavor': 'peach'},
-                                      calls[4][1])
+        self._assertDictContainsSubset({'name': '/a/c_ec/o',
+                                        'X-Object-Meta-Flavor': 'peach'},
+                                       calls[4][1])
         self.assertIn('node/sda/objects-2/0/', calls[4][2])  # data_file_path
         self.assertTrue(calls[4][2].endswith('.data'))  # data_file_path
         self.assertEqual({}, calls[4][3])

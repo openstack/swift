@@ -25,6 +25,7 @@ from swift import gettext_ as _
 import sys
 from textwrap import dedent
 import time
+import warnings
 
 import eventlet
 import eventlet.debug
@@ -128,7 +129,10 @@ class ConfigString(NamedConfigLoader):
         self.parser.optionxform = str  # Don't lower-case keys
         # Defaults don't need interpolation (crazy PasteDeploy...)
         self.parser.defaults = lambda: dict(self.parser._defaults, **defaults)
-        self.parser.readfp(self.contents)
+        if six.PY2:
+            self.parser.readfp(self.contents)
+        else:
+            self.parser.read_file(self.contents)
 
     def readline(self, *args, **kwargs):
         return self.contents.readline(*args, **kwargs)
@@ -654,6 +658,9 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
     }
     if ready_callback:
         ready_callback()
+    # Yes, eventlet, we know -- we have to support bad clients, though
+    warnings.filterwarnings(
+        'ignore', message='capitalize_response_headers is disabled')
     try:
         wsgi.server(sock, app, wsgi_logger, **server_kwargs)
     except socket.error as err:

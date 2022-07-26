@@ -72,7 +72,7 @@ GOOD_RESPONSE_V3 = {'token': {
 }}
 
 
-class TestResponse(requests.Response):
+class FakeResponse(requests.Response):
     """Utility class to wrap requests.Response.
 
     Class used to wrap requests.Response and provide some convenience to
@@ -81,7 +81,7 @@ class TestResponse(requests.Response):
 
     def __init__(self, data):
         self._text = None
-        super(TestResponse, self).__init__()
+        super(FakeResponse, self).__init__()
         if isinstance(data, dict):
             self.status_code = data.get('status_code', 200)
             headers = data.get('headers')
@@ -328,7 +328,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'insecure': 'True', 'auth_uri': 'http://example.com'})
 
         text_return_value = json.dumps(GOOD_RESPONSE_V2)
-        MOCK_REQUEST.return_value = TestResponse({
+        MOCK_REQUEST.return_value = FakeResponse({
             'status_code': 201,
             'text': text_return_value})
 
@@ -413,7 +413,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'auth_uri': 'http://example.com',
         })
 
-        MOCK_REQUEST.return_value = TestResponse({
+        MOCK_REQUEST.return_value = FakeResponse({
             'status_code': 201,
             'text': json.dumps(GOOD_RESPONSE_V2)})
 
@@ -536,7 +536,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         fake_cache_response = ({}, {'id': 'tenant_id'}, 'secret')
         cache.get.return_value = fake_cache_response
 
-        MOCK_REQUEST.return_value = TestResponse({
+        MOCK_REQUEST.return_value = FakeResponse({
             'status_code': 201,
             'text': json.dumps(GOOD_RESPONSE_V2)})
 
@@ -578,7 +578,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         keystone_client = MOCK_KEYSTONE.return_value
         keystone_client.ec2.get.return_value = mock.Mock(secret='secret')
 
-        MOCK_REQUEST.return_value = TestResponse({
+        MOCK_REQUEST.return_value = FakeResponse({
             'status_code': 201,
             'text': json.dumps(GOOD_RESPONSE_V2).encode('ascii')})
 
