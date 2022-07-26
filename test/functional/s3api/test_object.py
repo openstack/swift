@@ -789,15 +789,17 @@ class TestS3ApiObject(S3ApiBase):
         elem = fromstring(body, 'ListBucketResult')
         last_modified = elem.find('./Contents/LastModified').text
         listing_datetime = S3Timestamp.from_s3xmlformat(last_modified)
-        headers = \
-            {'If-Unmodified-Since': formatdate(listing_datetime)}
+        # Make sure there's no fractions of a second
+        self.assertEqual(int(listing_datetime), float(listing_datetime))
+        header_datetime = formatdate(int(listing_datetime))
+
+        headers = {'If-Unmodified-Since': header_datetime}
         status, headers, body = \
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
 
-        headers = \
-            {'If-Modified-Since': formatdate(listing_datetime)}
+        headers = {'If-Modified-Since': header_datetime}
         status, headers, body = \
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 304)
