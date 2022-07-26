@@ -1490,6 +1490,7 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Number Not Found'], 0)
         self.assertEqual(resp_data['Errors'],
                          [['/deltest/a_1', 'Not an SLO manifest']])
+        self.assertFalse(self.app.unread_requests)
 
     def test_handle_multipart_delete_bad_json(self):
         req = Request.blank(
