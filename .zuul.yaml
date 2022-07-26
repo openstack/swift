@@ -25,9 +25,6 @@
     vars:
       tox_envlist: py27
       python_version: 2.7
-      tox_environment:
-        NOSE_COVER_HTML: 1
-        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
@@ -52,9 +49,6 @@
       tox_envlist: py36
       bindep_profile: test py36
       python_version: 3.6
-      tox_environment:
-        NOSE_COVER_HTML: 1
-        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
@@ -76,9 +70,6 @@
       tox_envlist: py37
       bindep_profile: test py37
       python_version: 3.7
-      tox_environment:
-        NOSE_COVER_HTML: 1
-        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
@@ -95,9 +86,6 @@
       tox_envlist: py38
       bindep_profile: test py38
       python_version: 3.8
-      tox_environment:
-        NOSE_COVER_HTML: 1
-        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
@@ -130,9 +118,6 @@
       tox_envlist: py39
       bindep_profile: test py39
       python_version: 3.9
-      tox_environment:
-        NOSE_COVER_HTML: 1
-        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:

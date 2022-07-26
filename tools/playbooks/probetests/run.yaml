@@ -21,6 +21,6 @@
       shell:
         cmd: |
           source ~/.bashrc
-          nosetests test/probe/ --with-id || nosetests --failed
+          pytest test/probe/ || pytest --last-failed test/probe/
         executable: /bin/bash
         chdir: '{{ zuul.project.src_dir }}'

@@ -11,7 +11,7 @@ cffi==1.11.5
 chardet==3.0.4
 cliff==2.11.0
 cmd2==0.8.1
-coverage==3.6
+coverage==5.0.4
 cryptography==2.0.2
 debtcollector==1.19.0
 dnspython==1.15.0
@@ -40,9 +40,6 @@ monotonic==1.4
 msgpack==0.5.6
 netaddr==0.7.19
 netifaces==0.8
-nose==1.3.7
-nosehtmloutput==0.0.3
-nosexcover==1.0.10
 oslo.config==4.0.0
 oslo.i18n==3.20.0
 oslo.log==3.22.0
@@ -57,6 +54,8 @@ pykmip==0.7.0
 Pygments==2.2.0
 pyparsing==2.2.0
 pyperclip==1.6.0
+pytest==4.6.11
+pytest-cov==2.12.1
 python-keystoneclient==2.0.0
 python-mimeparse==1.6.0
 python-subunit==1.2.0
