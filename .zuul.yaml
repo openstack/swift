@@ -579,6 +579,7 @@
     description: |
       Functional testing on a FIPS enabled Centos 8 system
     vars:
+      nslookup_target: 'opendev.org'
       enable_fips: true
 
 - job:
@@ -589,6 +590,7 @@
       Functional encryption testing on a FIPS enabled
       Centos 8 system
     vars:
+      nslookup_target: 'opendev.org'
       enable_fips: true
 
 - job:
@@ -598,6 +600,7 @@
     description: |
       Functional EC testing on a FIPS enabled Centos 8 system
     vars:
+      nslookup_target: 'opendev.org'
       enable_fips: true
 
 - project-template:
