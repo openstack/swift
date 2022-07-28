@@ -68,7 +68,7 @@ class BaseTestSharder(unittest.TestCase):
                          [dict(sr) for sr in actual])
 
     def _make_broker(self, account='a', container='c', epoch=None,
-                     device='sda', part=0, hash_=None):
+                     device='sda', part=0, hash_=None, put_timestamp=None):
         hash_ = hash_ or md5(
             container.encode('utf-8'), usedforsecurity=False).hexdigest()
         datadir = os.path.join(
@@ -81,7 +81,7 @@ class BaseTestSharder(unittest.TestCase):
         broker = ContainerBroker(
             db_file, account=account, container=container,
             logger=self.logger)
-        broker.initialize()
+        broker.initialize(put_timestamp=put_timestamp)
         return broker
 
     def _make_old_style_sharding_broker(self, account='a', container='c',
@@ -4784,37 +4784,62 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(broker.logger.get_lines_for_level('error'))
             broker.logger.clear()
 
-    def _check_process_broker_sharding_no_others(self, state):
+    def _check_process_broker_sharding_no_others(self, start_state, deleted):
         # verify that when existing own_shard_range has given state and there
-        # are other shard ranges then the sharding process will begin
-        broker = self._make_broker(hash_='hash%s' % state)
+        # are other shard ranges then the sharding process will complete
+        broker = self._make_broker(hash_='hash%s%s' % (start_state, deleted))
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
                 'index': 0}
         own_sr = broker.get_own_shard_range()
-        self.assertTrue(own_sr.update_state(state))
-        epoch = Timestamp.now()
+        self.assertTrue(own_sr.update_state(start_state))
+        epoch = next(self.ts_iter)
         own_sr.epoch = epoch
         shard_ranges = self._make_shard_ranges((('', 'm'), ('m', '')))
         broker.merge_shard_ranges([own_sr] + shard_ranges)
+        if deleted:
+            broker.delete_db(next(self.ts_iter).internal)
 
         with self._mock_sharder() as sharder:
             with mock.patch.object(
-                    sharder, '_create_shard_containers', return_value=0):
-                with mock_timestamp_now() as now:
+                    sharder, '_send_shard_ranges', return_value=True):
+                with mock_timestamp_now_with_iter(self.ts_iter):
                     sharder._audit_container = mock.MagicMock()
                     sharder._process_broker(broker, node, 99)
-                    final_own_sr = broker.get_own_shard_range(no_default=True)
 
-        self.assertEqual(dict(own_sr, meta_timestamp=now),
-                         dict(final_own_sr))
-        self.assertEqual(SHARDING, broker.get_db_state())
+        final_own_sr = broker.get_own_shard_range(no_default=True)
+        self.assertEqual(SHARDED, broker.get_db_state())
         self.assertEqual(epoch.normal, parse_db_filename(broker.db_file)[1])
         self.assertFalse(broker.logger.get_lines_for_level('warning'))
         self.assertFalse(broker.logger.get_lines_for_level('error'))
+        # self.assertEqual(deleted, broker.is_deleted())
+        return own_sr, final_own_sr
 
     def test_process_broker_sharding_with_own_shard_range_no_others(self):
-        self._check_process_broker_sharding_no_others(ShardRange.SHARDING)
-        self._check_process_broker_sharding_no_others(ShardRange.SHRINKING)
+        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+            ShardRange.SHARDING, False)
+        exp_own_sr = dict(own_sr, state=ShardRange.SHARDED,
+                          meta_timestamp=mock.ANY)
+        self.assertEqual(exp_own_sr, dict(final_own_sr))
+
+        # verify that deleted DBs will be sharded
+        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+            ShardRange.SHARDING, True)
+        exp_own_sr = dict(own_sr, state=ShardRange.SHARDED,
+                          meta_timestamp=mock.ANY)
+        self.assertEqual(exp_own_sr, dict(final_own_sr))
+
+        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+            ShardRange.SHRINKING, False)
+        exp_own_sr = dict(own_sr, state=ShardRange.SHRUNK,
+                          meta_timestamp=mock.ANY)
+        self.assertEqual(exp_own_sr, dict(final_own_sr))
+
+        # verify that deleted DBs will be shrunk
+        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+            ShardRange.SHRINKING, True)
+        exp_own_sr = dict(own_sr, state=ShardRange.SHRUNK,
+                          meta_timestamp=mock.ANY)
+        self.assertEqual(exp_own_sr, dict(final_own_sr))
 
     def test_process_broker_not_sharding_others(self):
         # verify that sharding process will not start when own shard range is
@@ -4906,6 +4931,83 @@ class TestSharder(BaseTestSharder):
         self._check_process_broker_sharding_others(ShardRange.SHARDING)
         self._check_process_broker_sharding_others(ShardRange.SHRINKING)
         self._check_process_broker_sharding_others(ShardRange.SHARDED)
+
+    def test_process_broker_leader_auto_shard(self):
+        # verify conditions for acting as auto-shard leader
+        broker = self._make_broker(put_timestamp=next(self.ts_iter).internal)
+        objects = [
+            ['obj%3d' % i, self.ts_encoded(), i, 'text/plain',
+             'etag%s' % i, 0] for i in range(10)]
+        for obj in objects:
+            broker.put_object(*obj)
+        self.assertEqual(10, broker.get_info()['object_count'])
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+
+        def do_process(conf):
+            with self._mock_sharder(conf) as sharder:
+                with mock_timestamp_now():
+                    # we're not testing rest of the process here so prevent any
+                    # attempt to progress shard range states
+                    sharder._create_shard_containers = lambda *args: 0
+                    sharder._process_broker(broker, node, 99)
+
+        # auto shard disabled
+        conf = {'shard_container_threshold': 10,
+                'rows_per_shard': 5,
+                'shrink_threshold': 1,
+                'auto_shard': False}
+        do_process(conf)
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        own_sr = broker.get_own_shard_range(no_default=True)
+        self.assertIsNone(own_sr)
+
+        # auto shard enabled, not node 0
+        conf['auto_shard'] = True
+        node['index'] = 1
+        do_process(conf)
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        own_sr = broker.get_own_shard_range(no_default=True)
+        self.assertIsNone(own_sr)
+
+        # auto shard enabled, node 0 -> start sharding
+        node['index'] = 0
+        do_process(conf)
+        self.assertEqual(SHARDING, broker.get_db_state())
+        own_sr = broker.get_own_shard_range(no_default=True)
+        self.assertIsNotNone(own_sr)
+        self.assertEqual(ShardRange.SHARDING, own_sr.state)
+        self.assertEqual(own_sr.epoch.normal,
+                         parse_db_filename(broker.db_file)[1])
+        self.assertEqual(2, len(broker.get_shard_ranges()))
+
+    def test_process_broker_leader_auto_shard_deleted_db(self):
+        # verify no auto-shard leader if broker is deleted
+        conf = {'shard_container_threshold': 10,
+                'rows_per_shard': 5,
+                'shrink_threshold': 1,
+                'auto_shard': True}
+        broker = self._make_broker(put_timestamp=next(self.ts_iter).internal)
+        broker.delete_db(next(self.ts_iter).internal)
+        self.assertTrue(broker.is_deleted())  # sanity check
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+
+        with self._mock_sharder(conf) as sharder:
+            with mock_timestamp_now():
+                with mock.patch.object(
+                        sharder, '_find_and_enable_sharding_candidates'
+                ) as mock_find_and_enable:
+                    sharder._process_broker(broker, node, 99)
+
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        own_sr = broker.get_own_shard_range(no_default=True)
+        self.assertIsNone(own_sr)
+        # this is the only concrete assertion that verifies the leader actions
+        # are not taken; no shard ranges would actually be found for an empty
+        # deleted db so there's no other way to differentiate from an undeleted
+        # db being processed...
+        mock_find_and_enable.assert_not_called()
 
     def check_shard_ranges_sent(self, broker, expected_sent):
         bodies = []

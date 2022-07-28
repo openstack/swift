@@ -367,13 +367,17 @@ class BaseTestContainerSharding(ReplProbeTest):
                     self.fail('No shard sysmeta found in %s' % headers)
 
     def assert_container_state(self, node, expected_state, num_shard_ranges,
-                               account=None, container=None, part=None):
+                               account=None, container=None, part=None,
+                               override_deleted=False):
         account = account or self.account
         container = container or self.container_to_shard
         part = part or self.brain.part
+        headers = {'X-Backend-Record-Type': 'shard'}
+        if override_deleted:
+            headers['x-backend-override-deleted'] = True
         headers, shard_ranges = direct_client.direct_get_container(
             node, part, account, container,
-            headers={'X-Backend-Record-Type': 'shard'})
+            headers=headers)
         self.assertEqual(num_shard_ranges, len(shard_ranges))
         self.assertIn('X-Backend-Sharding-State', headers)
         self.assertEqual(
@@ -401,12 +405,17 @@ class BaseTestContainerSharding(ReplProbeTest):
             shard_range.account, shard_range.container)
         return part, [n['id'] + 1 for n in nodes]
 
-    def run_sharders(self, shard_ranges):
+    def run_sharders(self, shard_ranges, exclude_partitions=None):
         """Run the sharder on partitions for given shard ranges."""
         if not isinstance(shard_ranges, (list, tuple, set)):
             shard_ranges = (shard_ranges,)
-        partitions = ','.join(str(self.get_part_and_node_numbers(sr)[0])
-                              for sr in shard_ranges)
+        exclude_partitions = exclude_partitions or []
+        shard_parts = []
+        for sr in shard_ranges:
+            sr_part = self.get_part_and_node_numbers(sr)[0]
+            if sr_part not in exclude_partitions:
+                shard_parts.append(str(sr_part))
+        partitions = ','.join(shard_parts)
         self.sharders.once(additional_args='--partitions=%s' % partitions)
 
     def run_sharder_sequentially(self, shard_range=None):
@@ -3586,3 +3595,187 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         self.assert_container_listing(
             [obj_names[0], new_obj_name] + obj_names[1:])
+
+    def test_manage_shard_ranges_unsharded_deleted_root(self):
+        # verify that a deleted DB will still be sharded
+
+        # choose a node that will not be sharded initially
+        sharded_nodes = []
+        unsharded_node = None
+        for node in self.brain.nodes:
+            if self.brain.node_numbers[node['index']] \
+                    in self.brain.handoff_numbers:
+                unsharded_node = node
+            else:
+                sharded_nodes.append(node)
+
+        # put some objects - not enough to trigger auto-sharding
+        obj_names = self._make_object_names(MIN_SHARD_CONTAINER_THRESHOLD - 1)
+        self.put_objects(obj_names)
+
+        # run replicators first time to get sync points set and commit updates
+        self.replicators.once()
+
+        # setup sharding...
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, sharded_nodes[0]),
+            'find_and_replace', '2', '--enable', '--minimum-shard-size', '1'])
+
+        # Run container-replicator to replicate shard ranges
+        self.container_replicators.once()
+        self.assert_container_state(sharded_nodes[0], 'unsharded', 2)
+        self.assert_container_state(sharded_nodes[1], 'unsharded', 2)
+        self.assert_container_state(unsharded_node, 'unsharded', 2)
+
+        # Run container-sharder to shard the 2 primary replicas that did
+        # receive the object PUTs
+        for num in self.brain.primary_numbers:
+            self.sharders_once(
+                number=num,
+                additional_args='--partitions=%s' % self.brain.part)
+
+        # delete the objects - the proxy's will have cached container info with
+        # out-of-date db_state=unsharded, so updates go to the root DBs
+        self.delete_objects(obj_names)
+        # deal with DELETE's being misplaced in root db's...
+        for num in self.brain.primary_numbers:
+            self.sharders_once(
+                number=num,
+                additional_args='--partitions=%s' % self.brain.part)
+
+        self.assert_container_state(sharded_nodes[0], 'sharded', 2)
+        self.assert_container_state(sharded_nodes[1], 'sharded', 2)
+        shard_ranges = self.assert_container_state(
+            unsharded_node, 'unsharded', 2)
+
+        # get root stats updated - but avoid sharding the remaining root DB
+        self.run_sharders(shard_ranges, exclude_partitions=[self.brain.part])
+        self.assert_container_listing([])
+
+        # delete the empty container
+        client.delete_container(self.url, self.admin_token,
+                                self.container_name)
+
+        # sanity check - unsharded DB is deleted
+        broker = self.get_broker(self.brain.part, unsharded_node,
+                                 self.account, self.container_name)
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        self.assertTrue(broker.is_deleted())
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_shard_usage()['object_count'])
+
+        # now shard the final DB
+        for num in self.brain.handoff_numbers:
+            self.sharders_once(
+                number=num,
+                additional_args='--partitions=%s' % self.brain.part)
+
+        # all DBs should now be sharded and still deleted
+        for node in self.brain.nodes:
+            with annotate_failure(
+                    'node %s in %s'
+                    % (node['index'], [n['index'] for n in self.brain.nodes])):
+                self.assert_container_state(node, 'sharded', 2,
+                                            override_deleted=True)
+                broker = self.get_broker(self.brain.part, node,
+                                         self.account, self.container_name)
+                self.assertEqual(SHARDED, broker.get_db_state())
+                self.assertEqual(0, broker.get_info()['object_count'])
+                self.assertEqual(0,
+                                 broker.get_shard_usage()['object_count'])
+                self.assertTrue(broker.is_deleted())
+
+    def test_manage_shard_ranges_unsharded_deleted_root_gets_undeleted(self):
+        # verify that an apparently deleted DB (no object rows in root db) will
+        # still be sharded and also become undeleted when objects are
+        # discovered in the shards
+
+        # choose a node that will not be sharded initially
+        sharded_nodes = []
+        unsharded_node = None
+        for node in self.brain.nodes:
+            if self.brain.node_numbers[node['index']] \
+                    in self.brain.handoff_numbers:
+                unsharded_node = node
+            else:
+                sharded_nodes.append(node)
+
+        # put some objects, but only to 2 replicas - not enough to trigger
+        # auto-sharding
+        self.brain.stop_handoff_half()
+
+        obj_names = self._make_object_names(MIN_SHARD_CONTAINER_THRESHOLD - 1)
+        self.put_objects(obj_names)
+        # run replicators first time to get sync points set and commit puts
+        self.replicators.once()
+
+        # setup sharding...
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, sharded_nodes[0]),
+            'find_and_replace', '2', '--enable', '--minimum-shard-size', '1'])
+
+        # Run container-replicator to replicate shard ranges - object rows will
+        # not be sync'd now there are shard ranges
+        for num in self.brain.primary_numbers:
+            self.container_replicators.once(number=num)
+        self.assert_container_state(sharded_nodes[0], 'unsharded', 2)
+        self.assert_container_state(sharded_nodes[1], 'unsharded', 2)
+
+        # revive the stopped node
+        self.brain.start_handoff_half()
+        self.assert_container_state(unsharded_node, 'unsharded', 0)
+
+        # delete the empty replica
+        direct_client.direct_delete_container(
+            unsharded_node, self.brain.part, self.account,
+            self.container_name)
+
+        # Run container-sharder to shard the 2 primary replicas that did
+        # receive the object PUTs
+        for num in self.brain.primary_numbers:
+            self.sharders_once(
+                number=num,
+                additional_args='--partitions=%s' % self.brain.part)
+
+        self.assert_container_state(sharded_nodes[0], 'sharded', 2)
+        self.assert_container_state(sharded_nodes[1], 'sharded', 2)
+        # the sharder syncs shard ranges ...
+        self.assert_container_state(unsharded_node, 'unsharded', 2,
+                                    override_deleted=True)
+
+        # sanity check - unsharded DB is empty and deleted
+        broker = self.get_broker(self.brain.part, unsharded_node,
+                                 self.account, self.container_name)
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        self.assertEqual(0, broker.get_info()['object_count'])
+        # the shard ranges do have object count but are in CREATED state so
+        # not reported in shard usage...
+        self.assertEqual(0, broker.get_shard_usage()['object_count'])
+        self.assertTrue(broker.is_deleted())
+
+        # now shard the final DB
+        for num in self.brain.handoff_numbers:
+            self.sharders_once(
+                number=num,
+                additional_args='--partitions=%s' % self.brain.part)
+        shard_ranges = self.assert_container_state(
+            unsharded_node, 'sharded', 2, override_deleted=True)
+
+        # and get roots updated and sync'd
+        self.container_replicators.once()
+        self.run_sharders(shard_ranges, exclude_partitions=[self.brain.part])
+
+        # all DBs should now be sharded and NOT deleted
+        for node in self.brain.nodes:
+            with annotate_failure(
+                    'node %s in %s'
+                    % (node['index'], [n['index'] for n in self.brain.nodes])):
+                broker = self.get_broker(self.brain.part, node,
+                                         self.account, self.container_name)
+                self.assertEqual(SHARDED, broker.get_db_state())
+                self.assertEqual(3, broker.get_info()['object_count'])
+                self.assertEqual(3,
+                                 broker.get_shard_usage()['object_count'])
+                self.assertFalse(broker.is_deleted())
