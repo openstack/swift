@@ -241,6 +241,12 @@ class Replicator(Daemon):
         self.handoffs_only = config_true_value(conf.get('handoffs_only', 'no'))
         self.handoff_delete = config_auto_int_value(
             conf.get('handoff_delete', 'auto'), 0)
+        if self.handoff_delete >= self.ring.replica_count:
+            self.logger.warning(
+                'handoff_delete=%d is too high to have an effect on a ring '
+                'with replica count %d. Disabling.',
+                self.handoff_delete, self.ring.replica_count)
+            self.handoff_delete = 0
 
     def _zero_stats(self):
         """Zero out the stats."""
