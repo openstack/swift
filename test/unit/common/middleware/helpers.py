@@ -96,6 +96,10 @@ class FakeSwift(object):
         self.auto_create_account_prefix = '.'
         self.backend_user_agent = "fake_swift"
         self._pipeline_final_app = self
+        # some tests want to opt in to mimicking the
+        # X-Backend-Ignore-Range-If-Metadata-Present header behavior,
+        # but default to old-swift behavior
+        self.can_ignore_range = False
 
     def _find_response(self, method, path):
         path = normalize_path(path)
@@ -110,6 +114,9 @@ class FakeSwift(object):
         return resp
 
     def __call__(self, env, start_response):
+        if self.can_ignore_range:
+            # we might pop off the Range header
+            env = dict(env)
         method = env['REQUEST_METHOD']
         if method not in self.ALLOWED_METHODS:
             raise HTTPNotImplemented()
@@ -150,6 +157,12 @@ class FakeSwift(object):
             else:
                 raise KeyError("Didn't find %r in allowed responses" % (
                     (method, path),))
+
+        ignore_range_meta = req.headers.get(
+            'x-backend-ignore-range-if-metadata-present')
+        if self.can_ignore_range and ignore_range_meta and set(
+                ignore_range_meta.split(',')).intersection(headers.keys()):
+            req.headers.pop('range', None)
 
         req_body = None  # generally, we don't care and let eventlet discard()
         if (cont and not obj and method == 'UPDATE') or (
