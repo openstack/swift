@@ -109,6 +109,7 @@ def _get_upload_info(req, app, upload_id):
     try:
         return req.get_response(app, 'HEAD', container=container, obj=obj)
     except NoSuchKey:
+        upload_marker_path = req.environ.get('s3api.backend_path')
         try:
             resp = req.get_response(app, 'HEAD')
             if resp.sysmeta_headers.get(sysmeta_header(
@@ -116,6 +117,11 @@ def _get_upload_info(req, app, upload_id):
                 return resp
         except NoSuchKey:
             pass
+        finally:
+            # Ops often find it more useful for us to log the upload marker
+            # path, so put it back
+            if upload_marker_path is not None:
+                req.environ['s3api.backend_path'] = upload_marker_path
         raise NoSuchUpload(upload_id=upload_id)
     finally:
         # ...making sure to restore any copy-source before returning
