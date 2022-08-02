@@ -22,39 +22,45 @@ to understand and adding a bunch of new devices isn't really required
 to implement a usable set of policies.
 
 1. To define your policies, add the following to your ``/etc/swift/swift.conf``
-   file::
+   file:
 
-        [storage-policy:0]
-        name = gold
-        aliases = yellow, orange
-        default = yes
+   .. code:: ini
 
-        [storage-policy:1]
-        name = silver
+      [storage-policy:0]
+      name = gold
+      aliases = yellow, orange
+      default = yes
 
-  See :doc:`overview_policies` for detailed information on ``swift.conf`` policy
-  options.
+      [storage-policy:1]
+      name = silver
+
+   See :doc:`overview_policies` for detailed information on ``swift.conf`` policy
+   options.
 
 2. To create the object ring for the silver policy (index 1), add the following
    to your ``bin/remakerings`` script and re-run it (your script may already have
-   these changes)::
+   these changes):
 
-        swift-ring-builder object-1.builder create 10 2 1
-        swift-ring-builder object-1.builder add r1z1-127.0.0.1:6210/sdb1 1
-        swift-ring-builder object-1.builder add r1z2-127.0.0.1:6220/sdb2 1
-        swift-ring-builder object-1.builder add r1z3-127.0.0.1:6230/sdb3 1
-        swift-ring-builder object-1.builder add r1z4-127.0.0.1:6240/sdb4 1
-        swift-ring-builder object-1.builder rebalance
+   .. code:: shell
 
-  Note that the reduced replication of the silver policy is only a function
-  of the replication parameter in the ``swift-ring-builder create`` command
-  and is not specified  in ``/etc/swift/swift.conf``.
+      swift-ring-builder object-1.builder create 10 2 1
+      swift-ring-builder object-1.builder add r1z1-127.0.0.1:6210/sdb1 1
+      swift-ring-builder object-1.builder add r1z2-127.0.0.1:6220/sdb2 1
+      swift-ring-builder object-1.builder add r1z3-127.0.0.1:6230/sdb3 1
+      swift-ring-builder object-1.builder add r1z4-127.0.0.1:6240/sdb4 1
+      swift-ring-builder object-1.builder rebalance
+
+   Note that the reduced replication of the silver policy is only a function
+   of the replication parameter in the ``swift-ring-builder create`` command
+   and is not specified  in ``/etc/swift/swift.conf``.
 
 3. Copy ``etc/container-reconciler.conf-sample`` to
-   ``/etc/swift/container-reconciler.conf`` and fix the user option::
+   ``/etc/swift/container-reconciler.conf`` and fix the user option:
 
-        cp etc/container-reconciler.conf-sample /etc/swift/container-reconciler.conf
-        sed -i "s/# user.*/user = $USER/g" /etc/swift/container-reconciler.conf
+   .. code:: shell
+
+      cp etc/container-reconciler.conf-sample /etc/swift/container-reconciler.conf
+      sed -i "s/# user.*/user = $USER/g" /etc/swift/container-reconciler.conf
 
 ------------------
 Using Policies
@@ -68,82 +74,104 @@ Storage Policies effect placement of data in Swift.
 1. We will be using the list_endpoints middleware to confirm object locations,
    so enable that now in your ``proxy-server.conf`` file by adding it to the pipeline
    and including the filter section as shown below (be sure to restart your proxy
-   after making these changes)::
+   after making these changes):
 
-        pipeline = catch_errors gatekeeper healthcheck proxy-logging cache bulk \
-          slo dlo ratelimit crossdomain list-endpoints tempurl tempauth staticweb \
-          container-quotas account-quotas proxy-logging proxy-server
+   .. code:: ini
 
-        [filter:list-endpoints]
-        use = egg:swift#list_endpoints
+      pipeline = catch_errors gatekeeper healthcheck proxy-logging cache bulk \
+        slo dlo ratelimit crossdomain list-endpoints tempurl tempauth staticweb \
+        container-quotas account-quotas proxy-logging proxy-server
 
-2. Check to see that your policies are reported via /info::
+      [filter:list-endpoints]
+      use = egg:swift#list_endpoints
 
-        swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing info
+2. Check to see that your policies are reported via /info:
 
-  You should see this: (only showing the policy output here)::
+   .. code:: shell
 
-        policies: [{'aliases': 'gold, yellow, orange', 'default': True,
-            'name': 'gold'}, {'aliases': 'silver', 'name': 'silver'}]
+      swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing info
+
+   You should see this: (only showing the policy output here):
+
+   .. code:: none
+
+      policies: [{'aliases': 'gold, yellow, orange', 'default': True,
+          'name': 'gold'}, {'aliases': 'silver', 'name': 'silver'}]
 
 3. Now create a container without specifying a policy, it will use the
    default, 'gold' and then put a test object in it (create the file ``file0.txt``
-   with your favorite editor with some content)::
+   with your favorite editor with some content):
 
-        curl -v -X PUT -H 'X-Auth-Token: <your auth token>' \
-            http://127.0.0.1:8080/v1/AUTH_test/myCont0
-        curl -X PUT -v -T file0.txt -H 'X-Auth-Token: <your auth token>' \
-            http://127.0.0.1:8080/v1/AUTH_test/myCont0/file0.txt
+   .. code:: shell
 
-4. Now confirm placement of the object with the :ref:`list_endpoints` middleware::
+      curl -v -X PUT -H 'X-Auth-Token: <your auth token>' \
+          http://127.0.0.1:8080/v1/AUTH_test/myCont0
+      curl -X PUT -v -T file0.txt -H 'X-Auth-Token: <your auth token>' \
+          http://127.0.0.1:8080/v1/AUTH_test/myCont0/file0.txt
 
-        curl -X GET -v http://127.0.0.1:8080/endpoints/AUTH_test/myCont0/file0.txt
+4. Now confirm placement of the object with the :ref:`list_endpoints` middleware:
 
-  You should see this: (note placement on expected devices)::
+   .. code:: shell
 
-        ["http://127.0.0.1:6230/sdb3/761/AUTH_test/myCont0/file0.txt",
-        "http://127.0.0.1:6210/sdb1/761/AUTH_test/myCont0/file0.txt",
-        "http://127.0.0.1:6220/sdb2/761/AUTH_test/myCont0/file0.txt"]
+      curl -X GET -v http://127.0.0.1:8080/endpoints/AUTH_test/myCont0/file0.txt
 
-5. Create a container using policy 'silver' and put a different file in it::
+   You should see this: (note placement on expected devices):
 
-        curl -v -X PUT -H 'X-Auth-Token: <your auth token>' -H \
-            "X-Storage-Policy: silver" \
-            http://127.0.0.1:8080/v1/AUTH_test/myCont1
-        curl -X PUT -v -T file1.txt -H 'X-Auth-Token: <your auth token>' \
-            http://127.0.0.1:8080/v1/AUTH_test/myCont1/
+   .. code:: json
 
-6. Confirm placement of the object for policy 'silver'::
+      ["http://127.0.0.1:6230/sdb3/761/AUTH_test/myCont0/file0.txt",
+       "http://127.0.0.1:6210/sdb1/761/AUTH_test/myCont0/file0.txt",
+       "http://127.0.0.1:6220/sdb2/761/AUTH_test/myCont0/file0.txt"]
 
-         curl -X GET -v http://127.0.0.1:8080/endpoints/AUTH_test/myCont1/file1.txt
+5. Create a container using policy 'silver' and put a different file in it:
 
-  You should see this: (note placement on expected devices)::
+   .. code:: shell
 
-        ["http://127.0.0.1:6210/sdb1/32/AUTH_test/myCont1/file1.txt",
-         "http://127.0.0.1:6240/sdb4/32/AUTH_test/myCont1/file1.txt"]
+      curl -v -X PUT -H 'X-Auth-Token: <your auth token>' -H \
+          "X-Storage-Policy: silver" \
+          http://127.0.0.1:8080/v1/AUTH_test/myCont1
+      curl -X PUT -v -T file1.txt -H 'X-Auth-Token: <your auth token>' \
+          http://127.0.0.1:8080/v1/AUTH_test/myCont1/
+
+6. Confirm placement of the object for policy 'silver':
+
+   .. code:: shell
+
+      curl -X GET -v http://127.0.0.1:8080/endpoints/AUTH_test/myCont1/file1.txt
+
+   You should see this: (note placement on expected devices):
+
+   .. code:: json
+
+      ["http://127.0.0.1:6210/sdb1/32/AUTH_test/myCont1/file1.txt",
+       "http://127.0.0.1:6240/sdb4/32/AUTH_test/myCont1/file1.txt"]
 
 7. Confirm account information with HEAD, make sure that your container-updater
    service is running and has executed once since you performed the PUTs or the
-   account database won't be updated yet::
+   account database won't be updated yet:
 
-        curl -i -X HEAD -H 'X-Auth-Token: <your auth token>' \
-            http://127.0.0.1:8080/v1/AUTH_test
+   .. code:: shell
 
-  You should see something like this (note that total and per policy stats
-  object sizes will vary)::
+      curl -i -X HEAD -H 'X-Auth-Token: <your auth token>' \
+          http://127.0.0.1:8080/v1/AUTH_test
 
-        HTTP/1.1 204 No Content
-        Content-Length: 0
-        X-Account-Object-Count: 2
-        X-Account-Bytes-Used: 174
-        X-Account-Container-Count: 2
-        X-Account-Storage-Policy-Gold-Object-Count: 1
-        X-Account-Storage-Policy-Gold-Bytes-Used: 84
-        X-Account-Storage-Policy-Silver-Object-Count: 1
-        X-Account-Storage-Policy-Silver-Bytes-Used: 90
-        X-Timestamp: 1397230339.71525
-        Content-Type: text/plain; charset=utf-8
-        Accept-Ranges: bytes
-        X-Trans-Id: tx96e7496b19bb44abb55a3-0053482c75
-        X-Openstack-Request-Id: tx96e7496b19bb44abb55a3-0053482c75
-        Date: Fri, 11 Apr 2014 17:55:01 GMT
+   You should see something like this (note that total and per policy stats
+   object sizes will vary):
+
+   .. code:: none
+
+      HTTP/1.1 204 No Content
+      Content-Length: 0
+      X-Account-Object-Count: 2
+      X-Account-Bytes-Used: 174
+      X-Account-Container-Count: 2
+      X-Account-Storage-Policy-Gold-Object-Count: 1
+      X-Account-Storage-Policy-Gold-Bytes-Used: 84
+      X-Account-Storage-Policy-Silver-Object-Count: 1
+      X-Account-Storage-Policy-Silver-Bytes-Used: 90
+      X-Timestamp: 1397230339.71525
+      Content-Type: text/plain; charset=utf-8
+      Accept-Ranges: bytes
+      X-Trans-Id: tx96e7496b19bb44abb55a3-0053482c75
+      X-Openstack-Request-Id: tx96e7496b19bb44abb55a3-0053482c75
+      Date: Fri, 11 Apr 2014 17:55:01 GMT

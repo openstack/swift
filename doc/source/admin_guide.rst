@@ -324,14 +324,14 @@ In order to prevent rsync replication to specific drives, firstly
 setup ``rsync_module`` per disk in your ``object-replicator``.
 Set this in ``object-server.conf``:
 
-.. code::
+.. code:: cfg
 
     [object-replicator]
     rsync_module = {replication_ip}::object_{device}
 
 Set the individual drives in ``rsync.conf``. For example:
 
-.. code::
+.. code:: cfg
 
     [object_sda]
     max connections = 4
@@ -387,7 +387,7 @@ monitoring solution to achieve this. The following is an example script:
 For the above script to work, ensure ``/etc/rsync.d/`` conf files are
 included, by specifying ``&include`` in your ``rsync.conf`` file:
 
-.. code::
+.. code:: cfg
 
     &include /etc/rsync.d
 
@@ -395,7 +395,7 @@ Use this in conjunction with a cron job to periodically run the script, for exam
 
 .. highlight:: none
 
-.. code::
+.. code:: cfg
 
     # /etc/cron.d/devicecheck
     * * * * * root /some/path/to/disable_rsync.py

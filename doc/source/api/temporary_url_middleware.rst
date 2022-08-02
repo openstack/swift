@@ -21,11 +21,10 @@ a common prefix. They are useful for sharing a set of objects.
 Ask your cloud administrator to enable the temporary URL feature. For
 information, see :ref:`tempurl` in the *Source Documentation*.
 
-Note
-~~~~
+.. note::
 
-To use **POST** requests to upload objects to specific Object Storage
-locations, use :doc:`form_post_middleware` instead of temporary URL middleware.
+   To use **POST** requests to upload objects to specific Object Storage
+   locations, use :doc:`form_post_middleware` instead of temporary URL middleware.
 
 Temporary URL format
 ~~~~~~~~~~~~~~~~~~~~
@@ -35,12 +34,12 @@ parameters:
 
 **Example Temporary URL format**
 
-.. code::
+.. code:: none
 
-    https://swift-cluster.example.com/v1/my_account/container/object
-    ?temp_url_sig=732fcac368abb10c78a4cbe95c3fab7f311584532bf779abd5074e13cbe8b88b
-    &temp_url_expires=1323479485
-    &filename=My+Test+File.pdf
+   https://swift-cluster.example.com/v1/my_account/container/object
+   ?temp_url_sig=732fcac368abb10c78a4cbe95c3fab7f311584532bf779abd5074e13cbe8b88b
+   &temp_url_expires=1323479485
+   &filename=My+Test+File.pdf
 
 The example shows these elements:
 
@@ -71,12 +70,12 @@ A prefix-based temporary URL is similar but requires the parameter
 ``temp_url_prefix``, which must be equal to the common prefix shared
 by all object names for which the URL is valid.
 
-.. code::
+.. code:: none
 
-    https://swift-cluster.example.com/v1/my_account/container/my_prefix/object
-    ?temp_url_sig=732fcac368abb10c78a4cbe95c3fab7f311584532bf779abd5074e13cbe8b88b
-    &temp_url_expires=2011-12-10T01:11:25Z
-    &temp_url_prefix=my_prefix
+   https://swift-cluster.example.com/v1/my_account/container/my_prefix/object
+   ?temp_url_sig=732fcac368abb10c78a4cbe95c3fab7f311584532bf779abd5074e13cbe8b88b
+   &temp_url_expires=2011-12-10T01:11:25Z
+   &temp_url_prefix=my_prefix
 
 .. _secret_keys:
 
@@ -109,15 +108,14 @@ The arbitrary values serve as the secret keys.
 For example, use the **swift post** command to set the secret key to
 *``MYKEY``*:
 
-.. code::
+.. code:: console
 
-    $ swift post -m "Temp-URL-Key:MYKEY"
+   $ swift post -m "Temp-URL-Key:MYKEY"
 
-Note
-~~~~
+.. note::
 
-Changing these headers invalidates any previously generated temporary
-URLs within 60 seconds, which is the memcache time for the key.
+   Changing these headers invalidates any previously generated temporary
+   URLs within 60 seconds, which is the memcache time for the key.
 
 HMAC signature for temporary URLs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -145,33 +143,33 @@ temporary URLs:
 
 **Example HMAC-SHA256 signature for object-based temporary URLs**
 
-.. code::
+.. code:: python
 
-    import hmac
-    from hashlib import sha256
-    from time import time
-    method = 'GET'
-    duration_in_seconds = 60*60*24
-    expires = int(time() + duration_in_seconds)
-    path = '/v1/my_account/container/object'
-    key = 'MYKEY'
-    hmac_body = '%s\n%s\n%s' % (method, expires, path)
-    signature = hmac.new(key, hmac_body, sha256).hexdigest()
+   import hmac
+   from hashlib import sha256
+   from time import time
+   method = 'GET'
+   duration_in_seconds = 60*60*24
+   expires = int(time() + duration_in_seconds)
+   path = '/v1/my_account/container/object'
+   key = 'MYKEY'
+   hmac_body = '%s\n%s\n%s' % (method, expires, path)
+   signature = hmac.new(key, hmac_body, sha256).hexdigest()
 
 **Example HMAC-SHA512 signature for prefix-based temporary URLs**
 
-.. code::
+.. code:: python
 
-    import hmac
-    from hashlib import sha512
-    from time import time
-    method = 'GET'
-    duration_in_seconds = 60*60*24
-    expires = int(time() + duration_in_seconds)
-    path = 'prefix:/v1/my_account/container/my_prefix'
-    key = 'MYKEY'
-    hmac_body = '%s\n%s\n%s' % (method, expires, path)
-    signature = hmac.new(key, hmac_body, sha512).hexdigest()
+   import hmac
+   from hashlib import sha512
+   from time import time
+   method = 'GET'
+   duration_in_seconds = 60*60*24
+   expires = int(time() + duration_in_seconds)
+   path = 'prefix:/v1/my_account/container/my_prefix'
+   key = 'MYKEY'
+   hmac_body = '%s\n%s\n%s' % (method, expires, path)
+   signature = hmac.new(key, hmac_body, sha512).hexdigest()
 
 Do not URL-encode the path when you generate the HMAC signature.
 However, when you make the actual HTTP request, you should properly
@@ -186,10 +184,10 @@ Authentication <http://www.ietf.org/rfc/rfc2104.txt>`__.
 If you want to transform a UNIX timestamp into an ISO 8601 UTC timestamp,
 you can use following code snippet:
 
-.. code::
+.. code:: python
 
-    import time
-    time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(timestamp))
+   import time
+   time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(timestamp))
 
 Using the ``swift`` tool to generate a Temporary URL
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -198,32 +196,32 @@ The ``swift`` tool provides the  tempurl_ option that
 auto-generates the *``temp_url_sig``* and *``temp_url_expires``* query
 parameters. For example, you might run this command:
 
-.. code::
+.. code:: console
 
-    $ swift tempurl GET 3600 /v1/my_account/container/object MYKEY
+   $ swift tempurl GET 3600 /v1/my_account/container/object MYKEY
 
 .. note::
 
-    The ``swift`` tool is not yet updated and continues to use the
-    deprecated cipher SHA1.
+   The ``swift`` tool is not yet updated and continues to use the
+   deprecated cipher SHA1.
 
 This command returns the path:
 
-.. code::
+.. code:: none
 
-    /v1/my_account/container/object
-    ?temp_url_sig=5c4cc8886f36a9d0919d708ade98bf0cc71c9e91
-    &temp_url_expires=1374497657
+   /v1/my_account/container/object
+   ?temp_url_sig=5c4cc8886f36a9d0919d708ade98bf0cc71c9e91
+   &temp_url_expires=1374497657
 
 To create the temporary URL, prefix this path with the Object Storage
 storage host name. For example, prefix the path with
 ``https://swift-cluster.example.com``, as follows:
 
-.. code::
+.. code:: none
 
-    https://swift-cluster.example.com/v1/my_account/container/object
-    ?temp_url_sig=5c4cc8886f36a9d0919d708ade98bf0cc71c9e91
-    &temp_url_expires=1374497657
+   https://swift-cluster.example.com/v1/my_account/container/object
+   ?temp_url_sig=5c4cc8886f36a9d0919d708ade98bf0cc71c9e91
+   &temp_url_expires=1374497657
 
 Note that if the above example is copied exactly, and used in a command
 shell, then the ampersand is interpreted as an operator and the URL

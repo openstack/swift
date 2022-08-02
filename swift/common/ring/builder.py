@@ -178,7 +178,7 @@ class RingBuilder(object):
     @contextmanager
     def debug(self):
         """
-        Temporarily enables debug logging, useful in tests, e.g.
+        Temporarily enables debug logging, useful in tests, e.g.::
 
             with rb.debug():
                 rb.rebalance()

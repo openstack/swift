@@ -92,7 +92,7 @@ class BaseDecrypterContext(CryptoWSGIContext):
         the value itself, otherwise return the value unmodified.
 
         A value should either be a string that does not contain the ';'
-        character or should be of the form:
+        character or should be of the form::
 
             <base64-encoded ciphertext>;swift_meta=<crypto meta>
 

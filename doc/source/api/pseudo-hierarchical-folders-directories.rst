@@ -34,14 +34,14 @@ the requested list of the objects.
 
 .. code-block:: console
 
-    photos/animals/cats/persian.jpg
-    photos/animals/cats/siamese.jpg
-    photos/animals/dogs/corgi.jpg
-    photos/animals/dogs/poodle.jpg
-    photos/animals/dogs/terrier.jpg
-    photos/me.jpg
-    photos/plants/fern.jpg
-    photos/plants/rose.jpg
+   photos/animals/cats/persian.jpg
+   photos/animals/cats/siamese.jpg
+   photos/animals/dogs/corgi.jpg
+   photos/animals/dogs/poodle.jpg
+   photos/animals/dogs/terrier.jpg
+   photos/me.jpg
+   photos/plants/fern.jpg
+   photos/plants/rose.jpg
 
 Use the delimiter parameter to limit the displayed results. To use
 ``delimiter`` with pseudo-directories, you must use the parameter slash
@@ -63,20 +63,20 @@ For example:
 
 .. code-block:: JSON
 
-    [
-      {
-        "subdir": "photos/"
-      }
-    ]
+   [
+     {
+       "subdir": "photos/"
+     }
+   ]
 
 .. code-block:: XML
 
-    <?xml version="1.0" encoding="UTF-8"?>
-    <container name="backups">
-      <subdir name="photos/">
-        <name>photos/</name>
-      </subdir>
-    </container>
+   <?xml version="1.0" encoding="UTF-8"?>
+   <container name="backups">
+     <subdir name="photos/">
+       <name>photos/</name>
+     </subdir>
+   </container>
 
 Use the ``prefix`` and ``delimiter`` parameters to view the objects
 inside a pseudo-directory, including further nested pseudo-directories.
@@ -92,46 +92,46 @@ pseudo-directory.
 
 .. code-block:: console
 
-    photos/animals/
-    photos/me.jpg
-    photos/plants/
+   photos/animals/
+   photos/me.jpg
+   photos/plants/
 
 .. code-block:: JSON
 
-    [
-      {
-        "subdir": "photos/animals/"
-      },
-      {
-        "hash": "b249a153f8f38b51e92916bbc6ea57ad",
-        "last_modified": "2015-12-03T17:31:28.187370",
-        "bytes": 2906,
-        "name": "photos/me.jpg",
-        "content_type": "image/jpeg"
-      },
-      {
-        "subdir": "photos/plants/"
-      }
-    ]
+   [
+     {
+       "subdir": "photos/animals/"
+     },
+     {
+       "hash": "b249a153f8f38b51e92916bbc6ea57ad",
+       "last_modified": "2015-12-03T17:31:28.187370",
+       "bytes": 2906,
+       "name": "photos/me.jpg",
+       "content_type": "image/jpeg"
+     },
+     {
+       "subdir": "photos/plants/"
+     }
+   ]
 
 .. code-block:: XML
 
-    <?xml version="1.0" encoding="UTF-8"?>
-    <container name="backups">
-      <subdir name="photos/animals/">
-        <name>photos/animals/</name>
-      </subdir>
-      <object>
-        <name>photos/me.jpg</name>
-        <hash>b249a153f8f38b51e92916bbc6ea57ad</hash>
-        <bytes>2906</bytes>
-        <content_type>image/jpeg</content_type>
-        <last_modified>2015-12-03T17:31:28.187370</last_modified>
-      </object>
-      <subdir name="photos/plants/">
-        <name>photos/plants/</name>
-      </subdir>
-    </container>
+   <?xml version="1.0" encoding="UTF-8"?>
+   <container name="backups">
+     <subdir name="photos/animals/">
+       <name>photos/animals/</name>
+     </subdir>
+     <object>
+       <name>photos/me.jpg</name>
+       <hash>b249a153f8f38b51e92916bbc6ea57ad</hash>
+       <bytes>2906</bytes>
+       <content_type>image/jpeg</content_type>
+       <last_modified>2015-12-03T17:31:28.187370</last_modified>
+     </object>
+     <subdir name="photos/plants/">
+       <name>photos/plants/</name>
+     </subdir>
+   </container>
 
 You can create an unlimited number of nested pseudo-directories. To
 navigate through them, use a longer ``prefix`` parameter coupled with
@@ -150,6 +150,6 @@ the objects and pseudo-directories within the nested pseudo-directory.
 
 .. code-block:: console
 
-    photos/animals/dogs/corgi.jpg
-    photos/animals/dogs/poodle.jpg
-    photos/animals/dogs/terrier.jpg
+   photos/animals/dogs/corgi.jpg
+   photos/animals/dogs/poodle.jpg
+   photos/animals/dogs/terrier.jpg

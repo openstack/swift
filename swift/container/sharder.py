@@ -502,43 +502,43 @@ class CleavingContext(object):
     Encapsulates metadata associated with the process of cleaving a retiring
     DB. This metadata includes:
 
-      * ``ref``: The unique part of the key that is used when persisting a
-        serialized ``CleavingContext`` as sysmeta in the DB. The unique part of
-        the key is based off the DB id. This ensures that each context is
-        associated with a specific DB file. The unique part of the key is
-        included in the ``CleavingContext`` but should not be modified by any
-        caller.
+    * ``ref``: The unique part of the key that is used when persisting a
+      serialized ``CleavingContext`` as sysmeta in the DB. The unique part of
+      the key is based off the DB id. This ensures that each context is
+      associated with a specific DB file. The unique part of the key is
+      included in the ``CleavingContext`` but should not be modified by any
+      caller.
 
-      * ``cursor``: the upper bound of the last shard range to have been
-        cleaved from the retiring DB.
+    * ``cursor``: the upper bound of the last shard range to have been
+      cleaved from the retiring DB.
 
-      * ``max_row``: the retiring DB's max row; this is updated to the value of
-        the retiring DB's ``max_row`` every time a ``CleavingContext`` is
-        loaded for that DB, and may change during the process of cleaving the
-        DB.
+    * ``max_row``: the retiring DB's max row; this is updated to the value of
+      the retiring DB's ``max_row`` every time a ``CleavingContext`` is
+      loaded for that DB, and may change during the process of cleaving the
+      DB.
 
-      * ``cleave_to_row``: the value of ``max_row`` at the moment when cleaving
-        starts for the DB. When cleaving completes (i.e. the cleave cursor has
-        reached the upper bound of the cleaving namespace), ``cleave_to_row``
-        is compared to the current ``max_row``: if the two values are not equal
-        then rows have been added to the DB which may not have been cleaved, in
-        which case the ``CleavingContext`` is ``reset`` and cleaving is
-        re-started.
+    * ``cleave_to_row``: the value of ``max_row`` at the moment when cleaving
+      starts for the DB. When cleaving completes (i.e. the cleave cursor has
+      reached the upper bound of the cleaving namespace), ``cleave_to_row``
+      is compared to the current ``max_row``: if the two values are not equal
+      then rows have been added to the DB which may not have been cleaved, in
+      which case the ``CleavingContext`` is ``reset`` and cleaving is
+      re-started.
 
-      * ``last_cleave_to_row``: the minimum DB row from which cleaving should
-        select objects to cleave; this is initially set to None i.e. all rows
-        should be cleaved. If the ``CleavingContext`` is ``reset`` then the
-        ``last_cleave_to_row`` is set to the current value of
-        ``cleave_to_row``, which in turn is set to the current value of
-        ``max_row`` by a subsequent call to ``start``. The repeated cleaving
-        therefore only selects objects in rows greater than the
-        ``last_cleave_to_row``, rather than cleaving the whole DB again.
+    * ``last_cleave_to_row``: the minimum DB row from which cleaving should
+      select objects to cleave; this is initially set to None i.e. all rows
+      should be cleaved. If the ``CleavingContext`` is ``reset`` then the
+      ``last_cleave_to_row`` is set to the current value of
+      ``cleave_to_row``, which in turn is set to the current value of
+      ``max_row`` by a subsequent call to ``start``. The repeated cleaving
+      therefore only selects objects in rows greater than the
+      ``last_cleave_to_row``, rather than cleaving the whole DB again.
 
-      * ``ranges_done``: the number of shard ranges that have been cleaved from
-        the retiring DB.
+    * ``ranges_done``: the number of shard ranges that have been cleaved from
+      the retiring DB.
 
-      * ``ranges_todo``: the number of shard ranges that are yet to be
-        cleaved from the retiring DB.
+    * ``ranges_todo``: the number of shard ranges that are yet to be
+      cleaved from the retiring DB.
     """
     def __init__(self, ref, cursor='', max_row=None, cleave_to_row=None,
                  last_cleave_to_row=None, cleaving_done=False,

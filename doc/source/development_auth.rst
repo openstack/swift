@@ -37,7 +37,7 @@ will be omitted.
 
 It is highly recommended that authentication server implementers prefix their
 tokens and Swift storage accounts they create with a configurable reseller
-prefix (`AUTH_` by default with the included TempAuth). This prefix will avoid
+prefix (``AUTH_`` by default with the included TempAuth). This prefix will avoid
 conflicts with other authentication servers that might be using the same
 Swift cluster. Otherwise, the Swift cluster will have to try all the resellers
 until one validates a token or all fail.
@@ -48,18 +48,18 @@ designations as you'll see later).
 
 Example Authentication with TempAuth:
 
-    * Token AUTH_tkabcd is given to the TempAuth middleware in a request's
-      X-Auth-Token header.
-    * The TempAuth middleware validates the token AUTH_tkabcd and discovers
-      it matches the "tester" user within the "test" account for the storage
-      account "AUTH_storage_xyz".
-    * The TempAuth middleware sets the REMOTE_USER to
-      "test:tester,test,AUTH_storage_xyz"
-    * Now this user will have full access (via authorization procedures later)
-      to the AUTH_storage_xyz Swift storage account and access to containers in
-      other storage accounts, provided the storage account begins with the same
-      `AUTH_` reseller prefix and the container has an ACL specifying at least
-      one of those three groups.
+* Token AUTH_tkabcd is given to the TempAuth middleware in a request's
+  X-Auth-Token header.
+* The TempAuth middleware validates the token AUTH_tkabcd and discovers
+  it matches the "tester" user within the "test" account for the storage
+  account "AUTH_storage_xyz".
+* The TempAuth middleware sets the REMOTE_USER to
+  "test:tester,test,AUTH_storage_xyz"
+* Now this user will have full access (via authorization procedures later)
+  to the AUTH_storage_xyz Swift storage account and access to containers in
+  other storage accounts, provided the storage account begins with the same
+  ``AUTH_`` reseller prefix and the container has an ACL specifying at least
+  one of those three groups.
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize

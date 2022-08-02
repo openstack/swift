@@ -16,20 +16,20 @@ transactions from this user. The linux ``bzgrep`` command can be used to
 search all the proxy log files on a node including the ``.bz2`` compressed
 files. For example:
 
-.. code::
+.. code:: console
 
    $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh \
      -w <redacted>.68.[4-11,132-139 4-11,132-139],<redacted>.132.[4-11,132-139] \
      'sudo bzgrep -w AUTH_redacted-4962-4692-98fb-52ddda82a5af /var/log/swift/proxy.log*' |  dshbak -c
-    .
-    .
-    ----------------
-    <redacted>.132.6
-    ----------------
-    Feb 29 08:51:57 sw-aw2az2-proxy011 proxy-server <redacted>.16.132
-    <redacted>.66.8 29/Feb/2012/08/51/57 GET /v1.0/AUTH_redacted-4962-4692-98fb-52ddda82a5af
-    /%3Fformat%3Djson HTTP/1.0 404 - - <REDACTED>_4f4d50c5e4b064d88bd7ab82 - - -
-    tx429fc3be354f434ab7f9c6c4206c1dc3 - 0.0130
+   .
+   .
+   ----------------
+   <redacted>.132.6
+   ----------------
+   Feb 29 08:51:57 sw-aw2az2-proxy011 proxy-server <redacted>.16.132
+   <redacted>.66.8 29/Feb/2012/08/51/57 GET /v1.0/AUTH_redacted-4962-4692-98fb-52ddda82a5af
+   /%3Fformat%3Djson HTTP/1.0 404 - - <REDACTED>_4f4d50c5e4b064d88bd7ab82 - - -
+   tx429fc3be354f434ab7f9c6c4206c1dc3 - 0.0130
 
 This shows a ``GET`` operation on the users account.
 
@@ -40,7 +40,7 @@ This shows a ``GET`` operation on the users account.
 Using the transaction ID, ``tx429fc3be354f434ab7f9c6c4206c1dc3`` you can
 search the swift object servers log files for this transaction ID:
 
-.. code::
+.. code:: console
 
    $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh \
      -w <redacted>.72.[4-67|4-67],<redacted>.[4-67|4-67],<redacted>.[4-67|4-67],<redacted>.204.[4-131] \
@@ -79,7 +79,7 @@ search the swift object servers log files for this transaction ID:
 Next, use the ``swift-get-nodes`` command to determine exactly where the
 user's account data is stored:
 
-.. code::
+.. code:: console
 
    $ sudo swift-get-nodes /etc/swift/account.ring.gz AUTH_redacted-4962-4692-98fb-52ddda82a5af
    Account AUTH_redacted-4962-4692-98fb-52ddda82a5af
@@ -119,7 +119,7 @@ user's account data is stored:
 Check each of the primary servers, <redacted>.31, <redacted>.204.70  and <redacted>.72.16, for
 this users account. For example on <redacted>.72.16:
 
-.. code::
+.. code:: console
 
    $ ls -lah /srv/node/disk9/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/
    total 1.0M
@@ -131,7 +131,7 @@ this users account. For example on <redacted>.72.16:
 So this users account db, an sqlite db is present. Use sqlite to
 checkout the account:
 
-.. code::
+.. code:: console
 
    $ sudo cp /srv/node/disk9/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/1846d99185f8a0edaf65cfbf37439696.db /tmp
    $ sudo sqlite3 /tmp/1846d99185f8a0edaf65cfbf37439696.db
@@ -156,7 +156,7 @@ checkout the account:
    why the GET operations are returning 404, not found. Check the account
    delete date/time:
 
-   .. code::
+   .. code:: console
 
       $ python
 
@@ -167,7 +167,7 @@ checkout the account:
 Next try and find the ``DELETE`` operation for this account in the proxy
 server logs:
 
-.. code::
+.. code:: console
 
    $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh \
      -w <redacted>.68.[4-11,132-139 4-11,132-139],<redacted>.132.[4-11,132-139|4-11,132-139] \
@@ -206,7 +206,7 @@ as follows:
 
 Examine the object in question:
 
-.. code::
+.. code:: console
 
    $ sudo -u swift /opt/hp/swift/bin/swift-direct head 132345678912345 container_name obj_name
 
@@ -219,14 +219,14 @@ name of the objects this means it is a DLO. For example,
 if ``X-Object-Manifest`` is ``container2/seg-blah``, list the contents
 of the container container2 as follows:
 
-.. code::
+.. code:: console
 
    $ sudo -u swift /opt/hp/swift/bin/swift-direct show 132345678912345 container2
 
 Pick out the objects whose names start with ``seg-blah``.
 Delete the segment objects as follows:
 
-.. code::
+.. code:: console
 
    $ sudo -u swift /opt/hp/swift/bin/swift-direct delete 132345678912345 container2 seg-blah01
    $ sudo -u swift /opt/hp/swift/bin/swift-direct delete 132345678912345 container2 seg-blah02

@@ -86,15 +86,15 @@ class BucketizedUpdateSkippingLimiter(object):
 
     The iterator increments stats as follows:
 
-      * The `deferrals` stat is incremented for each update that is
-        rate-limited. Note that a individual update is rate-limited at most
-        once.
-      * The `skips` stat is incremented for each rate-limited update that is
-        not eventually yielded. This includes updates that are evicted from the
-        deferral queue and all updates that remain in the deferral queue when
-        ``drain_until`` time is reached and the iterator terminates.
-      * The `drains` stat is incremented for each rate-limited update that is
-        eventually yielded.
+    * The `deferrals` stat is incremented for each update that is
+      rate-limited. Note that a individual update is rate-limited at most
+      once.
+    * The `skips` stat is incremented for each rate-limited update that is
+      not eventually yielded. This includes updates that are evicted from the
+      deferral queue and all updates that remain in the deferral queue when
+      ``drain_until`` time is reached and the iterator terminates.
+    * The `drains` stat is incremented for each rate-limited update that is
+      eventually yielded.
 
     Consequently, when this iterator terminates, the sum of `skips` and
     `drains` is equal to the number of `deferrals`.
@@ -219,12 +219,12 @@ class SweepStats(object):
     """
     Stats bucket for an update sweep
 
-    A measure of the rate at which updates are being rate-limited is:
+    A measure of the rate at which updates are being rate-limited is::
 
         deferrals / (deferrals + successes + failures - drains)
 
     A measure of the rate at which updates are not being sent during a sweep
-    is:
+    is::
 
         skips / (skips + successes + failures)
     """

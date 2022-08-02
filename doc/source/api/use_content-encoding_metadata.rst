@@ -12,11 +12,11 @@ underlying media type (``Content-Type``) of the file, such as a video.
 This example assigns an attachment type to the ``Content-Encoding``
 header that indicates how the file is downloaded:
 
-.. code::
+.. code:: none
 
-    PUT /<api version>/<account>/<container>/<object> HTTP/1.1
-    Host: storage.clouddrive.com
-    X-Auth-Token: eaaafd18-0fed-4b3a-81b4-663c99ec1cbb
-    Content-Type: video/mp4
-    Content-Encoding: gzip
+   PUT /<api version>/<account>/<container>/<object> HTTP/1.1
+   Host: storage.clouddrive.com
+   X-Auth-Token: eaaafd18-0fed-4b3a-81b4-663c99ec1cbb
+   Content-Type: video/mp4
+   Content-Encoding: gzip
 

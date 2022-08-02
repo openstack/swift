@@ -27,9 +27,9 @@ if you wait a while things get better.
 
 For example:
 
-.. code::
+.. code:: console
 
-   sudo swift-recon -rla
+   $ sudo swift-recon -rla
    ===============================================================================
    [2012-03-10 12:57:21] Checking async pendings on 384 hosts...
    Async stats: low: 0, high: 1, avg: 0, total: 1
@@ -52,7 +52,7 @@ system. Rules-of-thumb for 'good' recon output are:
 -  Nodes that respond are up and running Swift. If all nodes respond,
    that is a good sign. But some nodes may time out. For example:
 
-   .. code::
+   .. code:: console
 
       -> [http://<redacted>.29:6200/recon/load:] <urlopen error [Errno 111] ECONNREFUSED>
       -> [http://<redacted>.31:6200/recon/load:] <urlopen error timed out>
@@ -83,7 +83,7 @@ system. Rules-of-thumb for 'good' recon output are:
 For comparison here is the recon output for the same system above when
 two entire racks of Swift are down:
 
-.. code::
+.. code:: console
 
    [2012-03-10 16:56:33] Checking async pendings on 384 hosts...
    -> http://<redacted>.22:6200/recon/async: <urlopen error timed out>
@@ -152,9 +152,9 @@ Here is an example of noting and tracking down a problem with recon.
 
 Running reccon shows some async pendings:
 
-.. code::
+.. code:: console
 
-   bob@notso:~/swift-1.4.4/swift$ ssh -q <redacted>.132.7 sudo swift-recon -alr
+   $ ssh -q <redacted>.132.7 sudo swift-recon -alr
    ===============================================================================
    [2012-03-14 17:25:55] Checking async pendings on 384 hosts...
    Async stats: low: 0, high: 23, avg: 8, total: 3356
@@ -172,9 +172,9 @@ Why? Running recon again with -av swift (not shown here) tells us that
 the node with the highest (23) is <redacted>.72.61. Looking at the log
 files on <redacted>.72.61 we see:
 
-.. code::
+.. code:: console
 
-   souzab@<redacted>:~$ sudo tail -f /var/log/swift/background.log | - grep -i ERROR
+   $ sudo tail -f /var/log/swift/background.log | - grep -i ERROR
    Mar 14 17:28:06 <redacted> container-replicator ERROR Remote drive not mounted
    {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6201}
    Mar 14 17:28:06 <redacted> container-replicator ERROR Remote drive not mounted
@@ -235,7 +235,7 @@ Procedure
    running the ring builder on a proxy node to determine which zones
    the storage nodes are in. For example:
 
-   .. code::
+   .. code:: console
 
       % sudo swift-ring-builder /etc/swift/object.builder
       /etc/swift/object.builder, build version 1467
@@ -258,7 +258,7 @@ Procedure
    builder again, this time with the ``list_parts`` option and specify
    the nodes under consideration. For example:
 
-   .. code::
+   .. code:: console
 
       % sudo swift-ring-builder /etc/swift/object.builder list_parts <redacted>.8 <redacted>.15 <redacted>.72.2
       Partition   Matches
@@ -283,7 +283,7 @@ Procedure
    small, and is proportional to the number of entries that have a 3 in
    the Matches column. For example:
 
-   .. code::
+   .. code:: console
 
       Partition   Matches
       26865          3
@@ -300,7 +300,7 @@ Procedure
 
 #. A quick way to count the number of rows with 3 matches is:
 
-   .. code::
+   .. code:: console
 
       % sudo swift-ring-builder /etc/swift/object.builder list_parts <redacted>.8 <redacted>.15 <redacted>.72.2 | grep "3$" | wc -l
 
