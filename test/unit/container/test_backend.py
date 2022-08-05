@@ -372,7 +372,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('o', next(self.ts).internal, 0, 'text/plain',
                           EMPTY_ETAG)
         own_sr = broker.get_own_shard_range()
-        self.assertEqual(1, own_sr.object_count)
+        self.assertEqual(0, own_sr.object_count)
         broker.merge_shard_ranges([own_sr])
         self.assertFalse(broker.empty())
         broker.delete_object('o', next(self.ts).internal)
@@ -461,7 +461,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('o', next(self.ts).internal, 0, 'text/plain',
                           EMPTY_ETAG)
         own_sr = broker.get_own_shard_range()
-        self.assertEqual(1, own_sr.object_count)
+        self.assertEqual(0, own_sr.object_count)
         broker.merge_shard_ranges([own_sr])
         self.assertFalse(broker.empty())
         broker.delete_object('o', next(self.ts).internal)
@@ -543,7 +543,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('o', next(self.ts).internal, 0, 'text/plain',
                           EMPTY_ETAG)
         own_sr = broker.get_own_shard_range()
-        self.assertEqual(1, own_sr.object_count)
+        self.assertEqual(0, own_sr.object_count)
         broker.merge_shard_ranges([own_sr])
         self.assertFalse(broker.empty())
         broker.delete_object('o', next(self.ts).internal)
@@ -4117,24 +4117,16 @@ class TestContainerBroker(unittest.TestCase):
         # fill gaps
         filler = own_shard_range.copy()
         filler.lower = 'h'
-        with mock_timestamp_now() as now:
-            actual = broker.get_shard_ranges(fill_gaps=True)
-        filler.meta_timestamp = now
+        actual = broker.get_shard_ranges(fill_gaps=True)
         self.assertEqual([dict(sr) for sr in undeleted + [filler]],
                          [dict(sr) for sr in actual])
-        with mock_timestamp_now() as now:
-            actual = broker.get_shard_ranges(fill_gaps=True, marker='a')
-        filler.meta_timestamp = now
+        actual = broker.get_shard_ranges(fill_gaps=True, marker='a')
         self.assertEqual([dict(sr) for sr in undeleted + [filler]],
                          [dict(sr) for sr in actual])
-        with mock_timestamp_now() as now:
-            actual = broker.get_shard_ranges(fill_gaps=True, end_marker='z')
-        filler.meta_timestamp = now
+        actual = broker.get_shard_ranges(fill_gaps=True, end_marker='z')
         self.assertEqual([dict(sr) for sr in undeleted + [filler]],
                          [dict(sr) for sr in actual])
-        with mock_timestamp_now() as now:
-            actual = broker.get_shard_ranges(fill_gaps=True, end_marker='k')
-        filler.meta_timestamp = now
+        actual = broker.get_shard_ranges(fill_gaps=True, end_marker='k')
         filler.upper = 'k'
         self.assertEqual([dict(sr) for sr in undeleted + [filler]],
                          [dict(sr) for sr in actual])
@@ -4342,14 +4334,15 @@ class TestContainerBroker(unittest.TestCase):
             db_path, account='.shards_a', container='shard_c')
         broker.initialize(next(self.ts).internal, 0)
 
-        # no row for own shard range - expect entire namespace default
+        # no row for own shard range - expect a default own shard range
+        # covering the entire namespace default
         now = Timestamp.now()
-        expected = ShardRange(broker.path, now, '', '', 0, 0, now,
-                              state=ShardRange.ACTIVE)
+        own_sr = ShardRange(broker.path, now, '', '', 0, 0, now,
+                            state=ShardRange.ACTIVE)
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=now):
             actual = broker.get_own_shard_range()
-        self.assertEqual(dict(expected), dict(actual))
+        self.assertEqual(dict(own_sr), dict(actual))
 
         actual = broker.get_own_shard_range(no_default=True)
         self.assertIsNone(actual)
@@ -4361,52 +4354,44 @@ class TestContainerBroker(unittest.TestCase):
             [own_sr,
              ShardRange('.a/c1', next(self.ts), 'b', 'c'),
              ShardRange('.a/c2', next(self.ts), 'c', 'd')])
-        expected = ShardRange(broker.path, ts_1, 'l', 'u', 0, 0, now)
-        with mock.patch('swift.container.backend.Timestamp.now',
-                        return_value=now):
-            actual = broker.get_own_shard_range()
-        self.assertEqual(dict(expected), dict(actual))
+        actual = broker.get_own_shard_range()
+        self.assertEqual(dict(own_sr), dict(actual))
 
-        # check stats get updated
+        # check stats are not automatically updated
         broker.put_object(
             'o1', next(self.ts).internal, 100, 'text/plain', 'etag1')
         broker.put_object(
             'o2', next(self.ts).internal, 99, 'text/plain', 'etag2')
-        expected = ShardRange(
-            broker.path, ts_1, 'l', 'u', 2, 199, now)
-        with mock.patch('swift.container.backend.Timestamp.now',
-                        return_value=now):
-            actual = broker.get_own_shard_range()
-        self.assertEqual(dict(expected), dict(actual))
+        actual = broker.get_own_shard_range()
+        self.assertEqual(dict(own_sr), dict(actual))
+
+        # check non-zero stats returned
+        own_sr.update_meta(object_count=2, bytes_used=199,
+                           meta_timestamp=next(self.ts))
+        broker.merge_shard_ranges(own_sr)
+        actual = broker.get_own_shard_range()
+        self.assertEqual(dict(own_sr), dict(actual))
 
         # still returned when deleted
+        own_sr.update_meta(object_count=0, bytes_used=0,
+                           meta_timestamp=next(self.ts))
         delete_ts = next(self.ts)
         own_sr.set_deleted(timestamp=delete_ts)
         broker.merge_shard_ranges(own_sr)
-        with mock.patch('swift.container.backend.Timestamp.now',
-                        return_value=now):
-            actual = broker.get_own_shard_range()
-        expected = ShardRange(
-            broker.path, delete_ts, 'l', 'u', 2, 199, now, deleted=True)
-        self.assertEqual(dict(expected), dict(actual))
+        actual = broker.get_own_shard_range()
+        self.assertEqual(dict(own_sr), dict(actual))
 
         # still in table after reclaim_age
         broker.reclaim(next(self.ts).internal, next(self.ts).internal)
-        with mock.patch('swift.container.backend.Timestamp.now',
-                        return_value=now):
-            actual = broker.get_own_shard_range()
-        self.assertEqual(dict(expected), dict(actual))
+        actual = broker.get_own_shard_range()
+        self.assertEqual(dict(own_sr), dict(actual))
 
         # entire namespace
         ts_2 = next(self.ts)
-        broker.merge_shard_ranges(
-            [ShardRange(broker.path, ts_2, '', '')])
-        expected = ShardRange(
-            broker.path, ts_2, '', '', 2, 199, now)
-        with mock.patch('swift.container.backend.Timestamp.now',
-                        return_value=now):
-            actual = broker.get_own_shard_range()
-        self.assertEqual(dict(expected), dict(actual))
+        own_sr = ShardRange(broker.path, ts_2, '', '')
+        broker.merge_shard_ranges([own_sr])
+        actual = broker.get_own_shard_range()
+        self.assertEqual(dict(own_sr), dict(actual))
 
     @with_tempdir
     def test_enable_sharding(self, tempdir):

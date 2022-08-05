@@ -1864,7 +1864,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
                 orig_shard_ranges[1].account, orig_shard_ranges[1].container)
             check_shard_nodes_data(
                 shard_nodes_data, expected_state='sharded', expected_shards=1,
-                exp_obj_count=1)
+                exp_obj_count=0)
 
             # check root container
             root_nodes_data = self.direct_get_container_shard_ranges()
@@ -3183,7 +3183,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.maxDiff = None
                 self.assertEqual(exp_shard_ranges, shard_ranges)
                 self.assertEqual(ShardRange.SHARDED,
-                                 broker._own_shard_range().state)
+                                 broker.get_own_shard_range().state)
 
         # Sadly, the first replica to start sharding is still reporting its db
         # state to be 'unsharded' because, although it has sharded, its shard
@@ -3219,7 +3219,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertLengthEqual(shard_ranges, len(exp_shard_ranges))
                 self.assertEqual(exp_shard_ranges, shard_ranges)
                 self.assertEqual(ShardRange.SHARDED,
-                                 broker._own_shard_range().state)
+                                 broker.get_own_shard_range().state)
                 self.assertEqual(epoch_1, broker.db_epoch)
         self.assertIn(brokers[0].get_db_state(), (SHARDING, SHARDED))
         self.assertEqual(SHARDED, brokers[1].get_db_state())
@@ -3263,7 +3263,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertLengthEqual(shard_ranges, len(exp_shard_ranges))
                 self.assertEqual(exp_shard_ranges, shard_ranges)
                 self.assertEqual(ShardRange.SHARDED,
-                                 broker._own_shard_range().state)
+                                 broker.get_own_shard_range().state)
                 self.assertEqual(epoch_1, broker.db_epoch)
                 self.assertEqual(SHARDED, broker.get_db_state())
 

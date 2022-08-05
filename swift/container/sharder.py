@@ -559,6 +559,26 @@ def combine_shard_ranges(new_shard_ranges, existing_shard_ranges):
                   key=ShardRange.sort_key)
 
 
+def update_own_shard_range_stats(broker, own_shard_range):
+    """
+    Update the ``own_shard_range`` with the up-to-date object stats from
+    the ``broker``.
+
+    Note: this method does not persist the updated ``own_shard_range``;
+    callers should use ``broker.merge_shard_ranges`` if the updated stats
+    need to be persisted.
+
+    :param broker: an instance of ``ContainerBroker``.
+    :param own_shard_range: and instance of ``ShardRange``.
+    :returns: ``own_shard_range`` with up-to-date ``object_count``
+        and ``bytes_used``.
+    """
+    info = broker.get_info()
+    own_shard_range.update_meta(
+        info['object_count'], info['bytes_used'])
+    return own_shard_range
+
+
 class CleavingContext(object):
     """
     Encapsulates metadata associated with the process of cleaving a retiring
@@ -943,6 +963,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
     def _identify_sharding_candidate(self, broker, node):
         own_shard_range = broker.get_own_shard_range()
+        update_own_shard_range_stats(broker, own_shard_range)
         if is_sharding_candidate(
                 own_shard_range, self.shard_container_threshold):
             self.sharding_candidates.append(
@@ -957,6 +978,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
         if compactible_ranges:
             own_shard_range = broker.get_own_shard_range()
+            update_own_shard_range_stats(broker, own_shard_range)
             shrink_candidate = self._make_stats_info(
                 broker, node, own_shard_range)
             # The number of ranges/donors that can be shrunk if the
@@ -992,6 +1014,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 # broker to be recorded
                 return
 
+        update_own_shard_range_stats(broker, own_shard_range)
         info = self._make_stats_info(broker, node, own_shard_range)
         info['state'] = own_shard_range.state_text
         info['db_state'] = broker.get_db_state()
@@ -2244,11 +2267,12 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         self.logger.debug('tombstones in %s = %d',
                           quote(broker.path), tombstones)
         own_shard_range.update_tombstones(tombstones)
-
+        update_own_shard_range_stats(broker, own_shard_range)
         if own_shard_range.reported:
+            # no change to the stats metadata
             return
 
-        # persist the reported shard metadata
+        # stats metadata has been updated so persist it
         broker.merge_shard_ranges(own_shard_range)
         # now get a consistent list of own and other shard ranges
         shard_ranges = broker.get_shard_ranges(
@@ -2285,8 +2309,10 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         if state in (UNSHARDED, COLLAPSED):
             if is_leader and broker.is_root_container():
                 # bootstrap sharding of root container
+                own_shard_range = broker.get_own_shard_range()
+                update_own_shard_range_stats(broker, own_shard_range)
                 self._find_and_enable_sharding_candidates(
-                    broker, shard_ranges=[broker.get_own_shard_range()])
+                    broker, shard_ranges=[own_shard_range])
 
             own_shard_range = broker.get_own_shard_range()
             if own_shard_range.state in ShardRange.CLEAVING_STATES:

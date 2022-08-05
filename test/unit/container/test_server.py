@@ -2778,7 +2778,7 @@ class TestContainerController(unittest.TestCase):
 
         # listing shards don't cover entire namespace so expect an extra filler
         extra_shard_range = ShardRange(
-            'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX, 2, 1024,
+            'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX, 0, 0,
             state=ShardRange.ACTIVE)
         expected = shard_ranges[:3] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&states=listing')
@@ -2792,7 +2792,7 @@ class TestContainerController(unittest.TestCase):
             params='&states=listing&reverse=true&end_marker=pickle')
         # updating shards don't cover entire namespace so expect a filler
         extra_shard_range = ShardRange(
-            'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX, 2, 1024,
+            'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX, 0, 0,
             state=ShardRange.ACTIVE)
         expected = shard_ranges[1:4] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&states=updating')
@@ -2801,7 +2801,7 @@ class TestContainerController(unittest.TestCase):
         # when no listing shard ranges cover the requested namespace range then
         # filler is for entire requested namespace
         extra_shard_range = ShardRange(
-            'a/c', ts_now, 'treacle', ShardRange.MAX, 2, 1024,
+            'a/c', ts_now, 'treacle', ShardRange.MAX, 0, 0,
             state=ShardRange.ACTIVE)
         check_shard_GET([extra_shard_range], 'a/c',
                         params='&states=listing&marker=treacle')
@@ -2809,7 +2809,7 @@ class TestContainerController(unittest.TestCase):
             [extra_shard_range], 'a/c',
             params='&states=listing&reverse=true&end_marker=treacle')
         extra_shard_range = ShardRange(
-            'a/c', ts_now, 'treacle', 'walnut', 2, 1024,
+            'a/c', ts_now, 'treacle', 'walnut', 0, 0,
             state=ShardRange.ACTIVE)
         params = '&states=listing&marker=treacle&end_marker=walnut'
         check_shard_GET([extra_shard_range], 'a/c', params=params)
@@ -3073,7 +3073,6 @@ class TestContainerController(unittest.TestCase):
     def test_GET_shard_ranges_using_state_aliases(self):
         # make a shard container
         ts_iter = make_timestamp_iter()
-        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
         shard_ranges = []
         lower = ''
         for state in sorted(ShardRange.STATES.keys()):
@@ -3090,8 +3089,7 @@ class TestContainerController(unittest.TestCase):
                 sr for sr in shard_ranges if sr.state in expected_states]
             own_shard_range = ShardRange(path, next(ts_iter), '', '',
                                          state=ShardRange.ACTIVE)
-            expected.append(own_shard_range.copy(
-                lower=expected[-1].upper, meta_timestamp=ts_now))
+            expected.append(own_shard_range.copy(lower=expected[-1].upper))
             expected = [dict(sr, last_modified=sr.timestamp.isoformat)
                         for sr in expected]
             headers = {'X-Timestamp': next(ts_iter).normal}
@@ -3114,8 +3112,7 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/sda1/p/%s?format=json%s' %
                                 (path, params), method='GET',
                                 headers={'X-Backend-Record-Type': 'shard'})
-            with mock_timestamp_now(ts_now):
-                resp = req.get_response(self.controller)
+            resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_type, 'application/json')
             self.assertEqual(expected, json.loads(resp.body))
