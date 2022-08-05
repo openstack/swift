@@ -476,6 +476,7 @@ def _make_display_device_table(builder):
     rep_ip_width = 14
     rep_port_width = 4
     ip_ipv6 = rep_ipv6 = False
+    weight_width = 6
     for dev in builder._iter_devs():
         if is_valid_ipv6(dev['ip']):
             ip_ipv6 = True
@@ -486,6 +487,8 @@ def _make_display_device_table(builder):
         port_width = max(len(str(dev['port'])), port_width)
         rep_port_width = max(len(str(dev['replication_port'])),
                              rep_port_width)
+        weight_width = max(len('%6.02f' % dev['weight']),
+                           weight_width)
     if ip_ipv6:
         ip_width += 2
     if rep_ipv6:
@@ -493,7 +496,7 @@ def _make_display_device_table(builder):
     header_line = ('Devices:%5s %6s %4s %' + str(ip_width)
                    + 's:%-' + str(port_width) + 's %' +
                    str(rep_ip_width) + 's:%-' + str(rep_port_width) +
-                   's %5s %6s %10s %7s %5s %s') % (
+                   's %5s %' + str(weight_width) + 's %10s %7s %5s %s') % (
                        'id', 'region', 'zone', 'ip address',
                        'port', 'replication ip', 'port', 'name',
                        'weight', 'partitions', 'balance', 'flags',
@@ -511,7 +514,8 @@ def _make_display_device_table(builder):
                                  '%', str(ip_width), 's:%-',
                                  str(port_width), 'd ', '%',
                                  str(rep_ip_width), 's', ':%-',
-                                 str(rep_port_width), 'd %5s %6.02f'
+                                 str(rep_port_width), 'd %5s %',
+                                 str(weight_width), '.02f'
                                  ' %10s %7.02f %5s %s'])
         args = (dev['id'], dev['region'], dev['zone'], dev_ip, dev['port'],
                 dev_replication_ip, dev['replication_port'], dev['device'],

@@ -2077,7 +2077,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                       'port': 66201,
                       'device': 'sda2',
                       })
-        ring.add_dev({'weight': 100.0,
+        ring.add_dev({'weight': 10000.0,
                       'region': 2,
                       'zone': 2,
                       'ip': '2001:db8:85a3::8a2e:370:7336',
