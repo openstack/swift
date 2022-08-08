@@ -168,7 +168,8 @@ from six.moves import input
 
 from swift.common.utils import Timestamp, get_logger, ShardRange, readconf, \
     ShardRangeList, non_negative_int, config_positive_int_value
-from swift.container.backend import ContainerBroker, UNSHARDED
+from swift.container.backend import ContainerBroker, UNSHARDED, \
+    sift_shard_ranges
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
     CleavingContext, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, find_overlapping_ranges, \
@@ -424,6 +425,61 @@ def delete_shard_ranges(broker, args):
         sr.timestamp = now
     broker.merge_shard_ranges(shard_ranges)
     print('Deleted %s existing shard ranges.' % len(shard_ranges))
+    return EXIT_SUCCESS
+
+
+def combine_shard_ranges(new_shard_ranges, existing_shard_ranges):
+    """
+    Combines new and existing shard ranges based on most recent state.
+
+    :param new_shard_ranges: a list of ShardRange instances.
+    :param existing_shard_ranges: a list of ShardRange instances.
+    :return: a list of ShardRange instances.
+    """
+    new_shard_ranges = [dict(sr) for sr in new_shard_ranges]
+    existing_shard_ranges = [dict(sr) for sr in existing_shard_ranges]
+    to_add, to_delete = sift_shard_ranges(
+        new_shard_ranges,
+        dict((sr['name'], sr) for sr in existing_shard_ranges))
+    result = [ShardRange.from_dict(existing)
+              for existing in existing_shard_ranges
+              if existing['name'] not in to_delete]
+    result.extend([ShardRange.from_dict(sr) for sr in to_add])
+    return sorted([sr for sr in result if not sr.deleted],
+                  key=ShardRange.sort_key)
+
+
+def merge_shard_ranges(broker, args):
+    _check_own_shard_range(broker, args)
+    shard_data = _load_and_validate_shard_data(args, require_index=False)
+    new_shard_ranges = ShardRangeList([ShardRange.from_dict(sr)
+                                       for sr in shard_data])
+    new_shard_ranges.sort(key=ShardRange.sort_key)
+
+    # do some checks before merging...
+    existing_shard_ranges = ShardRangeList(
+        broker.get_shard_ranges(include_deleted=True))
+    outcome = combine_shard_ranges(new_shard_ranges, existing_shard_ranges)
+    if args.verbose:
+        print('This change will result in the following shard ranges in the '
+              'affected namespace:')
+        print(json.dumps([dict(sr) for sr in outcome], indent=2))
+    overlaps = find_overlapping_ranges(outcome)
+    if overlaps:
+        print('WARNING: this change will result in shard ranges overlaps!')
+    paths_with_gaps = find_paths_with_gaps(outcome)
+    gaps = [gap for start_path, gap, end_path in paths_with_gaps
+            if existing_shard_ranges.includes(gap)]
+    if gaps:
+        print('WARNING: this change will result in shard ranges gaps!')
+
+    if not _proceed(args):
+        return EXIT_USER_QUIT
+
+    with broker.updated_timeout(args.replace_timeout):
+        broker.merge_shard_ranges(new_shard_ranges)
+    print('Injected %d shard ranges.' % len(new_shard_ranges))
+    print('Run container-replicator to replicate them to other nodes.')
     return EXIT_SUCCESS
 
 
@@ -956,6 +1012,22 @@ def _make_parser():
     info_parser = subparsers.add_parser(
         'info', help='Print container db info')
     info_parser.set_defaults(func=db_info)
+
+    # merge
+    merge_parser = subparsers.add_parser(
+        'merge',
+        help='Merge shard range(s) from file with existing shard ranges. This '
+             'subcommand should only be used if you are confident that you '
+             'know what you are doing. Shard ranges should not typically be '
+             'modified in this way.')
+    merge_parser.add_argument('input', metavar='input_file',
+                              type=str, help='Name of file')
+    merge_parser.add_argument(
+        '--replace-timeout', type=int, default=600,
+        help='Minimum DB timeout to use when merging shard ranges.')
+    _add_account_prefix_arg(merge_parser)
+    _add_prompt_args(merge_parser)
+    merge_parser.set_defaults(func=merge_shard_ranges)
 
     # replace
     replace_parser = subparsers.add_parser(

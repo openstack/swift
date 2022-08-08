@@ -315,6 +315,38 @@ def merge_shards(shard_data, existing):
     return new_content
 
 
+def sift_shard_ranges(new_shard_ranges, existing_shard_ranges):
+    """
+    Compares new and existing shard ranges, updating the new shard ranges with
+    any more recent state from the existing, and returns shard ranges sorted
+    into those that need adding because they contain new or updated state and
+    those that need deleting because their state has been superseded.
+
+    :param new_shard_ranges: a list of dicts, each of which represents a shard
+        range.
+    :param existing_shard_ranges: a dict mapping shard range names to dicts
+        representing a shard range.
+    :return: a tuple (to_add, to_delete); to_add is a list of dicts, each of
+        which represents a shard range that is to be added to the existing
+        shard ranges; to_delete is a set of shard range names that are to be
+        deleted.
+    """
+    to_delete = set()
+    to_add = {}
+    for item in new_shard_ranges:
+        item_ident = item['name']
+        existing = existing_shard_ranges.get(item_ident)
+        if merge_shards(item, existing):
+            # exists with older timestamp
+            if item_ident in existing_shard_ranges:
+                to_delete.add(item_ident)
+            # duplicate entries in item_list
+            if (item_ident not in to_add or
+                    merge_shards(item, to_add[item_ident])):
+                to_add[item_ident] = item
+    return to_add.values(), to_delete
+
+
 class ContainerBroker(DatabaseBroker):
     """
     Encapsulates working with a container database.
@@ -1421,28 +1453,14 @@ class ContainerBroker(DatabaseBroker):
                 chunk = [record['name'] for record
                          in item_list[offset:offset + SQLITE_ARG_LIMIT]]
                 records.update(
-                    (rec[0], rec) for rec in curs.execute(
+                    (rec[0], dict(zip(SHARD_RANGE_KEYS, rec)))
+                    for rec in curs.execute(
                         'SELECT %s FROM %s '
                         'WHERE deleted IN (0, 1) AND name IN (%s)' %
                         (', '.join(SHARD_RANGE_KEYS), SHARD_RANGE_TABLE,
                          ','.join('?' * len(chunk))), chunk))
 
-            # Sort item_list into things that need adding and deleting
-            to_delete = set()
-            to_add = {}
-            for item in item_list:
-                item_ident = item['name']
-                existing = records.get(item_ident)
-                if existing:
-                    existing = dict(zip(SHARD_RANGE_KEYS, existing))
-                if merge_shards(item, existing):
-                    # exists with older timestamp
-                    if item_ident in records:
-                        to_delete.add(item_ident)
-                    # duplicate entries in item_list
-                    if (item_ident not in to_add or
-                            merge_shards(item, to_add[item_ident])):
-                        to_add[item_ident] = item
+            to_add, to_delete = sift_shard_ranges(item_list, records)
 
             if to_delete:
                 curs.executemany(
@@ -1455,7 +1473,7 @@ class ContainerBroker(DatabaseBroker):
                     'INSERT INTO %s (%s) VALUES (%s)' %
                     (SHARD_RANGE_TABLE, ','.join(SHARD_RANGE_KEYS), vals),
                     tuple([item[k] for k in SHARD_RANGE_KEYS]
-                          for item in to_add.values()))
+                          for item in to_add))
             conn.commit()
 
         migrations = {

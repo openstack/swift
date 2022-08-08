@@ -36,7 +36,7 @@ import six
 from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, UNSHARDED, SHARDING, SHARDED, \
-    COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES
+    COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES, sift_shard_ranges
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
     TombstoneReclaimer
 from swift.common.request_helpers import get_reserved_name
@@ -6484,3 +6484,39 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
 
         for scenario in self.scenarios_when_some_new_item_wins:
             self._test_scenario(scenario, True)
+
+
+class TestModuleFunctions(unittest.TestCase):
+    def test_sift_shard_ranges(self):
+        ts_iter = make_timestamp_iter()
+        existing_shards = {}
+        sr1 = dict(ShardRange('a/o', next(ts_iter).internal))
+        sr2 = dict(ShardRange('a/o2', next(ts_iter).internal))
+        new_shard_ranges = [sr1, sr2]
+
+        # first empty existing shards will just add the shards
+        to_add, to_delete = sift_shard_ranges(new_shard_ranges,
+                                              existing_shards)
+        self.assertEqual(2, len(to_add))
+        self.assertIn(sr1, to_add)
+        self.assertIn(sr2, to_add)
+        self.assertFalse(to_delete)
+
+        # if there is a newer version in the existing shards then it won't be
+        # added to to_add
+        existing_shards['a/o'] = dict(
+            ShardRange('a/o', next(ts_iter).internal))
+        to_add, to_delete = sift_shard_ranges(new_shard_ranges,
+                                              existing_shards)
+        self.assertEqual([sr2], list(to_add))
+        self.assertFalse(to_delete)
+
+        # But if a newer version is in new_shard_ranges then the old will be
+        # added to to_delete and new is added to to_add.
+        sr1['timestamp'] = next(ts_iter).internal
+        to_add, to_delete = sift_shard_ranges(new_shard_ranges,
+                                              existing_shards)
+        self.assertEqual(2, len(to_add))
+        self.assertIn(sr1, to_add)
+        self.assertIn(sr2, to_add)
+        self.assertEqual({'a/o'}, to_delete)
