@@ -1050,6 +1050,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             # Delete the in-progress-upload marker
             ('DELETE', '/v1/AUTH_test/bucket+segments/object/X')
         ])
+        self.assertEqual(req.environ['swift.backend_path'],
+                         '/v1/AUTH_test/bucket+segments/object/X')
 
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertEqual(headers.get('X-Object-Meta-Foo'), 'bar')
@@ -1166,6 +1168,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/bucket/object'),
             # So no PUT necessary
         ])
+        self.assertEqual(req.environ['swift.backend_path'],
+                         '/v1/AUTH_test/bucket+segments/object/X')
 
     def test_object_multipart_upload_retry_complete_etag_mismatch(self):
         content_md5 = base64.b64encode(md5(
@@ -1206,6 +1210,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             # Retry deleting the marker for the sake of completeness
             ('DELETE', '/v1/AUTH_test/bucket+segments/object/X')
         ])
+        self.assertEqual(req.environ['swift.backend_path'],
+                         '/v1/AUTH_test/bucket+segments/object/X')
 
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertEqual(headers.get('X-Object-Meta-Foo'), 'bar')
@@ -1249,6 +1255,38 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             # But the object does, and with the same upload ID
             ('HEAD', '/v1/AUTH_test/bucket/object'),
         ])
+        self.assertEqual(req.environ['swift.backend_path'],
+                         '/v1/AUTH_test/bucket+segments/object/X')
+
+    def test_object_multipart_upload_retry_complete_nothing_there(self):
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',
+                            swob.HTTPNotFound, {}, None)
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPNotFound, {}, None)
+        req = Request.blank('/bucket/object?uploadId=X',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5, },
+                            body=XML)
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'Error')
+        self.assertEqual(elem.find('Code').text, 'NoSuchUpload')
+        self.assertEqual(status.split()[0], '404')
+
+        self.assertEqual(self.swift.calls, [
+            # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            # Upload marker does not exist
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
+            # Neither does the object
+            ('HEAD', '/v1/AUTH_test/bucket/object'),
+        ])
+        self.assertEqual(req.environ['swift.backend_path'],
+                         '/v1/AUTH_test/bucket+segments/object/X')
 
     def test_object_multipart_upload_invalid_md5(self):
         bad_md5 = base64.b64encode(md5(
