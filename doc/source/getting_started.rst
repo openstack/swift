@@ -11,11 +11,12 @@ most Linux platforms.
 
 Swift is written in Python and has these dependencies:
 
-* Python (2.7, 3.6, or 3.7)
-* rsync 3.0
-* The Python packages listed in `the requirements file <https://github.com/openstack/swift/blob/master/requirements.txt>`_
-* Testing additionally requires `the test dependencies <https://github.com/openstack/swift/blob/master/test-requirements.txt>`_
-* Testing requires `these distribution packages <https://github.com/openstack/swift/blob/master/bindep.txt>`_
+* Python (2.7 or 3.6-3.9)
+* rsync 3.x
+* `liberasurecode <https://opendev.org/openstack/liberasurecode/>`__
+* The Python packages listed in `the requirements file <https://github.com/openstack/swift/blob/master/requirements.txt>`__
+* Testing additionally requires `the test dependencies <https://github.com/openstack/swift/blob/master/test-requirements.txt>`__
+* Testing requires `these distribution packages <https://github.com/openstack/swift/blob/master/bindep.txt>`__
 
 -----------
 Development
@@ -36,8 +37,8 @@ CLI client and SDK library
 There are many clients in the :ref:`ecosystem <application-bindings>`. The official CLI
 and SDK is python-swiftclient.
 
-* `Source code <https://github.com/openstack/python-swiftclient>`_
-* `Python Package Index <https://pypi.org/project/python-swiftclient>`_
+* `Source code <https://github.com/openstack/python-swiftclient>`__
+* `Python Package Index <https://pypi.org/project/python-swiftclient>`__
 
 ----------
 Production
