@@ -24,7 +24,7 @@ from tempfile import mkdtemp
 import six
 from six.moves import cStringIO as StringIO
 
-from swift.cli.manage_shard_ranges import main, combine_shard_ranges
+from swift.cli.manage_shard_ranges import main
 from swift.common import utils
 from swift.common.utils import Timestamp, ShardRange
 from swift.container.backend import ContainerBroker
@@ -2858,46 +2858,3 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertIn(
             "argument --yes/-y: not allowed with argument --dry-run/-n",
             err_lines[-2], err_lines)
-
-    def test_combine_shard_ranges(self):
-        ts_iter = make_timestamp_iter()
-        this = ShardRange('a/o', next(ts_iter).internal)
-        that = ShardRange('a/o', next(ts_iter).internal)
-        actual = combine_shard_ranges([dict(this)], [dict(that)])
-        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
-        actual = combine_shard_ranges([dict(that)], [dict(this)])
-        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
-
-        ts = next(ts_iter).internal
-        this = ShardRange('a/o', ts, state=ShardRange.ACTIVE,
-                          state_timestamp=next(ts_iter))
-        that = ShardRange('a/o', ts, state=ShardRange.CREATED,
-                          state_timestamp=next(ts_iter))
-        actual = combine_shard_ranges([dict(this)], [dict(that)])
-        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
-        actual = combine_shard_ranges([dict(that)], [dict(this)])
-        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
-
-        that.update_meta(1, 2, meta_timestamp=next(ts_iter))
-        this.update_meta(3, 4, meta_timestamp=next(ts_iter))
-        expected = that.copy(object_count=this.object_count,
-                             bytes_used=this.bytes_used,
-                             meta_timestamp=this.meta_timestamp)
-        actual = combine_shard_ranges([dict(this)], [dict(that)])
-        self.assertEqual([dict(expected)], [dict(sr) for sr in actual])
-        actual = combine_shard_ranges([dict(that)], [dict(this)])
-        self.assertEqual([dict(expected)], [dict(sr) for sr in actual])
-
-        this = ShardRange('a/o', next(ts_iter).internal)
-        that = ShardRange('a/o', next(ts_iter).internal, deleted=True)
-        actual = combine_shard_ranges([dict(this)], [dict(that)])
-        self.assertFalse(actual, [dict(sr) for sr in actual])
-        actual = combine_shard_ranges([dict(that)], [dict(this)])
-        self.assertFalse(actual, [dict(sr) for sr in actual])
-
-        this = ShardRange('a/o', next(ts_iter).internal, deleted=True)
-        that = ShardRange('a/o', next(ts_iter).internal)
-        actual = combine_shard_ranges([dict(this)], [dict(that)])
-        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
-        actual = combine_shard_ranges([dict(that)], [dict(this)])
-        self.assertEqual([dict(that)], [dict(sr) for sr in actual])

@@ -8061,6 +8061,19 @@ class TestShardRange(unittest.TestCase):
     def setUp(self):
         self.ts_iter = make_timestamp_iter()
 
+    def test_constants(self):
+        self.assertEqual({utils.ShardRange.SHARDING,
+                          utils.ShardRange.SHARDED,
+                          utils.ShardRange.SHRINKING,
+                          utils.ShardRange.SHRUNK},
+                         set(utils.ShardRange.CLEAVING_STATES))
+        self.assertEqual({utils.ShardRange.SHARDING,
+                          utils.ShardRange.SHARDED},
+                         set(utils.ShardRange.SHARDING_STATES))
+        self.assertEqual({utils.ShardRange.SHRINKING,
+                          utils.ShardRange.SHRUNK},
+                         set(utils.ShardRange.SHRINKING_STATES))
+
     def test_min_max_bounds(self):
         with self.assertRaises(TypeError):
             utils.ShardRangeOuterBound()
@@ -9098,6 +9111,120 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse(a1_r1_gp1_p1.is_child_of(a2_r1))
         self.assertTrue(a1_r1_gp1.is_child_of(a2_r1))
         self.assertTrue(a2_r1_gp1.is_child_of(a1_r1))
+
+    def test_find_root(self):
+        # account 1
+        ts = next(self.ts_iter)
+        a1_r1 = utils.ShardRange('a1/r1', ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', 'r1', ts, 1), ts, '', 'l')
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1.container, ts, 1), ts, 'a', 'k')
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p1_c1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 1), ts, 'a', 'j')
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p2 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1.container, ts, 2), ts, 'k', 'l')
+        ts = next(self.ts_iter)
+        a1_r1_gp2 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', 'r1', ts, 2), ts, 'l', '')  # different index
+
+        # full ancestry plus some others
+        all_shard_ranges = [a1_r1, a1_r1_gp1, a1_r1_gp1_p1, a1_r1_gp1_p1_c1,
+                            a1_r1_gp1_p2, a1_r1_gp2]
+        random.shuffle(all_shard_ranges)
+        self.assertIsNone(a1_r1.find_root(all_shard_ranges))
+        self.assertEqual(a1_r1, a1_r1_gp1.find_root(all_shard_ranges))
+        self.assertEqual(a1_r1, a1_r1_gp1_p1.find_root(all_shard_ranges))
+        self.assertEqual(a1_r1, a1_r1_gp1_p1_c1.find_root(all_shard_ranges))
+
+        # missing a1_r1_gp1_p1
+        all_shard_ranges = [a1_r1, a1_r1_gp1, a1_r1_gp1_p1_c1,
+                            a1_r1_gp1_p2, a1_r1_gp2]
+        random.shuffle(all_shard_ranges)
+        self.assertIsNone(a1_r1.find_root(all_shard_ranges))
+        self.assertEqual(a1_r1, a1_r1_gp1.find_root(all_shard_ranges))
+        self.assertEqual(a1_r1, a1_r1_gp1_p1.find_root(all_shard_ranges))
+        self.assertEqual(a1_r1, a1_r1_gp1_p1_c1.find_root(all_shard_ranges))
+
+        # empty list
+        self.assertIsNone(a1_r1_gp1_p1_c1.find_root([]))
+
+        # double entry
+        all_shard_ranges = [a1_r1, a1_r1, a1_r1_gp1, a1_r1_gp1]
+        random.shuffle(all_shard_ranges)
+        self.assertEqual(a1_r1, a1_r1_gp1_p1.find_root(all_shard_ranges))
+        self.assertEqual(a1_r1, a1_r1_gp1_p1_c1.find_root(all_shard_ranges))
+
+    def test_find_ancestors(self):
+        # account 1
+        ts = next(self.ts_iter)
+        a1_r1 = utils.ShardRange('a1/r1', ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', 'r1', ts, 1), ts, '', 'l')
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1.container, ts, 1), ts, 'a', 'k')
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p1_c1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 1), ts, 'a', 'j')
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p2 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1.container, ts, 2), ts, 'k', 'l')
+        ts = next(self.ts_iter)
+        a1_r1_gp2 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', 'r1', ts, 2), ts, 'l', '')  # different index
+
+        # full ancestry plus some others
+        all_shard_ranges = [a1_r1, a1_r1_gp1, a1_r1_gp1_p1, a1_r1_gp1_p1_c1,
+                            a1_r1_gp1_p2, a1_r1_gp2]
+        random.shuffle(all_shard_ranges)
+        self.assertEqual([], a1_r1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1], a1_r1_gp1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1_gp1, a1_r1],
+                         a1_r1_gp1_p1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1_gp1_p1, a1_r1_gp1, a1_r1],
+                         a1_r1_gp1_p1_c1.find_ancestors(all_shard_ranges))
+
+        # missing a1_r1_gp1_p1
+        all_shard_ranges = [a1_r1, a1_r1_gp1, a1_r1_gp1_p1_c1,
+                            a1_r1_gp1_p2, a1_r1_gp2]
+        random.shuffle(all_shard_ranges)
+        self.assertEqual([], a1_r1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1], a1_r1_gp1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1_gp1, a1_r1],
+                         a1_r1_gp1_p1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1],
+                         a1_r1_gp1_p1_c1.find_ancestors(all_shard_ranges))
+
+        # missing a1_r1_gp1
+        all_shard_ranges = [a1_r1, a1_r1_gp1_p1, a1_r1_gp1_p1_c1,
+                            a1_r1_gp1_p2, a1_r1_gp2]
+        random.shuffle(all_shard_ranges)
+        self.assertEqual([], a1_r1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1], a1_r1_gp1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1],
+                         a1_r1_gp1_p1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1_gp1_p1, a1_r1],
+                         a1_r1_gp1_p1_c1.find_ancestors(all_shard_ranges))
+
+        # empty list
+        self.assertEqual([], a1_r1_gp1_p1_c1.find_ancestors([]))
+        # double entry
+        all_shard_ranges = [a1_r1, a1_r1, a1_r1_gp1, a1_r1_gp1]
+        random.shuffle(all_shard_ranges)
+        self.assertEqual([a1_r1_gp1, a1_r1],
+                         a1_r1_gp1_p1.find_ancestors(all_shard_ranges))
+        self.assertEqual([a1_r1],
+                         a1_r1_gp1_p1_c1.find_ancestors(all_shard_ranges))
+        all_shard_ranges = [a1_r1, a1_r1, a1_r1_gp1_p1, a1_r1_gp1_p1]
+        random.shuffle(all_shard_ranges)
+        self.assertEqual([a1_r1_gp1_p1, a1_r1],
+                         a1_r1_gp1_p1_c1.find_ancestors(all_shard_ranges))
 
     def test_expand(self):
         bounds = (('', 'd'), ('d', 'k'), ('k', 't'), ('t', ''))

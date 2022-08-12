@@ -1801,13 +1801,12 @@ class TestContainerSharding(BaseAutoContainerSharding):
             donor = orig_shard_ranges[0]
             shard_nodes_data = self.direct_get_container_shard_ranges(
                 donor.account, donor.container)
-            # the donor's shard range will have the acceptor's projected stats;
-            # donor also has copy of root shard range that will be ignored;
-            # note: expected_shards does not include the sharded root range
+            # donor has the acceptor shard range but not the root shard range
+            # because the root is still in ACTIVE state;
+            # the donor's shard range will have the acceptor's projected stats
             obj_count, bytes_used = check_shard_nodes_data(
                 shard_nodes_data, expected_state='sharded', expected_shards=1,
-                exp_obj_count=len(second_shard_objects) + 1,
-                exp_sharded_root_range=True)
+                exp_obj_count=len(second_shard_objects) + 1)
             # but the donor is empty and so reports zero stats
             self.assertEqual(0, obj_count)
             self.assertEqual(0, bytes_used)

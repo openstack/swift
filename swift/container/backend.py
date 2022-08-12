@@ -454,10 +454,7 @@ class ContainerBroker(DatabaseBroker):
         for sharding to have been initiated, False otherwise.
         """
         own_shard_range = self.get_own_shard_range()
-        if own_shard_range.state in (ShardRange.SHARDING,
-                                     ShardRange.SHRINKING,
-                                     ShardRange.SHARDED,
-                                     ShardRange.SHRUNK):
+        if own_shard_range.state in ShardRange.CLEAVING_STATES:
             return bool(self.get_shard_ranges())
         return False
 

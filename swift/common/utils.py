@@ -5330,6 +5330,8 @@ class ShardRange(object):
               SHRUNK: 'shrunk'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
     SHRINKING_STATES = (SHRINKING, SHRUNK)
+    SHARDING_STATES = (SHARDING, SHARDED)
+    CLEAVING_STATES = SHRINKING_STATES + SHARDING_STATES
 
     @functools.total_ordering
     class MaxBound(ShardRangeOuterBound):
@@ -5433,6 +5435,76 @@ class ShardRange(object):
             and self_parsed_name.parent_container_hash
             == ShardName.hash_container_name(parent.container)
         )
+
+    def _find_root(self, parsed_name, shard_ranges):
+        for sr in shard_ranges:
+            if parsed_name.root_container == sr.container:
+                return sr
+        return None
+
+    def find_root(self, shard_ranges):
+        """
+        Find this shard range's root shard range in the given ``shard_ranges``.
+
+        :param shard_ranges: a list of instances of
+            :class:`~swift.common.utils.ShardRange`
+        :return: this shard range's root shard range if it is found in the
+            list, otherwise None.
+        """
+        try:
+            self_parsed_name = ShardName.parse(self.name)
+        except ValueError:
+            # not a shard
+            return None
+        return self._find_root(self_parsed_name, shard_ranges)
+
+    def find_ancestors(self, shard_ranges):
+        """
+        Find this shard range's ancestor ranges in the given ``shard_ranges``.
+
+        This method makes a best-effort attempt to identify this shard range's
+        parent shard range, the parent's parent, etc., up to and including the
+        root shard range. It is only possible to directly identify the parent
+        of a particular shard range, so the search is recursive; if any member
+        of the ancestry is not found then the search ends and older ancestors
+        that may be in the list are not identified. The root shard range,
+        however, will always be identified if it is present in the list.
+
+        For example, given a list that contains parent, grandparent,
+        great-great-grandparent and root shard ranges, but is missing the
+        great-grandparent shard range, only the parent, grand-parent and root
+        shard ranges will be identified.
+
+        :param shard_ranges: a list of instances of
+            :class:`~swift.common.utils.ShardRange`
+        :return: a list of instances of
+            :class:`~swift.common.utils.ShardRange` containing items in the
+            given ``shard_ranges`` that can be identified as ancestors of this
+            shard range. The list may not be complete if there are gaps in the
+            ancestry, but is guaranteed to contain at least the parent and
+            root shard ranges if they are present.
+        """
+        if not shard_ranges:
+            return []
+
+        try:
+            self_parsed_name = ShardName.parse(self.name)
+        except ValueError:
+            # not a shard
+            return []
+
+        ancestors = []
+        for sr in shard_ranges:
+            if self.is_child_of(sr):
+                ancestors.append(sr)
+                break
+        if ancestors:
+            ancestors.extend(ancestors[0].find_ancestors(shard_ranges))
+        else:
+            root_sr = self._find_root(self_parsed_name, shard_ranges)
+            if root_sr:
+                ancestors.append(root_sr)
+        return ancestors
 
     @classmethod
     def make_path(cls, shards_account, root_container, parent_container,

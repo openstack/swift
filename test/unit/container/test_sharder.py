@@ -43,7 +43,7 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     find_shrinking_candidates, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, is_shrinking_candidate, \
     is_sharding_candidate, find_paths, rank_paths, ContainerSharderConf, \
-    find_paths_with_gaps
+    find_paths_with_gaps, combine_shard_ranges
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5, \
     ShardName
@@ -5840,7 +5840,7 @@ class TestSharder(BaseTestSharder):
 
     def _do_test_audit_shard_container_merge_other_ranges(self, *args):
         # verify that shard only merges other ranges from root when it is
-        # shrinking or shrunk
+        # cleaving
         shard_bounds = (
             ('a', 'p'), ('k', 't'), ('p', 'u'))
         shard_states = (
@@ -5855,7 +5855,7 @@ class TestSharder(BaseTestSharder):
             broker.set_sharding_sysmeta(*args)
             shard_ranges[1].name = broker.path
 
-            # make own shard range match shard_ranges[1]
+            # make shard's own shard range match shard_ranges[1]
             own_sr = shard_ranges[1]
             expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
             self.assertTrue(own_sr.update_state(own_state,
@@ -5903,7 +5903,7 @@ class TestSharder(BaseTestSharder):
                     self.assertEqual(root_state, own_shard_range.state)
                     self.assertEqual(root_ts, own_shard_range.state_timestamp)
                     updated_ranges = broker.get_shard_ranges(include_own=True)
-                    if root_state in (ShardRange.SHRINKING, ShardRange.SHRUNK):
+                    if root_state in ShardRange.CLEAVING_STATES:
                         # check other shard ranges from root are merged
                         self.assertEqual(shard_ranges, updated_ranges)
                     else:
@@ -5925,7 +5925,7 @@ class TestSharder(BaseTestSharder):
                     self.assertEqual(own_state, own_shard_range.state)
                     self.assertEqual(own_ts, own_shard_range.state_timestamp)
                     updated_ranges = broker.get_shard_ranges(include_own=True)
-                    if own_state in (ShardRange.SHRINKING, ShardRange.SHRUNK):
+                    if own_state in ShardRange.CLEAVING_STATES:
                         # check other shard ranges from root are merged
                         self.assertEqual(shard_ranges, updated_ranges)
                     else:
@@ -5940,7 +5940,7 @@ class TestSharder(BaseTestSharder):
                                                                'a/c')
 
     def _assert_merge_into_shard(self, own_shard_range, shard_ranges,
-                                 root_shard_ranges, expected, *args):
+                                 root_shard_ranges, expected, *args, **kwargs):
         # create a shard broker, initialise with shard_ranges, run audit on it
         # supplying given root_shard_ranges and verify that the broker ends up
         # with expected shard ranges.
@@ -5948,6 +5948,13 @@ class TestSharder(BaseTestSharder):
                                    container=own_shard_range.container)
         broker.set_sharding_sysmeta(*args)
         broker.merge_shard_ranges([own_shard_range] + shard_ranges)
+        db_state = kwargs.get('db_state', UNSHARDED)
+        if db_state == SHARDING:
+            broker.set_sharding_state()
+        if db_state == SHARDED:
+            broker.set_sharding_state()
+            broker.set_sharded_state()
+        self.assertEqual(db_state, broker.get_db_state())
         self.assertFalse(broker.is_root_container())
 
         sharder, mock_swift = self.call_audit_container(
@@ -5998,26 +6005,26 @@ class TestSharder(BaseTestSharder):
                 self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.STATES:
-            if own_state in ShardRange.SHRINKING_STATES:
-                # shrinking states are covered by other tests
+            if own_state in ShardRange.CLEAVING_STATES:
+                # cleaving states are covered by other tests
                 continue
             for acceptor_state in ShardRange.STATES:
                 for root_state in ShardRange.STATES:
                     do_test(own_state, acceptor_state, root_state)
 
-    def test_audit_old_style_shard_root_ranges_not_merged_not_shrinking(self):
+    def test_audit_old_style_shard_root_ranges_not_merged_not_cleaving(self):
         # verify that other shard ranges from root are NOT merged into shard
-        # when it is NOT in a shrinking state
+        # when it is NOT in a cleaving state
         self._do_test_audit_shard_root_ranges_not_merged('Root', 'a/c')
 
-    def test_audit_shard_root_ranges_not_merged_not_shrinking(self):
+    def test_audit_shard_root_ranges_not_merged_not_cleaving(self):
         # verify that other shard ranges from root are NOT merged into shard
-        # when it is NOT in a shrinking state
+        # when it is NOT in a cleaving state
         self._do_test_audit_shard_root_ranges_not_merged('Quoted-Root', 'a/c')
 
     def test_audit_shard_root_ranges_with_own_merged_while_shrinking(self):
-        # Verify that shrinking shard will merge root and other ranges,
-        # including root range.
+        # Verify that shrinking shard will merge other ranges, but not
+        # in-ACTIVE root range.
         # Make root and other ranges that fully contain the shard namespace...
         root_own_sr = ShardRange('a/c', next(self.ts_iter))
         acceptor = ShardRange(
@@ -6034,7 +6041,7 @@ class TestSharder(BaseTestSharder):
             own_sr = ShardRange(
                 str(ShardName.create('.shards_a', 'c', 'c', ts, 0)),
                 ts, lower='a', upper='b', state=own_state, state_timestamp=ts)
-            expected = [acceptor_from_root, root_from_root]
+            expected = [acceptor_from_root]
             with annotate_failure('with states %s %s %s'
                                   % (own_state, acceptor_state, root_state)):
                 sharder = self._assert_merge_into_shard(
@@ -6047,12 +6054,21 @@ class TestSharder(BaseTestSharder):
 
         for own_state in ShardRange.SHRINKING_STATES:
             for acceptor_state in ShardRange.STATES:
+                if acceptor_state in ShardRange.CLEAVING_STATES:
+                    # special case covered in other tests
+                    continue
                 for root_state in ShardRange.STATES:
-                    do_test(own_state, acceptor_state, root_state)
+                    if root_state == ShardRange.ACTIVE:
+                        # special case: ACTIVE root *is* merged
+                        continue
+                    with annotate_failure(
+                            'with states %s %s %s'
+                            % (own_state, acceptor_state, root_state)):
+                        do_test(own_state, acceptor_state, root_state)
 
     def test_audit_shard_root_ranges_missing_own_merged_while_shrinking(self):
-        # Verify that shrinking shard will merge root and other ranges,
-        # including root range.
+        # Verify that shrinking shard will merge other ranges, but not
+        # in-ACTIVE root range, even when root does not have shard's own range.
         # Make root and other ranges that fully contain the shard namespace...
         root_own_sr = ShardRange('a/c', next(self.ts_iter))
         acceptor = ShardRange(
@@ -6069,7 +6085,7 @@ class TestSharder(BaseTestSharder):
             own_sr = ShardRange(
                 str(ShardName.create('.shards_a', 'c', 'c', ts, 0)),
                 ts, lower='a', upper='b', state=own_state, state_timestamp=ts)
-            expected = [acceptor_from_root, root_from_root]
+            expected = [acceptor_from_root]
             with annotate_failure('with states %s %s %s'
                                   % (own_state, acceptor_state, root_state)):
                 sharder = self._assert_merge_into_shard(
@@ -6085,8 +6101,86 @@ class TestSharder(BaseTestSharder):
 
         for own_state in ShardRange.SHRINKING_STATES:
             for acceptor_state in ShardRange.STATES:
+                if acceptor_state in ShardRange.CLEAVING_STATES:
+                    # special case covered in other tests
+                    continue
                 for root_state in ShardRange.STATES:
-                    do_test(own_state, acceptor_state, root_state)
+                    if root_state == ShardRange.ACTIVE:
+                        # special case: ACTIVE root *is* merged
+                        continue
+                    with annotate_failure(
+                            'with states %s %s %s'
+                            % (own_state, acceptor_state, root_state)):
+                        do_test(own_state, acceptor_state, root_state)
+
+    def test_audit_shard_root_range_not_merged_while_shrinking(self):
+        # Verify that shrinking shard will not merge an in-active root range
+        def do_test(own_state, root_state):
+            root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                     state=ShardRange.SHARDED)
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            expected = []
+            sharder = self._assert_merge_into_shard(
+                own_sr, [], [own_sr, root_own_sr],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.SHRINKING_STATES:
+            for root_state in ShardRange.STATES:
+                if root_state == ShardRange.ACTIVE:
+                    continue  # special case tested below
+                with annotate_failure((own_state, root_state)):
+                    do_test(own_state, root_state)
+
+    def test_audit_shard_root_range_overlap_not_merged_while_shrinking(self):
+        # Verify that shrinking shard will not merge an active root range that
+        # overlaps with an exosting sub-shard
+        def do_test(own_state):
+            root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                     state=ShardRange.ACTIVE)
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            ts = next(self.ts_iter)
+            sub_shard = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', own_sr.container, ts, 0)),
+                ts, lower='a', upper='ab', state=ShardRange.ACTIVE)
+            expected = [sub_shard]
+            sharder = self._assert_merge_into_shard(
+                own_sr, [sub_shard], [own_sr, root_own_sr],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.SHRINKING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
+
+    def test_audit_shard_active_root_range_merged_while_shrinking(self):
+        # Verify that shrinking shard will merge an active root range
+        def do_test(own_state):
+            root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                     state=ShardRange.ACTIVE)
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            expected = [root_own_sr]
+            sharder = self._assert_merge_into_shard(
+                own_sr, [], [own_sr, root_own_sr],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.SHRINKING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
 
     def test_audit_shard_root_ranges_fetch_fails_while_shrinking(self):
         # check audit copes with failed response while shard is shrinking
@@ -6104,6 +6198,425 @@ class TestSharder(BaseTestSharder):
                       warning_lines[0])
         self.assertIn('unable to get shard ranges from root',
                       warning_lines[1])
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+    def test_audit_shard_root_ranges_merge_while_unsharded(self):
+        # Verify that unsharded shard with no existing shard ranges will merge
+        # other ranges, but not root range.
+        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+
+        def do_test(own_state, acceptor_state, root_state):
+            acceptor_from_root = acceptor.copy(
+                timestamp=next(self.ts_iter), state=acceptor_state)
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            root_from_root = root_own_sr.copy(
+                timestamp=next(self.ts_iter), state=root_state)
+            expected = [acceptor_from_root]
+            sharder = self._assert_merge_into_shard(
+                own_sr, [],
+                [own_sr, acceptor_from_root, root_from_root],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.SHARDING_STATES:
+            for acceptor_state in ShardRange.STATES:
+                if acceptor_state in ShardRange.CLEAVING_STATES:
+                    # special case covered in other tests
+                    continue
+                for root_state in ShardRange.STATES:
+                    with annotate_failure(
+                            'with states %s %s %s'
+                            % (own_state, acceptor_state, root_state)):
+                        do_test(own_state, acceptor_state, root_state)
+
+    def test_audit_shard_root_ranges_merge_while_sharding(self):
+        # Verify that sharding shard with no existing shard ranges will merge
+        # other ranges, but not root range.
+        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+
+        def do_test(own_state, acceptor_state, root_state):
+            acceptor_from_root = acceptor.copy(
+                timestamp=next(self.ts_iter), state=acceptor_state)
+            ts = next(self.ts_iter)
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', ts, 0)),
+                ts, 'a', 'b', epoch=ts, state=own_state)
+            root_from_root = root_own_sr.copy(
+                timestamp=next(self.ts_iter), state=root_state)
+            expected = [acceptor_from_root]
+            sharder = self._assert_merge_into_shard(
+                own_sr, [],
+                [own_sr, acceptor_from_root, root_from_root],
+                expected, 'Quoted-Root', 'a/c', db_state=SHARDING)
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.SHARDING_STATES:
+            for acceptor_state in ShardRange.STATES:
+                if acceptor_state in ShardRange.CLEAVING_STATES:
+                    # special case covered in other tests
+                    continue
+                for root_state in ShardRange.STATES:
+                    with annotate_failure(
+                            'with states %s %s %s'
+                            % (own_state, acceptor_state, root_state)):
+                        do_test(own_state, acceptor_state, root_state)
+
+    def test_audit_shard_root_ranges_not_merged_once_sharded(self):
+        # Verify that sharded shard will not merge other ranges from root
+        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        # the acceptor complements the single existing sub-shard...
+        other_sub_shard = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'ab', 'c', state=ShardRange.ACTIVE)
+
+        def do_test(own_state, other_sub_shard_state, root_state):
+            sub_shard_from_root = other_sub_shard.copy(
+                timestamp=next(self.ts_iter), state=other_sub_shard_state)
+            ts = next(self.ts_iter)
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', ts, 0)),
+                ts, 'a', 'b', epoch=ts, state=own_state)
+            ts = next(self.ts_iter)
+            sub_shard = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', own_sr.container, ts, 0)),
+                ts, lower='a', upper='ab', state=ShardRange.ACTIVE)
+            root_from_root = root_own_sr.copy(
+                timestamp=next(self.ts_iter), state=root_state)
+            expected = [sub_shard]
+            sharder = self._assert_merge_into_shard(
+                own_sr, [sub_shard],
+                [own_sr, sub_shard_from_root, root_from_root],
+                expected, 'Quoted-Root', 'a/c', db_state=SHARDED)
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in (ShardRange.SHARDED, ShardRange.SHRUNK):
+            for other_sub_shard_state in ShardRange.STATES:
+                for root_state in ShardRange.STATES:
+                    with annotate_failure(
+                            'with states %s %s %s'
+                            % (own_state, other_sub_shard_state, root_state)):
+                        do_test(own_state, other_sub_shard_state, root_state)
+
+    def test_audit_shard_root_ranges_replace_existing_while_cleaving(self):
+        # Verify that sharding shard with stale existing sub-shard ranges will
+        # merge other ranges, but not root range.
+        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = next(self.ts_iter)
+        acceptor_sub_shards = [ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', acceptor.container, ts, i)),
+            ts, lower, upper, state=ShardRange.ACTIVE)
+            for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'c'))]
+
+        # shard has incomplete existing shard ranges, ranges from root delete
+        # existing sub-shard and replace with other acceptor sub-shards
+        def do_test(own_state):
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            ts = next(self.ts_iter)
+            sub_shard = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', own_sr.container, ts, 0)),
+                ts, lower='a', upper='ab', state=ShardRange.ACTIVE)
+            deleted_sub_shard = sub_shard.copy(
+                timestamp=next(self.ts_iter), state=ShardRange.SHARDED,
+                deleted=1)
+            expected = acceptor_sub_shards
+            sharder = self._assert_merge_into_shard(
+                own_sr, [sub_shard],
+                [root_own_sr, own_sr, deleted_sub_shard] + acceptor_sub_shards,
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.CLEAVING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
+
+    def test_audit_shard_root_ranges_supplement_deleted_while_cleaving(self):
+        # Verify that sharding shard with deleted existing sub-shard ranges
+        # will merge other ranges while sharding, but not root range.
+        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = next(self.ts_iter)
+        acceptor_sub_shards = [ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', acceptor.container, ts, i)),
+            ts, lower, upper, state=ShardRange.ACTIVE)
+            for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'c'))]
+
+        # shard already has deleted existing shard ranges
+        expected = acceptor_sub_shards
+
+        def do_test(own_state):
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            ts = next(self.ts_iter)
+            deleted_sub_shards = [ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', own_sr.container, ts, i)),
+                ts, lower, upper, state=ShardRange.SHARDED, deleted=1)
+                for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'b'))]
+            sharder = self._assert_merge_into_shard(
+                own_sr, deleted_sub_shards,
+                [own_sr, root_own_sr] + acceptor_sub_shards,
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.CLEAVING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
+
+    def test_audit_shard_root_ranges_supplement_existing_while_cleaving(self):
+        # Verify that sharding shard with incomplete existing sub-shard ranges
+        # will merge other ranges that fill the gap, but not root range.
+        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = next(self.ts_iter)
+        acceptor_sub_shards = [ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', acceptor.container, ts, i)),
+            ts, lower, upper, state=ShardRange.ACTIVE)
+            for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'c'))]
+
+        # shard has incomplete existing shard ranges and range from root fills
+        # the gap
+        def do_test(own_state):
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            ts = next(self.ts_iter)
+            sub_shard = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', own_sr.container, ts, 0)),
+                ts, lower='a', upper='ab', state=ShardRange.ACTIVE)
+            expected = [sub_shard] + acceptor_sub_shards[1:]
+            sharder = self._assert_merge_into_shard(
+                own_sr, [sub_shard],
+                [own_sr, root_own_sr] + acceptor_sub_shards[1:],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.CLEAVING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
+
+    def test_audit_shard_root_ranges_cleaving_not_merged_while_cleaving(self):
+        # Verify that sharding shard will not merge other ranges that are in a
+        # cleaving state.
+        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+
+        def do_test(own_state, acceptor_state, root_state):
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            root_from_root = root_own_sr.copy(
+                timestamp=next(self.ts_iter), state=root_state)
+            acceptor_from_root = acceptor.copy(
+                timestamp=next(self.ts_iter), state=acceptor_state)
+
+            if (own_state in ShardRange.SHRINKING_STATES and
+                    root_state == ShardRange.ACTIVE):
+                # special case: when shrinking, ACTIVE root shard *is* merged
+                expected = [root_from_root]
+            else:
+                expected = []
+
+            sharder = self._assert_merge_into_shard(
+                own_sr, [],
+                [own_sr, acceptor_from_root, root_from_root],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        # ranges from root that are in a cleaving state are not merged...
+        for own_state in ShardRange.CLEAVING_STATES:
+            for acceptor_state in ShardRange.CLEAVING_STATES:
+                for root_state in ShardRange.STATES:
+                    with annotate_failure(
+                            'with states %s %s %s'
+                            % (own_state, acceptor_state, root_state)):
+                        do_test(own_state, acceptor_state, root_state)
+
+    def test_audit_shard_root_ranges_overlap_not_merged_while_cleaving_1(self):
+        # Verify that sharding/shrinking shard will not merge other ranges that
+        # would create an overlap; shard has complete existing shard ranges,
+        # newer range from root ignored
+        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+
+        def do_test(own_state):
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            ts = next(self.ts_iter)
+            sub_shards = [ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', own_sr.container, ts, i)),
+                ts, lower, upper, state=ShardRange.ACTIVE)
+                for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'b'))]
+            acceptor_from_root = acceptor.copy(timestamp=next(self.ts_iter))
+            expected = sub_shards
+            sharder = self._assert_merge_into_shard(
+                own_sr, sub_shards,
+                [own_sr, acceptor_from_root, root_own_sr],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.CLEAVING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
+
+    def test_audit_shard_root_ranges_overlap_not_merged_while_cleaving_2(self):
+        # Verify that sharding/shrinking shard will not merge other ranges that
+        # would create an overlap; shard has incomplete existing shard ranges
+        # but ranges from root overlaps
+        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = next(self.ts_iter)
+        acceptor_sub_shards = [ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', acceptor.container, ts, i)),
+            ts, lower, upper, state=ShardRange.ACTIVE)
+            for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'c'))]
+
+        def do_test(own_state):
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            ts = next(self.ts_iter)
+            sub_shard = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', own_sr.container, ts, 0)),
+                ts, lower='a', upper='abc', state=ShardRange.ACTIVE)
+            expected = [sub_shard]
+            sharder = self._assert_merge_into_shard(
+                own_sr, [sub_shard],
+                acceptor_sub_shards[1:] + [own_sr, root_own_sr],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.CLEAVING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
+
+    def test_audit_shard_root_ranges_with_gap_not_merged_while_cleaving(self):
+        # Verify that sharding/shrinking shard will not merge other ranges that
+        # would leave a gap.
+        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+        acceptor = ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
+            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = next(self.ts_iter)
+        acceptor_sub_shards = [ShardRange(
+            str(ShardRange.make_path(
+                '.shards_a', 'c', acceptor.container, ts, i)),
+            ts, lower, upper, state=ShardRange.ACTIVE)
+            for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'c'))]
+
+        def do_test(own_state):
+            own_sr = ShardRange(
+                str(ShardName.create(
+                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
+                next(self.ts_iter), 'a', 'b', state=own_state)
+            # root ranges have gaps w.r.t. the shard namespace
+            existing = expected = []
+            sharder = self._assert_merge_into_shard(
+                own_sr, existing,
+                acceptor_sub_shards[:1] + [own_sr, root_own_sr],
+                expected, 'Quoted-Root', 'a/c')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for own_state in ShardRange.CLEAVING_STATES:
+            with annotate_failure(own_state):
+                do_test(own_state)
+
+    def test_audit_shard_container_ancestors_not_merged_while_sharding(self):
+        # Verify that sharding shard will not merge parent and root shard
+        # ranges even when the sharding shard has no other ranges
+        root_sr = ShardRange('a/root', next(self.ts_iter),
+                             state=ShardRange.SHARDED)
+        grandparent_path = ShardRange.make_path(
+            '.shards_a', 'root', root_sr.container, next(self.ts_iter), 2)
+        grandparent_sr = ShardRange(grandparent_path, next(self.ts_iter),
+                                    '', 'd', state=ShardRange.ACTIVE)
+        self.assertTrue(grandparent_sr.is_child_of(root_sr))
+        parent_path = ShardRange.make_path(
+            '.shards_a', 'root', grandparent_sr.container, next(self.ts_iter),
+            2)
+        parent_sr = ShardRange(parent_path, next(self.ts_iter), '', 'd',
+                               state=ShardRange.ACTIVE)
+        self.assertTrue(parent_sr.is_child_of(grandparent_sr))
+        child_path = ShardRange.make_path(
+            '.shards_a', 'root', parent_sr.container, next(self.ts_iter), 2)
+        child_own_sr = ShardRange(child_path, next(self.ts_iter), 'a', 'b',
+                                  state=ShardRange.SHARDING)
+        self.assertTrue(child_own_sr.is_child_of(parent_sr))
+
+        ranges_from_root = [grandparent_sr, parent_sr, root_sr, child_own_sr]
+        expected = []
+        sharder = self._assert_merge_into_shard(
+            child_own_sr, [], ranges_from_root, expected, 'Quoted-Root', 'a/c')
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
     def test_audit_shard_container_children_merged_while_sharding(self):
@@ -6157,9 +6670,11 @@ class TestSharder(BaseTestSharder):
                 'GET', '/v1/a/c', expected_headers,
                 acceptable_statuses=(2,), params=params)
 
+            expected = child_srs + [parent_sr]
+            if child_deleted:
+                expected.append(other_sr)
             self._assert_shard_ranges_equal(
-                sorted(child_srs + [parent_sr],
-                       key=ShardRange.sort_key),
+                sorted(expected, key=ShardRange.sort_key),
                 sorted(broker.get_shard_ranges(
                     include_own=True, include_deleted=True),
                     key=ShardRange.sort_key))
@@ -8141,7 +8656,7 @@ class TestSharderFunctions(BaseTestSharder):
             bounds, ShardRange.ACTIVE,
             timestamp=next(self.ts_iter), object_count=1)
         paths_with_gaps = find_paths_with_gaps(ranges)
-        self.assertEqual(3, len(paths_with_gaps))
+        self.assertEqual(3, len(paths_with_gaps), paths_with_gaps)
         self.assertEqual(
             [(ShardRange.MIN, ShardRange.MIN),
              (ShardRange.MIN, 'a'),
@@ -8160,6 +8675,38 @@ class TestSharderFunctions(BaseTestSharder):
              (ShardRange.MAX, ShardRange.MAX)],
             [(r.lower, r.upper) for r in paths_with_gaps[2]]
         )
+
+        range_of_interest = ShardRange('test/range', next(self.ts_iter))
+        range_of_interest.lower = 'a'
+        paths_with_gaps = find_paths_with_gaps(ranges, range_of_interest)
+        self.assertEqual(2, len(paths_with_gaps), paths_with_gaps)
+        self.assertEqual(
+            [('k', 'p'),
+             ('p', 'q'),
+             ('q', 'y')],
+            [(r.lower, r.upper) for r in paths_with_gaps[0]]
+        )
+        self.assertEqual(
+            [('q', 'y'),
+             ('y', ShardRange.MAX),
+             (ShardRange.MAX, ShardRange.MAX)],
+            [(r.lower, r.upper) for r in paths_with_gaps[1]]
+        )
+
+        range_of_interest.lower = 'b'
+        range_of_interest.upper = 'x'
+        paths_with_gaps = find_paths_with_gaps(ranges, range_of_interest)
+        self.assertEqual(1, len(paths_with_gaps), paths_with_gaps)
+        self.assertEqual(
+            [('k', 'p'),
+             ('p', 'q'),
+             ('q', 'y')],
+            [(r.lower, r.upper) for r in paths_with_gaps[0]]
+        )
+
+        range_of_interest.upper = 'c'
+        paths_with_gaps = find_paths_with_gaps(ranges, range_of_interest)
+        self.assertFalse(paths_with_gaps)
 
 
 class TestContainerSharderConf(unittest.TestCase):
@@ -8337,3 +8884,46 @@ class TestContainerSharderConf(unittest.TestCase):
         assert_bad({'shard_container_threshold': 100,
                     'expansion_limit': 100})
         assert_ok({'expansion_limit': 100000001})
+
+    def test_combine_shard_ranges(self):
+        ts_iter = make_timestamp_iter()
+        this = ShardRange('a/o', next(ts_iter).internal)
+        that = ShardRange('a/o', next(ts_iter).internal)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+
+        ts = next(ts_iter).internal
+        this = ShardRange('a/o', ts, state=ShardRange.ACTIVE,
+                          state_timestamp=next(ts_iter))
+        that = ShardRange('a/o', ts, state=ShardRange.CREATED,
+                          state_timestamp=next(ts_iter))
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+
+        that.update_meta(1, 2, meta_timestamp=next(ts_iter))
+        this.update_meta(3, 4, meta_timestamp=next(ts_iter))
+        expected = that.copy(object_count=this.object_count,
+                             bytes_used=this.bytes_used,
+                             meta_timestamp=this.meta_timestamp)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(expected)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(expected)], [dict(sr) for sr in actual])
+
+        this = ShardRange('a/o', next(ts_iter).internal)
+        that = ShardRange('a/o', next(ts_iter).internal, deleted=True)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertFalse(actual, [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertFalse(actual, [dict(sr) for sr in actual])
+
+        this = ShardRange('a/o', next(ts_iter).internal, deleted=True)
+        that = ShardRange('a/o', next(ts_iter).internal)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
