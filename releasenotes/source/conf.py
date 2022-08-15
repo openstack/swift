@@ -65,8 +65,8 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'Swift Release Notes'
-copyright = u'%d, OpenStack Foundation' % datetime.datetime.now().year
+project = 'Swift Release Notes'
+copyright = '%d, OpenStack Foundation' % datetime.datetime.now().year
 
 # Release notes do not need a version number in the title, they
 # cover multiple releases.
