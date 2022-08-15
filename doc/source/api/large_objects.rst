@@ -82,7 +82,7 @@ This example shows three segment objects. You can use several containers
 and the object names do not have to conform to a specific pattern, in
 contrast to dynamic large objects.
 
-.. code::
+.. code:: json
 
     [
         {
@@ -192,7 +192,7 @@ manifest is still available to download the first set of segments.
 
 **Example Upload segment of large object request: HTTP**
 
-.. code::
+.. code:: none
 
     PUT /{api_version}/{account}/{container}/{object} HTTP/1.1
     Host: storage.clouddrive.com
@@ -214,7 +214,7 @@ uploading the manifest.
 
 **Example Upload next segment of large object request: HTTP**
 
-.. code::
+.. code:: none
 
     PUT /{api_version}/{account}/{container}/{object} HTTP/1.1
     Host: storage.clouddrive.com
@@ -232,7 +232,7 @@ subsequent additional segments.
 
 **Example Upload manifest request: HTTP**
 
-.. code::
+.. code:: none
 
     PUT /{api_version}/{account}/{container}/{object} HTTP/1.1
     Host: storage.clouddrive.com
@@ -244,7 +244,7 @@ subsequent additional segments.
 
 **Example Upload manifest response: HTTP**
 
-.. code::
+.. code:: none
 
     [...]
 

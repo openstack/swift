@@ -116,17 +116,17 @@ class Receiver(object):
 
     The general process inside an SSYNC request is:
 
-        1. Initialize the request: Basic request validation, mount check,
-           acquire semaphore lock, etc..
+    1. Initialize the request: Basic request validation, mount check,
+       acquire semaphore lock, etc..
 
-        2. Missing check: Sender sends the hashes and timestamps of
-           the object information it can send, receiver sends back
-           the hashes it wants (doesn't have or has an older
-           timestamp).
+    2. Missing check: Sender sends the hashes and timestamps of
+       the object information it can send, receiver sends back
+       the hashes it wants (doesn't have or has an older
+       timestamp).
 
-        3. Updates: Sender sends the object information requested.
+    3. Updates: Sender sends the object information requested.
 
-        4. Close down: Release semaphore lock, etc.
+    4. Close down: Release semaphore lock, etc.
     """
 
     def __init__(self, app, request):
@@ -346,29 +346,29 @@ class Receiver(object):
 
         The process is generally:
 
-            1. Sender sends `:MISSING_CHECK: START` and begins
-               sending `hash timestamp` lines.
+        1. Sender sends ``:MISSING_CHECK: START`` and begins
+           sending `hash timestamp` lines.
 
-            2. Receiver gets `:MISSING_CHECK: START` and begins
-               reading the `hash timestamp` lines, collecting the
-               hashes of those it desires.
+        2. Receiver gets ``:MISSING_CHECK: START`` and begins
+           reading the `hash timestamp` lines, collecting the
+           hashes of those it desires.
 
-            3. Sender sends `:MISSING_CHECK: END`.
+        3. Sender sends ``:MISSING_CHECK: END``.
 
-            4. Receiver gets `:MISSING_CHECK: END`, responds with
-               `:MISSING_CHECK: START`, followed by the list of
-               <wanted_hash> specifiers it collected as being wanted
-               (one per line), `:MISSING_CHECK: END`, and flushes any
-               buffers.
+        4. Receiver gets ``:MISSING_CHECK: END``, responds with
+           ``:MISSING_CHECK: START``, followed by the list of
+           <wanted_hash> specifiers it collected as being wanted
+           (one per line), ``:MISSING_CHECK: END``, and flushes any
+           buffers.
 
-               Each <wanted_hash> specifier has the form <hash>[ <parts>] where
-               <parts> is a string containing characters 'd' and/or 'm'
-               indicating that only data or meta part of object respectively is
-               required to be sync'd.
+           Each <wanted_hash> specifier has the form <hash>[ <parts>] where
+           <parts> is a string containing characters 'd' and/or 'm'
+           indicating that only data or meta part of object respectively is
+           required to be sync'd.
 
-            5. Sender gets `:MISSING_CHECK: START` and reads the list
-               of hashes desired by the receiver until reading
-               `:MISSING_CHECK: END`.
+        5. Sender gets ``:MISSING_CHECK: START`` and reads the list
+           of hashes desired by the receiver until reading
+           ``:MISSING_CHECK: END``.
 
         The collection and then response is so the sender doesn't
         have to read while it writes to ensure network buffers don't
@@ -413,18 +413,18 @@ class Receiver(object):
 
         The process is generally:
 
-            1. Sender sends `:UPDATES: START` and begins sending the
-               PUT and DELETE subrequests.
+        1. Sender sends ``:UPDATES: START`` and begins sending the
+           PUT and DELETE subrequests.
 
-            2. Receiver gets `:UPDATES: START` and begins routing the
-               subrequests to the object server.
+        2. Receiver gets ``:UPDATES: START`` and begins routing the
+           subrequests to the object server.
 
-            3. Sender sends `:UPDATES: END`.
+        3. Sender sends ``:UPDATES: END``.
 
-            4. Receiver gets `:UPDATES: END` and sends `:UPDATES:
-               START` and `:UPDATES: END` (assuming no errors).
+        4. Receiver gets ``:UPDATES: END`` and sends ``:UPDATES:
+           START`` and ``:UPDATES: END`` (assuming no errors).
 
-            5. Sender gets `:UPDATES: START` and `:UPDATES: END`.
+        5. Sender gets ``:UPDATES: START`` and ``:UPDATES: END``.
 
         If too many subrequests fail, as configured by
         replication_failure_threshold and replication_failure_ratio,

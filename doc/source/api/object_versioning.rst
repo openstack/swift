@@ -46,37 +46,37 @@ container, overwriting the current version.
 Example Using ``X-Versions-Location``
 -------------------------------------
 
-#.   Create the ``current`` container:
+#. Create the ``current`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive"
+      # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 201 Created
-       Content-Length: 0
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: txb91810fb717347d09eec8-0052e18997
-       X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
-       Date: Thu, 23 Jan 2014 21:28:55 GMT
+      HTTP/1.1 201 Created
+      Content-Length: 0
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: txb91810fb717347d09eec8-0052e18997
+      X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
+      Date: Thu, 23 Jan 2014 21:28:55 GMT
 
 #. Create the first version of an object in the ``current`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current/my_object --data-binary 1 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
+      # curl -i $publicURL/current/my_object --data-binary 1 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 201 Created
-       Last-Modified: Thu, 23 Jan 2014 21:31:22 GMT
-       Content-Length: 0
-       Etag: d41d8cd98f00b204e9800998ecf8427e
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
-       X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
-       Date: Thu, 23 Jan 2014 21:31:22 GMT
+      HTTP/1.1 201 Created
+      Last-Modified: Thu, 23 Jan 2014 21:31:22 GMT
+      Content-Length: 0
+      Etag: d41d8cd98f00b204e9800998ecf8427e
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+      X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+      Date: Thu, 23 Jan 2014 21:31:22 GMT
 
    Nothing is written to the non-current version container when you
    initially **PUT** an object in the ``current`` container. However,
@@ -85,9 +85,9 @@ Example Using ``X-Versions-Location``
 
    These non-current versions are named as follows:
 
-   .. code::
+   .. code:: none
 
-       <length><object_name>/<timestamp>
+      <length><object_name>/<timestamp>
 
    Where ``length`` is the 3-character, zero-padded hexadecimal
    character length of the object, ``<object_name>`` is the object name,
@@ -96,20 +96,20 @@ Example Using ``X-Versions-Location``
 
 #. Create a second version of the object in the ``current`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current/my_object --data-binary 2 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
+      # curl -i $publicURL/current/my_object --data-binary 2 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 201 Created
-       Last-Modified: Thu, 23 Jan 2014 21:41:32 GMT
-       Content-Length: 0
-       Etag: d41d8cd98f00b204e9800998ecf8427e
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
-       X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
-       Date: Thu, 23 Jan 2014 21:41:32 GMT
+      HTTP/1.1 201 Created
+      Last-Modified: Thu, 23 Jan 2014 21:41:32 GMT
+      Content-Length: 0
+      Etag: d41d8cd98f00b204e9800998ecf8427e
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
+      X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
+      Date: Thu, 23 Jan 2014 21:41:32 GMT
 
 #. Issue a **GET** request to a versioned object to get the current
    version of the object. You do not have to do any request redirects or
@@ -117,24 +117,24 @@ Example Using ``X-Versions-Location``
 
    List older versions of the object in the ``archive`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
+      # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 200 OK
-       Content-Length: 30
-       X-Container-Object-Count: 1
-       Accept-Ranges: bytes
-       X-Timestamp: 1390513280.79684
-       X-Container-Bytes-Used: 0
-       Content-Type: text/plain; charset=utf-8
-       X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
-       X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
-       Date: Thu, 23 Jan 2014 21:45:50 GMT
+      HTTP/1.1 200 OK
+      Content-Length: 30
+      X-Container-Object-Count: 1
+      Accept-Ranges: bytes
+      X-Timestamp: 1390513280.79684
+      X-Container-Bytes-Used: 0
+      Content-Type: text/plain; charset=utf-8
+      X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
+      X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
+      Date: Thu, 23 Jan 2014 21:45:50 GMT
 
-       009my_object/1390512682.92052
+      009my_object/1390512682.92052
 
    .. note::
       A **POST** request to a versioned object updates only the metadata
@@ -145,38 +145,38 @@ Example Using ``X-Versions-Location``
    current version of the object and replace it with the next-most
    current version in the non-current container.
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current/my_object -X DELETE -H "X-Auth-Token: $token"
+      # curl -i $publicURL/current/my_object -X DELETE -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 204 No Content
-       Content-Length: 0
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
-       X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
-       Date: Thu, 23 Jan 2014 21:51:25 GMT
+      HTTP/1.1 204 No Content
+      Content-Length: 0
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
+      X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
+      Date: Thu, 23 Jan 2014 21:51:25 GMT
 
    List objects in the ``archive`` container to show that the archived
    object was moved back to the ``current`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
+      # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 204 No Content
-       Content-Length: 0
-       X-Container-Object-Count: 0
-       Accept-Ranges: bytes
-       X-Timestamp: 1390513280.79684
-       X-Container-Bytes-Used: 0
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
-       X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
-       Date: Thu, 23 Jan 2014 21:51:41 GMT
+      HTTP/1.1 204 No Content
+      Content-Length: 0
+      X-Container-Object-Count: 0
+      Accept-Ranges: bytes
+      X-Timestamp: 1390513280.79684
+      X-Container-Bytes-Used: 0
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
+      X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
+      Date: Thu, 23 Jan 2014 21:51:41 GMT
 
    This next-most current version carries with it any metadata last set
    on it. If want to completely remove an object and you have five
@@ -185,37 +185,37 @@ Example Using ``X-Versions-Location``
 Example Using ``X-History-Location``
 ------------------------------------
 
-#.   Create the ``current`` container:
+#. Create the ``current`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-History-Location: archive"
+      # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-History-Location: archive"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 201 Created
-       Content-Length: 0
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: txb91810fb717347d09eec8-0052e18997
-       X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
-       Date: Thu, 23 Jan 2014 21:28:55 GMT
+      HTTP/1.1 201 Created
+      Content-Length: 0
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: txb91810fb717347d09eec8-0052e18997
+      X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
+      Date: Thu, 23 Jan 2014 21:28:55 GMT
 
 #. Create the first version of an object in the ``current`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current/my_object --data-binary 1 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
+      # curl -i $publicURL/current/my_object --data-binary 1 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 201 Created
-       Last-Modified: Thu, 23 Jan 2014 21:31:22 GMT
-       Content-Length: 0
-       Etag: d41d8cd98f00b204e9800998ecf8427e
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
-       X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
-       Date: Thu, 23 Jan 2014 21:31:22 GMT
+      HTTP/1.1 201 Created
+      Last-Modified: Thu, 23 Jan 2014 21:31:22 GMT
+      Content-Length: 0
+      Etag: d41d8cd98f00b204e9800998ecf8427e
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+      X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+      Date: Thu, 23 Jan 2014 21:31:22 GMT
 
    Nothing is written to the non-current version container when you
    initially **PUT** an object in the ``current`` container. However,
@@ -224,9 +224,9 @@ Example Using ``X-History-Location``
 
    These non-current versions are named as follows:
 
-   .. code::
+   .. code:: none
 
-       <length><object_name>/<timestamp>
+      <length><object_name>/<timestamp>
 
    Where ``length`` is the 3-character, zero-padded hexadecimal
    character length of the object, ``<object_name>`` is the object name,
@@ -235,20 +235,20 @@ Example Using ``X-History-Location``
 
 #. Create a second version of the object in the ``current`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current/my_object --data-binary 2 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
+      # curl -i $publicURL/current/my_object --data-binary 2 -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 201 Created
-       Last-Modified: Thu, 23 Jan 2014 21:41:32 GMT
-       Content-Length: 0
-       Etag: d41d8cd98f00b204e9800998ecf8427e
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
-       X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
-       Date: Thu, 23 Jan 2014 21:41:32 GMT
+      HTTP/1.1 201 Created
+      Last-Modified: Thu, 23 Jan 2014 21:41:32 GMT
+      Content-Length: 0
+      Etag: d41d8cd98f00b204e9800998ecf8427e
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
+      X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
+      Date: Thu, 23 Jan 2014 21:41:32 GMT
 
 #. Issue a **GET** request to a versioned object to get the current
    version of the object. You do not have to do any request redirects or
@@ -256,24 +256,24 @@ Example Using ``X-History-Location``
 
    List older versions of the object in the ``archive`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
+      # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 200 OK
-       Content-Length: 30
-       X-Container-Object-Count: 1
-       Accept-Ranges: bytes
-       X-Timestamp: 1390513280.79684
-       X-Container-Bytes-Used: 0
-       Content-Type: text/plain; charset=utf-8
-       X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
-       X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
-       Date: Thu, 23 Jan 2014 21:45:50 GMT
+      HTTP/1.1 200 OK
+      Content-Length: 30
+      X-Container-Object-Count: 1
+      Accept-Ranges: bytes
+      X-Timestamp: 1390513280.79684
+      X-Container-Bytes-Used: 0
+      Content-Type: text/plain; charset=utf-8
+      X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
+      X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
+      Date: Thu, 23 Jan 2014 21:45:50 GMT
 
-       009my_object/1390512682.92052
+      009my_object/1390512682.92052
 
    .. note::
       A **POST** request to a versioned object updates only the metadata
@@ -285,41 +285,41 @@ Example Using ``X-History-Location``
    the current container. Subsequent **GET** requests to the object in the
    current container will return ``404 Not Found``.
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/current/my_object -X DELETE -H "X-Auth-Token: $token"
+      # curl -i $publicURL/current/my_object -X DELETE -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 204 No Content
-       Content-Length: 0
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
-       X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
-       Date: Thu, 23 Jan 2014 21:51:25 GMT
+      HTTP/1.1 204 No Content
+      Content-Length: 0
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
+      X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
+      Date: Thu, 23 Jan 2014 21:51:25 GMT
 
-   List older versions of the object in the ``archive`` container::
+   List older versions of the object in the ``archive`` container:
 
-   .. code::
+   .. code:: console
 
-       # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
+      # curl -i $publicURL/archive?prefix=009my_object -X GET -H "X-Auth-Token: $token"
 
-   .. code::
+   .. code:: console
 
-       HTTP/1.1 200 OK
-       Content-Length: 90
-       X-Container-Object-Count: 3
-       Accept-Ranges: bytes
-       X-Timestamp: 1390513280.79684
-       X-Container-Bytes-Used: 0
-       Content-Type: text/html; charset=UTF-8
-       X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
-       X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
-       Date: Thu, 23 Jan 2014 21:51:41 GMT
+      HTTP/1.1 200 OK
+      Content-Length: 90
+      X-Container-Object-Count: 3
+      Accept-Ranges: bytes
+      X-Timestamp: 1390513280.79684
+      X-Container-Bytes-Used: 0
+      Content-Type: text/html; charset=UTF-8
+      X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
+      X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
+      Date: Thu, 23 Jan 2014 21:51:41 GMT
 
-       009my_object/1390512682.92052
-       009my_object/1390512692.23062
-       009my_object/1390513885.67732
+      009my_object/1390512682.92052
+      009my_object/1390512692.23062
+      009my_object/1390513885.67732
 
    In addition to the two previous versions of the object, the archive
    container has a "delete marker" to record when the object was deleted.
@@ -334,18 +334,18 @@ To disable object versioning for the ``current`` container, remove
 its ``X-Versions-Location`` metadata header by sending an empty key
 value.
 
-.. code::
+.. code:: console
 
-    # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: "
+   # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: "
 
-.. code::
+.. code:: console
 
-    HTTP/1.1 202 Accepted
-    Content-Length: 76
-    Content-Type: text/html; charset=UTF-8
-    X-Trans-Id: txe2476de217134549996d0-0052e19038
-    X-Openstack-Request-Id: txe2476de217134549996d0-0052e19038
-    Date: Thu, 23 Jan 2014 21:57:12 GMT
+   HTTP/1.1 202 Accepted
+   Content-Length: 76
+   Content-Type: text/html; charset=UTF-8
+   X-Trans-Id: txe2476de217134549996d0-0052e19038
+   X-Openstack-Request-Id: txe2476de217134549996d0-0052e19038
+   Date: Thu, 23 Jan 2014 21:57:12 GMT
 
-    <html><h1>Accepted</h1><p>The request is accepted for processing.</p></html>
+   <html><h1>Accepted</h1><p>The request is accepted for processing.</p></html>
 

@@ -100,7 +100,7 @@ Test CORS Page
 A sample cross-site test page is located in the project source tree
 ``doc/source/test-cors.html``.
 
-     .. literalinclude:: test-cors.html
+.. literalinclude:: test-cors.html
 
 .. _CORS: https://developer.mozilla.org/en-US/docs/HTTP/Access_control_CORS
 .. _preflight request: https://developer.mozilla.org/en-US/docs/HTTP/Access_control_CORS#Preflighted_requests

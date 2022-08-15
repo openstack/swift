@@ -36,11 +36,11 @@ External monitoring
 We use pingdom.com to monitor the external Swift API. We suggest the
 following:
 
-   -  Do a GET on ``/healthcheck``
+-  Do a GET on ``/healthcheck``
 
-   -  Create a container, make it public (x-container-read:
-      .r*,.rlistings), create a small file in the container; do a GET
-      on the object
+-  Create a container, make it public (``x-container-read:
+   .r*,.rlistings``), create a small file in the container; do a GET
+   on the object
 
 Diagnose: General approach
 --------------------------
@@ -82,11 +82,11 @@ if any servers are down. We suggest you run it regularly
 to the last report without having to wait for a long-running command
 to complete.
 
-Diagnose: Is system responding to /healthcheck?
------------------------------------------------
+Diagnose: Is system responding to ``/healthcheck``?
+---------------------------------------------------
 
 When you want to establish if a swift endpoint is running, run ``curl -k``
-against https://*[ENDPOINT]*/healthcheck.
+against ``https://$ENDPOINT/healthcheck``.
 
 .. _swift_logs:
 
@@ -209,11 +209,11 @@ Diagnose: Parted reports the backup GPT table is corrupt
 -  If a GPT table is broken, a message like the following should be
    observed when the following command is run:
 
-   .. code::
+   .. code:: console
 
       $ sudo parted -l
 
-   .. code::
+   .. code:: console
 
       Error: The backup GPT table is corrupt, but the primary appears OK,
       so that will be used.
@@ -232,40 +232,40 @@ invalid filesystem label. In such cases proceed as follows:
 
 #. Verify that the disk labels are correct:
 
-   .. code::
+   .. code:: console
 
-      FS=/dev/sd#1
+      $ FS=/dev/sd#1
 
-      sudo parted -l | grep object
+      $ sudo parted -l | grep object
 
 #. If partition labels are inconsistent then, resolve the disk label issues
    before proceeding:
 
-   .. code::
+   .. code:: console
 
-      sudo parted -s ${FS} name ${PART_NO} ${PART_NAME} #Partition Label
-      #PART_NO is 1 for object disks and 3 for OS disks
-      #PART_NAME follows the convention seen in "sudo parted -l | grep object"
+      $ sudo parted -s ${FS} name ${PART_NO} ${PART_NAME} #Partition Label
+      $ # PART_NO is 1 for object disks and 3 for OS disks
+      $ # PART_NAME follows the convention seen in "sudo parted -l | grep object"
 
 #. If the Filesystem label is missing then create it with care:
 
-   .. code::
+   .. code:: console
 
-      sudo xfs_admin -l ${FS} #Filesystem label (12 Char limit)
+      $ sudo xfs_admin -l ${FS} #Filesystem label (12 Char limit)
 
-      #Check for the existence of a FS label
+      $ # Check for the existence of a FS label
 
-      OBJNO=<3 Length Object No.>
+      $ OBJNO=<3 Length Object No.>
 
-      #I.E OBJNO for sw-stbaz3-object0007 would be 007
+      $ # I.E OBJNO for sw-stbaz3-object0007 would be 007
 
-      DISKNO=<3 Length Disk No.>
+      $ DISKNO=<3 Length Disk No.>
 
-      #I.E DISKNO for /dev/sdb would be 001, /dev/sdc would be 002 etc.
+      $ # I.E DISKNO for /dev/sdb would be 001, /dev/sdc would be 002 etc.
 
-      sudo xfs_admin -L "obj${OBJNO}dsk${DISKNO}" ${FS}
+      $ sudo xfs_admin -L "obj${OBJNO}dsk${DISKNO}" ${FS}
 
-      #Create a FS Label
+      $ # Create a FS Label
 
 Diagnose: Failed LUNs
 ---------------------
@@ -293,9 +293,9 @@ Otherwise the lun can be re-enabled as follows:
    LUN. You will come back later and grep this file for more details, but
    just generate it for now.
 
-   .. code::
+   .. code:: console
 
-      sudo hpssacli controller all diag file=/tmp/hpacu.diag ris=on xml=off zip=off
+      $ sudo hpssacli controller all diag file=/tmp/hpacu.diag ris=on xml=off zip=off
 
 Export the following variables using the below instructions before
 proceeding further.
@@ -304,16 +304,16 @@ proceeding further.
    failed drive's number and array value (example output: "array A
    logicaldrive 1..." would be exported as LDRIVE=1):
 
-   .. code::
+   .. code:: console
 
-      sudo hpssacli controller slot=1 ld all show
+      $ sudo hpssacli controller slot=1 ld all show
 
 #. Export the number of the logical drive that was retrieved from the
    previous command into the LDRIVE variable:
 
-   .. code::
+   .. code:: console
 
-      export LDRIVE=<LogicalDriveNumber>
+      $ export LDRIVE=<LogicalDriveNumber>
 
 #. Print the array value and Port:Box:Bay for all drives and take note of
    the Port:Box:Bay for the failed drive (example output: " array A
@@ -324,9 +324,9 @@ proceeding further.
    in the case of "array c"), but we will run a different command to be sure
    we are operating on the correct device.
 
-   .. code::
+   .. code:: console
 
-      sudo hpssacli controller slot=1 pd all show
+      $ sudo hpssacli controller slot=1 pd all show
 
 .. note::
 
@@ -339,24 +339,24 @@ proceeding further.
 
 #. Export the Port:Box:Bay for the failed drive into the PBOX variable:
 
-   .. code::
+   .. code:: console
 
-      export PBOX=<Port:Box:Bay>
+      $ export PBOX=<Port:Box:Bay>
 
 #. Print the physical device information and take note of the Disk Name
    (example output: "Disk Name: /dev/sdk" would be exported as
    DEV=/dev/sdk):
 
-   .. code::
+   .. code:: console
 
-      sudo hpssacli controller slot=1 ld ${LDRIVE} show detail | grep -i "Disk Name"
+      $ sudo hpssacli controller slot=1 ld ${LDRIVE} show detail | grep -i "Disk Name"
 
 #. Export the device name variable from the preceding command (example:
    /dev/sdk):
 
-   .. code::
+   .. code:: console
 
-      export DEV=<Device>
+      $ export DEV=<Device>
 
 #. Export the filesystem variable. Disks that are split between the
    operating system and data storage, typically sda and sdb, should  only
@@ -367,39 +367,39 @@ proceeding further.
    data filesystem for the device in question as the export. For example:
    /dev/sdk1.
 
-   .. code::
+   .. code:: console
 
-      export FS=<Filesystem>
+      $ export FS=<Filesystem>
 
 #. Verify the LUN is failed, and the device is not:
 
-   .. code::
+   .. code:: console
 
-      sudo hpssacli controller slot=1 ld all show
-      sudo hpssacli controller slot=1 pd all show
-      sudo hpssacli controller slot=1 ld ${LDRIVE} show detail
-      sudo hpssacli controller slot=1 pd ${PBOX} show detail
+      $ sudo hpssacli controller slot=1 ld all show
+      $ sudo hpssacli controller slot=1 pd all show
+      $ sudo hpssacli controller slot=1 ld ${LDRIVE} show detail
+      $ sudo hpssacli controller slot=1 pd ${PBOX} show detail
 
 #. Stop the swift and rsync service:
 
-   .. code::
+   .. code:: console
 
-      sudo service rsync stop
-      sudo swift-init shutdown all
+      $ sudo service rsync stop
+      $ sudo swift-init shutdown all
 
 #. Unmount the problem drive, fix the LUN and the filesystem:
 
-   .. code::
+   .. code:: console
 
-      sudo umount ${FS}
+      $ sudo umount ${FS}
 
 #. If umount fails, you should run lsof search for the mountpoint and
    kill any lingering processes before repeating the unpount:
 
-   .. code::
+   .. code:: console
 
-      sudo hpacucli controller slot=1 ld ${LDRIVE} modify reenable
-      sudo xfs_repair ${FS}
+      $ sudo hpacucli controller slot=1 ld ${LDRIVE} modify reenable
+      $ sudo xfs_repair ${FS}
 
 #. If the ``xfs_repair`` complains about possible journal data, use the
    ``xfs_repair -L`` option to zeroise the journal log.
@@ -407,21 +407,21 @@ proceeding further.
 #. Once complete test-mount the filesystem, and tidy up its lost and
    found area.
 
-   .. code::
+   .. code:: console
 
-      sudo mount ${FS} /mnt
-      sudo rm -rf /mnt/lost+found/
-      sudo umount /mnt
+      $ sudo mount ${FS} /mnt
+      $ sudo rm -rf /mnt/lost+found/
+      $ sudo umount /mnt
 
 #. Mount the filesystem and restart swift and rsync.
 
 #. Run the following to determine if a DC ticket is needed to check the
    cables on the node:
 
-   .. code::
+   .. code:: console
 
-      grep -y media.exchanged /tmp/hpacu.diag
-      grep -y hot.plug.count /tmp/hpacu.diag
+      $ grep -y media.exchanged /tmp/hpacu.diag
+      $ grep -y hot.plug.count /tmp/hpacu.diag
 
 #. If the output reports any non 0x00 values, it suggests that the cables
    should be checked. For example, log a DC ticket to check the sas cables
@@ -440,7 +440,7 @@ If the diagnostics report a message such as ``sda: drive is slow``, you
 should log onto the node and run the following command (remove ``-c 1`` option to continuously monitor
 the data):
 
-.. code::
+.. code:: console
 
    $ /usr/bin/collectl -s D -c 1
    waiting for 1 second sample...
@@ -475,7 +475,7 @@ otherwise hardware replacement is needed.
 
 Another way to look at the data is as follows:
 
-.. code::
+.. code:: console
 
    $ /opt/hp/syseng/disk-anal.pl -d
    Disk: sda  Wait: 54580 371  65  25  12   6   6   0   1   2   0  46
@@ -524,7 +524,7 @@ historical data. You can look at recent data as follows. It only looks
 at data from 13:15 to 14:15. As you can see, this is a relatively clean
 system (few if any long wait or service times):
 
-.. code::
+.. code:: console
 
    $ /opt/hp/syseng/disk-anal.pl -d -t 13:15-14:15
    Disk: sda  Wait:  3600   0   0   0   0   0   0   0   0   0   0   0
@@ -582,21 +582,21 @@ Running tests
 
 #. Prepare the ``target`` node as follows:
 
-   .. code::
+   .. code:: console
 
-      sudo iptables -I INPUT -p tcp -j ACCEPT
+      $ sudo iptables -I INPUT -p tcp -j ACCEPT
 
    Or, do:
 
-   .. code::
+   .. code:: console
 
-      sudo ufw allow 12866/tcp
+      $ sudo ufw allow 12866/tcp
 
 #. On the ``source`` node, run the following command to check
    throughput. Note the double-dash before the -P option.
    The command takes 10 seconds to complete. The ``target`` node is 192.168.245.5.
 
-   .. code::
+   .. code:: console
 
       $ netperf -H 192.168.245.5 -- -P 12866
       MIGRATED TCP STREAM TEST from 0.0.0.0 (0.0.0.0) port 12866 AF_INET to
@@ -609,7 +609,7 @@ Running tests
 
 #. On the ``source`` node, run the following command to check latency:
 
-   .. code::
+   .. code:: console
 
       $ netperf -H 192.168.245.5 -t TCP_RR -- -P 12866
       MIGRATED TCP REQUEST/RESPONSE TEST from 0.0.0.0 (0.0.0.0) port 12866
@@ -644,21 +644,21 @@ Diagnose: Remapping sectors experiencing UREs
 
 #. Set the environment variables SEC, DEV & FS, for example:
 
-   .. code::
+   .. code:: console
 
-      SEC=2930954256
-      DEV=/dev/sdi
-      FS=/dev/sdi1
+      $ SEC=2930954256
+      $ DEV=/dev/sdi
+      $ FS=/dev/sdi1
 
 #. Verify that the sector is bad:
 
-   .. code::
+   .. code:: console
 
-      sudo dd if=${DEV} of=/dev/null bs=512 count=1 skip=${SEC}
+      $ sudo dd if=${DEV} of=/dev/null bs=512 count=1 skip=${SEC}
 
 #. If the sector is bad this command will output an input/output error:
 
-   .. code::
+   .. code:: console
 
       dd: reading `/dev/sdi`: Input/output error
       0+0 records in
@@ -667,28 +667,28 @@ Diagnose: Remapping sectors experiencing UREs
 #. Prevent chef from attempting to re-mount the filesystem while the
    repair is in progress:
 
-   .. code::
+   .. code:: console
 
-      sudo mv /etc/chef/client.pem /etc/chef/xx-client.xx-pem
+      $ sudo mv /etc/chef/client.pem /etc/chef/xx-client.xx-pem
 
 #. Stop the swift and rsync service:
 
-   .. code::
+   .. code:: console
 
-      sudo service rsync stop
-      sudo swift-init shutdown all
+      $ sudo service rsync stop
+      $ sudo swift-init shutdown all
 
 #. Unmount the problem drive:
 
-   .. code::
+   .. code:: console
 
-      sudo umount ${FS}
+      $ sudo umount ${FS}
 
 #. Overwrite/remap the bad sector:
 
-   .. code::
+   .. code:: console
 
-      sudo dd_rescue -d -A -m8b -s ${SEC}b ${DEV} ${DEV}
+      $ sudo dd_rescue -d -A -m8b -s ${SEC}b ${DEV} ${DEV}
 
 #. This command should report an input/output error the first time
    it is run. Run the command a second time, if it successfully remapped
@@ -696,9 +696,9 @@ Diagnose: Remapping sectors experiencing UREs
 
 #. Verify the sector is now readable:
 
-   .. code::
+   .. code:: console
 
-      sudo dd if=${DEV} of=/dev/null bs=512 count=1 skip=${SEC}
+      $ sudo dd if=${DEV} of=/dev/null bs=512 count=1 skip=${SEC}
 
 #. If the sector is now readable this command should not report an
    input/output error.
@@ -706,24 +706,24 @@ Diagnose: Remapping sectors experiencing UREs
 #. If more than one problem sector is listed, set the SEC environment
    variable to the next sector in the list:
 
-   .. code::
+   .. code:: console
 
-      SEC=123456789
+      $ SEC=123456789
 
 #. Repeat from step 8.
 
 #. Repair the filesystem:
 
-   .. code::
+   .. code:: console
 
-      sudo xfs_repair ${FS}
+      $ sudo xfs_repair ${FS}
 
 #. If ``xfs_repair`` reports that the filesystem has valuable filesystem
    changes:
 
-   .. code::
+   .. code:: console
 
-      sudo xfs_repair ${FS}
+      $ sudo xfs_repair ${FS}
       Phase 1 - find and verify superblock...
       Phase 2 - using internal log
               - zero log...
@@ -739,11 +739,11 @@ Diagnose: Remapping sectors experiencing UREs
 #. You should attempt to mount the filesystem, and clear the lost+found
    area:
 
-   .. code::
+   .. code:: console
 
-      sudo mount $FS /mnt
-      sudo rm -rf /mnt/lost+found/*
-      sudo umount /mnt
+      $ sudo mount $FS /mnt
+      $ sudo rm -rf /mnt/lost+found/*
+      $ sudo umount /mnt
 
 #. If the filesystem fails to mount then you will need to use the
    ``xfs_repair -L`` option to force log zeroing.
@@ -752,16 +752,16 @@ Diagnose: Remapping sectors experiencing UREs
 #. If ``xfs_repair`` reports that an additional input/output error has been
    encountered, get the sector details as follows:
 
-   .. code::
+   .. code:: console
 
-      sudo grep "I/O error" /var/log/kern.log | grep sector | tail -1
+      $ sudo grep "I/O error" /var/log/kern.log | grep sector | tail -1
 
 #. If new input/output error is reported then set the SEC environment
    variable to the problem sector number:
 
-   .. code::
+   .. code:: console
 
-      SEC=234567890
+      $ SEC=234567890
 
 #. Repeat from step 8
 
@@ -806,31 +806,31 @@ errors, it may well indicate a cable, switch, or network issue.
 
 Get an overview of the interface with:
 
-.. code::
+.. code:: console
 
-   sudo ifconfig eth{n}
-   sudo ethtool eth{n}
+   $ sudo ifconfig eth{n}
+   $ sudo ethtool eth{n}
 
 The ``Link Detected:`` indicator will read ``yes`` if the nic is
 cabled.
 
 Establish the adapter type with:
 
-.. code::
+.. code:: console
 
-   sudo ethtool  -i eth{n}
+   $ sudo ethtool  -i eth{n}
 
 Gather the interface statistics with:
 
-.. code::
+.. code:: console
 
-   sudo ethtool  -S eth{n}
+   $ sudo ethtool  -S eth{n}
 
 If the nick supports self test, this can be performed with:
 
-.. code::
+.. code:: console
 
-   sudo ethtool  -t eth{n}
+   $ sudo ethtool  -t eth{n}
 
 Self tests should read ``PASS`` if the nic is operating correctly.
 
@@ -853,9 +853,9 @@ A replicator reports in its log that remaining time exceeds
 making progress. Another useful way to check this is with the
 'swift-recon -r' command on a swift proxy server:
 
-.. code::
+.. code:: console
 
-   sudo swift-recon -r
+   $ sudo swift-recon -r
    ===============================================================================
 
    --> Starting reconnaissance on 384 hosts
@@ -877,9 +877,9 @@ You can further check if the object replicator is stuck by logging on
 the object server and checking the object replicator progress with
 the following command:
 
-.. code::
+.. code:: console
 
-   #  sudo grep object-rep /var/log/swift/background.log | grep -e "Starting object replication" -e "Object replication complete" -e "partitions rep"
+   $ sudo grep object-rep /var/log/swift/background.log | grep -e "Starting object replication" -e "Object replication complete" -e "partitions rep"
    Jul 16 06:25:46 192.168.245.4 object-replicator 15344/16450 (93.28%) partitions replicated in 69018.48s (0.22/sec, 22h remaining)
    Jul 16 06:30:46 192.168.245.4object-replicator 15344/16450 (93.28%) partitions replicated in 69318.58s (0.22/sec, 22h remaining)
    Jul 16 06:35:46 192.168.245.4 object-replicator 15344/16450 (93.28%) partitions replicated in 69618.63s (0.22/sec, 23h remaining)
@@ -912,9 +912,9 @@ One of the reasons for the object replicator hanging like this is
 filesystem corruption on the drive. The following is a typical log entry
 of a corrupted filesystem detected by the object replicator:
 
-.. code::
+.. code:: console
 
-   # sudo bzgrep "Remote I/O error" /var/log/swift/background.log* |grep srv | - tail -1
+   $ sudo bzgrep "Remote I/O error" /var/log/swift/background.log* |grep srv | - tail -1
    Jul 12 03:33:30 192.168.245.4 object-replicator STDOUT: ERROR:root:Error hashing suffix#012Traceback (most recent call last):#012 File
    "/usr/lib/python2.7/dist-packages/swift/obj/replicator.py", line 199, in get_hashes#012 hashes[suffix] = hash_suffix(suffix_dir,
    reclaim_age)#012 File "/usr/lib/python2.7/dist-packages/swift/obj/replicator.py", line 84, in hash_suffix#012 path_contents =
@@ -922,9 +922,9 @@ of a corrupted filesystem detected by the object replicator:
 
 An ``ls`` of the problem file or directory usually shows something like the following:
 
-.. code::
+.. code:: console
 
-   # ls -l /srv/node/disk4/objects/1643763/b51
+   $ ls -l /srv/node/disk4/objects/1643763/b51
    ls: cannot access /srv/node/disk4/objects/1643763/b51: Remote I/O error
 
 If no entry with ``Remote I/O error`` occurs in the ``background.log`` it is
@@ -935,27 +935,27 @@ restart the object-replicator.
 
 #. Stop the object-replicator:
 
-   .. code::
+   .. code:: console
 
       # sudo swift-init object-replicator stop
 
 #. Make sure the object replicator has stopped, if it has hung, the stop
    command will not stop the hung process:
 
-   .. code::
+   .. code:: console
 
       # ps auxww | - grep swift-object-replicator
 
 #. If the previous ps shows the object-replicator is still running, kill
    the process:
 
-   .. code::
+   .. code:: console
 
       # kill -9 <pid-of-swift-object-replicator>
 
 #. Start the object-replicator:
 
-   .. code::
+   .. code:: console
 
       # sudo swift-init object-replicator start
 
@@ -964,14 +964,14 @@ to repair the problem filesystem.
 
 #. Stop swift and rsync:
 
-   .. code::
+   .. code:: console
 
       # sudo swift-init all shutdown
       # sudo service rsync stop
 
 #. Make sure all swift process have stopped:
 
-   .. code::
+   .. code:: console
 
       # ps auxww | grep swift | grep python
 
@@ -979,13 +979,13 @@ to repair the problem filesystem.
 
 #. Unmount the problem filesystem:
 
-   .. code::
+   .. code:: console
 
       # sudo umount /srv/node/disk4
 
 #. Repair the filesystem:
 
-   .. code::
+   .. code:: console
 
       # sudo xfs_repair -P /dev/sde1
 
@@ -1002,7 +1002,7 @@ The CPU load average on an object server, as shown with the
 'uptime' command, is typically under 10 when the server is
 lightly-moderately loaded:
 
-.. code::
+.. code:: console
 
    $ uptime
    07:59:26 up 99 days,  5:57,  1 user,  load average: 8.59, 8.39, 8.32
@@ -1014,7 +1014,7 @@ However, sometimes the CPU load average can increase significantly. The
 following is an example of an object server that has extremely high CPU
 load:
 
-.. code::
+.. code:: console
 
    $ uptime
    07:44:02 up 18:22,  1 user,  load average: 407.12, 406.36, 404.59
@@ -1050,9 +1050,9 @@ Further issues and resolutions
        given server.
      - Run this command:
 
-       .. code::
+       .. code:: console
 
-          sudo swift-init all start
+          $ sudo swift-init all start
 
        Examine messages in the swift log files to see if there are any
        error messages related to any of the swift processes since the time you
@@ -1080,9 +1080,9 @@ Further issues and resolutions
 
      - Restart the swift processes on the affected node:
 
-       .. code::
+       .. code:: console
 
-          % sudo swift-init all reload
+          $ sudo swift-init all reload
 
        Urgency:
                 If known performance problem: Immediate
@@ -1135,18 +1135,18 @@ Further issues and resolutions
        For example, it is running at 100 Mb/s and the NIC is a 1Ge NIC.
      - 1. Try resetting the interface with:
 
-       .. code::
+          .. code:: console
 
-          sudo ethtool -s eth0 speed 1000
+             $ sudo ethtool -s eth0 speed 1000
 
-       ... and then run:
+          ... and then run:
 
-       .. code::
+          .. code:: console
 
-          sudo lshw -class
+             $ sudo lshw -class
 
-       See if size goes to the expected speed. Failing
-       that, check hardware (NIC cable/switch port).
+          See if size goes to the expected speed. Failing
+          that, check hardware (NIC cable/switch port).
 
        2. If persistent, consider shutting down the server (especially if a proxy)
           until the problem is identified and resolved. If you leave this server
@@ -1183,9 +1183,11 @@ Further issues and resolutions
      - Urgency: Medium
        This may have been triggered by a recent restart of the  rsyslog daemon.
        Restart the service with:
-       .. code::
 
-          sudo swift-init <service> reload
+       .. code:: console
+
+          $ sudo swift-init <service> reload
+
    * - Object replicator: Reports the remaining time and that time is more than 100 hours.
      - Each replication cycle the object replicator writes a log message to its log
        reporting statistics about the current cycle. This includes an estimate for the
@@ -1193,9 +1195,10 @@ Further issues and resolutions
        100 hours, there is a problem with the replication process.
      - Urgency: Medium
        Restart the service with:
-       .. code::
 
-          sudo swift-init object-replicator reload
+       .. code:: console
+
+          $ sudo swift-init object-replicator reload
 
        Check that the remaining replication time is going down.
 

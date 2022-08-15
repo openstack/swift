@@ -96,28 +96,28 @@ class ContainerSync(Daemon):
     An example may help. Assume replica count is 3 and perfectly matching
     ROWIDs starting at 1.
 
-        First sync run, database has 6 rows:
+       First sync run, database has 6 rows:
 
-            * SyncPoint1 starts as -1.
-            * SyncPoint2 starts as -1.
-            * No rows between points, so no "all updates" rows.
-            * Six rows newer than SyncPoint1, so a third of the rows are sent
-              by node 1, another third by node 2, remaining third by node 3.
-            * SyncPoint1 is set as 6 (the newest ROWID known).
-            * SyncPoint2 is left as -1 since no "all updates" rows were synced.
+       * SyncPoint1 starts as -1.
+       * SyncPoint2 starts as -1.
+       * No rows between points, so no "all updates" rows.
+       * Six rows newer than SyncPoint1, so a third of the rows are sent
+         by node 1, another third by node 2, remaining third by node 3.
+       * SyncPoint1 is set as 6 (the newest ROWID known).
+       * SyncPoint2 is left as -1 since no "all updates" rows were synced.
 
-        Next sync run, database has 12 rows:
+       Next sync run, database has 12 rows:
 
-            * SyncPoint1 starts as 6.
-            * SyncPoint2 starts as -1.
-            * The rows between -1 and 6 all trigger updates (most of which
-              should short-circuit on the remote end as having already been
-              done).
-            * Six more rows newer than SyncPoint1, so a third of the rows are
-              sent by node 1, another third by node 2, remaining third by node
-              3.
-            * SyncPoint1 is set as 12 (the newest ROWID known).
-            * SyncPoint2 is set as 6 (the newest "all updates" ROWID).
+       * SyncPoint1 starts as 6.
+       * SyncPoint2 starts as -1.
+       * The rows between -1 and 6 all trigger updates (most of which
+         should short-circuit on the remote end as having already been
+         done).
+       * Six more rows newer than SyncPoint1, so a third of the rows are
+         sent by node 1, another third by node 2, remaining third by node
+         3.
+       * SyncPoint1 is set as 12 (the newest ROWID known).
+       * SyncPoint2 is set as 6 (the newest "all updates" ROWID).
 
     In this way, under normal circumstances each node sends its share of
     updates each run and just sends a batch of older updates to ensure nothing

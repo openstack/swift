@@ -322,20 +322,20 @@ class ContainerBroker(DatabaseBroker):
     Note that this may involve multiple on-disk DB files if the container
     becomes sharded:
 
-      * :attr:`_db_file` is the path to the legacy container DB name, i.e.
-        ``<hash>.db``. This file should exist for an initialised broker that
-        has never been sharded, but will not exist once a container has been
-        sharded.
-      * :attr:`db_files` is a list of existing db files for the broker. This
-        list should have at least one entry for an initialised broker, and
-        should have two entries while a broker is in SHARDING state.
-      * :attr:`db_file` is the path to whichever db is currently authoritative
-        for the container. Depending on the container's state, this may not be
-        the same as the ``db_file`` argument given to :meth:`~__init__`, unless
-        ``force_db_file`` is True in which case :attr:`db_file` is always equal
-        to the ``db_file`` argument given to :meth:`~__init__`.
-      * :attr:`pending_file` is always equal to :attr:`_db_file` extended with
-        ``.pending``, i.e. ``<hash>.db.pending``.
+    * :attr:`_db_file` is the path to the legacy container DB name, i.e.
+      ``<hash>.db``. This file should exist for an initialised broker that
+      has never been sharded, but will not exist once a container has been
+      sharded.
+    * :attr:`db_files` is a list of existing db files for the broker. This
+      list should have at least one entry for an initialised broker, and
+      should have two entries while a broker is in SHARDING state.
+    * :attr:`db_file` is the path to whichever db is currently authoritative
+      for the container. Depending on the container's state, this may not be
+      the same as the ``db_file`` argument given to :meth:`~__init__`, unless
+      ``force_db_file`` is True in which case :attr:`db_file` is always equal
+      to the ``db_file`` argument given to :meth:`~__init__`.
+    * :attr:`pending_file` is always equal to :attr:`_db_file` extended with
+      ``.pending``, i.e. ``<hash>.db.pending``.
     """
     db_type = 'container'
     db_contains_type = 'object'

@@ -12,7 +12,7 @@ from the details of how data is laid out and stored on-disk.
 
 The APIs are documented in the reference implementations for all three
 servers. For historical reasons, the object server backend reference
-implementation module is named `diskfile`, while the account and container
+implementation module is named ``diskfile``, while the account and container
 server backend reference implementation modules are named appropriately.
 
 This API is still under development and not yet finalized.

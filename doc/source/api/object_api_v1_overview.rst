@@ -97,14 +97,14 @@ interact with the Object Storage API.
 Specifically, the resource path reflects this structure and has this
 format:
 
-.. code::
+.. code:: none
 
     /v1/{account}/{container}/{object}
 
 For example, for the ``flowers/rose.jpg`` object in the ``images``
 container in the ``12345678912345`` account, the resource path is:
 
-.. code::
+.. code:: none
 
     /v1/12345678912345/images/flowers/rose.jpg
 
@@ -133,7 +133,7 @@ parameter ``reverse``, noting that your marker and end_markers should be
 switched when applied to a reverse listing. I.e, for a list of objects
 ``[a, b, c, d, e]`` the non-reversed could be:
 
-.. code::
+.. code:: none
 
   /v1/{account}/{container}/?marker=a&end_marker=d
   b
@@ -141,7 +141,7 @@ switched when applied to a reverse listing. I.e, for a list of objects
 
 However, when reversed marker and end_marker are applied to a reversed list:
 
-.. code::
+.. code:: none
 
   /v1/{account}/{container}/?marker=d&end_marker=a&reverse=on
   c

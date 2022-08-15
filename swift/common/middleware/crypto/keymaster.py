@@ -208,10 +208,10 @@ class BaseKeyMaster(object):
 
     This provides some basic helpers for:
 
-        - loading from a separate config path,
-        - deriving keys based on path, and
-        - installing a ``swift.callback.fetch_crypto_keys`` hook
-          in the request environment.
+    - loading from a separate config path,
+    - deriving keys based on path, and
+    - installing a ``swift.callback.fetch_crypto_keys`` hook
+      in the request environment.
 
     Subclasses should define ``log_route``, ``keymaster_opts``, and
     ``keymaster_conf_section`` attributes, and implement the

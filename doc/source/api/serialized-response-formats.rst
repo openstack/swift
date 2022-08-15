@@ -56,18 +56,18 @@ format:
 
 .. code-block:: json
 
-    [
-       {
-          "count":0,
-          "bytes":0,
-          "name":"janeausten"
-       },
-       {
-          "count":1,
-          "bytes":14,
-          "name":"marktwain"
-       }
-    ]
+   [
+      {
+         "count":0,
+         "bytes":0,
+         "name":"janeausten"
+      },
+      {
+         "count":1,
+         "bytes":14,
+         "name":"marktwain"
+      }
+   ]
 
 
 Example 2. XML example with Accept header
@@ -100,19 +100,19 @@ format:
 
 .. code-block:: xml
 
-    <?xml version="1.0" encoding="UTF-8"?>
-    <account name="AUTH_73f0aa26640f4971864919d0eb0f0880">
-        <container>
-            <name>janeausten</name>
-            <count>2</count>
-            <bytes>33</bytes>
-        </container>
-        <container>
-            <name>marktwain</name>
-            <count>1</count>
-            <bytes>14</bytes>
-        </container>
-    </account>
+   <?xml version="1.0" encoding="UTF-8"?>
+   <account name="AUTH_73f0aa26640f4971864919d0eb0f0880">
+       <container>
+           <name>janeausten</name>
+           <count>2</count>
+           <bytes>33</bytes>
+       </container>
+       <container>
+           <name>marktwain</name>
+           <count>1</count>
+           <bytes>14</bytes>
+       </container>
+   </account>
 
 The remainder of the examples in this guide use standard, non-serialized
 responses. However, all ``GET`` requests that perform list operations

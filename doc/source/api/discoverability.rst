@@ -12,13 +12,13 @@ that does not support the ``/info`` request.
 To use the ``/info`` request, send a **GET** request using the ``/info``
 path to the Object Store endpoint as shown in this example:
 
-.. code::
+.. code:: console
 
     # curl https://storage.clouddrive.com/info
 
 This example shows a truncated response body:
 
-.. code::
+.. code:: console
 
     {
        "swift":{

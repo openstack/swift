@@ -10,13 +10,13 @@ Fix broken GPT table (broken disk partition)
 -  If a GPT table is broken, a message like the following should be
    observed when the command...
 
-   .. code::
+   .. code:: console
 
       $ sudo parted -l
 
 -  ... is run.
 
-   .. code::
+   .. code:: console
 
       ...
       Error: The backup GPT table is corrupt, but the primary appears OK, so that will
@@ -25,13 +25,13 @@ Fix broken GPT table (broken disk partition)
 
 #. To fix this, firstly install the ``gdisk`` program to fix this:
 
-   .. code::
+   .. code:: console
 
       $ sudo aptitude install gdisk
 
 #. Run ``gdisk`` for the particular drive with the damaged partition:
 
-   .. code:
+   .. code: console
 
       $ sudo gdisk /dev/sd*a-l*
       GPT fdisk (gdisk) version 0.6.14
@@ -57,7 +57,7 @@ Fix broken GPT table (broken disk partition)
    and finally ``w`` (write table to disk and exit). Will also need to
    enter ``Y`` when prompted in order to confirm actions.
 
-   .. code::
+   .. code:: console
 
       Command (? for help): r
 
@@ -92,7 +92,7 @@ Fix broken GPT table (broken disk partition)
 
 #. Running the command:
 
-   .. code::
+   .. code:: console
 
       $ sudo parted /dev/sd#
 
@@ -100,7 +100,7 @@ Fix broken GPT table (broken disk partition)
 
 #. Finally, uninstall ``gdisk`` from the node:
 
-   .. code::
+   .. code:: console
 
       $ sudo aptitude remove gdisk
 
@@ -112,20 +112,20 @@ Procedure: Fix broken XFS filesystem
 #. A filesystem may be corrupt or broken if the following output is
    observed when checking its label:
 
-   .. code::
+   .. code:: console
 
       $ sudo xfs_admin -l /dev/sd#
-        cache_node_purge: refcount was 1, not zero (node=0x25d5ee0)
-        xfs_admin: cannot read root inode (117)
-        cache_node_purge: refcount was 1, not zero (node=0x25d92b0)
-        xfs_admin: cannot read realtime bitmap inode (117)
-        bad sb magic # 0 in AG 1
-        failed to read label in AG 1
+      cache_node_purge: refcount was 1, not zero (node=0x25d5ee0)
+      xfs_admin: cannot read root inode (117)
+      cache_node_purge: refcount was 1, not zero (node=0x25d92b0)
+      xfs_admin: cannot read realtime bitmap inode (117)
+      bad sb magic # 0 in AG 1
+      failed to read label in AG 1
 
 #. Run the following commands to remove the broken/corrupt filesystem and replace.
    (This example uses the filesystem ``/dev/sdb2``) Firstly need to replace the partition:
 
-   .. code::
+   .. code:: console
 
       $ sudo parted
       GNU Parted 2.3
@@ -167,7 +167,7 @@ Procedure: Fix broken XFS filesystem
 
 #. Next step is to scrub the filesystem and format:
 
-   .. code::
+   .. code:: console
 
       $ sudo dd if=/dev/zero of=/dev/sdb2 bs=$((1024*1024)) count=1
       1+0 records in
@@ -175,19 +175,19 @@ Procedure: Fix broken XFS filesystem
       1048576 bytes (1.0 MB) copied, 0.00480617 s, 218 MB/s
       $ sudo /sbin/mkfs.xfs -f -i size=1024 /dev/sdb2
       meta-data=/dev/sdb2              isize=1024   agcount=4, agsize=106811524 blks
-             =                       sectsz=512   attr=2, projid32bit=0
-    data     =                       bsize=4096   blocks=427246093, imaxpct=5
-             =                       sunit=0      swidth=0 blks
-    naming   =version 2              bsize=4096   ascii-ci=0
-    log      =internal log           bsize=4096   blocks=208616, version=2
-             =                       sectsz=512   sunit=0 blks, lazy-count=1
-    realtime =none                   extsz=4096   blocks=0, rtextents=0
+               =                       sectsz=512   attr=2, projid32bit=0
+      data     =                       bsize=4096   blocks=427246093, imaxpct=5
+               =                       sunit=0      swidth=0 blks
+      naming   =version 2              bsize=4096   ascii-ci=0
+      log      =internal log           bsize=4096   blocks=208616, version=2
+               =                       sectsz=512   sunit=0 blks, lazy-count=1
+      realtime =none                   extsz=4096   blocks=0, rtextents=0
 
 #. You should now label and mount your filesystem.
 
 #. Can now check to see if the filesystem is mounted using the command:
 
-   .. code::
+   .. code:: console
 
       $ mount
 
@@ -204,7 +204,7 @@ Procedure: Checking if an account is okay
 
 You must know the tenant/project ID. You can check if the account is okay as follows from a proxy.
 
-.. code::
+.. code:: console
 
    $ sudo -u swift  /opt/hp/swift/bin/swift-direct show AUTH_<project-id>
 
@@ -214,7 +214,7 @@ containers, or an error indicating that the resource could not be found.
 Alternatively, you can use ``swift-get-nodes`` to find the account database
 files. Run the following on a proxy:
 
-.. code::
+.. code:: console
 
    $ sudo swift-get-nodes /etc/swift/account.ring.gz  AUTH_<project-id>
 
@@ -239,7 +239,7 @@ Log onto one of the swift proxy servers.
 
 Use swift-direct to show this accounts usage:
 
-.. code::
+.. code:: console
 
    $ sudo -u swift /opt/hp/swift/bin/swift-direct show AUTH_<project-id>
    Status: 200
@@ -288,7 +288,7 @@ re-create the account as follows:
    servers). The output has been truncated so we can focus on the import pieces
    of data:
 
-   .. code::
+   .. code:: console
 
        $ sudo swift-get-nodes /etc/swift/account.ring.gz AUTH_4ebe3039674d4864a11fe0864ae4d905
        ...
@@ -308,7 +308,7 @@ re-create the account as follows:
 #. Before proceeding check that the account is really deleted by using curl. Execute the
    commands printed by ``swift-get-nodes``. For example:
 
-   .. code::
+   .. code:: console
 
        $ curl -I -XHEAD "http://192.168.245.5:6202/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
        HTTP/1.1 404 Not Found
@@ -323,7 +323,7 @@ re-create the account as follows:
 #. Use the ssh commands printed by ``swift-get-nodes`` to check if database
    files exist. For example:
 
-   .. code::
+   .. code:: console
 
        $  ssh 192.168.245.5 "ls -lah ${DEVICE:-/srv/node*}/disk1/accounts/3934/052/f5ecf8b40de3e1b0adb0dbe576874052"
        total 20K
@@ -344,7 +344,7 @@ re-create the account as follows:
 
 #. Delete the database files. For example:
 
-   .. code::
+   .. code:: console
 
        $ ssh 192.168.245.5
        $ cd /srv/node/disk1/accounts/3934/052/f5ecf8b40de3e1b0adb0dbe576874052
@@ -374,9 +374,9 @@ balancers, customer's are not impacted by the misbehaving proxy.
 
 #. Shut down Swift as follows:
 
-   .. code::
+   .. code:: console
 
-      sudo swift-init proxy shutdown
+      $ sudo swift-init proxy shutdown
 
    .. note::
 
@@ -384,15 +384,15 @@ balancers, customer's are not impacted by the misbehaving proxy.
 
 #. Create the ``/etc/swift/disabled-by-file`` file. For example:
 
-   .. code::
+   .. code:: console
 
-      sudo touch /etc/swift/disabled-by-file
+      $ sudo touch /etc/swift/disabled-by-file
 
 #. Optional, restart Swift:
 
-   .. code::
+   .. code:: console
 
-      sudo swift-init proxy start
+      $ sudo swift-init proxy start
 
 It works because the healthcheck middleware looks for /etc/swift/disabled-by-file.
 If it exists, the middleware will return 503/error instead of 200/OK. This means the load balancer
@@ -403,9 +403,9 @@ Procedure: Ad-Hoc disk performance test
 
 You can get an idea whether a disk drive is performing as follows:
 
-.. code::
+.. code:: console
 
-   sudo dd bs=1M count=256 if=/dev/zero conv=fdatasync of=/srv/node/disk11/remember-to-delete-this-later
+   $ sudo dd bs=1M count=256 if=/dev/zero conv=fdatasync of=/srv/node/disk11/remember-to-delete-this-later
 
 You can expect ~600MB/sec. If you get a low number, repeat many times as
 Swift itself may also read or write to the disk, hence giving a lower
