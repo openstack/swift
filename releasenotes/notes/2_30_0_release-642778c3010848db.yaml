@@ -1,0 +1,167 @@
+---
+features:
+  - |
+    Sharding improvements
+
+    * The ``swift-manage-shard-ranges`` tool has a new mode to repair gaps
+      in the namespace.
+
+    * Metrics are now emitted for whether databases used for cleaving
+      were created or already existed, allowing a better understanding
+      of the reason for handoffs in the cluster.
+
+    * Misplaced-record stats are now also emitted to statsd. Previously,
+      these were only available in logs.
+
+  - |
+    Logging improvements
+
+    * The message template for proxy logging may now include a
+      ``{domain}`` field for the client-provided ``Host`` header.
+
+    * Added a ``log_rsync_transfers`` option to the object-replicator.
+      Set it to false to disable logging rsync "send" lines; during
+      large rebalances, such logging can overwhelm log aggregation
+      while providing little useful information.
+
+  - |
+    The formpost digest algorithm is now configurable via the new
+    ``allowed_digests`` option, and support is added for both SHA-256
+    and SHA-512. Supported formpost digests are exposed to clients in
+    ``/info``. Additionally, formpost signatures can now be base64 encoded.
+
+  - |
+    Added metrics to the formpost and tempurl middlewares to monitor
+    digest usage in signatures.
+
+  - |
+    Improved compatibility with certain FIPS-mode-enabled systems.
+
+  - |
+    Added a ``ring_ip`` option for various object services. This may be
+    used to find own devices in the ring in a containerized environment
+    where the ``bind_ip`` may not appear in the ring at all.
+
+  - |
+    Account and container replicators can now be configured with a
+    ``handoff_delete`` option, similar to object replicators and
+    reconstructors. See the sample config for more information.
+
+  - |
+    Developers using Swift's memcache client may now opt in to having
+    a ``MemcacheConnectionError`` be raised when no connection succeeded
+    using a new ``raise_on_error`` keyword argument to ``get``/``set``.
+
+  - |
+    Device names are now included in new database IDs. This provides more
+    context when examining incoming/outgoing sync tables or sharding
+    CleaveContexts.
+
+deprecations:
+  - |
+    SHA-1 signatures are now deprecated for the formpost and tempurl
+    middlewares. At some point in the future, SHA-1 will no longer be
+    enabled by default; eventually, support for it will be removed
+    entirely.
+
+security:
+  - |
+    Constant-time string comparisons are now used when checking S3 API signatures.
+
+  - |
+    Fixed a socket leak when clients try to delete a non-SLO as though
+    it were a Static Large Object.
+
+fixes:
+  - |
+    Sharding improvements
+
+    * Misplaced tombstone records are now properly cleaved.
+
+    * Fixed a bug where the sharder could fail to find a device to use for
+      cleaving.
+
+    * Databases marked deleted are now processed by the sharder.
+
+    * More information is now synced to the fresh database when sharding.
+      Previously, a database could lose the fact that it had been marked
+      as deleted.
+
+    * Shard ranges with no rows to cleave could previously be left in the
+      CREATED state after cleaving. Now, they are advanced to CLEAVED.
+
+  - |
+    S3 API improvements
+
+    * Fixed cross-policy object copies. Previously, copied data would
+      always be written using the source container's policy. Now, the
+      destination container's policy will be used, avoiding availability
+      issues and unnecessary container-reconciler work.
+
+    * More headers are now copied from multi-part upload markers to their
+      completed objects, including ``Content-Encoding``.
+
+    * When running with ``s3_acl`` disabled, ``bucket-owner-full-control`` and
+      ``bucket-owner-read`` canned ACLs will be translated to the same Swift
+      ACLs as ``private``.
+
+    * The S3 ACL and Delete Multiple APIs are now less case-sensitive.
+
+    * Improved the error message when deleting a bucket that's ever had
+      versioning enabled and still has versions in it.
+
+    * ``LastModified`` timestamps in listings are now rounded up to whole
+      seconds, like they are in responses from AWS.
+
+    * Proxy logging for Complete Multipart Upload requests is now more
+      consistent when requests have been retried.
+
+  - |
+    Logging improvements
+
+    * Signal handling is more consistently logged at notice level.
+      Previously, signal handling would sometimes be logged at info
+      or error levels.
+
+    * The object-replicator now logs successful rsync transfers at debug
+      instead of info.
+
+    * Transaction IDs are now only included in daemon log lines
+      in a request/response context.
+
+  - |
+    The tempurl middleware has been updated to return a 503 if storing a
+    token in memcache fails. Third party authentication middlewares are
+    encouraged to also use the new ``raise_on_error`` keyword argument
+    when storing ephemeral tokens in memcache.
+
+  - |
+    Database replication connections are now closed following an error
+    or timeout. This prevents a traceback in some cases when the replicator
+    tries to reuse the connection.
+
+  - |
+    ``ENOENT`` and ``ENODATA`` errors are better handled in the object
+    replicator and auditor.
+
+  - |
+    Improved object update throughput by shifting some shard range
+    filtering from Python to SQL.
+
+  - |
+    Include ``Vary: Origin`` header when CORS responses vary by origin.
+
+  - |
+    The staticweb middleware now allows empty listings at the root of
+    a container. Previously, this would result in a 404 response.
+
+  - |
+    Ring builder output tables better display weights over 1000.
+
+  - |
+    Various other minor bug fixes and improvements.
+
+other:
+  - |
+    Pickle support has been removed from Swift's memcache client. Support
+    had been deprecated since Swift 1.7.0.

@@ -932,7 +932,7 @@ use = egg:swift#tempurl
 #
 # The digest algorithm(s) supported for generating signatures;
 # whitespace-delimited.
-# allowed_digests = sha256 sha512
+# allowed_digests = sha1 sha256 sha512
 
 # Note: Put formpost just before your auth filter(s) in the pipeline
 [filter:formpost]
