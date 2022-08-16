@@ -129,6 +129,7 @@ class TestBaseSsync(BaseTest):
                                                 frag_index=frag_index)
             if policy.policy_type == EC_POLICY:
                 metadata['X-Object-Sysmeta-Ec-Frag-Index'] = str(frag_index)
+                metadata['X-Object-Sysmeta-Ec-Etag'] = 'fake-etag'
             df = self._make_diskfile(
                 device=self.device, partition=self.partition, account='a',
                 container='c', obj=obj_name, body=object_data,

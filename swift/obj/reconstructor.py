@@ -653,6 +653,9 @@ class ObjectReconstructor(Daemon):
         # of the node we're rebuilding to within the primary part list
         fi_to_rebuild = node['backend_index']
         datafile_metadata = df.get_datafile_metadata()
+        if not df.validate_metadata():
+            raise df._quarantine(
+                df._data_file, "Invalid fragment #%s" % df._frag_index)
         local_timestamp = Timestamp(datafile_metadata['X-Timestamp'])
         path = datafile_metadata['name']
 
