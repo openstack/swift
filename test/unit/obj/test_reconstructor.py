@@ -1246,7 +1246,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.reconstructor.reconstruct()
         for context in ssync_calls:
             if context['job']['job_type'] == REVERT:
-                self.assertTrue(True, context.get('include_non_durable'))
+                self.assertTrue(context.get('include_non_durable'))
                 data_file_tail = ('#%s.data'
                                   % context['node']['index'])
                 for dirpath, files in visit_obj_dirs(context):
@@ -1318,7 +1318,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.reconstructor.reconstruct()
         for context in ssync_calls:
             self.assertEqual(REVERT, context['job']['job_type'])
-            self.assertTrue(True, context.get('include_non_durable'))
+            self.assertTrue(context.get('include_non_durable'))
         # neither nondurable should be removed yet with default commit_window
         # because their mtimes are too recent
         self.assertTrue(os.path.exists(datafile_recent))
@@ -1337,7 +1337,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.reconstructor.reconstruct()
         for context in ssync_calls:
             self.assertEqual(REVERT, context['job']['job_type'])
-            self.assertTrue(True, context.get('include_non_durable'))
+            self.assertTrue(context.get('include_non_durable'))
 
         # ...now the nondurables get purged
         self.assertFalse(os.path.exists(datafile_recent))
