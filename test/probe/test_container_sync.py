@@ -16,7 +16,7 @@ import uuid
 import random
 import unittest
 
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 from swiftclient import client, ClientException
 
 from swift.common.http import HTTP_NOT_FOUND

@@ -18,8 +18,6 @@ import os
 import unittest
 import uuid
 
-import six
-
 from mock import ANY, patch
 from swift.common.container_sync_realms import ContainerSyncRealms
 from test.debug_logger import debug_logger
@@ -80,16 +78,10 @@ class TestUtils(unittest.TestCase):
             logger = debug_logger()
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
-            if six.PY2:
-                fmt = "Could not load '%s': " \
-                    "File contains no section headers.\n" \
-                    "file: %s, line: 1\n" \
-                    "'invalid'"
-            else:
-                fmt = "Could not load '%s': " \
-                    "File contains no section headers.\n" \
-                    "file: '%s', line: 1\n" \
-                    "'invalid'"
+            fmt = "Could not load '%s': " \
+                "File contains no section headers.\n" \
+                "file: '%s', line: 1\n" \
+                "'invalid'"
             self.assertEqual(
                 logger.all_log_lines(),
                 {'error': [fmt % (fpath, fpath)]})

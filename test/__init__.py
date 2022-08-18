@@ -18,7 +18,6 @@ import sys
 from contextlib import contextmanager
 
 import os
-from six import reraise
 
 from unittest.util import safe_repr
 
@@ -105,15 +104,15 @@ def annotate_failure(msg):
     try:
         yield
     except AssertionError as err:
-        err_typ, err_val, err_tb = sys.exc_info()
-        if err_val.args:
-            msg = '%s Failed with %s' % (msg, err_val.args[0])
-            err_val.args = (msg, ) + err_val.args[1:]
+        if err.args:
+            msg = '%s Failed with %s' % (msg, err.args[0])
+            err.args = (msg, ) + err.args[1:]
+            raise err
         else:
             # workaround for some IDE's raising custom AssertionErrors
-            err_val = '%s Failed with %s' % (msg, err)
-            err_typ = AssertionError
-        reraise(err_typ, err_val, err_tb)
+            raise AssertionError(
+                '%s Failed with %s' % (msg, err)
+            ).with_traceback(err.__traceback__) from err.__cause__
 
 
 class BaseTestCase(unittest.TestCase):

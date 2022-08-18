@@ -30,8 +30,7 @@ import eventlet
 
 from collections import defaultdict
 from datetime import datetime
-import six
-from six.moves import urllib
+import urllib.parse
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 from swift.common.swob import Request
 
@@ -120,8 +119,6 @@ class FakeInternalClient(reconciler.InternalClient):
             else:
                 timestamp, content_type = timestamp, 'application/x-put'
             storage_policy_index, path = item
-            if six.PY2 and isinstance(path, six.text_type):
-                path = path.encode('utf-8')
             account, container_name, obj_name = split_path(
                 path, 0, 3, rest_with_last=True)
             self.accounts[account][container_name].append(
@@ -157,9 +154,6 @@ class FakeInternalClient(reconciler.InternalClient):
                     # strings, so normalize here
                     if isinstance(timestamp, numbers.Number):
                         timestamp = '%f' % timestamp
-                    if six.PY2:
-                        obj_name = obj_name.decode('utf-8')
-                        timestamp = timestamp.decode('utf-8')
                     obj_data = {
                         'bytes': 0,
                         # listing data is unicode
@@ -1319,10 +1313,7 @@ class TestReconciler(unittest.TestCase):
         # functions where we call them with (account, container, obj)
         obj_name = u"AUTH_bob/c \u062a/o1 \u062a"
         # anytime we talk about a call made to swift for a path
-        if six.PY2:
-            obj_path = obj_name.encode('utf-8')
-        else:
-            obj_path = obj_name.encode('utf-8').decode('latin-1')
+        obj_path = obj_name.encode('utf-8').decode('latin-1')
         # this mock expects unquoted unicode because it handles container
         # listings as well as paths
         self._mock_listing({

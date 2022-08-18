@@ -23,9 +23,7 @@ from time import time
 
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
-import six
-from six.moves import range
-from six.moves.configparser import ConfigParser
+from configparser import ConfigParser
 
 from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
@@ -53,7 +51,7 @@ def put_object(connpool, container, obj, report):
     global retries_done
     try:
         with connpool.item() as conn:
-            data = io.BytesIO(obj if six.PY2 else obj.encode('utf8'))
+            data = io.BytesIO(obj.encode('utf8'))
             conn.put_object(container, obj, data,
                             headers={'x-object-meta-dispersion': obj})
             retries_done += conn.attempts - 1

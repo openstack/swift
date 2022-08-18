@@ -21,7 +21,7 @@ import unittest
 
 import mock
 
-from six.moves.urllib import parse as urlparse
+import urllib.parse
 from swift.common.middleware.crypto import encrypter
 from swift.common.middleware.crypto.crypto_utils import (
     CRYPTO_KEY_CALLBACK, Crypto)
@@ -53,7 +53,7 @@ class TestEncrypter(unittest.TestCase):
         param = param.strip()
         self.assertTrue(param.startswith('swift_meta='))
         actual_meta = json.loads(
-            urlparse.unquote_plus(param[len('swift_meta='):]))
+            urllib.parse.unquote_plus(param[len('swift_meta='):]))
         self.assertEqual(Crypto.cipher, actual_meta['cipher'])
         meta_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, meta_iv)
@@ -62,7 +62,7 @@ class TestEncrypter(unittest.TestCase):
             wsgi_to_bytes(enc_val))
         # if there is any encrypted user metadata then this header should exist
         self.assertIn('X-Object-Transient-Sysmeta-Crypto-Meta', req_hdrs)
-        common_meta = json.loads(urlparse.unquote_plus(
+        common_meta = json.loads(urllib.parse.unquote_plus(
             req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta']))
         self.assertDictEqual({'cipher': Crypto.cipher,
                               'key_id': {'v': 'fake', 'path': '/a/c/fake'}},
@@ -102,7 +102,7 @@ class TestEncrypter(unittest.TestCase):
 
         # verify body crypto meta
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Body-Meta']
-        actual = json.loads(urlparse.unquote_plus(actual))
+        actual = json.loads(urllib.parse.unquote_plus(actual))
         self.assertEqual(Crypto().cipher, actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
@@ -121,7 +121,7 @@ class TestEncrypter(unittest.TestCase):
             req_hdrs['X-Object-Sysmeta-Crypto-Etag'].partition('; swift_meta=')
         # verify crypto_meta was appended to this etag
         self.assertTrue(etag_meta)
-        actual_meta = json.loads(urlparse.unquote_plus(etag_meta))
+        actual_meta = json.loads(urllib.parse.unquote_plus(etag_meta))
         self.assertEqual(Crypto().cipher, actual_meta['cipher'])
 
         # verify encrypted version of plaintext etag
@@ -151,7 +151,7 @@ class TestEncrypter(unittest.TestCase):
         crypto_meta_tag = 'swift_meta='
         self.assertTrue(param.startswith(crypto_meta_tag), param)
         actual_meta = json.loads(
-            urlparse.unquote_plus(param[len(crypto_meta_tag):]))
+            urllib.parse.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().cipher, actual_meta['cipher'])
         self.assertEqual(fetch_crypto_keys()['id'], actual_meta['key_id'])
 
@@ -282,7 +282,7 @@ class TestEncrypter(unittest.TestCase):
         encrypted_etag, _junk, etag_meta = \
             req_hdrs['X-Object-Sysmeta-Crypto-Etag'].partition('; swift_meta=')
         self.assertTrue(etag_meta)
-        actual_meta = json.loads(urlparse.unquote_plus(etag_meta))
+        actual_meta = json.loads(urllib.parse.unquote_plus(etag_meta))
         self.assertEqual(Crypto().cipher, actual_meta['cipher'])
 
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
@@ -303,7 +303,7 @@ class TestEncrypter(unittest.TestCase):
         crypto_meta_tag = 'swift_meta='
         self.assertTrue(param.startswith(crypto_meta_tag), param)
         actual_meta = json.loads(
-            urlparse.unquote_plus(param[len(crypto_meta_tag):]))
+            urllib.parse.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().cipher, actual_meta['cipher'])
 
         cont_key = fetch_crypto_keys()['container']
@@ -315,7 +315,7 @@ class TestEncrypter(unittest.TestCase):
 
         # verify body crypto meta
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Body-Meta']
-        actual = json.loads(urlparse.unquote_plus(actual))
+        actual = json.loads(urllib.parse.unquote_plus(actual))
         self.assertEqual(Crypto().cipher, actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
@@ -374,7 +374,7 @@ class TestEncrypter(unittest.TestCase):
         crypto_meta_tag = 'swift_meta='
         self.assertTrue(param.startswith(crypto_meta_tag), param)
         actual_meta = json.loads(
-            urlparse.unquote_plus(param[len(crypto_meta_tag):]))
+            urllib.parse.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().cipher, actual_meta['cipher'])
         self.assertEqual(fetch_crypto_keys()['id'], actual_meta['key_id'])
 
@@ -569,7 +569,7 @@ class TestEncrypter(unittest.TestCase):
         crypto_meta_tag = 'swift_meta='
         self.assertTrue(param.startswith(crypto_meta_tag), param)
         actual_meta = json.loads(
-            urlparse.unquote_plus(param[len(crypto_meta_tag):]))
+            urllib.parse.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().cipher, actual_meta['cipher'])
         self.assertEqual(fetch_crypto_keys()['id'], actual_meta['key_id'])
 

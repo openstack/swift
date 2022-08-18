@@ -19,7 +19,6 @@ import itertools
 import logging
 
 from eventlet import GreenPile, GreenPool, Timeout
-import six
 
 from swift.common import constraints
 from swift.common.daemon import Daemon, run_daemon
@@ -272,11 +271,7 @@ def parse_raw_obj(obj_info):
     :returns: a queue entry dict with the keys: q_policy_index, account,
               container, obj, q_op, q_ts, q_record, and path
     """
-    if six.PY2:
-        raw_obj_name = obj_info['name'].encode('utf-8')
-    else:
-        raw_obj_name = obj_info['name']
-
+    raw_obj_name = obj_info['name']
     policy_index, obj_name = raw_obj_name.split(':', 1)
     q_policy_index = int(policy_index)
     account, container, obj = split_path(obj_name, 3, 3, rest_with_last=True)
@@ -758,9 +753,6 @@ class ContainerReconciler(Daemon):
             # reversed order since we expect older containers to be empty
             for c in reversed(one_page):
                 container = c['name']
-                if six.PY2:
-                    # encoding here is defensive
-                    container = container.encode('utf8')
                 if container == current_container:
                     continue  # we've already hit this one this pass
                 yield container

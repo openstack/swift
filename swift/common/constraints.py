@@ -17,9 +17,8 @@ import functools
 import os
 from os.path import isdir  # tighter scoped import for mocking
 
-import six
-from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
-from six.moves import urllib
+from configparser import ConfigParser, NoSectionError, NoOptionError
+import urllib
 
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
@@ -130,7 +129,7 @@ def check_metadata(req, target_type):
     meta_count = 0
     meta_size = 0
     for key, value in req.headers.items():
-        if (isinstance(value, six.string_types)
+        if (isinstance(value, str)
            and len(value) > MAX_HEADER_SIZE):
 
             return HTTPBadRequest(body=b'Header value too long: %s' %
@@ -364,7 +363,7 @@ def check_utf8(string, internal=False):
     if not string:
         return False
     try:
-        if isinstance(string, six.text_type):
+        if isinstance(string, str):
             encoded = string.encode('utf-8')
             decoded = string
         else:
@@ -412,9 +411,6 @@ def check_name_format(req, name, target_type):
         raise HTTPPreconditionFailed(
             request=req,
             body='%s name cannot be empty' % target_type)
-    if six.PY2:
-        if isinstance(name, six.text_type):
-            name = name.encode('utf-8')
     if '/' in name:
         raise HTTPPreconditionFailed(
             request=req,

@@ -32,8 +32,6 @@ import time
 
 from copy import deepcopy
 
-import six
-
 from swift.common import internal_client
 from swift.container import replicator
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
@@ -8265,7 +8263,7 @@ class TestCleavingContext(BaseTestSharder):
 
         for curs in ('curs', u'curs\u00e4\u00fb'):
             with annotate_failure('%r' % curs):
-                expected = curs.encode('utf-8') if six.PY2 else curs
+                expected = curs
                 ctx = CleavingContext(ref, curs, 12, 11, 10, False, True)
                 self.assertEqual(dict(ctx), {
                     'cursor': expected,

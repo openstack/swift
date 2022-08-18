@@ -36,7 +36,7 @@ from swift.common.utils import get_logger, config_true_value
 from swift.common.request_helpers import (
     remove_items, get_sys_meta_prefix, OBJECT_TRANSIENT_SYSMETA_PREFIX
 )
-from six.moves.urllib.parse import urlsplit
+from urllib.parse import urlsplit
 import re
 
 #: A list of python regular expressions that will be used to

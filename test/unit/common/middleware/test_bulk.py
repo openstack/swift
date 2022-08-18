@@ -21,7 +21,6 @@ import os
 import tarfile
 import zlib
 import mock
-import six
 from io import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
@@ -50,9 +49,8 @@ class FakeApp(object):
         self.calls += 1
         if env.get('swift.source') in ('EA', 'BD'):
             assert not env.get('swift.proxy_access_log_made')
-        if not six.PY2:
-            # Check that it's valid WSGI
-            assert all(0 <= ord(c) <= 255 for c in env['PATH_INFO'])
+        # Check that it's valid WSGI
+        assert all(0 <= ord(c) <= 255 for c in env['PATH_INFO'])
 
         if env['REQUEST_METHOD'] == 'PUT':
             self.put_paths.append(env['PATH_INFO'])
@@ -116,8 +114,6 @@ def build_dir_tree(start_path, tree_obj):
             os.mkdir(dir_path)
             build_dir_tree(dir_path, obj)
         return
-    if six.PY2 and isinstance(tree_obj, six.text_type):
-        tree_obj = tree_obj.encode('utf8')
     if isinstance(tree_obj, str):
         obj_path = os.path.join(start_path, tree_obj)
         with open(obj_path, 'w+') as tree_file:
@@ -127,16 +123,10 @@ def build_dir_tree(start_path, tree_obj):
 
 
 def build_tar_tree(tar, start_path, tree_obj, base_path=''):
-    if six.PY2:
-        if isinstance(start_path, six.text_type):
-            start_path = start_path.encode('utf8')
-        if isinstance(tree_obj, six.text_type):
-            tree_obj = tree_obj.encode('utf8')
-    else:
-        if isinstance(start_path, bytes):
-            start_path = start_path.decode('utf8', 'surrogateescape')
-        if isinstance(tree_obj, bytes):
-            tree_obj = tree_obj.decode('utf8', 'surrogateescape')
+    if isinstance(start_path, bytes):
+        start_path = start_path.decode('utf8', 'surrogateescape')
+    if isinstance(tree_obj, bytes):
+        tree_obj = tree_obj.decode('utf8', 'surrogateescape')
 
     if isinstance(tree_obj, list):
         for obj in tree_obj:
@@ -144,9 +134,7 @@ def build_tar_tree(tar, start_path, tree_obj, base_path=''):
         return
     if isinstance(tree_obj, dict):
         for dir_name, obj in tree_obj.items():
-            if six.PY2 and isinstance(dir_name, six.text_type):
-                dir_name = dir_name.encode('utf8')
-            elif not six.PY2 and isinstance(dir_name, bytes):
+            if isinstance(dir_name, bytes):
                 dir_name = dir_name.decode('utf8', 'surrogateescape')
             dir_path = os.path.join(start_path, dir_name)
             tar_info = tarfile.TarInfo(dir_path[len(base_path):])
@@ -196,8 +184,7 @@ class TestUntarMetadata(unittest.TestCase):
         # With GNU tar 1.27.1 or later (possibly 1.27 as well), a file with
         # extended attribute user.thingy = dingy gets put into the tarfile
         # with pax_headers containing key/value pair
-        # (SCHILY.xattr.user.thingy, dingy), both unicode strings (py2: type
-        # unicode, not type str).
+        # (SCHILY.xattr.user.thingy, dingy), both unicode strings
         #
         # With BSD tar (libarchive), you get key/value pair
         # (LIBARCHIVE.xattr.user.thingy, dingy), which strikes me as

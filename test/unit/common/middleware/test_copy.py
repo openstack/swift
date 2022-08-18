@@ -16,7 +16,7 @@
 
 import mock
 import unittest
-from six.moves import urllib
+import urllib.parse
 
 from swift.common import swob
 from swift.common.middleware import copy

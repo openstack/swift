@@ -20,8 +20,7 @@ import uuid
 from optparse import OptionParser
 import random
 
-import six
-from six.moves.urllib.parse import urlparse, parse_qs, quote
+from urllib.parse import urlparse, parse_qs, quote
 
 from swift.common.manager import Manager
 from swift.common import utils, ring
@@ -68,8 +67,7 @@ def command(f):
     return f
 
 
-@six.add_metaclass(meta_command)
-class BaseBrain(object):
+class BaseBrain(object, metaclass=meta_command):
     def _setup(self, account, container_name, object_name,
                server_type, policy):
         self.account = account

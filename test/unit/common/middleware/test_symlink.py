@@ -19,7 +19,7 @@ import io
 import json
 import mock
 
-from six.moves.urllib.parse import parse_qs
+from urllib.parse import parse_qs
 from swift.common import swob
 from swift.common.middleware import symlink, copy, versioned_writes, \
     listing_formats

@@ -18,10 +18,9 @@ import hmac
 import unittest
 import itertools
 import hashlib
-import six
 import time
 
-from six.moves import urllib
+import urllib.parse
 from uuid import uuid4
 
 from swift.common.http import is_success
@@ -2293,10 +2292,9 @@ class TestSymlinkAccountTempurl(Base):
 
     def tempurl_parms(self, method, expires, path, key):
         path = urllib.parse.unquote(path)
-        if not six.PY2:
-            method = method.encode('utf8')
-            path = path.encode('utf8')
-            key = key.encode('utf8')
+        method = method.encode('utf8')
+        path = path.encode('utf8')
+        key = key.encode('utf8')
         sig = hmac.new(
             key,
             b'%s\n%d\n%s' % (method, expires, path),
@@ -2391,10 +2389,9 @@ class TestSymlinkContainerTempurl(Base):
 
     def tempurl_sig(self, method, expires, path, key):
         path = urllib.parse.unquote(path)
-        if not six.PY2:
-            method = method.encode('utf8')
-            path = path.encode('utf8')
-            key = key.encode('utf8')
+        method = method.encode('utf8')
+        path = path.encode('utf8')
+        key = key.encode('utf8')
         return hmac.new(
             key,
             b'%s\n%d\n%s' % (method, expires, path),

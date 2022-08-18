@@ -18,10 +18,9 @@ import hashlib
 import hmac
 import json
 import time
-import six
 
 from copy import deepcopy
-from six.moves.urllib.parse import quote, unquote
+from urllib.parse import quote, unquote
 from unittest import SkipTest
 
 import test.functional as tf
@@ -64,13 +63,7 @@ class TestObjectVersioningEnv(BaseEnv):
             cls.conn2 = Connection(config2)
             cls.conn2.authenticate()
 
-        if six.PY2:
-            # avoid getting a prefix that stops halfway through an encoded
-            # character
-            prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
-        else:
-            prefix = Utils.create_name()[:10]
-
+        prefix = Utils.create_name()[:10]
         cls.container = cls.account.container(prefix + "-objs")
         container_headers = {cls.versions_header_key: 'True'}
         if not cls.container.create(hdrs=container_headers):
@@ -2344,7 +2337,7 @@ class TestSloWithVersioning(TestObjectVersioningBase):
 
         for k_client, k_slo in key_map.items():
             self.assertEqual(self.seg_info[seg_name][k_client],
-                             Utils.encode_if_py2(manifest[0][k_slo]))
+                             manifest[0][k_slo])
 
     def _assert_is_object(self, file_item, seg_data, version_id=None):
         if version_id:
@@ -2591,13 +2584,7 @@ class TestVersionsLocationWithVersioning(TestObjectVersioningBase):
     def setUp(self):
         super(TestVersionsLocationWithVersioning, self).setUp()
 
-        if six.PY2:
-            # avoid getting a prefix that stops halfway through an encoded
-            # character
-            prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
-        else:
-            prefix = Utils.create_name()[:10]
-
+        prefix = Utils.create_name()[:10]
         self.versions_container = self.env.account.container(
             prefix + "-versions")
         if not self.versions_container.create():
@@ -2725,10 +2712,9 @@ class TestVersioningAccountTempurl(TestObjectVersioningBase):
 
     def tempurl_parms(self, method, expires, path, key):
         path = unquote(path)
-        if not six.PY2:
-            method = method.encode('utf8')
-            path = path.encode('utf8')
-            key = key.encode('utf8')
+        method = method.encode('utf8')
+        path = path.encode('utf8')
+        key = key.encode('utf8')
         sig = hmac.new(
             key,
             b'%s\n%d\n%s' % (method, expires, path),
@@ -2838,10 +2824,9 @@ class TestVersioningContainerTempurl(TestObjectVersioningBase):
 
     def tempurl_sig(self, method, expires, path, key):
         path = unquote(path)
-        if not six.PY2:
-            method = method.encode('utf8')
-            path = path.encode('utf8')
-            key = key.encode('utf8')
+        method = method.encode('utf8')
+        path = path.encode('utf8')
+        key = key.encode('utf8')
         return hmac.new(
             key,
             b'%s\n%d\n%s' % (method, expires, path),

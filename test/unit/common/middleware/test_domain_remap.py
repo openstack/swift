@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
 import unittest
 
 from swift.common.swob import Request, HTTPMovedPermanently
@@ -25,11 +24,7 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         start_response('200 OK', [])
-        if six.PY2:
-            return [env['PATH_INFO']]
-        else:
-            print(env)
-            return [env['PATH_INFO'].encode('latin-1')]
+        return [env['PATH_INFO'].encode('latin-1')]
 
 
 class RedirectSlashApp(object):

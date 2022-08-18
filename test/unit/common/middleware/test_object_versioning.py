@@ -19,8 +19,7 @@ import os
 import time
 import mock
 import unittest
-import six
-from six.moves import urllib
+import urllib.parse
 from swift.common import swob, utils
 from swift.common.middleware import versioned_writes, copy, symlink, \
     listing_formats
@@ -142,11 +141,6 @@ class ObjectVersioningBaseTestCase(unittest.TestCase):
         self.assertEqual(req.method, other.method)
         self.assertEqual(req.path, other.path)
 
-    def str_to_wsgi(self, native_str):
-        if six.PY2 and isinstance(native_str, six.text_type):
-            native_str = native_str.encode('utf8')
-        return str_to_wsgi(native_str)
-
     def build_container_name(self, cont):
         return get_reserved_name('versions', cont)
 
@@ -156,14 +150,14 @@ class ObjectVersioningBaseTestCase(unittest.TestCase):
     def build_symlink_path(self, cont, obj, version):
         cont = self.build_container_name(cont)
         obj = self.build_object_name(obj, version)
-        return wsgi_quote(self.str_to_wsgi("%s/%s" % (cont, obj)))
+        return wsgi_quote(str_to_wsgi("%s/%s" % (cont, obj)))
 
     def build_versions_path(self, acc='a', cont='c', obj=None, version=None):
         cont = self.build_container_name(cont)
         if not obj:
-            return self.str_to_wsgi("/v1/%s/%s" % (acc, cont))
+            return str_to_wsgi("/v1/%s/%s" % (acc, cont))
         obj = self.build_object_name(obj, version)
-        return self.str_to_wsgi("/v1/%s/%s/%s" % (acc, cont, obj))
+        return str_to_wsgi("/v1/%s/%s/%s" % (acc, cont, obj))
 
 
 class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
@@ -188,7 +182,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual('/v1/a/c', path)
         self.assertIn(SYSMETA_VERSIONS_CONT, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_CONT],
-                         wsgi_quote(self.str_to_wsgi(
+                         wsgi_quote(str_to_wsgi(
                              self.build_container_name('c'))))
         self.assertIn(SYSMETA_VERSIONS_ENABLED, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_ENABLED], 'True')
@@ -229,7 +223,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual('/v1/a/c', path)
         self.assertIn(SYSMETA_VERSIONS_CONT, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_CONT],
-                         wsgi_quote(self.str_to_wsgi(
+                         wsgi_quote(str_to_wsgi(
                              self.build_container_name('c'))))
         self.assertIn(SYSMETA_VERSIONS_ENABLED, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_ENABLED], 'True')
@@ -309,7 +303,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual('/v1/a/c', path)
         self.assertIn(SYSMETA_VERSIONS_CONT, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_CONT],
-                         wsgi_quote(self.str_to_wsgi(
+                         wsgi_quote(str_to_wsgi(
                              self.build_container_name('c'))))
         self.assertIn(SYSMETA_VERSIONS_ENABLED, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_ENABLED], 'True')
@@ -2376,7 +2370,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.app.register(
             'GET', '/v1/a/\xe2\x98\x83-test', swob.HTTPOk,
             {SYSMETA_VERSIONS_CONT: wsgi_quote(
-                self.str_to_wsgi(self.build_container_name(
+                str_to_wsgi(self.build_container_name(
                     u'\N{COMET}-container'))),
              SYSMETA_VERSIONS_ENABLED: True},
             json.dumps(listing_body).encode('utf8'))
@@ -3184,7 +3178,7 @@ class ObjectVersioningTestAccountOperations(ObjectVersioningBaseTestCase):
 
         params = {
             'format': 'json',
-            'prefix': self.str_to_wsgi(get_reserved_name('versions')),
+            'prefix': str_to_wsgi(get_reserved_name('versions')),
         }
         path = '/v1/a?%s' % urllib.parse.urlencode(params)
 
@@ -3250,7 +3244,7 @@ class ObjectVersioningTestAccountOperations(ObjectVersioningBaseTestCase):
             json.dumps(listing_body).encode('utf8'))
 
         path = '/v1/a?%s' % urllib.parse.urlencode({
-            'format': 'json', 'prefix': self.str_to_wsgi(
+            'format': 'json', 'prefix': str_to_wsgi(
                 self.build_container_name('versioned-'))})
 
         self.app.register(
@@ -3325,7 +3319,7 @@ class ObjectVersioningTestAccountOperations(ObjectVersioningBaseTestCase):
 
         params = {
             'format': 'json',
-            'prefix': self.str_to_wsgi(get_reserved_name('versions')),
+            'prefix': str_to_wsgi(get_reserved_name('versions')),
         }
         path = '/v1/a?%s' % urllib.parse.urlencode(params)
 

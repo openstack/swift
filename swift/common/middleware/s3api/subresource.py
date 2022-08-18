@@ -43,8 +43,6 @@ http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html
 """
 from functools import partial
 
-import six
-
 from swift.common.utils import json
 
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
@@ -233,7 +231,7 @@ class Owner(object):
     """
     def __init__(self, id, name):
         self.id = id
-        if not (name is None or isinstance(name, six.string_types)):
+        if not (name is None or isinstance(name, str)):
             raise TypeError('name must be a string or None')
         self.name = name
 
@@ -429,8 +427,6 @@ class ACL(object):
         return tostring(self.elem())
 
     def __repr__(self):
-        if six.PY2:
-            return self.__bytes__()
         return self.__bytes__().decode('utf8')
 
     @classmethod

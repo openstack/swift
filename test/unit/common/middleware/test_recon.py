@@ -90,8 +90,6 @@ class OpenAndReadTester(object):
             self.index += 1
         return line
 
-    next = __next__
-
     def read(self, *args, **kwargs):
         self.read_calls.append((args, kwargs))
         try:

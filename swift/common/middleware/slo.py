@@ -347,8 +347,6 @@ import mimetypes
 import re
 import time
 
-import six
-
 from swift.cli.container_deleter import make_delete_jobs
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.exceptions import ListingIterError, SegmentError
@@ -361,7 +359,7 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPServiceUnavailable, Response, Range, normalize_etag, \
     RESPONSE_REASONS, str_to_wsgi, bytes_to_wsgi, wsgi_to_str, wsgi_quote
 from swift.common.utils import get_logger, config_true_value, \
-    get_valid_utf8_str, override_bytes_from_content_type, split_path, \
+    override_bytes_from_content_type, split_path, \
     RateLimitedIterator, quote, closing_if_possible, \
     LRUCache, StreamingPile, strict_b64decode, Timestamp, friendly_close, \
     get_expirer_container, md5
@@ -462,12 +460,12 @@ def parse_and_validate_input(req_body, req_path):
             continue
 
         if segment_type == 'path':
-            if not isinstance(seg_dict['path'], six.string_types):
+            if not isinstance(seg_dict['path'], str):
                 errors.append(b"Index %d: \"path\" must be a string" %
                               seg_index)
                 continue
             if not (seg_dict.get('etag') is None or
-                    isinstance(seg_dict['etag'], six.string_types)):
+                    isinstance(seg_dict['etag'], str)):
                 errors.append(b'Index %d: "etag" must be a string or null '
                               b'(if provided)' % seg_index)
                 continue
@@ -761,9 +759,7 @@ class SloGetContext(WSGIContext):
 
         if not sub_resp.is_success:
             # Error message should be short
-            body = sub_resp.body
-            if not six.PY2:
-                body = body.decode('utf-8')
+            body = sub_resp.body.decode('utf-8')
             msg = ('while fetching %s, GET of submanifest %s '
                    'failed with status %d (%s)')
             raise ListingIterError(msg % (
@@ -873,10 +869,7 @@ class SloGetContext(WSGIContext):
                         "While processing manifest %r, "
                         "max recursion depth was exceeded" % req.path)
 
-                if six.PY2:
-                    sub_path = get_valid_utf8_str(seg_dict['name'])
-                else:
-                    sub_path = seg_dict['name']
+                sub_path = seg_dict['name']
                 sub_cont, sub_obj = split_path(sub_path, 2, 2, True)
                 if last_sub_path != sub_path:
                     sub_segments = cached_fetch_sub_slo_segments(
@@ -895,8 +888,6 @@ class SloGetContext(WSGIContext):
                         recursion_depth=recursion_depth + 1):
                     yield sub_seg_dict
             else:
-                if six.PY2 and isinstance(seg_dict['name'], six.text_type):
-                    seg_dict['name'] = seg_dict['name'].encode("utf-8")
                 yield dict(seg_dict,
                            first_byte=max(0, first_byte) + range_start,
                            last_byte=min(range_end, range_start + last_byte))
@@ -1211,9 +1202,7 @@ class SloGetContext(WSGIContext):
             seg_dict['etag'] = seg_dict.pop('hash', None)
 
         json_data = json.dumps(segments, sort_keys=True)  # convert to string
-        if six.PY3:
-            json_data = json_data.encode('utf-8')
-        return json_data
+        return json_data.encode('utf-8')
 
     def _get_manifest_read(self, resp_iter):
         with closing_if_possible(resp_iter):
@@ -1402,12 +1391,8 @@ class StaticLargeObject(object):
                 path2indices[seg_dict['path']].append(index)
 
         def do_head(obj_name):
-            if six.PY2:
-                obj_path = '/'.join(['', vrs, account,
-                                     get_valid_utf8_str(obj_name).lstrip('/')])
-            else:
-                obj_path = '/'.join(['', vrs, account,
-                                     str_to_wsgi(obj_name.lstrip('/'))])
+            obj_path = '/'.join(['', vrs, account,
+                                 str_to_wsgi(obj_name.lstrip('/'))])
             obj_path = wsgi_quote(obj_path)
 
             sub_req = make_subrequest(
@@ -1559,7 +1544,7 @@ class StaticLargeObject(object):
                     r = '%s:%s;' % (seg_data['hash'], seg_data['range'])
                 else:
                     r = seg_data['hash']
-                slo_etag.update(r.encode('ascii') if six.PY3 else r)
+                slo_etag.update(r.encode('ascii'))
 
             slo_etag = slo_etag.hexdigest()
             client_etag = normalize_etag(req.headers.get('Etag'))
@@ -1569,7 +1554,7 @@ class StaticLargeObject(object):
                     resp_dict = {}
                     resp_dict['Response Status'] = err.status
                     err_body = err.body
-                    if six.PY3 and isinstance(err_body, bytes):
+                    if isinstance(err_body, bytes):
                         err_body = err_body.decode('utf-8', errors='replace')
                     resp_dict['Response Body'] = err_body or '\n'.join(
                         RESPONSE_REASONS.get(err.status_int, ['']))
@@ -1581,9 +1566,7 @@ class StaticLargeObject(object):
                         yield chunk
                 return
 
-            json_data = json.dumps(data_for_storage)
-            if six.PY3:
-                json_data = json_data.encode('utf-8')
+            json_data = json.dumps(data_for_storage).encode('utf-8')
             req.body = json_data
             req.headers.update({
                 SYSMETA_SLO_ETAG: slo_etag,
@@ -1618,7 +1601,7 @@ class StaticLargeObject(object):
 
             if heartbeat:
                 resp_body = resp.body
-                if six.PY3 and isinstance(resp_body, bytes):
+                if isinstance(resp_body, bytes):
                     resp_body = resp_body.decode('utf-8')
                 resp_dict['Response Body'] = resp_body
                 yield separator + get_response_body(
@@ -1644,10 +1627,7 @@ class StaticLargeObject(object):
             raise HTTPPreconditionFailed(
                 request=req, body='Invalid UTF8 or contains NULL')
         vrs, account, container, obj = req.split_path(4, 4, True)
-        if six.PY2:
-            obj_path = ('/%s/%s' % (container, obj)).decode('utf-8')
-        else:
-            obj_path = '/%s/%s' % (wsgi_to_str(container), wsgi_to_str(obj))
+        obj_path = '/%s/%s' % (wsgi_to_str(container), wsgi_to_str(obj))
 
         segments = [{
             'sub_slo': True,
@@ -1675,7 +1655,7 @@ class StaticLargeObject(object):
                 except HTTPException as err:
                     # allow bulk delete response to report errors
                     err_body = err.body
-                    if six.PY3 and isinstance(err_body, bytes):
+                    if isinstance(err_body, bytes):
                         err_body = err_body.decode('utf-8', errors='replace')
                     seg_data['error'] = {'code': err.status_int,
                                          'message': err_body}
@@ -1684,8 +1664,6 @@ class StaticLargeObject(object):
                 seg_data['sub_slo'] = False
                 segments.append(seg_data)
             else:
-                if six.PY2:
-                    seg_data['name'] = seg_data['name'].encode('utf-8')
                 yield seg_data
 
     def get_slo_segments(self, obj_name, req):
@@ -1714,15 +1692,9 @@ class StaticLargeObject(object):
         new_env['HTTP_USER_AGENT'] = \
             '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
         new_env['swift.source'] = 'SLO'
-        if six.PY2:
-            new_env['PATH_INFO'] = (
-                '/%s/%s/%s' % (vrs, account,
-                               obj_name.lstrip('/').encode('utf-8'))
-            )
-        else:
-            new_env['PATH_INFO'] = (
-                '/%s/%s/%s' % (vrs, account, str_to_wsgi(obj_name.lstrip('/')))
-            )
+        new_env['PATH_INFO'] = (
+            '/%s/%s/%s' % (vrs, account, str_to_wsgi(obj_name.lstrip('/')))
+        )
         # Just request the last byte of non-SLO objects so we don't waste
         # a resources in friendly_close() below
         manifest_req = Request.blank('', new_env, range='bytes=-1')
@@ -1757,10 +1729,7 @@ class StaticLargeObject(object):
             raise HTTPPreconditionFailed(
                 request=req, body='Invalid UTF8 or contains NULL')
         vrs, account, container, obj = req.split_path(4, 4, True)
-        if six.PY2:
-            obj_path = ('/%s/%s' % (container, obj)).decode('utf-8')
-        else:
-            obj_path = '/%s/%s' % (wsgi_to_str(container), wsgi_to_str(obj))
+        obj_path = '/%s/%s' % (wsgi_to_str(container), wsgi_to_str(obj))
         segments = [seg for seg in self.get_slo_segments(obj_path, req)
                     if 'data' not in seg]
         if not segments:

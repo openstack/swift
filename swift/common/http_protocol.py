@@ -14,18 +14,13 @@
 # limitations under the License.
 
 from eventlet import wsgi, websocket
-import six
 
 from swift.common.utils import generate_trans_id
 from swift.common.http import HTTP_NO_CONTENT, HTTP_RESET_CONTENT, \
     HTTP_NOT_MODIFIED
 
-if six.PY2:
-    from eventlet.green import httplib as http_client
-    from cgi import escape
-else:
-    from eventlet.green.http import client as http_client
-    from html import escape
+from eventlet.green.http import client as http_client
+from html import escape
 
 
 class SwiftHttpProtocol(wsgi.HttpProtocol):
@@ -59,13 +54,6 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
 
     class MessageClass(wsgi.HttpProtocol.MessageClass):
         """Subclass to see when the client didn't provide a Content-Type"""
-        # for py2:
-        def parsetype(self):
-            if self.typeheader is None:
-                self.typeheader = ''
-            wsgi.HttpProtocol.MessageClass.parsetype(self)
-
-        # for py3:
         def get_default_type(self):
             """If the client didn't provide a content type, leave it blank."""
             return ''
@@ -84,9 +72,7 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         self.command = None  # set in case of error on the first line
         self.request_version = version = self.default_request_version
         self.close_connection = True
-        requestline = self.raw_requestline
-        if not six.PY2:
-            requestline = requestline.decode('iso-8859-1')
+        requestline = self.raw_requestline.decode('iso-8859-1')
         requestline = requestline.rstrip('\r\n')
         self.requestline = requestline
         # Split off \x20 explicitly (see https://bugs.python.org/issue33973)
@@ -147,26 +133,23 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         self.command, self.path = command, path
 
         # Examine the headers and look for a Connection directive.
-        if six.PY2:
-            self.headers = self.MessageClass(self.rfile, 0)
-        else:
-            try:
-                self.headers = http_client.parse_headers(
-                    self.rfile,
-                    _class=self.MessageClass)
-            except http_client.LineTooLong as err:
-                self.send_error(
-                    431,
-                    "Line too long",
-                    str(err))
-                return False
-            except http_client.HTTPException as err:
-                self.send_error(
-                    431,
-                    "Too many headers",
-                    str(err)
-                )
-                return False
+        try:
+            self.headers = http_client.parse_headers(
+                self.rfile,
+                _class=self.MessageClass)
+        except http_client.LineTooLong as err:
+            self.send_error(
+                431,
+                "Line too long",
+                str(err))
+            return False
+        except http_client.HTTPException as err:
+            self.send_error(
+                431,
+                "Too many headers",
+                str(err)
+            )
+            return False
 
         conntype = self.headers.get('Connection', "")
         if conntype.lower() == 'close':
@@ -183,52 +166,51 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                 return False
         return True
 
-    if not six.PY2:
-        def get_environ(self, *args, **kwargs):
-            environ = wsgi.HttpProtocol.get_environ(self, *args, **kwargs)
-            header_payload = self.headers.get_payload()
-            if isinstance(header_payload, list) and len(header_payload) == 1:
-                header_payload = header_payload[0].get_payload()
-            if header_payload:
-                # This shouldn't be here. We must've bumped up against
-                # https://bugs.python.org/issue37093
-                headers_raw = list(environ['headers_raw'])
-                for line in header_payload.rstrip('\r\n').split('\n'):
-                    if ':' not in line or line[:1] in ' \t':
-                        # Well, we're no more broken than we were before...
-                        # Should we support line folding?
-                        # Should we 400 a bad header line?
-                        break
-                    header, value = line.split(':', 1)
-                    value = value.strip(' \t\n\r')
-                    # NB: Eventlet looks at the headers obj to figure out
-                    # whether the client said the connection should close;
-                    # see https://github.com/eventlet/eventlet/blob/v0.25.0/
-                    # eventlet/wsgi.py#L504
-                    self.headers.add_header(header, value)
-                    headers_raw.append((header, value))
-                    wsgi_key = 'HTTP_' + header.replace('-', '_').encode(
-                        'latin1').upper().decode('latin1')
-                    if wsgi_key in ('HTTP_CONTENT_LENGTH',
-                                    'HTTP_CONTENT_TYPE'):
-                        wsgi_key = wsgi_key[5:]
-                    environ[wsgi_key] = value
-                environ['headers_raw'] = tuple(headers_raw)
-                # Since we parsed some more headers, check to see if they
-                # change how our wsgi.input should behave
-                te = environ.get('HTTP_TRANSFER_ENCODING', '').lower()
-                if te.rsplit(',', 1)[-1].strip() == 'chunked':
-                    environ['wsgi.input'].chunked_input = True
-                else:
-                    length = environ.get('CONTENT_LENGTH')
-                    if length:
-                        length = int(length)
-                    environ['wsgi.input'].content_length = length
-                if environ.get('HTTP_EXPECT', '').lower() == '100-continue':
-                    environ['wsgi.input'].wfile = self.wfile
-                    environ['wsgi.input'].wfile_line = \
-                        b'HTTP/1.1 100 Continue\r\n'
-            return environ
+    def get_environ(self, *args, **kwargs):
+        environ = wsgi.HttpProtocol.get_environ(self, *args, **kwargs)
+        header_payload = self.headers.get_payload()
+        if isinstance(header_payload, list) and len(header_payload) == 1:
+            header_payload = header_payload[0].get_payload()
+        if header_payload:
+            # This shouldn't be here. We must've bumped up against
+            # https://bugs.python.org/issue37093
+            headers_raw = list(environ['headers_raw'])
+            for line in header_payload.rstrip('\r\n').split('\n'):
+                if ':' not in line or line[:1] in ' \t':
+                    # Well, we're no more broken than we were before...
+                    # Should we support line folding?
+                    # Should we 400 a bad header line?
+                    break
+                header, value = line.split(':', 1)
+                value = value.strip(' \t\n\r')
+                # NB: Eventlet looks at the headers obj to figure out
+                # whether the client said the connection should close;
+                # see https://github.com/eventlet/eventlet/blob/v0.25.0/
+                # eventlet/wsgi.py#L504
+                self.headers.add_header(header, value)
+                headers_raw.append((header, value))
+                wsgi_key = 'HTTP_' + header.replace('-', '_').encode(
+                    'latin1').upper().decode('latin1')
+                if wsgi_key in ('HTTP_CONTENT_LENGTH',
+                                'HTTP_CONTENT_TYPE'):
+                    wsgi_key = wsgi_key[5:]
+                environ[wsgi_key] = value
+            environ['headers_raw'] = tuple(headers_raw)
+            # Since we parsed some more headers, check to see if they
+            # change how our wsgi.input should behave
+            te = environ.get('HTTP_TRANSFER_ENCODING', '').lower()
+            if te.rsplit(',', 1)[-1].strip() == 'chunked':
+                environ['wsgi.input'].chunked_input = True
+            else:
+                length = environ.get('CONTENT_LENGTH')
+                if length:
+                    length = int(length)
+                environ['wsgi.input'].content_length = length
+            if environ.get('HTTP_EXPECT', '').lower() == '100-continue':
+                environ['wsgi.input'].wfile = self.wfile
+                environ['wsgi.input'].wfile_line = \
+                    b'HTTP/1.1 100 Continue\r\n'
+        return environ
 
     def _read_request_line(self):
         # Note this is not a new-style class, so super() won't work
@@ -332,8 +314,7 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
         SwiftHttpProtocol.__init__(self, *a, **kw)
 
     def handle_error(self, connection_line):
-        if not six.PY2:
-            connection_line = connection_line.decode('latin-1')
+        connection_line = connection_line.decode('latin-1')
 
         # No further processing will proceed on this connection under any
         # circumstances.  We always send the request into the superclass to
@@ -373,16 +354,12 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
             # line.
             pass
         elif proxy_parts[1] in (b'TCP4', b'TCP6') and len(proxy_parts) == 6:
-            if six.PY2:
-                self.client_address = (proxy_parts[2], proxy_parts[4])
-                self.proxy_address = (proxy_parts[3], proxy_parts[5])
-            else:
-                self.client_address = (
-                    proxy_parts[2].decode('latin-1'),
-                    proxy_parts[4].decode('latin-1'))
-                self.proxy_address = (
-                    proxy_parts[3].decode('latin-1'),
-                    proxy_parts[5].decode('latin-1'))
+            self.client_address = (
+                proxy_parts[2].decode('latin-1'),
+                proxy_parts[4].decode('latin-1'))
+            self.proxy_address = (
+                proxy_parts[3].decode('latin-1'),
+                proxy_parts[5].decode('latin-1'))
         else:
             self.handle_error(connection_line)
 

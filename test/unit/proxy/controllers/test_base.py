@@ -21,8 +21,6 @@ from collections import defaultdict
 import unittest
 import mock
 
-import six
-
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
@@ -585,8 +583,6 @@ class TestFuncs(BaseTest):
         self.assertEqual(resp['bytes'], 6666)
         self.assertEqual(resp['object_count'], 1000)
         expected = u'\U0001F334'
-        if six.PY2:
-            expected = expected.encode('utf8')
         self.assertEqual(resp['versions'], expected)
 
     def test_get_container_info_no_account(self):
@@ -659,8 +655,6 @@ class TestFuncs(BaseTest):
         self.assertEqual(resp['object_count'], 10)
         self.assertEqual(resp['status'], 404)
         expected = u'\U0001F4A9'
-        if six.PY2:
-            expected = expected.encode('utf8')
         self.assertEqual(resp['versions'], expected)
 
         for subdict in resp.values():
@@ -702,8 +696,6 @@ class TestFuncs(BaseTest):
         self.assertEqual(resp['object_count'], 10)
         self.assertEqual(resp['status'], 404)
         expected = u'\U0001F4A9'
-        if six.PY2:
-            expected = expected.encode('utf8')
         self.assertEqual(resp['versions'], expected)
         for subdict in resp.values():
             if isinstance(subdict, dict):
@@ -726,8 +718,6 @@ class TestFuncs(BaseTest):
 
         # Expected result should always be native string
         expected = u'container/\N{SNOWMAN}/\U0001F334'
-        if six.PY2:
-            expected = expected.encode('utf8')
 
         self.assertEqual(get_cache_key(u"\N{SNOWMAN}", u"\U0001F334"),
                          expected)
@@ -1724,7 +1714,7 @@ class TestGetOrHeadHandler(BaseTest):
                 resp = handler.get_working_response()
                 resp.app_iter.close()
         # verify that iter exited
-        self.assertEqual({1: ['next', 'close', '__del__']},
+        self.assertEqual({1: ['__next__', 'close', '__del__']},
                          factory.captured_calls)
         self.assertEqual(["Client disconnected on read of 'some-path'"],
                          self.logger.get_lines_for_level('info'))
@@ -1742,7 +1732,7 @@ class TestGetOrHeadHandler(BaseTest):
                 resp = handler.get_working_response()
                 next(resp.app_iter)
             resp.app_iter.close()
-        self.assertEqual({1: ['next', 'close', '__del__']},
+        self.assertEqual({1: ['__next__', 'close', '__del__']},
                          factory.captured_calls)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         self.assertEqual([], self.logger.get_lines_for_level('info'))

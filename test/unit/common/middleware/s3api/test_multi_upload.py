@@ -20,7 +20,7 @@ from mock import patch
 import os
 import time
 import unittest
-from six.moves.urllib.parse import parse_qs, quote, quote_plus
+from urllib.parse import parse_qs, quote, quote_plus
 
 from swift.common import swob
 from swift.common.swob import Request

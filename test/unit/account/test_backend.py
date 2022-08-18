@@ -29,8 +29,6 @@ import mock
 import base64
 import shutil
 
-import six
-
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
 from test.unit import patch_policies, with_tempdir, make_timestamp_iter
@@ -190,7 +188,7 @@ class TestAccountBroker(test_db.TestDbBase):
         now = time()
         top_of_the_minute = now - (now % 60)
         c = itertools.cycle([True, False])
-        for m, is_deleted in six.moves.zip(range(num_of_containers), c):
+        for m, is_deleted in zip(range(num_of_containers), c):
             offset = top_of_the_minute - (m * 60)
             container_specs.append((Timestamp(offset), is_deleted))
         random.seed(now)
@@ -847,7 +845,7 @@ class TestAccountBroker(test_db.TestDbBase):
         text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
                Timestamp(2).internal, Timestamp(0).internal, 0, 0))
         hashb = md5(text.encode('ascii'), usedforsecurity=False).digest()
-        hashc = ''.join(('%02x' % (ord(a) ^ ord(b) if six.PY2 else a ^ b)
+        hashc = ''.join(('%02x' % (a ^ b)
                          for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)
         broker.put_container('b', Timestamp(3).internal,
@@ -856,7 +854,7 @@ class TestAccountBroker(test_db.TestDbBase):
         text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
                Timestamp(3).internal, Timestamp(0).internal, 0, 0))
         hashb = md5(text.encode('ascii'), usedforsecurity=False).digest()
-        hashc = ''.join(('%02x' % (ord(a) ^ ord(b) if six.PY2 else a ^ b)
+        hashc = ''.join(('%02x' % (a ^ b)
                          for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)
 
@@ -886,8 +884,6 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_merge_items_overwrite_unicode(self):
         snowman = u'\N{SNOWMAN}'
-        if six.PY2:
-            snowman = snowman.encode('utf-8')
         broker1 = AccountBroker(self.get_db_path(), account='a')
         broker1.initialize(Timestamp('1').internal, 0)
         id1 = broker1.get_info()['id']

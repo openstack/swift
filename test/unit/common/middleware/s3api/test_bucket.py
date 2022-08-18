@@ -17,8 +17,7 @@ import unittest
 import mock
 from hashlib import sha256
 
-import six
-from six.moves.urllib.parse import quote, parse_qsl
+from urllib.parse import quote, parse_qsl
 
 from swift.common import swob
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
@@ -535,7 +534,7 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
             self.assertEqual('2011-01-05T02:19:15.000Z',
                              o.find('./LastModified').text)
         expected = [
-            (i[0].encode('utf-8') if six.PY2 else i[0],
+            (i[0],
              PFS_ETAG if i[0] == 'pfs-obj' else
              '"0-N"' if i[0] == 'slo' else '"0"')
             for i in self.objects
@@ -646,12 +645,8 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
         self.assertEqual(elem.find('./IsTruncated').text, 'true')
-        if six.PY2:
-            self.assertEqual(elem.find('./NextMarker').text,
-                             u'but-\u062a/'.encode('utf-8'))
-        else:
-            self.assertEqual(elem.find('./NextMarker').text,
-                             u'but-\u062a/')
+        self.assertEqual(elem.find('./NextMarker').text,
+                         u'but-\u062a/')
 
     def test_bucket_GET_is_truncated_url_encoded(self):
         bucket_name = 'junk'
@@ -1023,10 +1018,7 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         self.assertEqual(elem.findall('./DeleteMarker'), [])
         versions = elem.findall('./Version')
         objects = list(self.objects)
-        if six.PY2:
-            expected = [v[0].encode('utf-8') for v in objects]
-        else:
-            expected = [v[0] for v in objects]
+        expected = [v[0] for v in objects]
         self.assertEqual([v.find('./Key').text for v in versions], expected)
         self.assertEqual([v.find('./IsLatest').text for v in versions],
                          ['true' for v in objects])
@@ -1067,8 +1059,6 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         expected = []
         for o in self.objects_list:
             name = o['name']
-            if six.PY2:
-                name = name.encode('utf8')
             expected.append((name, 'true', 'null'))
             if name == 'rose':
                 expected.append((name, 'false', '1'))
@@ -1097,8 +1087,6 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         expected = []
         for o in self.objects_list[:5]:
             name = o['name']
-            if six.PY2:
-                name = name.encode('utf8')
             expected.append((name, 'true', 'null'))
             if name == 'rose':
                 expected.append((name, 'false', '1'))
@@ -1265,7 +1253,7 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         self.assertEqual(expected, discovered)
         expected = [
             ('lily', 'true', 'null'),
-            (b'lily-\xd8\xaa', 'true', 'null'),
+            ('lily-\u062a', 'true', 'null'),
             ('mu', 'true', 'null'),
             ('pfs-obj', 'true', 'null'),
             ('rose', 'true', 'null'),
@@ -1275,10 +1263,6 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
             ('with space', 'true', 'null'),
             ('with%20space', 'true', 'null'),
         ]
-        if not six.PY2:
-            item = list(expected[1])
-            item[0] = item[0].decode('utf8')
-            expected[1] = tuple(item)
 
         discovered = [
             tuple(e.find('./%s' % key).text for key in (

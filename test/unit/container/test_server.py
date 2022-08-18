@@ -23,16 +23,14 @@ import itertools
 import time
 import random
 from contextlib import contextmanager
-from io import BytesIO
+from io import BytesIO, StringIO
 from shutil import rmtree
 from tempfile import mkdtemp
 from xml.dom import minidom
 
 from eventlet import spawn, Timeout
 import json
-import six
-from six import StringIO
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 from swift import __version__ as swift_version
 from swift.common.header_key_dict import HeaderKeyDict
@@ -5644,12 +5642,12 @@ class TestContainerController(unittest.TestCase):
         container = dom.getElementsByTagName('container')[0]
         self.assertTrue(len(container.getElementsByTagName('subdir')) == 1)
         subdir = container.getElementsByTagName('subdir')[0]
-        self.assertEqual(six.text_type(subdir.attributes['name'].value),
-                         u'<\'sub\' "dir">/')
+        self.assertEqual(subdir.attributes['name'].value,
+                         '<\'sub\' "dir">/')
         self.assertTrue(len(subdir.getElementsByTagName('name')) == 1)
         name = subdir.getElementsByTagName('name')[0]
-        self.assertEqual(six.text_type(name.childNodes[0].data),
-                         u'<\'sub\' "dir">/')
+        self.assertEqual(name.childNodes[0].data,
+                         '<\'sub\' "dir">/')
 
     def test_GET_path(self):
         req = Request.blank(

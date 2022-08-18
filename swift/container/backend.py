@@ -20,9 +20,7 @@ import errno
 import os
 from uuid import uuid4
 
-import six
-from six.moves import range
-from six.moves.urllib.parse import unquote
+from urllib.parse import unquote
 import sqlite3
 from eventlet import tpool
 
@@ -33,7 +31,7 @@ from swift.common.utils import Timestamp, encode_timestamps, \
     ShardRange, renamer, MD5_OF_EMPTY_STRING, mkdirs, get_db_files, \
     parse_db_filename, make_db_file_path, split_path, RESERVED_BYTE, \
     ShardRangeList, Namespace
-from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
+from swift.common.db import DatabaseBroker, BROKER_TIMEOUT, \
     zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT
 
 DATADIR = 'containers'
@@ -1138,9 +1136,6 @@ class ContainerBroker(DatabaseBroker):
         if transform_func is None:
             transform_func = self._transform_record
         delim_force_gte = False
-        if six.PY2:
-            (marker, end_marker, prefix, delimiter, path) = utf8encode(
-                marker, end_marker, prefix, delimiter, path)
         self._commit_puts_stale_ok()
         if reverse:
             # Reverse the markers if we are reversing the listing.
@@ -1335,9 +1330,7 @@ class ContainerBroker(DatabaseBroker):
         :param source: if defined, update incoming_sync with the source
         """
         for item in item_list:
-            if six.PY2 and isinstance(item['name'], six.text_type):
-                item['name'] = item['name'].encode('utf-8')
-            elif not six.PY2 and isinstance(item['name'], six.binary_type):
+            if isinstance(item['name'], bytes):
                 item['name'] = item['name'].decode('utf-8')
 
         def _really_really_merge_items(conn):
@@ -1433,9 +1426,7 @@ class ContainerBroker(DatabaseBroker):
             if isinstance(item, ShardRange):
                 item = dict(item)
             for col in ('name', 'lower', 'upper'):
-                if six.PY2 and isinstance(item[col], six.text_type):
-                    item[col] = item[col].encode('utf-8')
-                elif not six.PY2 and isinstance(item[col], six.binary_type):
+                if isinstance(item[col], bytes):
                     item[col] = item[col].decode('utf-8')
             item_list.append(item)
 

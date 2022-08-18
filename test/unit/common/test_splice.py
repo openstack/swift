@@ -25,24 +25,10 @@ import contextlib
 import re
 
 import mock
-import six
 
 from swift.common.splice import splice, tee
 
 LOGGER = logging.getLogger(__name__)
-
-
-def NamedTemporaryFile():
-    '''Wrapper to tempfile.NamedTemporaryFile() disabling bufferring.
-
-    The wrapper is used to support Python 2 and Python 3 in the same
-    code base.
-    '''
-
-    if six.PY3:
-        return tempfile.NamedTemporaryFile(buffering=0)
-    else:
-        return tempfile.NamedTemporaryFile(bufsize=0)
 
 
 def safe_close(fd):
@@ -102,7 +88,7 @@ class TestSplice(unittest.TestCase):
     def test_splice_file_to_pipe(self):
         '''Test `splice` from a file to a pipe'''
 
-        with NamedTemporaryFile() as fd:
+        with tempfile.NamedTemporaryFile(buffering=0) as fd:
             with pipe() as (pa, pb):
                 fd.write(b'abcdef')
                 fd.seek(0, os.SEEK_SET)
@@ -122,7 +108,7 @@ class TestSplice(unittest.TestCase):
     def test_splice_pipe_to_file(self):
         '''Test `splice` from a pipe to a file'''
 
-        with NamedTemporaryFile() as fd:
+        with tempfile.NamedTemporaryFile(buffering=0) as fd:
             with pipe() as (pa, pb):
                 os.write(pb, b'abcdef')
 

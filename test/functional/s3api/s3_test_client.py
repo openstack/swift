@@ -15,7 +15,7 @@
 
 import logging
 import os
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 import test.functional as tf
 import boto3
 from botocore.exceptions import ClientError
@@ -27,7 +27,6 @@ try:
     )
 except ImportError:
     S3Connection = OrdinaryCallingFormat = S3ResponseError = None
-import six
 import sys
 import traceback
 
@@ -96,21 +95,11 @@ class Connection(object):
                     break
 
                 for bucket in buckets:
-                    if six.PY2 and not isinstance(bucket.name, bytes):
-                        bucket.name = bucket.name.encode('utf-8')
-
                     try:
                         for upload in bucket.list_multipart_uploads():
                             upload.cancel_upload()
 
                         for obj in bucket.list_versions():
-                            if six.PY2:
-                                if not isinstance(obj.name, bytes):
-                                    obj.name = obj.name.encode('utf-8')
-                                if obj.version_id is not None and \
-                                        not isinstance(obj.version_id, bytes):
-                                    obj.version_id = \
-                                        obj.version_id.encode('utf-8')
                             bucket.delete_key(
                                 obj.name, version_id=obj.version_id)
 

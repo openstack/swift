@@ -20,8 +20,7 @@ import contextlib
 
 import mock
 import os
-import six
-from six.moves.urllib.parse import urlparse, urlsplit, urlunsplit
+from urllib.parse import urlparse, urlsplit, urlunsplit
 import sys
 import pickle
 import socket
@@ -39,9 +38,9 @@ from shutil import rmtree
 from tempfile import mkdtemp
 from unittest import SkipTest
 
-from six.moves.configparser import ConfigParser
-from six.moves import http_client
-from six.moves.http_client import HTTPException
+from configparser import ConfigParser
+import http.client
+from http.client import HTTPException
 
 from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError
@@ -65,7 +64,7 @@ from swift.container import server as container_server
 from swift.obj import server as object_server, mem_server as mem_object_server
 import swift.proxy.controllers.obj
 
-http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT
+http.client._MAXHEADERS = constraints.MAX_HEADER_COUNT
 DEBUG = True
 
 # In order to get the proper blocking behavior of sockets without using
@@ -357,9 +356,7 @@ def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
             conf,
             "proxy-logging proxy-server",
             "keymaster encryption proxy-logging proxy-server")
-        root_secret = base64.b64encode(os.urandom(32))
-        if not six.PY2:
-            root_secret = root_secret.decode('ascii')
+        root_secret = base64.b64encode(os.urandom(32)).decode('ascii')
         conf.set('filter:keymaster', 'encryption_root_secret', root_secret)
         conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
         conf.set('filter:etag-quoter', 'enable_by_default', 'true')
@@ -1129,10 +1126,6 @@ def get_url_token(user_index, os_options):
                           swift_test_user[user_index],
                           swift_test_key[user_index],
                           **authargs)
-    if six.PY2 and not isinstance(url, bytes):
-        url = url.encode('utf-8')
-    if six.PY2 and not isinstance(token, bytes):
-        token = token.encode('utf-8')
     return url, token
 
 

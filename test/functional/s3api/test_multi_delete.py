@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
 import unittest
 import os
 import test.functional as tf
@@ -83,8 +82,6 @@ class TestS3ApiMultiDelete(S3ApiBase):
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
             key = o.find('Key').text
-            if six.PY2:
-                key = key.decode('utf-8')
             self.assertTrue(key in req_objects)
 
         # Delete 2 objects via MultiDelete API
@@ -101,8 +98,6 @@ class TestS3ApiMultiDelete(S3ApiBase):
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
             key = o.find('Key').text
-            if six.PY2:
-                key = key.decode('utf-8')
             self.assertTrue(key in req_objects)
 
         if with_non_ascii:
@@ -124,8 +119,6 @@ class TestS3ApiMultiDelete(S3ApiBase):
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
             key = o.find('Key').text
-            if six.PY2:
-                key = key.decode('utf-8')
             self.assertTrue(key in req_objects)
 
         # Delete 2 objects via MultiDelete API but no objects exist
@@ -142,8 +135,6 @@ class TestS3ApiMultiDelete(S3ApiBase):
         self.assertEqual(len(resp_objects), len(req_objects))
         for o in resp_objects:
             key = o.find('Key').text
-            if six.PY2:
-                key = key.decode('utf-8')
             self.assertTrue(key in req_objects)
 
     def test_delete_multi_objects(self):

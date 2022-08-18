@@ -21,8 +21,7 @@ import mock
 from shutil import rmtree
 from tempfile import mkdtemp
 
-import six
-from six.moves import cStringIO as StringIO
+from io import StringIO
 
 from swift.cli.manage_shard_ranges import main
 from swift.common import utils
@@ -660,8 +659,7 @@ class TestManageShardRanges(unittest.TestCase):
                     '}',
                     'Metadata:',
                     '  X-Container-Sysmeta-Sharding = True']
-        # The json.dumps() in py2 produces trailing space, not in py3.
-        result = [x.rstrip() for x in out.getvalue().splitlines()]
+        result = [x for x in out.getvalue().splitlines()]
         self.assertEqual(expected, result)
         self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
@@ -2909,17 +2907,10 @@ class TestManageShardRanges(unittest.TestCase):
         err = StringIO()
         with mock.patch('sys.stdout', out), \
                 mock.patch('sys.stderr', err):
-            if six.PY2:
-                with self.assertRaises(SystemExit) as cm:
-                    main(['db file'])
-                err_lines = err.getvalue().split('\n')
-                self.assertIn('too few arguments', ' '.join(err_lines))
-                self.assertEqual(2, cm.exception.code)
-            else:
-                ret = main(['db file'])
-                self.assertEqual(2, ret)
-                err_lines = err.getvalue().split('\n')
-                self.assertIn('A sub-command is required.', err_lines)
+            ret = main(['db file'])
+            self.assertEqual(2, ret)
+            err_lines = err.getvalue().split('\n')
+            self.assertIn('A sub-command is required.', err_lines)
 
     def test_dry_run_and_yes_is_invalid(self):
         out = StringIO()

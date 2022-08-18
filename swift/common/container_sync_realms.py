@@ -19,8 +19,7 @@ import hmac
 import os
 import time
 
-import six
-from six.moves import configparser
+import configparser
 
 from swift.common.utils import get_valid_utf8_str
 
@@ -158,7 +157,7 @@ class ContainerSyncRealms(object):
         user_key = get_valid_utf8_str(user_key)
         # XXX We don't know what is the best here yet; wait for container
         # sync to be tested.
-        if isinstance(path, six.text_type):
+        if isinstance(path, str):
             path = path.encode('utf-8')
         return hmac.new(
             realm_key,

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from six.moves import urllib
+import urllib
 
 from swift.common.swob import str_to_wsgi
 import test.functional as tf

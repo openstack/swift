@@ -20,7 +20,6 @@ import hmac
 import os
 
 import mock
-import six
 import unittest
 
 from getpass import getuser
@@ -147,10 +146,7 @@ class TestKeymaster(unittest.TestCase):
             self.assertIn('id', keys)
             id = keys.pop('id')
             path = swob.wsgi_to_str(wsgi_path)
-            if six.PY2:
-                self.assertEqual(path, id['path'])
-            else:
-                self.assertEqual(swob.str_to_wsgi(path), id['path'])
+            self.assertEqual(swob.str_to_wsgi(path), id['path'])
             self.assertEqual('2', id['v'])
             keys.pop('all_ids')
             self.assertListEqual(sorted(expected_keys), sorted(keys.keys()),
@@ -189,10 +185,7 @@ class TestKeymaster(unittest.TestCase):
             path = swob.wsgi_to_str(wsgi_path)
             if '//' in path:
                 path = path[path.index('//') + 1:]
-            if six.PY2:
-                self.assertEqual(path, id['path'])
-            else:
-                self.assertEqual(swob.str_to_wsgi(path), id['path'])
+            self.assertEqual(swob.str_to_wsgi(path), id['path'])
             self.assertEqual('1', id['v'])
             keys.pop('all_ids')
             self.assertListEqual(sorted(expected_keys), sorted(keys.keys()),
@@ -686,30 +679,20 @@ class TestKeymaster(unittest.TestCase):
 
         container = u'\N{SNOWMAN}'
         obj = u'\N{SNOWFLAKE}'
-        if six.PY2:
-            container = container.encode('utf-8')
-            obj = obj.encode('utf-8')
         good_con_path = '/a/%s' % container
         good_path = '/a/%s/%s' % (container, obj)
 
-        if six.PY2:
-            mangled_con_path = ('/a/%s' % container).decode(
-                'latin-1').encode('utf-8')
-            mangled_path = ('/a/%s/%s' % (
-                container, obj)).decode('latin-1').encode('utf-8')
-        else:
-            mangled_con_path = ('/a/%s' % container).encode(
-                'utf-8').decode('latin-1')
-            mangled_path = ('/a/%s/%s' % (
-                container, obj)).encode('utf-8').decode('latin-1')
+        mangled_con_path = ('/a/%s' % container).encode(
+            'utf-8').decode('latin-1')
+        mangled_path = ('/a/%s/%s' % (
+            container, obj)).encode('utf-8').decode('latin-1')
 
         context = keymaster.KeyMasterContext(self.app, 'a', container, obj)
         for version in ('1', '2', '3'):
             with mock.patch.object(self.app, 'create_key', mock_create_key):
                 keys = context.fetch_crypto_keys(key_id={
                     'v': version, 'path': good_path})
-            key_id_path = (good_path if version == '3' or six.PY2
-                           else mangled_path)
+            key_id_path = (good_path if version == '3' else mangled_path)
             expected_keys = {
                 'container': hmac.new(secrets[None], b'/a/\xe2\x98\x83',
                                       digestmod=hashlib.sha256).digest(),
@@ -729,7 +712,7 @@ class TestKeymaster(unittest.TestCase):
             with mock.patch.object(self.app, 'create_key', mock_create_key):
                 keys = context.fetch_crypto_keys(key_id={
                     'v': version, 'path': mangled_path})
-            key_id_path = (good_path if six.PY2 else mangled_path)
+            key_id_path = mangled_path
             expected_keys = {
                 'container': hmac.new(secrets[None], b'/a/\xe2\x98\x83',
                                       digestmod=hashlib.sha256).digest(),

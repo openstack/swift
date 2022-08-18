@@ -26,8 +26,7 @@ from collections import defaultdict
 from copy import deepcopy
 
 import mock
-import six
-from six.moves import urllib
+import urllib.parse
 
 from swift.common import internal_client, utils, swob
 from swift.common.utils import Timestamp
@@ -85,7 +84,7 @@ class FakeInternalClient(object):
 
     def iter_containers(self, account, prefix=''):
         acc_dict = self.aco_dict[account]
-        return [{'name': six.text_type(container)}
+        return [{'name': str(container)}
                 for container in sorted(acc_dict)
                 if container.startswith(prefix)]
 
@@ -105,7 +104,7 @@ class FakeInternalClient(object):
         resp = []
         for obj in obj_iter:
             if not isinstance(obj, dict):
-                obj = {'name': six.text_type(obj)}
+                obj = {'name': str(obj)}
             resp.append(obj)
         return resp
 

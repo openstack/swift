@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import html
 import os
 import random
 import re
@@ -26,7 +27,6 @@ from swift.common.middleware.x_profile.exceptions import MethodNotAllowed
 from swift.common.middleware.x_profile.exceptions import DataLoadFailure
 from swift.common.middleware.x_profile.exceptions import ProfileException
 from swift.common.middleware.x_profile.profile_model import Stats2
-from swift.common.request_helpers import html_escape
 
 PLOTLIB_INSTALLED = True
 try:
@@ -453,7 +453,7 @@ class HTMLViewer(object):
                 fmt = '<span id="L%d" rel="#L%d">%' + max_width\
                     + 'd|<code>%s</code></span>'
                 for line in lines:
-                    el = html_escape(line)
+                    el = html.escape(line)
                     i = i + 1
                     if i == lineno:
                         fmt2 = '<span id="L%d" style="background-color: \
@@ -517,7 +517,7 @@ class HTMLViewer(object):
                         html.append('<td>-</td>')
                     else:
                         html.append('<td>%f</td>' % (float(ct) / cc))
-                    nfls = html_escape(stats.func_std_string(func))
+                    nfls = html.escape(stats.func_std_string(func))
                     if nfls.split(':')[0] not in ['', 'profile'] and\
                             os.path.isfile(nfls.split(':')[0]):
                         html.append('<td><a href="%s/%s%s?format=python#L%d">\

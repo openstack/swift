@@ -17,7 +17,7 @@ import time
 from collections import defaultdict
 
 from botocore.exceptions import ClientError
-import six
+import io
 
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import md5
@@ -125,7 +125,7 @@ class TestObjectVersioning(BaseS3TestCase):
         obj_data = self.create_name('some-data').encode('ascii')
         obj_etag = md5(obj_data, usedforsecurity=False).hexdigest()
         obj_name = self.create_name('versioned-obj')
-        self.client.upload_fileobj(six.BytesIO(obj_data),
+        self.client.upload_fileobj(io.BytesIO(obj_data),
                                    self.bucket_name, obj_name)
 
         # object is in the listing
@@ -158,7 +158,7 @@ class TestObjectVersioning(BaseS3TestCase):
         # overwrite the object
         new_obj_data = self.create_name('some-new-data').encode('ascii')
         new_obj_etag = md5(new_obj_data, usedforsecurity=False).hexdigest()
-        self.client.upload_fileobj(six.BytesIO(new_obj_data),
+        self.client.upload_fileobj(io.BytesIO(new_obj_data),
                                    self.bucket_name, obj_name)
 
         # new object is in the listing
@@ -200,7 +200,7 @@ class TestObjectVersioning(BaseS3TestCase):
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
             etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
-            self.client.upload_fileobj(six.BytesIO(obj_data),
+            self.client.upload_fileobj(io.BytesIO(obj_data),
                                        self.bucket_name, obj_name)
 
         # only one object appears in the listing
@@ -320,7 +320,7 @@ class TestObjectVersioning(BaseS3TestCase):
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
             etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
-            self.client.upload_fileobj(six.BytesIO(obj_data),
+            self.client.upload_fileobj(io.BytesIO(obj_data),
                                        self.bucket_name, obj_name)
             # and make a delete marker
             self.client.delete_object(Bucket=self.bucket_name, Key=obj_name)
@@ -492,7 +492,7 @@ class TestObjectVersioning(BaseS3TestCase):
             # TODO: pull etag from response instead
             etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
-                six.BytesIO(obj_data), self.bucket_name, obj_name)
+                io.BytesIO(obj_data), self.bucket_name, obj_name)
 
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
         objs = resp.get('Versions', [])
@@ -574,13 +574,13 @@ class TestObjectVersioning(BaseS3TestCase):
             etags.insert(0, '"%s"' % md5(
                 obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
-                six.BytesIO(obj_data), self.bucket_name, obj01_name)
+                io.BytesIO(obj_data), self.bucket_name, obj01_name)
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
             etags.insert(0, '"%s"' % md5(
                 obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
-                six.BytesIO(obj_data), self.bucket_name, obj00_name)
+                io.BytesIO(obj_data), self.bucket_name, obj00_name)
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
         versions = []
         objs = []
@@ -658,7 +658,7 @@ class TestObjectVersioning(BaseS3TestCase):
                 etags[obj_name].insert(0, md5(
                     obj_data, usedforsecurity=False).hexdigest())
                 self.client.upload_fileobj(
-                    six.BytesIO(obj_data), self.bucket_name, obj_name)
+                    io.BytesIO(obj_data), self.bucket_name, obj_name)
 
         # both unversioned list_objects responses are similar
         expected = []
@@ -714,7 +714,7 @@ class TestObjectVersioning(BaseS3TestCase):
             etags.insert(0, md5(
                 obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
-                six.BytesIO(obj_data), self.bucket_name, obj_name)
+                io.BytesIO(obj_data), self.bucket_name, obj_name)
 
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
         objs = resp.get('Versions', [])

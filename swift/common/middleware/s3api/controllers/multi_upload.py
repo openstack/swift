@@ -65,17 +65,14 @@ import os
 import re
 import time
 
-import six
-
 from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
     wsgi_to_str
 from swift.common.utils import json, public, reiterate, md5, Timestamp
-from swift.common.db import utf8encode
 from swift.common.request_helpers import get_container_update_override_key, \
     get_param
 
-from six.moves.urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
@@ -293,8 +290,6 @@ class UploadsController(Controller):
 
             :return (non_delimited_uploads, common_prefixes)
             """
-            if six.PY2:
-                (prefix, delimiter) = utf8encode(prefix, delimiter)
             non_delimited_uploads = []
             common_prefixes = set()
             for upload in uploads:
@@ -363,10 +358,7 @@ class UploadsController(Controller):
                     new_uploads, prefix, delimiter)
             uploads.extend(new_uploads)
             prefixes.extend(new_prefixes)
-            if six.PY2:
-                query['marker'] = objects[-1]['name'].encode('utf-8')
-            else:
-                query['marker'] = objects[-1]['name']
+            query['marker'] = objects[-1]['name']
 
         truncated = len(uploads) >= maxuploads
         if len(uploads) > maxuploads:
@@ -542,10 +534,7 @@ class UploadController(Controller):
             if not new_objects:
                 break
             objects.extend(new_objects)
-            if six.PY2:
-                query['marker'] = new_objects[-1]['name'].encode('utf-8')
-            else:
-                query['marker'] = new_objects[-1]['name']
+            query['marker'] = new_objects[-1]['name']
 
         last_part = 0
 
@@ -642,10 +631,7 @@ class UploadController(Controller):
                 container = req.container_name + MULTIUPLOAD_SUFFIX
                 obj = bytes_to_wsgi(o['name'].encode('utf-8'))
                 req.get_response(self.app, container=container, obj=obj)
-            if six.PY2:
-                query['marker'] = objects[-1]['name'].encode('utf-8')
-            else:
-                query['marker'] = objects[-1]['name']
+            query['marker'] = objects[-1]['name']
             resp = req.get_response(self.app, 'GET', container, '',
                                     query=query)
             objects = json.loads(resp.body)

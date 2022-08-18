@@ -22,7 +22,7 @@ import uuid
 import shutil
 
 from datetime import datetime
-from six.moves.configparser import ConfigParser
+from configparser import ConfigParser
 
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest

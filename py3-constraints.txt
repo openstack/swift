@@ -192,7 +192,6 @@ s3transfer===0.10.4;python_version>='3.8'
 s3transfer===0.8.2;python_version=='3.7'
 s3transfer===0.5.2;python_version=='3.6'
 setuptools===75.3.0;python_version>='3.12'
-six===1.16.0
 smmap===5.0.1;python_version>='3.7'
 smmap===5.0.0;python_version=='3.6'
 stestr===4.1.0

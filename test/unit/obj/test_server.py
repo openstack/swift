@@ -16,15 +16,14 @@
 
 """Tests for swift.obj.server"""
 
-import six.moves.cPickle as pickle
+import pickle
 import datetime
 import json
 import errno
 import operator
 import os
 import mock
-import six
-from six import StringIO
+from io import StringIO
 import unittest
 import math
 import random
@@ -36,7 +35,7 @@ from contextlib import contextmanager
 from textwrap import dedent
 
 from eventlet import sleep, spawn, wsgi, Timeout, tpool, greenthread
-from eventlet.green import httplib
+from eventlet.green.http import client as http_client
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
@@ -223,9 +222,8 @@ class TestObjectController(BaseTestCase):
 
     def test_REQUEST_SPECIAL_CHARS(self):
         obj = 'special昆%20/%'
-        if six.PY3:
-            # The path argument of Request.blank() is a WSGI string, somehow
-            obj = obj.encode('utf-8').decode('latin-1')
+        # The path argument of Request.blank() is a WSGI string, somehow
+        obj = obj.encode('utf-8').decode('latin-1')
         self.check_all_api_methods(obj)
 
     def test_device_unavailable(self):
@@ -9382,10 +9380,7 @@ class TestObjectServer(unittest.TestCase):
         conn.send(b'c\r\n--boundary123\r\n')
 
         # disconnect client
-        if six.PY2:
-            conn.sock.fd._sock.close()
-        else:
-            conn.sock.fd._real_close()
+        conn.sock.fd._real_close()
         for i in range(2):
             sleep(0)
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -9495,10 +9490,7 @@ class TestObjectServer(unittest.TestCase):
         with self._check_multiphase_put_commit_handling() as context:
             conn = context['conn']
             # just bail straight out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
         sleep(0)
 
         put_timestamp = context['put_timestamp']
@@ -9539,10 +9531,7 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
         sleep(0)
 
         put_timestamp = context['put_timestamp']
@@ -9669,12 +9658,8 @@ class TestObjectServer(unittest.TestCase):
                          'Content-Type': 'text/plain'}
         for k, v in actual_meta.items():
             # See diskfile.py:_decode_metadata
-            if six.PY2:
-                self.assertIsInstance(k, six.binary_type)
-                self.assertIsInstance(v, six.binary_type)
-            else:
-                self.assertIsInstance(k, six.text_type)
-                self.assertIsInstance(v, six.text_type)
+            self.assertIsInstance(k, str)
+            self.assertIsInstance(v, str)
         self.assertIsNotNone(actual_meta.pop('ETag', None))
         self.assertEqual(expected_meta, actual_meta)
         # but no other files
@@ -9722,10 +9707,7 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
         sleep(0)
 
         # and make sure it demonstrates the client disconnect
@@ -9920,10 +9902,7 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
 
         # the object server needs to recognize the socket is closed
         # or at least timeout, we'll have to wait
@@ -9996,7 +9975,7 @@ class TestZeroCopy(unittest.TestCase):
         self.wsgi_greenlet = spawn(
             wsgi.server, listener, self.object_controller, NullLogger())
 
-        self.http_conn = httplib.HTTPConnection('127.0.0.1', port)
+        self.http_conn = http_client.HTTPConnection('127.0.0.1', port)
         self.http_conn.connect()
 
     def tearDown(self):

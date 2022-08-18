@@ -31,8 +31,6 @@ import pickle
 import json
 import itertools
 
-import six
-
 from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, UNSHARDED, SHARDING, SHARDED, \
@@ -756,7 +754,7 @@ class TestContainerBroker(test_db.TestDbBase):
         now = time()
         top_of_the_minute = now - (now % 60)
         c = itertools.cycle([True, False])
-        for m, is_deleted in six.moves.zip(range(num_of_objects), c):
+        for m, is_deleted in zip(range(num_of_objects), c):
             offset = top_of_the_minute - (m * 60)
             obj_specs.append((Timestamp(offset), is_deleted))
         random.seed(now)
@@ -3618,8 +3616,6 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_merge_items_overwrite_unicode(self):
         # test DatabaseBroker.merge_items
         snowman = u'\N{SNOWMAN}'
-        if six.PY2:
-            snowman = snowman.encode('utf-8')
         broker1 = ContainerBroker(self.get_db_path(), account='a',
                                   container='c')
         broker1.initialize(Timestamp('1').internal, 0)

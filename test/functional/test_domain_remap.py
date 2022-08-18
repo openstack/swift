@@ -15,7 +15,6 @@
 # limitations under the License.
 
 from unittest import SkipTest
-import six
 
 import test.functional as tf
 from test.functional import cluster_info
@@ -117,9 +116,7 @@ class TestDomainRemap(Base):
                                                hdrs={'Host': domain},
                                                cfg={'absolute_path': True})
             self.assert_status(200)
-            body = self.env.account.conn.response.read()
-            if not six.PY2:
-                body = body.decode('utf8')
+            body = self.env.account.conn.response.read().decode('utf8')
             self.assertIn(self.env.container.name, body.split('\n'))
 
             path = '/'.join(['', self.env.container.name])
@@ -127,9 +124,7 @@ class TestDomainRemap(Base):
                                                hdrs={'Host': domain},
                                                cfg={'absolute_path': True})
             self.assert_status(200)
-            body = self.env.account.conn.response.read()
-            if not six.PY2:
-                body = body.decode('utf8')
+            body = self.env.account.conn.response.read().decode('utf8')
             self.assertIn(self.env.obj.name, body.split('\n'))
             self.assertIn(self.env.obj_slash.name, body.split('\n'))
 
@@ -170,9 +165,7 @@ class TestDomainRemap(Base):
                                                hdrs={'Host': domain},
                                                cfg={'absolute_path': True})
             self.assert_status(200)
-            body = self.env.account.conn.response.read()
-            if not six.PY2:
-                body = body.decode('utf8')
+            body = self.env.account.conn.response.read().decode('utf8')
             self.assertIn(self.env.obj.name, body.split('\n'))
             self.assertIn(self.env.obj_slash.name, body.split('\n'))
 

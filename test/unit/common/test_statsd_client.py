@@ -23,11 +23,9 @@ import unittest
 import warnings
 
 import mock
-import six
-from six.moves.queue import Queue, Empty
+from queue import Queue, Empty
 
 
-from swift.common import utils
 from swift.common import statsd_client
 from swift.common.statsd_client import StatsdClient, get_statsd_client
 
@@ -118,8 +116,6 @@ class TestStatsdClient(BaseTestStatsdClient):
 
     def test_statsd_set_prefix_deprecation(self):
         with warnings.catch_warnings(record=True) as cm:
-            if six.PY2:
-                getattr(utils, '__warningregistry__', {}).clear()
             warnings.resetwarnings()
             warnings.simplefilter('always', DeprecationWarning)
             client = StatsdClient(None, None)
@@ -352,9 +348,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]
-        suffix = "|@%s" % effective_sample_rate
-        if six.PY3:
-            suffix = suffix.encode('utf-8')
+        suffix = ("|@%s" % effective_sample_rate).encode('utf-8')
         self.assertTrue(payload.endswith(suffix), payload)
 
         effective_sample_rate = 0.587 * 0.91
@@ -363,9 +357,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
         self.assertEqual(len(mock_socket.sent), 2)
 
         payload = mock_socket.sent[1][0]
-        suffix = "|@%s" % effective_sample_rate
-        if six.PY3:
-            suffix = suffix.encode('utf-8')
+        suffix = ("|@%s" % effective_sample_rate).encode('utf-8')
         self.assertTrue(payload.endswith(suffix), payload)
 
 
@@ -419,15 +411,11 @@ class TestStatsdClientOutput(unittest.TestCase):
         return got
 
     def assertStat(self, expected, sender_fn, *args, **kwargs):
-        got = self._send_and_get(sender_fn, *args, **kwargs)
-        if six.PY3:
-            got = got.decode('utf-8')
+        got = self._send_and_get(sender_fn, *args, **kwargs).decode('utf-8')
         return self.assertEqual(expected, got)
 
     def assertStatMatches(self, expected_regexp, sender_fn, *args, **kwargs):
-        got = self._send_and_get(sender_fn, *args, **kwargs)
-        if six.PY3:
-            got = got.decode('utf-8')
+        got = self._send_and_get(sender_fn, *args, **kwargs).decode('utf-8')
         return self.assertTrue(re.search(expected_regexp, got),
                                [got, expected_regexp])
 

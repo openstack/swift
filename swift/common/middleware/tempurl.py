@@ -299,13 +299,11 @@ __all__ = ['TempURL', 'filter_factory',
            'DEFAULT_OUTGOING_ALLOW_HEADERS']
 
 from calendar import timegm
-import six
 from os.path import basename
 from time import time, strftime, strptime, gmtime
 from ipaddress import ip_address, ip_network
 
-from six.moves.urllib.parse import parse_qs
-from six.moves.urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.header_key_dict import HeaderKeyDict
@@ -314,7 +312,7 @@ from swift.common.digest import get_allowed_digests, \
     extract_digest_and_algorithm, DEFAULT_ALLOWED_DIGESTS, get_hmac
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
     HTTPBadRequest, wsgi_to_str
-from swift.common.utils import split_path, get_valid_utf8_str, \
+from swift.common.utils import split_path, \
     streq_const_time, quote, get_logger, close_if_possible
 from swift.common.registry import register_swift_info, register_sensitive_param
 from swift.common.wsgi import WSGIContext
@@ -361,8 +359,7 @@ def get_tempurl_keys_from_metadata(meta):
       meta = get_account_info(...)['meta']
       keys = get_tempurl_keys_from_metadata(meta)
     """
-    return [(get_valid_utf8_str(value) if six.PY2 else value)
-            for key, value in meta.items()
+    return [value for key, value in meta.items()
             if key.lower() in ('temp-url-key', 'temp-url-key-2')]
 
 
@@ -575,8 +572,8 @@ class TempURL(object):
             if client_address is None:
                 return self._invalid(env, start_response)
             try:
-                allowed_ip_ranges = ip_network(six.u(temp_url_ip_range))
-                if ip_address(six.u(client_address)) not in allowed_ip_ranges:
+                allowed_ip_ranges = ip_network(str(temp_url_ip_range))
+                if ip_address(str(client_address)) not in allowed_ip_ranges:
                     return self._invalid(env, start_response)
             except ValueError:
                 return self._invalid(env, start_response)

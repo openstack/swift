@@ -13,13 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import configparser
 import os
-import six
+from io import StringIO
 import time
 import unittest
 from getpass import getuser
 import logging
-from test.unit import tmpfile, with_tempdir, ConfigAssertMixin
+from test.unit import tmpfile, with_tempdir
 import mock
 import signal
 from contextlib import contextmanager
@@ -107,7 +108,7 @@ class TestWorkerDaemon(unittest.TestCase):
         self.assertTrue(d.is_healthy())
 
 
-class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
+class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
         for patcher in [
@@ -177,7 +178,7 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
                                   conf_file, once=True)
 
             # test user quit
-            sio = six.StringIO()
+            sio = StringIO()
             logger = logging.getLogger('server')
             logger.addHandler(logging.StreamHandler(sio))
             logger = utils.get_logger(None, 'server', log_route='server')
@@ -260,9 +261,12 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
         with mock.patch('swift.common.utils.eventlet'), \
                 mock.patch('eventlet.hubs.use_hub'), \
                 mock.patch('eventlet.debug'):
-            app_config = lambda: daemon.run_daemon(MyDaemon, tempdir)
-            # N.B. CLIENT_TIMEOUT/client_timeout are unique options
-            self.assertDuplicateOption(app_config, 'conn_timeout', '1.2')
+            with self.assertRaises(
+                    configparser.DuplicateOptionError) as ctx:
+                daemon.run_daemon(MyDaemon, tempdir)
+            msg = str(ctx.exception)
+            self.assertIn('conn_timeout', msg)
+            self.assertIn('already exists', msg)
 
     @with_tempdir
     def test_run_deamon_from_conf_dir(self, tempdir):
@@ -316,9 +320,12 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
         with mock.patch('swift.common.utils.eventlet'), \
                 mock.patch('eventlet.hubs.use_hub'), \
                 mock.patch('eventlet.debug'):
-            app_config = lambda: daemon.run_daemon(MyDaemon, tempdir)
-            # N.B. CLIENT_TIMEOUT/client_timeout are unique options
-            self.assertDuplicateOption(app_config, 'conn_timeout', '1.2')
+            with self.assertRaises(
+                    configparser.DuplicateOptionError) as ctx:
+                daemon.run_daemon(MyDaemon, tempdir)
+            msg = str(ctx.exception)
+            self.assertIn('conn_timeout', msg)
+            self.assertIn('already exists', msg)
 
     @contextmanager
     def mock_os(self, child_worker_cycles=3):

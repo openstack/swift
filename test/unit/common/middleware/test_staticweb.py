@@ -17,7 +17,7 @@ import json
 import unittest
 import mock
 
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 
 from swift.common.swob import Request, Response, HTTPUnauthorized
 from swift.common.middleware import staticweb

@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
 import hashlib
 import hmac
 import mock
-import six
 import unittest
 
 from swift.cli import form_signature
@@ -26,7 +26,7 @@ from swift.cli import form_signature
 class TestFormSignature(unittest.TestCase):
     def test_prints_signature(self):
         the_time = 1406143563.020043
-        key = 'secret squirrel'
+        key = b'secret squirrel'
         expires = 3600
         path = '/v1/a/c/o'
         redirect = 'https://example.com/done.html'
@@ -35,17 +35,11 @@ class TestFormSignature(unittest.TestCase):
 
         data = "\n".join((
             path, redirect, max_file_size, max_file_count,
-            str(int(the_time + expires))))
-
-        if six.PY3:
-            data = data if isinstance(data, six.binary_type) else \
-                data.encode('utf8')
-            key = key if isinstance(key, six.binary_type) else \
-                key.encode('utf8')
+            str(int(the_time + expires)))).encode('utf8')
 
         expected_signature = hmac.new(key, data, hashlib.sha1).hexdigest()
 
-        out = six.StringIO()
+        out = io.StringIO()
         with mock.patch('swift.cli.form_signature.time', lambda: the_time):
             with mock.patch('sys.stdout', out):
                 exitcode = form_signature.main([
@@ -64,7 +58,7 @@ class TestFormSignature(unittest.TestCase):
         self.assertIn(sig_input, out.getvalue())
 
     def test_too_few_args(self):
-        out = six.StringIO()
+        out = io.StringIO()
         with mock.patch('sys.stdout', out):
             exitcode = form_signature.main([
                 '/path/to/swift-form-signature',
@@ -75,7 +69,7 @@ class TestFormSignature(unittest.TestCase):
         self.assertIn(usage, out.getvalue())
 
     def test_invalid_filesize_arg(self):
-        out = six.StringIO()
+        out = io.StringIO()
         key = 'secret squirrel'
         with mock.patch('sys.stdout', out):
             exitcode = form_signature.main([
@@ -84,7 +78,7 @@ class TestFormSignature(unittest.TestCase):
         self.assertNotEqual(exitcode, 0)
 
     def test_invalid_filecount_arg(self):
-        out = six.StringIO()
+        out = io.StringIO()
         key = 'secret squirrel'
         with mock.patch('sys.stdout', out):
             exitcode = form_signature.main([
@@ -93,7 +87,7 @@ class TestFormSignature(unittest.TestCase):
         self.assertNotEqual(exitcode, 0)
 
     def test_invalid_path_arg(self):
-        out = six.StringIO()
+        out = io.StringIO()
         key = 'secret squirrel'
         with mock.patch('sys.stdout', out):
             exitcode = form_signature.main([
@@ -102,7 +96,7 @@ class TestFormSignature(unittest.TestCase):
         self.assertNotEqual(exitcode, 0)
 
     def test_invalid_seconds_arg(self):
-        out = six.StringIO()
+        out = io.StringIO()
         key = 'secret squirrel'
         with mock.patch('sys.stdout', out):
             exitcode = form_signature.main([

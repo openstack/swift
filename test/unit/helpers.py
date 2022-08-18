@@ -30,7 +30,7 @@ import warnings
 from eventlet import spawn, wsgi
 import mock
 from shutil import rmtree
-import six.moves.cPickle as pickle
+import pickle
 
 import swift
 from swift.account import server as account_server

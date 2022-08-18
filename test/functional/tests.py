@@ -18,8 +18,7 @@ from datetime import datetime
 import io
 import locale
 import random
-import six
-from six.moves import urllib
+import urllib.parse
 import time
 import unittest
 import uuid
@@ -30,10 +29,7 @@ from swift.common.swob import normalize_etag
 from swift.common.utils import md5
 from email.utils import parsedate
 
-if six.PY2:
-    from email.parser import FeedParser
-else:
-    from email.parser import BytesFeedParser as FeedParser
+from email.parser import BytesFeedParser as FeedParser
 
 import mock
 
@@ -54,12 +50,6 @@ def tearDownModule():
 
 class Utils(object):
     @classmethod
-    def encode_if_py2(cls, value):
-        if six.PY2 and isinstance(value, six.text_type):
-            return value.encode('utf8')
-        return value
-
-    @classmethod
     def create_ascii_name(cls, length=None):
         return uuid.uuid4().hex
 
@@ -75,9 +65,8 @@ class Utils(object):
                      u'\u1802\u0901\uF111\uD20F\uB30D\u940B\u850A\u5607'\
                      u'\u3705\u1803\u0902\uF112\uD210\uB30E\u940C\u850B'\
                      u'\u5608\u3706\u1804\u0903\u03A9\u2603'
-        ustr = u''.join([random.choice(utf8_chars)
+        return u''.join([random.choice(utf8_chars)
                          for x in range(length)])
-        return cls.encode_if_py2(ustr)
 
     create_name = create_ascii_name
 
@@ -190,11 +179,8 @@ class TestAccount(Base):
 
     def testInvalidUTF8Path(self):
         valid_utf8 = Utils.create_utf8_name()
-        if six.PY2:
-            invalid_utf8 = valid_utf8[::-1]
-        else:
-            invalid_utf8 = (valid_utf8.encode('utf8')[::-1]).decode(
-                'utf-8', 'surrogateescape')
+        invalid_utf8 = (valid_utf8.encode('utf8')[::-1]).decode(
+            'utf-8', 'surrogateescape')
         container = self.env.account.container(invalid_utf8)
         self.assertFalse(container.create(cfg={'no_path_quote': True}))
         self.assert_status(412)
@@ -778,11 +764,8 @@ class TestContainer(Base):
 
     def testUtf8Container(self):
         valid_utf8 = Utils.create_utf8_name()
-        if six.PY2:
-            invalid_utf8 = valid_utf8[::-1]
-        else:
-            invalid_utf8 = (valid_utf8.encode('utf8')[::-1]).decode(
-                'utf-8', 'surrogateescape')
+        invalid_utf8 = (valid_utf8.encode('utf8')[::-1]).decode(
+            'utf-8', 'surrogateescape')
         container = self.env.account.container(valid_utf8)
         self.assertTrue(container.create(cfg={'no_path_quote': True}))
         self.assertIn(container.name, self.env.account.containers())
@@ -804,14 +787,9 @@ class TestContainer(Base):
         self.assert_status(202)
 
     def testSlashInName(self):
-        if six.PY2:
-            cont_name = list(Utils.create_name().decode('utf-8'))
-        else:
-            cont_name = list(Utils.create_name())
+        cont_name = list(Utils.create_name())
         cont_name[random.randint(2, len(cont_name) - 2)] = '/'
         cont_name = ''.join(cont_name)
-        if six.PY2:
-            cont_name = cont_name.encode('utf-8')
 
         cont = self.env.account.container(cont_name)
         self.assertFalse(cont.create(cfg={'no_path_quote': True}),
@@ -2031,11 +2009,8 @@ class TestFile(Base):
                 if len(key) > j:
                     key = key[:j]
                     # NB: we'll likely write object metadata that's *not* UTF-8
-                    if six.PY2:
-                        val = val[:j]
-                    else:
-                        val = val.encode('utf8')[:j].decode(
-                            'utf8', 'surrogateescape')
+                    val = val.encode('utf8')[:j].decode(
+                        'utf8', 'surrogateescape')
 
                 metadata[key] = val
 

@@ -22,7 +22,7 @@ import uuid
 import mock
 import requests
 from requests_mock.contrib import fixture as rm_fixture
-from six.moves import urllib
+import urllib.parse
 
 from swift.common.middleware.s3api import s3token
 from swift.common.swob import Request, Response

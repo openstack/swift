@@ -14,8 +14,7 @@
 # limitations under the License.
 
 from eventlet import sleep
-import six
-from six.moves import urllib
+import urllib
 
 from swift.common import bufferedhttp
 from swift.common import exceptions
@@ -306,7 +305,7 @@ class Sender(object):
             frag_index=self.job.get('frag_index'),
             frag_prefs=frag_prefs)
         if self.remote_check_objs is not None:
-            hash_gen = six.moves.filter(
+            hash_gen = filter(
                 lambda objhash_timestamps:
                 objhash_timestamps[0] in
                 self.remote_check_objs, hash_gen)
@@ -353,11 +352,10 @@ class Sender(object):
             if line == b':MISSING_CHECK: START':
                 break
             elif line:
-                if not six.PY2:
-                    try:
-                        line = line.decode('ascii')
-                    except UnicodeDecodeError:
-                        pass
+                try:
+                    line = line.decode('ascii')
+                except UnicodeDecodeError:
+                    pass
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % utils.cap_length(line, 1024))
         while True:
@@ -442,11 +440,10 @@ class Sender(object):
             if line == b':UPDATES: START':
                 break
             elif line:
-                if not six.PY2:
-                    try:
-                        line = line.decode('ascii')
-                    except UnicodeDecodeError:
-                        pass
+                try:
+                    line = line.decode('ascii')
+                except UnicodeDecodeError:
+                    pass
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % utils.cap_length(line, 1024))
         while True:
@@ -459,11 +456,10 @@ class Sender(object):
             if line == b':UPDATES: END':
                 break
             elif line:
-                if not six.PY2:
-                    try:
-                        line = line.decode('ascii')
-                    except UnicodeDecodeError:
-                        pass
+                try:
+                    line = line.decode('ascii')
+                except UnicodeDecodeError:
+                    pass
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % utils.cap_length(line, 1024))
 

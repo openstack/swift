@@ -34,8 +34,7 @@ import itertools
 import mock
 import unittest
 import hashlib
-import six
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 from time import time, strftime, gmtime
 
 from swift.common.middleware import tempauth, tempurl, proxy_logging
@@ -134,7 +133,7 @@ class TestTempURL(unittest.TestCase):
                          prefix=None):
         if not environ:
             environ = {}
-        if six.PY3 and isinstance(sig, six.binary_type):
+        if isinstance(sig, bytes):
             sig = sig.decode('utf-8')
         environ['QUERY_STRING'] = 'temp_url_sig=%s&temp_url_expires=%s' % (
             sig.replace('+', '%2B'), expires)

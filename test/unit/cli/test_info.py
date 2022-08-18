@@ -19,8 +19,7 @@ import mock
 from shutil import rmtree
 from tempfile import mkdtemp
 
-import six
-from six.moves import cStringIO as StringIO
+from io import StringIO
 from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs
 
 from swift.common import ring, utils
@@ -423,12 +422,8 @@ Shard Ranges (19):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_db_info_metadata('container', info, {}, verbose=True)
-        if six.PY2:
-            s_a = '\\xe3\\x82\\xa2'
-            s_ya = '\\xe3\\x83\\xa4'
-        else:
-            s_a = '\u30a2'
-            s_ya = '\u30e4'
+        s_a = '\u30a2'
+        s_ya = '\u30e4'
         exp_out = '''Path: /acct/cont
   Account: acct
   Container: cont

@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import eventlet
-import six.moves.cPickle as pickle
-from six.moves.queue import PriorityQueue
+import pickle
+from queue import PriorityQueue
 import mock
 import os
 import unittest

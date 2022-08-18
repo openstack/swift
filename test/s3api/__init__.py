@@ -21,7 +21,7 @@ import time
 
 import boto3
 from botocore.exceptions import ClientError
-from six.moves import urllib
+import urllib.parse
 
 from swift.common.utils import config_true_value, readconf
 

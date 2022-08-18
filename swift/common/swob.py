@@ -36,10 +36,7 @@ needs to change.
 """
 
 from collections import defaultdict
-try:
-    from collections.abc import MutableMapping
-except ImportError:
-    from collections import MutableMapping  # py2
+from collections.abc import MutableMapping
 import time
 from functools import partial
 from datetime import datetime
@@ -49,9 +46,8 @@ import random
 import functools
 from io import BytesIO
 
-import six
-from six import StringIO
-from six.moves import urllib
+from io import StringIO
+import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import UTC, reiterate, split_path, Timestamp, pairs, \
@@ -157,7 +153,7 @@ def _datetime_property(header):
                 return None
 
     def setter(self, value):
-        if isinstance(value, (float,) + six.integer_types):
+        if isinstance(value, (float, int)):
             self.headers[header] = time.strftime(
                 "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(value))
         elif isinstance(value, datetime):
@@ -251,9 +247,7 @@ class HeaderEnvironProxy(MutableMapping):
     def __setitem__(self, key, value):
         if value is None:
             self.environ.pop(header_to_environ_key(key), None)
-        elif six.PY2 and isinstance(value, six.text_type):
-            self.environ[header_to_environ_key(key)] = value.encode('utf-8')
-        elif not six.PY2 and isinstance(value, six.binary_type):
+        elif isinstance(value, bytes):
             self.environ[header_to_environ_key(key)] = value.decode('latin1')
         else:
             self.environ[header_to_environ_key(key)] = str(value)
@@ -279,70 +273,42 @@ class HeaderEnvironProxy(MutableMapping):
 def wsgi_to_bytes(wsgi_str):
     if wsgi_str is None:
         return None
-    if six.PY2:
-        return wsgi_str
     return wsgi_str.encode('latin1')
 
 
 def wsgi_to_str(wsgi_str):
     if wsgi_str is None:
         return None
-    if six.PY2:
-        return wsgi_str
     return wsgi_to_bytes(wsgi_str).decode('utf8', errors='surrogateescape')
 
 
 def bytes_to_wsgi(byte_str):
-    if six.PY2:
-        return byte_str
     return byte_str.decode('latin1')
 
 
 def str_to_wsgi(native_str):
-    if six.PY2:
-        return native_str
     return bytes_to_wsgi(native_str.encode('utf8', errors='surrogateescape'))
 
 
 def wsgi_quote(wsgi_str, safe='/'):
-    if six.PY2:
-        if not isinstance(wsgi_str, bytes):
-            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
-        return urllib.parse.quote(wsgi_str, safe=safe)
-
     if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
         raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
     return urllib.parse.quote(wsgi_str, safe=safe, encoding='latin-1')
 
 
 def wsgi_unquote(wsgi_str):
-    if six.PY2:
-        if not isinstance(wsgi_str, bytes):
-            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
-        return urllib.parse.unquote(wsgi_str)
-
     if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
         raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
     return urllib.parse.unquote(wsgi_str, encoding='latin-1')
 
 
 def wsgi_quote_plus(wsgi_str):
-    if six.PY2:
-        if not isinstance(wsgi_str, bytes):
-            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
-        return urllib.parse.quote_plus(wsgi_str)
-
     if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
         raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
     return urllib.parse.quote_plus(wsgi_str, encoding='latin-1')
 
 
 def wsgi_unquote_plus(wsgi_str):
-    if six.PY2:
-        if not isinstance(wsgi_str, bytes):
-            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
-        return urllib.parse.unquote_plus(wsgi_str)
-
     if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
         raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
     return urllib.parse.unquote_plus(wsgi_str, encoding='latin-1')
@@ -360,7 +326,7 @@ def _resp_status_property():
         return '%s %s' % (self.status_int, self.title)
 
     def setter(self, value):
-        if isinstance(value, six.integer_types):
+        if isinstance(value, int):
             self.status_int = value
             self.explanation = self.title = RESPONSE_REASONS[value][0]
         else:
@@ -388,9 +354,9 @@ def _resp_body_property():
         return self._body
 
     def setter(self, value):
-        if isinstance(value, six.text_type):
+        if isinstance(value, str):
             raise TypeError('WSGI responses must be bytes')
-        if isinstance(value, six.binary_type):
+        if isinstance(value, bytes):
             self.content_length = len(value)
             close_if_possible(self._app_iter)
             self._app_iter = None
@@ -805,19 +771,13 @@ def _req_environ_property(environ_field, is_wsgi_string_field=True):
         return self.environ.get(environ_field, None)
 
     def setter(self, value):
-        if six.PY2:
-            if isinstance(value, six.text_type):
-                self.environ[environ_field] = value.encode('utf-8')
-            else:
-                self.environ[environ_field] = value
-        else:
-            if is_wsgi_string_field:
-                # Check that input is valid before setting
-                if isinstance(value, str):
-                    value.encode('latin1').decode('utf-8')
-                if isinstance(value, bytes):
-                    value = value.decode('latin1')
-            self.environ[environ_field] = value
+        if is_wsgi_string_field:
+            # Check that input is valid before setting
+            if isinstance(value, str):
+                value.encode('latin1').decode('utf-8')
+            if isinstance(value, bytes):
+                value = value.decode('latin1')
+        self.environ[environ_field] = value
 
     return property(getter, setter, doc=("Get and set the %s property "
                     "in the WSGI environment") % environ_field)
@@ -835,7 +795,7 @@ def _req_body_property():
         return body
 
     def setter(self, value):
-        if not isinstance(value, six.binary_type):
+        if not isinstance(value, bytes):
             value = value.encode('utf8')
         self.environ['wsgi.input'] = WsgiBytesIO(value)
         self.environ['CONTENT_LENGTH'] = str(len(value))
@@ -932,15 +892,11 @@ class Request(object):
         """
         headers = headers or {}
         environ = environ or {}
-        if six.PY2:
-            if isinstance(path, six.text_type):
-                path = path.encode('utf-8')
+        if isinstance(path, bytes):
+            path = path.decode('latin1')
         else:
-            if isinstance(path, six.binary_type):
-                path = path.decode('latin1')
-            else:
-                # Check that the input is valid
-                path.encode('latin1')
+            # Check that the input is valid
+            path.encode('latin1')
 
         parsed_path = urllib.parse.urlparse(path)
         server_name = 'localhost'
@@ -970,7 +926,7 @@ class Request(object):
         }
         env.update(environ)
         if body is not None:
-            if not isinstance(body, six.binary_type):
+            if not isinstance(body, bytes):
                 body = body.encode('utf8')
             env['wsgi.input'] = WsgiBytesIO(body)
             env['CONTENT_LENGTH'] = str(len(body))
@@ -996,13 +952,9 @@ class Request(object):
         "Provides QUERY_STRING parameters as a dictionary"
         if self._params_cache is None:
             if 'QUERY_STRING' in self.environ:
-                if six.PY2:
-                    self._params_cache = dict(urllib.parse.parse_qsl(
-                        self.environ['QUERY_STRING'], True))
-                else:
-                    self._params_cache = dict(urllib.parse.parse_qsl(
-                        self.environ['QUERY_STRING'],
-                        keep_blank_values=True, encoding='latin-1'))
+                self._params_cache = dict(urllib.parse.parse_qsl(
+                    self.environ['QUERY_STRING'],
+                    keep_blank_values=True, encoding='latin-1'))
             else:
                 self._params_cache = {}
         return self._params_cache
@@ -1011,11 +963,8 @@ class Request(object):
     @params.setter
     def params(self, param_pairs):
         self._params_cache = None
-        if six.PY2:
-            self.query_string = urllib.parse.urlencode(param_pairs)
-        else:
-            self.query_string = urllib.parse.urlencode(param_pairs,
-                                                       encoding='latin-1')
+        self.query_string = urllib.parse.urlencode(param_pairs,
+                                                   encoding='latin-1')
 
     def ensure_x_timestamp(self):
         """
@@ -1265,7 +1214,7 @@ class Response(object):
         self.request = request
         self._app_iter = None
         # Allow error messages to come as natural strings on py3.
-        if isinstance(body, six.text_type):
+        if isinstance(body, str):
             body = body.encode('utf8')
         self.body = body
         self.app_iter = app_iter

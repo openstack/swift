@@ -16,7 +16,7 @@
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
 from collections import defaultdict, namedtuple
-from six.moves.urllib import parse
+from urllib import parse
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import is_user_meta, \
@@ -48,8 +48,6 @@ class LeakTrackingIter(object):
         except StopIteration:
             self.mark_read(self.key)
             raise
-
-    next = __next__  # for py2
 
     def close(self):
         self.mark_closed(self.key)

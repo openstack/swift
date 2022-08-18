@@ -18,7 +18,6 @@
 from __future__ import print_function
 
 import errno
-import fcntl
 import os
 import signal
 import sys
@@ -31,10 +30,7 @@ import eventlet.debug
 from eventlet import greenio, GreenPool, sleep, wsgi, listen, Timeout
 from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
-from io import BytesIO
-
-import six
-from six import StringIO
+from io import BytesIO, StringIO
 
 from swift.common import utils, constraints
 from swift.common.http_protocol import SwiftHttpProtocol, \
@@ -67,8 +63,7 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
     """
 
     def get_context(self, object_type, name=None, global_conf=None):
-        if not six.PY2:
-            self.parser._interpolation = NicerInterpolation()
+        self.parser._interpolation = NicerInterpolation()
         context = super(NamedConfigLoader, self).get_context(
             object_type, name=name, global_conf=global_conf)
         context.name = name
@@ -128,10 +123,7 @@ class ConfigString(NamedConfigLoader):
         self.parser.optionxform = str  # Don't lower-case keys
         # Defaults don't need interpolation (crazy PasteDeploy...)
         self.parser.defaults = lambda: dict(self.parser._defaults, **defaults)
-        if six.PY2:
-            self.parser.readfp(self.contents)
-        else:
-            self.parser.read_file(self.contents)
+        self.parser.read_file(self.contents)
 
     def readline(self, *args, **kwargs):
         return self.contents.readline(*args, **kwargs)
@@ -198,10 +190,7 @@ def get_socket(conf):
             sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)),
                           family=address_family)
             if 'cert_file' in conf:
-                if six.PY2:
-                    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-                else:
-                    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
                 context.verify_mode = ssl.CERT_NONE
                 context.load_cert_chain(conf['cert_file'], conf['key_file'])
                 warn_ssl = True
@@ -513,13 +502,10 @@ class StrategyBase(object):
         """
 
         for sock in self.iter_sockets():
-            if six.PY2:
-                fcntl.fcntl(sock.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
-            else:
-                # Python 3.4 and later default to sockets having close-on-exec
-                # set (what PEP 0446 calls "non-inheritable").  This new method
-                # on socket objects is provided to toggle it.
-                sock.set_inheritable(False)
+            # Python 3.4 and later default to sockets having close-on-exec
+            # set (what PEP 0446 calls "non-inheritable").  This new method
+            # on socket objects is provided to toggle it.
+            sock.set_inheritable(False)
 
     def signal_ready(self):
         """

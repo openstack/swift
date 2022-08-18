@@ -17,14 +17,12 @@
 
 import json
 import unittest
+import urllib.parse
 from uuid import uuid4
 
 from test.functional import check_response, cluster_info, retry, \
     requires_acls, load_constraint, requires_policies, SkipTest
 import test.functional as tf
-
-import six
-from six.moves import range, urllib
 
 
 def setUpModule():
@@ -72,11 +70,7 @@ class TestContainer(unittest.TestCase):
             return check_response(conn)
 
         def delete(url, token, parsed, conn, container, obj):
-            if six.PY2:
-                obj_name = obj['name'].encode('utf8')
-            else:
-                obj_name = obj['name']
-            path = '/'.join([parsed.path, container, obj_name])
+            path = '/'.join([parsed.path, container, obj['name']])
             conn.request('DELETE', path, '', {'X-Auth-Token': token})
             return check_response(conn)
 
@@ -219,40 +213,18 @@ class TestContainer(unittest.TestCase):
                          {'X-Auth-Token': token})
             return check_response(conn)
 
-        uni_key = u'X-Container-Meta-uni\u0E12'
         uni_value = u'uni\u0E12'
         # Note that py3 has issues with non-ascii header names; see
-        # https://bugs.python.org/issue37093
-        if (tf.web_front_end == 'integral' and six.PY2):
-            resp = retry(post, uni_key, '1')
-            resp.read()
-            self.assertEqual(resp.status, 204)
-            resp = retry(head)
-            resp.read()
-            self.assertIn(resp.status, (200, 204))
-            self.assertEqual(resp.getheader(uni_key.encode('utf-8')), '1')
+        # https://bugs.python.org/issue37093 -- so we won't test with unicode
+        # header names
         resp = retry(post, 'X-Container-Meta-uni', uni_value)
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assertIn(resp.status, (200, 204))
-        if six.PY2:
-            self.assertEqual(resp.getheader('X-Container-Meta-uni'),
-                             uni_value.encode('utf-8'))
-        else:
-            self.assertEqual(resp.getheader('X-Container-Meta-uni'),
-                             uni_value)
-        # See above note about py3 and non-ascii header names
-        if (tf.web_front_end == 'integral' and six.PY2):
-            resp = retry(post, uni_key, uni_value)
-            resp.read()
-            self.assertEqual(resp.status, 204)
-            resp = retry(head)
-            resp.read()
-            self.assertIn(resp.status, (200, 204))
-            self.assertEqual(resp.getheader(uni_key.encode('utf-8')),
-                             uni_value.encode('utf-8'))
+        self.assertEqual(resp.getheader('X-Container-Meta-uni'),
+                         uni_value)
 
     def test_PUT_metadata(self):
         if tf.skip:
@@ -844,9 +816,7 @@ class TestContainer(unittest.TestCase):
 
         # read-only can list containers
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertIn(self.name, listing)
 
@@ -861,9 +831,7 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 201)
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertIn(new_container_name, listing)
 
@@ -963,9 +931,7 @@ class TestContainer(unittest.TestCase):
 
         # can list containers
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertIn(self.name, listing)
 
@@ -975,9 +941,7 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertIn(resp.status, (201, 202))
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertIn(new_container_name, listing)
 
@@ -986,9 +950,7 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertIn(resp.status, (204, 404))
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertNotIn(new_container_name, listing)
 
@@ -1111,9 +1073,7 @@ class TestContainer(unittest.TestCase):
 
         # can list containers
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertIn(self.name, listing)
 
@@ -1123,9 +1083,7 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 201)
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertIn(new_container_name, listing)
 
@@ -1134,9 +1092,7 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(get, use_account=3)
-        listing = resp.read()
-        if not six.PY2:
-            listing = listing.decode('utf8')
+        listing = resp.read().decode('utf8')
         self.assertEqual(resp.status, 200)
         self.assertNotIn(new_container_name, listing)
 

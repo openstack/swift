@@ -21,7 +21,7 @@ import unittest
 
 import eventlet
 import mock
-import six
+import itertools
 
 from swift.common import bufferedhttp
 from swift.common import exceptions
@@ -41,10 +41,7 @@ from test.unit import (patch_policies, make_timestamp_iter, mock_check_drive,
 from test.unit.obj.common import write_diskfile
 
 
-if six.PY2:
-    UNPACK_ERR = b":ERROR: 0 'need more than 1 value to unpack'"
-else:
-    UNPACK_ERR = b":ERROR: 0 'not enough values to unpack (expected 2, got 1)'"
+UNPACK_ERR = b":ERROR: 0 'not enough values to unpack (expected 2, got 1)'"
 
 
 @unit.patch_policies()
@@ -116,16 +113,10 @@ class TestReceiver(unittest.TestCase):
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
-            if six.PY2:
-                last_line = (
-                    b":ERROR: 503 '<html><h1>Service Unavailable</h1><p>The "
-                    b"server is currently unavailable. Please try again at a "
-                    b"later time.</p></html>'")
-            else:
-                last_line = (
-                    b":ERROR: 503 b'<html><h1>Service Unavailable</h1><p>The "
-                    b"server is currently unavailable. Please try again at a "
-                    b"later time.</p></html>'")
+            last_line = (
+                b":ERROR: 503 b'<html><h1>Service Unavailable</h1><p>The "
+                b"server is currently unavailable. Please try again at a "
+                b"later time.</p></html>'")
             self.assertEqual(
                 self.body_lines(resp.body),
                 [last_line])
@@ -353,7 +344,7 @@ class TestReceiver(unittest.TestCase):
             body_lines1 = []
             body_lines2 = []
 
-            for chunk1, chunk2 in six.moves.zip_longest(rcvr1(), rcvr2()):
+            for chunk1, chunk2 in itertools.zip_longest(rcvr1(), rcvr2()):
                 if chunk1 and chunk1.strip():
                     body_lines1.append(chunk1.strip())
                 if chunk2 and chunk2.strip():
@@ -1586,12 +1577,8 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n\r\n'
                      'DELETE /a/c/o\r\n\r\n')
             resp = req.get_response(self.controller)
-            if six.PY2:
-                final_line = (b":ERROR: 500 'ERROR: With :UPDATES: "
-                              b"3 failures to 0 successes'")
-            else:
-                final_line = (b":ERROR: 500 b'ERROR: With :UPDATES: "
-                              b"3 failures to 0 successes'")
+            final_line = (b":ERROR: 500 b'ERROR: With :UPDATES: "
+                          b"3 failures to 0 successes'")
             self.assertEqual(
                 self.body_lines(resp.body),
                 [b':MISSING_CHECK: START', b':MISSING_CHECK: END', final_line])
@@ -1650,12 +1637,8 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n\r\n'
                      ':UPDATES: END\r\n')
             resp = req.get_response(self.controller)
-            if six.PY2:
-                final_line = (b":ERROR: 500 'ERROR: With :UPDATES: "
-                              b"4 failures to 3 successes'")
-            else:
-                final_line = (b":ERROR: 500 b'ERROR: With :UPDATES: "
-                              b"4 failures to 3 successes'")
+            final_line = (b":ERROR: 500 b'ERROR: With :UPDATES: "
+                          b"4 failures to 3 successes'")
             self.assertEqual(
                 self.body_lines(resp.body),
                 [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
@@ -2254,12 +2237,8 @@ class TestReceiver(unittest.TestCase):
                  '1')
         req.environ['wsgi.input'] = _IgnoreReadlineHint(req.body)
         resp = req.get_response(self.controller)
-        if six.PY2:
-            final_line = (b":ERROR: 500 'ERROR: With :UPDATES: "
-                          b"2 failures to 0 successes'")
-        else:
-            final_line = (b":ERROR: 500 b'ERROR: With :UPDATES: "
-                          b"2 failures to 0 successes'")
+        final_line = (b":ERROR: 500 b'ERROR: With :UPDATES: "
+                      b"2 failures to 0 successes'")
         self.assertEqual(
             self.body_lines(resp.body),
             [b':MISSING_CHECK: START', b':MISSING_CHECK: END', final_line])
@@ -2354,7 +2333,7 @@ class TestSsyncRxServer(unittest.TestCase):
                 swob.HTTPInternalServerError()
             success, _ = sender()
         self.assertFalse(success)
-        stderr = six.StringIO()
+        stderr = io.StringIO()
         with mock.patch('sys.stderr', stderr):
             # let gc and eventlet spin a bit
             del sender

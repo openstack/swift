@@ -24,7 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 import time
 import json
@@ -34,10 +34,8 @@ import itertools
 import operator
 import random
 from copy import deepcopy
-from sys import exc_info
 
 from eventlet.timeout import Timeout
-import six
 
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
@@ -626,16 +624,10 @@ def get_cache_key(account, container=None, obj=None, shard=None):
                   with obj)
     :returns: a (native) string cache_key
     """
-    if six.PY2:
-        def to_native(s):
-            if s is None or isinstance(s, str):
-                return s
-            return s.encode('utf8')
-    else:
-        def to_native(s):
-            if s is None or isinstance(s, str):
-                return s
-            return s.decode('utf8', 'surrogateescape')
+    def to_native(s):
+        if s is None or isinstance(s, str):
+            return s
+        return s.decode('utf8', 'surrogateescape')
 
     account = to_native(account)
     container = to_native(container)
@@ -844,27 +836,6 @@ def _get_info_from_memcache(app, env, account, container=None):
     else:
         info = memcache.get(cache_key)
         cache_state = 'hit' if info else 'miss'
-    if info and six.PY2:
-        # Get back to native strings
-        new_info = {}
-        for key in info:
-            new_key = key.encode("utf-8") if isinstance(
-                key, six.text_type) else key
-            if isinstance(info[key], six.text_type):
-                new_info[new_key] = info[key].encode("utf-8")
-            elif isinstance(info[key], dict):
-                new_info[new_key] = {}
-                for subkey, value in info[key].items():
-                    new_subkey = subkey.encode("utf-8") if isinstance(
-                        subkey, six.text_type) else subkey
-                    if isinstance(value, six.text_type):
-                        new_info[new_key][new_subkey] = \
-                            value.encode("utf-8")
-                    else:
-                        new_info[new_key][new_subkey] = value
-            else:
-                new_info[new_key] = info[key]
-        info = new_info
     if info:
         env.setdefault('swift.infocache', {})[cache_key] = info
     return info, cache_state
@@ -921,12 +892,6 @@ def get_namespaces_from_cache(req, cache_key, skip_chance):
         cache_state = 'error'
 
     if bounds:
-        if six.PY2:
-            # json.loads() in memcache.get will convert json 'string' to
-            # 'unicode' with python2, here we cast 'unicode' back to 'str'
-            bounds = [
-                [lower.encode('utf-8'), name.encode('utf-8')]
-                for lower, name in bounds]
         ns_bound_list = NamespaceBoundList(bounds)
         infocache[cache_key] = ns_bound_list
     else:
@@ -1439,14 +1404,13 @@ class GetOrHeadHandler(GetterBase):
                     chunk = part_file.read(self.app.object_chunk_size)
                     if nbytes is not None:
                         nbytes -= len(chunk)
-            except (ChunkReadTimeout, ShortReadError):
-                exc_type, exc_value, exc_traceback = exc_info()
+            except (ChunkReadTimeout, ShortReadError) as e:
                 if self.newest or self.server_type != 'Object':
                     raise
                 try:
                     self.fast_forward(self.bytes_used_from_backend)
                 except (HTTPException, ValueError):
-                    six.reraise(exc_type, exc_value, exc_traceback)
+                    raise e
                 except RangeAlreadyComplete:
                     break
                 if self._replace_source(
@@ -1458,10 +1422,10 @@ class GetOrHeadHandler(GetterBase):
                         # Tried to find a new node from which to
                         # finish the GET, but failed. There's
                         # nothing more we can do here.
-                        six.reraise(exc_type, exc_value, exc_traceback)
+                        raise e
                     part_file = ByteCountEnforcer(part_file, nbytes)
                 else:
-                    six.reraise(exc_type, exc_value, exc_traceback)
+                    raise e
             else:
                 if not chunk:
                     break
@@ -1880,7 +1844,7 @@ class NodeIter(object):
         return dict(node, use_replication=is_use_replication_network(
             self.request.headers))
 
-    def next(self):
+    def __next__(self):
         node = None
         if self._node_provider:
             # give node provider the opportunity to inject a node
@@ -1888,9 +1852,6 @@ class NodeIter(object):
         if not node:
             node = next(self._node_iter)
         return self._annotate_node(node)
-
-    def __next__(self):
-        return self.next()
 
 
 class Controller(object):

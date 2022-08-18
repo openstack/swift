@@ -19,7 +19,7 @@ import os
 import unittest
 
 import eventlet
-from six.moves import urllib
+import urllib.parse
 
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
     DiskFileDeleted, DiskFileExpired

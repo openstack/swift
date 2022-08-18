@@ -24,9 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-import six
-from six.moves.urllib.parse import quote, unquote
-from six.moves import zip
+from urllib.parse import quote, unquote
 
 import collections
 import itertools
@@ -35,7 +33,6 @@ import mimetypes
 import time
 import math
 import random
-import sys
 
 from greenlet import GreenletExit
 from eventlet import GreenPile
@@ -1301,8 +1298,6 @@ class ECAppIter(object):
     def __next__(self):
         return next(self.stashed_iter)
 
-    next = __next__  # py2
-
     def _real_iter(self, req, resp_headers):
         if not self.range_specs:
             client_asked_for_range = False
@@ -2490,13 +2485,12 @@ class ECFragGetter(GetterBase):
                     buf += chunk
                     if nbytes is not None:
                         nbytes -= len(chunk)
-            except (ChunkReadTimeout, ShortReadError):
-                exc_type, exc_value, exc_traceback = sys.exc_info()
+            except (ChunkReadTimeout, ShortReadError) as e:
                 try:
                     self.fast_forward(self.bytes_used_from_backend)
                 except (HTTPException, ValueError):
                     self.logger.exception('Unable to fast forward')
-                    six.reraise(exc_type, exc_value, exc_traceback)
+                    raise e
                 except RangeAlreadyComplete:
                     break
                 buf = b''
@@ -2509,10 +2503,10 @@ class ECFragGetter(GetterBase):
                         # it's not clear to me how to make
                         # _get_next_response_part raise StopIteration for the
                         # first doc part of a new request
-                        six.reraise(exc_type, exc_value, exc_traceback)
+                        raise e
                     part_file = ByteCountEnforcer(part_file, nbytes)
                 else:
-                    six.reraise(exc_type, exc_value, exc_traceback)
+                    raise e
             else:
                 if buf and self.skip_bytes:
                     if self.skip_bytes < len(buf):

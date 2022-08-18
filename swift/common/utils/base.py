@@ -23,8 +23,7 @@ This module should not import from other utils modules.
 import codecs
 import hashlib
 
-import six
-from six.moves.urllib.parse import quote as _quote
+from urllib.parse import quote as _quote
 
 
 try:
@@ -50,10 +49,9 @@ except TypeError:
 
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
-if not six.PY2:
-    # Apparently under py3 we need to go to utf-16 to collapse surrogates?
-    utf16_decoder = codecs.getdecoder('utf-16')
-    utf16_encoder = codecs.getencoder('utf-16')
+# Apparently under py3 we need to go to utf-16 to collapse surrogates?
+utf16_decoder = codecs.getdecoder('utf-16')
+utf16_encoder = codecs.getencoder('utf-16')
 
 
 def get_valid_utf8_str(str_or_unicode):
@@ -62,20 +60,15 @@ def get_valid_utf8_str(str_or_unicode):
 
     :param str_or_unicode: a string or an unicode which can be invalid utf-8
     """
-    if six.PY2:
-        if isinstance(str_or_unicode, six.text_type):
-            (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
-        (valid_unicode_str, _len) = utf8_decoder(str_or_unicode, 'replace')
-    else:
-        if isinstance(str_or_unicode, six.binary_type):
-            try:
-                (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
-                                                      'surrogatepass')
-            except UnicodeDecodeError:
-                (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
-                                                      'replace')
-        (str_or_unicode, _len) = utf16_encoder(str_or_unicode, 'surrogatepass')
-        (valid_unicode_str, _len) = utf16_decoder(str_or_unicode, 'replace')
+    if isinstance(str_or_unicode, bytes):
+        try:
+            (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
+                                                  'surrogatepass')
+        except UnicodeDecodeError:
+            (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
+                                                  'replace')
+    (str_or_unicode, _len) = utf16_encoder(str_or_unicode, 'surrogatepass')
+    (valid_unicode_str, _len) = utf16_decoder(str_or_unicode, 'replace')
     return valid_unicode_str.encode('utf-8')
 
 
@@ -84,7 +77,7 @@ def quote(value, safe='/'):
     Patched version of urllib.quote that encodes utf-8 strings before quoting
     """
     quoted = _quote(get_valid_utf8_str(value), safe)
-    if isinstance(value, six.binary_type):
+    if isinstance(value, bytes):
         quoted = quoted.encode('utf-8')
     return quoted
 

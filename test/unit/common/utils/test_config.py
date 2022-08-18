@@ -23,7 +23,7 @@ import mock
 
 from swift.common.utils import config
 
-from six import StringIO
+from io import StringIO
 from test import annotate_failure
 from test.unit import temptree
 
