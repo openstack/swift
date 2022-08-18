@@ -156,7 +156,7 @@ run tox and then point your browser to swift/cover/index.html:
 
 .. code-block:: console
 
-    tox -e py27 -- test.unit.common.middleware.test_healthcheck:TestHealthCheck.test_healthcheck
+    tox -e py3 -- test.unit.common.middleware.test_healthcheck:TestHealthCheck.test_healthcheck
 
 Swift's unit tests are designed to test small parts of the code in
 isolation. The functional tests validate that the entire system is

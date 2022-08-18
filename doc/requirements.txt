@@ -6,5 +6,5 @@ sphinx>=2.0.0,!=2.1.0 # BSD
 openstackdocstheme>=2.2.1 # Apache-2.0
 reno>=3.1.0 # Apache-2.0
 os-api-ref>=1.0.0 # Apache-2.0
-python-keystoneclient!=2.1.0,>=2.0.0 # Apache-2.0
+python-keystoneclient>=3.19.0 # Apache-2.0
 sphinxcontrib-svg2pdfconverter>=0.1.0 # BSD
