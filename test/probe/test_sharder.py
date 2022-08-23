@@ -3142,7 +3142,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # path with most cleaving progress, and so shrink shard ranges 0.*.
         db_file = self.get_db_file(self.brain.part, self.brain.nodes[0])
         self.assert_subprocess_success(
-            ['swift-manage-shard-ranges', db_file, 'repair', '--yes'])
+            ['swift-manage-shard-ranges', db_file, 'repair', '--yes',
+             '--min-shard-age', '0'])
 
         # make sure all root replicas now sync their shard ranges
         self.replicators.once()
@@ -3397,7 +3398,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # container
         db_file = self.get_db_file(self.brain.part, self.brain.nodes[0])
         self.assert_subprocess_success(
-            ['swift-manage-shard-ranges', db_file, 'repair', '--yes'])
+            ['swift-manage-shard-ranges', db_file, 'repair', '--yes',
+             '--min-shard-age', '0'])
         self.replicators.once()
         self.sharders_once()
         self.sharders_once()
@@ -3539,8 +3541,9 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
              for sr in root_brokers[0].get_shard_ranges(include_deleted=True)])
 
         # we are allowed to fix the overlap...
-        msg = self.assert_subprocess_success([
-            'swift-manage-shard-ranges', root_0_db_file, 'repair', '--yes'])
+        msg = self.assert_subprocess_success(
+            ['swift-manage-shard-ranges', root_0_db_file, 'repair', '--yes',
+             '--min-shard-age', '0'])
         self.assertIn(
             b'Repairs necessary to remove overlapping shard ranges.', msg)
 
@@ -3586,7 +3589,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         msg = self.assert_subprocess_success([
             'swift-manage-shard-ranges', root_0_db_file, 'repair',
-            '--dry-run'])
+            '--dry-run', '--min-shard-age', '0'])
         self.assertIn(b'No repairs necessary.', msg)
         msg = self.assert_subprocess_success([
             'swift-manage-shard-ranges', root_0_db_file, 'repair', '--gaps',

@@ -167,7 +167,7 @@ from six.moves import input
 
 
 from swift.common.utils import Timestamp, get_logger, ShardRange, readconf, \
-    ShardRangeList
+    ShardRangeList, non_negative_int, config_positive_int_value
 from swift.container.backend import ContainerBroker, UNSHARDED
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
     CleavingContext, process_compactible_shard_sequences, \
@@ -179,6 +179,8 @@ EXIT_SUCCESS = 0
 EXIT_ERROR = 1
 EXIT_INVALID_ARGS = 2  # consistent with argparse exit code for invalid args
 EXIT_USER_QUIT = 3
+
+MIN_SHARD_RANGE_AGE_FOR_REPAIR = 4 * 3600
 
 # Some CLI options derive their default values from DEFAULT_SHARDER_CONF if
 # they have not been set. It is therefore important that the CLI parser
@@ -204,6 +206,25 @@ class InvalidSolutionException(ManageShardRangesException):
         super(InvalidSolutionException, self).__init__(msg)
         self.acceptor_path = acceptor_path
         self.overlapping_donors = overlapping_donors
+
+
+def wrap_for_argparse(func, msg=None):
+    """
+    Wrap the given ``func`` to catch any ``ValueError`` and raise an
+    ``argparse.ArgumentTypeError`` instead.
+
+    :param func: a function.
+    :param msg: an optional message to use with any exception that is used; if
+        not given then the string representation of the ValueError will be
+        used.
+    :return: a function wrapper.
+    """
+    def wrapped_func(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ValueError as err:
+            raise argparse.ArgumentTypeError(str(err) if msg is None else msg)
+    return wrapped_func
 
 
 def _proceed(args):
@@ -543,6 +564,41 @@ def compact_shard_ranges(broker, args):
     return EXIT_SUCCESS
 
 
+def _remove_young_overlapping_ranges(acceptor_path, overlapping_donors, args):
+    # For range shard repair subcommand, check possible parent-children
+    # relationship between acceptors and donors.
+    if args.min_shard_age == 0:
+        return acceptor_path, overlapping_donors
+    ts_now = Timestamp.now()
+    # Remove overlapping donor shard ranges who were created recently within
+    # 'min_shard_age' age limit.
+    qualified_donors = ShardRangeList(
+        [sr for sr in overlapping_donors
+            if float(sr.timestamp) + args.min_shard_age < float(ts_now)])
+    young_donors = len(overlapping_donors) - len(qualified_donors)
+    if young_donors > 0:
+        print('%d overlapping donor shards ignored due to minimum age '
+              'limit' % young_donors)
+    if not qualified_donors:
+        return acceptor_path, None
+    # Remove those overlapping donors whose overlapping acceptors were created
+    # within age limit.
+    possible_parent_donors = set()
+    for acceptor_sr in acceptor_path:
+        if float(acceptor_sr.timestamp) + args.min_shard_age < float(ts_now):
+            continue
+        possible_parent_donors.update([sr for sr in qualified_donors
+                                       if acceptor_sr.overlaps(sr)])
+    if possible_parent_donors:
+        qualified_donors = ShardRangeList(
+            [sr for sr in qualified_donors
+             if sr not in possible_parent_donors])
+        print('%d donor shards ignored due to existence of overlapping young '
+              'acceptors' % len(possible_parent_donors))
+
+    return acceptor_path, qualified_donors
+
+
 def _find_overlapping_donors(shard_ranges, own_sr, args):
     shard_ranges = ShardRangeList(shard_ranges)
     if ShardRange.SHARDING in shard_ranges.states:
@@ -593,7 +649,8 @@ def _find_overlapping_donors(shard_ranges, own_sr, args):
             'Isolated cleaved and/or active shard ranges in donor ranges',
             acceptor_path, overlapping_donors)
 
-    return acceptor_path, overlapping_donors
+    return _remove_young_overlapping_ranges(
+        acceptor_path, overlapping_donors, args)
 
 
 def _fix_gaps(broker, args, paths_with_gaps):
@@ -775,13 +832,6 @@ def analyze_shard_ranges(args):
     return EXIT_SUCCESS
 
 
-def _positive_int(arg):
-    val = int(arg)
-    if val <= 0:
-        raise argparse.ArgumentTypeError('must be > 0')
-    return val
-
-
 def _add_find_args(parser):
     parser.add_argument(
         'rows_per_shard', nargs='?', type=int, default=USE_SHARDER_DEFAULT,
@@ -790,7 +840,8 @@ def _add_find_args(parser):
         'given in a conf file specified with --config, otherwise %s.'
         % DEFAULT_SHARDER_CONF['rows_per_shard'])
     parser.add_argument(
-        '--minimum-shard-size', type=_positive_int,
+        '--minimum-shard-size',
+        type=wrap_for_argparse(config_positive_int_value, 'must be > 0'),
         default=USE_SHARDER_DEFAULT,
         help='Minimum size of the final shard range. If this is greater than '
         'one then the final shard range may be extended to more than '
@@ -839,11 +890,12 @@ def _add_prompt_args(parser):
 
 
 def _add_max_expanding_arg(parser):
-    parser.add_argument('--max-expanding', nargs='?',
-                        type=_positive_int,
-                        default=USE_SHARDER_DEFAULT,
-                        help='Maximum number of shards that should be '
-                             'expanded. Defaults to unlimited.')
+    parser.add_argument(
+        '--max-expanding', nargs='?',
+        type=wrap_for_argparse(config_positive_int_value, 'must be > 0'),
+        default=USE_SHARDER_DEFAULT,
+        help='Maximum number of shards that should be '
+        'expanded. Defaults to unlimited.')
 
 
 def _make_parser():
@@ -940,32 +992,35 @@ def _make_parser():
              'of rows. This command only works on root containers.')
     _add_prompt_args(compact_parser)
     compact_parser.add_argument(
-        '--shrink-threshold', nargs='?', type=_positive_int,
+        '--shrink-threshold', nargs='?',
+        type=wrap_for_argparse(config_positive_int_value, 'must be > 0'),
         default=USE_SHARDER_DEFAULT,
         help='The number of rows below which a shard can qualify for '
-             'shrinking. '
-             'Defaults to %d' % DEFAULT_SHARDER_CONF['shrink_threshold'])
+        'shrinking. '
+        'Defaults to %d' % DEFAULT_SHARDER_CONF['shrink_threshold'])
     compact_parser.add_argument(
-        '--expansion-limit', nargs='?', type=_positive_int,
+        '--expansion-limit', nargs='?',
+        type=wrap_for_argparse(config_positive_int_value, 'must be > 0'),
         default=USE_SHARDER_DEFAULT,
         help='Maximum number of rows for an expanding shard to have after '
-             'compaction has completed. '
-             'Defaults to %d' % DEFAULT_SHARDER_CONF['expansion_limit'])
+        'compaction has completed. '
+        'Defaults to %d' % DEFAULT_SHARDER_CONF['expansion_limit'])
     # If just one donor shard is chosen to shrink to an acceptor then the
     # expanded acceptor will handle object listings as soon as the donor shard
     # has shrunk. If more than one donor shard are chosen to shrink to an
     # acceptor then the acceptor may not handle object listings for some donor
     # shards that have shrunk until *all* donors have shrunk, resulting in
     # temporary gap(s) in object listings where the shrunk donors are missing.
-    compact_parser.add_argument('--max-shrinking', nargs='?',
-                                type=_positive_int,
-                                default=USE_SHARDER_DEFAULT,
-                                help='Maximum number of shards that should be '
-                                     'shrunk into each expanding shard. '
-                                     'Defaults to 1. Using values greater '
-                                     'than 1 may result in temporary gaps in '
-                                     'object listings until all selected '
-                                     'shards have shrunk.')
+    compact_parser.add_argument(
+        '--max-shrinking', nargs='?',
+        type=wrap_for_argparse(config_positive_int_value, 'must be > 0'),
+        default=USE_SHARDER_DEFAULT,
+        help='Maximum number of shards that should be '
+        'shrunk into each expanding shard. '
+        'Defaults to 1. Using values greater '
+        'than 1 may result in temporary gaps in '
+        'object listings until all selected '
+        'shards have shrunk.')
     _add_max_expanding_arg(compact_parser)
     compact_parser.set_defaults(func=compact_shard_ranges)
 
@@ -975,6 +1030,14 @@ def _make_parser():
         help='Repair overlapping shard ranges. No action will be taken '
              'without user confirmation unless the -y option is used.')
     _add_prompt_args(repair_parser)
+    repair_parser.add_argument(
+        '--min-shard-age', nargs='?',
+        type=wrap_for_argparse(non_negative_int, 'must be >= 0'),
+        default=MIN_SHARD_RANGE_AGE_FOR_REPAIR,
+        help='Minimum age of a shard for it to be considered as an overlap '
+        'that is due for repair. Overlapping shards younger than this '
+        'age will be ignored. Value of 0 means no recent shards will be '
+        'ignored. Defaults to %d.' % MIN_SHARD_RANGE_AGE_FOR_REPAIR)
     # TODO: maybe this should be a separate subcommand given that it needs
     #  some extra options vs repairing overlaps?
     repair_parser.add_argument(
@@ -988,6 +1051,14 @@ def _make_parser():
         'analyze',
         help='Analyze shard range json data read from file. Use -v to see '
              'more detailed analysis.')
+    analyze_parser.add_argument(
+        '--min-shard-age', nargs='?',
+        type=wrap_for_argparse(non_negative_int, 'must be >= 0'),
+        default=0,
+        help='Minimum age of a shard for it to be considered as an overlap '
+        'that is due for repair. Overlapping shards younger than this '
+        'age will be ignored. Value of 0 means no recent shards will be '
+        'ignored. Defaults to 0.')
     analyze_parser.set_defaults(func=analyze_shard_ranges)
 
     return parser

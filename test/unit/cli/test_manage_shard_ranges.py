@@ -2137,7 +2137,9 @@ class TestManageShardRanges(unittest.TestCase):
                     mock_timestamp_now(ts_now), \
                     mock.patch('swift.cli.manage_shard_ranges.input',
                                return_value=user_input):
-                ret = main([broker.db_file, 'repair'] + options)
+                ret = main(
+                    [broker.db_file, 'repair', '--min-shard-age', '0'] +
+                    options)
             self.assertEqual(exit_code, ret)
             err_lines = err.getvalue().split('\n')
             self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
@@ -2185,6 +2187,172 @@ class TestManageShardRanges(unittest.TestCase):
             key=ShardRange.sort_key)
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
+    def test_repair_younger_overlapping_donor_shards(self):
+        # test shard range repair on the normal acceptor ranges and young
+        # overlapping shard ranges which are younger than '--min-shard-age',
+        # expect them not to be repaired.
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        ts_now = next(self.ts_iter)
+        with mock_timestamp_now(Timestamp(float(ts_now) - 61)):
+            acceptor_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(ts_now):
+            overlap_donor_ranges = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main(
+                [broker.db_file, 'repair', '--min-shard-age', '60', '-y'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['2 overlapping donor shards ignored due to minimum age limit'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        expected = sorted(
+            acceptor_ranges + overlap_donor_ranges,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    def test_repair_younger_acceptor_with_overlapping_donor_shards(self):
+        # test shard range repair on the overlapping normal donor ranges and
+        # young acceptor shard ranges who are younger than '--min-shard-age',
+        # expect no overlapping ranges to be repaired.
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        ts_now = next(self.ts_iter)
+        with mock_timestamp_now(Timestamp(float(ts_now) + 3601)):
+            acceptor_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(ts_now):
+            overlap_donor_ranges = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err), \
+                mock_timestamp_now(Timestamp(float(ts_now) + 3601 + 59)):
+            ret = main(
+                [broker.db_file, 'repair', '--min-shard-age', '60', '-y'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['2 donor shards ignored due to existence of overlapping young'
+             ' acceptors'], out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        expected = sorted(
+            acceptor_ranges + overlap_donor_ranges,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    def test_repair_older_overlapping_donor_and_acceptor_shards(self):
+        # test shard range repair on the overlapping donor and acceptor shard
+        # ranges which all are older than '--min-shard-age', expect them to be
+        # repaired.
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        ts_now = next(self.ts_iter)
+        with mock_timestamp_now(ts_now):
+            acceptor_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(Timestamp(float(ts_now) + 1800)):
+            overlap_donor_ranges = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        ts_1hr_after = Timestamp(float(ts_now) + 3601)
+        with mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err), \
+                mock_timestamp_now(ts_1hr_after):
+            ret = main(
+                [broker.db_file, 'repair', '--min-shard-age', '60', '-y'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Repairs necessary to remove overlapping shard ranges.'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        for sr in overlap_donor_ranges:
+            sr.update_state(ShardRange.SHRINKING, ts_1hr_after)
+            sr.epoch = ts_1hr_after
+        expected = sorted(
+            acceptor_ranges + overlap_donor_ranges,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    def test_repair_overlapping_donor_and_acceptor_shards_default(self):
+        # test shard range repair on the overlapping donor and acceptor shard
+        # ranges wth default '--min-shard-age' value.
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        ts_now = next(self.ts_iter)
+        with mock_timestamp_now(ts_now):
+            acceptor_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(Timestamp(int(ts_now) + 1)):
+            overlap_donor_ranges = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        ts_repair = Timestamp(int(ts_now) + 4 * 3600 - 1)
+        with mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err), \
+                mock_timestamp_now(ts_repair):
+            # default min-shard-age prevents repair...
+            ret = main([broker.db_file, 'repair', '-y'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['2 overlapping donor shards ignored due to minimum age limit'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        expected = sorted(
+            acceptor_ranges + overlap_donor_ranges,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+        out = StringIO()
+        err = StringIO()
+        ts_repair = Timestamp(int(ts_now) + 4 * 3600 + 2)
+        with mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err), \
+                mock_timestamp_now(ts_repair):
+            # default min-shard-age allows repair now...
+            ret = main([broker.db_file, 'repair', '-y'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Repairs necessary to remove overlapping shard ranges.'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        for sr in overlap_donor_ranges:
+            sr.update_state(ShardRange.SHRINKING, ts_repair)
+            sr.epoch = ts_repair
+        expected = sorted(
+            acceptor_ranges + overlap_donor_ranges,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
     def test_repair_two_complete_sequences_one_incomplete(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
@@ -2205,7 +2373,8 @@ class TestManageShardRanges(unittest.TestCase):
         ts_now = next(self.ts_iter)
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
                 mock_timestamp_now(ts_now):
-            ret = main([broker.db_file, 'repair', '--yes'])
+            ret = main([broker.db_file, 'repair', '--yes',
+                        '--min-shard-age', '0'])
         self.assertEqual(0, ret)
         err_lines = err.getvalue().split('\n')
         self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
