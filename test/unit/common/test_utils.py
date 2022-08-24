@@ -6093,7 +6093,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.port = self.sock.getsockname()[1]
         self.queue = Queue()
         self.reader_thread = threading.Thread(target=self.statsd_reader)
-        self.reader_thread.setDaemon(1)
+        self.reader_thread.daemon = True
         self.reader_thread.start()
 
     def tearDown(self):
