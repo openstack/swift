@@ -18,6 +18,7 @@ from __future__ import print_function
 import errno
 import gc
 import json
+import mock
 import os
 from subprocess import Popen, PIPE
 import sys
@@ -343,6 +344,27 @@ class Body(object):
 
     # for py2 compat:
     next = __next__
+
+
+def exclude_nodes(nodes, *excludes):
+    """
+    Iterate over ``nodes`` yielding only those not in ``excludes``.
+
+    The index key of the node dicts is ignored when matching nodes against the
+    ``excludes`` nodes. Index is not a fundamental property of a node but a
+    variable annotation added by the Ring depending upon the partition for
+    which the nodes were generated.
+
+    :param nodes: an iterable of node dicts.
+    :param *excludes: one or more node dicts that should not be yielded.
+    :return: yields node dicts.
+    """
+    for node in nodes:
+        match_node = {k: mock.ANY if k == 'index' else v
+                      for k, v in node.items()}
+        if any(exclude == match_node for exclude in excludes):
+            continue
+        yield node
 
 
 class ProbeTest(unittest.TestCase):

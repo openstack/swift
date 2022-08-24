@@ -41,7 +41,7 @@ from test import annotate_failure
 from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
-    wait_for_server_to_hangup, ENABLED_POLICIES
+    wait_for_server_to_hangup, ENABLED_POLICIES, exclude_nodes
 import mock
 
 try:
@@ -3427,9 +3427,9 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         self.assert_container_listing(expected_obj_names)
 
-    def test_manage_shard_ranges_repair_root_shrinking_gaps(self):
-        # provoke shrinking/shrunk gaps by prematurely repairing a transient
-        # overlap in root container; repair the gap.
+    def test_manage_shard_ranges_repair_parent_child_ranges(self):
+        # Test repairing a transient parent-child shard range overlap in the
+        # root container, expect no repairs to be done.
         # note: be careful not to add a container listing to this test which
         # would get shard ranges into memcache
         obj_names = self._make_object_names(4)
@@ -3477,19 +3477,17 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             shard_ranges[0].account, shard_ranges[0].container)
         self.container_replicators.once(
             additional_args='--partitions=%s' % shard_part)
-        # TODO: get this assertion working (node filtering wonky??)
-        # for node in [n for n in shard_nodes if n != self.brain.nodes[0]]:
-        #     self.assert_container_state(
-        #         node, 'unsharded', 2, account=shard_ranges[0].account,
-        #         container=shard_ranges[0].container, part=shard_part)
+        for node in exclude_nodes(shard_nodes, self.brain.nodes[0]):
+            self.assert_container_state(
+                node, 'unsharded', 2, account=shard_ranges[0].account,
+                container=shard_ranges[0].container, part=shard_part)
         self.sharders_once(additional_args='--partitions=%s' % shard_part)
         # get shards to update state from parent...
         self.sharders_once()
-        # TODO: get this assertion working (node filtering wonky??)
-        # for node in [n for n in shard_nodes if n != self.brain.nodes[0]]:
-        #     self.assert_container_state(
-        #         node, 'sharded', 2, account=shard_ranges[0].account,
-        #         container=shard_ranges[0].container, part=shard_part)
+        for node in exclude_nodes(shard_nodes, self.brain.nodes[0]):
+            self.assert_container_state(
+                node, 'sharded', 2, account=shard_ranges[0].account,
+                container=shard_ranges[0].container, part=shard_part)
 
         # put an object into the second of the 2 sub-shards so that the shard
         # will update the root next time the sharder is run; do this before
@@ -3540,31 +3538,93 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             [(sr.state, sr.deleted, sr.lower, sr.upper)
              for sr in root_brokers[0].get_shard_ranges(include_deleted=True)])
 
-        # we are allowed to fix the overlap...
+        # try to fix the overlap and expect no repair has been done.
         msg = self.assert_subprocess_success(
             ['swift-manage-shard-ranges', root_0_db_file, 'repair', '--yes',
              '--min-shard-age', '0'])
         self.assertIn(
-            b'Repairs necessary to remove overlapping shard ranges.', msg)
+            b'1 donor shards ignored due to parent-child relationship checks',
+            msg)
 
+        # verify parent-child checks has prevented repair to be done.
         self.assertEqual(
             [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[1]),
-             (ShardRange.SHRINKING, False, obj_names[0], obj_names[1]),
+             # note: overlap!
+             (ShardRange.ACTIVE, False, obj_names[0], obj_names[1]),
              (ShardRange.ACTIVE, False, obj_names[1], ShardRange.MAX)],
             [(sr.state, sr.deleted, sr.lower, sr.upper)
              for sr in root_brokers[0].get_shard_ranges(include_deleted=True)])
 
+        # the transient overlap is 'fixed' in subsequent sharder cycles...
         self.sharders_once()
         self.sharders_once()
         self.container_replicators.once()
 
-        # boo :'( ... we made gap
         for broker in root_brokers:
             self.assertEqual(
                 [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[0]),
+                 (ShardRange.ACTIVE, False, obj_names[0], obj_names[1]),
                  (ShardRange.SHARDED, True, ShardRange.MIN, obj_names[1]),
-                 (ShardRange.SHRUNK, True, obj_names[0], obj_names[1]),
                  (ShardRange.ACTIVE, False, obj_names[1], ShardRange.MAX)],
+                [(sr.state, sr.deleted, sr.lower, sr.upper)
+                 for sr in broker.get_shard_ranges(include_deleted=True)])
+
+    def test_manage_shard_ranges_repair_root_gap(self):
+        # create a gap in root container; repair the gap.
+        # note: be careful not to add a container listing to this test which
+        # would get shard ranges into memcache
+        obj_names = self._make_object_names(8)
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        # run replicators first time to get sync points set
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % self.brain.part)
+
+        # shard root
+        root_0_db_file = self.get_db_file(self.brain.part, self.brain.nodes[0])
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            root_0_db_file,
+            'find_and_replace', '2', '--enable'])
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % self.brain.part)
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'unsharded', 4)
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        # get shards to update state from parent...
+        self.sharders_once()
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'sharded', 4)
+
+        # sanity check, all is well
+        msg = self.assert_subprocess_success([
+            'swift-manage-shard-ranges', root_0_db_file, 'repair', '--gaps',
+            '--dry-run'])
+        self.assertIn(b'No repairs necessary.', msg)
+
+        # deliberately create a gap in root shard ranges (don't ever do this
+        # for real)
+        # TODO: replace direct broker modification with s-m-s-r merge
+        root_brokers = [self.get_broker(self.brain.part, node)
+                        for node in self.brain.nodes]
+        shard_ranges = root_brokers[0].get_shard_ranges()
+        self.assertEqual(4, len(shard_ranges))
+        shard_ranges[2].set_deleted()
+        root_brokers[0].merge_shard_ranges(shard_ranges)
+        shard_ranges = root_brokers[0].get_shard_ranges()
+        self.assertEqual(3, len(shard_ranges))
+        self.container_replicators.once()
+
+        # confirm that we made a gap.
+        for broker in root_brokers:
+            self.assertEqual(
+                [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[1]),
+                 (ShardRange.ACTIVE, False, obj_names[1], obj_names[3]),
+                 (ShardRange.ACTIVE, True, obj_names[3], obj_names[5]),
+                 (ShardRange.ACTIVE, False, obj_names[5], ShardRange.MAX)],
                 [(sr.state, sr.deleted, sr.lower, sr.upper)
                  for sr in broker.get_shard_ranges(include_deleted=True)])
 
@@ -3580,10 +3640,10 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # yay! we fixed the gap (without creating an overlap)
         for broker in root_brokers:
             self.assertEqual(
-                [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[0]),
-                 (ShardRange.SHARDED, True, ShardRange.MIN, obj_names[1]),
-                 (ShardRange.SHRUNK, True, obj_names[0], obj_names[1]),
-                 (ShardRange.ACTIVE, False, obj_names[0], ShardRange.MAX)],
+                [(ShardRange.ACTIVE, False, ShardRange.MIN, obj_names[1]),
+                 (ShardRange.ACTIVE, False, obj_names[1], obj_names[3]),
+                 (ShardRange.ACTIVE, True, obj_names[3], obj_names[5]),
+                 (ShardRange.ACTIVE, False, obj_names[3], ShardRange.MAX)],
                 [(sr.state, sr.deleted, sr.lower, sr.upper)
                  for sr in broker.get_shard_ranges(include_deleted=True)])
 
@@ -3596,8 +3656,14 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             '--dry-run'])
         self.assertIn(b'No repairs necessary.', msg)
 
-        self.assert_container_listing(
-            [obj_names[0], new_obj_name] + obj_names[1:])
+        # put an object into the gap namespace
+        new_objs = [obj_names[4] + 'a']
+        self.put_objects(new_objs)
+        # get root stats up to date
+        self.sharders_once()
+        # new object is in listing but old objects in the gap have been lost -
+        # don't delete shard ranges!
+        self.assert_container_listing(obj_names[:4] + new_objs + obj_names[6:])
 
     def test_manage_shard_ranges_unsharded_deleted_root(self):
         # verify that a deleted DB will still be sharded
