@@ -5216,6 +5216,11 @@ class ShardRange(object):
 
     MIN = MinBound()
     MAX = MaxBound()
+    __slots__ = (
+        'account', 'container',
+        '_timestamp', '_meta_timestamp', '_state_timestamp', '_epoch',
+        '_lower', '_upper', '_deleted', '_state', '_count', '_bytes',
+        '_tombstones', '_reported')
 
     def __init__(self, name, timestamp, lower=MIN, upper=MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
@@ -5352,10 +5357,9 @@ class ShardRange(object):
 
     @lower.setter
     def lower(self, value):
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', UnicodeWarning)
-            if value in (None, b'', u''):
-                value = ShardRange.MIN
+        if value is None or (value == b"" if isinstance(value, bytes) else
+                             value == u""):
+            value = ShardRange.MIN
         try:
             value = self._encode_bound(value)
         except TypeError as err:
@@ -5380,10 +5384,9 @@ class ShardRange(object):
 
     @upper.setter
     def upper(self, value):
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', UnicodeWarning)
-            if value in (None, b'', u''):
-                value = ShardRange.MAX
+        if value is None or (value == b"" if isinstance(value, bytes) else
+                             value == u""):
+            value = ShardRange.MAX
         try:
             value = self._encode_bound(value)
         except TypeError as err:
