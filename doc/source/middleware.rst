@@ -102,6 +102,13 @@ AWS S3 Api
     :members:
     :show-inheritance:
 
+Backend Ratelimit
+=================
+
+.. automodule:: swift.common.middleware.backend_ratelimit
+    :members:
+    :show-inheritance:
+
 .. _bulk:
 
 Bulk Operations (Delete and Archive Auto Extraction)

@@ -76,7 +76,7 @@ class FakeSwift(object):
     """
     ALLOWED_METHODS = [
         'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE',
-        'UPDATE']
+        'SSYNC', 'UPDATE']
 
     def __init__(self):
         self._calls = []
