@@ -156,22 +156,22 @@
       python_version: 3.8
 
 - job:
-    name: swift-tox-func-py36-centos-8-stream
+    name: swift-tox-func-py39-centos-9-stream
     parent: swift-tox-func-py38
-    nodeset: centos-8-stream
+    nodeset: centos-9-stream
     vars:
-      bindep_profile: test py36
-      python_version: 3.6
+      bindep_profile: test py39
+      python_version: 3.9
 
 - job:
-    name: swift-tox-func-encryption-py36-centos-8-stream
-    parent: swift-tox-func-py36-centos-8-stream
+    name: swift-tox-func-encryption-py39-centos-9-stream
+    parent: swift-tox-func-py39-centos-9-stream
     vars:
       tox_envlist: func-encryption-py3
 
 - job:
-    name: swift-tox-func-ec-py36-centos-8-stream
-    parent: swift-tox-func-py36-centos-8-stream
+    name: swift-tox-func-ec-py39-centos-9-stream
+    parent: swift-tox-func-py39-centos-9-stream
     vars:
       tox_envlist: func-ec-py3
 
@@ -585,32 +585,32 @@
     vars: *swift_image_vars_py3
 
 - job:
-    name: swift-tox-func-py36-centos-8-stream-fips
-    parent: swift-tox-func-py36-centos-8-stream
+    name: swift-tox-func-py39-centos-9-stream-fips
+    parent: swift-tox-func-py39-centos-9-stream
     voting: false
     description: |
-      Functional testing on a FIPS enabled Centos 8 system
+      Functional testing on a FIPS enabled Centos 9 system
     vars:
       nslookup_target: 'opendev.org'
       enable_fips: true
 
 - job:
-    name: swift-tox-func-encryption-py36-centos-8-stream-fips
-    parent: swift-tox-func-encryption-py36-centos-8-stream
+    name: swift-tox-func-encryption-py39-centos-9-stream-fips
+    parent: swift-tox-func-encryption-py39-centos-9-stream
     voting: false
     description: |
       Functional encryption testing on a FIPS enabled
-      Centos 8 system
+      Centos 9 system
     vars:
       nslookup_target: 'opendev.org'
       enable_fips: true
 
 - job:
-    name: swift-tox-func-ec-py36-centos-8-stream-fips
-    parent: swift-tox-func-ec-py36-centos-8-stream
+    name: swift-tox-func-ec-py39-centos-9-stream-fips
+    parent: swift-tox-func-ec-py39-centos-9-stream
     voting: false
     description: |
-      Functional EC testing on a FIPS enabled Centos 8 system
+      Functional EC testing on a FIPS enabled Centos 9 system
     vars:
       nslookup_target: 'opendev.org'
       enable_fips: true
@@ -637,14 +637,14 @@
       - swift-jobs-arm64
     check:
       jobs:
-        - swift-tox-func-py36-centos-8-stream-fips:
+        - swift-tox-func-py39-centos-9-stream-fips:
             irrelevant-files: &functest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(cors|probe|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-encryption-py36-centos-8-stream-fips:
+        - swift-tox-func-encryption-py39-centos-9-stream-fips:
             irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-ec-py36-centos-8-stream-fips:
+        - swift-tox-func-ec-py39-centos-9-stream-fips:
             irrelevant-files: *functest-irrelevant-files
         - swift-build-image:
             irrelevant-files: &docker-irrelevant-files
@@ -783,9 +783,9 @@
         - swift-tox-func-encryption-py27-centos-7
         - swift-tox-func-ec-py27-centos-7
         - swift-tox-py36-centos-8-stream
-        - swift-tox-func-py36-centos-8-stream
-        - swift-tox-func-encryption-py36-centos-8-stream
-        - swift-tox-func-ec-py36-centos-8-stream
+        - swift-tox-func-py39-centos-9-stream
+        - swift-tox-func-encryption-py39-centos-9-stream
+        - swift-tox-func-ec-py39-centos-9-stream
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
         - swift-multinode-rolling-upgrade-train
