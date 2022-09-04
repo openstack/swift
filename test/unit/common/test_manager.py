@@ -1023,7 +1023,7 @@ class TestServer(unittest.TestCase):
             running_pids = server.get_running_pids()
             for f in ('thing-sayer.pid', 'other-doer.pid', 'other-sayer.pid'):
                 # other server pid files persist
-                self.assertTrue(os.path.exists, os.path.join(t, f))
+                self.assertTrue(os.path.exists(os.path.join(t, f)))
             # verify that servers are in fact not running
             for server_name in ('thing-sayer', 'other-doer', 'other-sayer'):
                 server = manager.Server(server_name, run_dir=t)
@@ -1644,9 +1644,9 @@ class TestServer(unittest.TestCase):
                 pids = server.stop(number=3)
                 self.assertEqual(len(pids), 1)
                 expected = {
-                    3: conf3,
+                    3: self.join_run_dir('account-reaper/3.pid'),
                 }
-                self.assertTrue(pids, expected)
+                self.assertEqual(expected, pids)
                 self.assertEqual(manager.os.pid_sigs[3], [signal.SIGTERM])
                 self.assertFalse(os.path.exists(conf4))
                 self.assertFalse(os.path.exists(conf3))

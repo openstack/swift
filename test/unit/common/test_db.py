@@ -421,7 +421,8 @@ class TestExampleBroker(unittest.TestCase):
         self.assertEqual(info['created_at'], created_at)
         self.assertEqual(info['put_timestamp'], recreate_timestamp)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
-        self.assertTrue(info['status_changed_at'], status_changed_at)
+        self.assertEqual(Timestamp(status_changed_at).normal,
+                         info['status_changed_at'])
 
     def test_merge_timestamps_recreate_with_objects(self):
         put_timestamp = next(self.ts).internal

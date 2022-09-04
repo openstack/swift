@@ -756,7 +756,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         policies = parse_storage_policies(orig_conf)
         self.assertEqual(policies.default, policies[1])
-        self.assertTrue(policies[0].name, 'Policy-0')
+        self.assertEqual('zero', policies[0].name)
 
         bad_conf = self._conf("""
         [storage-policy:0]
