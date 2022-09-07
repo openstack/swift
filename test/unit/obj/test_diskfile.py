@@ -6381,6 +6381,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             'ETag': md5('test data').hexdigest(),
             'X-Timestamp': ts.internal,
             'Content-Length': str(len('test data')),
+            'X-Object-Sysmeta-Ec-Etag': 'fake-etag',
             'X-Object-Sysmeta-Ec-Frag-Index': '3',
         }
 

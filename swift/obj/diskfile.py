@@ -2689,6 +2689,9 @@ class BaseDiskFile(object):
                 exc = DiskFileDeleted(metadata=metadata)
         return exc
 
+    def validate_metadata(self):
+        return ('Content-Length' in self._datafile_metadata)
+
     def _verify_name_matches_hash(self, data_file):
         """
 
@@ -3356,6 +3359,17 @@ class ECDiskFile(BaseDiskFile):
         except (KeyError, TypeError) as e:
             raise DiskFileError(
                 'Bad frag_prefs: %r: %s' % (frag_prefs, e))
+
+    def validate_metadata(self):
+        required_metadata = [
+            'Content-Length',
+            'X-Object-Sysmeta-Ec-Frag-Index',
+            'X-Object-Sysmeta-Ec-Etag',
+        ]
+        for header in required_metadata:
+            if not self._datafile_metadata.get(header):
+                return False
+        return True
 
     @property
     def durable_timestamp(self):

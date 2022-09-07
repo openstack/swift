@@ -38,6 +38,7 @@ def write_diskfile(df, timestamp, data=b'test data', frag_index=None,
             metadata.update(extra_metadata)
         if frag_index is not None:
             metadata['X-Object-Sysmeta-Ec-Frag-Index'] = str(frag_index)
+            metadata['X-Object-Sysmeta-Ec-Etag'] = 'fake-etag'
         writer.put(metadata)
         if commit and legacy_durable:
             # simulate legacy .durable file creation

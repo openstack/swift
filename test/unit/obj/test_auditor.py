@@ -224,6 +224,11 @@ class TestAuditor(TestAuditorBase):
                     'X-Timestamp': timestamp,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
+                if disk_file.policy.policy_type == EC_POLICY:
+                    metadata.update({
+                        'X-Object-Sysmeta-Ec-Frag-Index': '1',
+                        'X-Object-Sysmeta-Ec-Etag': 'fake-etag',
+                    })
                 writer.put(metadata)
                 writer.commit(Timestamp(timestamp))
                 pre_quarantines = auditor_worker.quarantines
@@ -368,6 +373,8 @@ class TestAuditor(TestAuditorBase):
                     'ETag': etag,
                     'X-Timestamp': timestamp,
                     'Content-Length': len(data),
+                    'X-Object-Sysmeta-Ec-Frag-Index': '1',
+                    'X-Object-Sysmeta-Ec-Etag': 'fake-etag',
                 }
                 writer.put(metadata)
                 writer.commit(Timestamp(timestamp))
@@ -1639,6 +1646,8 @@ class TestAuditWatchers(TestAuditorBase):
                 'X-Timestamp': timestamp.internal,
                 'Content-Length': str(len(frag_0)),
                 'X-Object-Meta-Flavor': 'peach',
+                'X-Object-Sysmeta-Ec-Frag-Index': '1',
+                'X-Object-Sysmeta-Ec-Etag': 'fake-etag',
             }
             writer.put(metadata)
             writer.commit(timestamp)

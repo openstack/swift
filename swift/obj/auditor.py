@@ -258,6 +258,10 @@ class AuditorWorker(object):
         try:
             with df.open(modernize=True):
                 metadata = df.get_metadata()
+                if not df.validate_metadata():
+                    df._quarantine(
+                        df._data_file,
+                        "Metadata failed validation")
                 obj_size = int(metadata['Content-Length'])
                 if self.stats_sizes:
                     self.record_stats(obj_size)
