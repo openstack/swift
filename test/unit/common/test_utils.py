@@ -7955,6 +7955,7 @@ class TestShardName(unittest.TestCase):
         actual = str(created)
         self.assertEqual(expected, actual)
         parsed = utils.ShardName.parse(actual)
+        # normally a ShardName will be in the .shards prefix
         self.assertEqual('a', parsed.account)
         self.assertEqual('root', parsed.root_container)
         self.assertEqual(parent_hash, parsed.parent_container_hash)
@@ -7970,6 +7971,30 @@ class TestShardName(unittest.TestCase):
         self.assertEqual('hash', parsed.parent_container_hash)
         self.assertEqual(utils.Timestamp(1234), parsed.timestamp)
         self.assertEqual(99, parsed.index)
+
+    def test_realistic_shard_range_names(self):
+        parsed = utils.ShardName.parse(
+            '.shards_a1/r1-'
+            '7c92cf1eee8d99cc85f8355a3d6e4b86-'
+            '1662475499.00000-1')
+        self.assertEqual('.shards_a1', parsed.account)
+        self.assertEqual('r1', parsed.root_container)
+        self.assertEqual('7c92cf1eee8d99cc85f8355a3d6e4b86',
+                         parsed.parent_container_hash)
+        self.assertEqual(utils.Timestamp(1662475499), parsed.timestamp)
+        self.assertEqual(1, parsed.index)
+
+        parsed = utils.ShardName('.shards_a', 'c', 'hash',
+                                 utils.Timestamp(1234), 42)
+        self.assertEqual(
+            '.shards_a/c-hash-0000001234.00000-42',
+            str(parsed))
+
+        parsed = utils.ShardName.create('.shards_a', 'c', 'c',
+                                        utils.Timestamp(1234), 42)
+        self.assertEqual(
+            '.shards_a/c-4a8a08f09d37b73795649038408b5f33-0000001234.00000-42',
+            str(parsed))
 
     def test_bad_parse(self):
         with self.assertRaises(ValueError) as cm:
