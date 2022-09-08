@@ -5140,6 +5140,111 @@ class ShardRangeOuterBound(object):
     __nonzero__ = __bool__
 
 
+class ShardName(object):
+    """
+    Encapsulates the components of a shard name.
+
+    Instances of this class would typically be constructed via the create() or
+    parse() class methods.
+
+    Shard names have the form:
+
+        <account>/<root_container>-<parent_container_hash>-<timestamp>-<index>
+
+    Note: not all instances of :class:`~swift.common.utils.ShardRange` have
+    names that will parse as a :class:`~swift.common.utils.ShardName`; root
+    container own shard ranges, for example, have a simpler name format of
+    <account>/<root_container>.
+    """
+    def __init__(self, account, root_container,
+                 parent_container_hash,
+                 timestamp,
+                 index):
+        self.account = self._validate(account)
+        self.root_container = self._validate(root_container)
+        self.parent_container_hash = self._validate(parent_container_hash)
+        self.timestamp = Timestamp(timestamp)
+        self.index = int(index)
+
+    @classmethod
+    def _validate(cls, arg):
+        if arg is None:
+            raise ValueError('arg must not be None')
+        return arg
+
+    def __str__(self):
+        return '%s/%s-%s-%s-%s' % (self.account,
+                                   self.root_container,
+                                   self.parent_container_hash,
+                                   self.timestamp.internal,
+                                   self.index)
+
+    @classmethod
+    def hash_container_name(cls, container_name):
+        """
+        Calculates the hash of a container name.
+
+        :param container_name: name to be hashed.
+        :return: the hexdigest of the md5 hash of ``container_name``.
+        :raises ValueError: if ``container_name`` is None.
+        """
+        cls._validate(container_name)
+        if not isinstance(container_name, bytes):
+            container_name = container_name.encode('utf-8')
+        hash = md5(container_name, usedforsecurity=False).hexdigest()
+        return hash
+
+    @classmethod
+    def create(cls, account, root_container, parent_container,
+               timestamp, index):
+        """
+        Create an instance of :class:`~swift.common.utils.ShardName`.
+
+        :param account: the hidden internal account to which the shard
+            container belongs.
+        :param root_container: the name of the root container for the shard.
+        :param parent_container: the name of the parent container for the
+            shard.
+        :param timestamp: an instance of :class:`~swift.common.utils.Timestamp`
+        :param index: a unique index that will distinguish the path from any
+            other path generated using the same combination of
+            ``account``, ``root_container``, ``parent_container`` and
+            ``timestamp``.
+
+        :return: an instance of :class:`~swift.common.utils.ShardName`.
+        :raises ValueError: if any argument is None
+        """
+        # we make the shard name unique with respect to other shards names by
+        # embedding a hash of the parent container name; we use a hash (rather
+        # than the actual parent container name) to prevent shard names become
+        # longer with every generation.
+        parent_container_hash = cls.hash_container_name(parent_container)
+        return cls(account, root_container, parent_container_hash, timestamp,
+                   index)
+
+    @classmethod
+    def parse(cls, name):
+        """
+        Parse ``name`` to an instance of
+        :class:`~swift.common.utils.ShardName`.
+
+        :param name: a shard name which should have the form:
+            <account>/
+            <root_container>-<parent_container_hash>-<timestamp>-<index>
+
+        :return: an instance of :class:`~swift.common.utils.ShardName`.
+        :raises ValueError: if ``name`` is not a valid shard name.
+        """
+        try:
+            account, container = name.split('/', 1)
+            root_container, parent_container_hash, timestamp, index = \
+                container.rsplit('-', 3)
+            return cls(account, root_container, parent_container_hash,
+                       timestamp, index)
+        except ValueError:
+            raise ValueError('invalid name: %s' % name)
+
+
 class ShardRange(object):
     """
     A ShardRange encapsulates sharding state related to a container including
@@ -5276,16 +5381,38 @@ class ShardRange(object):
             raise TypeError('must be a string type')
         return self._encode(bound)
 
-    @classmethod
-    def _make_container_name(cls, root_container, parent_container, timestamp,
-                             index):
-        if not isinstance(parent_container, bytes):
-            parent_container = parent_container.encode('utf-8')
-        return "%s-%s-%s-%s" % (root_container,
-                                md5(parent_container,
-                                    usedforsecurity=False).hexdigest(),
-                                cls._to_timestamp(timestamp).internal,
-                                index)
+    def is_child_of(self, parent):
+        """
+        Test if this shard range is a child of another shard range. The
+        parent-child relationship is inferred from the names of the shard
+        ranges. This method is limited to work only within the scope of the
+        same account.
+
+        :param parent: an instance of ``ShardRange``.
+        :return: True if ``parent`` is the parent of this shard range, False
+            otherwise, assuming that they are within the same account.
+        """
+        # note: We limit the usages of this method to be within the same
+        # account, because account shard prefix is configurable and it's hard
+        # to perform checking without breaking backward-compatibility.
+        try:
+            self_parsed_name = ShardName.parse(self.name)
+        except ValueError:
+            # self is not a shard and therefore not a child.
+            return False
+
+        try:
+            parsed_parent_name = ShardName.parse(parent.name)
+            parent_root_container = parsed_parent_name.root_container
+        except ValueError:
+            # parent is a root container.
+            parent_root_container = parent.container
+
+        return (
+            self_parsed_name.root_container == parent_root_container
+            and self_parsed_name.parent_container_hash
+            == ShardName.hash_container_name(parent.container)
+        )
 
     @classmethod
     def make_path(cls, shards_account, root_container, parent_container,
@@ -5308,9 +5435,12 @@ class ShardRange(object):
             ``timestamp``.
         :return: a string of the form <account_name>/<container_name>
         """
-        shard_container = cls._make_container_name(
-            root_container, parent_container, timestamp, index)
-        return '%s/%s' % (shards_account, shard_container)
+        timestamp = cls._to_timestamp(timestamp)
+        return str(ShardName.create(shards_account,
+                                    root_container,
+                                    parent_container,
+                                    timestamp,
+                                    index))
 
     @classmethod
     def _to_timestamp(cls, timestamp):

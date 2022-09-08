@@ -7946,6 +7946,57 @@ class TestDistributeEvenly(unittest.TestCase):
         self.assertEqual(out, [[0], [1], [2], [3], [4], [], []])
 
 
+class TestShardName(unittest.TestCase):
+    def test(self):
+        ts = utils.Timestamp.now()
+        created = utils.ShardName.create('a', 'root', 'parent', ts, 1)
+        parent_hash = md5(b'parent', usedforsecurity=False).hexdigest()
+        expected = 'a/root-%s-%s-1' % (parent_hash, ts.internal)
+        actual = str(created)
+        self.assertEqual(expected, actual)
+        parsed = utils.ShardName.parse(actual)
+        self.assertEqual('a', parsed.account)
+        self.assertEqual('root', parsed.root_container)
+        self.assertEqual(parent_hash, parsed.parent_container_hash)
+        self.assertEqual(ts, parsed.timestamp)
+        self.assertEqual(1, parsed.index)
+        self.assertEqual(actual, str(parsed))
+
+    def test_root_has_hyphens(self):
+        parsed = utils.ShardName.parse(
+            'a/root-has-some-hyphens-hash-1234-99')
+        self.assertEqual('a', parsed.account)
+        self.assertEqual('root-has-some-hyphens', parsed.root_container)
+        self.assertEqual('hash', parsed.parent_container_hash)
+        self.assertEqual(utils.Timestamp(1234), parsed.timestamp)
+        self.assertEqual(99, parsed.index)
+
+    def test_bad_parse(self):
+        with self.assertRaises(ValueError) as cm:
+            utils.ShardName.parse('a')
+        self.assertEqual('invalid name: a', str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            utils.ShardName.parse('a/c')
+        self.assertEqual('invalid name: a/c', str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            utils.ShardName.parse('a/root-hash-bad')
+        self.assertEqual('invalid name: a/root-hash-bad', str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            utils.ShardName.parse('a/root-hash-bad-0')
+        self.assertEqual('invalid name: a/root-hash-bad-0',
+                         str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            utils.ShardName.parse('a/root-hash-12345678.12345-bad')
+        self.assertEqual('invalid name: a/root-hash-12345678.12345-bad',
+                         str(cm.exception))
+
+    def test_bad_create(self):
+        with self.assertRaises(ValueError):
+            utils.ShardName.create('a', 'root', 'hash', 'bad', '0')
+        with self.assertRaises(ValueError):
+            utils.ShardName.create('a', 'root', None, '1235678', 'bad')
+
+
 class TestShardRange(unittest.TestCase):
     def setUp(self):
         self.ts_iter = make_timestamp_iter()
@@ -8878,9 +8929,115 @@ class TestShardRange(unittest.TestCase):
         actual = utils.ShardRange.make_path(
             'a', 'root', 'parent', ts.internal, '3')
         self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
-        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 'foo')
-        self.assertEqual('a/root-%s-%s-foo' % (parent_hash, ts.internal),
-                         actual)
+
+    def test_is_child_of(self):
+        # Set up some shard ranges in relational hierarchy:
+        # account -> root -> grandparent -> parent -> child
+        # using abbreviated names a_r_gp_p_c
+
+        # account 1
+        ts = next(self.ts_iter)
+        a1_r1 = utils.ShardRange('a1/r1', ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', 'r1', ts, 1), ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1.container, ts, 1), ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p1_c1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 1), ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p1_c2 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 2), ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp1_p2 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp1.container, ts, 2), ts)
+        ts = next(self.ts_iter)
+        a1_r1_gp2 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', 'r1', ts, 2), ts)  # different index
+        ts = next(self.ts_iter)
+        a1_r1_gp2_p1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', a1_r1_gp2.container, ts, 1), ts)
+        # drop the index from grandparent name
+        ts = next(self.ts_iter)
+        rogue_a1_r1_gp = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r1', 'r1', ts, 1)[:-2], ts)
+
+        # account 1, root 2
+        ts = next(self.ts_iter)
+        a1_r2 = utils.ShardRange('a1/r2', ts)
+        ts = next(self.ts_iter)
+        a1_r2_gp1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r2', a1_r2.container, ts, 1), ts)
+        ts = next(self.ts_iter)
+        a1_r2_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a1', 'r2', a1_r2_gp1.container, ts, 3), ts)
+
+        # account 2, root1
+        a2_r1 = utils.ShardRange('a2/r1', ts)
+        ts = next(self.ts_iter)
+        a2_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a2', 'r1', a2_r1.container, ts, 1), ts)
+        ts = next(self.ts_iter)
+        a2_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
+            '.shards_a2', 'r1', a2_r1_gp1.container, ts, 3), ts)
+
+        # verify parent-child within same account.
+        self.assertTrue(a1_r1_gp1.is_child_of(a1_r1))
+        self.assertTrue(a1_r1_gp1_p1.is_child_of(a1_r1_gp1))
+        self.assertTrue(a1_r1_gp1_p1_c1.is_child_of(a1_r1_gp1_p1))
+        self.assertTrue(a1_r1_gp1_p1_c2.is_child_of(a1_r1_gp1_p1))
+        self.assertTrue(a1_r1_gp1_p2.is_child_of(a1_r1_gp1))
+
+        self.assertTrue(a1_r1_gp2.is_child_of(a1_r1))
+        self.assertTrue(a1_r1_gp2_p1.is_child_of(a1_r1_gp2))
+
+        self.assertTrue(a1_r2_gp1.is_child_of(a1_r2))
+        self.assertTrue(a1_r2_gp1_p1.is_child_of(a1_r2_gp1))
+
+        self.assertTrue(a2_r1_gp1.is_child_of(a2_r1))
+        self.assertTrue(a2_r1_gp1_p1.is_child_of(a2_r1_gp1))
+
+        # verify not parent-child within same account.
+        self.assertFalse(a1_r1.is_child_of(a1_r1))
+        self.assertFalse(a1_r1.is_child_of(a1_r2))
+
+        self.assertFalse(a1_r1_gp1.is_child_of(a1_r2))
+        self.assertFalse(a1_r1_gp1.is_child_of(a1_r1_gp1))
+        self.assertFalse(a1_r1_gp1.is_child_of(a1_r1_gp1_p1))
+        self.assertFalse(a1_r1_gp1.is_child_of(a1_r1_gp1_p1_c1))
+
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r1))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r2))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r1_gp2))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r2_gp1))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(rogue_a1_r1_gp))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r1_gp1_p1))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r1_gp1_p2))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r2_gp1_p1))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r1_gp1_p1_c1))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a1_r1_gp1_p1_c2))
+
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a1_r1))
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a1_r1_gp1))
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a1_r1_gp1_p2))
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a1_r1_gp2_p1))
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a1_r1_gp1_p1_c1))
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a1_r1_gp1_p1_c2))
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a1_r2_gp1_p1))
+        self.assertFalse(a1_r1_gp1_p1_c1.is_child_of(a2_r1_gp1_p1))
+
+        self.assertFalse(a1_r2_gp1.is_child_of(a1_r1))
+        self.assertFalse(a1_r2_gp1_p1.is_child_of(a1_r1_gp1))
+
+        # across different accounts, 'is_child_of' works in some cases but not
+        # all, so don't use it for shard ranges in different accounts.
+        self.assertFalse(a1_r1.is_child_of(a2_r1))
+        self.assertFalse(a2_r1_gp1_p1.is_child_of(a1_r1_gp1))
+        self.assertFalse(a1_r1_gp1_p1.is_child_of(a2_r1))
+        self.assertTrue(a1_r1_gp1.is_child_of(a2_r1))
+        self.assertTrue(a2_r1_gp1.is_child_of(a1_r1))
 
     def test_expand(self):
         bounds = (('', 'd'), ('d', 'k'), ('k', 't'), ('t', ''))
