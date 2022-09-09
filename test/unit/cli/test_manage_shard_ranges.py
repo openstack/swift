@@ -24,7 +24,7 @@ from tempfile import mkdtemp
 import six
 from six.moves import cStringIO as StringIO
 
-from swift.cli.manage_shard_ranges import main
+from swift.cli.manage_shard_ranges import main, combine_shard_ranges
 from swift.common import utils
 from swift.common.utils import Timestamp, ShardRange
 from swift.container.backend import ContainerBroker
@@ -729,6 +729,230 @@ class TestManageShardRanges(unittest.TestCase):
         ]
         self.assertEqual(expected, err.getvalue().splitlines())
         self.assertEqual(expected_shard_ranges[:1], json.loads(out.getvalue()))
+
+    def test_merge(self):
+        broker = self._make_broker()
+        broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                (True, Timestamp.now().internal)})
+        good_shard_ranges = []
+        for shard in self.shard_data[:3]:
+            good_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
+                                                timestamp=next(self.ts_iter),
+                                                state=ShardRange.ACTIVE,
+                                                lower=shard['lower'],
+                                                upper=shard['upper']))
+        # insert an overlap..
+        bad_shard_range = ShardRange(
+            name='a/c_bad_' + self.shard_data[1]['lower'],
+            timestamp=next(self.ts_iter),
+            state=ShardRange.ACTIVE,
+            lower=self.shard_data[1]['lower'],
+            upper=self.shard_data[2]['upper'])
+        broker.merge_shard_ranges(good_shard_ranges + [bad_shard_range])
+        self.assertEqual(
+            [('', 'obj09'),
+             ('obj09', 'obj19'),
+             ('obj09', 'obj29'),
+             ('obj19', 'obj29')],
+            [(sr.lower_str, sr.upper_str) for sr in broker.get_shard_ranges()])
+
+        # use command to merge in a deleted version of the bad shard range
+        bad_shard_range.update_state(ShardRange.SHRUNK,
+                                     state_timestamp=next(self.ts_iter))
+        bad_shard_range.set_deleted(next(self.ts_iter))
+        bad_shard_range.update_meta(0, 0, next(self.ts_iter))
+        input_file = os.path.join(self.testdir, 'shards')
+        with open(input_file, 'w') as fd:
+            json.dump([dict(bad_shard_range)], fd)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, '-v', 'merge', input_file,
+                        '--replace-timeout', '1', '--yes'])
+        self.assertEqual(0, ret)
+        affected_shard_ranges = [dict(sr) for sr in good_shard_ranges]
+        expected_msg = [
+            'This change will result in the following shard ranges in the '
+            'affected namespace:']
+        expected_msg.extend(
+            json.dumps(affected_shard_ranges, indent=2).splitlines())
+        expected_msg.extend(
+            ['Injected 1 shard ranges.',
+             'Run container-replicator to replicate them to other nodes.'])
+        self.assertEqual(expected_msg, out.getvalue().splitlines())
+        self.assertEqual(['Loaded db broker for a/c'],
+                         err.getvalue().splitlines())
+        self.assertEqual(
+            [dict(sr) for sr in good_shard_ranges],
+            [dict(sr) for sr in broker.get_shard_ranges()])
+        self.assertEqual(
+            dict(bad_shard_range),
+            dict(broker.get_shard_ranges(include_deleted=True)[3]))
+
+    def test_merge_fills_gap(self):
+        broker = self._make_broker()
+        broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                (True, Timestamp.now().internal)})
+        old_shard_ranges = []
+        for shard in self.shard_data[:1]:
+            old_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
+                                               timestamp=next(self.ts_iter),
+                                               state=ShardRange.ACTIVE,
+                                               lower=shard['lower'],
+                                               upper=shard['upper']))
+
+        # use command to merge in a deleted version of the existing and two
+        # new ranges
+        new_shard_ranges = [
+            old_shard_ranges[0].copy(deleted=True,
+                                     timestamp=next(self.ts_iter)),
+            ShardRange(
+                name='a/c_1_' + self.shard_data[0]['lower'],
+                timestamp=next(self.ts_iter),
+                state=ShardRange.ACTIVE,
+                lower=self.shard_data[0]['lower'],
+                upper=self.shard_data[0]['upper'] + 'a'),
+            ShardRange(
+                name='a/c_1_' + self.shard_data[0]['upper'] + 'a',
+                timestamp=next(self.ts_iter),
+                state=ShardRange.ACTIVE,
+                lower=self.shard_data[0]['upper'] + 'a',
+                upper=self.shard_data[1]['upper'] + 'a'),
+        ]
+
+        input_file = os.path.join(self.testdir, 'shards')
+        with open(input_file, 'w') as fd:
+            json.dump([dict(sr) for sr in new_shard_ranges], fd)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, '-v', 'merge', input_file,
+                        '--replace-timeout', '1', '--yes'])
+        self.assertEqual(0, ret)
+        affected_shard_ranges = [dict(sr) for sr in new_shard_ranges[1:]]
+        expected_msg = [
+            'This change will result in the following shard ranges in the '
+            'affected namespace:']
+        expected_msg.extend(
+            json.dumps(affected_shard_ranges, indent=2).splitlines())
+        expected_msg.extend(
+            ['Injected 3 shard ranges.',
+             'Run container-replicator to replicate them to other nodes.'])
+        self.assertEqual(expected_msg, out.getvalue().splitlines())
+        self.assertEqual(['Loaded db broker for a/c'],
+                         err.getvalue().splitlines())
+        self.assertEqual(
+            [dict(sr) for sr in new_shard_ranges[1:]],
+            [dict(sr) for sr in broker.get_shard_ranges()])
+        self.assertEqual(
+            [dict(sr) for sr in new_shard_ranges],
+            [dict(sr) for sr in broker.get_shard_ranges(include_deleted=True)])
+
+    def test_merge_warns_of_overlap(self):
+        broker = self._make_broker()
+        broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                (True, Timestamp.now().internal)})
+        old_shard_ranges = []
+        for shard in self.shard_data[:3]:
+            old_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
+                                               timestamp=next(self.ts_iter),
+                                               state=ShardRange.ACTIVE,
+                                               lower=shard['lower'],
+                                               upper=shard['upper']))
+        broker.merge_shard_ranges(old_shard_ranges)
+
+        # use command to merge in a new range that overlaps...
+        new_shard_range = ShardRange(
+            name='a/c_bad_' + self.shard_data[1]['lower'],
+            timestamp=next(self.ts_iter),
+            state=ShardRange.ACTIVE,
+            lower=self.shard_data[1]['lower'] + 'a',
+            upper=self.shard_data[1]['upper'])
+        input_file = os.path.join(self.testdir, 'shards')
+        with open(input_file, 'w') as fd:
+            json.dump([dict(new_shard_range)], fd)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, '-v', 'merge', input_file,
+                        '--replace-timeout', '1', '-n'])
+        self.assertEqual(3, ret)
+        affected_shard_ranges = [
+            dict(sr) for sr in [old_shard_ranges[0], old_shard_ranges[1],
+                                new_shard_range, old_shard_ranges[2]]]
+        expected_msg = [
+            'This change will result in the following shard ranges in the '
+            'affected namespace:']
+        expected_msg.extend(
+            json.dumps(affected_shard_ranges, indent=2).splitlines())
+        expected_msg.extend(
+            ['WARNING: this change will result in shard ranges overlaps!',
+             'No changes applied'])
+        self.assertEqual(expected_msg, out.getvalue().splitlines())
+        self.assertEqual(['Loaded db broker for a/c'],
+                         err.getvalue().splitlines())
+        self.assertEqual(
+            [dict(sr) for sr in old_shard_ranges],
+            [dict(sr) for sr in broker.get_shard_ranges()])
+
+        # repeat without -v flag
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'merge', input_file,
+                        '--replace-timeout', '1', '-n'])
+        self.assertEqual(3, ret)
+        expected_msg = [
+            'WARNING: this change will result in shard ranges overlaps!',
+            'No changes applied']
+        self.assertEqual(expected_msg, out.getvalue().splitlines())
+        self.assertEqual(['Loaded db broker for a/c'],
+                         err.getvalue().splitlines())
+        self.assertEqual(
+            [dict(sr) for sr in old_shard_ranges],
+            [dict(sr) for sr in broker.get_shard_ranges()])
+
+    def test_merge_warns_of_gap(self):
+        broker = self._make_broker()
+        broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                (True, Timestamp.now().internal)})
+        old_shard_ranges = []
+        for shard in self.shard_data[:3]:
+            old_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
+                                               timestamp=next(self.ts_iter),
+                                               state=ShardRange.ACTIVE,
+                                               lower=shard['lower'],
+                                               upper=shard['upper']))
+        broker.merge_shard_ranges(old_shard_ranges)
+
+        # use command to merge in a deleted range that creates a gap...
+        new_shard_range = old_shard_ranges[1].copy(
+            timestamp=next(self.ts_iter), deleted=True)
+        input_file = os.path.join(self.testdir, 'shards')
+        with open(input_file, 'w') as fd:
+            json.dump([dict(new_shard_range)], fd)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, '-v', 'merge', input_file,
+                        '--replace-timeout', '1', '-n'])
+        self.assertEqual(3, ret)
+        affected_shard_ranges = [
+            dict(sr) for sr in [old_shard_ranges[0], old_shard_ranges[2]]]
+        expected_msg = [
+            'This change will result in the following shard ranges in the '
+            'affected namespace:']
+        expected_msg.extend(
+            json.dumps(affected_shard_ranges, indent=2).splitlines())
+        expected_msg.extend(
+            ['WARNING: this change will result in shard ranges gaps!',
+             'No changes applied'])
+        self.assertEqual(expected_msg, out.getvalue().splitlines())
+        self.assertEqual(['Loaded db broker for a/c'],
+                         err.getvalue().splitlines())
+        self.assertEqual(
+            [dict(sr) for sr in old_shard_ranges],
+            [dict(sr) for sr in broker.get_shard_ranges()])
 
     def test_replace(self):
         broker = self._make_broker()
@@ -2523,3 +2747,46 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertIn(
             "argument --yes/-y: not allowed with argument --dry-run/-n",
             err_lines[-2], err_lines)
+
+    def test_combine_shard_ranges(self):
+        ts_iter = make_timestamp_iter()
+        this = ShardRange('a/o', next(ts_iter).internal)
+        that = ShardRange('a/o', next(ts_iter).internal)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+
+        ts = next(ts_iter).internal
+        this = ShardRange('a/o', ts, state=ShardRange.ACTIVE,
+                          state_timestamp=next(ts_iter))
+        that = ShardRange('a/o', ts, state=ShardRange.CREATED,
+                          state_timestamp=next(ts_iter))
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+
+        that.update_meta(1, 2, meta_timestamp=next(ts_iter))
+        this.update_meta(3, 4, meta_timestamp=next(ts_iter))
+        expected = that.copy(object_count=this.object_count,
+                             bytes_used=this.bytes_used,
+                             meta_timestamp=this.meta_timestamp)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(expected)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(expected)], [dict(sr) for sr in actual])
+
+        this = ShardRange('a/o', next(ts_iter).internal)
+        that = ShardRange('a/o', next(ts_iter).internal, deleted=True)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertFalse(actual, [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertFalse(actual, [dict(sr) for sr in actual])
+
+        this = ShardRange('a/o', next(ts_iter).internal, deleted=True)
+        that = ShardRange('a/o', next(ts_iter).internal)
+        actual = combine_shard_ranges([dict(this)], [dict(that)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
+        actual = combine_shard_ranges([dict(that)], [dict(this)])
+        self.assertEqual([dict(that)], [dict(sr) for sr in actual])
