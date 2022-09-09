@@ -5151,10 +5151,10 @@ class ShardName(object):
 
         <account>/<root_container>-<parent_container_hash>-<timestamp>-<index>
 
-    Note: not all instances of :class:`~swift.common.utils.ShardRange` have
-    names that will parse as a :class:`~swift.common.utils.ShardName`; root
-    container own shard ranges, for example, have a simpler name format of
-    <account>/<root_container>.
+    Note: some instances of :class:`~swift.common.utils.ShardRange` have names
+    that will NOT parse as a :class:`~swift.common.utils.ShardName`; e.g. a
+    root container's own shard range will have a name format of
+    <account>/<root_container> which will raise ValueError if passed to parse.
     """
     def __init__(self, account, root_container,
                  parent_container_hash,
@@ -5204,7 +5204,9 @@ class ShardName(object):
             container belongs.
         :param root_container: the name of the root container for the shard.
         :param parent_container: the name of the parent container for the
-            shard.
+            shard; for initial first generation shards this should be the same
+            as ``root_container``; for shards of shards this should be the name
+            of the sharding shard container.
         :param timestamp: an instance of :class:`~swift.common.utils.Timestamp`
         :param index: a unique index that will distinguish the path from any
             other path generated using the same combination of
