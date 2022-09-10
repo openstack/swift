@@ -2615,6 +2615,117 @@ class TestManageShardRanges(unittest.TestCase):
             key=ShardRange.sort_key)
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
+    def test_repair_parent_overlaps_with_children_donors(self):
+        # Verify that the overlap repair command ignores expected transient
+        # overlaps between parent shard acceptor and child donor shards.
+        root_broker = self._make_broker()
+        root_broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        self.assertTrue(root_broker.is_root_container())
+
+        # The parent shard range would have been set to state SHARDING in the
+        # shard container but is still showing as ACTIVE in the root container.
+        # (note: it is valid for a single shard to span entire namespace)
+        ts_parent = next(self.ts_iter)
+        parent_shard = ShardRange(
+            ShardRange.make_path('.shards_a', 'c', 'c', ts_parent, 0),
+            ts_parent, lower='', upper='', object_count=10,
+            state=ShardRange.ACTIVE)
+
+        # Children shards have reported themselves to root as CLEAVING/
+        # CREATED.
+        ts_child = next(self.ts_iter)
+        child_shards = [
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_shard.container, ts_child, 0),
+                ts_child, lower='', upper='p', object_count=1,
+                state=ShardRange.CLEAVED),
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_shard.container, ts_child, 1),
+                ts_child, lower='p', upper='', object_count=1,
+                state=ShardRange.CLEAVED)]
+        root_broker.merge_shard_ranges([parent_shard] + child_shards)
+
+        out = StringIO()
+        err = StringIO()
+        ts_now = next(self.ts_iter)
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock_timestamp_now(ts_now):
+            ret = main([root_broker.db_file, 'repair',
+                       '--yes', '--min-shard-age', '0'])
+        err_lines = err.getvalue().split('\n')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(0, ret, err_lines + out_lines)
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        self.assertNotIn(
+            'Repairs necessary to remove overlapping shard ranges.',
+            out_lines)
+        self.assertEqual(
+            ['2 donor shards ignored due to parent-child relationship'
+             ' checks'], out_lines[:1])
+        updated_ranges = root_broker.get_shard_ranges()
+        # Expect no change to shard ranges.
+        expected = sorted([parent_shard] + child_shards,
+                          key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    def test_repair_children_overlaps_with_parent_donor(self):
+        # Verify that the overlap repair command ignores expected transient
+        # overlaps between child shard acceptors and parent donor shards.
+        root_broker = self._make_broker()
+        root_broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        self.assertTrue(root_broker.is_root_container())
+
+        # The parent shard range would have been set to state SHARDING in the
+        # shard container but is still showing as ACTIVE in the root container.
+        # (note: it is valid for a single shard to span entire namespace)
+        ts_parent = next(self.ts_iter)
+        parent_shard = ShardRange(
+            ShardRange.make_path('.shards_a', 'c', 'c', ts_parent, 0),
+            ts_parent, lower='', upper='', object_count=5,
+            state=ShardRange.ACTIVE)
+
+        # Children shards have reported themselves to root as CLEAVING/CREATED,
+        # but they will end up with becoming acceptor shards due to having more
+        # objects than the above parent shard.
+        ts_child = next(self.ts_iter)
+        child_shards = [
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_shard.container, ts_child, 0),
+                ts_child, lower='', upper='p', object_count=5,
+                state=ShardRange.CLEAVED),
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_shard.container, ts_child, 1),
+                ts_child, lower='p', upper='', object_count=5,
+                state=ShardRange.CLEAVED)]
+        root_broker.merge_shard_ranges([parent_shard] + child_shards)
+
+        out = StringIO()
+        err = StringIO()
+        ts_now = next(self.ts_iter)
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock_timestamp_now(ts_now):
+            ret = main([root_broker.db_file, 'repair',
+                       '--yes', '--min-shard-age', '0'])
+        err_lines = err.getvalue().split('\n')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(0, ret, err_lines + out_lines)
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        self.assertNotIn(
+            'Repairs necessary to remove overlapping shard ranges.',
+            out_lines)
+        self.assertEqual(
+            ['1 donor shards ignored due to parent-child relationship'
+             ' checks'], out_lines[:1])
+        updated_ranges = root_broker.get_shard_ranges()
+        # Expect no change to shard ranges.
+        expected = sorted([parent_shard] + child_shards,
+                          key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
     @with_tempdir
     def test_show_and_analyze(self, tempdir):
         broker = self._make_broker()

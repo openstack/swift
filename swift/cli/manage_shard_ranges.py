@@ -620,9 +620,25 @@ def compact_shard_ranges(broker, args):
     return EXIT_SUCCESS
 
 
-def _remove_young_overlapping_ranges(acceptor_path, overlapping_donors, args):
-    # For range shard repair subcommand, check possible parent-children
-    # relationship between acceptors and donors.
+def _remove_illegal_overlapping_donors(
+        acceptor_path, overlapping_donors, args):
+    # Check parent-children relationship in overlaps between acceptors and
+    # donors, remove any overlapping parent or child shard range from donors.
+    # Note: we can use set() here, since shard range object is hashed by
+    # id and all shard ranges in overlapping_donors are unique already.
+    parent_child_donors = set()
+    for acceptor in acceptor_path:
+        parent_child_donors.update(
+            [donor for donor in overlapping_donors
+                if acceptor.is_child_of(donor) or donor.is_child_of(acceptor)])
+    if parent_child_donors:
+        overlapping_donors = ShardRangeList(
+            [sr for sr in overlapping_donors
+                if sr not in parent_child_donors])
+        print('%d donor shards ignored due to parent-child relationship '
+              'checks' % len(parent_child_donors))
+
+    # Check minimum age requirement in overlaps between acceptors and donors.
     if args.min_shard_age == 0:
         return acceptor_path, overlapping_donors
     ts_now = Timestamp.now()
@@ -639,18 +655,18 @@ def _remove_young_overlapping_ranges(acceptor_path, overlapping_donors, args):
         return acceptor_path, None
     # Remove those overlapping donors whose overlapping acceptors were created
     # within age limit.
-    possible_parent_donors = set()
+    donors_with_young_overlap_acceptor = set()
     for acceptor_sr in acceptor_path:
         if float(acceptor_sr.timestamp) + args.min_shard_age < float(ts_now):
             continue
-        possible_parent_donors.update([sr for sr in qualified_donors
-                                       if acceptor_sr.overlaps(sr)])
-    if possible_parent_donors:
+        donors_with_young_overlap_acceptor.update(
+            [sr for sr in qualified_donors if acceptor_sr.overlaps(sr)])
+    if donors_with_young_overlap_acceptor:
         qualified_donors = ShardRangeList(
             [sr for sr in qualified_donors
-             if sr not in possible_parent_donors])
+             if sr not in donors_with_young_overlap_acceptor])
         print('%d donor shards ignored due to existence of overlapping young '
-              'acceptors' % len(possible_parent_donors))
+              'acceptors' % len(donors_with_young_overlap_acceptor))
 
     return acceptor_path, qualified_donors
 
@@ -705,7 +721,7 @@ def _find_overlapping_donors(shard_ranges, own_sr, args):
             'Isolated cleaved and/or active shard ranges in donor ranges',
             acceptor_path, overlapping_donors)
 
-    return _remove_young_overlapping_ranges(
+    return _remove_illegal_overlapping_donors(
         acceptor_path, overlapping_donors, args)
 
 

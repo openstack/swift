@@ -5388,7 +5388,7 @@ class ShardRange(object):
         Test if this shard range is a child of another shard range. The
         parent-child relationship is inferred from the names of the shard
         ranges. This method is limited to work only within the scope of the
-        same account.
+        same user-facing account (with and without shard prefix).
 
         :param parent: an instance of ``ShardRange``.
         :return: True if ``parent`` is the parent of this shard range, False
