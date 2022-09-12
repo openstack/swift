@@ -834,6 +834,23 @@ class TestFuncs(BaseTest):
             self.assertEqual(incomplete_expected,
                              headers_from_container_info(incomplete_info))
 
+    def test_container_info_preserves_storage_policy(self):
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+
+        fake_info = {'status': 404, 'storage_policy': 1}
+
+        with mock.patch('swift.proxy.controllers.base.'
+                        'get_container_info', return_value=fake_info):
+            container_info = \
+                base.container_info(base.account_name, base.container_name,
+                                    Request.blank('/'))
+        self.assertEqual(container_info['status'], 404)
+        self.assertEqual(container_info['storage_policy'], 1)
+        self.assertEqual(container_info['partition'], None)
+        self.assertEqual(container_info['nodes'], None)
+
     def test_container_info_needs_req(self):
         base = Controller(self.app)
         base.account_name = 'a'
@@ -844,7 +861,7 @@ class TestFuncs(BaseTest):
             container_info = \
                 base.container_info(base.account_name,
                                     base.container_name, Request.blank('/'))
-        self.assertEqual(container_info['status'], 0)
+        self.assertEqual(container_info['status'], 503)
 
     def test_headers_to_account_info_missing(self):
         resp = headers_to_account_info({}, 404)

@@ -1840,8 +1840,7 @@ class Controller(object):
         path_env['PATH_INFO'] = "/v1/%s/%s" % (
             str_to_wsgi(account), str_to_wsgi(container))
         info = get_container_info(path_env, self.app)
-        if not info or not is_success(info.get('status')):
-            info = headers_to_container_info({}, 0)
+        if not is_success(info.get('status')):
             info['partition'] = None
             info['nodes'] = None
         else:
