@@ -51,7 +51,7 @@ def meta_command(name, bases, attrs):
     for attr, value in attrs.items():
         if getattr(value, '__command__', False):
             commands[attr] = value
-            # methods have always have a __doc__ attribute, sometimes empty
+            # methods always have a __doc__ attribute, sometimes empty
             docs[attr] = (getattr(value, '__doc__', None) or
                           'perform the %s command' % attr).strip()
     attrs['__commands__'] = commands
@@ -68,6 +68,7 @@ def command(f):
     return f
 
 
+@six.add_metaclass(meta_command)
 class BaseBrain(object):
     def _setup(self, account, container_name, object_name,
                server_type, policy):
@@ -298,7 +299,6 @@ class InternalBrainClient(object):
         return headers, b''.join(resp_iter)
 
 
-@six.add_metaclass(meta_command)
 class BrainSplitter(BaseBrain):
     def __init__(self, url, token, container_name='test', object_name='test',
                  server_type='container', policy=None):
@@ -307,7 +307,6 @@ class BrainSplitter(BaseBrain):
                     server_type, policy)
 
 
-@six.add_metaclass(meta_command)
 class InternalBrainSplitter(BaseBrain):
     def __init__(self, conf, container_name='test', object_name='test',
                  server_type='container', policy=None):
