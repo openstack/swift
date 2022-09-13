@@ -737,6 +737,8 @@
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - tempest-ipv6-only:
             irrelevant-files: *tempest-irrelevant-files
+        - openstacksdk-functional-devstack:
+            irrelevant-files: *tempest-irrelevant-files
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
     gate:
@@ -777,6 +779,8 @@
         - tempest-integrated-object-storage:
             irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
+            irrelevant-files: *tempest-irrelevant-files
+        - openstacksdk-functional-devstack:
             irrelevant-files: *tempest-irrelevant-files
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
