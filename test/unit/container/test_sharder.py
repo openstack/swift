@@ -5472,6 +5472,48 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges(shrinking_shard_ranges)
         check_missing()
 
+    def test_audit_deleted_root_container(self):
+        broker = self._make_broker()
+        shard_bounds = (
+            ('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'))
+        shard_ranges = self._make_shard_ranges(shard_bounds, ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.is_root_container())
+        with self._mock_sharder() as sharder:
+            sharder._audit_container(broker)
+        self.assertEqual([], self.logger.get_lines_for_level('warning'))
+
+        # delete it
+        delete_ts = next(self.ts_iter)
+        broker.delete_db(delete_ts.internal)
+        with self._mock_sharder() as sharder:
+            sharder._audit_container(broker)
+        self.assertEqual([], self.logger.get_lines_for_level('warning'))
+
+        # advance time
+        future_time = 6048000 + float(delete_ts)
+        with mock.patch(
+                'swift.container.sharder.time.time',
+                return_value=future_time), self._mock_sharder() as sharder:
+            sharder._audit_container(broker)
+        message = 'Reclaimable db stuck waiting for shrinking: %s (%s)' % (
+            broker.db_file, broker.path)
+        self.assertEqual([message], self.logger.get_lines_for_level('warning'))
+
+        # delete all shard ranges
+        for sr in shard_ranges:
+            sr.update_state(ShardRange.SHRUNK, Timestamp.now())
+            sr.deleted = True
+            sr.timestamp = Timestamp.now()
+        broker.merge_shard_ranges(shard_ranges)
+
+        # no more warning
+        with mock.patch(
+                'swift.container.sharder.time.time',
+                return_value=future_time), self._mock_sharder() as sharder:
+            sharder._audit_container(broker)
+        self.assertEqual([], self.logger.get_lines_for_level('warning'))
+
     def call_audit_container(self, broker, shard_ranges, exc=None):
         with self._mock_sharder() as sharder:
             with mock.patch.object(sharder, '_audit_root_container') \
@@ -5685,47 +5727,6 @@ class TestSharder(BaseTestSharder):
         self.assert_no_audit_messages(sharder, mock_swift)
         self.assertTrue(broker.is_deleted())
 
-    def test_audit_deleted_root_container(self):
-        broker = self._make_broker()
-        shard_bounds = (
-            ('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e'), ('e', 'f'))
-        shard_ranges = self._make_shard_ranges(shard_bounds, ShardRange.ACTIVE)
-        broker.merge_shard_ranges(shard_ranges)
-        with self._mock_sharder() as sharder:
-            sharder._audit_container(broker)
-        self.assertEqual([], self.logger.get_lines_for_level('warning'))
-
-        # delete it
-        delete_ts = next(self.ts_iter)
-        broker.delete_db(delete_ts.internal)
-        with self._mock_sharder() as sharder:
-            sharder._audit_container(broker)
-        self.assertEqual([], self.logger.get_lines_for_level('warning'))
-
-        # advance time
-        future_time = 6048000 + float(delete_ts)
-        with mock.patch(
-                'swift.container.sharder.time.time',
-                return_value=future_time), self._mock_sharder() as sharder:
-            sharder._audit_container(broker)
-        message = 'Reclaimable db stuck waiting for shrinking: %s (%s)' % (
-            broker.db_file, broker.path)
-        self.assertEqual([message], self.logger.get_lines_for_level('warning'))
-
-        # delete all shard ranges
-        for sr in shard_ranges:
-            sr.update_state(ShardRange.SHRUNK, Timestamp.now())
-            sr.deleted = True
-            sr.timestamp = Timestamp.now()
-        broker.merge_shard_ranges(shard_ranges)
-
-        # no more warning
-        with mock.patch(
-                'swift.container.sharder.time.time',
-                return_value=future_time), self._mock_sharder() as sharder:
-            sharder._audit_container(broker)
-        self.assertEqual([], self.logger.get_lines_for_level('warning'))
-
     def test_audit_old_style_shard_container(self):
         self._do_test_audit_shard_container('Root', 'a/c')
 
@@ -5888,7 +5889,9 @@ class TestSharder(BaseTestSharder):
         self._do_test_audit_shard_container_with_root_ranges('Quoted-Root',
                                                              'a/c')
 
-    def test_audit_deleted_range_in_root_container(self):
+    def test_audit_shard_deleted_range_in_root_container(self):
+        # verify that shard DB is marked deleted when its own shard range is
+        # updated with deleted version from root
         broker = self._make_broker(account='.shards_a', container='shard_c')
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         with mock_timestamp_now(next(self.ts_iter)):
@@ -5896,6 +5899,9 @@ class TestSharder(BaseTestSharder):
         own_shard_range.lower = 'k'
         own_shard_range.upper = 't'
         broker.merge_shard_ranges([own_shard_range])
+
+        self.assertFalse(broker.is_deleted())
+        self.assertFalse(broker.is_root_container())
 
         shard_bounds = (
             ('a', 'j'), ('k', 't'), ('k', 's'), ('l', 's'), ('s', 'z'))
@@ -5916,7 +5922,9 @@ class TestSharder(BaseTestSharder):
         self.assert_no_audit_messages(sharder, mock_swift)
         self.assertTrue(broker.is_deleted())
 
-    def test_audit_deleted_range_missing_from_root_container(self):
+    def test_audit_shard_deleted_range_missing_from_root_container(self):
+        # verify that shard DB is marked deleted when its own shard range is
+        # marked deleted, despite receiving nothing from root
         broker = self._make_broker(account='.shards_a', container='shard_c')
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         own_shard_range = broker.get_own_shard_range()
@@ -5928,6 +5936,7 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges([own_shard_range])
 
         self.assertFalse(broker.is_deleted())
+        self.assertFalse(broker.is_root_container())
 
         sharder, mock_swift = self.call_audit_container(broker, [])
         self.assert_no_audit_messages(sharder, mock_swift)
