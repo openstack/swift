@@ -1106,60 +1106,40 @@ class TestContainerSharding(BaseAutoContainerSharding):
 
         # but third replica still has no idea it should be sharding
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
-        self.assertEqual(
-            ShardRange.ACTIVE,
-            ContainerBroker(
-                found_for_shard['normal_dbs'][2]).get_own_shard_range().state)
+        broker = ContainerBroker(found_for_shard['normal_dbs'][2])
+        self.assertEqual(ShardRange.ACTIVE, broker.get_own_shard_range().state)
 
-        # ...but once sharder runs on third replica it will learn its state;
-        # note that any root replica on the stopped container server also won't
-        # know about the shards being in sharding state, so leave that server
-        # stopped for now so that shard fetches its state from an up-to-date
-        # root replica
+        # ...but once sharder runs on third replica it will learn its state and
+        # fetch its sub-shard ranges durng audit; note that any root replica on
+        # the stopped container server also won't know about the shards being
+        # in sharding state, so leave that server stopped for now so that shard
+        # fetches its state from an up-to-date root replica
         self.sharders.once(
             number=shard_1_nodes[2],
             additional_args='--partitions=%s' % shard_1_part)
 
-        # third replica is sharding but has no sub-shard ranges yet...
+        # third replica is sharding and has sub-shard ranges so can start
+        # cleaving...
         found_for_shard = self.categorize_container_dir_content(
             shard_1.account, shard_1.container)
-        self.assertLengthEqual(found_for_shard['shard_dbs'], 2)
+        self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
-        broker = ContainerBroker(found_for_shard['normal_dbs'][2])
-        self.assertEqual('unsharded', broker.get_db_state())
+        sharding_broker = ContainerBroker(found_for_shard['normal_dbs'][2])
+        self.assertEqual('sharding', sharding_broker.get_db_state())
         self.assertEqual(
-            ShardRange.SHARDING, broker.get_own_shard_range().state)
-        self.assertFalse(broker.get_shard_ranges())
+            ShardRange.SHARDING, sharding_broker.get_own_shard_range().state)
+        self.assertEqual(3, len(sharding_broker.get_shard_ranges()))
 
-        contexts = list(CleavingContext.load_all(broker))
-        self.assertEqual([], contexts)  # length check
-
-        # ...until sub-shard ranges are replicated from another shard replica;
         # there may also be a sub-shard replica missing so run replicators on
         # all nodes to fix that if necessary
         self.brain.servers.start(number=shard_1_nodes[2])
         self.replicators.once()
 
         # Now that the replicators have all run, third replica sees cleaving
-        # contexts for the first two
-        contexts = list(CleavingContext.load_all(broker))
-        self.assertEqual(len(contexts), 2)
-
-        # now run sharder again on third replica
-        self.sharders.once(
-            number=shard_1_nodes[2],
-            additional_args='--partitions=%s' % shard_1_part)
-        sharding_broker = ContainerBroker(found_for_shard['normal_dbs'][2])
-        self.assertEqual('sharding', sharding_broker.get_db_state())
-
-        broker_id = broker.get_info()['id']
-        # Old, unsharded DB doesn't have the context...
-        contexts = list(CleavingContext.load_all(broker))
-        self.assertEqual(len(contexts), 2)
-        self.assertNotIn(broker_id, [ctx[0].ref for ctx in contexts])
-        # ...but the sharding one does
+        # contexts for the first two (plus its own cleaving context)
         contexts = list(CleavingContext.load_all(sharding_broker))
         self.assertEqual(len(contexts), 3)
+        broker_id = broker.get_info()['id']
         self.assertIn(broker_id, [ctx[0].ref for ctx in contexts])
 
         # check original first shard range state and sub-shards - all replicas
