@@ -31,7 +31,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     get_cache_key, headers_from_container_info, update_headers
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
-    HTTPServiceUnavailable, str_to_wsgi, wsgi_to_str, bytes_to_wsgi, Response
+    HTTPServiceUnavailable, str_to_wsgi, wsgi_to_str, Response
 
 
 class ContainerController(Controller):
@@ -400,10 +400,18 @@ class ContainerController(Controller):
             # is empty then the original request marker, if any, is used. This
             # allows misplaced objects below the expected shard range to be
             # included in the listing.
+            last_name = ''
+            last_name_was_subdir = False
             if objects:
-                last_name = objects[-1].get('name',
-                                            objects[-1].get('subdir', u''))
-                params['marker'] = bytes_to_wsgi(last_name.encode('utf-8'))
+                last_name_was_subdir = 'subdir' in objects[-1]
+                if last_name_was_subdir:
+                    last_name = objects[-1]['subdir']
+                else:
+                    last_name = objects[-1]['name']
+
+                if six.PY2:
+                    last_name = last_name.encode('utf8')
+                params['marker'] = str_to_wsgi(last_name)
             elif marker:
                 params['marker'] = str_to_wsgi(marker)
             else:
@@ -437,6 +445,11 @@ class ContainerController(Controller):
                 else:
                     if just_past < shard_range:
                         continue
+
+            if last_name_was_subdir and str(
+                shard_range.lower if reverse else shard_range.upper
+            ).startswith(last_name):
+                continue
 
             self.logger.debug(
                 'Getting listing part %d from shard %s %s with %s',
