@@ -150,26 +150,29 @@ def parse_headers_string(headers_str):
     return headers_dict
 
 
+def get_node_error_stats(proxy_app, ring_node):
+    node_key = proxy_app.error_limiter.node_key(ring_node)
+    return proxy_app.error_limiter.stats.get(node_key) or {}
+
+
 def node_error_count(proxy_app, ring_node):
     # Reach into the proxy's internals to get the error count for a
     # particular node
-    node_key = proxy_app._error_limit_node_key(ring_node)
-    return proxy_app._error_limiting.get(node_key, {}).get('errors', 0)
+    return get_node_error_stats(proxy_app, ring_node).get('errors', 0)
 
 
 def node_last_error(proxy_app, ring_node):
     # Reach into the proxy's internals to get the last error for a
     # particular node
-    node_key = proxy_app._error_limit_node_key(ring_node)
-    return proxy_app._error_limiting.get(node_key, {}).get('last_error')
+    return get_node_error_stats(proxy_app, ring_node).get('last_error')
 
 
 def set_node_errors(proxy_app, ring_node, value, last_error):
     # Set the node's error count to value
-    node_key = proxy_app._error_limit_node_key(ring_node)
-    stats = proxy_app._error_limiting.setdefault(node_key, {})
-    stats['errors'] = value
-    stats['last_error'] = last_error
+    node_key = proxy_app.error_limiter.node_key(ring_node)
+    stats = {'errors': value,
+             'last_error': last_error}
+    proxy_app.error_limiter.stats[node_key] = stats
 
 
 @contextmanager
@@ -239,7 +242,7 @@ class TestController(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
         self.memcache = FakeMemcache()
@@ -1169,15 +1172,15 @@ class TestProxyServer(unittest.TestCase):
                                            container_ring=FakeRing(),
                                            logger=logger)
             node = app.container_ring.get_part_nodes(0)[0]
-            node_key = app._error_limit_node_key(node)
-            self.assertNotIn(node_key, app._error_limiting)  # sanity
+            node_key = app.error_limiter.node_key(node)
+            self.assertNotIn(node_key, app.error_limiter.stats)  # sanity
             try:
                 raise Exception('kaboom1!')
             except Exception as err:
                 caught_exc = err
                 app.exception_occurred(node, 'server-type', additional_info)
 
-            self.assertEqual(1, app._error_limiting[node_key]['errors'])
+            self.assertEqual(1, node_error_count(app, node))
             line = logger.get_lines_for_level('error')[-1]
             self.assertIn('server-type server', line)
             if six.PY2:
@@ -1203,12 +1206,12 @@ class TestProxyServer(unittest.TestCase):
                                            container_ring=FakeRing(),
                                            logger=logger)
             node = app.container_ring.get_part_nodes(0)[0]
-            node_key = app._error_limit_node_key(node)
-            self.assertNotIn(node_key, app._error_limiting)  # sanity
+            node_key = app.error_limiter.node_key(node)
+            self.assertNotIn(node_key, app.error_limiter.stats)  # sanity
 
             app.error_occurred(node, msg)
 
-            self.assertEqual(1, app._error_limiting[node_key]['errors'])
+            self.assertEqual(1, node_error_count(app, node))
             line = logger.get_lines_for_level('error')[-1]
             if six.PY2:
                 self.assertIn(msg.decode('utf8'), line)
@@ -1501,7 +1504,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
         self.tempdir = mkdtemp()
         account_ring_path = os.path.join(self.tempdir, 'account.ring.gz')
         write_fake_ring(account_ring_path)
@@ -2362,7 +2365,7 @@ class TestReplicatedObjectController(
     """
     def setUp(self):
         skip_if_no_xattrs()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
         self.logger = debug_logger('proxy-ut')
         self.app = proxy_server.Application(
             None,
@@ -3022,7 +3025,7 @@ class TestReplicatedObjectController(
         bytes_before_timeout[0] = 700
         kaboomed[0] = 0
         sabotaged[0] = False
-        prosrv._error_limiting = {}  # clear out errors
+        prosrv.error_limiter.stats.clear()  # clear out errors
         with mock.patch.object(proxy_base,
                                'http_response_to_document_iters',
                                sabotaged_hrtdi):  # perma-broken
@@ -3062,7 +3065,7 @@ class TestReplicatedObjectController(
         bytes_before_timeout[0] = 300
         kaboomed[0] = 0
         sabotaged[0] = False
-        prosrv._error_limiting = {}  # clear out errors
+        prosrv.error_limiter.stats.clear()  # clear out errors
         with mock.patch.object(proxy_base,
                                'http_response_to_document_iters',
                                single_sabotage_hrtdi):
@@ -3102,7 +3105,7 @@ class TestReplicatedObjectController(
         bytes_before_timeout[0] = 501
         kaboomed[0] = 0
         sabotaged[0] = False
-        prosrv._error_limiting = {}  # clear out errors
+        prosrv.error_limiter.stats.clear()  # clear out errors
         with mock.patch.object(proxy_base,
                                'http_response_to_document_iters',
                                single_sabotage_hrtdi):
@@ -3142,7 +3145,7 @@ class TestReplicatedObjectController(
         bytes_before_timeout[0] = 750
         kaboomed[0] = 0
         sabotaged[0] = False
-        prosrv._error_limiting = {}  # clear out errors
+        prosrv.error_limiter.stats.clear()  # clear out errors
         with mock.patch.object(proxy_base,
                                'http_response_to_document_iters',
                                single_sabotage_hrtdi):
@@ -5081,7 +5084,7 @@ class TestReplicatedObjectController(
                 self.app.log_handoffs = True
                 self.app.logger.clear()  # clean capture state
                 self.app.request_node_count = lambda r: 7
-                self.app._error_limiting = {}  # clear out errors
+                self.app.error_limiter.stats.clear()  # clear out errors
                 set_node_errors(self.app, object_ring._devs[0], 999,
                                 last_error=(2 ** 63 - 1))
 
@@ -5100,7 +5103,7 @@ class TestReplicatedObjectController(
                 self.app.log_handoffs = True
                 self.app.logger.clear()  # clean capture state
                 self.app.request_node_count = lambda r: 7
-                self.app._error_limiting = {}  # clear out errors
+                self.app.error_limiter.stats.clear()  # clear out errors
                 for i in range(2):
                     set_node_errors(self.app, object_ring._devs[i], 999,
                                     last_error=(2 ** 63 - 1))
@@ -5125,7 +5128,7 @@ class TestReplicatedObjectController(
                 self.app.logger.clear()  # clean capture state
                 self.app.request_node_count = lambda r: 10
                 object_ring.set_replicas(4)  # otherwise we run out of handoffs
-                self.app._error_limiting = {}  # clear out errors
+                self.app.error_limiter.stats.clear()  # clear out errors
                 for i in range(4):
                     set_node_errors(self.app, object_ring._devs[i], 999,
                                     last_error=(2 ** 63 - 1))
@@ -5290,12 +5293,12 @@ class TestReplicatedObjectController(
             self.assertTrue(
                 node_last_error(controller.app, object_ring.devs[0])
                 is not None)
-            for _junk in range(self.app.error_suppression_limit):
+            for _junk in range(self.app.error_limiter.suppression_limit):
                 self.assert_status_map(controller.HEAD, (200, 200, 503, 503,
                                                          503), 503)
             self.assertEqual(
                 node_error_count(controller.app, object_ring.devs[0]),
-                self.app.error_suppression_limit + 1)
+                self.app.error_limiter.suppression_limit + 1)
             self.assert_status_map(controller.HEAD, (200, 200, 200, 200, 200),
                                    503)
             self.assertTrue(
@@ -5308,7 +5311,7 @@ class TestReplicatedObjectController(
                                     202), 503)
             self.assert_status_map(controller.DELETE,
                                    (200, 200, 200, 204, 204, 204), 503)
-            self.app.error_suppression_interval = -300
+            self.app.error_limiter.suppression_interval = -300
             self.assert_status_map(controller.HEAD, (200, 200, 200, 200, 200),
                                    200)
             self.assertRaises(BaseException,
@@ -5329,12 +5332,12 @@ class TestReplicatedObjectController(
             self.assertTrue(
                 node_last_error(controller.app, object_ring.devs[0])
                 is not None)
-            for _junk in range(self.app.error_suppression_limit):
+            for _junk in range(self.app.error_limiter.suppression_limit):
                 self.assert_status_map(controller.HEAD, (200, 200, 503, 503,
                                                          503), 503)
             self.assertEqual(
                 node_error_count(controller.app, object_ring.devs[0]),
-                self.app.error_suppression_limit + 1)
+                self.app.error_limiter.suppression_limit + 1)
 
             # wipe out any state in the ring
             for policy in POLICIES:
@@ -5360,10 +5363,9 @@ class TestReplicatedObjectController(
             self.assertEqual(node_error_count(controller.app, odevs[0]), 2)
             self.assertEqual(node_error_count(controller.app, odevs[1]), 0)
             self.assertEqual(node_error_count(controller.app, odevs[2]), 0)
-            self.assertTrue(
-                node_last_error(controller.app, odevs[0]) is not None)
-            self.assertTrue(node_last_error(controller.app, odevs[1]) is None)
-            self.assertTrue(node_last_error(controller.app, odevs[2]) is None)
+            self.assertIsNotNone(node_last_error(controller.app, odevs[0]))
+            self.assertIsNone(node_last_error(controller.app, odevs[1]))
+            self.assertIsNone(node_last_error(controller.app, odevs[2]))
 
     def test_PUT_error_limiting_last_node(self):
         with save_globals():
@@ -5380,14 +5382,13 @@ class TestReplicatedObjectController(
             self.assertEqual(node_error_count(controller.app, odevs[0]), 0)
             self.assertEqual(node_error_count(controller.app, odevs[1]), 0)
             self.assertEqual(node_error_count(controller.app, odevs[2]), 2)
-            self.assertTrue(node_last_error(controller.app, odevs[0]) is None)
-            self.assertTrue(node_last_error(controller.app, odevs[1]) is None)
-            self.assertTrue(
-                node_last_error(controller.app, odevs[2]) is not None)
+            self.assertIsNone(node_last_error(controller.app, odevs[0]))
+            self.assertIsNone(node_last_error(controller.app, odevs[1]))
+            self.assertIsNotNone(node_last_error(controller.app, odevs[2]))
 
     def test_acc_or_con_missing_returns_404(self):
         with save_globals():
-            self.app._error_limiting = {}
+            self.app.error_limiter.stats.clear()
             controller = ReplicatedObjectController(
                 self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 200, 200, 200, 200)
@@ -5455,7 +5456,8 @@ class TestReplicatedObjectController(
 
             for dev in self.app.account_ring.devs:
                 set_node_errors(
-                    self.app, dev, self.app.error_suppression_limit + 1,
+                    self.app, dev,
+                    self.app.error_limiter.suppression_limit + 1,
                     time.time())
             set_http_connect(200)
             #                acct [isn't actually called since everything
@@ -5469,9 +5471,10 @@ class TestReplicatedObjectController(
             for dev in self.app.account_ring.devs:
                 set_node_errors(self.app, dev, 0, last_error=None)
             for dev in self.app.container_ring.devs:
-                set_node_errors(self.app, dev,
-                                self.app.error_suppression_limit + 1,
-                                time.time())
+                set_node_errors(
+                    self.app, dev,
+                    self.app.error_limiter.suppression_limit + 1,
+                    time.time())
             set_http_connect(200, 200)
             #                acct cont [isn't actually called since
             #                           everything is error limited]
@@ -8039,7 +8042,7 @@ class TestECMismatchedFA(unittest.TestCase):
     def tearDown(self):
         prosrv = _test_servers[0]
         # don't leak error limits and poison other tests
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
 
     def test_mixing_different_objects_fragment_archives(self):
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
@@ -8077,7 +8080,7 @@ class TestECMismatchedFA(unittest.TestCase):
 
         # Server obj1 will have the first version of the object (obj2 also
         # gets it, but that gets stepped on later)
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj3srv, 'PUT', bad_disk), \
                 mock.patch(
                     'swift.common.storage_policy.ECStoragePolicy.quorum'):
@@ -8086,7 +8089,7 @@ class TestECMismatchedFA(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
 
         # Servers obj2 and obj3 will have the second version of the object.
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj1srv, 'PUT', bad_disk), \
                 mock.patch(
                     'swift.common.storage_policy.ECStoragePolicy.quorum'):
@@ -8098,7 +8101,7 @@ class TestECMismatchedFA(unittest.TestCase):
         get_req = Request.blank("/v1/a/ec-crazytown/obj",
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj1srv, 'GET', bad_disk), \
                 mock.patch.object(obj2srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
@@ -8108,7 +8111,7 @@ class TestECMismatchedFA(unittest.TestCase):
         get_req = Request.blank("/v1/a/ec-crazytown/obj",
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj1srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
         self.assertEqual(resp.status_int, 200)
@@ -8118,7 +8121,7 @@ class TestECMismatchedFA(unittest.TestCase):
         get_req = Request.blank("/v1/a/ec-crazytown/obj",
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj2srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
         self.assertEqual(resp.status_int, 503)
@@ -8159,7 +8162,7 @@ class TestECMismatchedFA(unittest.TestCase):
 
         # First subset of object server will have the first version of the
         # object
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj4srv, 'PUT', bad_disk), \
                 mock.patch.object(obj5srv, 'PUT', bad_disk), \
                 mock.patch.object(obj6srv, 'PUT', bad_disk), \
@@ -8170,7 +8173,7 @@ class TestECMismatchedFA(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
 
         # Second subset will have the second version of the object.
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj1srv, 'PUT', bad_disk), \
                 mock.patch.object(obj2srv, 'PUT', bad_disk), \
                 mock.patch.object(obj3srv, 'PUT', bad_disk), \
@@ -8184,7 +8187,7 @@ class TestECMismatchedFA(unittest.TestCase):
         get_req = Request.blank("/v1/a/ec-dup-crazytown/obj",
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj2srv, 'GET', bad_disk), \
                 mock.patch.object(obj3srv, 'GET', bad_disk), \
                 mock.patch.object(obj4srv, 'GET', bad_disk), \
@@ -8197,7 +8200,7 @@ class TestECMismatchedFA(unittest.TestCase):
         get_req = Request.blank("/v1/a/ec-dup-crazytown/obj",
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj1srv, 'GET', bad_disk), \
                 mock.patch.object(obj2srv, 'GET', bad_disk), \
                 mock.patch.object(obj3srv, 'GET', bad_disk), \
@@ -8210,7 +8213,7 @@ class TestECMismatchedFA(unittest.TestCase):
         get_req = Request.blank("/v1/a/ec-dup-crazytown/obj",
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         with mock.patch.object(obj2srv, 'GET', bad_disk), \
                 mock.patch.object(obj3srv, 'GET', bad_disk), \
                 mock.patch.object(obj4srv, 'GET', bad_disk), \
@@ -8229,7 +8232,7 @@ class TestECGets(unittest.TestCase):
         rmtree(self.tempdir, ignore_errors=True)
         prosrv = _test_servers[0]
         # don't leak error limits and poison other tests
-        prosrv._error_limiting = {}
+        prosrv.error_limiter.stats.clear()
         super(TestECGets, self).tearDown()
 
     def _setup_nodes_and_do_GET(self, objs, node_state):
@@ -8542,12 +8545,12 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
         skip_if_no_xattrs()
         debug.hub_exceptions(False)
         self._cleanup_devices()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
 
     def tearDown(self):
         debug.hub_exceptions(True)
         self._cleanup_devices()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
 
     def _check_disconnect_cleans_up(self, policy_name, is_chunked=False):
         proxy_port = _test_sockets[0].getsockname()[1]
@@ -8640,7 +8643,7 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
 class TestObjectECRangedGET(unittest.TestCase):
     def setUp(self):
         _test_servers[0].logger._clear()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
         self.app = proxy_server.Application(
             None,
             logger=debug_logger('proxy-ut'),
@@ -8651,7 +8654,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         prosrv = _test_servers[0]
         self.assertFalse(prosrv.logger.get_lines_for_level('error'))
         self.assertFalse(prosrv.logger.get_lines_for_level('warning'))
-        prosrv._error_limiting = {}  # clear out errors
+        prosrv.error_limiter.stats.clear()  # clear out errors
 
     @classmethod
     def setUpClass(cls):
@@ -9672,7 +9675,7 @@ class TestContainerController(unittest.TestCase):
     def test_acc_missing_returns_404(self):
         for meth in ('DELETE', 'PUT'):
             with save_globals():
-                self.app._error_limiting = {}
+                self.app.error_limiter.stats.clear()
                 controller = proxy_server.ContainerController(self.app,
                                                               'account',
                                                               'container')
@@ -9709,9 +9712,10 @@ class TestContainerController(unittest.TestCase):
                 self.assertEqual(resp.status_int, 404)
 
                 for dev in self.app.account_ring.devs:
-                    set_node_errors(self.app, dev,
-                                    self.app.error_suppression_limit + 1,
-                                    time.time())
+                    set_node_errors(
+                        self.app, dev,
+                        self.app.error_limiter.suppression_limit + 1,
+                        time.time())
                 set_http_connect(200, 200, 200, 200, 200, 200)
                 # Make sure it is a blank request wthout env caching
                 req = Request.blank('/v1/a/c',
@@ -9759,12 +9763,12 @@ class TestContainerController(unittest.TestCase):
             self.assertTrue(
                 node_last_error(controller.app, container_ring.devs[0])
                 is not None)
-            for _junk in range(self.app.error_suppression_limit):
+            for _junk in range(self.app.error_limiter.suppression_limit):
                 self.assert_status_map(controller.HEAD,
                                        (200, 503, 503, 503), 503)
             self.assertEqual(
                 node_error_count(controller.app, container_ring.devs[0]),
-                self.app.error_suppression_limit + 1)
+                self.app.error_limiter.suppression_limit + 1)
             self.assert_status_map(controller.HEAD, (200, 200, 200, 200), 503)
             self.assertTrue(
                 node_last_error(controller.app, container_ring.devs[0])
@@ -9773,7 +9777,7 @@ class TestContainerController(unittest.TestCase):
                                    missing_container=True)
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 204, 204), 503)
-            self.app.error_suppression_interval = -300
+            self.app.error_limiter.suppression_interval = -300
             self.assert_status_map(controller.HEAD, (200, 200, 200, 200), 200)
             self.assert_status_map(controller.DELETE, (200, 204, 204, 204),
                                    404, raise_exc=True)
@@ -11324,7 +11328,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
         # various data paths between the proxy server and the object
         # server. Used as a play ground to debug buffer sizes for sockets.
         skip_if_no_xattrs()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         # Client is transmitting in 2 MB chunks
@@ -11445,7 +11449,7 @@ class TestSocketObjectVersions(unittest.TestCase):
     def setUp(self):
         global _test_sockets
         skip_if_no_xattrs()
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
         self.prolis = prolis = listen_zero()
         self._orig_prolis = _test_sockets[0]
         allowed_headers = ', '.join([
@@ -11480,7 +11484,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         global _test_sockets
         self.sockets[0] = self._orig_prolis
         _test_sockets = tuple(self.sockets)
-        _test_servers[0]._error_limiting = {}  # clear out errors
+        _test_servers[0].error_limiter.stats.clear()  # clear out errors
 
     def test_version_manifest(self, oc=b'versions', vc=b'vers', o=b'name'):
         versions_to_create = 3
