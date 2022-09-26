@@ -77,6 +77,8 @@ class FakeSwift(object):
     ALLOWED_METHODS = [
         'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE',
         'SSYNC', 'UPDATE']
+    container_existence_skip_cache = 0.0
+    account_existence_skip_cache = 0.0
 
     def __init__(self):
         self._calls = []

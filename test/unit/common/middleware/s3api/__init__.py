@@ -29,8 +29,13 @@ from test.unit.common.middleware.s3api.helpers import FakeSwift
 
 
 class FakeApp(object):
+    container_existence_skip_cache = 0.0
+    account_existence_skip_cache = 0.0
+
     def __init__(self):
+        self._pipeline_final_app = self
         self.swift = FakeSwift()
+        self.logger = debug_logger()
 
     def _update_s3_path_info(self, env):
         """
