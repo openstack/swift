@@ -507,6 +507,12 @@ use = egg:swift#xprofile
 # The default is 12 hours (12 x 60 x 60)
 # recon_sharded_timeout = 43200
 #
+# Maximum amount of time in seconds after sharding has been started on a shard
+# container and before it's considered as timeout. After this amount of time,
+# sharder will warn that a container DB has not completed sharding.
+# The default is 48 hours (48 x 60 x 60)
+# container_sharding_timeout = 172800
+#
 # Large databases tend to take a while to work with, but we want to make sure
 # we write down our progress. Use a larger-than-normal broker timeout to make
 # us less likely to bomb out on a LockTimeout.

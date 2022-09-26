@@ -709,6 +709,8 @@ class ContainerSharderConf(object):
             'recon_candidates_limit', int, 5)
         self.recon_sharded_timeout = get_val(
             'recon_sharded_timeout', int, 43200)
+        self.container_sharding_timeout = get_val(
+            'container_sharding_timeout', int, 172800)
         self.conn_timeout = get_val(
             'conn_timeout', float, 5)
         self.auto_shard = get_val(
@@ -910,36 +912,59 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             category['top'] = candidates
 
     def _record_sharding_progress(self, broker, node, error):
-        own_shard_range = broker.get_own_shard_range()
         db_state = broker.get_db_state()
-        if (db_state in (UNSHARDED, SHARDING, SHARDED)
-                and own_shard_range.state in (ShardRange.SHARDING,
-                                              ShardRange.SHARDED)):
-            if db_state == SHARDED:
-                contexts = CleavingContext.load_all(broker)
-                if not contexts:
-                    return
-                context_ts = max(float(ts) for c, ts in contexts)
-                if context_ts + self.recon_sharded_timeout \
-                        < Timestamp.now().timestamp:
-                    # last context timestamp too old for the
-                    # broker to be recorded
-                    return
+        if db_state not in (UNSHARDED, SHARDING, SHARDED):
+            return
+        own_shard_range = broker.get_own_shard_range()
+        if own_shard_range.state not in (
+                ShardRange.SHARDING, ShardRange.SHARDED,
+                ShardRange.SHRINKING, ShardRange.SHRUNK):
+            return
 
-            info = self._make_stats_info(broker, node, own_shard_range)
-            info['state'] = own_shard_range.state_text
-            info['db_state'] = broker.get_db_state()
-            states = [ShardRange.FOUND, ShardRange.CREATED,
-                      ShardRange.CLEAVED, ShardRange.ACTIVE]
-            shard_ranges = broker.get_shard_ranges(states=states)
-            state_count = {}
-            for state in states:
-                state_count[ShardRange.STATES[state]] = 0
-            for shard_range in shard_ranges:
-                state_count[shard_range.state_text] += 1
-            info.update(state_count)
-            info['error'] = error and str(error)
-            self._append_stat('sharding_in_progress', 'all', info)
+        if db_state == SHARDED:
+            contexts = CleavingContext.load_all(broker)
+            if not contexts:
+                return
+            context_ts = max(float(ts) for c, ts in contexts)
+            if context_ts + self.recon_sharded_timeout \
+                    < float(Timestamp.now()):
+                # last context timestamp too old for the
+                # broker to be recorded
+                return
+
+        info = self._make_stats_info(broker, node, own_shard_range)
+        info['state'] = own_shard_range.state_text
+        info['db_state'] = broker.get_db_state()
+        states = [ShardRange.FOUND, ShardRange.CREATED,
+                  ShardRange.CLEAVED, ShardRange.ACTIVE]
+        shard_ranges = broker.get_shard_ranges(states=states)
+        state_count = {}
+        for state in states:
+            state_count[ShardRange.STATES[state]] = 0
+        for shard_range in shard_ranges:
+            state_count[shard_range.state_text] += 1
+        info.update(state_count)
+        info['error'] = error and str(error)
+        self._append_stat('sharding_in_progress', 'all', info)
+
+        if broker.sharding_required() and (
+                own_shard_range.epoch is not None) and (
+                float(own_shard_range.epoch) +
+                self.container_sharding_timeout <
+                time.time()):
+            # Note: There is no requirement that own_shard_range.epoch equals
+            # the time at which the own_shard_range was merged into the
+            # container DB, which predicates sharding starting. But s-m-s-r and
+            # auto-sharding do set epoch and then merge, so we use it to tell
+            # whether sharding has been taking too long or not.
+            self.logger.warning(
+                'Cleaving has not completed in %.2f seconds since %s.'
+                ' Container DB file and path: %s (%s), DB state: %s,'
+                ' own_shard_range state: %s, state count of shard ranges: %s' %
+                (time.time() - float(own_shard_range.epoch),
+                 own_shard_range.epoch.isoformat, broker.db_file,
+                 quote(broker.path), db_state,
+                 own_shard_range.state_text, str(state_count)))
 
     def _report_stats(self):
         # report accumulated stats since start of one sharder cycle
