@@ -1181,94 +1181,77 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         self._increment_stat('audit_root', 'success', statsd=True)
         return True
 
-    def _audit_shard_container(self, broker):
-        self._increment_stat('audit_shard', 'attempted')
-        warnings = []
-        errors = []
-        if not broker.account.startswith(self.shards_account_prefix):
-            warnings.append('account not in shards namespace %r' %
-                            self.shards_account_prefix)
+    def _merge_shard_ranges_from_root(self, broker, shard_ranges,
+                                      own_shard_range):
+        """
+        Merge appropriate items from the given ``shard_ranges`` into the
+        ``broker``. The selection of items that are merged will depend upon the
+        state of the shard.
 
-        own_shard_range = broker.get_own_shard_range(no_default=True)
+        :param broker: A :class:`~swift.container.backend.ContainerBroker`.
+        :param shard_ranges: A list of instances of
+            :class:`~swift.common.utils.ShardRange` describing the shard ranges
+            fetched from the root container.
+        :param own_shard_range: A :class:`~swift.common.utils.ShardRange`
+            describing the shard's own shard range.
+        :return: a tuple of ``own_shard_range, own_shard_range_from_root``. The
+            returned``own_shard_range`` will have been updated if the matching
+            ``own_shard_range_from_root`` has newer data.
+            ``own_shard_range_from_root`` will be None if no such matching
+            shard range is found in ``shard_ranges``.
+        """
+        own_shard_range_from_root = None
+        other_shard_ranges = []
+        for shard_range in shard_ranges:
+            # look for this shard range in the list of shard ranges received
+            # from root; the root may have different lower and upper bounds for
+            # this shard (e.g. if this shard has been expanded in the root to
+            # accept a shrinking shard) so we only match on name.
+            if shard_range.name == own_shard_range.name:
+                # If we find our own shard range in the root response, merge
+                # it and reload own shard range (note: own_range_from_root may
+                # not necessarily be 'newer' than the own shard range we
+                # already have, but merging will get us to the 'newest' state)
+                self.logger.debug('Updating own shard range from root')
+                own_shard_range_from_root = shard_range
+                broker.merge_shard_ranges(own_shard_range_from_root)
+                orig_own_shard_range = own_shard_range
+                own_shard_range = broker.get_own_shard_range()
+                if (orig_own_shard_range != own_shard_range or
+                        orig_own_shard_range.state != own_shard_range.state):
+                    self.logger.debug(
+                        'Updated own shard range from %s to %s',
+                        orig_own_shard_range, own_shard_range)
+            else:
+                other_shard_ranges.append(shard_range)
 
-        shard_ranges = own_shard_range_from_root = None
-        if own_shard_range:
-            # Get the root view of the world, at least that part of the world
-            # that overlaps with this shard's namespace. The
-            # 'states=auditing' parameter will cause the root to include
-            # its own shard range in the response, which is necessary for the
-            # particular case when this shard should be shrinking to the root
-            # container; when not shrinking to root, but to another acceptor,
-            # the root range should be in sharded state and will not interfere
-            # with cleaving, listing or updating behaviour.
-            shard_ranges = self._fetch_shard_ranges(
-                broker, newest=True,
-                params={'marker': str_to_wsgi(own_shard_range.lower_str),
-                        'end_marker': str_to_wsgi(own_shard_range.upper_str),
-                        'states': 'auditing'},
-                include_deleted=True)
-            if shard_ranges:
-                for shard_range in shard_ranges:
-                    # look for this shard range in the list of shard ranges
-                    # received from root; the root may have different lower and
-                    # upper bounds for this shard (e.g. if this shard has been
-                    # expanded in the root to accept a shrinking shard) so we
-                    # only match on name.
-                    if shard_range.name == own_shard_range.name:
-                        own_shard_range_from_root = shard_range
-                        break
-                else:
-                    # this is not necessarily an error - some replicas of the
-                    # root may not yet know about this shard container
-                    warnings.append('root has no matching shard range')
-            elif not own_shard_range.deleted:
-                warnings.append('unable to get shard ranges from root')
-            # else, our shard range is deleted, so root may have reclaimed it
-        else:
-            errors.append('missing own shard range')
+        if (other_shard_ranges and own_shard_range_from_root and
+                own_shard_range.state in
+                (ShardRange.SHRINKING, ShardRange.SHRUNK)):
+            # If own_shard_range state is shrinking, save off *all* shards
+            # returned because these may contain shards into which this
+            # shard is to shrink itself; shrinking is the only case when we
+            # want to learn about *other* shard ranges from the root.
+            # We need to include shrunk state too, because one replica of a
+            # shard may already have moved the own_shard_range state to
+            # shrunk while another replica may still be in the process of
+            # shrinking.
+            self.logger.debug('Updating %s other shard range(s) from root',
+                              len(other_shard_ranges))
+            broker.merge_shard_ranges(other_shard_ranges)
 
-        if warnings:
-            self.logger.warning(
-                'Audit warnings for shard %s (%s): %s',
-                broker.db_file, quote(broker.path), ', '.join(warnings))
+        return own_shard_range, own_shard_range_from_root
 
-        if errors:
-            self.logger.warning(
-                'Audit failed for shard %s (%s) - skipping: %s',
-                broker.db_file, quote(broker.path), ', '.join(errors))
-            self._increment_stat('audit_shard', 'failure', statsd=True)
-            return False
+    def _delete_shard_container(self, broker, own_shard_range):
+        """
+        Mark a shard container as deleted if it was sharded or shrunk more than
+        reclaim_age in the past. (The DB file will be removed by the replicator
+        after a further reclaim_age.)
 
-        if own_shard_range_from_root:
-            # iff we find our own shard range in the root response, merge it
-            # and reload own shard range (note: own_range_from_root may not
-            # necessarily be 'newer' than the own shard range we already have,
-            # but merging will get us to the 'newest' state)
-            self.logger.debug('Updating own shard range from root')
-            broker.merge_shard_ranges(own_shard_range_from_root)
-            orig_own_shard_range = own_shard_range
-            own_shard_range = broker.get_own_shard_range()
-            if (orig_own_shard_range != own_shard_range or
-                    orig_own_shard_range.state != own_shard_range.state):
-                self.logger.debug(
-                    'Updated own shard range from %s to %s',
-                    orig_own_shard_range, own_shard_range)
-            if own_shard_range.state in (ShardRange.SHRINKING,
-                                         ShardRange.SHRUNK):
-                # If the up-to-date state is shrinking, save off *all* shards
-                # returned because these may contain shards into which this
-                # shard is to shrink itself; shrinking is the only case when we
-                # want to learn about *other* shard ranges from the root.
-                # We need to include shrunk state too, because one replica of a
-                # shard may already have moved the own_shard_range state to
-                # shrunk while another replica may still be in the process of
-                # shrinking.
-                other_shard_ranges = [sr for sr in shard_ranges
-                                      if sr is not own_shard_range_from_root]
-                self.logger.debug('Updating %s other shard range(s) from root',
-                                  len(other_shard_ranges))
-                broker.merge_shard_ranges(other_shard_ranges)
-
+        :param broker: A :class:`~swift.container.backend.ContainerBroker`.
+        :param own_shard_range: A :class:`~swift.common.utils.ShardRange`
+            describing the shard's own shard range.
+        """
         delete_age = time.time() - self.reclaim_age
         deletable_states = (ShardRange.SHARDED, ShardRange.SHRUNK)
         if (own_shard_range.state in deletable_states and
@@ -1279,8 +1262,62 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             self.logger.debug('Deleted shard container %s (%s)',
                               broker.db_file, quote(broker.path))
 
-        self._increment_stat('audit_shard', 'success', statsd=True)
-        return True
+    def _do_audit_shard_container(self, broker):
+        warnings = []
+        if not broker.account.startswith(self.shards_account_prefix):
+            warnings.append('account not in shards namespace %r' %
+                            self.shards_account_prefix)
+
+        own_shard_range = broker.get_own_shard_range(no_default=True)
+
+        if not own_shard_range:
+            self.logger.warning('Audit failed for shard %s (%s) - skipping: '
+                                'missing own shard range',
+                                broker.db_file, quote(broker.path))
+            return False, warnings
+
+        # Get the root view of the world, at least that part of the world
+        # that overlaps with this shard's namespace. The
+        # 'states=auditing' parameter will cause the root to include
+        # its own shard range in the response, which is necessary for the
+        # particular case when this shard should be shrinking to the root
+        # container; when not shrinking to root, but to another acceptor,
+        # the root range should be in sharded state and will not interfere
+        # with cleaving, listing or updating behaviour.
+        shard_ranges = self._fetch_shard_ranges(
+            broker, newest=True,
+            params={'marker': str_to_wsgi(own_shard_range.lower_str),
+                    'end_marker': str_to_wsgi(own_shard_range.upper_str),
+                    'states': 'auditing'},
+            include_deleted=True)
+        if shard_ranges:
+            own_shard_range, own_shard_range_from_root = \
+                self._merge_shard_ranges_from_root(
+                    broker, shard_ranges, own_shard_range)
+            if not own_shard_range_from_root:
+                # this is not necessarily an error - some replicas of the
+                # root may not yet know about this shard container, or the
+                # shard's own shard range could become deleted and
+                # reclaimed from the root under rare conditions
+                warnings.append('root has no matching shard range')
+        elif not own_shard_range.deleted:
+            warnings.append('unable to get shard ranges from root')
+        # else, our shard range is deleted, so root may have reclaimed it
+
+        self._delete_shard_container(broker, own_shard_range)
+
+        return True, warnings
+
+    def _audit_shard_container(self, broker):
+        self._increment_stat('audit_shard', 'attempted')
+        success, warnings = self._do_audit_shard_container(broker)
+        if warnings:
+            self.logger.warning(
+                'Audit warnings for shard %s (%s): %s',
+                broker.db_file, quote(broker.path), ', '.join(warnings))
+        self._increment_stat(
+            'audit_shard', 'success' if success else 'failure', statsd=True)
+        return success
 
     def _audit_cleave_contexts(self, broker):
         now = Timestamp.now()
