@@ -592,8 +592,8 @@ class ObjectReplicator(Daemon):
             self.logger.increment('partition.lock-failure.count')
         except (Exception, Timeout):
             self.logger.exception("Error syncing handoff partition")
-            stats.add_failure_stats(failure_devs_info)
         finally:
+            stats.add_failure_stats(failure_devs_info)
             target_devs_info = set([(target_dev['replication_ip'],
                                      target_dev['device'])
                                     for target_dev in job['nodes']])

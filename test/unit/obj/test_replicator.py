@@ -1004,6 +1004,7 @@ class TestObjectReplicator(unittest.TestCase):
         # stopped after handoffs!
         self.assertEqual(1, self.replicator.handoffs_remaining)
         self.assertEqual(8, self.replicator.job_count)
+        self.assertEqual(self.replicator.total_stats.failure, 1)
         # in addition to the two update_deleted jobs as many as "concurrency"
         # jobs may have been spawned into the pool before the failed
         # update_deleted job incremented handoffs_remaining and caused the
