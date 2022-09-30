@@ -1219,15 +1219,14 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 own_shard_range = broker.get_own_shard_range()
                 if (orig_own_shard_range != own_shard_range or
                         orig_own_shard_range.state != own_shard_range.state):
-                    self.logger.debug(
+                    self.logger.info(
                         'Updated own shard range from %s to %s',
                         orig_own_shard_range, own_shard_range)
             else:
                 other_shard_ranges.append(shard_range)
 
-        if (other_shard_ranges and own_shard_range_from_root and
-                own_shard_range.state in
-                (ShardRange.SHRINKING, ShardRange.SHRUNK)):
+        if (other_shard_ranges and
+                own_shard_range.state in ShardRange.SHRINKING_STATES):
             # If own_shard_range state is shrinking, save off *all* shards
             # returned because these may contain shards into which this
             # shard is to shrink itself; shrinking is the only case when we
@@ -1259,7 +1258,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 own_shard_range.timestamp < delete_age and
                 broker.empty()):
             broker.delete_db(Timestamp.now().internal)
-            self.logger.debug('Deleted shard container %s (%s)',
+            self.logger.debug('Marked shard container as deleted %s (%s)',
                               broker.db_file, quote(broker.path))
 
     def _do_audit_shard_container(self, broker):
@@ -1796,7 +1795,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                               quote(broker.path), shard_range)
 
         replication_quorum = self.existing_shard_replication_quorum
-        if own_shard_range.state in (ShardRange.SHRINKING, ShardRange.SHRUNK):
+        if own_shard_range.state in ShardRange.SHRINKING_STATES:
             if shard_range.includes(own_shard_range):
                 # When shrinking to a single acceptor that completely encloses
                 # this shard's namespace, include deleted own (donor) shard
@@ -2001,8 +2000,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                                     quote(broker.path))
                 return False
             own_shard_range.update_meta(0, 0)
-            if own_shard_range.state in (ShardRange.SHRINKING,
-                                         ShardRange.SHRUNK):
+            if own_shard_range.state in ShardRange.SHRINKING_STATES:
                 own_shard_range.update_state(ShardRange.SHRUNK)
                 modified_shard_ranges = []
             else:

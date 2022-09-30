@@ -5316,6 +5316,7 @@ class ShardRange(object):
               SHARDED: 'sharded',
               SHRUNK: 'shrunk'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
+    SHRINKING_STATES = (SHRINKING, SHRUNK)
 
     @functools.total_ordering
     class MaxBound(ShardRangeOuterBound):
