@@ -103,7 +103,7 @@ class ContainerController(Controller):
         concurrency = self.app.container_ring.replica_count \
             if self.app.get_policy_options(None).concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.container_ring, part,
-                                        self.logger)
+                                        self.logger, req)
         resp = self.GETorHEAD_base(
             req, 'Container', node_iter, part,
             req.swift_entity_path, concurrency)

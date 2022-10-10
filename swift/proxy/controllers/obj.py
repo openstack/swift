@@ -176,7 +176,7 @@ class BaseObjectController(Controller):
         validate_internal_obj(
             self.account_name, self.container_name, self.object_name)
 
-    def iter_nodes_local_first(self, ring, partition, policy=None,
+    def iter_nodes_local_first(self, ring, partition, request, policy=None,
                                local_handoffs_first=False):
         """
         Yields nodes for a ring partition.
@@ -190,6 +190,8 @@ class BaseObjectController(Controller):
 
         :param ring: ring to get nodes from
         :param partition: ring partition to yield nodes for
+        :param request: nodes will be annotated with `use_replication` based on
+            the `request` headers
         :param policy: optional, an instance of
             :class:`~swift.common.storage_policy.BaseStoragePolicy`
         :param local_handoffs_first: optional, if True prefer primaries and
@@ -198,7 +200,7 @@ class BaseObjectController(Controller):
         policy_options = self.app.get_policy_options(policy)
         is_local = policy_options.write_affinity_is_local_fn
         if is_local is None:
-            return self.app.iter_nodes(ring, partition, self.logger,
+            return self.app.iter_nodes(ring, partition, self.logger, request,
                                        policy=policy)
 
         primary_nodes = ring.get_part_nodes(partition)
@@ -232,7 +234,7 @@ class BaseObjectController(Controller):
             (node for node in all_nodes if node not in preferred_nodes)
         )
 
-        return self.app.iter_nodes(ring, partition, self.logger,
+        return self.app.iter_nodes(ring, partition, self.logger, request,
                                    node_iter=node_iter, policy=policy)
 
     def GETorHEAD(self, req):
@@ -252,7 +254,7 @@ class BaseObjectController(Controller):
                 return aresp
         partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
-        node_iter = self.app.iter_nodes(obj_ring, partition, self.logger,
+        node_iter = self.app.iter_nodes(obj_ring, partition, self.logger, req,
                                         policy=policy)
 
         resp = self._get_or_head_response(req, node_iter, partition, policy)
@@ -720,7 +722,8 @@ class BaseObjectController(Controller):
         """
         obj_ring = policy.object_ring
         node_iter = GreenthreadSafeIterator(
-            self.iter_nodes_local_first(obj_ring, partition, policy=policy))
+            self.iter_nodes_local_first(obj_ring, partition, req,
+                                        policy=policy))
         pile = GreenPile(len(nodes))
 
         for nheaders in outgoing_headers:
@@ -921,8 +924,8 @@ class BaseObjectController(Controller):
                 local_handoffs = len(nodes) - len(local_primaries)
             node_count += local_handoffs
             node_iterator = self.iter_nodes_local_first(
-                obj_ring, partition, policy=policy, local_handoffs_first=True
-            )
+                obj_ring, partition, req, policy=policy,
+                local_handoffs_first=True)
 
         headers = self._backend_requests(
             req, node_count, container_partition, container_nodes,

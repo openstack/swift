@@ -2208,6 +2208,25 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(utils.storage_directory('objects', '1', 'ABCDEF'),
                          'objects/1/DEF/ABCDEF')
 
+    def test_select_node_ip(self):
+        dev = {
+            'ip': '127.0.0.1',
+            'port': 6200,
+            'replication_ip': '127.0.1.1',
+            'replication_port': 6400,
+            'device': 'sdb',
+        }
+        self.assertEqual(('127.0.0.1', 6200), utils.select_ip_port(dev))
+        self.assertEqual(('127.0.1.1', 6400),
+                         utils.select_ip_port(dev, use_replication=True))
+        dev['use_replication'] = False
+        self.assertEqual(('127.0.1.1', 6400),
+                         utils.select_ip_port(dev, use_replication=True))
+        dev['use_replication'] = True
+        self.assertEqual(('127.0.1.1', 6400), utils.select_ip_port(dev))
+        self.assertEqual(('127.0.1.1', 6400),
+                         utils.select_ip_port(dev, use_replication=False))
+
     def test_node_to_string(self):
         dev = {
             'id': 3,
@@ -2225,6 +2244,16 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(utils.node_to_string(dev), '127.0.0.1:6200/sdb')
         self.assertEqual(utils.node_to_string(dev, replication=True),
                          '127.0.1.1:6400/sdb')
+        dev['use_replication'] = False
+        self.assertEqual(utils.node_to_string(dev), '127.0.0.1:6200/sdb')
+        self.assertEqual(utils.node_to_string(dev, replication=True),
+                         '127.0.1.1:6400/sdb')
+        dev['use_replication'] = True
+        self.assertEqual(utils.node_to_string(dev), '127.0.1.1:6400/sdb')
+        # Node dict takes precedence
+        self.assertEqual(utils.node_to_string(dev, replication=False),
+                         '127.0.1.1:6400/sdb')
+
         dev = {
             'id': 3,
             'region': 1,

@@ -63,9 +63,8 @@ from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
     strip_object_transient_sysmeta_prefix, get_ip_port, get_user_meta_prefix, \
-    get_sys_meta_prefix
+    get_sys_meta_prefix, is_use_replication_network
 from swift.common.storage_policy import POLICIES
-
 
 DEFAULT_RECHECK_ACCOUNT_EXISTENCE = 60  # seconds
 DEFAULT_RECHECK_CONTAINER_EXISTENCE = 60  # seconds
@@ -1635,18 +1634,21 @@ class NodeIter(object):
     :param ring: ring to get yield nodes from
     :param partition: ring partition to yield nodes for
     :param logger: a logger instance
+    :param request: yielded nodes will be annotated with `use_replication`
+        based on the `request` headers.
     :param node_iter: optional iterable of nodes to try. Useful if you
         want to filter or reorder the nodes.
     :param policy: an instance of :class:`BaseStoragePolicy`. This should be
         None for an account or container ring.
     """
 
-    def __init__(self, app, ring, partition, logger, node_iter=None,
+    def __init__(self, app, ring, partition, logger, request, node_iter=None,
                  policy=None):
         self.app = app
         self.ring = ring
         self.partition = partition
         self.logger = logger
+        self.request = request
 
         part_nodes = ring.get_part_nodes(partition)
         if node_iter is None:
@@ -1726,13 +1728,27 @@ class NodeIter(object):
                     if self.nodes_left <= 0:
                         return
 
+    def _annotate_node(self, node):
+        """
+        Helper function to set use_replication dict value for a node by looking
+        up the header value for x-backend-use-replication-network.
+
+        :param node: node dictionary from the ring or node_iter.
+        :returns: node dictionary with replication network enabled/disabled
+        """
+        # nodes may have come from a ring or a node_iter passed to the
+        # constructor: be careful not to mutate them!
+        return dict(node, use_replication=is_use_replication_network(
+            self.request.headers))
+
     def next(self):
+        node = None
         if self._node_provider:
             # give node provider the opportunity to inject a node
             node = self._node_provider()
-            if node:
-                return node
-        return next(self._node_iter)
+        if not node:
+            node = next(self._node_iter)
+        return self._annotate_node(node)
 
     def __next__(self):
         return self.next()
@@ -1971,7 +1987,7 @@ class Controller(object):
         :returns: a swob.Response object
         """
         nodes = GreenthreadSafeIterator(
-            node_iterator or self.app.iter_nodes(ring, part, self.logger)
+            node_iterator or self.app.iter_nodes(ring, part, self.logger, req)
         )
         node_number = node_count or len(ring.get_part_nodes(part))
         pile = GreenAsyncPile(node_number)

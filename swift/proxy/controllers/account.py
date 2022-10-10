@@ -64,7 +64,7 @@ class AccountController(Controller):
         concurrency = self.app.account_ring.replica_count \
             if self.app.get_policy_options(None).concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.account_ring, partition,
-                                        self.logger)
+                                        self.logger, req)
         params = req.params
         params['format'] = 'json'
         req.params = params

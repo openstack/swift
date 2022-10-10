@@ -188,6 +188,21 @@ class TestRequestHelpers(unittest.TestCase):
         self.assertFalse('c' in to_req.headers)
         self.assertFalse('C' in to_req.headers)
 
+    def test_is_use_replication_network(self):
+        self.assertFalse(rh.is_use_replication_network())
+        self.assertFalse(rh.is_use_replication_network({}))
+        self.assertFalse(rh.is_use_replication_network(
+            {'x-backend-use-replication-network': 'false'}))
+        self.assertFalse(rh.is_use_replication_network(
+            {'x-backend-use-replication-network': 'no'}))
+
+        self.assertTrue(rh.is_use_replication_network(
+            {'x-backend-use-replication-network': 'true'}))
+        self.assertTrue(rh.is_use_replication_network(
+            {'x-backend-use-replication-network': 'yes'}))
+        self.assertTrue(rh.is_use_replication_network(
+            {'X-Backend-Use-Replication-Network': 'True'}))
+
     def test_get_ip_port(self):
         node = {
             'ip': '1.2.3.4',
@@ -200,6 +215,17 @@ class TestRequestHelpers(unittest.TestCase):
             rh.USE_REPLICATION_NETWORK_HEADER: 'true'}))
         self.assertEqual(('1.2.3.4', 6000), rh.get_ip_port(node, {
             rh.USE_REPLICATION_NETWORK_HEADER: 'false'}))
+
+        # node trumps absent header and False header
+        node['use_replication'] = True
+        self.assertEqual(('5.6.7.8', 7000), rh.get_ip_port(node, {}))
+        self.assertEqual(('5.6.7.8', 7000), rh.get_ip_port(node, {
+            rh.USE_REPLICATION_NETWORK_HEADER: 'false'}))
+
+        # True header trumps node
+        node['use_replication'] = False
+        self.assertEqual(('5.6.7.8', 7000), rh.get_ip_port(node, {
+            rh.USE_REPLICATION_NETWORK_HEADER: 'true'}))
 
     @patch_policies(with_ec_default=True)
     def test_get_name_and_placement_object_req(self):

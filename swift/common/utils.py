@@ -2813,17 +2813,49 @@ def parse_socket_string(socket_string, default_port):
     return (host, port)
 
 
-def node_to_string(node_dict, replication=False):
-    if replication:
-        ip = node_dict['replication_ip']
-        port = node_dict['replication_port']
+def select_ip_port(node_dict, use_replication=False):
+    """
+    Get the ip address and port that should be used for the given
+    ``node_dict``.
+
+    If ``use_replication`` is True then the replication ip address and port are
+    returned.
+
+    If ``use_replication`` is False (the default) and the ``node`` dict has an
+    item with key ``use_replication`` then that item's value will determine if
+    the replication ip address and port are returned.
+
+    If neither ``use_replication`` nor ``node_dict['use_replication']``
+    indicate otherwise then the normal ip address and port are returned.
+
+    :param node_dict: a dict describing a node
+    :param use_replication: if True then the replication ip address and port
+        are returned.
+    :return: a tuple of (ip address, port)
+    """
+    if use_replication or node_dict.get('use_replication', False):
+        node_ip = node_dict['replication_ip']
+        node_port = node_dict['replication_port']
     else:
-        ip = node_dict['ip']
-        port = node_dict['port']
-    if ':' in ip:
+        node_ip = node_dict['ip']
+        node_port = node_dict['port']
+    return node_ip, node_port
+
+
+def node_to_string(node_dict, replication=False):
+    """
+    Get a string representation of a node's location.
+
+    :param node_dict: a dict describing a node
+    :param replication: if True then the replication ip address and port are
+        used, otherwise the normal ip address and port are used.
+    :return: a string of the form <ip address>:<port>/<device>
+    """
+    node_ip, node_port = select_ip_port(node_dict, use_replication=replication)
+    if ':' in node_ip:
         # IPv6
-        ip = '[%s]' % ip
-    return '{}:{}/{}'.format(ip, port, node_dict['device'])
+        node_ip = '[%s]' % node_ip
+    return '{}:{}/{}'.format(node_ip, node_port, node_dict['device'])
 
 
 def storage_directory(datadir, partition, name_hash):

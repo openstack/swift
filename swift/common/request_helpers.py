@@ -40,7 +40,7 @@ from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
     parse_content_range, csv_append, list_from_csv, Spliterator, quote, \
-    RESERVED, config_true_value, md5, CloseableChain
+    RESERVED, config_true_value, md5, CloseableChain, select_ip_port
 from swift.common.wsgi import make_subrequest
 
 
@@ -901,13 +901,39 @@ def update_ignore_range_header(req, name):
     req.headers[hdr] = csv_append(req.headers.get(hdr), name)
 
 
+def is_use_replication_network(headers=None):
+    """
+    Determine if replication network should be used.
+
+    :param headers: a dict of headers
+    :return: the value of the ``x-backend-use-replication-network`` item from
+        ``headers``. If no ``headers`` are given or the item is not found then
+        False is returned.
+    """
+    if headers:
+        for h, v in headers.items():
+            if h.lower() == USE_REPLICATION_NETWORK_HEADER:
+                return config_true_value(v)
+    return False
+
+
 def get_ip_port(node, headers):
-    use_replication_network = False
-    for h, v in headers.items():
-        if h.lower() == USE_REPLICATION_NETWORK_HEADER:
-            use_replication_network = config_true_value(v)
-            break
-    if use_replication_network:
-        return node['replication_ip'], node['replication_port']
-    else:
-        return node['ip'], node['port']
+    """
+    Get the ip address and port that should be used for the given ``node``.
+    The normal ip address and port are returned unless the ``node`` or
+    ``headers`` indicate that the replication ip address and port should be
+    used.
+
+    If the ``headers`` dict has an item with key
+    ``x-backend-use-replication-network`` and a truthy value then the
+    replication ip address and port are returned. Otherwise if the ``node``
+    dict has an item with key ``use_replication`` and truthy value then the
+    replication ip address and port are returned. Otherwise the normal ip
+    address and port are returned.
+
+    :param node: a dict describing a node
+    :param headers: a dict of headers
+    :return: a tuple of (ip address, port)
+    """
+    return select_ip_port(
+        node, use_replication=is_use_replication_network(headers))
