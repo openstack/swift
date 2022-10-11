@@ -126,20 +126,20 @@
       when: previous_swift_version | default(latest_swift_release.stdout) is not match("^(rocky|stein|train|ussuri)-em.*|^2\.(1?[0-9]|2[0-5])\.|^(origin/)?stable/[a-u].*")
 
     - name: create remakerings from template
-      template: src=make_multinode_rings.j2 dest=/home/{{ ansible_ssh_user }}/make_multinode_rings mode=0755
+      template: src=make_multinode_rings.j2 dest=/home/{{ ansible_user }}/make_multinode_rings mode=0755
 
     - name: create rings dir
       file: >
-        path=/home/{{ ansible_ssh_user }}/rings
+        path=/home/{{ ansible_user }}/rings
         state=directory
 
     - name: make rings
       shell:
-        cmd: /home/{{ ansible_ssh_user }}/make_multinode_rings
+        cmd: /home/{{ ansible_user }}/make_multinode_rings
         executable: /bin/bash
 
     - name: scp rings to all swift-cluster nodes
-      command: scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o ConnectionAttempts=360 /home/{{ ansible_ssh_user }}/rings/{{ item[0] }} {{ ansible_ssh_user }}@{{ hostvars[item[1]].nodepool.public_ipv4 }}:/etc/swift
+      command: scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o ConnectionAttempts=360 /home/{{ ansible_user }}/rings/{{ item[0] }} {{ ansible_user }}@{{ hostvars[item[1]].nodepool.public_ipv4 }}:/etc/swift
       with_nested:
         - ['account.ring.gz', 'container.ring.gz', 'object.ring.gz', 'object-1.ring.gz', 'object-2.ring.gz']
         - "{{ groups['swift-cluster'] }}"
