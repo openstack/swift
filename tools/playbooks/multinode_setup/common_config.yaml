@@ -69,7 +69,7 @@
 - hosts: test-runner
   tasks:
     - name: add new env. variable for running tests
-      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export SWIFT_TEST_CONFIG_FILE=/home/{{ ansible_ssh_user}}/test.conf"
+      lineinfile: dest=/home/{{ ansible_user }}/.bashrc line="export SWIFT_TEST_CONFIG_FILE=/home/{{ ansible_user}}/test.conf"
 
     - name: copy the sample configuration files for running tests
-      template: src=test.conf.j2 dest=/home/{{ ansible_ssh_user }}/test.conf
+      template: src=test.conf.j2 dest=/home/{{ ansible_user }}/test.conf

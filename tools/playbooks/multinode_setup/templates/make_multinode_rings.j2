@@ -2,7 +2,7 @@
 
 set -e
 
-cd /home/{{ ansible_ssh_user }}/rings
+cd /home/{{ ansible_user }}/rings
 
 rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
 
