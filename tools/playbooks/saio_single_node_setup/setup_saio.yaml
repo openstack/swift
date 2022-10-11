@@ -161,22 +161,22 @@
         create: no
 
     - name: copy the SAIO scripts for resetting the environment
-      command: cp -r {{ zuul.project.src_dir }}/doc/saio/bin /home/{{ ansible_ssh_user }}/bin creates=/home/{{ ansible_ssh_user }}/bin
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/bin /home/{{ ansible_user }}/bin creates=/home/{{ ansible_user }}/bin
 
     - name: set the correct file mode for SAIO scripts
-      file: dest=/home/{{ ansible_ssh_user }}/bin mode=0777 recurse=yes
+      file: dest=/home/{{ ansible_user }}/bin mode=0777 recurse=yes
 
     - name: add new env. variable for loopback device
-      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export SAIO_BLOCK_DEVICE=/srv/swift-disk"
+      lineinfile: dest=/home/{{ ansible_user }}/.bashrc line="export SAIO_BLOCK_DEVICE=/srv/swift-disk"
 
     - name: remove line from resetswift
-      lineinfile: dest=/home/{{ ansible_ssh_user }}/bin/resetswift line="sudo find /var/log/swift -type f -exec rm -f {} \;" state=absent
+      lineinfile: dest=/home/{{ ansible_user }}/bin/resetswift line="sudo find /var/log/swift -type f -exec rm -f {} \;" state=absent
 
     - name: add new env. variable for running tests
-      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf"
+      lineinfile: dest=/home/{{ ansible_user }}/.bashrc line="export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf"
 
     - name: make sure PATH includes the bin directory
-      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export PATH=${PATH}:/home/{{ ansible_ssh_user }}/bin"
+      lineinfile: dest=/home/{{ ansible_user }}/.bashrc line="export PATH=${PATH}:/home/{{ ansible_user }}/bin"
 
     - name: increase open files limit to run probe tests
-      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="ulimit -n 4096"
+      lineinfile: dest=/home/{{ ansible_user }}/.bashrc line="ulimit -n 4096"
