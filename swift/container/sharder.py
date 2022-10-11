@@ -1201,6 +1201,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             shard range is found in ``shard_ranges``.
         """
         own_shard_range_from_root = None
+        children_shard_ranges = []
         other_shard_ranges = []
         for shard_range in shard_ranges:
             # look for this shard range in the list of shard ranges received
@@ -1222,8 +1223,19 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                     self.logger.info(
                         'Updated own shard range from %s to %s',
                         orig_own_shard_range, own_shard_range)
+            elif shard_range.is_child_of(own_shard_range):
+                children_shard_ranges.append(shard_range)
             else:
                 other_shard_ranges.append(shard_range)
+
+        if children_shard_ranges and not broker.is_sharded():
+            # Merging shard ranges from the root is only necessary until this
+            # DB is fully cleaved and reaches SHARDED DB state, after which it
+            # is useful for debugging for the set of sub-shards to which a
+            # shards has sharded to be frozen.
+            self.logger.debug('Updating %d children shard ranges from root',
+                              len(children_shard_ranges))
+            broker.merge_shard_ranges(children_shard_ranges)
 
         if (other_shard_ranges and
                 own_shard_range.state in ShardRange.SHRINKING_STATES):

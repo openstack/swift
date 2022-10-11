@@ -6026,6 +6026,155 @@ class TestSharder(BaseTestSharder):
                       warning_lines[1])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
+    def test_audit_shard_container_children_merged_while_sharding(self):
+        # Verify that sharding shard will always merge children shard ranges
+        def do_test(child_deleted, child_state):
+            root_sr = ShardRange('a/root', next(self.ts_iter),
+                                 state=ShardRange.SHARDED)
+            parent_path = ShardRange.make_path(
+                '.shards_a', 'root', root_sr.container,
+                next(self.ts_iter), 2)
+            parent_sr = ShardRange(
+                parent_path, next(self.ts_iter), 'a', 'd',
+                state=ShardRange.SHARDING)
+            child_srs = []
+            for i, lower, upper in ((0, 'a', 'b'), (0, 'b', 'd')):
+                child_path = ShardRange.make_path(
+                    '.shards_a', 'root', parent_sr.container,
+                    next(self.ts_iter), i)
+                child_sr = ShardRange(
+                    child_path, next(self.ts_iter), lower, upper,
+                    state=child_state, deleted=child_deleted)
+                self.assertTrue(child_sr.is_child_of(parent_sr))
+                child_srs.append(child_sr)
+            other_path = ShardRange.make_path(
+                '.shards_a', 'root', root_sr.container,
+                next(self.ts_iter), 3)  # different index w.r.t. parent
+            other_sr = ShardRange(
+                other_path, next(self.ts_iter), 'a', 'd',
+                state=ShardRange.ACTIVE)
+            self.assertFalse(other_sr.is_child_of(parent_sr))
+
+            # the parent is sharding...
+            broker = self._make_broker(account=parent_sr.account,
+                                       container=parent_sr.container)
+            broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+            broker.merge_shard_ranges(parent_sr)
+            self.assertEqual(UNSHARDED, broker.get_db_state())
+            self.assertEqual([parent_sr],
+                             broker.get_shard_ranges(include_own=True))
+
+            ranges_from_root = child_srs + [parent_sr, root_sr, other_sr]
+            sharder, mock_swift = self.call_audit_container(
+                broker, ranges_from_root)
+            expected_headers = {'X-Backend-Record-Type': 'shard',
+                                'X-Newest': 'true',
+                                'X-Backend-Include-Deleted': 'True',
+                                'X-Backend-Override-Deleted': 'true'}
+            params = {'format': 'json', 'marker': 'a', 'end_marker': 'd',
+                      'states': 'auditing'}
+            mock_swift.make_request.assert_called_once_with(
+                'GET', '/v1/a/c', expected_headers,
+                acceptable_statuses=(2,), params=params)
+
+            self._assert_shard_ranges_equal(
+                sorted(child_srs + [parent_sr],
+                       key=ShardRange.sort_key),
+                sorted(broker.get_shard_ranges(
+                    include_own=True, include_deleted=True),
+                    key=ShardRange.sort_key))
+            expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
+            self._assert_stats(expected_stats, sharder, 'audit_shard')
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        for child_deleted in (False, True):
+            for child_state in ShardRange.STATES:
+                with annotate_failure('deleted: %s, state: %s'
+                                      % (child_deleted, child_state)):
+                    do_test(child_deleted, child_state)
+
+    def test_audit_shard_container_children_not_merged_once_sharded(self):
+        # Verify that sharding shard will not merge children shard ranges
+        # once the DB is sharded (but continues to merge own shard range
+        # received from root)
+        root_sr = ShardRange('a/root', next(self.ts_iter),
+                             state=ShardRange.SHARDED)
+        ts = next(self.ts_iter)
+        parent_path = ShardRange.make_path(
+            '.shards_a', 'root', root_sr.container, ts, 2)
+        parent_sr = ShardRange(
+            parent_path, ts, 'a', 'b', state=ShardRange.ACTIVE, epoch=ts)
+        child_srs = []
+        for i, lower, upper in ((0, 'a', 'ab'), (0, 'ab', 'b')):
+            child_path = ShardRange.make_path(
+                '.shards_a', 'root', parent_sr.container,
+                next(self.ts_iter), i)
+            child_sr = ShardRange(
+                child_path, next(self.ts_iter), lower, upper,
+                state=ShardRange.CLEAVED)
+            self.assertTrue(child_sr.is_child_of(parent_sr))
+            child_srs.append(child_sr)
+
+        # DB is unsharded...
+        broker = self._make_broker(account=parent_sr.account,
+                                   container=parent_sr.container)
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        broker.merge_shard_ranges(parent_sr)
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+
+        self.assertTrue(parent_sr.update_state(
+            ShardRange.SHARDING, state_timestamp=next(self.ts_iter)))
+        ranges_from_root = child_srs + [parent_sr, root_sr]
+        sharder, _ = self.call_audit_container(broker, ranges_from_root)
+
+        # children ranges from root are merged
+        self._assert_shard_ranges_equal(child_srs, broker.get_shard_ranges())
+        # own sr from root is merged
+        self.assertEqual(dict(parent_sr, meta_timestamp=mock.ANY),
+                         dict(broker.get_own_shard_range()))
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        # DB is sharding...
+        self.assertTrue(broker.set_sharding_state())
+        self.assertEqual(SHARDING, broker.get_db_state())
+        parent_sr.state_timestamp = next(self.ts_iter)
+        for child_sr in child_srs:
+            child_sr.update_state(ShardRange.ACTIVE,
+                                  state_timestamp=next(self.ts_iter))
+
+        sharder, _ = self.call_audit_container(broker, ranges_from_root)
+
+        # children ranges from root are merged
+        self._assert_shard_ranges_equal(child_srs, broker.get_shard_ranges())
+        # own sr from root is merged
+        self.assertEqual(dict(parent_sr, meta_timestamp=mock.ANY),
+                         dict(broker.get_own_shard_range()))
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
+        # DB is sharded...
+        self.assertTrue(broker.set_sharded_state())
+        self.assertEqual(SHARDED, broker.get_db_state())
+        self.assertTrue(parent_sr.update_state(
+            ShardRange.SHARDED, state_timestamp=next(self.ts_iter)))
+        updated_child_srs = [
+            child_sr.copy(state=ShardRange.SHARDING,
+                          state_timestamp=next(self.ts_iter))
+            for child_sr in child_srs]
+
+        ranges_from_root = updated_child_srs + [parent_sr, root_sr]
+        sharder, _ = self.call_audit_container(broker, ranges_from_root)
+
+        # children ranges from root are NOT merged
+        self._assert_shard_ranges_equal(child_srs, broker.get_shard_ranges())
+        # own sr from root is merged
+        self.assertEqual(dict(parent_sr, meta_timestamp=mock.ANY),
+                         dict(broker.get_own_shard_range()))
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+
     def test_audit_shard_deleted_range_in_root_container(self):
         # verify that shard DB is marked deleted when its own shard range is
         # updated with deleted version from root
