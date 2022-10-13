@@ -179,7 +179,9 @@ from time import time
 from traceback import format_exc
 from uuid import uuid4
 import base64
+import zlib
 
+from cryptography import fernet
 from eventlet import Timeout
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import (
@@ -192,7 +194,7 @@ from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.middleware.acl import (
     clean_acl, parse_acl, referrer_allowed, acls_from_account_info)
 from swift.common.utils import cache_from_env, get_logger, \
-    split_path, config_true_value
+    split_path, config_true_value, load_multikey_opts
 from swift.common.registry import register_swift_info
 from swift.common.utils import config_read_reseller_options, quote
 from swift.proxy.controllers.base import get_account_info
@@ -229,6 +231,17 @@ class TempAuth(object):
         if not self.auth_prefix.endswith('/'):
             self.auth_prefix += '/'
         self.token_life = int(conf.get('token_life', DEFAULT_TOKEN_LIFE))
+        self.fernet_keys = {
+            key_id: fernet.Fernet(key)
+            for _, key_id, key in load_multikey_opts(conf, 'fernet_key')
+        }
+        self.fernet = (fernet.MultiFernet(self.fernet_keys.values())
+                       if self.fernet_keys else None)
+        self.active_fernet_key_id = conf.get('active_fernet_key_id')
+        if self.active_fernet_key_id and \
+                self.active_fernet_key_id not in self.fernet_keys:
+            raise ValueError("key_id %r not found; %r are available" % (
+                self.active_fernet_key_id, sorted(self.fernet_keys.keys())))
         self.allow_overrides = config_true_value(
             conf.get('allow_overrides', 't'))
         self.storage_url_scheme = conf.get('storage_url_scheme', 'default')
@@ -425,6 +438,40 @@ class TempAuth(object):
         groups = ','.join(groups)
         return groups
 
+    def groups_from_fernet(self, env, token):
+        try:
+            if self.fernet:
+                return self.fernet.decrypt(
+                    token.encode('ascii'),
+                    ttl=self.token_life).decode('utf8')
+        except (ValueError, fernet.InvalidToken):
+            pass
+        return None
+
+    def groups_from_compressed_fernet(self, env, token):
+        try:
+            if self.fernet:
+                return zlib.decompress(self.fernet.decrypt(
+                    token.encode('ascii'),
+                    ttl=self.token_life)).decode('utf8')
+        except (ValueError, fernet.InvalidToken):
+            pass
+        return None
+
+    def groups_from_memcache(self, env, token):
+        memcache_client = cache_from_env(env)
+        if not memcache_client:
+            raise Exception('Memcache required')
+        memcache_token_key = '%s/token/%stk%s' % (
+            self.reseller_prefix, self.reseller_prefix, token)
+        cached_auth_data = memcache_client.get(memcache_token_key)
+        groups = None
+        if cached_auth_data:
+            expires, groups = cached_auth_data
+            if expires < time():
+                groups = None
+        return groups
+
     def get_groups(self, env, token):
         """
         Get groups for the given token.
@@ -436,38 +483,40 @@ class TempAuth(object):
                   of. The first group in the list is also considered a unique
                   identifier for that user.
         """
-        groups = None
-        memcache_client = cache_from_env(env)
-        if not memcache_client:
-            raise Exception('Memcache required')
-        memcache_token_key = '%s/token/%s' % (self.reseller_prefix, token)
-        cached_auth_data = memcache_client.get(memcache_token_key)
-        if cached_auth_data:
-            expires, groups = cached_auth_data
-            if expires < time():
-                groups = None
+        handlers = [
+            ('zftk', self.groups_from_compressed_fernet),
+            ('ftk', self.groups_from_fernet),
+            ('tk', self.groups_from_memcache),
+        ]
+        if token:
+            for prefix, handler in handlers:
+                prefix = self.reseller_prefix + prefix
+                if token.startswith(prefix):
+                    groups = handler(env, token[len(prefix):])
+                    if groups:
+                        return groups
 
         s3_auth_details = env.get('s3api.auth_details') or\
             env.get('swift3.auth_details')
-        if s3_auth_details:
-            if 'check_signature' not in s3_auth_details:
-                self.logger.warning(
-                    'Swift3 did not provide a check_signature function; '
-                    'upgrade Swift3 if you want to use it with tempauth')
-                return None
-            account_user = s3_auth_details['access_key']
-            if account_user not in self.users:
-                return None
-            user = self.users[account_user]
-            account = account_user.split(':', 1)[0]
-            account_id = user['url'].rsplit('/', 1)[-1]
-            if not s3_auth_details['check_signature'](user['key']):
-                return None
-            env['PATH_INFO'] = env['PATH_INFO'].replace(
-                str_to_wsgi(account_user), wsgi_unquote(account_id), 1)
-            groups = self._get_user_groups(account, account_user, account_id)
+        if not s3_auth_details:
+            return None
 
-        return groups
+        if 'check_signature' not in s3_auth_details:
+            self.logger.warning(
+                'Swift3 did not provide a check_signature function; '
+                'upgrade Swift3 if you want to use it with tempauth')
+            return None
+        account_user = s3_auth_details['access_key']
+        if account_user not in self.users:
+            return None
+        user = self.users[account_user]
+        account = account_user.split(':', 1)[0]
+        account_id = user['url'].rsplit('/', 1)[-1]
+        if not s3_auth_details['check_signature'](user['key']):
+            return None
+        env['PATH_INFO'] = env['PATH_INFO'].replace(
+            str_to_wsgi(account_user), wsgi_unquote(account_id), 1)
+        return self._get_user_groups(account, account_user, account_id)
 
     def account_acls(self, req):
         """
@@ -718,6 +767,26 @@ class TempAuth(object):
 
     def _create_new_token(self, memcache_client,
                           account, account_user, account_id):
+        if self.active_fernet_key_id:
+            expires = time() + self.token_life
+            token_prefix = 'ftk'  # nosec: B105
+            groups = self._get_user_groups(
+                account,
+                account_user,
+                account_id,
+            ).encode('utf8')
+            compressed = zlib.compress(groups)
+            if len(compressed) < len(groups):
+                token_prefix = 'zftk'  # nosec: B105
+                groups = compressed
+            token = ''.join([
+                self.reseller_prefix,
+                token_prefix,
+                self.fernet_keys[self.active_fernet_key_id].encrypt(
+                    groups).decode('ascii'),
+            ])
+            return token, expires
+
         # Generate new token
         token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
         expires = time() + self.token_life
@@ -817,27 +886,29 @@ class TempAuth(object):
             self.logger.increment('token_denied')
             return HTTPUnauthorized(request=req, headers=unauthed_headers)
         account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
-        # Get memcache client
+        # Try to get memcache client
         memcache_client = cache_from_env(req.environ)
-        if not memcache_client:
+        if not (memcache_client or self.active_fernet_key_id):
             raise Exception('Memcache required')
         # See if a token already exists and hasn't expired
         token = None
-        memcache_user_key = '%s/user/%s' % (self.reseller_prefix, account_user)
-        candidate_token = memcache_client.get(memcache_user_key)
-        if candidate_token:
-            memcache_token_key = \
-                '%s/token/%s' % (self.reseller_prefix, candidate_token)
-            cached_auth_data = memcache_client.get(memcache_token_key)
-            if cached_auth_data:
-                expires, old_groups = cached_auth_data
-                old_groups = [group for group in old_groups.split(',')]
-                new_groups = self._get_user_groups(account, account_user,
-                                                   account_id)
+        if memcache_client:
+            memcache_user_key = '%s/user/%s' % (
+                self.reseller_prefix, account_user)
+            candidate_token = memcache_client.get(memcache_user_key)
+            if candidate_token:
+                memcache_token_key = \
+                    '%s/token/%s' % (self.reseller_prefix, candidate_token)
+                cached_auth_data = memcache_client.get(memcache_token_key)
+                if cached_auth_data:
+                    expires, old_groups = cached_auth_data
+                    old_groups = [group for group in old_groups.split(',')]
+                    new_groups = self._get_user_groups(account, account_user,
+                                                       account_id)
 
-                if expires > time() and \
-                        set(old_groups) == set(new_groups.split(',')):
-                    token = candidate_token
+                    if expires > time() and \
+                            set(old_groups) == set(new_groups.split(',')):
+                        token = candidate_token
         # Create a new token if one didn't exist
         if not token:
             try:

@@ -17,7 +17,7 @@ import logging
 import os
 
 from swift.common.middleware.crypto import keymaster
-from swift.common.utils import LogLevelFilter
+from swift.common.utils import LogLevelFilter, load_multikey_opts
 
 from kmip.pie.client import ProxyKmipClient
 
@@ -145,7 +145,7 @@ class KmipKeyMaster(keymaster.BaseKeyMaster):
         return conf
 
     def _get_root_secret(self, conf):
-        multikey_opts = self._load_multikey_opts(conf, 'key_id')
+        multikey_opts = load_multikey_opts(conf, 'key_id', allow_none_key=True)
         kmip_to_secret = {}
         root_secrets = {}
         with self.proxy_kmip_client as client:

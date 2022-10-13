@@ -22,10 +22,11 @@ from time import time
 from urllib.parse import quote, urlparse
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
-from swift.common.swob import Request, Response, bytes_to_wsgi
+from swift.common.swob import Request, Response, bytes_to_wsgi, HTTPOk
 from swift.common.statsd_client import StatsdClient
 from swift.common.utils import split_path
 from test.unit import FakeMemcache
+from test.unit.common.middleware.helpers import FakeSwift
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
 
@@ -537,8 +538,8 @@ class TestAuth(unittest.TestCase):
 
     def test_detect_reseller_request(self):
         req = self._make_request('/v1/AUTH_admin',
-                                 headers={'X-Auth-Token': 'AUTH_t'})
-        cache_key = 'AUTH_/token/AUTH_t'
+                                 headers={'X-Auth-Token': 'AUTH_tk'})
+        cache_key = 'AUTH_/token/AUTH_tk'
         cache_entry = (time() + 3600, '.reseller_admin')
         req.environ['swift.cache'].set(cache_key, cache_entry)
         req.get_response(self.test_auth)
@@ -670,8 +671,8 @@ class TestAuth(unittest.TestCase):
         test_auth = auth.filter_factory({'user_acct_user': 'testing'})(
             FakeApp(iter(NO_CONTENT_RESP * 1)))
         req = self._make_request('/v1/AUTH_acct',
-                                 headers={'X-Auth-Token': 'AUTH_t'})
-        cache_key = 'AUTH_/token/AUTH_t'
+                                 headers={'X-Auth-Token': 'AUTH_tk'})
+        cache_key = 'AUTH_/token/AUTH_tk'
         cache_entry = (time() + 3600, 'AUTH_acct')
         req.environ['swift.cache'].set(cache_key, cache_entry)
         resp = req.get_response(test_auth)
@@ -724,12 +725,96 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(resp.headers.get('Www-Authenticate'),
                          'Swift realm="act"')
 
+    def test_fernet_token_no_memcache(self):
+        swift = FakeSwift()
+        swift.register('GET', '/v1/AUTH_ac', HTTPOk, {})
+
+        test_auth = auth.filter_factory({
+            'user_ac_user': 'testing .admin',
+            'fernet_key_2024': 'esipv1wC03xLGPb3cydid0uPINl6g8sydhlPh6iwJxk=',
+            'active_fernet_key_id': '2024',
+        })(swift)
+        req = Request.blank(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        # no memcache!
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+        token = resp.headers['X-Auth-Token']
+        self.assertEqual(token[:8], 'AUTH_ftk')
+
+        req = Request.blank('/v1/AUTH_ac', headers={'X-Auth-Token': token})
+        # again, no memcache!
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+
+        # key rotation time
+        test_auth = auth.filter_factory({
+            'user_ac_user': 'testing .admin',
+            'fernet_key_2024': 'esipv1wC03xLGPb3cydid0uPINl6g8sydhlPh6iwJxk=',
+            'fernet_key_2025': 'gRXHeKlt5h1nMDZL_QA7UfVIJ5z3ZP3v351cvmiRZD4=',
+            'active_fernet_key_id': '2025',
+        })(swift)
+
+        # old token still good
+        req = Request.blank('/v1/AUTH_ac', headers={'X-Auth-Token': token})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+
+        req = Request.blank(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+        new_token = resp.headers['X-Auth-Token']
+        self.assertEqual(new_token[:8], 'AUTH_ftk')
+
+        # drop old key
+        test_auth = auth.filter_factory({
+            'user_ac_user': 'testing .admin',
+            'fernet_key_2025': 'gRXHeKlt5h1nMDZL_QA7UfVIJ5z3ZP3v351cvmiRZD4=',
+            'active_fernet_key_id': '2025',
+        })(swift)
+
+        # old token now bad
+        req = Request.blank('/v1/AUTH_ac', headers={'X-Auth-Token': token})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 401)
+
+        # new token still good
+        req = Request.blank('/v1/AUTH_ac', headers={'X-Auth-Token': new_token})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+
+    def test_compressed_fernet_token_no_memcache(self):
+        swift = FakeSwift()
+        swift.register('GET', '/v1/AUTH_ac', HTTPOk, {})
+
+        test_auth = auth.filter_factory({
+            'user_ac_user': 'testing .admin ' + ' '.join(
+                'similar-group-name-%d' % i for i in range(20)),
+            'fernet_key_2024': 'esipv1wC03xLGPb3cydid0uPINl6g8sydhlPh6iwJxk=',
+            'active_fernet_key_id': '2024',
+        })(swift)
+        req = Request.blank(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+        token = resp.headers['X-Auth-Token']
+        self.assertEqual(token[:9], 'AUTH_zftk')
+
+        # token's good
+        req = Request.blank('/v1/AUTH_ac', headers={'X-Auth-Token': token})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+
     def test_object_name_containing_slash(self):
         test_auth = auth.filter_factory({'user_acct_user': 'testing'})(
             FakeApp(iter(NO_CONTENT_RESP * 1)))
         req = self._make_request('/v1/AUTH_acct/cont/obj/name/with/slash',
-                                 headers={'X-Auth-Token': 'AUTH_t'})
-        cache_key = 'AUTH_/token/AUTH_t'
+                                 headers={'X-Auth-Token': 'AUTH_tk'})
+        cache_key = 'AUTH_/token/AUTH_tk'
         cache_entry = (time() + 3600, 'AUTH_acct')
         req.environ['swift.cache'].set(cache_key, cache_entry)
         resp = req.get_response(test_auth)
@@ -1284,7 +1369,7 @@ class TestAccountAcls(unittest.TestCase):
     def _make_request(self, path, **kwargs):
         # Our TestAccountAcls default request will have a valid auth token
         version, acct, _ = split_path(path, 1, 3, True)
-        headers = kwargs.pop('headers', {'X-Auth-Token': 'AUTH_t'})
+        headers = kwargs.pop('headers', {'X-Auth-Token': 'AUTH_tk'})
         user_groups = kwargs.pop('user_groups', 'AUTH_firstacct')
 
         # The account being accessed will have account ACLs
@@ -1298,7 +1383,7 @@ class TestAccountAcls(unittest.TestCase):
 
         # Authorize the token by populating the request's cache
         req.environ['swift.cache'] = FakeMemcache()
-        cache_key = 'AUTH_/token/AUTH_t'
+        cache_key = 'AUTH_/token/AUTH_tk'
         cache_entry = (time() + 3600, user_groups)
         req.environ['swift.cache'].set(cache_key, cache_entry)
 
@@ -1451,7 +1536,7 @@ class TestAccountAcls(unittest.TestCase):
                 FakeApp(iter(NO_CONTENT_RESP * 5)))
         user_groups = test_auth._get_user_groups('admin', 'admin:user',
                                                  'AUTH_admin')
-        good_headers = {'X-Auth-Token': 'AUTH_t'}
+        good_headers = {'X-Auth-Token': 'AUTH_tk'}
         good_acl = json.dumps({"read-only": [u"á", "b"]})
         bad_list_types = '{"read-only": ["a", 99]}'
         bad_acl = 'syntactically invalid acl -- this does not parse as JSON'
@@ -1546,7 +1631,7 @@ class TestAccountAcls(unittest.TestCase):
 
         sysmeta_hdr = 'x-account-sysmeta-core-access-control'
         target = '/v1/AUTH_firstacct'
-        good_headers = {'X-Auth-Token': 'AUTH_t'}
+        good_headers = {'X-Auth-Token': 'AUTH_tk'}
         good_acl = '{"read-only":["a","b"]}'
 
         # no acls -- no problem!
@@ -1567,7 +1652,7 @@ class TestAccountAcls(unittest.TestCase):
             FakeApp(iter(NO_CONTENT_RESP * 3)))
 
         target = '/v1/AUTH_firstacct'
-        good_headers = {'X-Auth-Token': 'AUTH_t'}
+        good_headers = {'X-Auth-Token': 'AUTH_tk'}
         bad_acls = (
             'syntax error',
             '{"bad_key":"should_fail"}',
@@ -1824,9 +1909,9 @@ class TestTokenHandling(unittest.TestCase):
         self.req = Request.blank(path, headers=headers)
         self.req.method = method
         self.req.environ['swift.cache'] = FakeMemcache()
-        self._setup_user_and_token('AUTH_t', 'acct', 'acct:joe',
+        self._setup_user_and_token('AUTH_tk', 'acct', 'acct:joe',
                                    '.admin')
-        self._setup_user_and_token('AUTH_s', 'admin', 'admin:glance',
+        self._setup_user_and_token('AUTH_tks', 'admin', 'admin:glance',
                                    '.service')
         resp = self.req.get_response(self.test_auth)
         return resp
@@ -1852,21 +1937,21 @@ class TestTokenHandling(unittest.TestCase):
     def test_tokens_set_remote_user(self):
         conf = {}  # Default conf
         resp = self._make_request(conf, '/v1/AUTH_acct',
-                                  {'x-auth-token': 'AUTH_t'})
+                                  {'x-auth-token': 'AUTH_tk'})
         self.assertEqual(self.req.environ['REMOTE_USER'],
                          'acct,acct:joe,AUTH_acct')
         self.assertEqual(resp.status_int, 200)
         # Add x-service-token
         resp = self._make_request(conf, '/v1/AUTH_acct',
-                                  {'x-auth-token': 'AUTH_t',
-                                   'x-service-token': 'AUTH_s'})
+                                  {'x-auth-token': 'AUTH_tk',
+                                   'x-service-token': 'AUTH_tks'})
         self.assertEqual(self.req.environ['REMOTE_USER'],
                          'acct,acct:joe,AUTH_acct,admin,admin:glance,.service')
         self.assertEqual(resp.status_int, 200)
         # Put x-auth-token value into x-service-token
         resp = self._make_request(conf, '/v1/AUTH_acct',
-                                  {'x-auth-token': 'AUTH_t',
-                                   'x-service-token': 'AUTH_t'})
+                                  {'x-auth-token': 'AUTH_tk',
+                                   'x-service-token': 'AUTH_tk'})
         self.assertEqual(self.req.environ['REMOTE_USER'],
                          'acct,acct:joe,AUTH_acct,acct,acct:joe,AUTH_acct')
         self.assertEqual(resp.status_int, 200)
@@ -1875,15 +1960,15 @@ class TestTokenHandling(unittest.TestCase):
         conf = {'reseller_prefix': 'AUTH, PRE2',
                 'PRE2_require_group': '.service'}
         resp = self._make_request(conf, '/v1/PRE2_acct',
-                                  {'x-auth-token': 'AUTH_t',
-                                   'x-service-token': 'AUTH_s'})
+                                  {'x-auth-token': 'AUTH_tk',
+                                   'x-service-token': 'AUTH_tks'})
         self.assertEqual(resp.status_int, 200)
 
     def test_service_token_omitted(self):
         conf = {'reseller_prefix': 'AUTH, PRE2',
                 'PRE2_require_group': '.service'}
         resp = self._make_request(conf, '/v1/PRE2_acct',
-                                  {'x-auth-token': 'AUTH_t'})
+                                  {'x-auth-token': 'AUTH_tk'})
         self.assertEqual(resp.status_int, 403)
 
     def test_invalid_tokens(self):
@@ -1893,12 +1978,12 @@ class TestTokenHandling(unittest.TestCase):
                                   {'x-auth-token': 'AUTH_junk'})
         self.assertEqual(resp.status_int, 401)
         resp = self._make_request(conf, '/v1/PRE2_acct',
-                                  {'x-auth-token': 'AUTH_t',
+                                  {'x-auth-token': 'AUTH_tk',
                                    'x-service-token': 'AUTH_junk'})
         self.assertEqual(resp.status_int, 403)
         resp = self._make_request(conf, '/v1/PRE2_acct',
                                   {'x-auth-token': 'AUTH_junk',
-                                   'x-service-token': 'AUTH_s'})
+                                   'x-service-token': 'AUTH_tks'})
         self.assertEqual(resp.status_int, 401)
 
 

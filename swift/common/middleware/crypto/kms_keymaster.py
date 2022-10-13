@@ -16,6 +16,7 @@ from castellan import key_manager, options
 from castellan.common.credentials import keystone_password
 from oslo_config import cfg
 from swift.common.middleware.crypto.keymaster import BaseKeyMaster
+from swift.common.utils import load_multikey_opts
 
 
 class KmsKeyMaster(BaseKeyMaster):
@@ -74,8 +75,8 @@ class KmsKeyMaster(BaseKeyMaster):
         manager = key_manager.API(oslo_conf)
 
         root_secrets = {}
-        for opt, secret_id, key_id in self._load_multikey_opts(
-                conf, 'key_id'):
+        for opt, secret_id, key_id in load_multikey_opts(
+                conf, 'key_id', allow_none_key=True):
             key = manager.get(ctxt, key_id)
             if key is None:
                 raise ValueError("Retrieval of encryption root secret with "
