@@ -194,7 +194,11 @@ def check_devs(devs, input_question, opts, abort_msg):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if not opts.yes and input(input_question) != 'y':
+        try:
+            abort = not opts.yes and input(input_question) != 'y'
+        except (EOFError, KeyboardInterrupt):
+            abort = True
+        if abort:
             print(abort_msg)
             exit(EXIT_ERROR)
 
