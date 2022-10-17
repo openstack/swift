@@ -345,30 +345,36 @@
 
 - job:
     name: swift-probetests-centos-7
-    parent: unittests
+    parent: swift-probetests-centos-8-stream
     nodeset: centos-7
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
       under Python 2.
-    timeout: 7200
     vars:
       bindep_profile: test py27
+      ensure_pip_from_packages: False
+      ensure_pip_from_packages_with_python2: False
+      ensure_pip_from_upstream: True
+      ensure_pip_from_upstream_interpreters:
+        - python2
+      ensure_pip_from_upstream_url: "https://bootstrap.pypa.io/pip/2.7/get-pip.py"
+
+- job:
+    name: swift-probetests-centos-8-stream
+    parent: unittests
+    nodeset: centos-8-stream
+    description: |
+      Setup a SAIO dev environment and run Swift's probe tests
+      under Python 3.
+    timeout: 7200
+    vars:
+      bindep_profile: test py36
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
     run: tools/playbooks/probetests/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
-
-- job:
-    name: swift-probetests-centos-8-stream
-    parent: swift-probetests-centos-7
-    nodeset: centos-8-stream
-    description: |
-      Setup a SAIO dev environment and run Swift's probe tests
-      under Python 3.
-    vars:
-      bindep_profile: test py36
 
 - job:
     name: swift-probetests-centos-8-stream-arm64

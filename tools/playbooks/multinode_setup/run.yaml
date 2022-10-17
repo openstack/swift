@@ -40,4 +40,4 @@
         tox_envlist: func-py3
         tox_environment:
           TOX_CONSTRAINTS_FILE: https://releases.openstack.org/constraints/upper/yoga
-          SWIFT_TEST_CONFIG_FILE: /home/{{ ansible_ssh_user }}/test.conf
+          SWIFT_TEST_CONFIG_FILE: /home/{{ ansible_user }}/test.conf
