@@ -1365,10 +1365,14 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         req, log_lines = do_test((201, (100, 500), 201))
         if six.PY3:
             # We allow the b'' in logs because we want to see bad characters.
-            self.assertIn("ERROR 500 b'' From Object Server", log_lines[0])
+            self.assertIn(
+                "ERROR 500 b'' Trying to PUT /v1/AUTH_kilroy/%ED%88%8E/"
+                "%E9%90%89 From Object Server", log_lines[0])
             self.assertIn(req.path, log_lines[0])
         else:
-            self.assertIn('ERROR 500  From Object Server', log_lines[0])
+            self.assertIn(
+                'ERROR 500  Trying to PUT /v1/AUTH_kilroy/%ED%88%8E/%E9%90%89 '
+                'From Object Server', log_lines[0])
             self.assertIn(req.path.decode('utf-8'), log_lines[0])
 
     def test_DELETE_errors(self):

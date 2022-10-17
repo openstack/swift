@@ -28,7 +28,7 @@ from eventlet import Timeout
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints
-from swift.common.http import is_server_error
+from swift.common.http import is_server_error, HTTP_INSUFFICIENT_STORAGE
 from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
 from swift.common.error_limiter import ErrorLimiter
@@ -687,6 +687,44 @@ class Application(object):
             msg = msg.decode('utf-8')
         self.logger.error('%(msg)s %(node)s',
                           {'msg': msg, 'node': node_to_string(node)})
+
+    def check_response(self, node, server_type, response, method, path,
+                       body=None):
+        """
+        Check response for error status codes and update error limiters as
+        required.
+
+        :param node: a dict describing a node
+        :param server_type: the type of server from which the response was
+            received (e.g. 'Object').
+        :param response: an instance of HTTPResponse.
+        :param method: the request method.
+        :param path: the request path.
+        :param body: an optional response body. If given, up to 1024 of the
+            start of the body will be included in any log message.
+        :return True: if the response status code is less than 500, False
+            otherwise.
+        """
+        ok = False
+        if response.status == HTTP_INSUFFICIENT_STORAGE:
+            self.error_limit(node, 'ERROR Insufficient Storage')
+        elif is_server_error(response.status):
+            values = {'status': response.status,
+                      'method': method,
+                      'path': path,
+                      'type': server_type}
+            if body is None:
+                fmt = 'ERROR %(status)d Trying to %(method)s ' \
+                      '%(path)s From %(type)s Server'
+            else:
+                fmt = 'ERROR %(status)d %(body)s Trying to %(method)s ' \
+                      '%(path)s From %(type)s Server'
+                values['body'] = body[:1024]
+            self.error_occurred(node, fmt % values)
+        else:
+            ok = True
+
+        return ok
 
     def iter_nodes(self, ring, partition, logger, node_iter=None, policy=None):
         return NodeIter(self, ring, partition, logger, node_iter=node_iter,

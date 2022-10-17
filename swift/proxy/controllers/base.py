@@ -55,7 +55,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
+    HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, wsgi_unquote, \
@@ -1473,15 +1473,9 @@ class GetOrHeadHandler(object):
                 ts = Timestamp(hdrs.get('X-Backend-Timestamp', 0))
                 if ts > self.latest_404_timestamp:
                     self.latest_404_timestamp = ts
-            if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                self.app.error_limit(node, 'ERROR Insufficient Storage')
-            elif is_server_error(possible_source.status):
-                self.app.error_occurred(
-                    node, ('ERROR %(status)d %(body)s '
-                           'From %(type)s Server') %
-                    {'status': possible_source.status,
-                     'body': self.bodies[-1][:1024],
-                     'type': self.server_type})
+            self.app.check_response(node, self.server_type, possible_source,
+                                    self.req_method, self.path,
+                                    self.bodies[-1])
         return False
 
     def _get_source_and_node(self):
@@ -1914,21 +1908,12 @@ class Controller(object):
                         conn.send(body)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    if not is_informational(resp.status) and \
-                            not is_server_error(resp.status):
+                    if (self.app.check_response(node, self.server_type, resp,
+                                                method, path)
+                            and not is_informational(resp.status)):
                         return resp.status, resp.reason, resp.getheaders(), \
                             resp.read()
-                    elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                        self.app.error_limit(node,
-                                             'ERROR Insufficient Storage')
-                    elif is_server_error(resp.status):
-                        msg = ('ERROR %(status)d Trying to '
-                               '%(method)s %(path)s From %(type)s Server')
-                        self.app.error_occurred(node, msg % {
-                            'status': resp.status,
-                            'method': method,
-                            'path': path,
-                            'type': self.server_type})
+
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,
