@@ -36,3 +36,12 @@
       with_items:
         - crudini
         - eventlet
+
+    - name: install PasteDeploy - CentOS 7
+      pip: name={{ item }} state=present extra_args='--upgrade'
+      with_items:
+        # py2_constraints isn't obeyed by pip install swift
+        - 'PasteDeploy==2.1.1'
+      when:
+        - ansible_facts['distribution'] == "CentOS"
+        - ansible_facts['distribution_major_version'] == "7"
