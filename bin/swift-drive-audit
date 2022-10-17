@@ -18,6 +18,7 @@ import datetime
 import glob
 import locale
 import os
+import os.path
 import re
 import subprocess
 import sys
@@ -222,3 +223,6 @@ if __name__ == '__main__':
 
     if unmounts == 0:
         logger.info("No drives were unmounted")
+    elif os.path.isdir("/run/systemd/system"):
+        logger.debug("fstab updated, calling systemctl daemon-reload")
+        subprocess.call(["/usr/bin/systemctl", "daemon-reload"])
