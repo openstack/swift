@@ -2208,6 +2208,41 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(utils.storage_directory('objects', '1', 'ABCDEF'),
                          'objects/1/DEF/ABCDEF')
 
+    def test_node_to_string(self):
+        dev = {
+            'id': 3,
+            'region': 1,
+            'zone': 1,
+            'ip': '127.0.0.1',
+            'port': 6200,
+            'replication_ip': '127.0.1.1',
+            'replication_port': 6400,
+            'device': 'sdb',
+            'meta': '',
+            'weight': 8000.0,
+            'index': 0,
+        }
+        self.assertEqual(utils.node_to_string(dev), '127.0.0.1:6200/sdb')
+        self.assertEqual(utils.node_to_string(dev, replication=True),
+                         '127.0.1.1:6400/sdb')
+        dev = {
+            'id': 3,
+            'region': 1,
+            'zone': 1,
+            'ip': "fe80::0204:61ff:fe9d:f156",
+            'port': 6200,
+            'replication_ip': "fe80::0204:61ff:ff9d:1234",
+            'replication_port': 6400,
+            'device': 'sdb',
+            'meta': '',
+            'weight': 8000.0,
+            'index': 0,
+        }
+        self.assertEqual(utils.node_to_string(dev),
+                         '[fe80::0204:61ff:fe9d:f156]:6200/sdb')
+        self.assertEqual(utils.node_to_string(dev, replication=True),
+                         '[fe80::0204:61ff:ff9d:1234]:6400/sdb')
+
     def test_is_valid_ip(self):
         self.assertTrue(is_valid_ip("127.0.0.1"))
         self.assertTrue(is_valid_ip("10.0.0.1"))

@@ -35,7 +35,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
     rsync_module_interpolation, mkdirs, config_true_value, \
     config_auto_int_value, storage_directory, \
     load_recon_cache, PrefixLoggerAdapter, parse_override_options, \
-    distribute_evenly, listdir
+    distribute_evenly, listdir, node_to_string
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -628,7 +628,7 @@ class ObjectReplicator(Daemon):
                 if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
                     error_paths.append(object_path)
                     self.logger.exception(
-                        "Unexpected error trying to cleanup suffix dir:%r",
+                        "Unexpected error trying to cleanup suffix dir %r",
                         suffix_dir)
         return success_paths, error_paths
 
@@ -666,6 +666,7 @@ class ObjectReplicator(Daemon):
             while attempts_left > 0:
                 # If this throws StopIteration it will be caught way below
                 node = next(nodes)
+                node_str = node_to_string(node, replication=True)
                 target_devs_info.add((node['replication_ip'], node['device']))
                 attempts_left -= 1
                 # if we have already synced to this remote region,
@@ -679,18 +680,16 @@ class ObjectReplicator(Daemon):
                             node['device'], job['partition'], 'REPLICATE',
                             '', headers=headers).getresponse()
                         if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                            self.logger.error(
-                                '%(replication_ip)s/%(device)s '
-                                'responded as unmounted', node)
+                            self.logger.error('%s responded as unmounted',
+                                              node_str)
                             attempts_left += 1
                             failure_devs_info.add((node['replication_ip'],
                                                    node['device']))
                             continue
                         if resp.status != HTTP_OK:
-                            self.logger.error("Invalid response %(resp)s "
-                                              "from %(ip)s",
-                                              {'resp': resp.status,
-                                               'ip': node['replication_ip']})
+                            self.logger.error(
+                                "Invalid response %(resp)s from %(remote)s",
+                                {'resp': resp.status, 'remote': node_str})
                             failure_devs_info.add((node['replication_ip'],
                                                    node['device']))
                             continue
@@ -728,7 +727,7 @@ class ObjectReplicator(Daemon):
                     failure_devs_info.add((node['replication_ip'],
                                            node['device']))
                     self.logger.exception("Error syncing with node: %s",
-                                          node)
+                                          node_str)
             stats.suffix_count += len(local_hash)
         except StopIteration:
             self.logger.error('Ran out of handoffs while replicating '

@@ -32,7 +32,7 @@ from swift.common.exceptions import ConnectionTimeout, LockTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, majority_size, Timestamp, EventletRateLimiter, \
-    eventlet_monkey_patch
+    eventlet_monkey_patch, node_to_string
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 from swift.common.recon import RECON_CONTAINER_FILE, DEFAULT_RECON_CACHE_PATH
@@ -340,9 +340,8 @@ class ContainerUpdater(Daemon):
                     node['device'], part, 'PUT', container, headers=headers)
             except (Exception, Timeout):
                 self.logger.exception(
-                    'ERROR account update failed with '
-                    '%(replication_ip)s:%(replication_port)s/%(device)s '
-                    '(will retry later): ', node)
+                    'ERROR account update failed with %s (will retry later):',
+                    node_to_string(node, replication=True))
                 return HTTP_INTERNAL_SERVER_ERROR
         with Timeout(self.node_timeout):
             try:
@@ -352,9 +351,8 @@ class ContainerUpdater(Daemon):
             except (Exception, Timeout):
                 if self.logger.getEffectiveLevel() <= logging.DEBUG:
                     self.logger.exception(
-                        'Exception with '
-                        '%(replication_ip)s:%(replication_port)s/%(device)s',
-                        node)
+                        'Exception with %s',
+                        node_to_string(node, replication=True))
                 return HTTP_INTERNAL_SERVER_ERROR
             finally:
                 conn.close()

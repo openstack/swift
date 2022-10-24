@@ -20,7 +20,7 @@ from six.moves import urllib
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
-from swift.common.utils import config_true_value
+from swift.common import utils
 
 
 def encode_missing(object_hash, ts_data, ts_meta=None, ts_ctype=None,
@@ -208,20 +208,18 @@ class Sender(object):
                 return True, can_delete_obj
             except (exceptions.MessageTimeout,
                     exceptions.ReplicationException) as err:
-                self.daemon.logger.error(
-                    '%s:%s/%s/%s %s', self.node.get('replication_ip'),
-                    self.node.get('replication_port'), self.node.get('device'),
-                    self.job.get('partition'), err)
+                node_str = utils.node_to_string(self.node, replication=True)
+                self.daemon.logger.error('%s/%s %s', node_str,
+                                         self.job['partition'], err)
             except Exception:
                 # We don't want any exceptions to escape our code and possibly
                 # mess up the original replicator code that called us since it
                 # was originally written to shell out to rsync which would do
                 # no such thing.
+                node_str = utils.node_to_string(self.node, replication=True)
                 self.daemon.logger.exception(
-                    '%s:%s/%s/%s EXCEPTION in ssync.Sender',
-                    self.node.get('replication_ip'),
-                    self.node.get('replication_port'),
-                    self.node.get('device'), self.job.get('partition'))
+                    '%s/%s EXCEPTION in ssync.Sender',
+                    node_str, self.job['partition'])
             finally:
                 self.disconnect(connection)
         except Exception:
@@ -268,7 +266,7 @@ class Sender(object):
                 raise exceptions.ReplicationException(
                     'Expected status %s; got %s (%s)' %
                     (http.HTTP_OK, response.status, err_msg))
-            if self.include_non_durable and not config_true_value(
+            if self.include_non_durable and not utils.config_true_value(
                     response.getheader('x-backend-accept-no-commit', False)):
                 # fall back to legacy behaviour if receiver does not understand
                 # X-Backend-Commit

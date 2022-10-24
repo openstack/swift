@@ -34,7 +34,7 @@ from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, RateLimitedIterator, split_path, \
     eventlet_monkey_patch, get_redirect_data, ContextPool, hash_path, \
     non_negative_float, config_positive_int_value, non_negative_int, \
-    EventletRateLimiter
+    EventletRateLimiter, node_to_string
 from swift.common.daemon import Daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -735,15 +735,13 @@ class ObjectUpdater(Daemon):
             if not success:
                 self.logger.debug(
                     'Error code %(status)d is returned from remote '
-                    'server %(ip)s: %(port)s / %(device)s',
-                    {'status': resp.status, 'ip': node['replication_ip'],
-                     'port': node['replication_port'],
-                     'device': node['device']})
+                    'server %(node)s',
+                    {'status': resp.status,
+                     'node': node_to_string(node, replication=True)})
             return success, node['id'], redirect
         except Exception:
-            self.logger.exception(
-                'ERROR with remote server '
-                '%(replication_ip)s:%(replication_port)s/%(device)s', node)
+            self.logger.exception('ERROR with remote server %s',
+                                  node_to_string(node, replication=True))
         except Timeout as exc:
             action = 'connecting to'
             if not isinstance(exc, ConnectionTimeout):
@@ -752,9 +750,8 @@ class ObjectUpdater(Daemon):
                 status = 499
                 action = 'waiting on'
             self.logger.info(
-                'Timeout %(action)s remote server '
-                '%(replication_ip)s:%(replication_port)s/%(device)s: %(exc)s',
-                dict(node, exc=exc, action=action))
+                'Timeout %s remote server %s: %s',
+                action, node_to_string(node, replication=True), exc)
         finally:
             elapsed = time.time() - start
             self.logger.timing('updater.timing.status.%s' % status,

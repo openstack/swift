@@ -30,7 +30,7 @@ from eventlet.support.greenlets import GreenletExit
 from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
     dump_recon_cache, mkdirs, config_true_value,
-    GreenAsyncPile, Timestamp, remove_file,
+    GreenAsyncPile, Timestamp, remove_file, node_to_string,
     load_recon_cache, parse_override_options, distribute_evenly,
     PrefixLoggerAdapter, remove_directory, config_request_node_count_value,
     non_negative_int)
@@ -85,15 +85,11 @@ def _full_path(node, part, relative_path, policy):
     """
     if not isinstance(relative_path, six.text_type):
         relative_path = relative_path.decode('utf8')
-    return '%(replication_ip)s:%(replication_port)s' \
-        '/%(device)s/%(part)s%(path)s ' \
-        'policy#%(policy)d' % {
-            'replication_ip': node['replication_ip'],
-            'replication_port': node['replication_port'],
-            'device': node['device'],
-            'part': part, 'path': relative_path,
-            'policy': policy,
-        }
+    return '%(node)s/%(part)s%(path)s policy#%(policy)d' % {
+        'node': node_to_string(node, replication=True),
+        'part': part, 'path': relative_path,
+        'policy': policy,
+    }
 
 
 class ResponseBucket(object):
