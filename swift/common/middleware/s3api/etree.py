@@ -130,7 +130,7 @@ class _Element(lxml.etree.ElementBase):
 
 
 parser_lookup = lxml.etree.ElementDefaultClassLookup(element=_Element)
-parser = lxml.etree.XMLParser()
+parser = lxml.etree.XMLParser(resolve_entities=False, no_network=True)
 parser.set_element_class_lookup(parser_lookup)
 
 Element = parser.makeelement
