@@ -523,6 +523,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             body=body)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
+        self.assertIn(b'<Error><Key>Key1</Key><Code>Server Error</Code>', body)
 
     def _test_object_multi_DELETE(self, account):
         self.keys = ['Key1', 'Key2']
@@ -579,6 +580,45 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')), len(self.keys))
+
+    def test_object_multi_DELETE_with_system_entity(self):
+        self.keys = ['Key1', 'Key2']
+        self.swift.register(
+            'DELETE', '/v1/AUTH_test/bucket/%s' % self.keys[0],
+            swob.HTTPNotFound, {}, None)
+        self.swift.register(
+            'DELETE', '/v1/AUTH_test/bucket/%s' % self.keys[1],
+            swob.HTTPNoContent, {}, None)
+
+        elem = Element('Delete')
+        for key in self.keys:
+            obj = SubElement(elem, 'Object')
+            SubElement(obj, 'Key').text = key
+        body = tostring(elem, use_s3ns=False)
+        body = body.replace(
+            b'?>\n',
+            b'?>\n<!DOCTYPE foo '
+            b'[<!ENTITY ent SYSTEM "file:///etc/passwd"> ]>\n',
+        ).replace(b'>Key1<', b'>Key1&ent;<')
+        content_md5 = (
+            base64.b64encode(md5(body, usedforsecurity=False).digest())
+            .strip())
+
+        req = Request.blank('/bucket?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={
+                                'Authorization': 'AWS test:full_control:hmac',
+                                'Date': self.get_date_header(),
+                                'Content-MD5': content_md5},
+                            body=body)
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '200 OK', body)
+        self.assertIn(b'<Deleted><Key>Key2</Key></Deleted>', body)
+        self.assertNotIn(b'root:/root', body)
+        self.assertIn(b'<Deleted><Key>Key1</Key></Deleted>', body)
 
     def _test_no_body(self, use_content_length=False,
                       use_transfer_encoding=False, string_to_md5=b''):
