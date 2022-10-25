@@ -2112,7 +2112,6 @@ class TestSharder(BaseTestSharder):
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
         broker.merge_shard_ranges(shard_ranges)
-        self.assertTrue(broker.set_sharding_state())
         old_broker = broker.get_brokers()[0]
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
                 'index': 0}
@@ -2166,6 +2165,12 @@ class TestSharder(BaseTestSharder):
         self.assertEqual('', context.cursor)
         self.assertEqual(10, context.cleave_to_row)
         self.assertEqual(12, context.max_row)  # note that max row increased
+        lines = sharder.logger.get_lines_for_level('info')
+        self.assertEqual(
+            ["Kick off container cleaving on a/c, own shard range in state "
+             "'sharding'", "Starting to cleave (2 todo): a/c"], lines[:2])
+        self.assertIn('Completed cleaving of a/c, DB remaining in '
+                      'sharding state', lines[1:])
         lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn('Repeat cleaving required', lines[0])
         self.assertFalse(lines[1:])
@@ -2194,6 +2199,10 @@ class TestSharder(BaseTestSharder):
         shard_ranges[1].state = ShardRange.ACTIVE
         self._check_shard_range(shard_ranges[1], updated_shard_ranges[1])
         self._check_objects(new_objects[1:], expected_shard_dbs[1])
+        lines = sharder.logger.get_lines_for_level('info')
+        self.assertEqual('Starting to cleave (2 todo): a/c', lines[0])
+        self.assertIn('Completed cleaving of a/c, DB set to sharded state',
+                      lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
 
     def test_cleave_multiple_storage_policies(self):
@@ -5005,7 +5014,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(broker.logger.get_lines_for_level('error'))
             broker.logger.clear()
 
-    def _check_process_broker_sharding_no_others(self, start_state, deleted):
+    def _check_process_broker_sharding_others(self, start_state, deleted):
         # verify that when existing own_shard_range has given state and there
         # are other shard ranges then the sharding process will complete
         broker = self._make_broker(hash_='hash%s%s' % (start_state, deleted))
@@ -5021,6 +5030,7 @@ class TestSharder(BaseTestSharder):
             broker.delete_db(next(self.ts_iter).internal)
 
         with self._mock_sharder() as sharder:
+            # pretend shard containers are created ok so sharding proceeds
             with mock.patch.object(
                     sharder, '_send_shard_ranges', return_value=True):
                 with mock_timestamp_now_with_iter(self.ts_iter):
@@ -5030,33 +5040,36 @@ class TestSharder(BaseTestSharder):
         final_own_sr = broker.get_own_shard_range(no_default=True)
         self.assertEqual(SHARDED, broker.get_db_state())
         self.assertEqual(epoch.normal, parse_db_filename(broker.db_file)[1])
+        lines = broker.logger.get_lines_for_level('info')
+        self.assertIn('Completed creating shard range containers: 2 created, '
+                      'from sharding container a/c', lines)
         self.assertFalse(broker.logger.get_lines_for_level('warning'))
         self.assertFalse(broker.logger.get_lines_for_level('error'))
-        # self.assertEqual(deleted, broker.is_deleted())
+        self.assertEqual(deleted, broker.is_deleted())
         return own_sr, final_own_sr
 
-    def test_process_broker_sharding_with_own_shard_range_no_others(self):
-        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+    def test_process_broker_sharding_completes_with_own_and_other_ranges(self):
+        own_sr, final_own_sr = self._check_process_broker_sharding_others(
             ShardRange.SHARDING, False)
         exp_own_sr = dict(own_sr, state=ShardRange.SHARDED,
                           meta_timestamp=mock.ANY)
         self.assertEqual(exp_own_sr, dict(final_own_sr))
 
         # verify that deleted DBs will be sharded
-        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+        own_sr, final_own_sr = self._check_process_broker_sharding_others(
             ShardRange.SHARDING, True)
         exp_own_sr = dict(own_sr, state=ShardRange.SHARDED,
                           meta_timestamp=mock.ANY)
         self.assertEqual(exp_own_sr, dict(final_own_sr))
 
-        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+        own_sr, final_own_sr = self._check_process_broker_sharding_others(
             ShardRange.SHRINKING, False)
         exp_own_sr = dict(own_sr, state=ShardRange.SHRUNK,
                           meta_timestamp=mock.ANY)
         self.assertEqual(exp_own_sr, dict(final_own_sr))
 
         # verify that deleted DBs will be shrunk
-        own_sr, final_own_sr = self._check_process_broker_sharding_no_others(
+        own_sr, final_own_sr = self._check_process_broker_sharding_others(
             ShardRange.SHRINKING, True)
         exp_own_sr = dict(own_sr, state=ShardRange.SHRUNK,
                           meta_timestamp=mock.ANY)
@@ -5114,9 +5127,10 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(broker.logger.get_lines_for_level('error'))
             broker.logger.clear()
 
-    def _check_process_broker_sharding_others(self, state):
+    def _check_process_broker_sharding_stalls_others(self, state):
         # verify states in which own_shard_range will cause sharding
-        # process to start when other shard ranges are in the db
+        # process to start when other shard ranges are in the db, but stop
+        # when shard containers have not been created
         broker = self._make_broker(hash_='hash%s' % state)
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
                 'index': 0}
@@ -5148,10 +5162,10 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(broker.logger.get_lines_for_level('warning'))
         self.assertFalse(broker.logger.get_lines_for_level('error'))
 
-    def test_process_broker_sharding_with_own_shard_range_and_others(self):
-        self._check_process_broker_sharding_others(ShardRange.SHARDING)
-        self._check_process_broker_sharding_others(ShardRange.SHRINKING)
-        self._check_process_broker_sharding_others(ShardRange.SHARDED)
+    def test_process_broker_sharding_stalls_with_own_and_other_ranges(self):
+        self._check_process_broker_sharding_stalls_others(ShardRange.SHARDING)
+        self._check_process_broker_sharding_stalls_others(ShardRange.SHRINKING)
+        self._check_process_broker_sharding_stalls_others(ShardRange.SHARDED)
 
     def test_process_broker_leader_auto_shard(self):
         # verify conditions for acting as auto-shard leader

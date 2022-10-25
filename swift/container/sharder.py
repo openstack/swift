@@ -1777,8 +1777,9 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 self._send_shard_ranges(
                     broker.root_account, broker.root_container, created_ranges)
             self.logger.info(
-                "Completed creating shard range containers: %d created.",
-                len(created_ranges))
+                "Completed creating shard range containers: %d created, "
+                "from sharding container %s",
+                len(created_ranges), quote(broker.path))
         return len(created_ranges)
 
     def _cleave_shard_broker(self, broker, cleaving_context, shard_range,
@@ -1967,8 +1968,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             own_shard_range = broker.get_own_shard_range()
             cleaving_context.cursor = own_shard_range.lower_str
             cleaving_context.ranges_todo = len(ranges_todo)
-            self.logger.debug('Starting to cleave (%s todo): %s',
-                              cleaving_context.ranges_todo, quote(broker.path))
+            self.logger.info('Starting to cleave (%s todo): %s',
+                             cleaving_context.ranges_todo, quote(broker.path))
 
         own_shard_range = broker.get_own_shard_range(no_default=True)
         if own_shard_range is None:
@@ -2173,9 +2174,14 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                                          ShardRange.SHRUNK):
                 if broker.get_shard_ranges():
                     # container has been given shard ranges rather than
-                    # found them e.g. via replication or a shrink event
+                    # found them e.g. via replication or a shrink event,
+                    # or manually triggered cleaving.
                     if broker.set_sharding_state():
                         state = SHARDING
+                        self.logger.info('Kick off container cleaving on %s, '
+                                         'own shard range in state %r',
+                                         quote(broker.path),
+                                         own_shard_range.state_text)
                 elif is_leader:
                     if broker.set_sharding_state():
                         state = SHARDING
@@ -2202,14 +2208,16 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             cleave_complete = self._cleave(broker)
 
             if cleave_complete:
-                self.logger.info('Completed cleaving of %s',
-                                 quote(broker.path))
                 if self._complete_sharding(broker):
                     state = SHARDED
                     self._increment_stat('visited', 'completed', statsd=True)
+                    self.logger.info(
+                        'Completed cleaving of %s, DB set to sharded state',
+                        quote(broker.path))
                 else:
-                    self.logger.debug('Remaining in sharding state %s',
-                                      quote(broker.path))
+                    self.logger.info(
+                        'Completed cleaving of %s, DB remaining in sharding '
+                        'state', quote(broker.path))
 
         if not broker.is_deleted():
             if state == SHARDED and broker.is_root_container():
