@@ -6433,9 +6433,44 @@ class PipeMutex(object):
         self.close()
 
 
+class NoopMutex(object):
+    """
+    "Mutex" that doesn't lock anything.
+
+    We only allow our syslog logging to be configured via UDS or UDP, neither
+    of which have the message-interleaving trouble you'd expect from TCP or
+    file handlers.
+    """
+    def __init__(self):
+        # Usually, it's an error to have multiple greenthreads all waiting
+        # to write to the same file descriptor. It's often a sign of inadequate
+        # concurrency control; for example, if you have two greenthreads
+        # trying to use the same memcache connection, they'll end up writing
+        # interleaved garbage to the socket or stealing part of each others'
+        # responses.
+        #
+        # In this case, we have multiple greenthreads waiting on the same
+        # (logging) file descriptor by design. So, similar to the PipeMutex,
+        # we must turn off eventlet's multiple-waiter detection.
+        #
+        # It would be better to turn off multiple-reader detection for only
+        # the logging socket fd, but eventlet does not support that.
+        eventlet.debug.hub_prevent_multiple_readers(False)
+
+    def acquire(self, blocking=True):
+        pass
+
+    def release(self):
+        pass
+
+
 class ThreadSafeSysLogHandler(SysLogHandler):
     def createLock(self):
-        self.lock = PipeMutex()
+        if config_true_value(os.environ.get(
+                'SWIFT_NOOP_LOGGING_MUTEX') or 'true'):
+            self.lock = NoopMutex()
+        else:
+            self.lock = PipeMutex()
 
 
 def round_robin_iter(its):
