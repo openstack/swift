@@ -136,10 +136,11 @@ from swift.common.digest import get_allowed_digests, \
     extract_digest_and_algorithm, DEFAULT_ALLOWED_DIGESTS
 from swift.common.utils import streq_const_time, parse_content_disposition, \
     parse_mime_headers, iter_multipart_mime_documents, reiterate, \
-    close_if_possible, get_logger
+    closing_if_possible, get_logger
 from swift.common.registry import register_swift_info
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized, wsgi_to_str, str_to_wsgi
+from swift.common.http import is_success
 from swift.proxy.controllers.base import get_account_info, get_container_info
 
 
@@ -278,6 +279,7 @@ class FormPost(object):
         attributes = {}
         file_attributes = {}
         subheaders = []
+        resp_body = None
         file_count = 0
         for fp in iter_multipart_mime_documents(
                 env['wsgi.input'], boundary, read_chunk_size=READ_CHUNK_SIZE):
@@ -302,9 +304,10 @@ class FormPost(object):
                         'content-encoding' in hdrs:
                     file_attributes['content-encoding'] = \
                         hdrs['Content-Encoding']
-                status, subheaders = \
+                status, subheaders, resp_body = \
                     self._perform_subrequest(env, file_attributes, fp, keys)
-                if not status.startswith('2'):
+                status_code = int(status.split(' ', 1)[0])
+                if not is_success(status_code):
                     break
             else:
                 data = b''
@@ -325,6 +328,7 @@ class FormPost(object):
             status = '400 Bad Request'
             message = 'no files to process'
 
+        status_code = int(status.split(' ', 1)[0])
         headers = [(k, v) for k, v in subheaders
                    if k.lower().startswith('access-control')]
 
@@ -333,17 +337,19 @@ class FormPost(object):
             body = status
             if message:
                 body = status + '\r\nFormPost: ' + message.title()
-            headers.extend([('Content-Type', 'text/plain'),
-                            ('Content-Length', len(body))])
             if six.PY3:
                 body = body.encode('utf-8')
+            if not is_success(status_code) and resp_body:
+                body = resp_body
+            headers.extend([('Content-Type', 'text/plain'),
+                            ('Content-Length', len(body))])
             return status, headers, body
-        status = status.split(' ', 1)[0]
         if '?' in redirect:
             redirect += '&'
         else:
             redirect += '?'
-        redirect += 'status=%s&message=%s' % (quote(status), quote(message))
+        redirect += 'status=%s&message=%s' % (quote(str(status_code)),
+                                              quote(message))
         body = '<html><body><p><a href="%s">' \
                'Click to continue...</a></p></body></html>' % redirect
         if six.PY3:
@@ -447,8 +453,10 @@ class FormPost(object):
 
         # reiterate to ensure the response started,
         # but drop any data on the floor
-        close_if_possible(reiterate(self.app(subenv, _start_response)))
-        return substatus[0], subheaders[0]
+        resp = self.app(subenv, _start_response)
+        with closing_if_possible(reiterate(resp)):
+            body = b''.join(resp)
+        return substatus[0], subheaders[0], body
 
     def _get_keys(self, env):
         """

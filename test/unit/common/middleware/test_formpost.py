@@ -1046,7 +1046,7 @@ class TestFormPost(unittest.TestCase):
         self.assertTrue(b'201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
 
-    def test_subrequest_fails(self):
+    def test_subrequest_fails_redirect_404(self):
         key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 1024, 10,
@@ -1081,6 +1081,36 @@ class TestFormPost(unittest.TestCase):
         self.assertEqual(location, 'http://brim.net?status=404&message=')
         self.assertIsNone(exc_info)
         self.assertTrue(b'http://brim.net?status=404&message=' in body)
+        self.assertEqual(len(self.app.requests), 1)
+
+    def test_subrequest_fails_no_redirect_503(self):
+        key = b'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10,
+            int(time() + 86400), key)
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
+        env['swift.infocache'][get_cache_key('AUTH_test')] = (
+            self._fake_cache_env('AUTH_test', [key]))
+        env['swift.infocache'][get_cache_key(
+            'AUTH_test', 'container')] = {'meta': {}}
+        self.app = FakeApp(iter([('503 Server Error', {}, b'some bad news')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = b''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEqual(status, '503 Server Error')
+        self.assertTrue(b'bad news' in body)
         self.assertEqual(len(self.app.requests), 1)
 
     def test_truncated_attr_value(self):
