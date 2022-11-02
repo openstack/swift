@@ -44,18 +44,20 @@ version is at:
 http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 """
 
+import os
 import six
 import json
 import logging
 import time
 from bisect import bisect
 
-from eventlet.green import socket
+from eventlet.green import socket, ssl
 from eventlet.pools import Pool
 from eventlet import Timeout
 from six.moves import range
+from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 from swift.common import utils
-from swift.common.utils import md5, human_readable
+from swift.common.utils import md5, human_readable, config_true_value
 
 DEFAULT_MEMCACHED_PORT = 11211
 
@@ -203,6 +205,10 @@ class MemcacheRing(object):
         else:
             self.logger = logger
         self.item_size_warning_threshold = item_size_warning_threshold
+
+    @property
+    def memcache_servers(self):
+        return list(self._client_cache.keys())
 
     def _exception_occurred(self, server, e, action='talking',
                             sock=None, fp=None, got_connection=True):
@@ -554,3 +560,96 @@ class MemcacheRing(object):
                     return values
             except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
+
+
+def load_memcache(conf, logger):
+    """
+    Build a MemcacheRing object from the given config.  It will also use the
+    passed in logger.
+
+    :param conf: a dict, the config options
+    :param logger: a logger
+    """
+    memcache_servers = conf.get('memcache_servers')
+    try:
+        # Originally, while we documented using memcache_max_connections
+        # we only accepted max_connections
+        max_conns = int(conf.get('memcache_max_connections',
+                                 conf.get('max_connections', 0)))
+    except ValueError:
+        max_conns = 0
+
+    memcache_options = {}
+    if (not memcache_servers
+            or max_conns <= 0):
+        path = os.path.join(conf.get('swift_dir', '/etc/swift'),
+                            'memcache.conf')
+        memcache_conf = ConfigParser()
+        if memcache_conf.read(path):
+            # if memcache.conf exists we'll start with those base options
+            try:
+                memcache_options = dict(memcache_conf.items('memcache'))
+            except NoSectionError:
+                pass
+
+            if not memcache_servers:
+                try:
+                    memcache_servers = \
+                        memcache_conf.get('memcache', 'memcache_servers')
+                except (NoSectionError, NoOptionError):
+                    pass
+            if max_conns <= 0:
+                try:
+                    new_max_conns = \
+                        memcache_conf.get('memcache',
+                                          'memcache_max_connections')
+                    max_conns = int(new_max_conns)
+                except (NoSectionError, NoOptionError, ValueError):
+                    pass
+
+    # while memcache.conf options are the base for the memcache
+    # middleware, if you set the same option also in the filter
+    # section of the proxy config it is more specific.
+    memcache_options.update(conf)
+    connect_timeout = float(memcache_options.get(
+        'connect_timeout', CONN_TIMEOUT))
+    pool_timeout = float(memcache_options.get(
+        'pool_timeout', POOL_TIMEOUT))
+    tries = int(memcache_options.get('tries', TRY_COUNT))
+    io_timeout = float(memcache_options.get('io_timeout', IO_TIMEOUT))
+    if config_true_value(memcache_options.get('tls_enabled', 'false')):
+        tls_cafile = memcache_options.get('tls_cafile')
+        tls_certfile = memcache_options.get('tls_certfile')
+        tls_keyfile = memcache_options.get('tls_keyfile')
+        tls_context = ssl.create_default_context(
+            cafile=tls_cafile)
+        if tls_certfile:
+            tls_context.load_cert_chain(tls_certfile, tls_keyfile)
+    else:
+        tls_context = None
+    error_suppression_interval = float(memcache_options.get(
+        'error_suppression_interval', ERROR_LIMIT_TIME))
+    error_suppression_limit = float(memcache_options.get(
+        'error_suppression_limit', ERROR_LIMIT_COUNT))
+    item_size_warning_threshold = int(memcache_options.get(
+        'item_size_warning_threshold', DEFAULT_ITEM_SIZE_WARNING_THRESHOLD))
+
+    if not memcache_servers:
+        memcache_servers = '127.0.0.1:11211'
+    if max_conns <= 0:
+        max_conns = 2
+
+    return MemcacheRing(
+        [s.strip() for s in memcache_servers.split(',')
+         if s.strip()],
+        connect_timeout=connect_timeout,
+        pool_timeout=pool_timeout,
+        tries=tries,
+        io_timeout=io_timeout,
+        max_conns=max_conns,
+        tls_context=tls_context,
+        logger=logger,
+        error_limit_count=error_suppression_limit,
+        error_limit_time=error_suppression_interval,
+        error_limit_duration=error_suppression_interval,
+        item_size_warning_threshold=item_size_warning_threshold)

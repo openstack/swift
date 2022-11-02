@@ -19,7 +19,6 @@ import unittest
 
 from eventlet.green import ssl
 import mock
-from six.moves.configparser import NoSectionError, NoOptionError
 
 from swift.common.middleware import memcache
 from swift.common.memcached import MemcacheRing
@@ -32,63 +31,6 @@ from test.unit import with_tempdir, patch_policies
 class FakeApp(object):
     def __call__(self, env, start_response):
         return env
-
-
-class ExcConfigParser(object):
-
-    def read(self, path):
-        raise RuntimeError('read called with %r' % path)
-
-
-class EmptyConfigParser(object):
-
-    def read(self, path):
-        return False
-
-
-def get_config_parser(memcache_servers='1.2.3.4:5',
-                      memcache_max_connections='4',
-                      section='memcache',
-                      item_size_warning_threshold='75'):
-    _srvs = memcache_servers
-    _maxc = memcache_max_connections
-    _section = section
-    _warn_threshold = item_size_warning_threshold
-
-    class SetConfigParser(object):
-
-        def items(self, section_name):
-            if section_name != section:
-                raise NoSectionError(section_name)
-            return {
-                'memcache_servers': memcache_servers,
-                'memcache_max_connections': memcache_max_connections
-            }
-
-        def read(self, path):
-            return True
-
-        def get(self, section, option):
-            if _section == section:
-                if option == 'memcache_servers':
-                    if _srvs == 'error':
-                        raise NoOptionError(option, section)
-                    return _srvs
-                elif option in ('memcache_max_connections',
-                                'max_connections'):
-                    if _maxc == 'error':
-                        raise NoOptionError(option, section)
-                    return _maxc
-                elif option == 'item_size_warning_threshold':
-                    if _warn_threshold == 'error':
-                        raise NoOptionError(option, section)
-                    return _warn_threshold
-                else:
-                    raise NoOptionError(option, section)
-            else:
-                raise NoSectionError(option)
-
-    return SetConfigParser
 
 
 def start_response(*args):
@@ -106,165 +48,13 @@ class TestCacheMiddleware(unittest.TestCase):
         self.assertTrue('swift.cache' in resp)
         self.assertTrue(isinstance(resp['swift.cache'], MemcacheRing))
 
-    def test_conf_default_read(self):
-        with mock.patch.object(memcache, 'ConfigParser', ExcConfigParser):
-            for d in ({},
-                      {'memcache_servers': '6.7.8.9:10'},
-                      {'memcache_max_connections': '30'},
-                      {'item_size_warning_threshold': 75},
-                      {'memcache_servers': '6.7.8.9:10',
-                       'item_size_warning_threshold': '75'},
-                      {'item_size_warning_threshold': '75',
-                       'memcache_max_connections': '30'},
-                      ):
-                with self.assertRaises(RuntimeError) as catcher:
-                    memcache.MemcacheMiddleware(FakeApp(), d)
-                self.assertEqual(
-                    str(catcher.exception),
-                    "read called with '/etc/swift/memcache.conf'")
-
-    def test_conf_set_no_read(self):
-        with mock.patch.object(memcache, 'ConfigParser', ExcConfigParser):
-            memcache.MemcacheMiddleware(
-                FakeApp(), {'memcache_servers': '1.2.3.4:5',
-                            'memcache_max_connections': '30',
-                            'item_size_warning_threshold': '80'})
-
-    def test_conf_default(self):
-        with mock.patch.object(memcache, 'ConfigParser', EmptyConfigParser):
-            app = memcache.MemcacheMiddleware(FakeApp(), {})
-        self.assertEqual(app.memcache_servers, '127.0.0.1:11211')
-        self.assertEqual(
-            app.memcache._client_cache['127.0.0.1:11211'].max_size, 2)
-        self.assertEqual(app.memcache.item_size_warning_threshold, -1)
-
-    def test_conf_inline(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            app = memcache.MemcacheMiddleware(
-                FakeApp(),
-                {'memcache_servers': '6.7.8.9:10',
-                 'memcache_max_connections': '5',
-                 'item_size_warning_threshold': '75'})
-        self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(
-            app.memcache._client_cache['6.7.8.9:10'].max_size, 5)
-        self.assertEqual(app.memcache.item_size_warning_threshold, 75)
-
-    def test_conf_inline_ratelimiting(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            app = memcache.MemcacheMiddleware(
-                FakeApp(),
-                {'error_suppression_limit': '5',
-                 'error_suppression_interval': '2.5'})
-        self.assertEqual(app.memcache._error_limit_count, 5)
-        self.assertEqual(app.memcache._error_limit_time, 2.5)
-        self.assertEqual(app.memcache._error_limit_duration, 2.5)
-
-    def test_conf_inline_tls(self):
-        fake_context = mock.Mock()
-        with mock.patch.object(ssl, 'create_default_context',
-                               return_value=fake_context):
-            with mock.patch.object(memcache, 'ConfigParser',
-                                   get_config_parser()):
-                memcache.MemcacheMiddleware(
-                    FakeApp(),
-                    {'tls_enabled': 'true',
-                     'tls_cafile': 'cafile',
-                     'tls_certfile': 'certfile',
-                     'tls_keyfile': 'keyfile'})
-            ssl.create_default_context.assert_called_with(cafile='cafile')
-            fake_context.load_cert_chain.assert_called_with('certfile',
-                                                            'keyfile')
-
-    def test_conf_extra_no_section(self):
-        with mock.patch.object(memcache, 'ConfigParser',
-                               get_config_parser(section='foobar')):
-            app = memcache.MemcacheMiddleware(FakeApp(), {})
-        self.assertEqual(app.memcache_servers, '127.0.0.1:11211')
-        self.assertEqual(
-            app.memcache._client_cache['127.0.0.1:11211'].max_size, 2)
-
-    def test_conf_extra_no_option(self):
-        replacement_parser = get_config_parser(
-            memcache_servers='error',
-            memcache_max_connections='error')
-        with mock.patch.object(memcache, 'ConfigParser', replacement_parser):
-            app = memcache.MemcacheMiddleware(FakeApp(), {})
-        self.assertEqual(app.memcache_servers, '127.0.0.1:11211')
-        self.assertEqual(
-            app.memcache._client_cache['127.0.0.1:11211'].max_size, 2)
-
-    def test_conf_inline_other_max_conn(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            app = memcache.MemcacheMiddleware(
-                FakeApp(),
-                {'memcache_servers': '6.7.8.9:10',
-                 'max_connections': '5'})
-        self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(
-            app.memcache._client_cache['6.7.8.9:10'].max_size, 5)
-
-    def test_conf_inline_bad_max_conn(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            app = memcache.MemcacheMiddleware(
-                FakeApp(),
-                {'memcache_servers': '6.7.8.9:10',
-                 'max_connections': 'bad42'})
-        self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(
-            app.memcache._client_cache['6.7.8.9:10'].max_size, 4)
-
-    def test_conf_inline_bad_item_warning_threshold(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            with self.assertRaises(ValueError) as err:
-                memcache.MemcacheMiddleware(
-                    FakeApp(),
-                    {'memcache_servers': '6.7.8.9:10',
-                     'memcache_serialization_support': '0',
-                     'item_size_warning_threshold': 'bad42'})
-        self.assertIn('invalid literal for int() with base 10:',
-                      str(err.exception))
-
-    def test_conf_from_extra_conf(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            app = memcache.MemcacheMiddleware(FakeApp(), {})
-        self.assertEqual(app.memcache_servers, '1.2.3.4:5')
-        self.assertEqual(
-            app.memcache._client_cache['1.2.3.4:5'].max_size, 4)
-
-    def test_conf_from_extra_conf_bad_max_conn(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser(
-                memcache_max_connections='bad42')):
-            app = memcache.MemcacheMiddleware(FakeApp(), {})
-        self.assertEqual(app.memcache_servers, '1.2.3.4:5')
-        self.assertEqual(
-            app.memcache._client_cache['1.2.3.4:5'].max_size, 2)
-
-    def test_conf_from_inline_and_maxc_from_extra_conf(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            app = memcache.MemcacheMiddleware(
-                FakeApp(),
-                {'memcache_servers': '6.7.8.9:10'})
-        self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(
-            app.memcache._client_cache['6.7.8.9:10'].max_size, 4)
-
-    def test_conf_from_inline_and_sers_from_extra_conf(self):
-        with mock.patch.object(memcache, 'ConfigParser', get_config_parser()):
-            app = memcache.MemcacheMiddleware(
-                FakeApp(),
-                {'memcache_servers': '6.7.8.9:10',
-                 'memcache_max_connections': '42'})
-        self.assertEqual(app.memcache_servers, '6.7.8.9:10')
-        self.assertEqual(
-            app.memcache._client_cache['6.7.8.9:10'].max_size, 42)
-
     def test_filter_factory(self):
         factory = memcache.filter_factory({'max_connections': '3'},
                                           memcache_servers='10.10.10.10:10')
         thefilter = factory('myapp')
         self.assertEqual(thefilter.app, 'myapp')
-        self.assertEqual(thefilter.memcache_servers, '10.10.10.10:10')
+        self.assertEqual(thefilter.memcache.memcache_servers,
+                         ['10.10.10.10:10'])
         self.assertEqual(
             thefilter.memcache._client_cache['10.10.10.10:10'].max_size, 3)
 
