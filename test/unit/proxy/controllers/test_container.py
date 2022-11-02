@@ -318,7 +318,7 @@ class TestContainerController(TestRingBase):
 
         for method in ('PUT', 'DELETE', 'POST'):
             def test_status_map(statuses, expected):
-                self.app._error_limiting = {}
+                self.app.error_limiter.stats.clear()
                 req = Request.blank('/v1/a/c', method=method)
                 with mocked_http_conn(*statuses) as fake_conn:
                     resp = req.get_response(self.app)
@@ -355,7 +355,7 @@ class TestContainerController(TestRingBase):
             test_status_map(base_status[:2] + [507] + base_status[2:], 201)
             self.assertEqual(node_error_count(
                 self.app, self.container_ring.devs[2]),
-                self.app.error_suppression_limit + 1)
+                self.app.error_limiter.suppression_limit + 1)
 
     def test_response_codes_for_GET(self):
         nodes = self.app.container_ring.replicas

@@ -1214,7 +1214,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.app.sort_nodes = lambda n, *args, **kwargs: n  # disable shuffle
 
         def test_status_map(statuses, expected):
-            self.app._error_limiting = {}
+            self.app.error_limiter.stats.clear()
             req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                      body=b'test body')
             with set_http_connect(*statuses):
@@ -1249,7 +1249,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         test_status_map(((507, None), 201, 201, 201), 201)
         self.assertEqual(
             node_error_count(self.app, object_ring.devs[0]),
-            self.app.error_suppression_limit + 1)
+            self.app.error_limiter.suppression_limit + 1)
         # response errors
         test_status_map(((100, Timeout()), 201, 201), 201)
         self.assertEqual(
@@ -1260,7 +1260,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         test_status_map((201, (100, 507), 201), 201)
         self.assertEqual(
             node_error_count(self.app, object_ring.devs[1]),
-            self.app.error_suppression_limit + 1)
+            self.app.error_limiter.suppression_limit + 1)
 
     def test_PUT_connect_exception_with_unicode_path(self):
         expected = 201
@@ -2385,7 +2385,13 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             }
             for r in log.requests[:4]
         }
-        self.assertEqual(self.app._error_limiting, expected_error_limiting)
+        actual = {}
+        for n in self.app.get_object_ring(int(self.policy)).devs:
+            node_key = self.app.error_limiter.node_key(n)
+            stats = self.app.error_limiter.stats.get(node_key) or {}
+            if stats:
+                actual[self.app.error_limiter.node_key(n)] = stats
+        self.assertEqual(actual, expected_error_limiting)
 
     def test_GET_not_found_when_404_newer(self):
         # if proxy receives a 404, it keeps waiting for other connections until
@@ -2410,14 +2416,14 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             with mocked_http_conn(*codes):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 404)
-            self.app._error_limiting = {}  # Reset error limiting
+            self.app.error_limiter.stats.clear()  # Reset error limiting
 
         # one more timeout is past the tipping point
         codes[self.policy.object_ring.replica_count - 2] = Timeout()
         with mocked_http_conn(*codes):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
-        self.app._error_limiting = {}  # Reset error limiting
+        self.app.error_limiter.stats.clear()  # Reset error limiting
 
         # unless we have tombstones
         with mocked_http_conn(*codes, headers={'X-Backend-Timestamp': '1'}):
