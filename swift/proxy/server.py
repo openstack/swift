@@ -657,8 +657,9 @@ class Application(object):
         """
         limited = self.error_limiter.is_limited(node)
         if limited:
+            self.logger.increment('error_limiter.is_limited')
             self.logger.debug(
-                'Node error limited: %s', node_to_string(node))
+                'Node is error limited: %s', node_to_string(node))
         return limited
 
     def error_limit(self, node, msg):
@@ -672,8 +673,24 @@ class Application(object):
         :param msg: error message
         """
         self.error_limiter.limit(node)
-        self.logger.error('%(msg)s %(node)s',
-                          {'msg': msg, 'node': node_to_string(node)})
+        self.logger.increment('error_limiter.forced_limit')
+        self.logger.error(
+            'Node will be error limited from now: %s, error: %s',
+            node_to_string(node),
+            msg)
+
+    def _error_increment(self, node):
+        """
+        Call increment() on error limiter once, emit metrics and log if error
+        suppression will be triggered.
+
+        :param node: dictionary of node to handle errors for
+        """
+        if self.error_limiter.increment(node):
+            self.logger.increment('error_limiter.incremented_limit')
+            self.logger.error(
+                'Node will be error limited from now: %s',
+                node_to_string(node))
 
     def error_occurred(self, node, msg):
         """
@@ -682,11 +699,11 @@ class Application(object):
         :param node: dictionary of node to handle errors for
         :param msg: error message
         """
-        self.error_limiter.increment(node)
         if isinstance(msg, bytes):
             msg = msg.decode('utf-8')
         self.logger.error('%(msg)s %(node)s',
                           {'msg': msg, 'node': node_to_string(node)})
+        self._error_increment(node)
 
     def check_response(self, node, server_type, response, method, path,
                        body=None):
@@ -739,7 +756,6 @@ class Application(object):
         :param typ: server type
         :param additional_info: additional information to log
         """
-        self.error_limiter.increment(node)
         if 'level' in kwargs:
             log = functools.partial(self.logger.log, kwargs.pop('level'))
             if 'exc_info' not in kwargs:
@@ -753,6 +769,7 @@ class Application(object):
             {'type': typ, 'node': node_to_string(node),
              'info': additional_info},
             **kwargs)
+        self._error_increment(node)
 
     def modify_wsgi_pipeline(self, pipe):
         """

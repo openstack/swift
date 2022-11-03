@@ -74,14 +74,14 @@ class TestErrorLimiter(unittest.TestCase):
         last_errors = 0
         node_key = limiter.node_key(node)
         for _ in range(limiter.suppression_limit):
-            limiter.increment(node)
+            self.assertFalse(limiter.increment(node))
             node_errors = limiter.stats.get(node_key)
             self.assertGreater(node_errors['errors'], last_errors)
             self.assertFalse(limiter.is_limited(node))
             last_errors = node_errors['errors']
 
         # One more to make sure it is > suppression_limit
-        limiter.increment(node)
+        self.assertTrue(limiter.increment(node))
         node_errors = limiter.stats.get(node_key)
         self.assertEqual(limiter.suppression_limit + 1,
                          node_errors['errors'])

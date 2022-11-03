@@ -84,8 +84,10 @@ class ErrorLimiter(object):
         the given ``node``.
 
         :param node: dictionary describing a node.
+        :returns: True if suppression_limit is exceeded, False otherwise
         """
         node_key = self.node_key(node)
         error_stats = self.stats[node_key]
         error_stats['errors'] = error_stats.get('errors', 0) + 1
         error_stats['last_error'] = time()
+        return error_stats['errors'] > self.suppression_limit

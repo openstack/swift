@@ -70,7 +70,8 @@ from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
 from swift.common import utils, constraints, registry
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, StatsdClient, \
-    iter_multipart_mime_documents, public, mkdirs, NullLogger, md5
+    iter_multipart_mime_documents, public, mkdirs, NullLogger, md5, \
+    node_to_string
 from swift.common.wsgi import loadapp, ConfigString, SwiftHttpProtocol
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_cache_key, cors_validation, \
@@ -1167,32 +1168,64 @@ class TestProxyServer(unittest.TestCase):
     def test_exception_occurred(self):
         def do_test(additional_info):
             logger = debug_logger('test')
-            app = proxy_server.Application({},
-                                           account_ring=FakeRing(),
-                                           container_ring=FakeRing(),
-                                           logger=logger)
+            suppression_limit = 10
+            app = proxy_server.Application(
+                {'error_suppression_limit': suppression_limit},
+                account_ring=FakeRing(),
+                container_ring=FakeRing(),
+                logger=logger)
             node = app.container_ring.get_part_nodes(0)[0]
             node_key = app.error_limiter.node_key(node)
             self.assertNotIn(node_key, app.error_limiter.stats)  # sanity
+
+            if six.PY2:
+                expected_info = additional_info.decode('utf8')
+            else:
+                expected_info = additional_info
+            for i in range(suppression_limit):
+                try:
+                    raise Exception('kaboom1!')
+                except Exception as err:
+                    caught_exc = err
+                    app.exception_occurred(
+                        node, 'server-type', additional_info)
+                self.assertEqual(i + 1, node_error_count(app, node))
+                line = logger.get_lines_for_level('error')[-1]
+                self.assertIn('server-type server', line)
+                self.assertIn(expected_info, line)
+                self.assertIn(node['ip'], line)
+                self.assertIn(str(node['port']), line)
+                self.assertIn(node['device'], line)
+                log_args, log_kwargs = logger.log_dict['error'][-1]
+                self.assertTrue(log_kwargs['exc_info'])
+                self.assertIs(caught_exc, log_kwargs['exc_info'][1])
+
+            self.assertEqual(0, logger.get_increment_counts().get(
+                'error_limiter.incremented_limit', 0))
+
+            # One more error to go beyond suppression_limit.
             try:
                 raise Exception('kaboom1!')
             except Exception as err:
                 caught_exc = err
                 app.exception_occurred(node, 'server-type', additional_info)
-
-            self.assertEqual(1, node_error_count(app, node))
-            line = logger.get_lines_for_level('error')[-1]
-            self.assertIn('server-type server', line)
-            if six.PY2:
-                self.assertIn(additional_info.decode('utf8'), line)
-            else:
-                self.assertIn(additional_info, line)
-            self.assertIn(node['ip'], line)
-            self.assertIn(str(node['port']), line)
-            self.assertIn(node['device'], line)
-            log_args, log_kwargs = logger.log_dict['error'][-1]
+            self.assertEqual(suppression_limit + 1,
+                             node_error_count(app, node))
+            lines = logger.get_lines_for_level('error')
+            self.assertIn('server-type server', lines[-2])
+            self.assertIn(expected_info, lines[-2])
+            self.assertIn(node['ip'], lines[-2])
+            self.assertIn(str(node['port']), lines[-2])
+            self.assertIn(node['device'], lines[-2])
+            log_args, log_kwargs = logger.log_dict['error'][-2]
             self.assertTrue(log_kwargs['exc_info'])
             self.assertIs(caught_exc, log_kwargs['exc_info'][1])
+            self.assertEqual(
+                ('Node will be error limited from now: %s' %
+                 node_to_string(node)),
+                lines[-1])
+            self.assertEqual(1, logger.get_increment_counts().get(
+                'error_limiter.incremented_limit', 0))
 
         do_test('success')
         do_test('succès')
@@ -1201,25 +1234,47 @@ class TestProxyServer(unittest.TestCase):
     def test_error_occurred(self):
         def do_test(msg):
             logger = debug_logger('test')
-            app = proxy_server.Application({},
-                                           account_ring=FakeRing(),
-                                           container_ring=FakeRing(),
-                                           logger=logger)
+            suppression_limit = 10
+            app = proxy_server.Application(
+                {'error_suppression_limit': suppression_limit},
+                account_ring=FakeRing(),
+                container_ring=FakeRing(),
+                logger=logger)
             node = app.container_ring.get_part_nodes(0)[0]
             node_key = app.error_limiter.node_key(node)
             self.assertNotIn(node_key, app.error_limiter.stats)  # sanity
 
-            app.error_occurred(node, msg)
-
-            self.assertEqual(1, node_error_count(app, node))
-            line = logger.get_lines_for_level('error')[-1]
             if six.PY2:
-                self.assertIn(msg.decode('utf8'), line)
+                expected_msg = msg.decode('utf8')
             else:
-                self.assertIn(msg, line)
-            self.assertIn(node['ip'], line)
-            self.assertIn(str(node['port']), line)
-            self.assertIn(node['device'], line)
+                expected_msg = msg
+            for i in range(suppression_limit):
+                app.error_occurred(node, msg)
+                self.assertEqual(i + 1, node_error_count(app, node))
+                line = logger.get_lines_for_level('error')[-1]
+                self.assertIn(expected_msg, line)
+                self.assertIn(node['ip'], line)
+                self.assertIn(str(node['port']), line)
+                self.assertIn(node['device'], line)
+
+            self.assertEqual(0, logger.get_increment_counts().get(
+                'error_limiter.incremented_limit', 0))
+
+            # One more error to go beyond suppression_limit.
+            app.error_occurred(node, msg)
+            self.assertEqual(suppression_limit + 1,
+                             node_error_count(app, node))
+            lines = logger.get_lines_for_level('error')
+            self.assertIn(expected_msg, lines[-2])
+            self.assertIn(node['ip'], lines[-2])
+            self.assertIn(str(node['port']), lines[-2])
+            self.assertIn(node['device'], lines[-2])
+            self.assertEqual(
+                ('Node will be error limited from now: %s' %
+                 node_to_string(node)),
+                lines[-1])
+            self.assertEqual(1, logger.get_increment_counts().get(
+                'error_limiter.incremented_limit', 0))
 
         do_test('success')
         do_test('succès')
@@ -1312,8 +1367,10 @@ class TestProxyServer(unittest.TestCase):
         self.assertFalse(ret)
         error_lines = app.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
-        self.assertEqual('ERROR Insufficient Storage 10.0.0.0:1000/sda',
-                         error_lines[0])
+        self.assertEqual(
+            'Node will be error limited from now: 10.0.0.0:1000/sda, '
+            'error: ERROR Insufficient Storage',
+            error_lines[0])
         self.assertEqual(11, node_error_count(app, node))
         self.assertTrue(app.error_limited(node))
 
@@ -1323,8 +1380,10 @@ class TestProxyServer(unittest.TestCase):
         self.assertFalse(ret)
         error_lines = app.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
-        self.assertEqual('ERROR Insufficient Storage 10.0.0.0:1000/sda',
-                         error_lines[0])
+        self.assertEqual(
+            'Node will be error limited from now: 10.0.0.0:1000/sda, '
+            'error: ERROR Insufficient Storage',
+            error_lines[0])
         self.assertEqual(11, node_error_count(app, node))
         self.assertTrue(app.error_limited(node))
 
@@ -3409,8 +3468,22 @@ class TestReplicatedObjectController(
             controller = \
                 ReplicatedObjectController(
                     self.app, 'a', 'c', 'o.jpg')
-            self.app.error_limit(
-                object_ring.get_part_nodes(1)[0], 'test')
+            error_node = object_ring.get_part_nodes(1)[0]
+            self.app.error_limit(error_node, 'test')
+            self.assertEqual(
+                1, self.logger.get_increment_counts().get(
+                    'error_limiter.forced_limit', 0))
+            line = self.logger.get_lines_for_level('error')[-1]
+            self.assertEqual(
+                ('Node will be error limited from now: %s, error: %s' %
+                 (node_to_string(error_node),
+                  'test')),
+                line)
+
+            # no error limited checking yet.
+            self.assertEqual(
+                0, self.logger.get_increment_counts().get(
+                    'error_limiter.is_limited', 0))
             set_http_connect(200, 200,        # account, container
                              201, 201, 201,   # 3 working backends
                              give_connect=test_connect)
@@ -3419,6 +3492,10 @@ class TestReplicatedObjectController(
             req.body = 'a'
             res = controller.PUT(req)
             self.assertTrue(res.status.startswith('201 '))
+            # error limited happened during PUT.
+            self.assertEqual(
+                1, self.logger.get_increment_counts().get(
+                    'error_limiter.is_limited', 0))
 
         # this is kind of a hokey test, but in FakeRing, the port is even when
         # the region is 0, and odd when the region is 1, so this test asserts
@@ -5164,8 +5241,9 @@ class TestReplicatedObjectController(
                 self.assertEqual(
                     self.app.logger.get_lines_for_level('warning'), [
                         'Handoff requested (5)'])
-                self.assertEqual(self.app.logger.get_increments(),
-                                 ['handoff_count'])
+                self.assertEqual(
+                    self.app.logger.get_increments(),
+                    ['error_limiter.is_limited', 'handoff_count'])
 
                 # two error-limited primary nodes -> two handoff warnings
                 self.app.log_handoffs = True
@@ -5186,9 +5264,9 @@ class TestReplicatedObjectController(
                         'Handoff requested (5)',
                         'Handoff requested (6)',
                     ])
-                self.assertEqual(self.app.logger.get_increments(),
-                                 ['handoff_count',
-                                  'handoff_count'])
+                stats = self.app.logger.get_increment_counts()
+                self.assertEqual(2, stats.get('error_limiter.is_limited', 0))
+                self.assertEqual(2, stats.get('handoff_count', 0))
 
                 # all error-limited primary nodes -> four handoff warnings,
                 # plus a handoff-all metric
@@ -5213,12 +5291,10 @@ class TestReplicatedObjectController(
                         'Handoff requested (9)',
                         'Handoff requested (10)',
                     ])
-                self.assertEqual(self.app.logger.get_increments(),
-                                 ['handoff_count',
-                                  'handoff_count',
-                                  'handoff_count',
-                                  'handoff_count',
-                                  'handoff_all_count'])
+                stats = self.app.logger.get_increment_counts()
+                self.assertEqual(4, stats.get('error_limiter.is_limited', 0))
+                self.assertEqual(4, stats.get('handoff_count', 0))
+                self.assertEqual(1, stats.get('handoff_all_count', 0))
 
             finally:
                 object_ring.max_more_nodes = 0
@@ -5250,10 +5326,36 @@ class TestReplicatedObjectController(
                 object_ring, 0, self.logger))
             self.assertIn(first_nodes[0], second_nodes)
 
+            self.assertEqual(
+                0, self.logger.get_increment_counts().get(
+                    'error_limiter.is_limited', 0))
+            self.assertEqual(
+                0, self.logger.get_increment_counts().get(
+                    'error_limiter.forced_limit', 0))
+
             self.app.error_limit(first_nodes[0], 'test')
+            self.assertEqual(
+                1, self.logger.get_increment_counts().get(
+                    'error_limiter.forced_limit', 0))
+            line = self.logger.get_lines_for_level('error')[-1]
+            self.assertEqual(
+                ('Node will be error limited from now: %s, error: %s' %
+                 (node_to_string(first_nodes[0]),
+                  'test')),
+                line)
+
             second_nodes = list(self.app.iter_nodes(
                 object_ring, 0, self.logger))
             self.assertNotIn(first_nodes[0], second_nodes)
+            self.assertEqual(
+                1, self.logger.get_increment_counts().get(
+                    'error_limiter.is_limited', 0))
+            third_nodes = list(self.app.iter_nodes(
+                object_ring, 0, self.logger))
+            self.assertNotIn(first_nodes[0], third_nodes)
+            self.assertEqual(
+                2, self.logger.get_increment_counts().get(
+                    'error_limiter.is_limited', 0))
 
     def test_iter_nodes_gives_extra_if_error_limited_inline(self):
         object_ring = self.app.get_object_ring(None)
