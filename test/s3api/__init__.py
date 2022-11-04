@@ -190,6 +190,8 @@ class BaseS3TestCase(unittest.TestCase):
         try:
             client.delete_bucket(Bucket=bucket_name)
         except ClientError as e:
+            if 'NoSuchBucket' in str(e):
+                return
             if 'BucketNotEmpty' not in str(e):
                 raise
             # Something's gone sideways. Try harder
@@ -208,6 +210,8 @@ class BaseS3TestCase(unittest.TestCase):
                 try:
                     client.delete_bucket(Bucket=bucket_name)
                 except ClientError as e:
+                    if 'NoSuchBucket' in str(e):
+                        return
                     if 'BucketNotEmpty' not in str(e):
                         raise
                     if time.time() > timeout:
