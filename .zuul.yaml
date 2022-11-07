@@ -749,6 +749,7 @@
               - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
         - swift-multinode-rolling-upgrade:
             irrelevant-files: *functest-irrelevant-files
+            voting: false
         - tempest-integrated-object-storage:
             irrelevant-files: &tempest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
@@ -793,8 +794,6 @@
             irrelevant-files: *unittest-irrelevant-files
         - openstack-tox-pep8:
             irrelevant-files: *pep8-irrelevant-files
-        - swift-multinode-rolling-upgrade:
-            irrelevant-files: *functest-irrelevant-files
         - tempest-integrated-object-storage:
             irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
