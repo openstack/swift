@@ -43,7 +43,7 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     find_shrinking_candidates, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, is_shrinking_candidate, \
     is_sharding_candidate, find_paths, rank_paths, ContainerSharderConf, \
-    find_paths_with_gaps, combine_shard_ranges
+    find_paths_with_gaps, combine_shard_ranges, find_overlapping_ranges
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5, \
     ShardName
@@ -5562,6 +5562,63 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges(shrinking_shard_ranges)
         check_missing()
 
+    def test_audit_root_container_with_parent_child_overlapping(self):
+        # Test '_audit_root_container' when overlapping shard ranges are
+        # parent and children, expect no warnings. The case of non parent-child
+        # overlapping is tested in 'test_audit_root_container'.
+        now_ts = next(self.ts_iter)
+        past_ts = Timestamp(float(now_ts) - 604801)
+        root_sr = ShardRange('a/c', past_ts, state=ShardRange.SHARDED)
+        parent_range = ShardRange(ShardRange.make_path(
+            '.shards_a', 'c', root_sr.container,
+            past_ts, 0),
+            past_ts, 'a', 'f', object_count=1,
+            state=ShardRange.CLEAVED)
+        child_ranges = [
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_range.container, past_ts, 0),
+                past_ts, lower='a', upper='c', object_count=1,
+                state=ShardRange.CLEAVED),
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_range.container, past_ts, 1),
+                past_ts, lower='c', upper='f', object_count=1,
+                state=ShardRange.CLEAVED)]
+        self.assertTrue(find_overlapping_ranges([parent_range] + child_ranges))
+        broker = self._make_broker()
+
+        # The case of transient overlapping within reclaim_age.
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'has_overlap': 0, 'num_overlap': 0}
+        broker.merge_shard_ranges([parent_range] + child_ranges)
+        with mock.patch('swift.container.sharder.time.time',
+                        return_value=float(now_ts) - 10):
+            with self._mock_sharder() as sharder:
+                with mock.patch.object(
+                        sharder, '_audit_shard_container') as mocked:
+                    sharder._audit_container(broker)
+        self._assert_stats(expected_stats, sharder, 'audit_root')
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+        mocked.assert_not_called()
+
+        # The case of overlapping past reclaim_age.
+        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1,
+                          'has_overlap': 1, 'num_overlap': 2}
+        with mock.patch('swift.container.sharder.time.time',
+                        return_value=float(now_ts)):
+            with self._mock_sharder() as sharder:
+                with mock.patch.object(
+                        sharder, '_audit_shard_container') as mocked:
+                    sharder._audit_container(broker)
+        lines = sharder.logger.get_lines_for_level('warning')
+        self.assertIn('Audit failed for root', lines[0])
+        self.assertFalse(lines[1:])
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+        self._assert_stats(expected_stats, sharder, 'audit_root')
+        mocked.assert_not_called()
+
     def test_audit_deleted_root_container(self):
         broker = self._make_broker()
         shard_bounds = (
@@ -8707,6 +8764,91 @@ class TestSharderFunctions(BaseTestSharder):
         range_of_interest.upper = 'c'
         paths_with_gaps = find_paths_with_gaps(ranges, range_of_interest)
         self.assertFalse(paths_with_gaps)
+
+    def test_find_overlapping_ranges(self):
+        now_ts = next(self.ts_iter)
+        past_ts = Timestamp(float(now_ts) - 61)
+        root_sr = ShardRange('a/c', past_ts, state=ShardRange.SHARDED)
+        bounds = (
+            ('', 'a'),
+            ('a', 'f'),  # the 'parent_range' in this test.
+            ('f', 'm'),  # shard range overlaps with the next.
+            ('k', 'p'),
+            ('p', 'y'),
+            ('y', '')
+        )
+        ranges = [
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', root_sr.container, past_ts,
+                    index),
+                past_ts, lower, upper, object_count=1,
+                state=ShardRange.SHARDED)
+            for index, (lower, upper) in enumerate(bounds)]
+        parent_range = ranges[1]
+        child_ranges = [
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_range.container, past_ts, 0),
+                past_ts, lower='a', upper='c', object_count=1,
+                state=ShardRange.CLEAVED),
+            ShardRange(
+                ShardRange.make_path(
+                    '.shards_a', 'c', parent_range.container, past_ts, 1),
+                past_ts, lower='c', upper='f', object_count=1,
+                state=ShardRange.CLEAVED)]
+        overlapping_ranges = find_overlapping_ranges(ranges)
+        self.assertEqual({(ranges[2], ranges[3])}, overlapping_ranges)
+        overlapping_ranges = find_overlapping_ranges(
+            [ranges[1]] + child_ranges)
+        self.assertEqual(
+            {(child_ranges[0], child_ranges[1], ranges[1])},
+            overlapping_ranges)
+        overlapping_ranges = find_overlapping_ranges(
+            [ranges[1]] + child_ranges, exclude_parent_child=True)
+        self.assertEqual(0, len(overlapping_ranges))
+        with mock.patch(
+                'swift.container.sharder.time.time',
+                return_value=float(now_ts)):
+            overlapping_ranges = find_overlapping_ranges(
+                [ranges[1]] + child_ranges, exclude_parent_child=True,
+                time_period=61)
+            self.assertEqual(0, len(overlapping_ranges))
+            overlapping_ranges = find_overlapping_ranges(
+                [ranges[1]] + child_ranges, exclude_parent_child=True,
+                time_period=60)
+            self.assertEqual(
+                {(child_ranges[0], child_ranges[1], ranges[1])},
+                overlapping_ranges)
+        overlapping_ranges = find_overlapping_ranges(
+            ranges + child_ranges)
+        self.assertEqual(
+            {(child_ranges[0],
+              child_ranges[1],
+              ranges[1]),
+             (ranges[2],
+              ranges[3])},
+            overlapping_ranges)
+        overlapping_ranges = find_overlapping_ranges(
+            ranges + child_ranges, exclude_parent_child=True)
+        self.assertEqual({(ranges[2], ranges[3])}, overlapping_ranges)
+        with mock.patch(
+                'swift.container.sharder.time.time',
+                return_value=float(now_ts)):
+            overlapping_ranges = find_overlapping_ranges(
+                ranges + child_ranges, exclude_parent_child=True,
+                time_period=61)
+            self.assertEqual({(ranges[2], ranges[3])}, overlapping_ranges)
+            overlapping_ranges = find_overlapping_ranges(
+                ranges + child_ranges, exclude_parent_child=True,
+                time_period=60)
+            self.assertEqual(
+                {(child_ranges[0],
+                  child_ranges[1],
+                  ranges[1]),
+                 (ranges[2],
+                 ranges[3])},
+                overlapping_ranges)
 
 
 class TestContainerSharderConf(unittest.TestCase):

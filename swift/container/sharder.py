@@ -158,19 +158,55 @@ def find_paths_with_gaps(shard_ranges, within_range=None):
     return paths_with_gaps
 
 
-def find_overlapping_ranges(shard_ranges):
+def _is_parent_or_child(shard_range, other, time_period):
+    """
+    Test if shard range ``shard_range`` is the parent or a child of another
+    shard range ``other`` within past time period ``time_period``. This method
+    is limited to work only within the scope of the same user-facing account
+    (with and without shard prefix).
+
+    :param shard_range: an instance of ``ShardRange``.
+    :param other: an instance of ``ShardRange``.
+    :param time_period: the specified past time period in seconds. Value of
+        0 means all time in the past.
+    :return: True if ``shard_range`` is the parent or a child of ``other``
+        within past time period, False otherwise, assuming that they are within
+         the same account.
+    """
+    exclude_age = (time.time() - float(time_period)) if time_period > 0 else 0
+    if shard_range.is_child_of(other) and shard_range.timestamp >= exclude_age:
+        return True
+    if other.is_child_of(shard_range) and other.timestamp >= exclude_age:
+        return True
+    return False
+
+
+def find_overlapping_ranges(
+        shard_ranges, exclude_parent_child=False, time_period=0):
     """
     Find all pairs of overlapping ranges in the given list.
 
     :param shard_ranges: A list of :class:`~swift.utils.ShardRange`
+    :param exclude_parent_child: If True then overlapping pairs that have a
+        parent-child relationship within the past time period
+        ``time_period`` are excluded from the returned set. Default is
+        False.
+    :param time_period: the specified past time period in seconds. Value of
+        0 means all time in the past.
     :return: a set of tuples, each tuple containing ranges that overlap with
         each other.
     """
     result = set()
     for i, shard_range in enumerate(shard_ranges):
-        overlapping = [
-            sr for sr in shard_ranges[i + 1:]
-            if shard_range.name != sr.name and shard_range.overlaps(sr)]
+        if exclude_parent_child:
+            overlapping = [
+                sr for sr in shard_ranges[i + 1:]
+                if shard_range.name != sr.name and shard_range.overlaps(sr) and
+                not _is_parent_or_child(shard_range, sr, time_period)]
+        else:
+            overlapping = [
+                sr for sr in shard_ranges[i + 1:]
+                if shard_range.name != sr.name and shard_range.overlaps(sr)]
         if overlapping:
             overlapping.append(shard_range)
             overlapping.sort(key=ShardRange.sort_key)
@@ -1199,7 +1235,18 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 # allow multiple shards in that state
                 continue
             shard_ranges = broker.get_shard_ranges(states=state)
-            overlaps = find_overlapping_ranges(shard_ranges)
+            # Transient overlaps can occur during the period immediately after
+            # sharding if a root learns about new child shards before it learns
+            # that the parent has sharded. These overlaps are normally
+            # corrected as an up-to-date version of the parent shard range is
+            # replicated to the root. Parent-child overlaps are therefore
+            # ignored for a reclaim age after the child was created. After
+            # that, parent-child overlaps may indicate that there is
+            # permanently stale parent shard range data, perhaps from a node
+            # that has been offline, so these are reported.
+            overlaps = find_overlapping_ranges(
+                shard_ranges, exclude_parent_child=True,
+                time_period=self.reclaim_age)
             if overlaps:
                 self._increment_stat('audit_root', 'has_overlap')
                 self._update_stat('audit_root', 'num_overlap',
