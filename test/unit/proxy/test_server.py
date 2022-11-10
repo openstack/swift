@@ -1182,7 +1182,9 @@ class TestProxyServer(unittest.TestCase):
                 expected_info = additional_info.decode('utf8')
             else:
                 expected_info = additional_info
-            for i in range(suppression_limit):
+
+            incremented_limit_samples = []
+            for i in range(suppression_limit + 1):
                 try:
                     raise Exception('kaboom1!')
                 except Exception as err:
@@ -1190,42 +1192,23 @@ class TestProxyServer(unittest.TestCase):
                     app.exception_occurred(
                         node, 'server-type', additional_info)
                 self.assertEqual(i + 1, node_error_count(app, node))
-                line = logger.get_lines_for_level('error')[-1]
+                line = logger.get_lines_for_level('error')[i]
                 self.assertIn('server-type server', line)
                 self.assertIn(expected_info, line)
                 self.assertIn(node['ip'], line)
                 self.assertIn(str(node['port']), line)
                 self.assertIn(node['device'], line)
-                log_args, log_kwargs = logger.log_dict['error'][-1]
+                log_args, log_kwargs = logger.log_dict['error'][i]
                 self.assertTrue(log_kwargs['exc_info'])
                 self.assertIs(caught_exc, log_kwargs['exc_info'][1])
-
-            self.assertEqual(0, logger.get_increment_counts().get(
-                'error_limiter.incremented_limit', 0))
-
-            # One more error to go beyond suppression_limit.
-            try:
-                raise Exception('kaboom1!')
-            except Exception as err:
-                caught_exc = err
-                app.exception_occurred(node, 'server-type', additional_info)
-            self.assertEqual(suppression_limit + 1,
-                             node_error_count(app, node))
-            lines = logger.get_lines_for_level('error')
-            self.assertIn('server-type server', lines[-2])
-            self.assertIn(expected_info, lines[-2])
-            self.assertIn(node['ip'], lines[-2])
-            self.assertIn(str(node['port']), lines[-2])
-            self.assertIn(node['device'], lines[-2])
-            log_args, log_kwargs = logger.log_dict['error'][-2]
-            self.assertTrue(log_kwargs['exc_info'])
-            self.assertIs(caught_exc, log_kwargs['exc_info'][1])
+                incremented_limit_samples.append(
+                    logger.get_increment_counts().get(
+                        'error_limiter.incremented_limit', 0))
+            self.assertEqual([0] * 10 + [1], incremented_limit_samples)
             self.assertEqual(
-                ('Node will be error limited from now: %s' %
+                ('Node will be error limited for 60.00s: %s' %
                  node_to_string(node)),
-                lines[-1])
-            self.assertEqual(1, logger.get_increment_counts().get(
-                'error_limiter.incremented_limit', 0))
+                logger.get_lines_for_level('error')[suppression_limit + 1])
 
         do_test('success')
         do_test('succès')
@@ -1248,33 +1231,36 @@ class TestProxyServer(unittest.TestCase):
                 expected_msg = msg.decode('utf8')
             else:
                 expected_msg = msg
-            for i in range(suppression_limit):
+            incremented_limit_samples = []
+            for i in range(suppression_limit + 1):
                 app.error_occurred(node, msg)
                 self.assertEqual(i + 1, node_error_count(app, node))
-                line = logger.get_lines_for_level('error')[-1]
+                line = logger.get_lines_for_level('error')[i]
                 self.assertIn(expected_msg, line)
-                self.assertIn(node['ip'], line)
-                self.assertIn(str(node['port']), line)
-                self.assertIn(node['device'], line)
+                self.assertIn(node_to_string(node), line)
+                incremented_limit_samples.append(
+                    logger.get_increment_counts().get(
+                        'error_limiter.incremented_limit', 0))
 
-            self.assertEqual(0, logger.get_increment_counts().get(
-                'error_limiter.incremented_limit', 0))
-
-            # One more error to go beyond suppression_limit.
-            app.error_occurred(node, msg)
-            self.assertEqual(suppression_limit + 1,
-                             node_error_count(app, node))
-            lines = logger.get_lines_for_level('error')
-            self.assertIn(expected_msg, lines[-2])
-            self.assertIn(node['ip'], lines[-2])
-            self.assertIn(str(node['port']), lines[-2])
-            self.assertIn(node['device'], lines[-2])
+            self.assertEqual([0] * 10 + [1], incremented_limit_samples)
             self.assertEqual(
-                ('Node will be error limited from now: %s' %
+                ('Node will be error limited for 60.00s: %s' %
                  node_to_string(node)),
-                lines[-1])
-            self.assertEqual(1, logger.get_increment_counts().get(
+                logger.get_lines_for_level('error')[-1])
+
+            # error limiting is extended if another error occurs
+            app.error_occurred(node, msg)
+            self.assertEqual(suppression_limit + 2,
+                             node_error_count(app, node))
+            line = logger.get_lines_for_level('error')[-2]
+            self.assertIn(expected_msg, line)
+            self.assertIn(node_to_string(node), line)
+            self.assertEqual(2, logger.get_increment_counts().get(
                 'error_limiter.incremented_limit', 0))
+            self.assertEqual(
+                ('Node will be error limited for 60.00s: %s' %
+                 node_to_string(node)),
+                logger.get_lines_for_level('error')[-1])
 
         do_test('success')
         do_test('succès')
@@ -1368,9 +1354,8 @@ class TestProxyServer(unittest.TestCase):
         error_lines = app.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual(
-            'Node will be error limited from now: 10.0.0.0:1000/sda, '
-            'error: ERROR Insufficient Storage',
-            error_lines[0])
+            'Node will be error limited for 60.00s: 10.0.0.0:1000/sda, '
+            'error: ERROR Insufficient Storage', error_lines[0])
         self.assertEqual(11, node_error_count(app, node))
         self.assertTrue(app.error_limited(node))
 
@@ -1381,9 +1366,8 @@ class TestProxyServer(unittest.TestCase):
         error_lines = app.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual(
-            'Node will be error limited from now: 10.0.0.0:1000/sda, '
-            'error: ERROR Insufficient Storage',
-            error_lines[0])
+            'Node will be error limited for 60.00s: 10.0.0.0:1000/sda, '
+            'error: ERROR Insufficient Storage', error_lines[0])
         self.assertEqual(11, node_error_count(app, node))
         self.assertTrue(app.error_limited(node))
 
@@ -3475,10 +3459,8 @@ class TestReplicatedObjectController(
                     'error_limiter.forced_limit', 0))
             line = self.logger.get_lines_for_level('error')[-1]
             self.assertEqual(
-                ('Node will be error limited from now: %s, error: %s' %
-                 (node_to_string(error_node),
-                  'test')),
-                line)
+                ('Node will be error limited for 60.00s: %s, error: %s'
+                 % (node_to_string(error_node), 'test')), line)
 
             # no error limited checking yet.
             self.assertEqual(
@@ -5339,10 +5321,8 @@ class TestReplicatedObjectController(
                     'error_limiter.forced_limit', 0))
             line = self.logger.get_lines_for_level('error')[-1]
             self.assertEqual(
-                ('Node will be error limited from now: %s, error: %s' %
-                 (node_to_string(first_nodes[0]),
-                  'test')),
-                line)
+                ('Node will be error limited for 60.00s: %s, error: %s'
+                 % (node_to_string(first_nodes[0]), 'test')), line)
 
             second_nodes = list(self.app.iter_nodes(
                 object_ring, 0, self.logger))

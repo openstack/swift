@@ -675,8 +675,8 @@ class Application(object):
         self.error_limiter.limit(node)
         self.logger.increment('error_limiter.forced_limit')
         self.logger.error(
-            'Node will be error limited from now: %s, error: %s',
-            node_to_string(node),
+            'Node will be error limited for %.2fs: %s, error: %s',
+            self.error_limiter.suppression_interval, node_to_string(node),
             msg)
 
     def _error_increment(self, node):
@@ -689,8 +689,8 @@ class Application(object):
         if self.error_limiter.increment(node):
             self.logger.increment('error_limiter.incremented_limit')
             self.logger.error(
-                'Node will be error limited from now: %s',
-                node_to_string(node))
+                'Node will be error limited for %.2fs: %s',
+                self.error_limiter.suppression_interval, node_to_string(node))
 
     def error_occurred(self, node, msg):
         """
