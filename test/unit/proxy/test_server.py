@@ -56,7 +56,7 @@ from test.debug_logger import debug_logger
 from test.unit import (
     connect_tcp, readuntil2crlfs, fake_http_connect, FakeRing, FakeMemcache,
     patch_policies, write_fake_ring, mocked_http_conn, DEFAULT_TEST_EC_TYPE,
-    make_timestamp_iter, skip_if_no_xattrs)
+    make_timestamp_iter, skip_if_no_xattrs, FakeHTTPResponse)
 from test.unit.helpers import setup_servers, teardown_servers
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
@@ -1287,6 +1287,74 @@ class TestProxyServer(unittest.TestCase):
         self.assertTrue(log_kwargs['exc_info'])
         self.assertIs(log_kwargs['exc_info'][1], expected_err)
         self.assertEqual(4, node_error_count(app, node))
+
+    def test_check_response_200(self):
+        app = proxy_server.Application({},
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       logger=debug_logger())
+        node = app.container_ring.get_part_nodes(1)[0]
+        resp = FakeHTTPResponse(Response())
+        ret = app.check_response(node, 'Container', resp, 'PUT', '/v1/a/c')
+        self.assertTrue(ret)
+        error_lines = app.logger.get_lines_for_level('error')
+        self.assertFalse(error_lines)
+        self.assertEqual(0, node_error_count(app, node))
+
+    def test_check_response_507(self):
+        app = proxy_server.Application({},
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       logger=debug_logger())
+        node = app.container_ring.get_part_nodes(1)[0]
+        resp = FakeHTTPResponse(Response(status=507))
+        ret = app.check_response(node, 'Container', resp, 'PUT', '/v1/a/c')
+        self.assertFalse(ret)
+        error_lines = app.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('ERROR Insufficient Storage 10.0.0.0:1000/sda',
+                         error_lines[0])
+        self.assertEqual(11, node_error_count(app, node))
+        self.assertTrue(app.error_limited(node))
+
+        app.logger.clear()
+        ret = app.check_response(node, 'Account', resp, 'PUT', '/v1/a/c',
+                                 body='full')
+        self.assertFalse(ret)
+        error_lines = app.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('ERROR Insufficient Storage 10.0.0.0:1000/sda',
+                         error_lines[0])
+        self.assertEqual(11, node_error_count(app, node))
+        self.assertTrue(app.error_limited(node))
+
+    def test_check_response_503(self):
+        app = proxy_server.Application({},
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       logger=debug_logger())
+        node = app.container_ring.get_part_nodes(1)[0]
+        resp = FakeHTTPResponse(Response(status=503))
+        app.logger.clear()
+        ret = app.check_response(node, 'Container', resp, 'PUT', '/v1/a/c')
+        self.assertFalse(ret)
+        error_lines = app.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('ERROR 503 Trying to PUT /v1/a/c From Container '
+                         'Server 10.0.0.0:1000/sda', error_lines[0])
+        self.assertEqual(1, node_error_count(app, node))
+        self.assertFalse(app.error_limited(node))
+
+        app.logger.clear()
+        ret = app.check_response(node, 'Object', resp, 'GET', '/v1/a/c/o',
+                                 body='full')
+        self.assertFalse(ret)
+        error_lines = app.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('ERROR 503 full Trying to GET /v1/a/c/o From Object '
+                         'Server 10.0.0.0:1000/sda', error_lines[0])
+        self.assertEqual(2, node_error_count(app, node))
+        self.assertFalse(app.error_limited(node))
 
     def test_valid_api_version(self):
         app = proxy_server.Application({},

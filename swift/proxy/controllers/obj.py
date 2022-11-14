@@ -478,18 +478,9 @@ class BaseObjectController(Controller):
             else:
                 body = b''
             bodies.append(body)
-            if response.status == HTTP_INSUFFICIENT_STORAGE:
+            if not self.app.check_response(putter.node, 'Object', response,
+                                           req.method, req.path, body):
                 putter.failed = True
-                self.app.error_limit(putter.node,
-                                     'ERROR Insufficient Storage')
-            elif response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                putter.failed = True
-                self.app.error_occurred(
-                    putter.node,
-                    'ERROR %(status)d %(body)s From Object Server '
-                    're: %(path)s' %
-                    {'status': response.status,
-                     'body': body[:1024], 'path': req.path})
             elif is_success(response.status):
                 etags.add(normalize_etag(response.getheader('etag')))
 
@@ -2791,15 +2782,8 @@ class ECFragGetter(object):
             self.body = possible_source.read()
             conn.close()
 
-            if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                self.app.error_limit(node, 'ERROR Insufficient Storage')
-            elif is_server_error(possible_source.status):
-                self.app.error_occurred(
-                    node, 'ERROR %(status)d %(body)s '
-                          'From Object Server' %
-                    {'status': possible_source.status,
-                     'body': self.body[:1024]})
-            else:
+            if self.app.check_response(node, 'Object', possible_source, 'GET',
+                                       self.path):
                 self.logger.debug(
                     'Ignoring %s from primary' % possible_source.status)
 
