@@ -970,7 +970,7 @@ class ServersPerPortStrategy(StrategyBase):
         Called when a new worker is started.
 
         :param socket sock: The listen socket for the worker just started.
-        :param server_idx: The socket's server_idx as yielded by
+        :param tuple data: The socket's (port, server_idx) as yielded by
                            :py:meth:`new_worker_socks`.
         :param int pid: The new worker process' PID
         """
@@ -1090,6 +1090,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     signal.signal(signal.SIGUSR1, stop_with_signal)
 
     while running_context[0]:
+        new_workers = {}  # pid -> status pipe
         for sock, sock_info in strategy.new_worker_socks():
             read_fd, write_fd = os.pipe()
             pid = os.fork()
@@ -1114,16 +1115,16 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                 return 0
             else:
                 os.close(write_fd)
-                worker_status = os.read(read_fd, 30)
-                os.close(read_fd)
-                # TODO: delay this status checking until after we've tried
-                # to start all workers. But, we currently use the register
-                # event to know when we've got enough workers :-/
-                if worker_status == b'ready':
-                    strategy.register_worker_start(sock, sock_info, pid)
-                else:
-                    raise Exception(
-                        'worker did not start normally: %r' % worker_status)
+                new_workers[pid] = read_fd
+                strategy.register_worker_start(sock, sock_info, pid)
+
+        for pid, read_fd in new_workers.items():
+            worker_status = os.read(read_fd, 30)
+            os.close(read_fd)
+            if worker_status != b'ready':
+                raise Exception(
+                    'worker %d did not start normally: %r' %
+                    (pid, worker_status))
 
         # TODO: signal_ready() as soon as we have at least one new worker for
         # each port, instead of waiting for all of them
