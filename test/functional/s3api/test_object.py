@@ -29,6 +29,7 @@ from time import mktime
 import six
 
 import test.functional as tf
+from swift.common import utils
 
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import S3Timestamp
@@ -36,7 +37,8 @@ from swift.common.utils import md5, quote
 
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
-from test.functional.s3api.utils import get_error_code, calculate_md5
+from test.functional.s3api.utils import get_error_code, calculate_md5, \
+    get_error_msg
 
 DAY = 86400.0  # 60 * 60 * 24 (sec)
 
@@ -416,6 +418,53 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
+
+    def test_put_object_valid_delete_headers(self):
+        obj = 'object'
+        content = b'abcdefghij'
+        ts = utils.Timestamp.now()
+        delete_at = {'X-Delete-At': str(int(ts) + 70)}
+        delete_after = {'X-Delete-After': str(int(ts) + 130)}
+        status, delete_at, body = \
+            self.conn.make_request('PUT', self.bucket, obj, delete_at, content)
+        self.assertEqual(status, 200)
+        status, delete_after, body = \
+            self.conn.make_request('PUT', self.bucket, obj, delete_after,
+                                   content)
+        self.assertEqual(status, 200)
+
+    def test_put_object_invalid_x_delete_at(self):
+        obj = 'object'
+        content = b'abcdefghij'
+        ts = utils.Timestamp.now()
+        headers = {'X-Delete-At': str(int(ts) - 140)}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEqual(status, 400)
+        self.assertEqual(get_error_code(body), 'InvalidArgument')
+        self.assertEqual(get_error_msg(body), 'X-Delete-At in past')
+        headers = {'X-Delete-At': 'test'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEqual(status, 400)
+        self.assertEqual(get_error_code(body), 'InvalidArgument')
+        self.assertEqual(get_error_msg(body), 'Non-integer X-Delete-At')
+
+    def test_put_object_invalid_x_delete_after(self):
+        obj = 'object'
+        content = b'abcdefghij'
+        headers = {'X-Delete-After': 'test'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEqual(status, 400)
+        self.assertEqual(get_error_code(body), 'InvalidArgument')
+        self.assertEqual(get_error_msg(body), 'Non-integer X-Delete-After')
+        headers = {'X-Delete-After': '-140'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEqual(status, 400)
+        self.assertEqual(get_error_code(body), 'InvalidArgument')
+        self.assertEqual(get_error_msg(body), 'X-Delete-After in past')
 
     def test_put_object_copy_source_params(self):
         obj = 'object'
