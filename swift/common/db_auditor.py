@@ -15,7 +15,6 @@
 
 import os
 import time
-from swift import gettext_ as _
 from random import random
 
 from eventlet import Timeout
@@ -73,8 +72,8 @@ class DatabaseAuditor(Daemon):
             self.audit(path)
             if time.time() - reported >= self.logging_interval:
                 self.logger.info(
-                    _('Since %(time)s: %(server_type)s audits: %(pass)s '
-                      'passed audit, %(fail)s failed audit'),
+                    'Since %(time)s: %(server_type)s audits: %(pass)s '
+                    'passed audit, %(fail)s failed audit',
                     {'time': time.ctime(reported),
                      'pass': self.passes,
                      'fail': self.failures,
@@ -97,16 +96,16 @@ class DatabaseAuditor(Daemon):
         time.sleep(random() * self.interval)
         while True:
             self.logger.info(
-                _('Begin {} audit pass.').format(self.server_type))
+                'Begin {} audit pass.'.format(self.server_type))
             begin = time.time()
             try:
                 reported = self._one_audit_pass(reported)
             except (Exception, Timeout):
                 self.logger.increment('errors')
-                self.logger.exception(_('ERROR auditing'))
+                self.logger.exception('ERROR auditing')
             elapsed = time.time() - begin
             self.logger.info(
-                _('%(server_type)s audit pass completed: %(elapsed).02fs'),
+                '%(server_type)s audit pass completed: %(elapsed).02fs',
                 {'elapsed': elapsed, 'server_type': self.server_type.title()})
             dump_recon_cache({
                 '{}_auditor_pass_completed'.format(self.server_type): elapsed},
@@ -117,12 +116,12 @@ class DatabaseAuditor(Daemon):
     def run_once(self, *args, **kwargs):
         """Run the database audit once."""
         self.logger.info(
-            _('Begin {} audit "once" mode').format(self.server_type))
+            'Begin {} audit "once" mode'.format(self.server_type))
         begin = reported = time.time()
         self._one_audit_pass(reported)
         elapsed = time.time() - begin
         self.logger.info(
-            _('%(server_type)s audit "once" mode completed: %(elapsed).02fs'),
+            '%(server_type)s audit "once" mode completed: %(elapsed).02fs',
             {'elapsed': elapsed, 'server_type': self.server_type.title()})
         dump_recon_cache(
             {'{}_auditor_pass_completed'.format(self.server_type): elapsed},
@@ -148,13 +147,13 @@ class DatabaseAuditor(Daemon):
         except DatabaseAuditorException as e:
             self.logger.increment('failures')
             self.failures += 1
-            self.logger.error(_('Audit Failed for %(path)s: %(err)s'),
+            self.logger.error('Audit Failed for %(path)s: %(err)s',
                               {'path': path, 'err': str(e)})
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.failures += 1
             self.logger.exception(
-                _('ERROR Could not get %(server_type)s info %(path)s'),
+                'ERROR Could not get %(server_type)s info %(path)s',
                 {'server_type': self.server_type, 'path': path})
         self.logger.timing_since('timing', start_time)
 
