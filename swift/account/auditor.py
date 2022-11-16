@@ -41,6 +41,7 @@ class AccountAuditor(DatabaseAuditor):
             if policy_totals[key] == info[key]:
                 continue
             return InvalidAccountInfo(
-                'The total %(key)s for the container (%(total)s) does not '
-                'match the sum of %(key)s across policies (%(sum)s)'
-                % {'key': key, 'total': info[key], 'sum': policy_totals[key]})
+                'The total %(key)s for the account %(account)s (%(total)s) '
+                'does not match the sum of %(key)s across policies (%(sum)s)'
+                % {'key': key, 'account': info.get('account'),
+                   'total': info[key], 'sum': policy_totals[key]})

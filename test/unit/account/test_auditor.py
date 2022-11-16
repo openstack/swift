@@ -125,8 +125,9 @@ class TestAuditorRealBroker(unittest.TestCase):
         self.assertEqual(len(error_lines), 1)
         error_message = error_lines[0]
         self.assertIn(broker.db_file, error_message)
-        self.assertIn('container_count', error_message)
-        self.assertIn('does not match', error_message)
+        self.assertIn(
+            'The total container_count for the account a (3) does not match '
+            'the sum of container_count across policies (2)', error_message)
         self.assertEqual(test_auditor.logger.get_increment_counts(),
                          {'failures': 1})
 
