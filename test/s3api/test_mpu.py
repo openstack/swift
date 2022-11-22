@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from test.s3api import BaseS3TestCase
+from botocore.exceptions import ClientError
 
 
 class TestMultiPartUploads(BaseS3TestCase):
@@ -98,3 +99,42 @@ class TestMultiPartUploads(BaseS3TestCase):
         self.assertEqual(200, list_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual([], list_mpu_resp.get('Uploads', []))
+
+    def test_complete_multipart_upload_malformed_request(self):
+        key_name = self.create_name('key')
+        create_mpu_resp = self.client.create_multipart_upload(
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(200, create_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        upload_id = create_mpu_resp['UploadId']
+        parts = []
+        for i in range(1, 3):
+            body = ('%d' % i) * 5 * (2 ** 20)
+            part_resp = self.client.upload_part(
+                Body=body, Bucket=self.bucket_name, Key=key_name,
+                PartNumber=i, UploadId=upload_id)
+            self.assertEqual(200, part_resp[
+                'ResponseMetadata']['HTTPStatusCode'])
+            parts.append({
+                'PartNumber': i,
+                'ETag': '',
+            })
+        with self.assertRaises(ClientError) as caught:
+            self.client.complete_multipart_upload(
+                Bucket=self.bucket_name, Key=key_name,
+                MultipartUpload={
+                    'Parts': parts,
+                },
+                UploadId=upload_id,
+            )
+        complete_mpu_resp = caught.exception.response
+        self.assertEqual(400, complete_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('InvalidPart', complete_mpu_resp[
+            'Error']['Code'])
+        self.assertTrue(complete_mpu_resp['Error']['Message'].startswith(
+            'One or more of the specified parts could not be found.'
+        ), complete_mpu_resp['Error']['Message'])
+        self.assertEqual(complete_mpu_resp['Error']['UploadId'], upload_id)
+        self.assertIn(complete_mpu_resp['Error']['PartNumber'], ('1', '2'))
+        self.assertEqual(complete_mpu_resp['Error']['ETag'], None)

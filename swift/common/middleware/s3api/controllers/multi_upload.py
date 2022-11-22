@@ -708,11 +708,15 @@ class UploadController(Controller):
                 previous_number = part_number
 
                 etag = normalize_etag(part_elem.find('./ETag').text)
+                if etag is None:
+                    raise InvalidPart(upload_id=upload_id,
+                                      part_number=part_number,
+                                      e_tag=etag)
                 if len(etag) != 32 or any(c not in '0123456789abcdef'
                                           for c in etag):
                     raise InvalidPart(upload_id=upload_id,
-                                      part_number=part_number)
-
+                                      part_number=part_number,
+                                      e_tag=etag)
                 manifest.append({
                     'path': '/%s/%s/%s/%d' % (
                         wsgi_to_str(container), wsgi_to_str(req.object_name),
