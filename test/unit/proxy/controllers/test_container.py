@@ -483,7 +483,8 @@ class TestContainerController(TestRingBase):
 
     def _check_GET_shard_listing(self, mock_responses, expected_objects,
                                  expected_requests, query_string='',
-                                 reverse=False, expected_status=200):
+                                 reverse=False, expected_status=200,
+                                 memcache=False):
         # mock_responses is a list of tuples (status, json body, headers)
         # expected objects is a list of dicts
         # expected_requests is a list of tuples (path, hdrs dict, params dict)
@@ -503,6 +504,11 @@ class TestContainerController(TestRingBase):
                        for resp in mock_responses])
         exp_headers = [resp[2] for resp in mock_responses]
         request = Request.blank(container_path)
+        if memcache:
+            # memcache exists, which causes backend to ignore constraints and
+            # reverse params for shard range GETs
+            request.environ['swift.cache'] = FakeMemcache()
+
         with mocked_http_conn(
                 *codes, body_iter=bodies, headers=exp_headers) as fake_conn:
             resp = request.get_response(self.app)
@@ -532,6 +538,12 @@ class TestContainerController(TestRingBase):
                     self.assertIn(k, req['headers'])
                     self.assertEqual(v, req['headers'][k], k)
                 self.assertNotIn('X-Backend-Override-Delete', req['headers'])
+                if memcache:
+                    self.assertEqual('sharded', req['headers'].get(
+                        'X-Backend-Override-Shard-Name-Filter'))
+                else:
+                    self.assertNotIn('X-Backend-Override-Shard-Name-Filter',
+                                     req['headers'])
         return resp
 
     def check_response(self, resp, root_resp_hdrs, expected_objects=None):
@@ -557,13 +569,14 @@ class TestContainerController(TestRingBase):
         info = get_container_info(resp.request.environ, self.app)
         self.assertEqual(headers_to_container_info(info_hdrs), info)
 
-    def test_GET_sharded_container(self):
+    def test_GET_sharded_container_no_memcache(self):
         # Don't worry, ShardRange._encode takes care of unicode/bytes issues
         shard_bounds = ('', 'ham', 'pie', u'\N{SNOWMAN}', u'\U0001F334', '')
         shard_ranges = [
             ShardRange('.shards_a/c_%s' % upper, Timestamp.now(), lower, upper)
             for lower, upper in zip(shard_bounds[:-1], shard_bounds[1:])]
-        sr_dicts = [dict(sr) for sr in shard_ranges]
+        sr_dicts = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
         shard_resp_hdrs = [
             {'X-Backend-Sharding-State': 'unsharded',
@@ -684,6 +697,7 @@ class TestContainerController(TestRingBase):
         # GET all objects in reverse and *blank* limit
         mock_responses = [
             # status, body, headers
+            # NB: the backend returns reversed shard range list
             (200, list(reversed(sr_dicts)), root_shard_resp_hdrs),
             (200, list(reversed(sr_objs[4])), shard_resp_hdrs[4]),
             (200, list(reversed(sr_objs[3])), shard_resp_hdrs[3]),
@@ -937,6 +951,404 @@ class TestContainerController(TestRingBase):
             mock_responses, expected_objects, expected_requests,
             query_string='?marker=%s&end_marker=%s&limit=%s&reverse=true'
             % (end_marker, marker, limit), reverse=True)
+        self.check_response(resp, root_resp_hdrs)
+
+    def test_GET_sharded_container_with_memcache(self):
+        # verify alternative code path in ContainerController when memcache is
+        # available...
+        shard_bounds = ('', 'ham', 'pie', u'\N{SNOWMAN}', u'\U0001F334', '')
+        shard_ranges = [
+            ShardRange('.shards_a/c_%s' % upper, Timestamp.now(), lower, upper)
+            for lower, upper in zip(shard_bounds[:-1], shard_bounds[1:])]
+        sr_dicts = [dict(sr, last_modified=sr.timestamp.isoformat)
+                    for sr in shard_ranges]
+        sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
+        shard_resp_hdrs = [
+            {'X-Backend-Sharding-State': 'unsharded',
+             'X-Container-Object-Count': len(sr_objs[i]),
+             'X-Container-Bytes-Used':
+                 sum([obj['bytes'] for obj in sr_objs[i]]),
+             'X-Container-Meta-Flavour': 'flavour%d' % i,
+             'X-Backend-Storage-Policy-Index': 0}
+            for i, _ in enumerate(shard_ranges)]
+
+        all_objects = []
+        for objects in sr_objs:
+            all_objects.extend(objects)
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        num_all_objects = len(all_objects)
+        limit = CONTAINER_LISTING_LIMIT
+        expected_objects = all_objects
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Timestamp': '99',
+                          # pretend root object stats are not yet updated
+                          'X-Container-Object-Count': num_all_objects - 1,
+                          'X-Container-Bytes-Used': size_all_objects - 1,
+                          'X-Container-Meta-Flavour': 'peach',
+                          'X-Backend-Storage-Policy-Index': 0,
+                          'X-Backend-Override-Shard-Name-Filter': 'true'}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        # GET all objects
+        # include some failed responses
+        mock_responses = [
+            # status, body, headers
+            (404, '', {}),
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2]),
+            (200, sr_objs[3], shard_resp_hdrs[3]),
+            (200, sr_objs[4], shard_resp_hdrs[4]),
+        ]
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(states='listing')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto',
+             'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='', end_marker='ham\x00', limit=str(limit),
+                  states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='\xd1\xb0', end_marker='\xf0\x9f\x8c\xb4\x00',
+                  states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]
+                                        + sr_objs[2])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='\xe2\xa8\x83', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1] + sr_objs[2]
+                                        + sr_objs[3])))),  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests, memcache=True)
+        # root object count will overridden by actual length of listing
+        self.check_response(resp, root_resp_hdrs,
+                            expected_objects=expected_objects)
+
+        # GET all objects - sharding, final shard range points back to root
+        root_range = ShardRange('a/c', Timestamp.now(), 'pie', '')
+        mock_responses = [
+            # status, body, headers
+            (200, sr_dicts[:2] + [dict(root_range)], root_shard_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2] + sr_objs[3] + sr_objs[4], root_resp_hdrs)
+        ]
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(states='listing')),  # 200
+            (shard_ranges[0].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='', end_marker='ham\x00', limit=str(limit),
+                  states='listing')),  # 200
+            (shard_ranges[1].name,
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),  # 200
+            (root_range.name,
+             {'X-Backend-Record-Type': 'object',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='p', end_marker='',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests, memcache=True)
+        # root object count will overridden by actual length of listing
+        self.check_response(resp, root_resp_hdrs,
+                            expected_objects=expected_objects)
+
+        # GET all objects in reverse and *blank* limit
+        mock_responses = [
+            # status, body, headers
+            (200, list(sr_dicts), root_shard_resp_hdrs),
+            (200, list(reversed(sr_objs[4])), shard_resp_hdrs[4]),
+            (200, list(reversed(sr_objs[3])), shard_resp_hdrs[3]),
+            (200, list(reversed(sr_objs[2])), shard_resp_hdrs[2]),
+            (200, list(reversed(sr_objs[1])), shard_resp_hdrs[1]),
+            (200, list(reversed(sr_objs[0])), shard_resp_hdrs[0]),
+        ]
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(states='listing', reverse='true', limit='')),
+            (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='', end_marker='\xf0\x9f\x8c\xb4', states='listing',
+                  reverse='true', limit=str(limit))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='\xf0\x9f\x8c\xb5', end_marker='\xe2\x98\x83',
+                  states='listing', reverse='true',
+                  limit=str(limit - len(sr_objs[4])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='\xe2\x98\x84', end_marker='pie', states='listing',
+                  reverse='true',
+                  limit=str(limit - len(sr_objs[4] + sr_objs[3])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='q', end_marker='ham', states='listing',
+                  reverse='true',
+                  limit=str(limit - len(sr_objs[4] + sr_objs[3]
+                                        + sr_objs[2])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},
+             dict(marker='i', end_marker='', states='listing', reverse='true',
+                  limit=str(limit - len(sr_objs[4] + sr_objs[3] + sr_objs[2]
+                                        + sr_objs[1])))),  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, list(reversed(expected_objects)),
+            expected_requests, query_string='?reverse=true&limit=',
+            reverse=True, memcache=True)
+        # root object count will overridden by actual length of listing
+        self.check_response(resp, root_resp_hdrs,
+                            expected_objects=expected_objects)
+
+        # GET with limit param
+        limit = len(sr_objs[0]) + len(sr_objs[1]) + 1
+        expected_objects = all_objects[:limit]
+        mock_responses = [
+            (404, '', {}),
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2][:1], shard_resp_hdrs[2])
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(limit=str(limit), states='listing')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(limit=str(limit), states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker='', end_marker='ham\x00', states='listing',
+                  limit=str(limit))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},   # 200
+             dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1])))),
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?limit=%s' % limit, memcache=True)
+        self.check_response(resp, root_resp_hdrs)
+
+        # GET with marker
+        marker = bytes_to_wsgi(sr_objs[3][2]['name'].encode('utf8'))
+        first_included = (len(sr_objs[0]) + len(sr_objs[1])
+                          + len(sr_objs[2]) + 2)
+        limit = CONTAINER_LISTING_LIMIT
+        expected_objects = all_objects[first_included:]
+        mock_responses = [
+            (404, '', {}),
+            (200, sr_dicts[3:], root_shard_resp_hdrs),
+            (404, '', {}),
+            (200, sr_objs[3][2:], shard_resp_hdrs[3]),
+            (200, sr_objs[4], shard_resp_hdrs[4]),
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(marker=marker, states='listing')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(marker=marker, states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker=marker, end_marker='\xf0\x9f\x8c\xb4\x00',
+                  states='listing', limit=str(limit))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker=marker, end_marker='\xf0\x9f\x8c\xb4\x00',
+                  states='listing', limit=str(limit))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker='\xe2\xa8\x83', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[3][2:])))),
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?marker=%s' % marker, memcache=True)
+        self.check_response(resp, root_resp_hdrs)
+
+        # GET with end marker
+        end_marker = bytes_to_wsgi(sr_objs[3][6]['name'].encode('utf8'))
+        first_excluded = (len(sr_objs[0]) + len(sr_objs[1])
+                          + len(sr_objs[2]) + 6)
+        expected_objects = all_objects[:first_excluded]
+        mock_responses = [
+            (404, '', {}),
+            (200, sr_dicts[:4], root_shard_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (404, '', {}),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2]),
+            (404, '', {}),
+            (200, sr_objs[3][:6], shard_resp_hdrs[3]),
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(end_marker=end_marker, states='listing')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(end_marker=end_marker, states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker='', end_marker='ham\x00', states='listing',
+                  limit=str(limit))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 404
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 404
+             dict(marker='\xd1\xb0', end_marker=end_marker, states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]
+                                        + sr_objs[2])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker='\xd1\xb0', end_marker=end_marker, states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]
+                                        + sr_objs[2])))),
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?end_marker=%s' % end_marker, memcache=True)
+        self.check_response(resp, root_resp_hdrs)
+
+        # GET with prefix
+        prefix = 'hat'
+        # they're all 1-character names; the important thing
+        # is which shards we query
+        expected_objects = []
+        mock_responses = [
+            (404, '', {}),
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, [], shard_resp_hdrs[1]),
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(prefix=prefix, states='listing')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(prefix=prefix, states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 404
+             dict(prefix=prefix, marker='', end_marker='pie\x00',
+                  states='listing', limit=str(limit))),
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?prefix=%s' % prefix, memcache=True)
+        self.check_response(resp, root_resp_hdrs)
+
+        # marker and end_marker and limit
+        limit = 2
+        expected_objects = all_objects[first_included:first_excluded]
+        mock_responses = [
+            (200, sr_dicts[3:4], root_shard_resp_hdrs),
+            (200, sr_objs[3][2:6], shard_resp_hdrs[1])
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(states='listing', limit=str(limit),
+                  marker=marker, end_marker=end_marker)),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker=marker, end_marker=end_marker, states='listing',
+                  limit=str(limit))),
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?marker=%s&end_marker=%s&limit=%s'
+            % (marker, end_marker, limit), memcache=True)
+        self.check_response(resp, root_resp_hdrs)
+
+        # reverse with marker, end_marker, and limit
+        expected_objects.reverse()
+        mock_responses = [
+            (200, sr_dicts[3:4], root_shard_resp_hdrs),
+            (200, list(reversed(sr_objs[3][2:6])), shard_resp_hdrs[1])
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto',
+                     'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+             dict(marker=end_marker, reverse='true', end_marker=marker,
+                  limit=str(limit), states='listing',)),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto',
+              'X-Backend-Storage-Policy-Index': '0'},  # 200
+             dict(marker=end_marker, end_marker=marker, states='listing',
+                  limit=str(limit), reverse='true')),
+        ]
+        self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?marker=%s&end_marker=%s&limit=%s&reverse=true'
+            % (end_marker, marker, limit), reverse=True, memcache=True)
         self.check_response(resp, root_resp_hdrs)
 
     def _do_test_GET_sharded_container_with_deleted_shards(self, shard_specs):
