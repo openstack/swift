@@ -142,6 +142,13 @@ class GreenDBConnection(sqlite3.Connection):
             cls = GreenDBCursor
         return sqlite3.Connection.cursor(self, cls)
 
+    def execute(self, *args, **kwargs):
+        # py311 stopped calling self.cursor() to get the cursor;
+        # see https://github.com/python/cpython/pull/31351
+        curs = self.cursor()
+        curs.execute(*args, **kwargs)
+        return curs
+
     def commit(self):
         return _db_timeout(
             self.timeout, self.db_file,
@@ -160,6 +167,9 @@ class GreenDBCursor(sqlite3.Cursor):
         return _db_timeout(
             self.timeout, self.db_file, lambda: sqlite3.Cursor.execute(
                 self, *args, **kwargs))
+
+    # NB: executemany and executescript are *not* greened, and never have been
+    # (as far as I can tell)
 
 
 def dict_factory(crs, row):
