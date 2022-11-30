@@ -978,6 +978,31 @@ class TestManageShardRanges(unittest.TestCase):
             [(data['lower'], data['upper']) for data in self.shard_data],
             [(sr.lower_str, sr.upper_str) for sr in broker.get_shard_ranges()])
 
+        def check_user_exit(user_input):
+            # try again now db has shard ranges, simulate user quitting
+            with open(input_file, 'w') as fd:
+                json.dump(self.overlap_shard_data_1, fd)
+            out = StringIO()
+            err = StringIO()
+            to_patch = 'swift.cli.manage_shard_ranges.input'
+            with mock.patch('sys.stdout', out), \
+                    mock.patch('sys.stderr', err), \
+                    mock.patch(to_patch, side_effect=[user_input]):
+                ret = main([broker.db_file, 'replace', input_file])
+            self.assertEqual(3, ret)
+            expected = ['This will delete existing 10 shard ranges.']
+            self.assertEqual(expected, out.getvalue().splitlines())
+            self.assertEqual(['Loaded db broker for a/c'],
+                             err.getvalue().splitlines())
+            self.assertEqual(
+                [(data['lower'], data['upper']) for data in self.shard_data],
+                [(sr.lower_str, sr.upper_str)
+                 for sr in broker.get_shard_ranges()])
+
+        check_user_exit('q')
+        check_user_exit(EOFError)
+        check_user_exit(KeyboardInterrupt)
+
     def test_analyze_stdin(self):
         out = StringIO()
         err = StringIO()
@@ -1154,21 +1179,27 @@ class TestManageShardRanges(unittest.TestCase):
             [(data['lower'], data['upper']) for data in self.shard_data],
             [(sr.lower_str, sr.upper_str) for sr in found_shard_ranges])
 
-        # Do another find & replace but quit when prompted about existing
-        # shard ranges
-        out = StringIO()
-        err = StringIO()
-        to_patch = 'swift.cli.manage_shard_ranges.input'
-        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
-                mock_timestamp_now(), mock.patch(to_patch, return_value='q'):
-            ret = main([broker.db_file, 'find_and_replace', '10'])
-        self.assertEqual(3, ret)
-        # Shard ranges haven't changed at all
-        self.assertEqual(found_shard_ranges, broker.get_shard_ranges())
-        expected = ['This will delete existing 10 shard ranges.']
-        self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c'],
-                         err.getvalue().splitlines())
+        def check_user_exit(user_input):
+            # Do another find & replace but quit when prompted about existing
+            # shard ranges
+            out = StringIO()
+            err = StringIO()
+            to_patch = 'swift.cli.manage_shard_ranges.input'
+            with mock.patch('sys.stdout', out), mock_timestamp_now(), \
+                    mock.patch('sys.stderr', err), \
+                    mock.patch(to_patch, side_effect=[user_input]):
+                ret = main([broker.db_file, 'find_and_replace', '10'])
+            self.assertEqual(3, ret)
+            # Shard ranges haven't changed at all
+            self.assertEqual(found_shard_ranges, broker.get_shard_ranges())
+            expected = ['This will delete existing 10 shard ranges.']
+            self.assertEqual(expected, out.getvalue().splitlines())
+            self.assertEqual(['Loaded db broker for a/c'],
+                             err.getvalue().splitlines())
+
+        check_user_exit('q')
+        check_user_exit(EOFError)
+        check_user_exit(KeyboardInterrupt)
 
     def test_compact_bad_args(self):
         broker = self._make_broker()
@@ -1327,7 +1358,7 @@ class TestManageShardRanges(unittest.TestCase):
             with mock.patch('sys.stdout', out),\
                     mock.patch('sys.stderr', err), \
                     mock.patch('swift.cli.manage_shard_ranges.input',
-                               return_value=user_input):
+                               side_effect=[user_input]):
                 ret = main([broker.db_file, 'compact',
                             '--max-shrinking', '99'] + options)
             self.assertEqual(exit_code, ret)
@@ -1352,6 +1383,18 @@ class TestManageShardRanges(unittest.TestCase):
             return broker.get_shard_ranges()
 
         broker_ranges = do_compact('n', [], False, 3)
+        # expect no changes to shard ranges
+        self.assertEqual(shard_ranges, broker_ranges)
+        for i, sr in enumerate(broker_ranges):
+            self.assertEqual(ShardRange.ACTIVE, sr.state)
+
+        broker_ranges = do_compact(EOFError, [], False, 3)
+        # expect no changes to shard ranges
+        self.assertEqual(shard_ranges, broker_ranges)
+        for i, sr in enumerate(broker_ranges):
+            self.assertEqual(ShardRange.ACTIVE, sr.state)
+
+        broker_ranges = do_compact(KeyboardInterrupt, [], False, 3)
         # expect no changes to shard ranges
         self.assertEqual(shard_ranges, broker_ranges)
         for i, sr in enumerate(broker_ranges):
@@ -2360,7 +2403,7 @@ class TestManageShardRanges(unittest.TestCase):
                     mock.patch('sys.stderr', err), \
                     mock_timestamp_now(ts_now), \
                     mock.patch('swift.cli.manage_shard_ranges.input',
-                               return_value=user_input):
+                               side_effect=[user_input]):
                 ret = main(
                     [broker.db_file, 'repair', '--min-shard-age', '0'] +
                     options)
@@ -2379,6 +2422,16 @@ class TestManageShardRanges(unittest.TestCase):
         expected = sorted(
             shard_ranges + overlap_shard_ranges_2,
             key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+        ts_now = next(self.ts_iter)
+        do_repair(EOFError, ts_now, [], 3)
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+        ts_now = next(self.ts_iter)
+        do_repair(KeyboardInterrupt, ts_now, [], 3)
+        updated_ranges = broker.get_shard_ranges()
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
         # --dry-run

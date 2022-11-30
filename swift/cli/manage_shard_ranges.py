@@ -233,8 +233,11 @@ def _proceed(args):
     elif args.yes:
         choice = 'yes'
     else:
-        choice = input('Do you want to apply these changes to the container '
-                       'DB? [yes/N]')
+        try:
+            choice = input('Do you want to apply these changes to the '
+                           'container DB? [yes/N]')
+        except (EOFError, KeyboardInterrupt):
+            choice = 'no'
     if choice != 'yes':
         print('No changes applied')
 
@@ -404,9 +407,13 @@ def delete_shard_ranges(broker, args):
             print('  - %d existing shard ranges have started sharding' %
                   [sr.state != ShardRange.FOUND
                    for sr in shard_ranges].count(True))
-        choice = input('Do you want to show the existing ranges [s], '
-                       'delete the existing ranges [yes] '
-                       'or quit without deleting [q]? ')
+        try:
+            choice = input('Do you want to show the existing ranges [s], '
+                           'delete the existing ranges [yes] '
+                           'or quit without deleting [q]? ')
+        except (EOFError, KeyboardInterrupt):
+            choice = 'q'
+
         if choice == 's':
             show_shard_ranges(broker, args)
             continue
