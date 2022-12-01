@@ -183,11 +183,11 @@ class RingBuilder(object):
             with rb.debug():
                 rb.rebalance()
         """
-        self.logger.disabled = False
+        old_val, self.logger.disabled = self.logger.disabled, False
         try:
             yield
         finally:
-            self.logger.disabled = True
+            self.logger.disabled = old_val
 
     @property
     def min_part_seconds_left(self):
