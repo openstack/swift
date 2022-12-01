@@ -4597,7 +4597,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(swift_info['slo'].get('min_segment_size'), 1)
         self.assertEqual(swift_info['slo'].get('max_manifest_size'),
                          mware.max_manifest_size)
-        self.assertIs(swift_info['slo'].get('allow_async_delete'), False)
+        self.assertIs(swift_info['slo'].get('allow_async_delete'), True)
         self.assertEqual(1000, mware.max_manifest_segments)
         self.assertEqual(8388608, mware.max_manifest_size)
         self.assertEqual(1048576, mware.rate_limit_under_size)
@@ -4606,21 +4606,21 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(10, mware.yield_frequency)
         self.assertEqual(2, mware.concurrency)
         self.assertEqual(2, mware.bulk_deleter.delete_concurrency)
-        self.assertIs(False, mware.allow_async_delete)
+        self.assertIs(True, mware.allow_async_delete)
 
     def test_registered_non_defaults(self):
         conf = dict(
             max_manifest_segments=500, max_manifest_size=1048576,
             rate_limit_under_size=2097152, rate_limit_after_segment=20,
             rate_limit_segments_per_sec=2, yield_frequency=5, concurrency=1,
-            delete_concurrency=3, allow_async_delete='y')
+            delete_concurrency=3, allow_async_delete='n')
         mware = slo.filter_factory(conf)('have to pass in an app')
         swift_info = registry.get_swift_info()
         self.assertTrue('slo' in swift_info)
         self.assertEqual(swift_info['slo'].get('max_manifest_segments'), 500)
         self.assertEqual(swift_info['slo'].get('min_segment_size'), 1)
         self.assertEqual(swift_info['slo'].get('max_manifest_size'), 1048576)
-        self.assertIs(swift_info['slo'].get('allow_async_delete'), True)
+        self.assertIs(swift_info['slo'].get('allow_async_delete'), False)
         self.assertEqual(500, mware.max_manifest_segments)
         self.assertEqual(1048576, mware.max_manifest_size)
         self.assertEqual(2097152, mware.rate_limit_under_size)
@@ -4629,7 +4629,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(5, mware.yield_frequency)
         self.assertEqual(1, mware.concurrency)
         self.assertEqual(3, mware.bulk_deleter.delete_concurrency)
-        self.assertIs(True, mware.allow_async_delete)
+        self.assertIs(False, mware.allow_async_delete)
 
 
 if __name__ == '__main__':

@@ -1103,7 +1103,7 @@ class StaticLargeObject(object):
                  max_manifest_segments=DEFAULT_MAX_MANIFEST_SEGMENTS,
                  max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE,
                  yield_frequency=DEFAULT_YIELD_FREQUENCY,
-                 allow_async_delete=False):
+                 allow_async_delete=True):
         self.conf = conf
         self.app = app
         self.logger = get_logger(conf, log_route='slo')
@@ -1732,7 +1732,7 @@ def filter_factory(global_conf, **local_conf):
     yield_frequency = int(conf.get('yield_frequency',
                                    DEFAULT_YIELD_FREQUENCY))
     allow_async_delete = config_true_value(conf.get('allow_async_delete',
-                                                    'false'))
+                                                    'true'))
 
     register_swift_info('slo',
                         max_manifest_segments=max_manifest_segments,

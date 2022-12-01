@@ -1093,7 +1093,7 @@ use = egg:swift#slo
 # `?multipart-manifest=delete&async=on`. You may want to keep this off if it
 # negatively impacts your expirers; in that case, the deletes will still
 # be done as part of the client request.
-# allow_async_delete = false
+# allow_async_delete = true
 
 # Note: Put after auth and staticweb in the pipeline.
 # If you don't put it in the pipeline, it will be inserted for you.
