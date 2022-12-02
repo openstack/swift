@@ -581,16 +581,15 @@ class DatabaseBroker(object):
         conn.execute('BEGIN IMMEDIATE')
         try:
             yield True
-        except (Exception, Timeout):
-            pass
-        try:
-            conn.execute('ROLLBACK')
-            conn.isolation_level = orig_isolation_level
-            self.conn = conn
-        except (Exception, Timeout):
-            logging.exception(
-                _('Broker error trying to rollback locked connection'))
-            conn.close()
+        finally:
+            try:
+                conn.execute('ROLLBACK')
+                conn.isolation_level = orig_isolation_level
+                self.conn = conn
+            except (Exception, Timeout):
+                logging.exception(
+                    _('Broker error trying to rollback locked connection'))
+                conn.close()
 
     def _new_db_id(self):
         device_name = os.path.basename(self.get_device_path())

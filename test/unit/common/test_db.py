@@ -914,13 +914,27 @@ class TestDatabaseBroker(unittest.TestCase):
             pass
         with broker.lock():
             pass
+
+        with self.assertRaises(RuntimeError) as raised, broker.lock():
+            raise RuntimeError('boom!')
+        self.assertEqual(raised.exception.args[0], 'boom!')
+
         broker2 = DatabaseBroker(os.path.join(self.testdir, '1.db'),
                                  timeout=.1)
         broker2._initialize = stub
         with broker.lock():
-            with self.assertRaises(LockTimeout) as raised, \
-                    broker2.lock():
-                pass
+            # broker2 raises the timeout
+            with self.assertRaises(LockTimeout) as raised:
+                with broker2.lock():
+                    pass
+        self.assertEqual(str(raised.exception),
+                         '0.1 seconds: %s' % broker.db_file)
+
+        # and the timeout bubbles up out of broker.lock()
+        with self.assertRaises(LockTimeout) as raised:
+            with broker.lock():
+                with broker2.lock():
+                    pass
         self.assertEqual(str(raised.exception),
                          '0.1 seconds: %s' % broker.db_file)
 
