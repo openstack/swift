@@ -57,8 +57,7 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, \
     BadDigest, AuthorizationHeaderMalformed, SlowDown, \
     AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU
-from swift.common.middleware.s3api.exception import NotS3Request, \
-    BadSwiftRequest
+from swift.common.middleware.s3api.exception import NotS3Request
 from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
@@ -642,7 +641,7 @@ class S3Request(swob.Request):
                 bucket, self.conf.dns_compliant_bucket_names):
             # Ignore GET service case
             raise InvalidBucketName(bucket)
-        return (bucket, obj)
+        return bucket, obj
 
     def _parse_query_authentication(self):
         """
@@ -779,7 +778,6 @@ class S3Request(swob.Request):
                 raise InvalidArgument('x-amz-copy-source',
                                       self.headers['X-Amz-Copy-Source'],
                                       msg)
-
         if 'x-amz-metadata-directive' in self.headers:
             value = self.headers['x-amz-metadata-directive']
             if value not in ('COPY', 'REPLACE'):
@@ -1399,7 +1397,17 @@ class S3Request(swob.Request):
                 raise err_resp()
 
         if status == HTTP_BAD_REQUEST:
-            raise BadSwiftRequest(err_msg.decode('utf8'))
+            err_str = err_msg.decode('utf8')
+            if 'X-Delete-At' in err_str:
+                raise InvalidArgument('X-Delete-At',
+                                      self.headers['X-Delete-At'],
+                                      err_str)
+            if 'X-Delete-After' in err_msg.decode('utf8'):
+                raise InvalidArgument('X-Delete-After',
+                                      self.headers['X-Delete-After'],
+                                      err_str)
+            else:
+                raise InvalidRequest(msg=err_str)
         if status == HTTP_UNAUTHORIZED:
             raise SignatureDoesNotMatch(
                 **self.signature_does_not_match_kwargs())

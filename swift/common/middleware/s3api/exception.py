@@ -22,10 +22,6 @@ class NotS3Request(S3Exception):
     pass
 
 
-class BadSwiftRequest(S3Exception):
-    pass
-
-
 class ACLError(S3Exception):
     pass
 
