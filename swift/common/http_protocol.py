@@ -16,8 +16,11 @@
 from eventlet import wsgi, websocket
 import six
 
-from swift.common.swob import wsgi_quote, wsgi_unquote, \
-    wsgi_quote_plus, wsgi_unquote_plus, wsgi_to_bytes, bytes_to_wsgi
+
+if six.PY2:
+    from eventlet.green import httplib as http_client
+else:
+    from eventlet.green.http import client as http_client
 
 
 class SwiftHttpProtocol(wsgi.HttpProtocol):
@@ -62,44 +65,115 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
             return ''
 
     def parse_request(self):
-        # Need to track the bytes-on-the-wire for S3 signatures -- eventlet
-        # would do it for us, but since we rewrite the path on py3, we need to
-        # fix it ourselves later.
-        self.__raw_path_info = None
+        """Parse a request (inlined from cpython@7e293984).
 
+        The request should be stored in self.raw_requestline; the results
+        are in self.command, self.path, self.request_version and
+        self.headers.
+
+        Return True for success, False for failure; on failure, any relevant
+        error response has already been sent back.
+
+        """
+        self.command = None  # set in case of error on the first line
+        self.request_version = version = self.default_request_version
+        self.close_connection = True
+        requestline = self.raw_requestline
         if not six.PY2:
-            # request lines *should* be ascii per the RFC, but historically
-            # we've allowed (and even have func tests that use) arbitrary
-            # bytes. This breaks on py3 (see https://bugs.python.org/issue33973
-            # ) but the work-around is simple: munge the request line to be
-            # properly quoted.
-            if self.raw_requestline.count(b' ') >= 2:
-                parts = self.raw_requestline.split(b' ', 2)
-                path, q, query = parts[1].partition(b'?')
-                self.__raw_path_info = path
-                # unquote first, so we don't over-quote something
-                # that was *correctly* quoted
-                path = wsgi_to_bytes(wsgi_quote(wsgi_unquote(
-                    bytes_to_wsgi(path))))
-                query = b'&'.join(
-                    sep.join([
-                        wsgi_to_bytes(wsgi_quote_plus(wsgi_unquote_plus(
-                            bytes_to_wsgi(key)))),
-                        wsgi_to_bytes(wsgi_quote_plus(wsgi_unquote_plus(
-                            bytes_to_wsgi(val))))
-                    ])
-                    for part in query.split(b'&')
-                    for key, sep, val in (part.partition(b'='), ))
-                parts[1] = path + q + query
-                self.raw_requestline = b' '.join(parts)
-            # else, mangled protocol, most likely; let base class deal with it
-        return wsgi.HttpProtocol.parse_request(self)
+            requestline = requestline.decode('iso-8859-1')
+        requestline = requestline.rstrip('\r\n')
+        self.requestline = requestline
+        # Split off \x20 explicitly (see https://bugs.python.org/issue33973)
+        words = requestline.split(' ')
+        if len(words) == 0:
+            return False
+
+        if len(words) >= 3:  # Enough to determine protocol version
+            version = words[-1]
+            try:
+                if not version.startswith('HTTP/'):
+                    raise ValueError
+                base_version_number = version.split('/', 1)[1]
+                version_number = base_version_number.split(".")
+                # RFC 2145 section 3.1 says there can be only one "." and
+                #   - major and minor numbers MUST be treated as
+                #      separate integers;
+                #   - HTTP/2.4 is a lower version than HTTP/2.13, which in
+                #      turn is lower than HTTP/12.3;
+                #   - Leading zeros MUST be ignored by recipients.
+                if len(version_number) != 2:
+                    raise ValueError
+                version_number = int(version_number[0]), int(version_number[1])
+            except (ValueError, IndexError):
+                self.send_error(
+                    400,
+                    "Bad request version (%r)" % version)
+                return False
+            if version_number >= (1, 1) and \
+                    self.protocol_version >= "HTTP/1.1":
+                self.close_connection = False
+            if version_number >= (2, 0):
+                self.send_error(
+                    505,
+                    "Invalid HTTP version (%s)" % base_version_number)
+                return False
+            self.request_version = version
+
+        if not 2 <= len(words) <= 3:
+            self.send_error(
+                400,
+                "Bad request syntax (%r)" % requestline)
+            return False
+        command, path = words[:2]
+        if len(words) == 2:
+            self.close_connection = True
+            if command != 'GET':
+                self.send_error(
+                    400,
+                    "Bad HTTP/0.9 request type (%r)" % command)
+                return False
+        self.command, self.path = command, path
+
+        # Examine the headers and look for a Connection directive.
+        if six.PY2:
+            self.headers = self.MessageClass(self.rfile, 0)
+        else:
+            try:
+                self.headers = http_client.parse_headers(
+                    self.rfile,
+                    _class=self.MessageClass)
+            except http_client.LineTooLong as err:
+                self.send_error(
+                    431,
+                    "Line too long",
+                    str(err))
+                return False
+            except http_client.HTTPException as err:
+                self.send_error(
+                    431,
+                    "Too many headers",
+                    str(err)
+                )
+                return False
+
+        conntype = self.headers.get('Connection', "")
+        if conntype.lower() == 'close':
+            self.close_connection = True
+        elif (conntype.lower() == 'keep-alive' and
+              self.protocol_version >= "HTTP/1.1"):
+            self.close_connection = False
+        # Examine the headers and look for an Expect directive
+        expect = self.headers.get('Expect', "")
+        if (expect.lower() == "100-continue" and
+                self.protocol_version >= "HTTP/1.1" and
+                self.request_version >= "HTTP/1.1"):
+            if not self.handle_expect_100():
+                return False
+        return True
 
     if not six.PY2:
         def get_environ(self, *args, **kwargs):
             environ = wsgi.HttpProtocol.get_environ(self, *args, **kwargs)
-            environ['RAW_PATH_INFO'] = bytes_to_wsgi(
-                self.__raw_path_info)
             header_payload = self.headers.get_payload()
             if isinstance(header_payload, list) and len(header_payload) == 1:
                 header_payload = header_payload[0].get_payload()
