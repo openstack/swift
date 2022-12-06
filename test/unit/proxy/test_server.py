@@ -72,7 +72,8 @@ from swift.common import utils, constraints
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
     iter_multipart_mime_documents, public, mkdirs, NullLogger
-from swift.common.wsgi import loadapp, ConfigString, SwiftHttpProtocol
+from swift.common.wsgi import loadapp, ConfigString
+from swift.common.http_protocol import SwiftHttpProtocol
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_cache_key, cors_validation, \
     get_account_info, get_container_info
