@@ -54,7 +54,8 @@ from test.unit import SkipTest
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
-from swift.common.wsgi import loadapp, SwiftHttpProtocol
+from swift.common.http_protocol import SwiftHttpProtocol
+from swift.common.wsgi import loadapp
 from swift.common.utils import config_true_value, split_path
 from swift.account import server as account_server
 from swift.container import server as container_server
