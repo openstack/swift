@@ -173,7 +173,8 @@ from swift.container.sharder import make_shard_ranges, sharding_enabled, \
     CleavingContext, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, find_overlapping_ranges, \
     find_paths, rank_paths, finalize_shrinking, DEFAULT_SHARDER_CONF, \
-    ContainerSharderConf, find_paths_with_gaps, combine_shard_ranges
+    ContainerSharderConf, find_paths_with_gaps, combine_shard_ranges, \
+    update_own_shard_range_stats
 
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1
@@ -380,6 +381,9 @@ def db_info(broker, args):
            if own_sr else None))
     db_state = broker.get_db_state()
     print('db_state = %s' % db_state)
+    info = broker.get_info()
+    print('object_count = %d' % info['object_count'])
+    print('bytes_used = %d' % info['bytes_used'])
     if db_state == 'sharding':
         print('Retiring db id: %s' % broker.get_brokers()[0].get_info()['id'])
         print('Cleaving context: %s' %
@@ -511,6 +515,8 @@ def _enable_sharding(broker, own_shard_range, args):
     if own_shard_range.update_state(ShardRange.SHARDING):
         own_shard_range.epoch = Timestamp.now()
         own_shard_range.state_timestamp = own_shard_range.epoch
+    # initialise own_shard_range with current broker object stats...
+    update_own_shard_range_stats(broker, own_shard_range)
 
     with broker.updated_timeout(args.enable_timeout):
         broker.merge_shard_ranges([own_shard_range])

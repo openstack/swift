@@ -590,6 +590,13 @@ class TestManageShardRanges(unittest.TestCase):
 
     def test_info(self):
         broker = self._make_broker()
+        ts = next(self.ts_iter)
+        broker.merge_items([
+            {'name': 'obj%02d' % i, 'created_at': ts.internal, 'size': 9,
+             'content_type': 'application/octet-stream', 'etag': 'not-really',
+             'deleted': 0, 'storage_policy_index': 0,
+             'ctype_timestamp': ts.internal, 'meta_timestamp': ts.internal}
+            for i in range(100)])
         broker.update_metadata({'X-Container-Sysmeta-Sharding':
                                 (True, Timestamp.now().internal)})
         out = StringIO()
@@ -600,6 +607,8 @@ class TestManageShardRanges(unittest.TestCase):
         expected = ['Sharding enabled = True',
                     'Own shard range: None',
                     'db_state = unsharded',
+                    'object_count = 100',
+                    'bytes_used = 900',
                     'Metadata:',
                     '  X-Container-Sysmeta-Sharding = True']
         self.assertEqual(expected, out.getvalue().splitlines())
@@ -635,13 +644,15 @@ class TestManageShardRanges(unittest.TestCase):
                     '  "upper": ""',
                     '}',
                     'db_state = sharding',
+                    'object_count = 100',
+                    'bytes_used = 900',
                     'Retiring db id: %s' % retiring_db_id,
                     'Cleaving context: {',
                     '  "cleave_to_row": null,',
                     '  "cleaving_done": false,',
                     '  "cursor": "",',
                     '  "last_cleave_to_row": null,',
-                    '  "max_row": -1,',
+                    '  "max_row": 100,',
                     '  "misplaced_done": false,',
                     '  "ranges_done": 0,',
                     '  "ranges_todo": 0,',
@@ -679,6 +690,10 @@ class TestManageShardRanges(unittest.TestCase):
                     '  "upper": ""',
                     '}',
                     'db_state = sharded',
+                    # in sharded state the object stats are determined by the
+                    # shard ranges, and we haven't created any in the test...
+                    'object_count = 0',
+                    'bytes_used = 0',
                     'Metadata:',
                     '  X-Container-Sysmeta-Sharding = True']
         self.assertEqual(expected,
@@ -1088,6 +1103,13 @@ class TestManageShardRanges(unittest.TestCase):
 
     def test_enable(self):
         broker = self._make_broker()
+        ts = next(self.ts_iter)
+        broker.merge_items([
+            {'name': 'obj%02d' % i, 'created_at': ts.internal, 'size': 9,
+             'content_type': 'application/octet-stream', 'etag': 'not-really',
+             'deleted': 0, 'storage_policy_index': 0,
+             'ctype_timestamp': ts.internal, 'meta_timestamp': ts.internal}
+            for i in range(100)])
         broker.update_metadata({'X-Container-Sysmeta-Sharding':
                                 (True, Timestamp.now().internal)})
         # no shard ranges
@@ -1110,7 +1132,7 @@ class TestManageShardRanges(unittest.TestCase):
                 '.shards_a', 'c', 'c', Timestamp.now(), data['index'])
             shard_ranges.append(
                 ShardRange(path, Timestamp.now(), data['lower'],
-                           data['upper'], data['object_count']))
+                           data['upper'], data['object_count'], bytes_used=9))
         broker.merge_shard_ranges(shard_ranges)
         out = StringIO()
         err = StringIO()
@@ -1126,6 +1148,10 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
         self._assert_enabled(broker, now)
+        self.assertEqual(100, broker.get_info()['object_count'])
+        self.assertEqual(100, broker.get_own_shard_range().object_count)
+        self.assertEqual(900, broker.get_info()['bytes_used'])
+        self.assertEqual(900, broker.get_own_shard_range().bytes_used)
 
         # already enabled
         out = StringIO()

@@ -442,7 +442,7 @@ class ContainerBroker(DatabaseBroker):
         if self.db_epoch is None:
             # never been sharded
             return UNSHARDED
-        if self.db_epoch != self._own_shard_range().epoch:
+        if self.db_epoch != self.get_own_shard_range().epoch:
             return UNSHARDED
         if not self.get_shard_ranges():
             return COLLAPSED
@@ -1870,7 +1870,7 @@ class ContainerBroker(DatabaseBroker):
                                            marker, end_marker)
 
         if fill_gaps:
-            own_shard_range = self._own_shard_range()
+            own_shard_range = self.get_own_shard_range()
             if shard_ranges:
                 last_upper = shard_ranges[-1].upper
             else:
@@ -1879,7 +1879,7 @@ class ContainerBroker(DatabaseBroker):
             required_upper = min(end_marker or own_shard_range.upper,
                                  own_shard_range.upper)
             if required_upper > last_upper:
-                filler_sr = self.get_own_shard_range()
+                filler_sr = own_shard_range
                 filler_sr.lower = last_upper
                 filler_sr.upper = required_upper
                 shard_ranges.append(filler_sr)
@@ -1889,7 +1889,22 @@ class ContainerBroker(DatabaseBroker):
 
         return shard_ranges
 
-    def _own_shard_range(self, no_default=False):
+    def get_own_shard_range(self, no_default=False):
+        """
+        Returns a shard range representing this broker's own shard range. If no
+        such range has been persisted in the broker's shard ranges table then a
+        default shard range representing the entire namespace will be returned.
+
+        The ``object_count`` and ``bytes_used`` of the returned shard range are
+        not guaranteed to be up-to-date with the current object stats for this
+        broker. Callers that require up-to-date stats should use the
+        ``get_info`` method.
+
+        :param no_default: if True and the broker's own shard range is not
+            found in the shard ranges table then None is returned, otherwise a
+            default shard range is returned.
+        :return: an instance of :class:`~swift.common.utils.ShardRange`
+        """
         shard_ranges = self.get_shard_ranges(include_own=True,
                                              include_deleted=True,
                                              exclude_others=True)
@@ -1903,28 +1918,6 @@ class ContainerBroker(DatabaseBroker):
                 state=ShardRange.ACTIVE)
         return own_shard_range
 
-    def get_own_shard_range(self, no_default=False):
-        """
-        Returns a shard range representing this broker's own shard range. If no
-        such range has been persisted in the broker's shard ranges table then a
-        default shard range representing the entire namespace will be returned.
-
-        The returned shard range will be updated with the current object stats
-        for this broker and a meta timestamp set to the current time. For these
-        values to be persisted the caller must merge the shard range.
-
-        :param no_default: if True and the broker's own shard range is not
-            found in the shard ranges table then None is returned, otherwise a
-            default shard range is returned.
-        :return: an instance of :class:`~swift.common.utils.ShardRange`
-        """
-        own_shard_range = self._own_shard_range(no_default=no_default)
-        if own_shard_range:
-            info = self.get_info()
-            own_shard_range.update_meta(
-                info['object_count'], info['bytes_used'])
-        return own_shard_range
-
     def is_own_shard_range(self, shard_range):
         return shard_range.name == self.path
 
@@ -1936,7 +1929,7 @@ class ContainerBroker(DatabaseBroker):
         :param epoch: a :class:`~swift.utils.common.Timestamp`
         :return: the broker's updated own shard range.
         """
-        own_shard_range = self._own_shard_range()
+        own_shard_range = self.get_own_shard_range()
         own_shard_range.update_state(ShardRange.SHARDING, epoch)
         own_shard_range.epoch = epoch
         self.merge_shard_ranges(own_shard_range)
@@ -2232,9 +2225,7 @@ class ContainerBroker(DatabaseBroker):
 
         # Else, we're either a root or a legacy deleted shard whose sharding
         # sysmeta was deleted
-
-        # Use internal method so we don't try to update stats.
-        own_shard_range = self._own_shard_range(no_default=True)
+        own_shard_range = self.get_own_shard_range(no_default=True)
         if not own_shard_range:
             return True  # Never been sharded
 

@@ -43,7 +43,8 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     find_shrinking_candidates, process_compactible_shard_sequences, \
     find_compactible_shard_sequences, is_shrinking_candidate, \
     is_sharding_candidate, find_paths, rank_paths, ContainerSharderConf, \
-    find_paths_with_gaps, combine_shard_ranges, find_overlapping_ranges
+    find_paths_with_gaps, combine_shard_ranges, find_overlapping_ranges, \
+    update_own_shard_range_stats
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5, \
     ShardName
@@ -5001,14 +5002,13 @@ class TestSharder(BaseTestSharder):
             with mock.patch.object(
                     broker, 'set_sharding_state') as mock_set_sharding_state:
                 with self._mock_sharder() as sharder:
-                    with mock_timestamp_now() as now:
+                    with mock_timestamp_now():
                         with mock.patch.object(sharder, '_audit_container'):
                             sharder._process_broker(broker, node, 99)
                             own_shard_range = broker.get_own_shard_range(
                                 no_default=True)
             mock_set_sharding_state.assert_not_called()
-            self.assertEqual(dict(own_sr, meta_timestamp=now),
-                             dict(own_shard_range))
+            self.assertEqual(dict(own_sr), dict(own_shard_range))
             self.assertEqual(UNSHARDED, broker.get_db_state())
             self.assertFalse(broker.logger.get_lines_for_level('warning'))
             self.assertFalse(broker.logger.get_lines_for_level('error'))
@@ -5112,12 +5112,11 @@ class TestSharder(BaseTestSharder):
             own_sr.epoch = epoch
             broker.merge_shard_ranges([own_sr])
             with self._mock_sharder() as sharder:
-                with mock_timestamp_now() as now:
+                with mock_timestamp_now():
                     sharder._process_broker(broker, node, 99)
                     own_shard_range = broker.get_own_shard_range(
                         no_default=True)
-            self.assertEqual(dict(own_sr, meta_timestamp=now),
-                             dict(own_shard_range))
+            self.assertEqual(dict(own_sr), dict(own_shard_range))
             self.assertEqual(UNSHARDED, broker.get_db_state())
             if epoch:
                 self.assertFalse(broker.logger.get_lines_for_level('warning'))
@@ -5148,15 +5147,14 @@ class TestSharder(BaseTestSharder):
         own_sr.epoch = epoch
         broker.merge_shard_ranges([own_sr])
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_timestamp_now():
                 # we're not testing rest of the process here so prevent any
                 # attempt to progress shard range states
                 sharder._create_shard_containers = lambda *args: 0
                 sharder._process_broker(broker, node, 99)
                 own_shard_range = broker.get_own_shard_range(no_default=True)
 
-        self.assertEqual(dict(own_sr, meta_timestamp=now),
-                         dict(own_shard_range))
+        self.assertEqual(dict(own_sr), dict(own_shard_range))
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(epoch.normal, parse_db_filename(broker.db_file)[1])
         self.assertFalse(broker.logger.get_lines_for_level('warning'))
@@ -5752,14 +5750,13 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(shard_ranges[1].update_state(ShardRange.ACTIVE,
                                                      state_timestamp=root_ts))
         shard_ranges[1].timestamp = root_ts
-        with mock_timestamp_now() as ts_now:
+        with mock_timestamp_now():
             sharder, mock_swift = self.call_audit_container(
                 broker, shard_ranges)
         self._assert_stats(expected_stats, sharder, 'audit_shard')
         self.assertEqual(['Updating own shard range from root'],
                          sharder.logger.get_lines_for_level('debug'))
-        own_shard_range.meta_timestamp = ts_now
-        expected = shard_ranges[1].copy(meta_timestamp=ts_now)
+        expected = shard_ranges[1].copy()
         self.assertEqual(['Updated own shard range from %s to %s'
                           % (own_shard_range, expected)],
                          sharder.logger.get_lines_for_level('info'))
@@ -5854,15 +5851,14 @@ class TestSharder(BaseTestSharder):
         root_ts = next(self.ts_iter)
         shard_ranges[1].update_state(ShardRange.SHARDING,
                                      state_timestamp=root_ts)
-        with mock_timestamp_now() as ts_now:
+        with mock_timestamp_now():
             sharder, mock_swift = self.call_audit_container(
                 broker, shard_ranges)
         self.assert_no_audit_messages(sharder, mock_swift)
         self.assertFalse(broker.is_deleted())
         self.assertEqual(['Updating own shard range from root'],
                          sharder.logger.get_lines_for_level('debug'))
-        own_shard_range.meta_timestamp = ts_now
-        expected = shard_ranges[1].copy(meta_timestamp=ts_now)
+        expected = shard_ranges[1].copy()
         self.assertEqual(['Updated own shard range from %s to %s'
                           % (own_shard_range, expected)],
                          sharder.logger.get_lines_for_level('info'))
@@ -6783,8 +6779,7 @@ class TestSharder(BaseTestSharder):
         # children ranges from root are merged
         self._assert_shard_ranges_equal(child_srs, broker.get_shard_ranges())
         # own sr from root is merged
-        self.assertEqual(dict(parent_sr, meta_timestamp=mock.ANY),
-                         dict(broker.get_own_shard_range()))
+        self.assertEqual(dict(parent_sr), dict(broker.get_own_shard_range()))
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
@@ -6801,8 +6796,7 @@ class TestSharder(BaseTestSharder):
         # children ranges from root are merged
         self._assert_shard_ranges_equal(child_srs, broker.get_shard_ranges())
         # own sr from root is merged
-        self.assertEqual(dict(parent_sr, meta_timestamp=mock.ANY),
-                         dict(broker.get_own_shard_range()))
+        self.assertEqual(dict(parent_sr), dict(broker.get_own_shard_range()))
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
@@ -6822,8 +6816,7 @@ class TestSharder(BaseTestSharder):
         # children ranges from root are NOT merged
         self._assert_shard_ranges_equal(child_srs, broker.get_shard_ranges())
         # own sr from root is merged
-        self.assertEqual(dict(parent_sr, meta_timestamp=mock.ANY),
-                         dict(broker.get_own_shard_range()))
+        self.assertEqual(dict(parent_sr), dict(broker.get_own_shard_range()))
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
@@ -6950,8 +6943,10 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder(
                 conf={'shard_container_threshold': 2}) as sharder:
             with mock_timestamp_now() as now:
+                own_sr = update_own_shard_range_stats(
+                    broker, broker.get_own_shard_range())
                 sharder._find_and_enable_sharding_candidates(
-                    broker, [broker.get_own_shard_range()])
+                    broker, [own_sr])
         own_sr = broker.get_own_shard_range()
         self.assertEqual(ShardRange.SHARDING, own_sr.state)
         self.assertEqual(now, own_sr.state_timestamp)
@@ -6961,8 +6956,10 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder(
                 conf={'shard_container_threshold': 2}) as sharder:
             with mock_timestamp_now():
+                own_sr = update_own_shard_range_stats(
+                    broker, broker.get_own_shard_range())
                 sharder._find_and_enable_sharding_candidates(
-                    broker, [broker.get_own_shard_range()])
+                    broker, [own_sr])
         own_sr = broker.get_own_shard_range()
         self.assertEqual(ShardRange.SHARDING, own_sr.state)
         self.assertEqual(now, own_sr.state_timestamp)
@@ -7341,7 +7338,7 @@ class TestSharder(BaseTestSharder):
                 'found': 3,
                 'top': [
                     {
-                        'object_count': mock.ANY,
+                        'object_count': 500000,
                         'account': brokers[C3].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C3].container,
@@ -7351,7 +7348,7 @@ class TestSharder(BaseTestSharder):
                         'node_index': 0,
                         'compactible_ranges': 3
                     }, {
-                        'object_count': mock.ANY,
+                        'object_count': 2500000,
                         'account': brokers[C2].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C2].container,
@@ -7361,7 +7358,7 @@ class TestSharder(BaseTestSharder):
                         'node_index': 0,
                         'compactible_ranges': 2
                     }, {
-                        'object_count': mock.ANY,
+                        'object_count': 2999999,
                         'account': brokers[C1].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C1].container,
@@ -8849,6 +8846,31 @@ class TestSharderFunctions(BaseTestSharder):
                  (ranges[2],
                  ranges[3])},
                 overlapping_ranges)
+
+    def test_update_own_shard_range_stats(self):
+        broker = self._make_broker()
+        ts = next(self.ts_iter)
+        broker.merge_items([
+            {'name': 'obj%02d' % i, 'created_at': ts.internal, 'size': 9,
+             'content_type': 'application/octet-stream', 'etag': 'not-really',
+             'deleted': 0, 'storage_policy_index': 0,
+             'ctype_timestamp': ts.internal, 'meta_timestamp': ts.internal}
+            for i in range(100)])
+
+        self.assertEqual(100, broker.get_info()['object_count'])
+        self.assertEqual(900, broker.get_info()['bytes_used'])
+
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(0, own_sr.object_count)
+        self.assertEqual(0, own_sr.bytes_used)
+        # own_sr is updated...
+        update_own_shard_range_stats(broker, own_sr)
+        self.assertEqual(100, own_sr.object_count)
+        self.assertEqual(900, own_sr.bytes_used)
+        # ...but not persisted
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(0, own_sr.object_count)
+        self.assertEqual(0, own_sr.bytes_used)
 
 
 class TestContainerSharderConf(unittest.TestCase):
