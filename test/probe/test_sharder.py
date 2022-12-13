@@ -19,7 +19,7 @@ import subprocess
 import unittest
 import uuid
 
-from nose import SkipTest
+from unittest import SkipTest
 import six
 from six.moves.urllib.parse import quote
 

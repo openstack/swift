@@ -145,11 +145,11 @@ Running the tests above against Swift in your development environment
 to be both tested and documented and all tests should pass.
 
 If you want to run just a subset of the tests while you are developing,
-you can use nosetests:
+you can use pytest:
 
 .. code-block:: console
 
-    cd test/unit/common/middleware/ && nosetests test_healthcheck.py
+    cd test/unit/common/middleware/ && pytest test_healthcheck.py
 
 To check which parts of your code are being exercised by a test, you can
 run tox and then point your browser to swift/cover/index.html:

@@ -197,7 +197,7 @@ edited to provide AWS key IDs and secrets. Alternatively, an AWS CLI style
 credentials file can be loaded by setting the ``SWIFT_TEST_AWS_CONFIG_FILE``
 environment variable, e.g.::
 
-    SWIFT_TEST_AWS_CONFIG_FILE=~/.aws/credentials nosetests ./test/s3api
+    SWIFT_TEST_AWS_CONFIG_FILE=~/.aws/credentials pytest ./test/s3api
 
 .. note::
   When using ``SWIFT_TEST_AWS_CONFIG_FILE``, the region defaults to

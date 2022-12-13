@@ -3,7 +3,7 @@
 SRC_DIR=$(dirname $(realpath "$0"))
 
 cd ${SRC_DIR}/test/probe
-nosetests --exe $@
+pytest $@
 rvalue=$?
 cd -
 
