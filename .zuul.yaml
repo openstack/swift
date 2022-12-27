@@ -528,6 +528,8 @@
       python_version: 2.7
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
+      # This seems defensible for a l-c job
+      ensure_tox_version: '<4'
 
 # Image building jobs
 - secret:

@@ -78,3 +78,4 @@ smmap===3.0.5
 PasteDeploy==2.1.1
 pytest==4.6.11
 pytest-cov==2.12.1
+attrs==21.4.0

@@ -39,8 +39,10 @@
         # trying to install a too-new mock or attrs??
         - 'mock<4'
         - 'attrs<22.1.0'
+        # crudini pulls in iniparse which can conflict with distro-installed
+        # packages on centos7
+        - 'crudini<0.9.4'
         # Order matters; install constrained versions *first*, then unconstrained
-        - crudini
         - eventlet
         - pyeclib
         - pytest
