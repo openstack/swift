@@ -543,6 +543,8 @@
       enable_fips: true
 
 - project:
+    vars:
+      ensure_tox_version: '<4'
     templates:
       - publish-openstack-docs-pti
       - periodic-stable-jobs

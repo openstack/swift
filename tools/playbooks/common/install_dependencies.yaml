@@ -35,12 +35,17 @@
     - name: install python modules with pip
       pip: name={{ item }} state=present extra_args='--upgrade'
       with_items:
-        - crudini
+        # For some reason, pip on py2 isn't smart enough to prevent us
+        # trying to install a too-new mock??
+        - 'mock<4'
+        # crudini pulls in iniparse which can conflict with distro-installed
+        # packages on centos7
+        - 'crudini<0.9.4'
+        # Order matters; install constrained versions *first*, then unconstrained
         - eventlet
         - nose
         - pyeclib
         - python-swiftclient
-        - mock
 
     - name: install PasteDeploy - CentOS 7
       pip: name={{ item }} state=present extra_args='--upgrade'
