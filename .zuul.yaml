@@ -432,6 +432,8 @@
     vars: *swift_image_vars
 
 - project:
+    vars:
+      ensure_tox_version: '<4'
     templates:
       - publish-openstack-docs-pti
       - periodic-stable-jobs
