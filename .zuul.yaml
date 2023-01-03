@@ -8,7 +8,6 @@
       tools/test-setup.sh.
     timeout: 5400
     vars:
-      ensure_tox_version: '<4'
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
@@ -274,7 +273,6 @@
       - opendev.org/openstack/keystone
     timeout: 5400
     vars:
-      ensure_tox_version: '<4'
       tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
       tox_envlist: func-py3
@@ -503,7 +501,6 @@
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
     vars:
-      ensure_tox_version: '<4'
       bindep_profile: test py27
       python_version: 2.7
       tox_environment:
@@ -637,6 +634,8 @@
        - swift-tox-func-py38-arm64
 
 - project:
+    vars:
+      ensure_tox_version: '<4'
     templates:
       - publish-openstack-docs-pti
       - periodic-stable-jobs
@@ -726,12 +725,7 @@
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-lower-constraints:
             irrelevant-files: *unittest-irrelevant-files
-        - openstack-tox-docs:
-            vars:
-              ensure_tox_version: '<4'
         - openstack-tox-pep8:
-            vars:
-              ensure_tox_version: '<4'
             irrelevant-files: &pep8-irrelevant-files
               - ^(api-ref|etc|examples|releasenotes)/.*$
               # Keep doc/manpages -- we want to syntax check them
@@ -779,12 +773,7 @@
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-lower-constraints:
             irrelevant-files: *unittest-irrelevant-files
-        - openstack-tox-docs:
-            vars:
-              ensure_tox_version: '<4'
         - openstack-tox-pep8:
-            vars:
-              ensure_tox_version: '<4'
             irrelevant-files: *pep8-irrelevant-files
         - tempest-integrated-object-storage:
             irrelevant-files: *tempest-irrelevant-files
