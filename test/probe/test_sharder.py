@@ -3827,3 +3827,132 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertEqual(3,
                                  broker.get_shard_usage()['object_count'])
                 self.assertFalse(broker.is_deleted())
+
+    def test_manage_shard_ranges_deleted_child_and_parent_gap(self):
+        # Test to produce a scenario where a parent container is stuck at
+        # sharding because of a gap in shard ranges. And the gap is caused by
+        # deleted child shard range which finishes sharding before its parent
+        # does.
+        # note: be careful not to add a container listing to this test which
+        # would get shard ranges into memcache.
+        obj_names = self._make_object_names(20)
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        # run replicators first time to get sync points set.
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % self.brain.part)
+
+        # shard root into two child-shards.
+        root_0_db_file = self.get_db_file(self.brain.part, self.brain.nodes[0])
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            root_0_db_file,
+            'find_and_replace', '10', '--enable'])
+        # Run container-replicator to replicate them to other nodes.
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % self.brain.part)
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'unsharded', 2)
+        # Run container-sharder on all nodes to shard the container.
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        # get shards to update state from parent...
+        self.sharders_once()
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'sharded', 2)
+
+        # shard first child shard into 2 grand-child-shards.
+        c_shard_ranges = self.get_container_shard_ranges()
+        c_shard_brokers = [self.get_shard_broker(
+            c_shard_ranges[0], node_index=i) for i in range(3)]
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            c_shard_brokers[0].db_file,
+            'find_and_replace', '5', '--enable'])
+        child_shard_part, c_shard_nodes = self.brain.ring.get_nodes(
+            c_shard_ranges[0].account, c_shard_ranges[0].container)
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % child_shard_part)
+        for node in c_shard_nodes:
+            self.assert_container_state(
+                node, 'unsharded', 2, account=c_shard_ranges[0].account,
+                container=c_shard_ranges[0].container, part=child_shard_part)
+
+        # run sharder on only 2 of the child replicas by renaming the third
+        # replica's DB file directory.
+        # NOTE: if we only rename the retiring DB file, other replicas will
+        # create a "fresh" DB with timestamp during replication, and then
+        # after we restore the retiring DB back, there will be two DB files
+        # in the same folder, and container state will appear to be "sharding"
+        # instead of "unsharded".
+        c_shard_dir = os.path.dirname(c_shard_brokers[2].db_file)
+        c_shard_tmp_dir = c_shard_dir + ".tmp"
+        os.rename(c_shard_dir, c_shard_tmp_dir)
+        self.sharders_once(additional_args='--partitions=%s' %
+                           child_shard_part)
+        for node in c_shard_nodes[:2]:
+            self.assert_container_state(
+                node, 'sharded', 2, account=c_shard_ranges[0].account,
+                container=c_shard_ranges[0].container, part=child_shard_part)
+        # get updates done...
+        self.sharders_once()
+
+        # shard first grand-child shard into 2 grand-grand-child-shards.
+        gc_shard_ranges = self.get_container_shard_ranges(
+            account=c_shard_ranges[0].account,
+            container=c_shard_ranges[0].container)
+        shard_brokers = [self.get_shard_broker(
+            gc_shard_ranges[0],
+            node_index=i) for i in range(3)]
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            shard_brokers[0].db_file,
+            'find_and_replace', '3', '--enable'])
+        grandchild_shard_part, gc_shard_nodes = self.brain.ring.get_nodes(
+            gc_shard_ranges[0].account, gc_shard_ranges[0].container)
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % grandchild_shard_part)
+        self.sharders_once(additional_args='--partitions=%s' %
+                           grandchild_shard_part)
+
+        # get shards to update state from parent...
+        self.sharders_once()
+        self.sharders_once()
+        self.container_replicators.once(
+            additional_args='--partitions=%s' % child_shard_part)
+
+        # restore back the DB file directory of the disable child replica.
+        shutil.rmtree(c_shard_dir, ignore_errors=True)
+        os.rename(c_shard_tmp_dir, c_shard_dir)
+
+        # the 2 child shards that sharded earlier still have their original
+        # grand-child shards because they stopped updating form root once
+        # sharded.
+        for node in c_shard_nodes[:2]:
+            self.assert_container_state(
+                node, 'sharded', 2, account=c_shard_ranges[0].account,
+                container=c_shard_ranges[0].container, part=child_shard_part)
+        # the child shard that did not shard earlier has not been touched by
+        # the sharder since, so still has two grand-child shards.
+        self.assert_container_state(
+            c_shard_nodes[2],
+            'unsharded', 2, account=c_shard_ranges[0].account,
+            container=c_shard_ranges[0].container, part=child_shard_part)
+
+        # now, finally, run the sharder on the child that is still waiting to
+        # shard. It will get 2 great-grandchild ranges from root to replace
+        # deleted grandchild.
+        self.sharders_once(
+            additional_args=['--partitions=%s' %
+                             child_shard_part, '--devices=%s' %
+                             c_shard_nodes[2]['device']])
+        # batch size is 2 but this replicas has 3 shard ranges so we need two
+        # runs of the sharder
+        self.sharders_once(
+            additional_args=['--partitions=%s' %
+                             child_shard_part, '--devices=%s' %
+                             c_shard_nodes[2]['device']])
+        self.assert_container_state(
+            c_shard_nodes[2], 'sharded', 3, account=c_shard_ranges[0].account,
+            container=c_shard_ranges[0].container, part=child_shard_part)
