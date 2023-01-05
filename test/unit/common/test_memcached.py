@@ -1048,6 +1048,56 @@ class TestMemcached(unittest.TestCase):
         # Let's do a big number
         do_test('1' * 2048576, 1000000, True)
 
+    def test_operations_timing_stats(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
+                                                 logger=self.logger)
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
+
+        with patch('time.time',) as mock_time:
+            mock_time.return_value = 1000.99
+            memcache_client.set('some_key', [1, 2, 3])
+            last_stats = self.logger.log_dict['timing_since'][-1]
+            self.assertEqual('memcached.set.timing', last_stats[0][0])
+            self.assertEqual(last_stats[0][1], 1000.99)
+            mock_time.return_value = 2000.99
+            self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
+            last_stats = self.logger.log_dict['timing_since'][-1]
+            self.assertEqual('memcached.get.timing', last_stats[0][0])
+            self.assertEqual(last_stats[0][1], 2000.99)
+            mock_time.return_value = 3000.99
+            self.assertEqual(memcache_client.decr('decr_key', delta=5), 0)
+            last_stats = self.logger.log_dict['timing_since'][-1]
+            self.assertEqual('memcached.decr.timing', last_stats[0][0])
+            self.assertEqual(last_stats[0][1], 3000.99)
+            mock_time.return_value = 4000.99
+            self.assertEqual(memcache_client.incr('decr_key', delta=5), 5)
+            last_stats = self.logger.log_dict['timing_since'][-1]
+            self.assertEqual('memcached.incr.timing', last_stats[0][0])
+            self.assertEqual(last_stats[0][1], 4000.99)
+            mock_time.return_value = 5000.99
+            memcache_client.set_multi(
+                {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key')
+            last_stats = self.logger.log_dict['timing_since'][-1]
+            self.assertEqual('memcached.set_multi.timing', last_stats[0][0])
+            self.assertEqual(last_stats[0][1], 5000.99)
+            mock_time.return_value = 6000.99
+            self.assertEqual(
+                memcache_client.get_multi(
+                    ('some_key2', 'some_key1'),
+                    'multi_key'),
+                [[4, 5, 6],
+                 [1, 2, 3]])
+            last_stats = self.logger.log_dict['timing_since'][-1]
+            self.assertEqual('memcached.get_multi.timing', last_stats[0][0])
+            self.assertEqual(last_stats[0][1], 6000.99)
+            mock_time.return_value = 7000.99
+            memcache_client.delete('some_key')
+            last_stats = self.logger.log_dict['timing_since'][-1]
+            self.assertEqual('memcached.delete.timing', last_stats[0][0])
+            self.assertEqual(last_stats[0][1], 7000.99)
+
 
 class ExcConfigParser(object):
 

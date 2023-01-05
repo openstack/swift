@@ -5763,6 +5763,40 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(mock_controller.args[0], 'METHOD.errors.timing')
         self.assertTrue(mock_controller.args[1] > 0)
 
+    def test_memcached_timing_stats(self):
+        class MockMemcached(object):
+            def __init__(self):
+                self.logger = self
+                self.args = ()
+                self.called = 'UNKNOWN'
+
+            def timing_since(self, *args):
+                self.called = 'timing'
+                self.args = args
+
+        @utils.memcached_timing_stats()
+        def set(cache):
+            pass
+
+        @utils.memcached_timing_stats()
+        def get(cache):
+            pass
+
+        mock_cache = MockMemcached()
+        with patch('time.time',) as mock_time:
+            mock_time.return_value = 1000.99
+            set(mock_cache)
+            self.assertEqual(mock_cache.called, 'timing')
+            self.assertEqual(len(mock_cache.args), 2)
+            self.assertEqual(mock_cache.args[0], 'memcached.set.timing')
+            self.assertEqual(mock_cache.args[1], 1000.99)
+            mock_time.return_value = 2000.99
+            get(mock_cache)
+            self.assertEqual(mock_cache.called, 'timing')
+            self.assertEqual(len(mock_cache.args), 2)
+            self.assertEqual(mock_cache.args[0], 'memcached.get.timing')
+            self.assertEqual(mock_cache.args[1], 2000.99)
+
 
 class UnsafeXrange(object):
     """

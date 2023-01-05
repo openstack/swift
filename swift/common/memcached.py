@@ -57,7 +57,8 @@ from eventlet import Timeout
 from six.moves import range
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 from swift.common import utils
-from swift.common.utils import md5, human_readable, config_true_value
+from swift.common.utils import md5, human_readable, config_true_value, \
+    memcached_timing_stats
 
 DEFAULT_MEMCACHED_PORT = 11211
 
@@ -74,6 +75,11 @@ TRY_COUNT = 3
 ERROR_LIMIT_COUNT = 10
 ERROR_LIMIT_TIME = ERROR_LIMIT_DURATION = 60
 DEFAULT_ITEM_SIZE_WARNING_THRESHOLD = -1
+
+# Different sample rates for emitting Memcached timing stats.
+TIMING_SAMPLE_RATE_HIGH = 0.1
+TIMING_SAMPLE_RATE_MEDIUM = 0.01
+TIMING_SAMPLE_RATE_LOW = 0.001
 
 
 def md5hash(key):
@@ -292,6 +298,9 @@ class MemcacheRing(object):
         """Returns a server connection to the pool."""
         self._client_cache[server].put((fp, sock))
 
+    # Sample rates of different memcached operations are based on generic
+    # swift usage patterns.
+    @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_HIGH)
     def set(self, key, value, serialize=True, time=0,
             min_compress_len=0, raise_on_error=False):
         """
@@ -348,6 +357,7 @@ class MemcacheRing(object):
             raise MemcacheConnectionError(
                 "No memcached connections succeeded.")
 
+    @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_MEDIUM)
     def get(self, key, raise_on_error=False):
         """
         Gets the object specified by key.  It will also unserialize the object
@@ -387,6 +397,7 @@ class MemcacheRing(object):
             raise MemcacheConnectionError(
                 "No memcached connections succeeded.")
 
+    @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_LOW)
     def incr(self, key, delta=1, time=0):
         """
         Increments a key which has a numeric value by delta.
@@ -442,6 +453,7 @@ class MemcacheRing(object):
                 self._exception_occurred(server, e, sock=sock, fp=fp)
         raise MemcacheConnectionError("No Memcached connections succeeded.")
 
+    @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_LOW)
     def decr(self, key, delta=1, time=0):
         """
         Decrements a key which has a numeric value by delta. Calls incr with
@@ -457,6 +469,7 @@ class MemcacheRing(object):
         """
         return self.incr(key, delta=-delta, time=time)
 
+    @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_HIGH)
     def delete(self, key, server_key=None):
         """
         Deletes a key/value pair from memcache.
@@ -478,6 +491,7 @@ class MemcacheRing(object):
             except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
+    @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_HIGH)
     def set_multi(self, mapping, server_key, serialize=True, time=0,
                   min_compress_len=0):
         """
@@ -518,6 +532,7 @@ class MemcacheRing(object):
             except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
+    @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_HIGH)
     def get_multi(self, keys, server_key):
         """
         Gets multiple values from memcache for the given keys.

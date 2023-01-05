@@ -38,6 +38,7 @@ from swiftclient import client, get_auth, ClientException
 from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.obj import num_container_updates
 from test import annotate_failure
+from test.debug_logger import debug_logger
 from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
@@ -126,7 +127,8 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.init_brain(self.container_name)
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
-        self.memcache = MemcacheRing(['127.0.0.1:11211'])
+        self.logger = debug_logger('sharder-test')
+        self.memcache = MemcacheRing(['127.0.0.1:11211'], logger=self.logger)
         self.container_replicators = Manager(['container-replicator'])
 
     def init_brain(self, container_name):

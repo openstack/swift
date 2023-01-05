@@ -2035,6 +2035,26 @@ def timing_stats(**dec_kwargs):
     return decorating_func
 
 
+def memcached_timing_stats(**dec_kwargs):
+    """
+    Returns a decorator that logs timing events or errors for public methods in
+    MemcacheRing class, such as memcached set, get and etc.
+    """
+    def decorating_func(func):
+        method = func.__name__
+
+        @functools.wraps(func)
+        def _timing_stats(cache, *args, **kwargs):
+            start_time = time.time()
+            result = func(cache, *args, **kwargs)
+            cache.logger.timing_since(
+                'memcached.' + method + '.timing', start_time, **dec_kwargs)
+            return result
+
+        return _timing_stats
+    return decorating_func
+
+
 class SwiftLoggerAdapter(logging.LoggerAdapter):
     """
     A logging.LoggerAdapter subclass that also passes through StatsD method
