@@ -40,7 +40,7 @@ from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 from swift.common.middleware import listing_formats, proxy_logging
 from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
-from swift.common.wsgi import SwiftHttpProtocol
+from swift.common.http_protocol import SwiftHttpProtocol
 from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.proxy import server as proxy_server
