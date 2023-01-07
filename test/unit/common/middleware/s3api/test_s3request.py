@@ -767,6 +767,11 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
         self.assertTrue(sigv2_req.check_signature(secret))
 
+        with patch('swift.common.middleware.s3api.s3request.streq_const_time',
+                   return_value=True) as mock_eq:
+            self.assertTrue(sigv2_req.check_signature(secret))
+        mock_eq.assert_called_once()
+
     def test_check_signature_sigv2(self):
         self._test_check_signature_sigv2(
             'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
@@ -805,6 +810,12 @@ class TestRequest(S3ApiTestCase):
             req.environ, storage_domain='s3.amazonaws.com')
         self.assertFalse(sigv4_req.check_signature(
             u'\u30c9\u30e9\u30b4\u30f3'))
+
+        with patch('swift.common.middleware.s3api.s3request.streq_const_time',
+                   return_value=False) as mock_eq:
+            self.assertFalse(sigv4_req.check_signature(
+                u'\u30c9\u30e9\u30b4\u30f3'))
+        mock_eq.assert_called_once()
 
 
 class TestHashingInput(S3ApiTestCase):
