@@ -5,4 +5,10 @@
       bindep_profile: test
       bindep_dir: "{{ zuul_work_dir }}"
     - test-setup
-    - ensure-tox
+    # NOTE(gmann): Pinning tox<4.0.0 for stable/zed and lower. Tox 4.0.0
+    # released after zed was released and has some incompatible changes
+    # and it is ok not to fix the issues caused by tox 4.0.0 in stable
+    # beanches jobs. We can continue testing the stable/zed and lower
+    # branches with tox<4.0.0
+    - role: ensure-tox
+      ensure_tox_version: "<4"
