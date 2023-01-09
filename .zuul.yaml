@@ -281,9 +281,6 @@
     parent: devstack-minimal
     description: |
       Setup a Swift/Keystone environment and run Swift's func tests.
-    # TODO: Remove the nodeset pinning to focal once below bug is fixed
-    # https://bugs.launchpad.net/swift/+bug/1996627
-    nodeset: openstack-single-node-focal
     required-projects:
       - opendev.org/openstack/requirements
       - opendev.org/openstack/swift
