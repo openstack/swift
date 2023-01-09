@@ -439,7 +439,6 @@
       - periodic-stable-jobs
       - check-requirements
       - release-notes-jobs-python3
-      - integrated-gate-object-storage
     check:
       jobs:
         - swift-build-image:
@@ -561,21 +560,6 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - tempest-integrated-object-storage:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - tempest-ipv6-only:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - grenade-py3:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -627,21 +611,6 @@
               - ^(api-ref|etc|examples|releasenotes)/.*$
               # Keep doc/manpages -- we want to syntax check them
               - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
-        - tempest-integrated-object-storage:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - tempest-ipv6-only:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - grenade-py3:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
     experimental:
       jobs:
         - swift-tox-py27-centos-7
