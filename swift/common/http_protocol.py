@@ -132,6 +132,12 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                     400,
                     "Bad HTTP/0.9 request type (%r)" % command)
                 return False
+
+        if path.startswith(('http://', 'https://')):
+            host, sep, rest = path.partition('//')[2].partition('/')
+            if sep:
+                path = '/' + rest
+
         self.command, self.path = command, path
 
         # Examine the headers and look for a Connection directive.

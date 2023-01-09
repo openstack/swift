@@ -17,6 +17,7 @@ import os
 
 import requests
 
+from swift.common.bufferedhttp import http_connect_raw
 from swift.common.middleware.s3api.etree import fromstring
 
 import test.functional as tf
@@ -222,6 +223,35 @@ class TestS3ApiPresignedUrls(S3ApiBase):
         # Final cleanup
         status, _junk, _junk = self.conn.make_request('DELETE', bucket)
         self.assertEqual(status, 204)
+
+    def test_absolute_form_request(self):
+        bucket = 'test-bucket'
+
+        put_url, headers = self.conn.generate_url_and_headers(
+            'PUT', bucket)
+        resp = http_connect_raw(
+            self.conn.host,
+            self.conn.port,
+            'PUT',
+            put_url,  # whole URL, not just the path/query!
+            headers=headers,
+            ssl=put_url.startswith('https:'),
+        ).getresponse()
+        self.assertEqual(resp.status, 200,
+                         'Got %d %s' % (resp.status, resp.read()))
+
+        delete_url, headers = self.conn.generate_url_and_headers(
+            'DELETE', bucket)
+        resp = http_connect_raw(
+            self.conn.host,
+            self.conn.port,
+            'DELETE',
+            delete_url,  # whole URL, not just the path/query!
+            headers=headers,
+            ssl=delete_url.startswith('https:'),
+        ).getresponse()
+        self.assertEqual(resp.status, 204,
+                         'Got %d %s' % (resp.status, resp.read()))
 
 
 class TestS3ApiPresignedUrlsSigV4(TestS3ApiPresignedUrls):

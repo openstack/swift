@@ -180,6 +180,48 @@ class TestSwiftHttpProtocolSomeMore(ProtocolTest):
         lines = [l for l in bytes_out.split(b"\r\n") if l]
         self.assertEqual(lines[-1], b'/oh\xffboy%what$now%E2%80%bd')
 
+    def test_absolute_target(self):
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET https://cluster.domain/bucket/key HTTP/1.0\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[-1], b'/bucket/key')
+
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET http://cluster.domain/v1/acct/cont/obj HTTP/1.0\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[-1], b'/v1/acct/cont/obj')
+
+        # clients talking nonsense
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET ftp://cluster.domain/bucket/key HTTP/1.0\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[-1], b'ftp://cluster.domain/bucket/key')
+
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET https://cluster.domain HTTP/1.0\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[-1], b'https://cluster.domain')
+
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET http:omg//wtf/bbq HTTP/1.0\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[-1], b'http:omg//wtf/bbq')
+
     def test_bad_request(self):
         bytes_out = self._run_bytes_through_protocol((
             b"ONLY-METHOD\r\n"

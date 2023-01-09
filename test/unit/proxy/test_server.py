@@ -2852,6 +2852,36 @@ class TestReplicatedObjectController(
                       headers.split(b'\r\n'))
 
     @unpatch_policies
+    def test_HEAD_absolute_uri(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+
+        # sanity, this resource is created in setup
+        path = b'/v1/a'
+        fd.write(b'HEAD %s HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: keep-alive\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'\r\n' % (path,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 204'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # RFC says we should accept this, too
+        abs_path = b'http://saio.example.com:8080/v1/a'
+        fd.write(b'HEAD %s HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: keep-alive\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'\r\n' % (abs_path,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 204'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    @unpatch_policies
     def test_GET_short_read(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
