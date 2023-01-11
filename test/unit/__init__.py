@@ -462,10 +462,6 @@ class FakeMemcache(object):
     def decr(self, key, delta=1, time=0):
         return self.incr(key, delta=-delta, time=time)
 
-    @contextmanager
-    def soft_lock(self, key, timeout=0, retries=5):
-        yield True
-
     @track
     def delete(self, key):
         try:
