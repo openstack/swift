@@ -96,7 +96,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
 
 # For backwards compatability with 3rd party middlewares
-from swift.common.registry import register_swift_info, get_swift_info # noqa
+from swift.common.registry import register_swift_info, get_swift_info  # noqa
 
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
@@ -585,6 +585,7 @@ class _UTC(datetime.tzinfo):
     """
     A tzinfo class for datetime objects that returns a 0 timedelta (UTC time)
     """
+
     def dst(self, dt):
         return datetime.timedelta(0)
     utcoffset = dst
@@ -934,6 +935,7 @@ class _LibcWrapper(object):
     has the function of that name. If false, then calls will fail with a
     NotImplementedError.
     """
+
     def __init__(self, func_name):
         self._func_name = func_name
         self._func_handle = None
@@ -1715,6 +1717,7 @@ class RateLimitedIterator(object):
                         this many elements; default is 0 (rate limit
                         immediately)
     """
+
     def __init__(self, iterable, elements_per_second, limit_after=0,
                  ratelimit_if=lambda _junk: True):
         self.iterator = iter(iterable)
@@ -1749,6 +1752,7 @@ class GreenthreadSafeIterator(object):
     an error like "ValueError: generator already executing". By wrapping calls
     to next() with a mutex, we avoid that error.
     """
+
     def __init__(self, unsafe_iterable):
         self.unsafe_iter = iter(unsafe_iterable)
         self.semaphore = eventlet.semaphore.Semaphore(value=1)
@@ -2068,6 +2072,7 @@ class SwiftLoggerAdapter(logging.LoggerAdapter):
     Like logging.LoggerAdapter, you have to subclass this and override the
     process() method to accomplish anything useful.
     """
+
     def get_metric_name(self, metric):
         # subclasses may override this method to annotate the metric name
         return metric
@@ -2110,6 +2115,7 @@ class PrefixLoggerAdapter(SwiftLoggerAdapter):
     Adds an optional prefix to all its log messages. When the prefix has not
     been set, messages are unchanged.
     """
+
     def set_prefix(self, prefix):
         self.extra['prefix'] = prefix
 
@@ -2129,6 +2135,7 @@ class MetricsPrefixLoggerAdapter(SwiftLoggerAdapter):
     """
     Adds a prefix to all Statsd metrics' names.
     """
+
     def __init__(self, logger, extra, metric_prefix):
         """
         :param logger: an instance of logging.Logger
@@ -2382,6 +2389,7 @@ class LogLevelFilter(object):
                   (DEBUG < INFO < WARN < ERROR < CRITICAL|FATAL)
                   Default: DEBUG
     """
+
     def __init__(self, level=logging.DEBUG):
         self.level = level
 
@@ -3682,6 +3690,7 @@ class GreenAsyncPile(object):
 
     Correlating results with jobs (if necessary) is left to the caller.
     """
+
     def __init__(self, size_or_pool):
         """
         :param size_or_pool: thread pool size or a pool to use
@@ -3775,6 +3784,7 @@ class StreamingPile(GreenAsyncPile):
     When used as a context manager, has the same worker-killing properties as
     :class:`ContextPool`.
     """
+
     def __init__(self, size):
         """:param size: number of worker threads to use"""
         self.pool = ContextPool(size)
@@ -4266,6 +4276,7 @@ class Everything(object):
     A container that contains everything. If "e" is an instance of
     Everything, then "x in e" is true for all x.
     """
+
     def __contains__(self, element):
         return True
 
@@ -4297,6 +4308,7 @@ class CloseableChain(object):
     Like itertools.chain, but with a close method that will attempt to invoke
     its sub-iterators' close methods, if any.
     """
+
     def __init__(self, *iterables):
         self.iterables = iterables
         self.chained_iter = itertools.chain(*self.iterables)
@@ -4340,6 +4352,7 @@ class InputProxy(object):
     File-like object that counts bytes read.
     To be swapped in for wsgi.input for accounting purposes.
     """
+
     def __init__(self, wsgi_input):
         """
         :param wsgi_input: file-like object to wrap the functionality of
@@ -4481,6 +4494,7 @@ class Spliterator(object):
     "l"  # shorter than requested; this can happen with the last iterator
 
     """
+
     def __init__(self, source_iterable):
         self.input_iterator = iter(source_iterable)
         self.leftovers = None
@@ -5238,6 +5252,7 @@ class ShardName(object):
     root container's own shard range will have a name format of
     <account>/<root_container> which will raise ValueError if passed to parse.
     """
+
     def __init__(self, account, root_container,
                  parent_container_hash,
                  timestamp,
@@ -5329,7 +5344,277 @@ class ShardName(object):
             raise ValueError('invalid name: %s' % name)
 
 
-class ShardRange(object):
+@functools.total_ordering
+class Namespace(object):
+
+    __slots__ = ('_lower', '_upper', 'name')
+
+    @functools.total_ordering
+    class MaxBound(ShardRangeOuterBound):
+        # singleton for maximum bound
+        def __ge__(self, other):
+            return True
+
+    @functools.total_ordering
+    class MinBound(ShardRangeOuterBound):
+        # singleton for minimum bound
+        def __le__(self, other):
+            return True
+
+    MIN = MinBound()
+    MAX = MaxBound()
+
+    def __init__(self, name, lower, upper):
+        self._lower = Namespace.MIN
+        self._upper = Namespace.MAX
+        self.lower = lower
+        self.upper = upper
+        self.name = name
+
+    def __iter__(self):
+        yield 'name', str(self.name)
+        yield 'lower', self.lower_str
+        yield 'upper', self.upper_str
+
+    def __repr__(self):
+        return '%s(%s)' % (self.__class__.__name__, ', '.join(
+            '%s=%r' % prop for prop in self))
+
+    def __lt__(self, other):
+        # a Namespace is less than other if its entire namespace is less than
+        # other; if other is another Namespace that implies that this
+        # Namespace's upper must be less than or equal to the other
+        # Namespace's lower
+        if self.upper == Namespace.MAX:
+            return False
+        if isinstance(other, Namespace):
+            return self.upper <= other.lower
+        elif other is None:
+            return True
+        else:
+            return self.upper < self._encode(other)
+
+    def __gt__(self, other):
+        # a Namespace is greater than other if its entire namespace is greater
+        # than other; if other is another Namespace that implies that this
+        # Namespace's lower must be less greater than or equal to the other
+        # Namespace's upper
+        if self.lower == Namespace.MIN:
+            return False
+        if isinstance(other, Namespace):
+            return self.lower >= other.upper
+        elif other is None:
+            return False
+        else:
+            return self.lower >= self._encode(other)
+
+    def __eq__(self, other):
+        # test for equality of range bounds only
+        if not isinstance(other, Namespace):
+            return False
+        return self.lower == other.lower and self.upper == other.upper
+
+    def __ne__(self, other):
+        return not (self == other)
+
+    def __contains__(self, item):
+        # test if the given item is within the namespace
+        if item == '':
+            return False
+        item = self._encode_bound(item)
+        return self.lower < item <= self.upper
+
+    @classmethod
+    def _encode(cls, value):
+        if six.PY2 and isinstance(value, six.text_type):
+            return value.encode('utf-8')
+        if six.PY3 and isinstance(value, six.binary_type):
+            # This should never fail -- the value should always be coming from
+            # valid swift paths, which means UTF-8
+            return value.decode('utf-8')
+        return value
+
+    def _encode_bound(self, bound):
+        if isinstance(bound, ShardRangeOuterBound):
+            return bound
+        if not (isinstance(bound, six.text_type) or
+                isinstance(bound, six.binary_type)):
+            raise TypeError('must be a string type')
+        return self._encode(bound)
+
+    @property
+    def lower(self):
+        return self._lower
+
+    @property
+    def lower_str(self):
+        return str(self.lower)
+
+    @lower.setter
+    def lower(self, value):
+        if value is None or (value == b"" if isinstance(value, bytes) else
+                             value == u""):
+            value = Namespace.MIN
+        try:
+            value = self._encode_bound(value)
+        except TypeError as err:
+            raise TypeError('lower %s' % err)
+        if value > self._upper:
+            raise ValueError(
+                'lower (%r) must be less than or equal to upper (%r)' %
+                (value, self.upper))
+        self._lower = value
+
+    @property
+    def upper(self):
+        return self._upper
+
+    @property
+    def upper_str(self):
+        return str(self.upper)
+
+    @upper.setter
+    def upper(self, value):
+        if value is None or (value == b"" if isinstance(value, bytes) else
+                             value == u""):
+            value = Namespace.MAX
+        try:
+            value = self._encode_bound(value)
+        except TypeError as err:
+            raise TypeError('upper %s' % err)
+        if value < self._lower:
+            raise ValueError(
+                'upper (%r) must be greater than or equal to lower (%r)' %
+                (value, self.lower))
+        self._upper = value
+
+    def entire_namespace(self):
+        """
+        Returns True if this namespace includes the entire namespace, False
+        otherwise.
+        """
+        return (self.lower == Namespace.MIN and
+                self.upper == Namespace.MAX)
+
+    def overlaps(self, other):
+        """
+        Returns True if this namespace overlaps with the other namespace.
+
+        :param other: an instance of :class:`~swift.common.utils.Namespace`
+        """
+        if not isinstance(other, Namespace):
+            return False
+        return max(self.lower, other.lower) < min(self.upper, other.upper)
+
+    def includes(self, other):
+        """
+        Returns True if this namespace includes the whole of the other
+        namespace, False otherwise.
+
+        :param other: an instance of :class:`~swift.common.utils.Namespace`
+        """
+        return (self.lower <= other.lower) and (other.upper <= self.upper)
+
+    def expand(self, donors):
+        """
+        Expands the bounds as necessary to match the minimum and maximum bounds
+        of the given donors.
+
+        :param donors: A list of :class:`~swift.common.utils.Namespace`
+        :return: True if the bounds have been modified, False otherwise.
+        """
+        modified = False
+        new_lower = self.lower
+        new_upper = self.upper
+        for donor in donors:
+            new_lower = min(new_lower, donor.lower)
+            new_upper = max(new_upper, donor.upper)
+        if self.lower > new_lower or self.upper < new_upper:
+            self.lower = new_lower
+            self.upper = new_upper
+            modified = True
+        return modified
+
+
+class NamespaceBoundList(object):
+    def __init__(self, bounds):
+        """
+        Encapsulate a compact representation of namespaces. Each item in the
+        list is a list [lower bound, name].
+
+        :param bounds: a list of lists ``[lower bound, name]``. The list
+            should be ordered by ``lower bound``.
+        """
+        self.bounds = [] if bounds is None else bounds
+
+    @classmethod
+    def parse(cls, namespaces):
+        """
+        Create a NamespaceBoundList object by parsing a list of Namespaces or
+        shard ranges and only storing the compact bounds list.
+
+        Each Namespace in the given list of ``namespaces`` provides the next
+        [lower bound, name] list to append to the NamespaceBoundList. The
+        given ``namespaces`` should be contiguous because the
+        NamespaceBoundList only stores lower bounds; if ``namespaces`` has
+        overlaps then at least one of the overlapping namespaces may be
+        ignored; similarly, gaps between namespaces are not represented in the
+        NamespaceBoundList.
+
+        :param namespaces: A list of Namespace instances. The list should be
+            ordered by namespace bounds.
+        :return: a NamespaceBoundList.
+        """
+        if not namespaces:
+            return None
+        bounds = []
+        upper = namespaces[0].lower
+        for ns in namespaces:
+            if ns.lower < upper:
+                # Discard overlapping namespace.
+                # Overlapping namespaces are expected in lists of shard ranges
+                # fetched from the backend. For example, while a parent
+                # container is in the process of sharding, the parent shard
+                # range and its children shard ranges may be returned in the
+                # list of shard ranges. However, the backend sorts the list by
+                # (upper, state, lower, name) such that the children precede
+                # the parent, and it is the children that we prefer to retain
+                # in the NamespaceBoundList. For example, these namespaces:
+                #   (a-b, "child1"), (b-c, "child2"), (a-c, "parent")
+                # would result in a NamespaceBoundList:
+                #   (a, "child1"), (b, "child2")
+                # Unexpected overlaps or gaps may result in namespaces being
+                # 'extended' because only lower bounds are stored. For example,
+                # these namespaces:
+                #   (a-b, "ns1"), (d-e, "ns2")
+                # would result in a NamespaceBoundList:
+                #   (a, "ns1"), (d, "ns2")
+                # When used to find a target namespace for an object update
+                # that lies in a gap, the NamespaceBoundList will map the
+                # object name to the preceding namespace. In the example, an
+                # object named "c" would be mapped to "ns1". (In previous
+                # versions, an object update lying in a gap would have been
+                # mapped to the root container.)
+                continue
+            bounds.append([ns.lower_str, str(ns.name)])
+            upper = ns.upper
+        return cls(bounds)
+
+    def get_namespace(self, item):
+        """
+        Get a Namespace instance that contains ``item``.
+
+        :param item: The item for a which a Namespace is to be found.
+        :return: the Namespace that contains ``item``.
+        """
+        pos = bisect.bisect(self.bounds, [item]) - 1
+        lower, name = self.bounds[pos]
+        upper = ('' if pos + 1 == len(self.bounds)
+                 else self.bounds[pos + 1][0])
+        return Namespace(name, lower, upper)
+
+
+class ShardRange(Namespace):
     """
     A ShardRange encapsulates sharding state related to a container including
     lower and upper bounds that define the object namespace for which the
@@ -5398,41 +5683,25 @@ class ShardRange(object):
     SHARDING_STATES = (SHARDING, SHARDED)
     CLEAVING_STATES = SHRINKING_STATES + SHARDING_STATES
 
-    @functools.total_ordering
-    class MaxBound(ShardRangeOuterBound):
-        # singleton for maximum bound
-        def __ge__(self, other):
-            return True
-
-    @functools.total_ordering
-    class MinBound(ShardRangeOuterBound):
-        # singleton for minimum bound
-        def __le__(self, other):
-            return True
-
-    MIN = MinBound()
-    MAX = MaxBound()
     __slots__ = (
         'account', 'container',
         '_timestamp', '_meta_timestamp', '_state_timestamp', '_epoch',
-        '_lower', '_upper', '_deleted', '_state', '_count', '_bytes',
+        '_deleted', '_state', '_count', '_bytes',
         '_tombstones', '_reported')
 
-    def __init__(self, name, timestamp, lower=MIN, upper=MAX,
+    def __init__(self, name, timestamp,
+                 lower=Namespace.MIN, upper=Namespace.MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=False, state=None, state_timestamp=None, epoch=None,
                  reported=False, tombstones=-1):
+        super(ShardRange, self).__init__(name=name, lower=lower, upper=upper)
         self.account = self.container = self._timestamp = \
             self._meta_timestamp = self._state_timestamp = self._epoch = None
-        self._lower = ShardRange.MIN
-        self._upper = ShardRange.MAX
         self._deleted = False
         self._state = None
 
         self.name = name
         self.timestamp = timestamp
-        self.lower = lower
-        self.upper = upper
         self.deleted = deleted
         self.object_count = object_count
         self.bytes_used = bytes_used
@@ -5449,24 +5718,6 @@ class ShardRange(object):
         # note if this ever changes to *not* sort by upper first then it breaks
         # a key assumption for bisect, which is used by utils.find_shard_range
         return sr.upper, sr.state, sr.lower, sr.name
-
-    @classmethod
-    def _encode(cls, value):
-        if six.PY2 and isinstance(value, six.text_type):
-            return value.encode('utf-8')
-        if six.PY3 and isinstance(value, six.binary_type):
-            # This should never fail -- the value should always be coming from
-            # valid swift paths, which means UTF-8
-            return value.decode('utf-8')
-        return value
-
-    def _encode_bound(self, bound):
-        if isinstance(bound, ShardRangeOuterBound):
-            return bound
-        if not (isinstance(bound, six.text_type) or
-                isinstance(bound, six.binary_type)):
-            raise TypeError('must be a string type')
-        return self._encode(bound)
 
     def is_child_of(self, parent):
         """
@@ -5639,54 +5890,8 @@ class ShardRange(object):
         self._meta_timestamp = self._to_timestamp(ts)
 
     @property
-    def lower(self):
-        return self._lower
-
-    @property
-    def lower_str(self):
-        return str(self.lower)
-
-    @lower.setter
-    def lower(self, value):
-        if value is None or (value == b"" if isinstance(value, bytes) else
-                             value == u""):
-            value = ShardRange.MIN
-        try:
-            value = self._encode_bound(value)
-        except TypeError as err:
-            raise TypeError('lower %s' % err)
-        if value > self._upper:
-            raise ValueError(
-                'lower (%r) must be less than or equal to upper (%r)' %
-                (value, self.upper))
-        self._lower = value
-
-    @property
     def end_marker(self):
         return self.upper_str + '\x00' if self.upper else ''
-
-    @property
-    def upper(self):
-        return self._upper
-
-    @property
-    def upper_str(self):
-        return str(self.upper)
-
-    @upper.setter
-    def upper(self, value):
-        if value is None or (value == b"" if isinstance(value, bytes) else
-                             value == u""):
-            value = ShardRange.MAX
-        try:
-            value = self._encode_bound(value)
-        except TypeError as err:
-            raise TypeError('upper %s' % err)
-        if value < self._lower:
-            raise ValueError(
-                'upper (%r) must be greater than or equal to lower (%r)' %
-                (value, self.lower))
-        self._upper = value
 
     @property
     def object_count(self):
@@ -5895,55 +6100,11 @@ class ShardRange(object):
         self.timestamp = timestamp or Timestamp.now()
         return True
 
-    def __contains__(self, item):
-        # test if the given item is within the namespace
-        if item == '':
-            return False
-        item = self._encode_bound(item)
-        return self.lower < item <= self.upper
-
-    def __lt__(self, other):
-        # a ShardRange is less than other if its entire namespace is less than
-        # other; if other is another ShardRange that implies that this
-        # ShardRange's upper must be less than or equal to the other
-        # ShardRange's lower
-        if self.upper == ShardRange.MAX:
-            return False
-        if isinstance(other, ShardRange):
-            return self.upper <= other.lower
-        elif other is None:
-            return True
-        else:
-            return self.upper < self._encode(other)
-
-    def __gt__(self, other):
-        # a ShardRange is greater than other if its entire namespace is greater
-        # than other; if other is another ShardRange that implies that this
-        # ShardRange's lower must be less greater than or equal to the other
-        # ShardRange's upper
-        if self.lower == ShardRange.MIN:
-            return False
-        if isinstance(other, ShardRange):
-            return self.lower >= other.upper
-        elif other is None:
-            return False
-        else:
-            return self.lower >= self._encode(other)
-
-    def __eq__(self, other):
-        # test for equality of range bounds only
-        if not isinstance(other, ShardRange):
-            return False
-        return self.lower == other.lower and self.upper == other.upper
-
     # A by-the-book implementation should probably hash the value, which
     # in our case would be account+container+lower+upper (+timestamp ?).
     # But we seem to be okay with just the identity.
     def __hash__(self):
         return id(self)
-
-    def __ne__(self, other):
-        return not (self == other)
 
     def __repr__(self):
         return '%s<%r to %r as of %s, (%d, %d) as of %s, %s as of %s>' % (
@@ -5951,34 +6112,6 @@ class ShardRange(object):
             self.timestamp.internal, self.object_count, self.bytes_used,
             self.meta_timestamp.internal, self.state_text,
             self.state_timestamp.internal)
-
-    def entire_namespace(self):
-        """
-        Returns True if the ShardRange includes the entire namespace, False
-        otherwise.
-        """
-        return (self.lower == ShardRange.MIN and
-                self.upper == ShardRange.MAX)
-
-    def overlaps(self, other):
-        """
-        Returns True if the ShardRange namespace overlaps with the other
-        ShardRange's namespace.
-
-        :param other: an instance of :class:`~swift.common.utils.ShardRange`
-        """
-        if not isinstance(other, ShardRange):
-            return False
-        return max(self.lower, other.lower) < min(self.upper, other.upper)
-
-    def includes(self, other):
-        """
-        Returns True if this namespace includes the whole of the other
-        namespace, False otherwise.
-
-        :param other: an instance of :class:`~swift.common.utils.ShardRange`
-        """
-        return (self.lower <= other.lower) and (other.upper <= self.upper)
 
     def __iter__(self):
         yield 'name', self.name
@@ -6028,26 +6161,6 @@ class ShardRange(object):
             params['state_timestamp'], params['epoch'],
             params.get('reported', 0), params.get('tombstones', -1))
 
-    def expand(self, donors):
-        """
-        Expands the bounds as necessary to match the minimum and maximum bounds
-        of the given donors.
-
-        :param donors: A list of :class:`~swift.common.utils.ShardRange`
-        :return: True if the bounds have been modified, False otherwise.
-        """
-        modified = False
-        new_lower = self.lower
-        new_upper = self.upper
-        for donor in donors:
-            new_lower = min(new_lower, donor.lower)
-            new_upper = max(new_upper, donor.upper)
-        if self.lower > new_lower or self.upper < new_upper:
-            self.lower = new_lower
-            self.upper = new_upper
-            modified = True
-        return modified
-
 
 class ShardRangeList(UserList):
     """
@@ -6057,6 +6170,7 @@ class ShardRangeList(UserList):
     This class does not enforce ordering or continuity of the list items:
     callers should ensure that items are added in order as appropriate.
     """
+
     def __getitem__(self, index):
         # workaround for py3 - not needed for py2.7,py3.8
         result = self.data[index]
@@ -6069,27 +6183,27 @@ class ShardRangeList(UserList):
         only be equal to the lowest bound of all items in the list if the list
         contents has been sorted.
 
-        :return: lower bound of first item in the list, or ShardRange.MIN
+        :return: lower bound of first item in the list, or Namespace.MIN
                  if the list is empty.
         """
         if not self:
             # empty list has range MIN->MIN
-            return ShardRange.MIN
+            return Namespace.MIN
         return self[0].lower
 
     @property
     def upper(self):
         """
-        Returns the upper bound of the first item in the list. Note: this will
+        Returns the upper bound of the last item in the list. Note: this will
         only be equal to the uppermost bound of all items in the list if the
         list has previously been sorted.
 
-        :return: upper bound of first item in the list, or ShardRange.MIN
+        :return: upper bound of last item in the list, or Namespace.MIN
                  if the list is empty.
         """
         if not self:
             # empty list has range MIN->MIN
-            return ShardRange.MIN
+            return Namespace.MIN
         return self[-1].upper
 
     @property
@@ -6231,7 +6345,7 @@ def filter_shard_ranges(shard_ranges, includes, marker, end_marker):
     if marker or end_marker:
         return list(filter(shard_range_filter, shard_ranges))
 
-    if marker == ShardRange.MAX or end_marker == ShardRange.MIN:
+    if marker == Namespace.MAX or end_marker == Namespace.MIN:
         # MIN and MAX are both Falsy so not handled by shard_range_filter
         return []
 
@@ -6590,6 +6704,7 @@ class NoopMutex(object):
     of which have the message-interleaving trouble you'd expect from TCP or
     file handlers.
     """
+
     def __init__(self):
         # Usually, it's an error to have multiple greenthreads all waiting
         # to write to the same file descriptor. It's often a sign of inadequate
@@ -6857,6 +6972,7 @@ class Watchdog(object):
         => the exception is raised, then the greenlet watchdog sleep(3) to
            wake up for the 1st timeout expiration
     """
+
     def __init__(self):
         # key => (timeout, timeout_at, caller_greenthread, exception)
         self._timeouts = dict()
@@ -6946,6 +7062,7 @@ class WatchdogTimeout(object):
     """
     Context manager to schedule a timeout in a Watchdog instance
     """
+
     def __init__(self, watchdog, timeout, exc, timeout_at=None):
         """
         Schedule a timeout in a Watchdog instance
