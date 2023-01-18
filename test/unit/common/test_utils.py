@@ -2429,8 +2429,10 @@ class TestUtils(unittest.TestCase):
     def _test_validate_hash_conf(self, sections, options, should_raise_error):
 
         class FakeConfigParser(object):
-            def readfp(self, fp):
+            def read_file(self, fp):
                 pass
+
+            readfp = read_file
 
             def get(self, section, option):
                 if section not in sections:
@@ -2770,54 +2772,63 @@ log_name = %(yarr)s'''
                             "Expected %d < 100" % diff_from_target_ms)
 
     def test_ratelimit_sleep(self):
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'ratelimit_sleep\(\) is deprecated')
 
-        def testfunc():
-            running_time = 0
-            for i in range(100):
-                running_time = utils.ratelimit_sleep(running_time, -5)
+            def testfunc():
+                running_time = 0
+                for i in range(100):
+                    running_time = utils.ratelimit_sleep(running_time, -5)
 
-        self.verify_under_pseudo_time(testfunc, target_runtime_ms=1)
+            self.verify_under_pseudo_time(testfunc, target_runtime_ms=1)
 
-        def testfunc():
-            running_time = 0
-            for i in range(100):
-                running_time = utils.ratelimit_sleep(running_time, 0)
+            def testfunc():
+                running_time = 0
+                for i in range(100):
+                    running_time = utils.ratelimit_sleep(running_time, 0)
 
-        self.verify_under_pseudo_time(testfunc, target_runtime_ms=1)
+            self.verify_under_pseudo_time(testfunc, target_runtime_ms=1)
 
-        def testfunc():
-            running_time = 0
-            for i in range(50):
-                running_time = utils.ratelimit_sleep(running_time, 200)
+            def testfunc():
+                running_time = 0
+                for i in range(50):
+                    running_time = utils.ratelimit_sleep(running_time, 200)
 
-        self.verify_under_pseudo_time(testfunc, target_runtime_ms=250)
+            self.verify_under_pseudo_time(testfunc, target_runtime_ms=250)
 
     def test_ratelimit_sleep_with_incr(self):
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'ratelimit_sleep\(\) is deprecated')
 
-        def testfunc():
-            running_time = 0
-            vals = [5, 17, 0, 3, 11, 30,
-                    40, 4, 13, 2, -1] * 2  # adds up to 248
-            total = 0
-            for i in vals:
-                running_time = utils.ratelimit_sleep(running_time,
-                                                     500, incr_by=i)
-                total += i
-            self.assertEqual(248, total)
+            def testfunc():
+                running_time = 0
+                vals = [5, 17, 0, 3, 11, 30,
+                        40, 4, 13, 2, -1] * 2  # adds up to 248
+                total = 0
+                for i in vals:
+                    running_time = utils.ratelimit_sleep(running_time,
+                                                         500, incr_by=i)
+                    total += i
+                self.assertEqual(248, total)
 
-        self.verify_under_pseudo_time(testfunc, target_runtime_ms=500)
+            self.verify_under_pseudo_time(testfunc, target_runtime_ms=500)
 
     def test_ratelimit_sleep_with_sleep(self):
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'ratelimit_sleep\(\) is deprecated')
 
-        def testfunc():
-            running_time = 0
-            sleeps = [0] * 7 + [.2] * 3 + [0] * 30
-            for i in sleeps:
-                running_time = utils.ratelimit_sleep(running_time, 40,
-                                                     rate_buffer=1)
-                time.sleep(i)
+            def testfunc():
+                running_time = 0
+                sleeps = [0] * 7 + [.2] * 3 + [0] * 30
+                for i in sleeps:
+                    running_time = utils.ratelimit_sleep(running_time, 40,
+                                                         rate_buffer=1)
+                    time.sleep(i)
 
-        self.verify_under_pseudo_time(testfunc, target_runtime_ms=900)
+            self.verify_under_pseudo_time(testfunc, target_runtime_ms=900)
 
     def test_search_tree(self):
         # file match & ext miss
@@ -5425,12 +5436,18 @@ class TestStatsdLogging(unittest.TestCase):
         # note: set_statsd_prefix is deprecated
         logger2 = utils.get_logger({'log_statsd_host': 'some.host.com'},
                                    'other-name', log_route='some-route')
-        logger.set_statsd_prefix('some-name.more-specific')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            logger.set_statsd_prefix('some-name.more-specific')
         self.assertEqual(logger.logger.statsd_client._prefix,
                          'some-name.more-specific.')
         self.assertEqual(logger2.logger.statsd_client._prefix,
                          'some-name.more-specific.')
-        logger.set_statsd_prefix('')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            logger.set_statsd_prefix('')
         self.assertEqual(logger.logger.statsd_client._prefix, '')
         self.assertEqual(logger2.logger.statsd_client._prefix, '')
 
@@ -5452,10 +5469,16 @@ class TestStatsdLogging(unittest.TestCase):
                          'tomato.sauce.some-name.more-specific.')
 
         # note: set_statsd_prefix is deprecated
-        logger.set_statsd_prefix('some-name.more-specific')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            logger.set_statsd_prefix('some-name.more-specific')
         self.assertEqual(logger.logger.statsd_client._prefix,
                          'tomato.sauce.some-name.more-specific.')
-        logger.set_statsd_prefix('')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            logger.set_statsd_prefix('')
         self.assertEqual(logger.logger.statsd_client._prefix, 'tomato.sauce.')
         self.assertEqual(logger.logger.statsd_client._host, 'another.host.com')
         self.assertEqual(logger.logger.statsd_client._port, 9876)
@@ -5491,10 +5514,10 @@ class TestStatsdLogging(unittest.TestCase):
             logger.set_statsd_prefix('some-name.more-specific')
         msgs = [str(warning.message)
                 for warning in cm
-                if str(warning.message).startswith('set_prefix')]
+                if str(warning.message).startswith('set_statsd_prefix')]
         self.assertEqual(
-            ['set_prefix() is deprecated; use the ``tail_prefix`` argument of '
-             'the constructor when instantiating the class instead.'],
+            ['set_statsd_prefix() is deprecated; use the '
+             '``statsd_tail_prefix`` argument to ``get_logger`` instead.'],
             msgs)
 
     def test_ipv4_or_ipv6_hostname_defaults_to_ipv4(self):
@@ -6274,7 +6297,10 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         self.logger.update_stats, 'another.counter', 42)
 
         # Each call can override the sample_rate (also, bonus prefix test)
-        self.logger.set_statsd_prefix('pfx')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            self.logger.set_statsd_prefix('pfx')
         self.assertStat('pfx.some.counter:1|c|@0.972', self.logger.increment,
                         'some.counter', sample_rate=0.972)
         self.assertStat('pfx.some.counter:-1|c|@0.972', self.logger.decrement,
@@ -6290,7 +6316,10 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         sample_rate=0.972)
 
         # Can override sample_rate with non-keyword arg
-        self.logger.set_statsd_prefix('')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            self.logger.set_statsd_prefix('')
         self.assertStat('some.counter:1|c|@0.939', self.logger.increment,
                         'some.counter', 0.939)
         self.assertStat('some.counter:-1|c|@0.939', self.logger.decrement,
@@ -6338,7 +6367,10 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         sample_rate=0.9912)
 
         # Can override sample_rate with non-keyword arg
-        self.logger.set_statsd_prefix('')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            self.logger.set_statsd_prefix('')
         self.assertStat('some.counter:1|c|@0.987654', self.logger.increment,
                         'some.counter', 0.987654)
         self.assertStat('some.counter:-1|c|@0.987654', self.logger.decrement,
@@ -6371,7 +6403,10 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('alpha.beta.pfx.another.counter:3|c',
                         self.logger.update_stats, 'another.counter', 3)
 
-        self.logger.set_statsd_prefix('')
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', r'set_statsd_prefix\(\) is deprecated')
+            self.logger.set_statsd_prefix('')
         self.assertStat('alpha.beta.some.counter:1|c|@0.9912',
                         self.logger.increment, 'some.counter',
                         sample_rate=0.9912)

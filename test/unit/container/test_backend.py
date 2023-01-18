@@ -2139,8 +2139,8 @@ class TestContainerBroker(unittest.TestCase):
 
         iters = 100
         for i in range(iters):
-            policy_index = random.randint(0, iters * 0.1)
-            name = 'object-%s' % random.randint(0, iters * 0.1)
+            policy_index = random.randint(0, iters // 10)
+            name = 'object-%s' % random.randint(0, iters // 10)
             size = random.randint(0, iters)
             broker.put_object(name, next(ts).internal, size, 'text/plain',
                               '5af83e3196bf99f440f31f2e1a6c9afe',
