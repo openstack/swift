@@ -14,15 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import base64
 import requests
 
 import botocore
 
-from swift.common.utils import md5
-
 import test.functional as tf
 from test.functional.s3api import S3ApiBaseBoto3
+
+
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
 
 
 class TestS3ApiXxeInjection(S3ApiBaseBoto3):
@@ -144,11 +149,8 @@ class TestS3ApiXxeInjection(S3ApiBaseBoto3):
 </Delete>
 """
         body = body.encode('utf-8')
-        content_md5 = (
-            base64.b64encode(md5(body, usedforsecurity=False).digest()))
-        resp = requests.post(
-            url, headers={'Content-MD5': content_md5}, data=body)
-        self.assertEqual(400, resp.status_code)
+        resp = requests.post(url, data=body)
+        self.assertEqual(400, resp.status_code, resp.content)
         self.assertNotIn(b'xxe', resp.content)
         self.assertNotIn(b'[swift-hash]', resp.content)
 
