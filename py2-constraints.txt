@@ -74,3 +74,5 @@ gitdb2===2.0.6
 # Projects that are known to have had a final py2-supporting release
 bandit===1.6.2
 PasteDeploy==2.1.1
+attrs==22.1.0
+smmap==3.0.5
