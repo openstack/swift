@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# See http://code.google.com/p/python-nose/issues/detail?id=373
-# The code below enables nosetests to work with i18n _() blocks
 from __future__ import print_function
 import sys
 from contextlib import contextmanager
@@ -22,20 +20,7 @@ from contextlib import contextmanager
 import os
 from six import reraise
 
-try:
-    from unittest.util import safe_repr
-except ImportError:
-    # Probably py26
-    _MAX_LENGTH = 80
-
-    def safe_repr(obj, short=False):
-        try:
-            result = repr(obj)
-        except Exception:
-            result = object.__repr__(obj)
-        if not short or len(result) < _MAX_LENGTH:
-            return result
-        return result[:_MAX_LENGTH] + ' [truncated]...'
+from unittest.util import safe_repr
 
 import warnings
 warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
@@ -58,10 +43,6 @@ if sys.version_info < (3, 2):
     unittest.TestCase.assertRegex = unittest.TestCase.assertRegexpMatches
 
 from eventlet.green import socket
-
-# make unittests pass on all locale
-import swift
-setattr(swift, 'gettext_', lambda x: x)
 
 from swift.common.utils import readconf
 
