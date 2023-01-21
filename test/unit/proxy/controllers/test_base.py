@@ -27,7 +27,8 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
     Controller, GetOrHeadHandler, bytes_to_skip, clear_info_cache, \
-    set_info_cache, NodeIter, headers_from_container_info
+    set_info_cache, NodeIter, headers_from_container_info, \
+    record_cache_op_metrics
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
@@ -529,6 +530,40 @@ class TestFuncs(BaseTest):
         clear_info_cache('app-is-unused', req.environ, 'account', 'cont',
                          shard='listing')
         check_not_in_cache(req, shard_cache_key)
+
+    def test_record_cache_op_metrics(self):
+        record_cache_op_metrics(
+            self.logger, 'shard_listing', 'infocache_hit')
+        self.assertEqual(
+            self.logger.get_increment_counts().get(
+                'shard_listing.infocache.hit'),
+            1)
+        record_cache_op_metrics(
+            self.logger, 'shard_listing', 'hit')
+        self.assertEqual(
+            self.logger.get_increment_counts().get(
+                'shard_listing.cache.hit'),
+            1)
+        resp = FakeResponse(status_int=200)
+        record_cache_op_metrics(
+            self.logger, 'shard_updating', 'skip', resp)
+        self.assertEqual(
+            self.logger.get_increment_counts().get(
+                'shard_updating.cache.skip.200'),
+            1)
+        resp = FakeResponse(status_int=503)
+        record_cache_op_metrics(
+            self.logger, 'shard_updating', 'disabled', resp)
+        self.assertEqual(
+            self.logger.get_increment_counts().get(
+                'shard_updating.cache.disabled.503'),
+            1)
+
+        # test a cache miss call without response, expect no metric recorded.
+        self.app.logger = mock.Mock()
+        record_cache_op_metrics(
+            self.logger, 'shard_updating', 'miss')
+        self.app.logger.increment.assert_not_called()
 
     def test_get_account_info_swift_source(self):
         app = FakeApp()

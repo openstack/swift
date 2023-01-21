@@ -735,6 +735,34 @@ def _get_info_from_infocache(env, account, container=None):
     return None
 
 
+def record_cache_op_metrics(
+        logger, op_type, cache_state, resp=None):
+    """
+    Record a single cache operation into its corresponding metrics.
+
+    :param  logger: the metrics logger
+    :param  op_type: the name of the operation type, includes 'shard_listing',
+              'shard_updating', and etc.
+    :param  cache_state: the state of this cache operation. When it's
+              'infocache_hit' or memcache 'hit', expect it succeeded and 'resp'
+              will be None; for all other cases like memcache 'miss' or 'skip'
+              which will make to backend, expect a valid 'resp'.
+    :param  resp: the response from backend for all cases except cache hits.
+    """
+    if cache_state == 'infocache_hit':
+        logger.increment('%s.infocache.hit' % op_type)
+    elif cache_state == 'hit':
+        # memcache hits.
+        logger.increment('%s.cache.hit' % op_type)
+    else:
+        # the cases of cache_state is memcache miss, error, skip, force_skip
+        # or disabled.
+        if resp is not None:
+            # Note: currently there is no case that 'resp' will be None.
+            logger.increment(
+                '%s.cache.%s.%d' % (op_type, cache_state, resp.status_int))
+
+
 def _get_info_from_memcache(app, env, account, container=None):
     """
     Get cached account or container information from memcache
@@ -2344,8 +2372,8 @@ class Controller(object):
                 req.path_qs, err)
             return None
 
-    def _get_shard_ranges(self, req, account, container, includes=None,
-                          states=None):
+    def _get_shard_ranges(
+            self, req, account, container, includes=None, states=None):
         """
         Fetch shard ranges from given `account/container`. If `includes` is
         given then the shard range for that object name is requested, otherwise
@@ -2372,6 +2400,38 @@ class Controller(object):
             req, account, container, headers=headers, params=params)
         return self._parse_shard_ranges(req, listing, response), response
 
+    def _get_cached_updating_shard_ranges(
+            self, infocache, memcache, cache_key):
+        """
+        Fetch cached shard ranges from infocache and memcache.
+
+        :param infocache: the infocache instance.
+        :param memcache: an instance of a memcache client,
+                         :class:`swift.common.memcached.MemcacheRing`.
+        :param cache_key: the cache key for both infocache and memcache.
+        :return: a tuple of (list of shard ranges in dict format, cache state)
+        """
+        cached_ranges = infocache.get(cache_key)
+        if cached_ranges:
+            cache_state = 'infocache_hit'
+        else:
+            if memcache:
+                skip_chance = \
+                    self.app.container_updating_shard_ranges_skip_cache
+                if skip_chance and random.random() < skip_chance:
+                    cache_state = 'skip'
+                else:
+                    try:
+                        cached_ranges = memcache.get(
+                            cache_key, raise_on_error=True)
+                        cache_state = 'hit' if cached_ranges else 'miss'
+                    except MemcacheConnectionError:
+                        cache_state = 'error'
+            else:
+                cache_state = 'disabled'
+        cached_ranges = cached_ranges or []
+        return cached_ranges, cache_state
+
     def _get_update_shard(self, req, account, container, obj):
         """
         Find the appropriate shard range for an object update.
@@ -2388,52 +2448,37 @@ class Controller(object):
             or None if the update should go back to the root
         """
         if not self.app.recheck_updating_shard_ranges:
-            # caching is disabled; fall back to old behavior
+            # caching is disabled
+            cache_state = 'disabled'
+            # legacy behavior requests container server for includes=obj
             shard_ranges, response = self._get_shard_ranges(
                 req, account, container, states='updating', includes=obj)
-            self.logger.increment(
-                'shard_updating.backend.%s' % response.status_int)
-            if not shard_ranges:
-                return None
-            return shard_ranges[0]
-
-        cache_key = get_cache_key(account, container, shard='updating')
-        infocache = req.environ.setdefault('swift.infocache', {})
-        memcache = cache_from_env(req.environ, True)
-
-        cached_ranges = infocache.get(cache_key)
-        if cached_ranges is None and memcache:
-            skip_chance = \
-                self.app.container_updating_shard_ranges_skip_cache
-            if skip_chance and random.random() < skip_chance:
-                self.logger.increment('shard_updating.cache.skip')
-            else:
-                try:
-                    cached_ranges = memcache.get(
-                        cache_key, raise_on_error=True)
-                    cache_state = 'hit' if cached_ranges else 'miss'
-                except MemcacheConnectionError:
-                    cache_state = 'error'
-                self.logger.increment('shard_updating.cache.%s' % cache_state)
-
-        if cached_ranges:
-            shard_ranges = [
-                ShardRange.from_dict(shard_range)
-                for shard_range in cached_ranges]
         else:
-            shard_ranges, response = self._get_shard_ranges(
-                req, account, container, states='updating')
-            self.logger.increment(
-                'shard_updating.backend.%s' % response.status_int)
-            if shard_ranges:
-                cached_ranges = [dict(sr) for sr in shard_ranges]
-                # went to disk; cache it
-                if memcache:
-                    memcache.set(cache_key, cached_ranges,
-                                 time=self.app.recheck_updating_shard_ranges)
+            # try to get from cache
+            response = None
+            cache_key = get_cache_key(account, container, shard='updating')
+            infocache = req.environ.setdefault('swift.infocache', {})
+            memcache = cache_from_env(req.environ, True)
+            (cached_ranges, cache_state
+             ) = self._get_cached_updating_shard_ranges(
+                infocache, memcache, cache_key)
+            if cached_ranges:
+                # found cached shard ranges in either infocache or memcache
+                infocache[cache_key] = tuple(cached_ranges)
+                shard_ranges = [ShardRange.from_dict(shard_range)
+                                for shard_range in cached_ranges]
+            else:
+                # pull full set of updating shards from backend
+                shard_ranges, response = self._get_shard_ranges(
+                    req, account, container, states='updating')
+                if shard_ranges:
+                    cached_ranges = [dict(sr) for sr in shard_ranges]
+                    infocache[cache_key] = tuple(cached_ranges)
+                    if memcache:
+                        memcache.set(
+                            cache_key, cached_ranges,
+                            time=self.app.recheck_updating_shard_ranges)
 
-        if not shard_ranges:
-            return None
-
-        infocache[cache_key] = tuple(cached_ranges)
-        return find_shard_range(obj, shard_ranges)
+        record_cache_op_metrics(
+            self.logger, 'shard_updating', cache_state, response)
+        return find_shard_range(obj, shard_ranges or [])
