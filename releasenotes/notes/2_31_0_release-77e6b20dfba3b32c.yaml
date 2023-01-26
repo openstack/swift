@@ -1,0 +1,118 @@
+---
+features:
+  - |
+    Added support for Python 3.10.
+
+  - |
+    Added an optional ``backend_ratelimit`` middleware for backend servers.
+    See the backend server sample configuration files for more information.
+
+  - |
+    Sharding improvements
+
+    * Added a ``merge`` subcommand to ``swift-manage-shard-ranges`` to merge
+      arbitrary shard ranges into a container DB. Minimal safety checks
+      are performed; it should only be used for emergency shard range
+      manipulation by expert users.
+
+    * Warnings are now emitted when sharding appears to have become stuck.
+      Use the new ``container_sharding_timeout`` option to configure the
+      "stuck" threshold; the default is 48 hours.
+
+  - |
+    Metrics improvements
+
+    * Added timing stats for memcached operations.
+
+    * Renamed and improved the granularity of shard range cache and
+      backend stats. Metrics dashboards may need to be updated.
+
+    * Emit stats when backend nodes are error-limited.
+
+  - |
+    Added the ability to configure a chance to skip checking memcache when
+    querying account and container information. This allows some fraction
+    of traffic to go to disk and refresh memcache before the key ages out.
+    Recommended values for the new ``account_existence_skip_cache_pct`` and
+    ``container_existence_skip_cache_pct`` options are in the range of
+    0.0 to 0.01.
+
+  - |
+    Absolute-form request targets are now accepted. This enables access for
+    certain clients and SDKs (including some older versions of rclone that
+    were using an old version of aws-sdk-go).
+
+upgrade:
+  - |
+    Static large object segments may now be deleted asynchronously by
+    default. Operators may return to the old behavior by disabling the
+    ``allow_async_delete`` option in the ``[filter:slo]`` section
+    in their proxy-server.conf.
+
+security:
+  - |
+    Fixed a security issue in how ``s3api`` handles XML parsing that allowed
+    authenticated S3 clients to read arbitrary files from proxy servers.
+    Refer to `CVE-2022-47950 <https://cve.circl.lu/cve/CVE-2022-47950>`__
+    for more information.
+
+fixes:
+  - |
+    S3 API improvements
+
+    * Fixed a server error when handling malformed CompleteMultipartUpload
+      requests.
+
+    * Improved error reporting when attempting to set invalid ``X-Delete-At``
+      or ``X-Delete-After`` values via the S3 API.
+
+  - |
+    Sharding improvements
+
+    * Sync more shard ranges from the root database to the shards. This
+      helps ensure shard range repairs effected at the root make their way
+      to shards that would otherwise be stuck trying to further divide
+      into sub-shards.
+
+    * Improved performance of ``delimiter`` listings for sharded containers.
+
+    * Added more safety checks to the ``repair`` subcommand of
+      ``swift-manage-shard-ranges``.
+
+    * Better handle ``EOFError`` and ``KeyboardInterrupt`` when prompting for
+      input in ``swift-manage-shard-ranges``.
+
+    * Stop warning about transient overlaps when auditing shard ranges.
+
+  - |
+    Fixed a path-rewriting bug introduced in Python 3.7.14, 3.8.14, 3.9.14,
+    and 3.10.6 that could cause some ``domain_remap`` requests to be routed to
+    the wrong object.
+
+  - |
+    Fixed a server error when attempting to access data in a deleted
+    container that had an erasure-coded storage policy.
+
+  - |
+    Improved error messages to clients that encounter errors using the
+    ``formpost`` middleware.
+
+  - |
+    Removed some inappropriate error-suppression when locking account and
+    container databases.
+
+  - |
+    Improved server start-up time when using multiple workers.
+
+  - |
+    Removed some unnecessary locking when logging.
+
+  - |
+    Added some basic object-metadata validation; invalid diskfiles will be
+    quarantined via the auditor or reconstructor.
+
+  - |
+    Enhanced logging when error-limiting a backend node.
+
+  - |
+    Various other minor bug fixes and improvements.
