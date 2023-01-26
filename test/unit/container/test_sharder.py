@@ -427,13 +427,13 @@ class TestSharder(BaseTestSharder):
                                   'container-sharder-6021-ic')
 
     def _assert_stats(self, expected, sharder, category):
-        # assertEqual doesn't work with a defaultdict
+        # assertEqual doesn't work with a stats defaultdict so copy to a dict
+        # before comparing
         stats = sharder.stats['sharding'][category]
+        actual = {}
         for k, v in expected.items():
-            actual = stats[k]
-            self.assertEqual(
-                v, actual, 'Expected %s but got %s for %s in %s' %
-                           (v, actual, k, stats))
+            actual[k] = stats[k]
+        self.assertEqual(expected, actual)
         return stats
 
     def _assert_recon_stats(self, expected, sharder, category):
@@ -1180,6 +1180,204 @@ class TestSharder(BaseTestSharder):
         mock_call.assert_called_once_with(
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
+
+    def test_yield_objects(self):
+        broker = self._make_broker()
+        objects = [
+            ('o%02d' % i, self.ts_encoded(), 10, 'text/plain', 'etag_a',
+             i % 2, 0) for i in range(30)]
+        for obj in objects:
+            broker.put_object(*obj)
+
+        src_range = ShardRange('dont/care', Timestamp.now())
+        with self._mock_sharder(conf={}) as sharder:
+            batches = [b for b, _ in
+                       sharder.yield_objects(broker, src_range)]
+        self.assertEqual([15, 15], [len(b) for b in batches])
+        self.assertEqual([[0] * 15, [1] * 15],
+                         [[o['deleted'] for o in b] for b in batches])
+
+        # custom batch size
+        with self._mock_sharder(conf={}) as sharder:
+            batches = [b for b, _ in
+                       sharder.yield_objects(broker, src_range, batch_size=10)]
+        self.assertEqual([10, 5, 10, 5], [len(b) for b in batches])
+        self.assertEqual([[0] * 10, [0] * 5, [1] * 10, [1] * 5],
+                         [[o['deleted'] for o in b] for b in batches])
+
+        # restricted source range
+        src_range = ShardRange('dont/care', Timestamp.now(),
+                               lower='o10', upper='o20')
+        with self._mock_sharder(conf={}) as sharder:
+            batches = [b for b, _ in
+                       sharder.yield_objects(broker, src_range)]
+        self.assertEqual([5, 5], [len(b) for b in batches])
+        self.assertEqual([[0] * 5, [1] * 5],
+                         [[o['deleted'] for o in b] for b in batches])
+
+        # null source range
+        src_range = ShardRange('dont/care', Timestamp.now(),
+                               lower=ShardRange.MAX)
+        with self._mock_sharder(conf={}) as sharder:
+            batches = [b for b, _ in
+                       sharder.yield_objects(broker, src_range)]
+        self.assertEqual([], batches)
+        src_range = ShardRange('dont/care', Timestamp.now(),
+                               upper=ShardRange.MIN)
+        with self._mock_sharder(conf={}) as sharder:
+            batches = [b for b, _ in
+                       sharder.yield_objects(broker, src_range)]
+        self.assertEqual([], batches)
+
+    def test_yield_objects_to_shard_range_no_objects(self):
+        # verify that dest_shard_ranges func is not called if the source
+        # broker has no objects
+        broker = self._make_broker()
+        dest_shard_ranges = mock.MagicMock()
+        src_range = ShardRange('dont/care', Timestamp.now())
+        with self._mock_sharder(conf={}) as sharder:
+            batches = [b for b, _ in
+                       sharder.yield_objects_to_shard_range(
+                           broker, src_range, dest_shard_ranges)]
+        self.assertEqual([], batches)
+        dest_shard_ranges.assert_not_called()
+
+    def test_yield_objects_to_shard_range(self):
+        broker = self._make_broker()
+        objects = [
+            ('o%02d' % i, self.ts_encoded(), 10, 'text/plain', 'etag_a',
+             i % 2, 0) for i in range(30)]
+        for obj in objects:
+            broker.put_object(*obj)
+        orig_info = broker.get_info()
+        # yield_objects annotates the info dict...
+        orig_info['max_row'] = 30
+        dest_ranges = [
+            ShardRange('shard/0', Timestamp.now(), upper='o09'),
+            ShardRange('shard/1', Timestamp.now(), lower='o09', upper='o19'),
+            ShardRange('shard/2', Timestamp.now(), lower='o19'),
+        ]
+
+        # complete overlap of src and dest, multiple batches per dest shard
+        # range per deleted/not deleted
+        src_range = ShardRange('dont/care', Timestamp.now())
+        dest_shard_ranges = mock.MagicMock(return_value=dest_ranges)
+        with self._mock_sharder(conf={'cleave_row_batch_size': 4}) as sharder:
+            yielded = [y for y in
+                       sharder.yield_objects_to_shard_range(
+                           broker, src_range, dest_shard_ranges)]
+        self.assertEqual([dest_ranges[0], dest_ranges[0],
+                          dest_ranges[0], dest_ranges[0],
+                          dest_ranges[1], dest_ranges[1],
+                          dest_ranges[1], dest_ranges[1],
+                          dest_ranges[2], dest_ranges[2],
+                          dest_ranges[2], dest_ranges[2]],
+                         [dest for _, dest, _ in yielded])
+        self.assertEqual([[o[0] for o in objects[0:8:2]],
+                          [o[0] for o in objects[8:10:2]],
+                          [o[0] for o in objects[1:8:2]],
+                          [o[0] for o in objects[9:10:2]],
+                          [o[0] for o in objects[10:18:2]],
+                          [o[0] for o in objects[18:20:2]],
+                          [o[0] for o in objects[11:18:2]],
+                          [o[0] for o in objects[19:20:2]],
+                          [o[0] for o in objects[20:28:2]],
+                          [o[0] for o in objects[28:30:2]],
+                          [o[0] for o in objects[21:28:2]],
+                          [o[0] for o in objects[29:30:2]]],
+                         [[o['name'] for o in objs] for objs, _, _ in yielded])
+        self.assertEqual([orig_info] * 12, [info for _, _, info in yielded])
+
+        # src narrower than dest
+        src_range = ShardRange('dont/care', Timestamp.now(),
+                               lower='o15', upper='o25')
+        dest_shard_ranges = mock.MagicMock(return_value=dest_ranges)
+        with self._mock_sharder(conf={}) as sharder:
+            yielded = [y for y in
+                       sharder.yield_objects_to_shard_range(
+                           broker, src_range, dest_shard_ranges)]
+        self.assertEqual([dest_ranges[1], dest_ranges[1],
+                          dest_ranges[2], dest_ranges[2]],
+                         [dest for _, dest, _ in yielded])
+        self.assertEqual([[o[0] for o in objects[16:20:2]],
+                          [o[0] for o in objects[17:20:2]],
+                          [o[0] for o in objects[20:26:2]],
+                          [o[0] for o in objects[21:26:2]]],
+                         [[o['name'] for o in objs] for objs, _, _ in yielded])
+        self.assertEqual([orig_info] * 4, [info for _, _, info in yielded])
+
+        # src much narrower than dest
+        src_range = ShardRange('dont/care', Timestamp.now(),
+                               lower='o15', upper='o18')
+        dest_shard_ranges = mock.MagicMock(return_value=dest_ranges)
+        with self._mock_sharder(conf={}) as sharder:
+            yielded = [y for y in
+                       sharder.yield_objects_to_shard_range(
+                           broker, src_range, dest_shard_ranges)]
+        self.assertEqual([dest_ranges[1], dest_ranges[1]],
+                         [dest for _, dest, _ in yielded])
+        self.assertEqual([[o[0] for o in objects[16:19:2]],
+                          [o[0] for o in objects[17:19:2]]],
+                         [[o['name'] for o in objs] for objs, _, _ in yielded])
+        self.assertEqual([orig_info] * 2, [info for _, _, info in yielded])
+
+        # dest narrower than src
+        src_range = ShardRange('dont/care', Timestamp.now(),
+                               lower='o05', upper='o25')
+        dest_shard_ranges = mock.MagicMock(return_value=dest_ranges[1:])
+        with self._mock_sharder(conf={}) as sharder:
+            yielded = [y for y in
+                       sharder.yield_objects_to_shard_range(
+                           broker, src_range, dest_shard_ranges)]
+        self.assertEqual([None, None,
+                          dest_ranges[1], dest_ranges[1],
+                          dest_ranges[2], dest_ranges[2]],
+                         [dest for _, dest, _ in yielded])
+        self.assertEqual([[o[0] for o in objects[6:10:2]],
+                          [o[0] for o in objects[7:10:2]],
+                          [o[0] for o in objects[10:20:2]],
+                          [o[0] for o in objects[11:20:2]],
+                          [o[0] for o in objects[20:26:2]],
+                          [o[0] for o in objects[21:26:2]]],
+                         [[o['name'] for o in objs] for objs, _, _ in yielded])
+        self.assertEqual([orig_info] * 6, [info for _, _, info in yielded])
+
+        # dest much narrower than src
+        src_range = ShardRange('dont/care', Timestamp.now(),
+                               lower='o05', upper='o25')
+        dest_shard_ranges = mock.MagicMock(return_value=dest_ranges[1:2])
+        with self._mock_sharder(conf={}) as sharder:
+            yielded = [y for y in
+                       sharder.yield_objects_to_shard_range(
+                           broker, src_range, dest_shard_ranges)]
+        self.assertEqual([None, None,
+                          dest_ranges[1], dest_ranges[1],
+                          None, None],
+                         [dest for _, dest, _ in yielded])
+        self.assertEqual([[o[0] for o in objects[6:10:2]],
+                          [o[0] for o in objects[7:10:2]],
+                          [o[0] for o in objects[10:20:2]],
+                          [o[0] for o in objects[11:20:2]],
+                          [o[0] for o in objects[20:26:2]],
+                          [o[0] for o in objects[21:26:2]]],
+                         [[o['name'] for o in objs] for objs, _, _ in yielded])
+        self.assertEqual([orig_info] * 6, [info for _, _, info in yielded])
+
+        # no dest, source is entire namespace, multiple batches
+        src_range = ShardRange('dont/care', Timestamp.now())
+        dest_shard_ranges = mock.MagicMock(return_value=[])
+        with self._mock_sharder(conf={'cleave_row_batch_size': 10}) as sharder:
+            yielded = [y for y in
+                       sharder.yield_objects_to_shard_range(
+                           broker, src_range, dest_shard_ranges)]
+        self.assertEqual([None] * 4,
+                         [dest for _, dest, _ in yielded])
+        self.assertEqual([[o[0] for o in objects[:20:2]],
+                          [o[0] for o in objects[20::2]],
+                          [o[0] for o in objects[1:20:2]],
+                          [o[0] for o in objects[21::2]]],
+                         [[o['name'] for o in objs] for objs, _, _ in yielded])
+        self.assertEqual([orig_info] * 4, [info for _, _, info in yielded])
 
     def _check_cleave_root(self, conf=None):
         broker = self._make_broker()
