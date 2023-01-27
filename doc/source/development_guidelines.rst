@@ -46,12 +46,39 @@ To execute the tests:
 
     tox
 
+To run a selected subset of unit tests with ``pytest``:
+
+* Create a virtual environment with ``tox``::
+
+    tox devenv -e py3 .env
+
+.. note::
+  Alternatively, here are the steps of manual preparation of the virtual environment::
+
+    virtualenv .env
+    source .env/bin/activate
+    pip3 install -r requirements.txt -r test-requirements.txt -c py36-constraints.txt
+    pip3 install -e .
+    deactivate
+
+* Activate the virtual environment::
+
+    source .env/bin/activate
+
+* Run some unit tests, for example::
+
+    pytest test/unit/common/middleware/crypto
+
+* Run all unit tests::
+
+    pytest test/unit
+
 .. note::
   If you installed using ``cd ~/swift; sudo python setup.py develop``, you may
   need to do ``cd ~/swift; sudo chown -R ${USER}:${USER} swift.egg-info`` prior
   to running ``tox``.
 
-* By default ``tox`` will run all of the unit test and pep8 checks listed in
+* By default ``tox`` will run **all of the unit test** and pep8 checks listed in
   the ``tox.ini`` file ``envlist`` option. A subset of the test environments
   can be specified on the ``tox`` command line or by setting the ``TOXENV``
   environment variable. For example, to run only the pep8 checks and python2.7
@@ -62,6 +89,10 @@ To execute the tests:
   or::
 
     TOXENV=py27,pep8 tox
+
+  To run unit tests with python3.8::
+
+    tox -e py38
 
 .. note::
   As of ``tox`` version 2.0.0, most environment variables are not automatically
