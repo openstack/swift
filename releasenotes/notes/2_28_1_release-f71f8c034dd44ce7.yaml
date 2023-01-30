@@ -1,0 +1,24 @@
+---
+security:
+  - |
+    Fixed a security issue in how ``s3api`` handles XML parsing that allowed
+    authenticated S3 clients to read arbitrary files from proxy servers.
+    Refer to `CVE-2022-47950 <https://cve.circl.lu/cve/CVE-2022-47950>`__
+    for more information.
+
+  - |
+    Constant-time string comparisons are now used when checking S3 API
+    signatures.
+
+fixes:
+  - |
+    Fixed a path-rewriting bug introduced in Python 3.7.14, 3.8.14, 3.9.14,
+    and 3.10.6 that could cause some ``domain_remap`` requests to be routed to
+    the wrong object.
+
+  - |
+    Improved compatibility with certain FIPS-mode-enabled systems.
+
+  - |
+    Ensure that non-durable data and .meta files are purged from handoffs
+    after syncing.

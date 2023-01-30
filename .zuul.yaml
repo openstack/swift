@@ -718,6 +718,9 @@
             irrelevant-files: *tempest-irrelevant-files
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
+        - openstacksdk-functional-devstack:
+            irrelevant-files: *tempest-irrelevant-files
+            voting: false
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -758,6 +761,9 @@
             irrelevant-files: *tempest-irrelevant-files
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
+        - openstacksdk-functional-devstack:
+            irrelevant-files: *tempest-irrelevant-files
+            voting: false
     experimental:
       jobs:
         - swift-tox-py27-centos-7
