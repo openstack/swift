@@ -8213,6 +8213,384 @@ class TestShardName(unittest.TestCase):
 
 
 class TestNamespace(unittest.TestCase):
+    def test_lower_setter(self):
+        ns = utils.Namespace('a/c', 'b', '')
+        # sanity checks
+        self.assertEqual('b', ns.lower_str)
+        self.assertEqual(ns.MAX, ns.upper)
+
+        def do_test(good_value, expected):
+            ns.lower = good_value
+            self.assertEqual(expected, ns.lower)
+            self.assertEqual(ns.MAX, ns.upper)
+
+        do_test(utils.Namespace.MIN, utils.Namespace.MIN)
+        do_test(utils.Namespace.MAX, utils.Namespace.MAX)
+        do_test(b'', utils.Namespace.MIN)
+        do_test(u'', utils.Namespace.MIN)
+        do_test(None, utils.Namespace.MIN)
+        do_test(b'a', 'a')
+        do_test(b'y', 'y')
+        do_test(u'a', 'a')
+        do_test(u'y', 'y')
+
+        expected = u'\N{SNOWMAN}'
+        if six.PY2:
+            expected = expected.encode('utf-8')
+        with warnings.catch_warnings(record=True) as captured_warnings:
+            do_test(u'\N{SNOWMAN}', expected)
+            do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
+        self.assertFalse(captured_warnings)
+
+        ns = utils.Namespace('a/c', 'b', 'y')
+        ns.lower = ''
+        self.assertEqual(ns.MIN, ns.lower)
+
+        ns = utils.Namespace('a/c', 'b', 'y')
+        with self.assertRaises(ValueError) as cm:
+            ns.lower = 'z'
+        self.assertIn("must be less than or equal to upper", str(cm.exception))
+        self.assertEqual('b', ns.lower_str)
+        self.assertEqual('y', ns.upper_str)
+
+        def do_test(bad_value):
+            with self.assertRaises(TypeError) as cm:
+                ns.lower = bad_value
+            self.assertIn("lower must be a string", str(cm.exception))
+            self.assertEqual('b', ns.lower_str)
+            self.assertEqual('y', ns.upper_str)
+
+        do_test(1)
+        do_test(1.234)
+
+    def test_upper_setter(self):
+        ns = utils.Namespace('a/c', '', 'y')
+        # sanity checks
+        self.assertEqual(ns.MIN, ns.lower)
+        self.assertEqual('y', ns.upper_str)
+
+        def do_test(good_value, expected):
+            ns.upper = good_value
+            self.assertEqual(expected, ns.upper)
+            self.assertEqual(ns.MIN, ns.lower)
+
+        do_test(utils.Namespace.MIN, utils.Namespace.MIN)
+        do_test(utils.Namespace.MAX, utils.Namespace.MAX)
+        do_test(b'', utils.Namespace.MAX)
+        do_test(u'', utils.Namespace.MAX)
+        do_test(None, utils.Namespace.MAX)
+        do_test(b'z', 'z')
+        do_test(b'b', 'b')
+        do_test(u'z', 'z')
+        do_test(u'b', 'b')
+
+        expected = u'\N{SNOWMAN}'
+        if six.PY2:
+            expected = expected.encode('utf-8')
+        with warnings.catch_warnings(record=True) as captured_warnings:
+            do_test(u'\N{SNOWMAN}', expected)
+            do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
+        self.assertFalse(captured_warnings)
+
+        ns = utils.Namespace('a/c', 'b', 'y')
+        ns.upper = ''
+        self.assertEqual(ns.MAX, ns.upper)
+
+        ns = utils.Namespace('a/c', 'b', 'y')
+        with self.assertRaises(ValueError) as cm:
+            ns.upper = 'a'
+        self.assertIn(
+            "must be greater than or equal to lower",
+            str(cm.exception))
+        self.assertEqual('b', ns.lower_str)
+        self.assertEqual('y', ns.upper_str)
+
+        def do_test(bad_value):
+            with self.assertRaises(TypeError) as cm:
+                ns.upper = bad_value
+            self.assertIn("upper must be a string", str(cm.exception))
+            self.assertEqual('b', ns.lower_str)
+            self.assertEqual('y', ns.upper_str)
+
+        do_test(1)
+        do_test(1.234)
+
+    def test_end_marker(self):
+        ns = utils.Namespace('a/c', '', 'y')
+        self.assertEqual('y\x00', ns.end_marker)
+        ns = utils.Namespace('a/c', '', '')
+        self.assertEqual('', ns.end_marker)
+
+    def test_bounds_serialization(self):
+        ns = utils.Namespace('a/c', None, None)
+        self.assertEqual('a/c', ns.name)
+        self.assertEqual(utils.Namespace.MIN, ns.lower)
+        self.assertEqual('', ns.lower_str)
+        self.assertEqual(utils.Namespace.MAX, ns.upper)
+        self.assertEqual('', ns.upper_str)
+        self.assertEqual('', ns.end_marker)
+
+        lower = u'\u00e4'
+        upper = u'\u00fb'
+        ns = utils.Namespace('a/%s-%s' % (lower, upper), lower, upper)
+        exp_lower = lower
+        exp_upper = upper
+        if six.PY2:
+            exp_lower = exp_lower.encode('utf-8')
+            exp_upper = exp_upper.encode('utf-8')
+        self.assertEqual(exp_lower, ns.lower)
+        self.assertEqual(exp_lower, ns.lower_str)
+        self.assertEqual(exp_upper, ns.upper)
+        self.assertEqual(exp_upper, ns.upper_str)
+        self.assertEqual(exp_upper + '\x00', ns.end_marker)
+
+    def test_entire_namespace(self):
+        # test entire range (no boundaries)
+        entire = utils.Namespace('a/test', None, None)
+        self.assertEqual(utils.Namespace.MAX, entire.upper)
+        self.assertEqual(utils.Namespace.MIN, entire.lower)
+        self.assertIs(True, entire.entire_namespace())
+
+        for x in range(100):
+            self.assertTrue(str(x) in entire)
+            self.assertTrue(chr(x) in entire)
+
+        for x in ('a', 'z', 'zzzz', '124fsdf', u'\u00e4'):
+            self.assertTrue(x in entire, '%r should be in %r' % (x, entire))
+
+        entire.lower = 'a'
+        self.assertIs(False, entire.entire_namespace())
+
+    def test_comparisons(self):
+        # upper (if provided) *must* be greater than lower
+        with self.assertRaises(ValueError):
+            utils.Namespace('f-a', 'f', 'a')
+
+        # test basic boundaries
+        btoc = utils.Namespace('a/b-c', 'b', 'c')
+        atof = utils.Namespace('a/a-f', 'a', 'f')
+        ftol = utils.Namespace('a/f-l', 'f', 'l')
+        ltor = utils.Namespace('a/l-r', 'l', 'r')
+        rtoz = utils.Namespace('a/r-z', 'r', 'z')
+        lower = utils.Namespace('a/lower', '', 'mid')
+        upper = utils.Namespace('a/upper', 'mid', '')
+        entire = utils.Namespace('a/test', None, None)
+
+        # overlapping ranges
+        dtof = utils.Namespace('a/d-f', 'd', 'f')
+        dtom = utils.Namespace('a/d-m', 'd', 'm')
+
+        # test range > and <
+        # non-adjacent
+        self.assertFalse(rtoz < atof)
+        self.assertTrue(atof < ltor)
+        self.assertTrue(ltor > atof)
+        self.assertFalse(ftol > rtoz)
+
+        # adjacent
+        self.assertFalse(rtoz < ltor)
+        self.assertTrue(ltor < rtoz)
+        self.assertFalse(ltor > rtoz)
+        self.assertTrue(rtoz > ltor)
+
+        # wholly within
+        self.assertFalse(btoc < atof)
+        self.assertFalse(btoc > atof)
+        self.assertFalse(atof < btoc)
+        self.assertFalse(atof > btoc)
+
+        self.assertFalse(atof < dtof)
+        self.assertFalse(dtof > atof)
+        self.assertFalse(atof > dtof)
+        self.assertFalse(dtof < atof)
+
+        self.assertFalse(dtof < dtom)
+        self.assertFalse(dtof > dtom)
+        self.assertFalse(dtom > dtof)
+        self.assertFalse(dtom < dtof)
+
+        # overlaps
+        self.assertFalse(atof < dtom)
+        self.assertFalse(atof > dtom)
+        self.assertFalse(ltor > dtom)
+
+        # ranges including min/max bounds
+        self.assertTrue(upper > lower)
+        self.assertTrue(lower < upper)
+        self.assertFalse(upper < lower)
+        self.assertFalse(lower > upper)
+
+        self.assertFalse(lower < entire)
+        self.assertFalse(entire > lower)
+        self.assertFalse(lower > entire)
+        self.assertFalse(entire < lower)
+
+        self.assertFalse(upper < entire)
+        self.assertFalse(entire > upper)
+        self.assertFalse(upper > entire)
+        self.assertFalse(entire < upper)
+
+        self.assertFalse(entire < entire)
+        self.assertFalse(entire > entire)
+
+        # test range < and > to an item
+        # range is > lower and <= upper to lower boundary isn't
+        # actually included
+        self.assertTrue(ftol > 'f')
+        self.assertFalse(atof < 'f')
+        self.assertTrue(ltor < 'y')
+
+        self.assertFalse(ftol < 'f')
+        self.assertFalse(atof > 'f')
+        self.assertFalse(ltor > 'y')
+
+        self.assertTrue('f' < ftol)
+        self.assertFalse('f' > atof)
+        self.assertTrue('y' > ltor)
+
+        self.assertFalse('f' > ftol)
+        self.assertFalse('f' < atof)
+        self.assertFalse('y' < ltor)
+
+        # Now test ranges with only 1 boundary
+        start_to_l = utils.Namespace('a/None-l', '', 'l')
+        l_to_end = utils.Namespace('a/l-None', 'l', '')
+
+        for x in ('l', 'm', 'z', 'zzz1231sd'):
+            if x == 'l':
+                self.assertFalse(x in l_to_end)
+                self.assertFalse(start_to_l < x)
+                self.assertFalse(x > start_to_l)
+            else:
+                self.assertTrue(x in l_to_end)
+                self.assertTrue(start_to_l < x)
+                self.assertTrue(x > start_to_l)
+
+        # Now test some of the range to range checks with missing boundaries
+        self.assertFalse(atof < start_to_l)
+        self.assertFalse(start_to_l < entire)
+
+        # Now test ShardRange.overlaps(other)
+        self.assertTrue(atof.overlaps(atof))
+        self.assertFalse(atof.overlaps(ftol))
+        self.assertFalse(ftol.overlaps(atof))
+        self.assertTrue(atof.overlaps(dtof))
+        self.assertTrue(dtof.overlaps(atof))
+        self.assertFalse(dtof.overlaps(ftol))
+        self.assertTrue(dtom.overlaps(ftol))
+        self.assertTrue(ftol.overlaps(dtom))
+        self.assertFalse(start_to_l.overlaps(l_to_end))
+
+    def test_contains(self):
+        lower = utils.Namespace('a/-h', '', 'h')
+        mid = utils.Namespace('a/h-p', 'h', 'p')
+        upper = utils.Namespace('a/p-', 'p', '')
+        entire = utils.Namespace('a/all', '', '')
+
+        self.assertTrue('a' in entire)
+        self.assertTrue('x' in entire)
+
+        # the empty string is not a valid object name, so it cannot be in any
+        # range
+        self.assertFalse('' in lower)
+        self.assertFalse('' in upper)
+        self.assertFalse('' in entire)
+
+        self.assertTrue('a' in lower)
+        self.assertTrue('h' in lower)
+        self.assertFalse('i' in lower)
+
+        self.assertFalse('h' in mid)
+        self.assertTrue('p' in mid)
+
+        self.assertFalse('p' in upper)
+        self.assertTrue('x' in upper)
+
+        self.assertIn(utils.Namespace.MAX, entire)
+        self.assertNotIn(utils.Namespace.MAX, lower)
+        self.assertIn(utils.Namespace.MAX, upper)
+
+        # lower bound is excluded so MIN cannot be in any range.
+        self.assertNotIn(utils.Namespace.MIN, entire)
+        self.assertNotIn(utils.Namespace.MIN, upper)
+        self.assertNotIn(utils.Namespace.MIN, lower)
+
+    def test_includes(self):
+        _to_h = utils.Namespace('a/-h', '', 'h')
+        d_to_t = utils.Namespace('a/d-t', 'd', 't')
+        d_to_k = utils.Namespace('a/d-k', 'd', 'k')
+        e_to_l = utils.Namespace('a/e-l', 'e', 'l')
+        k_to_t = utils.Namespace('a/k-t', 'k', 't')
+        p_to_ = utils.Namespace('a/p-', 'p', '')
+        t_to_ = utils.Namespace('a/t-', 't', '')
+        entire = utils.Namespace('a/all', '', '')
+
+        self.assertTrue(entire.includes(entire))
+        self.assertTrue(d_to_t.includes(d_to_t))
+        self.assertTrue(_to_h.includes(_to_h))
+        self.assertTrue(p_to_.includes(p_to_))
+
+        self.assertTrue(entire.includes(_to_h))
+        self.assertTrue(entire.includes(d_to_t))
+        self.assertTrue(entire.includes(p_to_))
+
+        self.assertTrue(d_to_t.includes(d_to_k))
+        self.assertTrue(d_to_t.includes(e_to_l))
+        self.assertTrue(d_to_t.includes(k_to_t))
+        self.assertTrue(p_to_.includes(t_to_))
+
+        self.assertFalse(_to_h.includes(d_to_t))
+        self.assertFalse(p_to_.includes(d_to_t))
+        self.assertFalse(k_to_t.includes(d_to_k))
+        self.assertFalse(d_to_k.includes(e_to_l))
+        self.assertFalse(k_to_t.includes(e_to_l))
+        self.assertFalse(t_to_.includes(p_to_))
+
+        self.assertFalse(_to_h.includes(entire))
+        self.assertFalse(p_to_.includes(entire))
+        self.assertFalse(d_to_t.includes(entire))
+
+    def test_expand(self):
+        bounds = (('', 'd'), ('d', 'k'), ('k', 't'), ('t', ''))
+        donors = [
+            utils.Namespace('a/c-%d' % i, b[0], b[1])
+            for i, b in enumerate(bounds)
+        ]
+        acceptor = utils.Namespace('a/c-acc', 'f', 's')
+        self.assertTrue(acceptor.expand(donors[:1]))
+        self.assertEqual((utils.Namespace.MIN, 's'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.Namespace('a/c-acc', 'f', 's')
+        self.assertTrue(acceptor.expand(donors[:2]))
+        self.assertEqual((utils.Namespace.MIN, 's'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.Namespace('a/c-acc', 'f', 's')
+        self.assertTrue(acceptor.expand(donors[1:3]))
+        self.assertEqual(('d', 't'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.Namespace('a/c-acc', 'f', 's')
+        self.assertTrue(acceptor.expand(donors))
+        self.assertEqual((utils.Namespace.MIN, utils.Namespace.MAX),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.Namespace('a/c-acc', 'f', 's')
+        self.assertTrue(acceptor.expand(donors[1:2] + donors[3:]))
+        self.assertEqual(('d', utils.Namespace.MAX),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.Namespace('a/c-acc', '', 'd')
+        self.assertFalse(acceptor.expand(donors[:1]))
+        self.assertEqual((utils.Namespace.MIN, 'd'),
+                         (acceptor.lower, acceptor.upper))
+
+        acceptor = utils.Namespace('a/c-acc', 'b', 'v')
+        self.assertFalse(acceptor.expand(donors[1:3]))
+        self.assertEqual(('b', 'v'),
+                         (acceptor.lower, acceptor.upper))
+
     def test_total_ordering(self):
         a_start_ns = utils.Namespace('a/-a', '', 'a')
         a_atob_ns = utils.Namespace('a/a-b', 'a', 'b')
@@ -8231,62 +8609,71 @@ class TestNamespace(unittest.TestCase):
         self.assertLess(a_rtoz_ns, a_end_ns)
         self.assertLessEqual(a_start_ns, a_atof_ns)
         self.assertLessEqual(a_atof_ns, a_rtoz_ns)
+        self.assertLessEqual(a_atof_ns, a_atof_ns)
         self.assertGreater(a_end_ns, a_atof_ns)
         self.assertGreater(a_rtoz_ns, a_ftol_ns)
         self.assertGreater(a_end_ns, a_start_ns)
+        self.assertGreaterEqual(a_atof_ns, a_atof_ns)
         self.assertGreaterEqual(a_end_ns, a_atof_ns)
         self.assertGreaterEqual(a_rtoz_ns, a_start_ns)
 
 
 class TestNamespaceBoundList(unittest.TestCase):
-    def test_functions(self):
+    def setUp(self):
         start = ['', 'a/-a']
-        start_ns = utils.Namespace('a/-a', '', 'a')
+        self.start_ns = utils.Namespace('a/-a', '', 'a')
         atof = ['a', 'a/a-f']
-        atof_ns = utils.Namespace('a/a-f', 'a', 'f')
+        self.atof_ns = utils.Namespace('a/a-f', 'a', 'f')
         ftol = ['f', 'a/f-l']
-        ftol_ns = utils.Namespace('a/f-l', 'f', 'l')
+        self.ftol_ns = utils.Namespace('a/f-l', 'f', 'l')
         ltor = ['l', 'a/l-r']
-        ltor_ns = utils.Namespace('a/l-r', 'l', 'r')
+        self.ltor_ns = utils.Namespace('a/l-r', 'l', 'r')
         rtoz = ['r', 'a/r-z']
-        rtoz_ns = utils.Namespace('a/r-z', 'r', 'z')
+        self.rtoz_ns = utils.Namespace('a/r-z', 'r', 'z')
         end = ['z', 'a/z-']
-        end_ns = utils.Namespace('a/z-', 'z', '')
-        lowerbounds = [start, atof, ftol, ltor, rtoz, end]
-        namespace_list = utils.NamespaceBoundList(lowerbounds)
+        self.end_ns = utils.Namespace('a/z-', 'z', '')
+        self.lowerbounds = [start, atof, ftol, ltor, rtoz, end]
 
-        # test 'get_namespace'
-        self.assertEqual(namespace_list.get_namespace('1'), start_ns)
-        self.assertEqual(namespace_list.get_namespace('a'), start_ns)
-        self.assertEqual(namespace_list.get_namespace('b'), atof_ns)
-        self.assertEqual(namespace_list.get_namespace('f'), atof_ns)
-        self.assertEqual(namespace_list.get_namespace('f\x00'), ftol_ns)
-        self.assertEqual(namespace_list.get_namespace('l'), ftol_ns)
-        self.assertEqual(namespace_list.get_namespace('x'), rtoz_ns)
-        self.assertEqual(namespace_list.get_namespace('r'), ltor_ns)
-        self.assertEqual(namespace_list.get_namespace('}'), end_ns)
+    def test_get_namespace(self):
+        namespace_list = utils.NamespaceBoundList(self.lowerbounds)
+        self.assertEqual(namespace_list.bounds, self.lowerbounds)
+        self.assertEqual(namespace_list.get_namespace('1'), self.start_ns)
+        self.assertEqual(namespace_list.get_namespace('a'), self.start_ns)
+        self.assertEqual(namespace_list.get_namespace('b'), self.atof_ns)
+        self.assertEqual(namespace_list.get_namespace('f'), self.atof_ns)
+        self.assertEqual(namespace_list.get_namespace('f\x00'), self.ftol_ns)
+        self.assertEqual(namespace_list.get_namespace('l'), self.ftol_ns)
+        self.assertEqual(namespace_list.get_namespace('x'), self.rtoz_ns)
+        self.assertEqual(namespace_list.get_namespace('r'), self.ltor_ns)
+        self.assertEqual(namespace_list.get_namespace('}'), self.end_ns)
 
-        # test 'parse'
+    def test_parse(self):
         namespaces_list = utils.NamespaceBoundList.parse(None)
         self.assertEqual(namespaces_list, None)
-        namespaces = [start_ns, atof_ns, ftol_ns, ltor_ns, rtoz_ns, end_ns]
+        namespaces = [self.start_ns, self.atof_ns, self.ftol_ns,
+                      self.ltor_ns, self.rtoz_ns, self.end_ns]
         namespace_list = utils.NamespaceBoundList.parse(namespaces)
-        self.assertEqual(namespace_list.get_namespace('1'), start_ns)
-        self.assertEqual(namespace_list.get_namespace('l'), ftol_ns)
-        self.assertEqual(namespace_list.get_namespace('x'), rtoz_ns)
-        self.assertEqual(namespace_list.get_namespace('r'), ltor_ns)
-        self.assertEqual(namespace_list.get_namespace('}'), end_ns)
-        self.assertEqual(namespace_list.bounds, lowerbounds)
+        self.assertEqual(namespace_list.bounds, self.lowerbounds)
+        self.assertEqual(namespace_list.get_namespace('1'), self.start_ns)
+        self.assertEqual(namespace_list.get_namespace('l'), self.ftol_ns)
+        self.assertEqual(namespace_list.get_namespace('x'), self.rtoz_ns)
+        self.assertEqual(namespace_list.get_namespace('r'), self.ltor_ns)
+        self.assertEqual(namespace_list.get_namespace('}'), self.end_ns)
+        self.assertEqual(namespace_list.bounds, self.lowerbounds)
         overlap_f_ns = utils.Namespace('a/-f', '', 'f')
-        overlapping_namespaces = [start_ns, atof_ns, overlap_f_ns,
-                                  ftol_ns, ltor_ns, rtoz_ns, end_ns]
-        namespace_list = utils.NamespaceBoundList.parse(overlapping_namespaces)
-        self.assertEqual(namespace_list.bounds, lowerbounds)
+        overlapping_namespaces = [self.start_ns, self.atof_ns, overlap_f_ns,
+                                  self.ftol_ns, self.ltor_ns, self.rtoz_ns,
+                                  self.end_ns]
+        namespace_list = utils.NamespaceBoundList.parse(
+            overlapping_namespaces)
+        self.assertEqual(namespace_list.bounds, self.lowerbounds)
         overlap_l_ns = utils.Namespace('a/a-l', 'a', 'l')
-        overlapping_namespaces = [start_ns, atof_ns, ftol_ns,
-                                  overlap_l_ns, ltor_ns, rtoz_ns, end_ns]
-        namespace_list = utils.NamespaceBoundList.parse(overlapping_namespaces)
-        self.assertEqual(namespace_list.bounds, lowerbounds)
+        overlapping_namespaces = [self.start_ns, self.atof_ns, self.ftol_ns,
+                                  overlap_l_ns, self.ltor_ns, self.rtoz_ns,
+                                  self.end_ns]
+        namespace_list = utils.NamespaceBoundList.parse(
+            overlapping_namespaces)
+        self.assertEqual(namespace_list.bounds, self.lowerbounds)
 
 
 class TestShardRange(unittest.TestCase):
@@ -8308,7 +8695,7 @@ class TestShardRange(unittest.TestCase):
 
     def test_min_max_bounds(self):
         with self.assertRaises(TypeError):
-            utils.ShardRangeOuterBound()
+            utils.NamespaceOuterBound()
 
         # max
         self.assertEqual(utils.ShardRange.MAX, utils.ShardRange.MAX)
@@ -8828,348 +9215,6 @@ class TestShardRange(unittest.TestCase):
         self.assertEqual(now, sr.timestamp)
         self.assertIs(True, sr.deleted)
 
-    def test_lower_setter(self):
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')
-        # sanity checks
-        self.assertEqual('b', sr.lower_str)
-        self.assertEqual(sr.MAX, sr.upper)
-
-        def do_test(good_value, expected):
-            sr.lower = good_value
-            self.assertEqual(expected, sr.lower)
-            self.assertEqual(sr.MAX, sr.upper)
-
-        do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
-        do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
-        do_test(b'', utils.ShardRange.MIN)
-        do_test(u'', utils.ShardRange.MIN)
-        do_test(None, utils.ShardRange.MIN)
-        do_test(b'a', 'a')
-        do_test(b'y', 'y')
-        do_test(u'a', 'a')
-        do_test(u'y', 'y')
-
-        expected = u'\N{SNOWMAN}'
-        if six.PY2:
-            expected = expected.encode('utf-8')
-        with warnings.catch_warnings(record=True) as captured_warnings:
-            do_test(u'\N{SNOWMAN}', expected)
-            do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
-        self.assertFalse(captured_warnings)
-
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
-        sr.lower = ''
-        self.assertEqual(sr.MIN, sr.lower)
-
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
-        with self.assertRaises(ValueError) as cm:
-            sr.lower = 'z'
-        self.assertIn("must be less than or equal to upper", str(cm.exception))
-        self.assertEqual('b', sr.lower_str)
-        self.assertEqual('y', sr.upper_str)
-
-        def do_test(bad_value):
-            with self.assertRaises(TypeError) as cm:
-                sr.lower = bad_value
-            self.assertIn("lower must be a string", str(cm.exception))
-            self.assertEqual('b', sr.lower_str)
-            self.assertEqual('y', sr.upper_str)
-
-        do_test(1)
-        do_test(1.234)
-
-    def test_upper_setter(self):
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', 'y')
-        # sanity checks
-        self.assertEqual(sr.MIN, sr.lower)
-        self.assertEqual('y', sr.upper_str)
-
-        def do_test(good_value, expected):
-            sr.upper = good_value
-            self.assertEqual(expected, sr.upper)
-            self.assertEqual(sr.MIN, sr.lower)
-
-        do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
-        do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
-        do_test(b'', utils.ShardRange.MAX)
-        do_test(u'', utils.ShardRange.MAX)
-        do_test(None, utils.ShardRange.MAX)
-        do_test(b'z', 'z')
-        do_test(b'b', 'b')
-        do_test(u'z', 'z')
-        do_test(u'b', 'b')
-
-        expected = u'\N{SNOWMAN}'
-        if six.PY2:
-            expected = expected.encode('utf-8')
-        with warnings.catch_warnings(record=True) as captured_warnings:
-            do_test(u'\N{SNOWMAN}', expected)
-            do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
-        self.assertFalse(captured_warnings)
-
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
-        sr.upper = ''
-        self.assertEqual(sr.MAX, sr.upper)
-
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
-        with self.assertRaises(ValueError) as cm:
-            sr.upper = 'a'
-        self.assertIn(
-            "must be greater than or equal to lower",
-            str(cm.exception))
-        self.assertEqual('b', sr.lower_str)
-        self.assertEqual('y', sr.upper_str)
-
-        def do_test(bad_value):
-            with self.assertRaises(TypeError) as cm:
-                sr.upper = bad_value
-            self.assertIn("upper must be a string", str(cm.exception))
-            self.assertEqual('b', sr.lower_str)
-            self.assertEqual('y', sr.upper_str)
-
-        do_test(1)
-        do_test(1.234)
-
-    def test_end_marker(self):
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', 'y')
-        self.assertEqual('y\x00', sr.end_marker)
-        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', '')
-        self.assertEqual('', sr.end_marker)
-
-    def test_bounds_serialization(self):
-        sr = utils.ShardRange('a/c', utils.Timestamp.now())
-        self.assertEqual('a/c', sr.name)
-        self.assertEqual(utils.ShardRange.MIN, sr.lower)
-        self.assertEqual('', sr.lower_str)
-        self.assertEqual(utils.ShardRange.MAX, sr.upper)
-        self.assertEqual('', sr.upper_str)
-        self.assertEqual('', sr.end_marker)
-
-        lower = u'\u00e4'
-        upper = u'\u00fb'
-        sr = utils.ShardRange('a/%s-%s' % (lower, upper),
-                              utils.Timestamp.now(), lower, upper)
-        exp_lower = lower
-        exp_upper = upper
-        if six.PY2:
-            exp_lower = exp_lower.encode('utf-8')
-            exp_upper = exp_upper.encode('utf-8')
-        self.assertEqual(exp_lower, sr.lower)
-        self.assertEqual(exp_lower, sr.lower_str)
-        self.assertEqual(exp_upper, sr.upper)
-        self.assertEqual(exp_upper, sr.upper_str)
-        self.assertEqual(exp_upper + '\x00', sr.end_marker)
-
-    def test_entire_namespace(self):
-        # test entire range (no boundaries)
-        entire = utils.ShardRange('a/test', utils.Timestamp.now())
-        self.assertEqual(utils.ShardRange.MAX, entire.upper)
-        self.assertEqual(utils.ShardRange.MIN, entire.lower)
-        self.assertIs(True, entire.entire_namespace())
-
-        for x in range(100):
-            self.assertTrue(str(x) in entire)
-            self.assertTrue(chr(x) in entire)
-
-        for x in ('a', 'z', 'zzzz', '124fsdf', u'\u00e4'):
-            self.assertTrue(x in entire, '%r should be in %r' % (x, entire))
-
-        entire.lower = 'a'
-        self.assertIs(False, entire.entire_namespace())
-
-    def test_comparisons(self):
-        ts = utils.Timestamp.now().internal
-
-        # upper (if provided) *must* be greater than lower
-        with self.assertRaises(ValueError):
-            utils.ShardRange('f-a', ts, 'f', 'a')
-
-        # test basic boundaries
-        btoc = utils.ShardRange('a/b-c', ts, 'b', 'c')
-        atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
-        ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
-        ltor = utils.ShardRange('a/l-r', ts, 'l', 'r')
-        rtoz = utils.ShardRange('a/r-z', ts, 'r', 'z')
-        lower = utils.ShardRange('a/lower', ts, '', 'mid')
-        upper = utils.ShardRange('a/upper', ts, 'mid', '')
-        entire = utils.ShardRange('a/test', utils.Timestamp.now())
-
-        # overlapping ranges
-        dtof = utils.ShardRange('a/d-f', ts, 'd', 'f')
-        dtom = utils.ShardRange('a/d-m', ts, 'd', 'm')
-
-        # test range > and <
-        # non-adjacent
-        self.assertFalse(rtoz < atof)
-        self.assertTrue(atof < ltor)
-        self.assertTrue(ltor > atof)
-        self.assertFalse(ftol > rtoz)
-
-        # adjacent
-        self.assertFalse(rtoz < ltor)
-        self.assertTrue(ltor < rtoz)
-        self.assertFalse(ltor > rtoz)
-        self.assertTrue(rtoz > ltor)
-
-        # wholly within
-        self.assertFalse(btoc < atof)
-        self.assertFalse(btoc > atof)
-        self.assertFalse(atof < btoc)
-        self.assertFalse(atof > btoc)
-
-        self.assertFalse(atof < dtof)
-        self.assertFalse(dtof > atof)
-        self.assertFalse(atof > dtof)
-        self.assertFalse(dtof < atof)
-
-        self.assertFalse(dtof < dtom)
-        self.assertFalse(dtof > dtom)
-        self.assertFalse(dtom > dtof)
-        self.assertFalse(dtom < dtof)
-
-        # overlaps
-        self.assertFalse(atof < dtom)
-        self.assertFalse(atof > dtom)
-        self.assertFalse(ltor > dtom)
-
-        # ranges including min/max bounds
-        self.assertTrue(upper > lower)
-        self.assertTrue(lower < upper)
-        self.assertFalse(upper < lower)
-        self.assertFalse(lower > upper)
-
-        self.assertFalse(lower < entire)
-        self.assertFalse(entire > lower)
-        self.assertFalse(lower > entire)
-        self.assertFalse(entire < lower)
-
-        self.assertFalse(upper < entire)
-        self.assertFalse(entire > upper)
-        self.assertFalse(upper > entire)
-        self.assertFalse(entire < upper)
-
-        self.assertFalse(entire < entire)
-        self.assertFalse(entire > entire)
-
-        # test range < and > to an item
-        # range is > lower and <= upper to lower boundary isn't
-        # actually included
-        self.assertTrue(ftol > 'f')
-        self.assertFalse(atof < 'f')
-        self.assertTrue(ltor < 'y')
-
-        self.assertFalse(ftol < 'f')
-        self.assertFalse(atof > 'f')
-        self.assertFalse(ltor > 'y')
-
-        self.assertTrue('f' < ftol)
-        self.assertFalse('f' > atof)
-        self.assertTrue('y' > ltor)
-
-        self.assertFalse('f' > ftol)
-        self.assertFalse('f' < atof)
-        self.assertFalse('y' < ltor)
-
-        # Now test ranges with only 1 boundary
-        start_to_l = utils.ShardRange('a/None-l', ts, '', 'l')
-        l_to_end = utils.ShardRange('a/l-None', ts, 'l', '')
-
-        for x in ('l', 'm', 'z', 'zzz1231sd'):
-            if x == 'l':
-                self.assertFalse(x in l_to_end)
-                self.assertFalse(start_to_l < x)
-                self.assertFalse(x > start_to_l)
-            else:
-                self.assertTrue(x in l_to_end)
-                self.assertTrue(start_to_l < x)
-                self.assertTrue(x > start_to_l)
-
-        # Now test some of the range to range checks with missing boundaries
-        self.assertFalse(atof < start_to_l)
-        self.assertFalse(start_to_l < entire)
-
-        # Now test ShardRange.overlaps(other)
-        self.assertTrue(atof.overlaps(atof))
-        self.assertFalse(atof.overlaps(ftol))
-        self.assertFalse(ftol.overlaps(atof))
-        self.assertTrue(atof.overlaps(dtof))
-        self.assertTrue(dtof.overlaps(atof))
-        self.assertFalse(dtof.overlaps(ftol))
-        self.assertTrue(dtom.overlaps(ftol))
-        self.assertTrue(ftol.overlaps(dtom))
-        self.assertFalse(start_to_l.overlaps(l_to_end))
-
-    def test_contains(self):
-        ts = utils.Timestamp.now().internal
-        lower = utils.ShardRange('a/-h', ts, '', 'h')
-        mid = utils.ShardRange('a/h-p', ts, 'h', 'p')
-        upper = utils.ShardRange('a/p-', ts, 'p', '')
-        entire = utils.ShardRange('a/all', ts, '', '')
-
-        self.assertTrue('a' in entire)
-        self.assertTrue('x' in entire)
-
-        # the empty string is not a valid object name, so it cannot be in any
-        # range
-        self.assertFalse('' in lower)
-        self.assertFalse('' in upper)
-        self.assertFalse('' in entire)
-
-        self.assertTrue('a' in lower)
-        self.assertTrue('h' in lower)
-        self.assertFalse('i' in lower)
-
-        self.assertFalse('h' in mid)
-        self.assertTrue('p' in mid)
-
-        self.assertFalse('p' in upper)
-        self.assertTrue('x' in upper)
-
-        self.assertIn(utils.ShardRange.MAX, entire)
-        self.assertNotIn(utils.ShardRange.MAX, lower)
-        self.assertIn(utils.ShardRange.MAX, upper)
-
-        # lower bound is excluded so MIN cannot be in any range.
-        self.assertNotIn(utils.ShardRange.MIN, entire)
-        self.assertNotIn(utils.ShardRange.MIN, upper)
-        self.assertNotIn(utils.ShardRange.MIN, lower)
-
-    def test_includes(self):
-        ts = utils.Timestamp.now().internal
-        _to_h = utils.ShardRange('a/-h', ts, '', 'h')
-        d_to_t = utils.ShardRange('a/d-t', ts, 'd', 't')
-        d_to_k = utils.ShardRange('a/d-k', ts, 'd', 'k')
-        e_to_l = utils.ShardRange('a/e-l', ts, 'e', 'l')
-        k_to_t = utils.ShardRange('a/k-t', ts, 'k', 't')
-        p_to_ = utils.ShardRange('a/p-', ts, 'p', '')
-        t_to_ = utils.ShardRange('a/t-', ts, 't', '')
-        entire = utils.ShardRange('a/all', ts, '', '')
-
-        self.assertTrue(entire.includes(entire))
-        self.assertTrue(d_to_t.includes(d_to_t))
-        self.assertTrue(_to_h.includes(_to_h))
-        self.assertTrue(p_to_.includes(p_to_))
-
-        self.assertTrue(entire.includes(_to_h))
-        self.assertTrue(entire.includes(d_to_t))
-        self.assertTrue(entire.includes(p_to_))
-
-        self.assertTrue(d_to_t.includes(d_to_k))
-        self.assertTrue(d_to_t.includes(e_to_l))
-        self.assertTrue(d_to_t.includes(k_to_t))
-        self.assertTrue(p_to_.includes(t_to_))
-
-        self.assertFalse(_to_h.includes(d_to_t))
-        self.assertFalse(p_to_.includes(d_to_t))
-        self.assertFalse(k_to_t.includes(d_to_k))
-        self.assertFalse(d_to_k.includes(e_to_l))
-        self.assertFalse(k_to_t.includes(e_to_l))
-        self.assertFalse(t_to_.includes(p_to_))
-
-        self.assertFalse(_to_h.includes(entire))
-        self.assertFalse(p_to_.includes(entire))
-        self.assertFalse(d_to_t.includes(entire))
-
     def test_repr(self):
         ts = next(self.ts_iter)
         ts.offset = 1234
@@ -9457,47 +9502,6 @@ class TestShardRange(unittest.TestCase):
         random.shuffle(all_shard_ranges)
         self.assertEqual([a1_r1_gp1_p1, a1_r1],
                          a1_r1_gp1_p1_c1.find_ancestors(all_shard_ranges))
-
-    def test_expand(self):
-        bounds = (('', 'd'), ('d', 'k'), ('k', 't'), ('t', ''))
-        donors = [
-            utils.ShardRange('a/c-%d' % i, utils.Timestamp.now(), b[0], b[1])
-            for i, b in enumerate(bounds)
-        ]
-        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
-        self.assertTrue(acceptor.expand(donors[:1]))
-        self.assertEqual((utils.ShardRange.MIN, 's'),
-                         (acceptor.lower, acceptor.upper))
-
-        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
-        self.assertTrue(acceptor.expand(donors[:2]))
-        self.assertEqual((utils.ShardRange.MIN, 's'),
-                         (acceptor.lower, acceptor.upper))
-
-        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
-        self.assertTrue(acceptor.expand(donors[1:3]))
-        self.assertEqual(('d', 't'),
-                         (acceptor.lower, acceptor.upper))
-
-        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
-        self.assertTrue(acceptor.expand(donors))
-        self.assertEqual((utils.ShardRange.MIN, utils.ShardRange.MAX),
-                         (acceptor.lower, acceptor.upper))
-
-        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'f', 's')
-        self.assertTrue(acceptor.expand(donors[1:2] + donors[3:]))
-        self.assertEqual(('d', utils.ShardRange.MAX),
-                         (acceptor.lower, acceptor.upper))
-
-        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), '', 'd')
-        self.assertFalse(acceptor.expand(donors[:1]))
-        self.assertEqual((utils.ShardRange.MIN, 'd'),
-                         (acceptor.lower, acceptor.upper))
-
-        acceptor = utils.ShardRange('a/c-acc', utils.Timestamp.now(), 'b', 'v')
-        self.assertFalse(acceptor.expand(donors[1:3]))
-        self.assertEqual(('b', 'v'),
-                         (acceptor.lower, acceptor.upper))
 
 
 class TestShardRangeList(unittest.TestCase):
