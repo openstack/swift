@@ -796,6 +796,14 @@ class TestAccount(unittest.TestCase):
                          'k' * self.max_meta_name_length): 'v'})
         resp.read()
         self.assertEqual(resp.status, 204)
+        # Clear it, so the value-length checking doesn't accidentally trip
+        # the overall max
+        resp = retry(post,
+                     {'X-Account-Meta-' + (
+                         'k' * self.max_meta_name_length): ''})
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
         resp = retry(
             post,
             {'X-Account-Meta-' + ('k' * (
