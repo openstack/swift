@@ -61,6 +61,12 @@ SHARD_AUDITING_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
                          ShardRange.ACTIVE, ShardRange.SHARDING,
                          ShardRange.SHARDED, ShardRange.SHRINKING,
                          ShardRange.SHRUNK]
+# shard's may not be fully populated while in the FOUND and CREATED
+# state, so shards should only update their own shard range's object
+# stats when they are in the following states
+SHARD_UPDATE_STAT_STATES = [ShardRange.CLEAVED, ShardRange.ACTIVE,
+                            ShardRange.SHARDING, ShardRange.SHARDED,
+                            ShardRange.SHRINKING, ShardRange.SHRUNK]
 
 # attribute names in order used when transforming shard ranges from dicts to
 # tuples and vice-versa
@@ -2351,10 +2357,14 @@ class ContainerBroker(DatabaseBroker):
                     # object_count
                     shard_size = object_count - progress
 
-            # NB shard ranges are created with a non-zero object count so that
-            # the apparent container object count remains constant, and the
-            # container is non-deletable while shards have been found but not
-            # yet cleaved
+            # NB shard ranges are created with a non-zero object count for a
+            # few reasons:
+            #  1. so that the apparent container object count remains
+            #     consistent;
+            #  2. the container is non-deletable while shards have been found
+            #     but not yet cleaved; and
+            #  3. So we have a rough idea of size of the shards should be
+            #     while cleaving.
             found_ranges.append(
                 {'index': index,
                  'lower': str(last_shard_upper),

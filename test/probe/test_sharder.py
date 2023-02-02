@@ -2937,7 +2937,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.sharders.once(**kwargs)
 
     def test_manage_shard_ranges(self):
-        obj_names = self._make_object_names(7)
+        obj_names = self._make_object_names(10)
         self.put_objects(obj_names)
 
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -2956,17 +2956,38 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
             'find_and_replace', '3', '--enable', '--minimum-shard-size', '2'])
-        self.assert_container_state(self.brain.nodes[0], 'unsharded', 2)
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 3)
 
         # "Run container-replicator to replicate them to other nodes."
         self.replicators.once()
         # "Run container-sharder on all nodes to shard the container."
+        # first pass cleaves 2 shards
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(self.brain.nodes[0], 'sharding', 3)
+        self.assert_container_state(self.brain.nodes[1], 'sharding', 3)
+        shard_ranges = self.assert_container_state(
+            self.brain.nodes[2], 'sharding', 3)
+        self.assert_container_listing(obj_names)
+
+        # make the un-cleaved shard update the root container...
+        self.assertEqual([3, 3, 4], [sr.object_count for sr in shard_ranges])
+        shard_part, nodes = self.get_part_and_node_numbers(shard_ranges[2])
+        self.sharders_once(additional_args='--partitions=%s' % shard_part)
+        shard_ranges = self.assert_container_state(
+            self.brain.nodes[2], 'sharding', 3)
+        # ...it does not report zero-stats despite being empty, because it has
+        # not yet reached CLEAVED state
+        self.assertEqual([3, 3, 4], [sr.object_count for sr in shard_ranges])
+
+        # second pass cleaves final shard
         self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
 
         # Everybody's settled
-        self.assert_container_state(self.brain.nodes[0], 'sharded', 2)
-        self.assert_container_state(self.brain.nodes[1], 'sharded', 2)
-        self.assert_container_state(self.brain.nodes[2], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[0], 'sharded', 3)
+        self.assert_container_state(self.brain.nodes[1], 'sharded', 3)
+        shard_ranges = self.assert_container_state(
+            self.brain.nodes[2], 'sharded', 3)
+        self.assertEqual([3, 3, 4], [sr.object_count for sr in shard_ranges])
         self.assert_container_listing(obj_names)
 
     def test_manage_shard_ranges_compact(self):

@@ -40,7 +40,7 @@ from swift.common.utils import get_logger, config_true_value, \
     Everything, config_auto_int_value, ShardRangeList, config_percent_value
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD, UNSHARDED, SHARDING, SHARDED, COLLAPSED, \
-    SHARD_UPDATE_STATES, sift_shard_ranges
+    SHARD_UPDATE_STATES, sift_shard_ranges, SHARD_UPDATE_STAT_STATES
 from swift.container.replicator import ContainerReplicator
 
 
@@ -2260,20 +2260,29 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         if not own_shard_range:
             return
 
-        # do a reclaim *now* in order to get best estimate of tombstone count
-        # that is consistent with the current object_count
-        reclaimer = self._reclaim(broker)
-        tombstones = reclaimer.get_tombstone_count()
-        self.logger.debug('tombstones in %s = %d',
-                          quote(broker.path), tombstones)
-        own_shard_range.update_tombstones(tombstones)
-        update_own_shard_range_stats(broker, own_shard_range)
+        # Don't update the osr stats including tombstones unless its CLEAVED+
+        if own_shard_range.state in SHARD_UPDATE_STAT_STATES:
+            # do a reclaim *now* in order to get best estimate of tombstone
+            # count that is consistent with the current object_count
+            reclaimer = self._reclaim(broker)
+            tombstones = reclaimer.get_tombstone_count()
+            self.logger.debug('tombstones in %s = %d',
+                              quote(broker.path), tombstones)
+            # shrinking candidates are found in the root DB so that's the only
+            # place we need up to date tombstone stats.
+            own_shard_range.update_tombstones(tombstones)
+            update_own_shard_range_stats(broker, own_shard_range)
+
+            if not own_shard_range.reported:
+                broker.merge_shard_ranges(own_shard_range)
+
+        # we can't use `state not in SHARD_UPDATE_STAT_STATES` to return
+        # because there are cases we still want to update root even if the
+        # stats are wrong. Such as it's a new shard or something else has
+        # decided to remove the latch to update root.
         if own_shard_range.reported:
-            # no change to the stats metadata
             return
 
-        # stats metadata has been updated so persist it
-        broker.merge_shard_ranges(own_shard_range)
         # now get a consistent list of own and other shard ranges
         shard_ranges = broker.get_shard_ranges(
             include_own=True,

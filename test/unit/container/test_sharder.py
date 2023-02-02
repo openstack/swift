@@ -1588,6 +1588,7 @@ class TestSharder(BaseTestSharder):
         # verify that objects are not missed if shard ranges change between
         # cleaving batches
         broker = self._make_broker()
+        # this root db has very few object rows...
         objects = [
             ('a', self.ts_encoded(), 10, 'text/plain', 'etag_a', 0, 0),
             ('b', self.ts_encoded(), 10, 'text/plain', 'etag_b', 0, 0),
@@ -1603,8 +1604,10 @@ class TestSharder(BaseTestSharder):
         broker.enable_sharding(Timestamp.now())
 
         shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
+        # shard ranges start life with object count that is typically much
+        # larger than this DB's object population...
         shard_ranges = self._make_shard_ranges(
-            shard_bounds, state=ShardRange.CREATED)
+            shard_bounds, state=ShardRange.CREATED, object_count=500000)
         expected_shard_dbs = []
         for shard_range in shard_ranges:
             db_hash = hash_path(shard_range.account, shard_range.container)
@@ -1634,8 +1637,8 @@ class TestSharder(BaseTestSharder):
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(3, len(updated_shard_ranges))
 
-        # first 2 shard ranges should have updated object count, bytes used and
-        # meta_timestamp
+        # now they have reached CLEAVED state, the first 2 shard ranges should
+        # have updated object count, bytes used and meta_timestamp
         shard_ranges[0].bytes_used = 23
         shard_ranges[0].object_count = 4
         shard_ranges[0].state = ShardRange.CLEAVED
@@ -1646,6 +1649,11 @@ class TestSharder(BaseTestSharder):
         self._check_shard_range(shard_ranges[1], updated_shard_ranges[1])
         self._check_objects(objects[:4], expected_shard_dbs[0])
         self._check_objects(objects[4:7], expected_shard_dbs[1])
+        # the actual object counts were set in the new shard brokers' own_sr's
+        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        self.assertEqual(4, shard_broker.get_own_shard_range().object_count)
+        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        self.assertEqual(2, shard_broker.get_own_shard_range().object_count)
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
 
         # third shard range should be unchanged - not yet cleaved
@@ -5276,6 +5284,7 @@ class TestSharder(BaseTestSharder):
 
     def test_update_root_container_own_range(self):
         broker = self._make_broker()
+        obj_names = []
 
         # nothing to send
         with self._mock_sharder() as sharder:
@@ -5290,16 +5299,27 @@ class TestSharder(BaseTestSharder):
             broker.merge_shard_ranges([own_shard_range])
             # add an object, expect to see it reflected in the own shard range
             # that is sent
-            broker.put_object(str(own_shard_range.object_count + 1),
+            obj_names.append(uuid4())
+            broker.put_object(str(obj_names[-1]),
                               next(self.ts_iter).internal, 1, '', '')
             with mock_timestamp_now() as now:
-                # force own shard range meta updates to be at fixed timestamp
-                expected_sent = [
-                    dict(own_shard_range,
-                         meta_timestamp=now.internal,
-                         object_count=own_shard_range.object_count + 1,
-                         bytes_used=own_shard_range.bytes_used + 1)]
+                # check if the state if in SHARD_UPDATE_STAT_STATES
+                if state in [ShardRange.CLEAVED, ShardRange.ACTIVE,
+                             ShardRange.SHARDING, ShardRange.SHARDED,
+                             ShardRange.SHRINKING, ShardRange.SHRUNK]:
+                    exp_obj_count = len(obj_names)
+                    expected_sent = [
+                        dict(own_shard_range,
+                             meta_timestamp=now.internal,
+                             object_count=len(obj_names),
+                             bytes_used=len(obj_names))]
+                else:
+                    exp_obj_count = own_shard_range.object_count
+                    expected_sent = [
+                        dict(own_shard_range)]
                 self.check_shard_ranges_sent(broker, expected_sent)
+                self.assertEqual(
+                    exp_obj_count, broker.get_own_shard_range().object_count)
 
         # initialise tombstones
         with mock_timestamp_now(next(self.ts_iter)):
@@ -5311,6 +5331,8 @@ class TestSharder(BaseTestSharder):
             with annotate_failure(state):
                 check_only_own_shard_range_sent(state)
 
+        init_obj_count = len(obj_names)
+
         def check_tombstones_sent(state):
             own_shard_range = broker.get_own_shard_range()
             self.assertTrue(own_shard_range.update_state(
@@ -5318,19 +5340,25 @@ class TestSharder(BaseTestSharder):
             broker.merge_shard_ranges([own_shard_range])
             # delete an object, expect to see it reflected in the own shard
             # range that is sent
-            broker.delete_object(str(own_shard_range.object_count),
+            broker.delete_object(str(obj_names.pop(-1)),
                                  next(self.ts_iter).internal)
             with mock_timestamp_now() as now:
-                # force own shard range meta updates to be at fixed timestamp
-                expected_sent = [
-                    dict(own_shard_range,
-                         meta_timestamp=now.internal,
-                         object_count=own_shard_range.object_count - 1,
-                         bytes_used=own_shard_range.bytes_used - 1,
-                         tombstones=own_shard_range.tombstones + 1)]
+                # check if the state if in SHARD_UPDATE_STAT_STATES
+                if state in [ShardRange.CLEAVED, ShardRange.ACTIVE,
+                             ShardRange.SHARDING, ShardRange.SHARDED,
+                             ShardRange.SHRINKING, ShardRange.SHRUNK]:
+                    expected_sent = [
+                        dict(own_shard_range,
+                             meta_timestamp=now.internal,
+                             object_count=len(obj_names),
+                             bytes_used=len(obj_names),
+                             tombstones=init_obj_count - len(obj_names))]
+                else:
+                    expected_sent = [
+                        dict(own_shard_range)]
                 self.check_shard_ranges_sent(broker, expected_sent)
 
-        for state in ShardRange.STATES:
+        for i, state in enumerate(ShardRange.STATES):
             with annotate_failure(state):
                 check_tombstones_sent(state)
 
@@ -5371,6 +5399,7 @@ class TestSharder(BaseTestSharder):
         other_shard_ranges = self._make_shard_ranges((('', 'h'), ('h', '')))
         self.assertTrue(other_shard_ranges[0].set_deleted())
         broker.merge_shard_ranges(other_shard_ranges)
+        obj_names = []
 
         # own range missing - send nothing
         with self._mock_sharder() as sharder:
@@ -5385,17 +5414,22 @@ class TestSharder(BaseTestSharder):
             broker.merge_shard_ranges([own_shard_range])
             # add an object, expect to see it reflected in the own shard range
             # that is sent
-            broker.put_object(str(own_shard_range.object_count + 1),
+            obj_names.append(uuid4())
+            broker.put_object(str(obj_names[-1]),
                               next(self.ts_iter).internal, 1, '', '')
             with mock_timestamp_now() as now:
                 shard_ranges = broker.get_shard_ranges(include_deleted=True)
-                expected_sent = sorted([
-                    own_shard_range.copy(
-                        meta_timestamp=now.internal,
-                        object_count=own_shard_range.object_count + 1,
-                        bytes_used=own_shard_range.bytes_used + 1,
-                        tombstones=0)] +
-                    shard_ranges,
+                exp_own_shard_range = own_shard_range.copy()
+                # check if the state if in SHARD_UPDATE_STAT_STATES
+                if state in [ShardRange.CLEAVED, ShardRange.ACTIVE,
+                             ShardRange.SHARDING, ShardRange.SHARDED,
+                             ShardRange.SHRINKING, ShardRange.SHRUNK]:
+                    exp_own_shard_range.object_count = len(obj_names)
+                    exp_own_shard_range.bytes_used = len(obj_names)
+                    exp_own_shard_range.meta_timestamp = now.internal
+                    exp_own_shard_range.tombstones = 0
+                expected_sent = sorted(
+                    [exp_own_shard_range] + shard_ranges,
                     key=lambda sr: (sr.upper, sr.state, sr.lower))
                 self.check_shard_ranges_sent(
                     broker, [dict(sr) for sr in expected_sent])
