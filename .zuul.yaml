@@ -512,6 +512,12 @@
       previous_swift_version: origin/stable/yoga
 
 - job:
+    name: swift-multinode-rolling-upgrade-zed
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/zed
+
+- job:
     name: swift-multinode-rolling-upgrade-master
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -830,6 +836,7 @@
         - swift-multinode-rolling-upgrade-wallaby
         - swift-multinode-rolling-upgrade-xena
         - swift-multinode-rolling-upgrade-yoga
+        - swift-multinode-rolling-upgrade-zed
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
