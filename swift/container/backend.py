@@ -379,7 +379,8 @@ class ContainerBroker(DatabaseBroker):
     db_contains_type = 'object'
     db_reclaim_timestamp = 'created_at'
     delete_meta_whitelist = ['x-container-sysmeta-shard-quoted-root',
-                             'x-container-sysmeta-shard-root']
+                             'x-container-sysmeta-shard-root',
+                             'x-container-sysmeta-sharding']
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,

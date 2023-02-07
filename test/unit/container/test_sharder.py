@@ -4808,13 +4808,36 @@ class TestSharder(BaseTestSharder):
     def test_sharding_enabled(self):
         broker = self._make_broker()
         self.assertFalse(sharding_enabled(broker))
+        # Setting sharding to a true value and sharding will be enabled
         broker.update_metadata(
             {'X-Container-Sysmeta-Sharding':
              ('yes', Timestamp.now().internal)})
         self.assertTrue(sharding_enabled(broker))
-        # deleting broker clears sharding sysmeta
+
+        # deleting broker doesn't clear the Sysmeta-Sharding sysmeta
         broker.delete_db(Timestamp.now().internal)
+        self.assertTrue(sharding_enabled(broker))
+
+        # re-init the DB for the deleted tests
+        broker.set_storage_policy_index(0, Timestamp.now().internal)
+        broker.update_metadata(
+            {'X-Container-Sysmeta-Sharding':
+             ('yes', Timestamp.now().internal)})
+        self.assertTrue(sharding_enabled(broker))
+
+        # if the Sysmeta-Sharding is falsy value then sharding isn't enabled
+        for value in ('', 'no', 'false', 'some_fish'):
+            broker.update_metadata(
+                {'X-Container-Sysmeta-Sharding':
+                    (value, Timestamp.now().internal)})
+            self.assertFalse(sharding_enabled(broker))
+        # deleting broker doesn't clear the Sysmeta-Sharding sysmeta
+        broker.delete_db(Timestamp.now().internal)
+        self.assertEqual(broker.metadata['X-Container-Sysmeta-Sharding'][0],
+                         'some_fish')
+        # so it still isn't enabled (some_fish isn't a true value).
         self.assertFalse(sharding_enabled(broker))
+
         # but if broker has a shard range then sharding is enabled
         broker.merge_shard_ranges(
             ShardRange('acc/a_shard', Timestamp.now(), 'l', 'u'))
