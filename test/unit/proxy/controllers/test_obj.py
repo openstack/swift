@@ -1605,6 +1605,31 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
 
+    def test_HEAD_error_limit_supression_count(self):
+        def do_test(primary_codes, expected, clear_stats=True):
+            if clear_stats:
+                self.app.error_limiter.stats.clear()
+            random.shuffle(primary_codes)
+            handoff_codes = [404] * self.obj_ring.max_more_nodes
+            with set_http_connect(*primary_codes + handoff_codes):
+                req = swift.common.swob.Request.blank(
+                    '/v1/a/c/o', method='HEAD')
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, expected)
+
+        policy_opts = self.app.get_policy_options(None)
+        policy_opts.rebalance_missing_suppression_count = 1
+        # even with disks unmounted you can run with suppression_count = 1
+        do_test([507, 404, 404], 404)
+        # error limiting can make things wonky
+        do_test([404, 404], 404, clear_stats=False)
+        # and it gets a little dicy rebooting nodes
+        do_test([Timeout(), 404], 503, clear_stats=False)
+        do_test([507, Timeout(), 404], 503)
+        # unless you turn it off
+        policy_opts.rebalance_missing_suppression_count = 0
+        do_test([507, Timeout(), 404], 404)
+
     def test_GET_primaries_error_during_rebalance(self):
         def do_test(primary_codes, expected, include_timestamp=False):
             random.shuffle(primary_codes)
