@@ -1591,7 +1591,7 @@ class TestDatabaseBroker(TestDbBase):
                 fd.write(b'x' * 100000)
         with patch.object(broker, '_commit_puts') as mock_commit_puts:
             broker.put_record('direct')
-        mock_commit_puts.called_once_with(['direct'])
+        mock_commit_puts.assert_called_once_with(['direct'])
 
         # records shouldn't be put to brokers with skip_commits True because
         # they cannot be accepted if the pending file is full
