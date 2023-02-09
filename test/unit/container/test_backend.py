@@ -1686,7 +1686,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(fresh_broker.get_db_state(), 'unsharded')
 
     @with_tempdir
-    def test_delete_db_does_not_clear_root_path(self, tempdir):
+    def test_delete_db_does_not_clear_particular_sharding_meta(self, tempdir):
         acct = '.sharded_a'
         cont = 'c'
         hsh = hash_path(acct, cont)
@@ -1702,6 +1702,7 @@ class TestContainerBroker(unittest.TestCase):
             'foo': ('bar', ts),
             'icecream': ('sandwich', ts),
             'X-Container-Sysmeta-Some': ('meta', ts),
+            'X-Container-Sysmeta-Sharding': ('yes', ts),
             'X-Container-Sysmeta-Shard-Quoted-Root': ('a/c', ts),
             'X-Container-Sysmeta-Shard-Root': ('a/c', ts)})
 
@@ -1722,6 +1723,8 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(meta['X-Container-Sysmeta-Shard-Root'],
                              ['a/c', ts])
             self.assertEqual('a/c', broker.root_path)
+            self.assertEqual(meta['X-Container-Sysmeta-Sharding'],
+                             ['yes', ts])
             self.assertFalse(broker.is_root_container())
 
         check_metadata(broker)
