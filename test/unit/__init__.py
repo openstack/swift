@@ -42,6 +42,7 @@ import random
 import errno
 import xattr
 from io import BytesIO
+from uuid import uuid4
 
 import six
 import six.moves.cPickle as pickle
@@ -1405,3 +1406,9 @@ def group_by_byte(contents):
     return [
         (char, sum(1 for _ in grp))
         for char, grp in itertools.groupby(byte_iter)]
+
+
+def generate_db_path(tempdir, server_type):
+    return os.path.join(
+        tempdir, '%ss' % server_type, 'part', 'suffix', 'hash',
+        '%s-%s.db' % (server_type, uuid4()))

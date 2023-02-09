@@ -205,7 +205,7 @@ def get_db_connection(path, timeout=30, logger=None, okay_to_create=False):
                                factory=GreenDBConnection, timeout=timeout)
         if QUERY_LOGGING and logger and not six.PY2:
             conn.set_trace_callback(logger.debug)
-        if path != ':memory:' and not okay_to_create:
+        if not okay_to_create:
             # attempt to detect and fail when connect creates the db file
             stat = os.stat(path)
             if stat.st_size == 0 and stat.st_ctime >= connect_time:
@@ -359,17 +359,13 @@ class DatabaseBroker(object):
         :param put_timestamp: internalized timestamp of initial PUT request
         :param storage_policy_index: only required for containers
         """
-        if self._db_file == ':memory:':
-            tmp_db_file = None
-            conn = get_db_connection(self._db_file, self.timeout, self.logger)
-        else:
-            mkdirs(self.db_dir)
-            fd, tmp_db_file = mkstemp(suffix='.tmp', dir=self.db_dir)
-            os.close(fd)
-            conn = sqlite3.connect(tmp_db_file, check_same_thread=False,
-                                   factory=GreenDBConnection, timeout=0)
-            if QUERY_LOGGING and not six.PY2:
-                conn.set_trace_callback(self.logger.debug)
+        mkdirs(self.db_dir)
+        fd, tmp_db_file = mkstemp(suffix='.tmp', dir=self.db_dir)
+        os.close(fd)
+        conn = sqlite3.connect(tmp_db_file, check_same_thread=False,
+                               factory=GreenDBConnection, timeout=0)
+        if QUERY_LOGGING and not six.PY2:
+            conn.set_trace_callback(self.logger.debug)
         # creating dbs implicitly does a lot of transactions, so we
         # pick fast, unsafe options here and do a big fsync at the end.
         with closing(conn.cursor()) as cur:
@@ -541,7 +537,7 @@ class DatabaseBroker(object):
     def get(self):
         """Use with the "with" statement; returns a database connection."""
         if not self.conn:
-            if self.db_file != ':memory:' and os.path.exists(self.db_file):
+            if os.path.exists(self.db_file):
                 try:
                     self.conn = get_db_connection(self.db_file, self.timeout,
                                                   self.logger)
@@ -569,7 +565,7 @@ class DatabaseBroker(object):
     def lock(self):
         """Use with the "with" statement; locks a database."""
         if not self.conn:
-            if self.db_file != ':memory:' and os.path.exists(self.db_file):
+            if os.path.exists(self.db_file):
                 self.conn = get_db_connection(self.db_file, self.timeout,
                                               self.logger)
             else:
@@ -636,7 +632,7 @@ class DatabaseBroker(object):
 
         :returns: True if the DB is considered to be deleted, False otherwise
         """
-        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+        if not os.path.exists(self.db_file):
             return True
         self._commit_puts_stale_ok()
         with self.get() as conn:
@@ -769,8 +765,8 @@ class DatabaseBroker(object):
         """
         Put a record into the DB. If the DB has an associated pending file with
         space then the record is appended to that file and a commit to the DB
-        is deferred. If the DB is in-memory or its pending file is full then
-        the record will be committed immediately.
+        is deferred. If its pending file is full then the record will be
+        committed immediately.
 
         :param record: a record to be added to the DB.
         :raises DatabaseConnectionError: if the DB file does not exist or if
@@ -778,9 +774,6 @@ class DatabaseBroker(object):
         :raises LockTimeout: if a timeout occurs while waiting to take a lock
             to write to the pending file.
         """
-        if self._db_file == ':memory:':
-            self.merge_items([record])
-            return
         if not os.path.exists(self.db_file):
             raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         if self.skip_commits:
@@ -806,8 +799,7 @@ class DatabaseBroker(object):
                     fp.flush()
 
     def _skip_commit_puts(self):
-        return (self._db_file == ':memory:' or self.skip_commits or not
-                os.path.exists(self.pending_file))
+        return self.skip_commits or not os.path.exists(self.pending_file)
 
     def _commit_puts(self, item_list=None):
         """
@@ -921,7 +913,7 @@ class DatabaseBroker(object):
         within 512k of a boundary, it allocates to the next boundary.
         Boundaries are 2m, 5m, 10m, 25m, 50m, then every 50m after.
         """
-        if not DB_PREALLOCATION or self._db_file == ':memory:':
+        if not DB_PREALLOCATION:
             return
         MB = (1024 * 1024)
 

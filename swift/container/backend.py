@@ -387,10 +387,7 @@ class ContainerBroker(DatabaseBroker):
                  stale_reads_ok=False, skip_commits=False,
                  force_db_file=False):
         self._init_db_file = db_file
-        if db_file == ':memory:':
-            base_db_file = db_file
-        else:
-            base_db_file = make_db_file_path(db_file, None)
+        base_db_file = make_db_file_path(db_file, None)
         super(ContainerBroker, self).__init__(
             base_db_file, timeout, logger, account, container, pending_timeout,
             stale_reads_ok, skip_commits=skip_commits)
@@ -440,8 +437,6 @@ class ContainerBroker(DatabaseBroker):
         """
         Returns the current state of on disk db files.
         """
-        if self._db_file == ':memory:':
-            return UNSHARDED
         if not self.db_files:
             return NOTFOUND
         if len(self.db_files) > 1:
@@ -482,8 +477,6 @@ class ContainerBroker(DatabaseBroker):
         """
         Reloads the cached list of valid on disk db files for this broker.
         """
-        if self._db_file == ':memory:':
-            return
         # reset connection so the next access will use the correct DB file
         self.conn = None
         self._db_files = get_db_files(self._init_db_file)
@@ -890,7 +883,7 @@ class ContainerBroker(DatabaseBroker):
         :returns: a tuple, in the form (info, is_deleted) info is a dict as
                   returned by get_info and is_deleted is a boolean.
         """
-        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+        if not os.path.exists(self.db_file):
             return {}, True
         info = self.get_info()
         return info, self._is_deleted_info(**info)

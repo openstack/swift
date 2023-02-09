@@ -53,14 +53,15 @@ class TestAuditorRealBrokerMigration(
         self.assertUnmigrated(self.broker)
 
         # run auditor, and validate migration
-        conf = {'devices': self.tempdir, 'mount_check': False,
-                'recon_cache_path': self.tempdir}
+        conf = {'devices': self.testdir, 'mount_check': False,
+                'recon_cache_path': self.testdir}
         test_auditor = auditor.AccountAuditor(conf, logger=debug_logger())
         test_auditor.run_once()
 
         self.restore_account_broker()
 
-        broker = auditor.AccountBroker(self.db_path)
+        broker = auditor.AccountBroker(self.db_path, account='a')
+        broker.initialize(Timestamp('1').internal, 0)
         # go after rows directly to avoid unintentional migration
         with broker.get() as conn:
             rows = conn.execute('''

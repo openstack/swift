@@ -26,6 +26,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_reserved_name
 
 from test.unit import patch_policies, make_timestamp_iter
+from test.unit.common.test_db import TestDbBase
 
 
 class TestFakeAccountBroker(unittest.TestCase):
@@ -58,9 +59,11 @@ class TestFakeAccountBroker(unittest.TestCase):
         self.assertEqual(broker.get_policy_stats(), {})
 
 
-class TestAccountUtils(unittest.TestCase):
+class TestAccountUtils(TestDbBase):
+    server_type = 'account'
 
     def setUp(self):
+        super(TestAccountUtils, self).setUp()
         self.ts = make_timestamp_iter()
 
     def test_get_response_headers_fake_broker(self):
@@ -78,7 +81,7 @@ class TestAccountUtils(unittest.TestCase):
         self.assertEqual(resp_headers, expected)
 
     def test_get_response_headers_empty_memory_broker(self):
-        broker = backend.AccountBroker(':memory:', account='a')
+        broker = backend.AccountBroker(self.db_path, account='a')
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(Timestamp(now).internal)
@@ -94,7 +97,7 @@ class TestAccountUtils(unittest.TestCase):
 
     @patch_policies
     def test_get_response_headers_with_data(self):
-        broker = backend.AccountBroker(':memory:', account='a')
+        broker = backend.AccountBroker(self.db_path, account='a')
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(Timestamp(now).internal)
@@ -141,7 +144,7 @@ class TestAccountUtils(unittest.TestCase):
 
     @patch_policies
     def test_get_response_headers_with_legacy_data(self):
-        broker = backend.AccountBroker(':memory:', account='a')
+        broker = backend.AccountBroker(self.db_path, account='a')
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(Timestamp(now).internal)
@@ -213,7 +216,7 @@ class TestAccountUtils(unittest.TestCase):
 
     @patch_policies([StoragePolicy(0, 'zero', is_default=True)])
     def test_account_listing_reserved_names(self):
-        broker = backend.AccountBroker(':memory:', account='a')
+        broker = backend.AccountBroker(self.db_path, account='a')
         put_timestamp = next(self.ts)
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
