@@ -11526,51 +11526,6 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
             self.assertEqual(h['read-only'], ['bas'])
 
 
-class FakeObjectController(object):
-
-    def __init__(self):
-        self.app = self
-        self.logger = self
-        self.account_name = 'a'
-        self.container_name = 'c'
-        self.object_name = 'o'
-        self.trans_id = 'tx1'
-        self.object_ring = FakeRing()
-        self.node_timeout = 1
-        self.rate_limit_after_segment = 3
-        self.rate_limit_segments_per_sec = 2
-        self.GETorHEAD_base_args = []
-
-    def exception(self, *args):
-        self.exception_args = args
-        self.exception_info = sys.exc_info()
-
-    def GETorHEAD_base(self, *args):
-        self.GETorHEAD_base_args.append(args)
-        req = args[0]
-        path = args[4]
-        body = data = path[-1] * int(path[-1])
-        if req.range:
-            r = req.range.ranges_for_length(len(data))
-            if r:
-                (start, stop) = r[0]
-                body = data[start:stop]
-        resp = Response(app_iter=iter(body))
-        return resp
-
-    def iter_nodes(self, ring, partition, logger):
-        for node in ring.get_part_nodes(partition):
-            yield node
-        for node in ring.get_more_nodes(partition):
-            yield node
-
-    def sort_nodes(self, nodes):
-        return nodes
-
-    def set_node_timing(self, node, timing):
-        return
-
-
 class TestProxyObjectPerformance(unittest.TestCase):
 
     def setUp(self):
