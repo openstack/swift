@@ -4801,6 +4801,9 @@ cluster_dfw1 = http://dfw1.host/v1/
                        'X-Backend-Redirect-Timestamp': '-1'})
         self.assertIn('Invalid timestamp', str(exc))
 
+    @unittest.skipIf(sys.version_info >= (3, 8),
+                     'pkg_resources loading is only available on python 3.7 '
+                     'and earlier')
     @mock.patch('pkg_resources.load_entry_point')
     def test_load_pkg_resource(self, mock_driver):
         tests = {
@@ -4823,6 +4826,59 @@ cluster_dfw1 = http://dfw1.host/v1/
             args = ('swift.diskfile', 'nog:swift#replication.fs')
             utils.load_pkg_resource(*args)
         self.assertEqual("Unhandled URI scheme: 'nog'", str(cm.exception))
+
+    @unittest.skipIf(sys.version_info < (3, 8),
+                     'importlib loading is only available on python 3.8 '
+                     'and later')
+    @mock.patch('importlib.metadata.distribution')
+    def test_load_pkg_resource_importlib(self, mock_driver):
+        import importlib.metadata
+        repl_obj = object()
+        ec_obj = object()
+        other_obj = object()
+        mock_driver.return_value.entry_points = [
+            importlib.metadata.EntryPoint(group='swift.diskfile',
+                                          name='replication.fs',
+                                          value=repl_obj),
+            importlib.metadata.EntryPoint(group='swift.diskfile',
+                                          name='erasure_coding.fs',
+                                          value=ec_obj),
+            importlib.metadata.EntryPoint(group='swift.section',
+                                          name='thing.other',
+                                          value=other_obj),
+        ]
+        for ep in mock_driver.return_value.entry_points:
+            ep.load = lambda ep=ep: ep.value
+        tests = {
+            ('swift.diskfile', 'egg:swift#replication.fs'): repl_obj,
+            ('swift.diskfile', 'egg:swift#erasure_coding.fs'): ec_obj,
+            ('swift.section', 'egg:swift#thing.other'): other_obj,
+            ('swift.section', 'swift#thing.other'): other_obj,
+            ('swift.section', 'thing.other'): other_obj,
+        }
+        for args, expected in tests.items():
+            self.assertIs(expected, utils.load_pkg_resource(*args))
+            self.assertEqual(mock_driver.mock_calls, [mock.call('swift')])
+            mock_driver.reset_mock()
+
+        with self.assertRaises(TypeError) as cm:
+            args = ('swift.diskfile', 'nog:swift#replication.fs')
+            utils.load_pkg_resource(*args)
+        self.assertEqual("Unhandled URI scheme: 'nog'", str(cm.exception))
+
+        with self.assertRaises(ImportError) as cm:
+            args = ('swift.diskfile', 'other.fs')
+            utils.load_pkg_resource(*args)
+        self.assertEqual(
+            "Entry point ('swift.diskfile', 'other.fs') not found",
+            str(cm.exception))
+
+        with self.assertRaises(ImportError) as cm:
+            args = ('swift.missing', 'thing.other')
+            utils.load_pkg_resource(*args)
+        self.assertEqual(
+            "Entry point ('swift.missing', 'thing.other') not found",
+            str(cm.exception))
 
     @with_tempdir
     def test_systemd_notify(self, tempdir):

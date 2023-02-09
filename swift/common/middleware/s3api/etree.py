@@ -15,7 +15,17 @@
 
 import lxml.etree
 from copy import deepcopy
-from pkg_resources import resource_stream  # pylint: disable-msg=E0611
+try:
+    # importlib.resources was introduced in py37, but couldn't handle
+    # resources in subdirectories (which we use); files() added support
+    from importlib.resources import files
+    del files
+except ImportError:
+    # python < 3.9
+    from pkg_resources import resource_stream  # pylint: disable-msg=E0611
+else:
+    import importlib.resources
+    resource_stream = None
 import six
 
 from swift.common.utils import get_logger
@@ -70,7 +80,13 @@ def fromstring(text, root_tag=None, logger=None):
         # validate XML
         try:
             path = 'schema/%s.rng' % camel_to_snake(root_tag)
-            with resource_stream(__name__, path) as rng:
+            if resource_stream:
+                # python < 3.9
+                stream = resource_stream(__name__, path)
+            else:
+                stream = importlib.resources.files(
+                    __name__.rsplit('.', 1)[0]).joinpath(path).open('rb')
+            with stream as rng:
                 lxml.etree.RelaxNG(file=rng).assertValid(elem)
         except IOError as e:
             # Probably, the schema file doesn't exist.

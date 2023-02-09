@@ -58,7 +58,12 @@ import eventlet.debug
 import eventlet.greenthread
 import eventlet.patcher
 import eventlet.semaphore
-import pkg_resources
+try:
+    import importlib.metadata
+    pkg_resources = None
+except ImportError:
+    # python < 3.8
+    import pkg_resources
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.event import Event
 from eventlet.green import socket, threading
@@ -6415,7 +6420,19 @@ def load_pkg_resource(group, uri):
 
     if scheme != 'egg':
         raise TypeError('Unhandled URI scheme: %r' % scheme)
-    return pkg_resources.load_entry_point(dist, group, name)
+
+    if pkg_resources:
+        # python < 3.8
+        return pkg_resources.load_entry_point(dist, group, name)
+
+    # May raise importlib.metadata.PackageNotFoundError
+    meta = importlib.metadata.distribution(dist)
+
+    entry_points = [ep for ep in meta.entry_points
+                    if ep.group == group and ep.name == name]
+    if not entry_points:
+        raise ImportError("Entry point %r not found" % ((group, name),))
+    return entry_points[0].load()
 
 
 class PipeMutex(object):
