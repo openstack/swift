@@ -85,7 +85,13 @@ bind_port = 8080
 # CORS documentation).
 # cors_expose_headers =
 #
+# General timeout when sending to or receiving from clients.
 # client_timeout = 60.0
+#
+# Timeout to use when looking for pipelined requests. Set to zero to disable
+# request pipelining. Defaults to client_timeout. Requires eventlet>=0.33.4;
+# with earlier eventlet, any non-zero value is treated as client_timeout.
+# keepalive_timeout =
 #
 # Note: enabling evenlet_debug might reveal sensitive information, for example
 # signatures for temp urls
