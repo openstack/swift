@@ -6637,6 +6637,30 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
 
+        # ...unless sending an x-backend-replication header...which lets you
+        # modify x-delete-at
+        now += 2
+        recreate_test_object(now)
+        the_time = delete_at_timestamp + 2
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(the_time),
+                     'x-backend-replication': 'true',
+                     'x-delete-at': str(delete_at_timestamp + 100)})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+        # ...so the object becomes accessible again even without an
+        # x-backend-replication header
+        the_time = delete_at_timestamp + 3
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(the_time),
+                     'x-delete-at': str(delete_at_timestamp + 101)})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
     def test_DELETE_can_skip_updating_expirer_queue(self):
         policy = POLICIES.get_by_index(0)
         test_time = time()
