@@ -2053,6 +2053,15 @@ class TestModuleMethods(unittest.TestCase):
         actual = ssync_receiver.decode_missing(msg)
         self.assertEqual(expected, actual)
 
+        # test encode and decode functions invert with offset
+        t_data_offset = utils.Timestamp(t_data, offset=1)
+        expected = {'object_hash': object_hash, 'ts_meta': t_meta,
+                    'ts_data': t_data_offset, 'ts_ctype': t_type,
+                    'durable': False}
+        msg = ssync_sender.encode_missing(**expected)
+        actual = ssync_receiver.decode_missing(msg)
+        self.assertEqual(expected, actual)
+
     def test_decode_wanted(self):
         parts = ['d']
         expected = {'data': True}

@@ -15,12 +15,15 @@
 # limitations under the License.
 
 from unittest import main
+import random
 
 from swiftclient import client
 
+from swift.common import direct_client
 from swift.common.request_helpers import get_reserved_name
+from swift.obj import reconstructor
 
-from test.probe.common import ReplProbeTest
+from test.probe.common import ReplProbeTest, ECProbeTest
 
 
 class TestObjectVersioning(ReplProbeTest):
@@ -227,6 +230,100 @@ class TestObjectVersioning(ReplProbeTest):
         _headers, data = client.get_object(
             self.url, self.token, container_name, obj_name)
         self.assertEqual(data, b'new version')
+
+
+class TestECObjectVersioning(ECProbeTest):
+
+    def setUp(self):
+        super(TestECObjectVersioning, self).setUp()
+        self.part, self.nodes = self.object_ring.get_nodes(
+            self.account, self.container_name, self.object_name)
+
+    def test_versioning_with_metadata_replication(self):
+        # Enable versioning
+        client.put_container(self.url, self.token, self.container_name,
+                             headers={
+                                 'X-Storage-Policy': self.policy.name,
+                                 'X-Versions-Enabled': 'True',
+                             })
+        # create version with metadata in a handoff location
+        failed_primary = random.choice(self.nodes)
+        failed_primary_device_path = self.device_dir(failed_primary)
+        self.kill_drive(failed_primary_device_path)
+        headers = {'x-object-meta-foo': 'meta-foo'}
+        client.put_object(self.url, self.token, self.container_name,
+                          self.object_name, contents='some data',
+                          headers=headers)
+        headers_post = {'x-object-meta-bar': 'meta-bar'}
+        client.post_object(self.url, self.token, self.container_name,
+                           self.object_name, headers=headers_post)
+        # find the handoff
+        primary_ids = [n['id'] for n in self.nodes]
+        for handoff in self.object_ring.devs:
+            if handoff['id'] in primary_ids:
+                continue
+            try:
+                headers, etag = self.direct_get(handoff, self.part)
+            except direct_client.DirectClientException as err:
+                if err.http_status != 404:
+                    raise
+            else:
+                break
+        else:
+            self.fail('unable to find object on handoffs')
+        # we want to repair the fault, but avoid doing the handoff revert
+        self.revive_drive(failed_primary_device_path)
+        handoff_config = (handoff['id'] + 1) % 4
+        failed_config = (failed_primary['id'] + 1) % 4
+        partner_nodes = reconstructor._get_partners(
+            failed_primary['index'], self.nodes)
+        random.shuffle(partner_nodes)
+        for partner in partner_nodes:
+            fix_config = (partner['id'] + 1) % 4
+            if fix_config not in (handoff_config, failed_config):
+                break
+        else:
+            self.fail('unable to find fix_config in %r excluding %r & %r' % (
+                [(d['device'], (d['id'] + 1) % 4) for d in partner_nodes],
+                handoff_config, failed_config))
+
+        self.reconstructor.once(number=fix_config)
+        # validate object in all locations
+        missing = []
+        etags = set()
+        metadata = []
+        for node in self.nodes:
+            try:
+                headers, etag = self.direct_get(node, self.part)
+            except direct_client.DirectClientException as err:
+                if err.http_status != 404:
+                    raise
+                missing.append(node)
+                continue
+            etags.add(headers['X-Object-Sysmeta-Ec-Etag'])
+            metadata.append(headers['X-Object-Meta-Bar'])
+        if missing:
+            self.fail('Ran reconstructor config #%s to repair %r but '
+                      'found 404 on primary: %r' % (
+                          fix_config, failed_primary['device'],
+                          [d['device'] for d in missing]))
+        self.assertEqual(1, len(etags))
+        self.assertEqual(['meta-bar'] * len(self.nodes), metadata)
+        # process revert
+        self.reconstructor.once(number=handoff_config)
+        # validate object (still?) in primary locations
+        etags = set()
+        metadata = []
+        for node in self.nodes:
+            headers, etag = self.direct_get(node, self.part)
+            etags.add(headers['X-Object-Sysmeta-Ec-Etag'])
+            metadata.append(headers['X-Object-Meta-Bar'])
+        self.assertEqual(1, len(etags))
+        self.assertEqual(['meta-bar'] * len(self.nodes), metadata)
+        # and removed form handoff
+        with self.assertRaises(direct_client.DirectClientException) as ctx:
+            headers, etag = self.direct_get(handoff, self.part)
+        self.assertEqual(ctx.exception.http_status, 404)
 
 
 if __name__ == '__main__':
