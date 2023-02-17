@@ -85,6 +85,12 @@ class TestRingBuilder(unittest.TestCase):
             ring.RingBuilder(33, 3, 1)
         self.assertEqual(str(ctx.exception), expected_msg)
 
+    def test_oversmall_part_powers(self):
+        expected_msg = 'part_power must be at least 0 (was -1)'
+        with self.assertRaises(ValueError) as ctx:
+            ring.RingBuilder(-1, 3, 1)
+        self.assertEqual(str(ctx.exception), expected_msg)
+
     def test_insufficient_replicas(self):
         expected_msg = 'replicas must be at least 1 (was 0.999000)'
         with self.assertRaises(ValueError) as ctx:
