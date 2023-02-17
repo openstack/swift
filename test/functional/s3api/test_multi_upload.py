@@ -52,7 +52,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
     def setUp(self):
         super(TestS3ApiMultiUpload, self).setUp()
         if not tf.cluster_info['s3api'].get('allow_multipart_uploads', False):
-            raise tf.SkipTest('multipart upload is not enebled')
+            self.skipTest('multipart upload is not enebled')
 
         self.min_segment_size = int(tf.cluster_info['s3api'].get(
             'min_segment_size', 5242880))

@@ -20,13 +20,14 @@ import json
 import unittest
 from uuid import uuid4
 import time
+from unittest import SkipTest
 from xml.dom import minidom
 
 import six
 from six.moves import range
 
 from test.functional import check_response, retry, requires_acls, \
-    requires_policies, SkipTest, requires_bulk
+    requires_policies, requires_bulk
 import test.functional as tf
 from swift.common.utils import md5
 
@@ -941,7 +942,7 @@ class TestObject(unittest.TestCase):
     @requires_acls
     def test_read_only(self):
         if tf.skip3:
-            raise tf.SkipTest
+            raise SkipTest
 
         def get_listing(url, token, parsed, conn):
             conn.request('GET', '%s/%s' % (parsed.path, self.container), '',

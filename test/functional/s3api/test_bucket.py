@@ -17,6 +17,7 @@ import botocore
 import datetime
 import unittest
 import os
+from unittest import SkipTest
 
 import test.functional as tf
 from swift.common.utils import config_true_value
@@ -123,7 +124,7 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
 
     def test_bucket_listing_with_staticweb(self):
         if 'staticweb' not in tf.cluster_info:
-            raise tf.SkipTest('Staticweb not enabled')
+            raise SkipTest('Staticweb not enabled')
         bucket = 'bucket'
 
         resp = self.conn.create_bucket(Bucket=bucket)
@@ -176,7 +177,7 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         if config_true_value(tf.cluster_info['s3api'].get('s3_acl')):
             if 's3_access_key2' not in tf.config or \
                     's3_secret_key2' not in tf.config:
-                raise tf.SkipTest(
+                raise SkipTest(
                     'Cannot test for BucketAlreadyExists with second user; '
                     'need s3_access_key2 and s3_secret_key2 configured')
 
@@ -196,8 +197,8 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
     def test_put_bucket_error_key3(self):
         if 's3_access_key3' not in tf.config or \
                 's3_secret_key3' not in tf.config:
-            raise tf.SkipTest('Cannot test for AccessDenied; need '
-                              's3_access_key3 and s3_secret_key3 configured')
+            raise SkipTest('Cannot test for AccessDenied; need '
+                           's3_access_key3 and s3_secret_key3 configured')
 
         self.conn.create_bucket(Bucket='bucket')
         # If the user can't create buckets, they shouldn't even know

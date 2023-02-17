@@ -17,6 +17,8 @@ import unittest
 import traceback
 from contextlib import contextmanager
 import logging
+from unittest import SkipTest
+
 import test.functional as tf
 from test.functional.s3api.s3_test_client import (
     Connection, get_boto3_conn, tear_down_s3)
@@ -45,7 +47,7 @@ class S3ApiBase(unittest.TestCase):
 
     def setUp(self):
         if 's3api' not in tf.cluster_info:
-            raise tf.SkipTest('s3api middleware is not enabled')
+            raise SkipTest('s3api middleware is not enabled')
         if tf.config.get('account'):
             user_id = '%s:%s' % (tf.config['account'], tf.config['username'])
         else:
@@ -82,7 +84,7 @@ class S3ApiBase(unittest.TestCase):
 class S3ApiBaseBoto3(S3ApiBase):
     def setUp(self):
         if 's3api' not in tf.cluster_info:
-            raise tf.SkipTest('s3api middleware is not enabled')
+            raise SkipTest('s3api middleware is not enabled')
         try:
             self.conn = get_boto3_conn(
                 tf.config['s3_access_key'], tf.config['s3_secret_key'])

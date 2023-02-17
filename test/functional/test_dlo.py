@@ -250,7 +250,7 @@ class TestDlo(Base):
 
     def test_dlo_referer_on_segment_container(self):
         if 'username3' not in tf.config:
-            raise tf.SkipTest('Requires user 3')
+            self.skipTest('Requires user 3')
         # First the account2 (test3) should fail
         config2 = tf.config.copy()
         config2['username'] = tf.config['username3']

@@ -23,12 +23,13 @@ from copy import deepcopy
 import six
 from six.moves import urllib
 from time import time, strftime, gmtime
+from unittest import SkipTest
 
 import test.functional as tf
 from swift.common.middleware import tempurl
 from test.functional import cluster_info
 from test.functional.tests import Utils, Base, Base2, BaseEnv
-from test.functional import requires_acls, SkipTest
+from test.functional import requires_acls
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 

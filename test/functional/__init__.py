@@ -33,6 +33,7 @@ from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
+from unittest import SkipTest
 
 from six.moves.configparser import ConfigParser, NoSectionError
 from six.moves import http_client
@@ -47,10 +48,8 @@ from test import get_config, listen_zero
 from test.debug_logger import debug_logger
 from test.unit import FakeMemcache
 # importing skip_if_no_xattrs so that functional tests can grab it from the
-# test.functional namespace. Importing SkipTest so this works under both
-# nose and testr test runners.
+# test.functional namespace.
 from test.unit import skip_if_no_xattrs as real_skip_if_no_xattrs
-from test.unit import SkipTest
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
