@@ -2040,6 +2040,19 @@ class TestModuleMethods(unittest.TestCase):
             ssync_sender.encode_missing(object_hash, t_data, t_meta, t_type,
                                         durable=True))
 
+        # timestamps have offsets
+        t_data_offset = utils.Timestamp(t_data, offset=99)
+        t_meta_offset = utils.Timestamp(t_meta, offset=1)
+        t_type_offset = utils.Timestamp(t_type, offset=2)
+        expected = ('%s %s m:%x__1,t:%x__2'
+                    % (object_hash, t_data_offset.internal, d_meta_data,
+                       d_type_data))
+        self.assertEqual(
+            expected.encode('ascii'),
+            ssync_sender.encode_missing(
+                object_hash, t_data_offset, t_meta_offset, t_type_offset,
+                durable=True))
+
         # test encode and decode functions invert
         expected = {'object_hash': object_hash, 'ts_meta': t_meta,
                     'ts_data': t_data, 'ts_ctype': t_type, 'durable': False}
@@ -2057,6 +2070,29 @@ class TestModuleMethods(unittest.TestCase):
         t_data_offset = utils.Timestamp(t_data, offset=1)
         expected = {'object_hash': object_hash, 'ts_meta': t_meta,
                     'ts_data': t_data_offset, 'ts_ctype': t_type,
+                    'durable': False}
+        msg = ssync_sender.encode_missing(**expected)
+        actual = ssync_receiver.decode_missing(msg)
+        self.assertEqual(expected, actual)
+
+        t_meta_offset = utils.Timestamp(t_data, offset=2)
+        expected = {'object_hash': object_hash, 'ts_meta': t_meta_offset,
+                    'ts_data': t_data, 'ts_ctype': t_type,
+                    'durable': False}
+        msg = ssync_sender.encode_missing(**expected)
+        actual = ssync_receiver.decode_missing(msg)
+        self.assertEqual(expected, actual)
+
+        t_type_offset = utils.Timestamp(t_type, offset=3)
+        expected = {'object_hash': object_hash, 'ts_meta': t_meta,
+                    'ts_data': t_data, 'ts_ctype': t_type_offset,
+                    'durable': False}
+        msg = ssync_sender.encode_missing(**expected)
+        actual = ssync_receiver.decode_missing(msg)
+        self.assertEqual(expected, actual)
+
+        expected = {'object_hash': object_hash, 'ts_meta': t_meta_offset,
+                    'ts_data': t_data_offset, 'ts_ctype': t_type_offset,
                     'durable': False}
         msg = ssync_sender.encode_missing(**expected)
         actual = ssync_receiver.decode_missing(msg)

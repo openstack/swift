@@ -54,13 +54,17 @@ def decode_missing(line):
         for item in [subpart for subpart in subparts if ':' in subpart]:
             k, v = item.split(':')
             if k == 'm':
+                v, _, o = v.partition('__')
                 # ignore ts_data offset when calculating ts_meta
                 result['ts_meta'] = Timestamp(ts_data.normal,
-                                              delta=int(v, 16))
+                                              delta=int(v, 16),
+                                              offset=int(o or '0', 16))
             elif k == 't':
+                v, _, o = v.partition('__')
                 # ignore ts_data offset when calculating ts_ctype
-                result['ts_ctype'] = Timestamp(ts_data.normal,
-                                               delta=int(v, 16))
+                result['ts_ctype'] = Timestamp(Timestamp(ts_data).normal,
+                                               delta=int(v, 16),
+                                               offset=int(o or '0', 16))
             elif k == 'durable':
                 result['durable'] = utils.config_true_value(v)
     return result
