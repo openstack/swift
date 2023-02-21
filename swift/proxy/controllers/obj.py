@@ -77,7 +77,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError, \
     normalize_etag, str_to_wsgi
 from swift.common.request_helpers import update_etag_is_at_header, \
-    resolve_etag_is_at_header, validate_internal_obj, get_ip_port
+    resolve_etag_is_at_header, validate_internal_obj, get_ip_port, \
+    is_open_expired
 
 
 def check_content_type(req):
@@ -250,6 +251,8 @@ class BaseObjectController(Controller):
         policy = POLICIES.get_by_index(policy_index)
         obj_ring = self.app.get_object_ring(policy_index)
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        if is_open_expired(self.app, req):
+            req.headers['X-Backend-Open-Expired'] = 'true'
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -402,6 +405,8 @@ class BaseObjectController(Controller):
         container_partition, container_nodes, container_path = \
             self._get_update_target(req, container_info)
         req.acl = container_info['write_acl']
+        if is_open_expired(self.app, req):
+            req.headers['X-Backend-Open-Expired'] = 'true'
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:

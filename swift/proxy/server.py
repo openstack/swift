@@ -286,6 +286,8 @@ class Application(object):
             if a.strip()]
         self.strict_cors_mode = config_true_value(
             conf.get('strict_cors_mode', 't'))
+        self.allow_open_expired = config_true_value(
+            conf.get('allow_open_expired', 'f'))
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
         value = conf.get('request_node_count', '2 * replicas')
@@ -347,6 +349,7 @@ class Application(object):
             policies=POLICIES.get_policy_info(),
             allow_account_management=self.allow_account_management,
             account_autocreate=self.account_autocreate,
+            allow_open_expired=self.allow_open_expired,
             **constraints.EFFECTIVE_CONSTRAINTS)
         self.watchdog = Watchdog()
         self.watchdog.spawn()
