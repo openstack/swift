@@ -211,7 +211,10 @@ client_chunk_size                               65536            Chunk size to r
                                                                  clients
 memcache_servers                                127.0.0.1:11211  Comma separated list of
                                                                  memcached servers
-                                                                 ip:port or [ipv6addr]:port
+                                                                 ip:port or [ipv6addr]:port,
+                                                                 if this value is
+                                                                 empty, the memcache client will look
+                                                                 for a :ref:`[memcache.conf] <memcache-config>`
 memcache_max_connections                        2                Max number of connections to
                                                                  each memcached server per
                                                                  worker
