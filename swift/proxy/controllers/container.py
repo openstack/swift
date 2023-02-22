@@ -693,7 +693,7 @@ class ContainerController(Controller):
         similar to a merge_items REPLICATE request.
 
         Not client facing; internal clients or middlewares must include
-        ``X-Backend-Allow-Method: UPDATE`` header to access.
+        ``X-Backend-Allow-Private-Methods: true`` header to access.
         """
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
