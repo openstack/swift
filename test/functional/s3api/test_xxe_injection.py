@@ -208,6 +208,9 @@ class TestS3ApiXxeInjection(S3ApiBaseBoto3):
             self.assertEqual(204, response_metadata.get('HTTPStatusCode'))
 
     def test_put_bucket_versioning(self):
+        if 'object_versioning' not in tf.cluster_info:
+            raise tf.SkipTest('S3 versioning requires that Swift object '
+                              'versioning be enabled')
         self._create_bucket()
 
         url = self._presign_url(
