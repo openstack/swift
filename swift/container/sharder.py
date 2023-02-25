@@ -1525,106 +1525,119 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             return self._audit_root_container(broker)
         return self._audit_shard_container(broker)
 
-    def yield_objects(self, broker, src_shard_range, since_row=None):
+    def yield_objects(self, broker, src_shard_range, since_row=None,
+                      batch_size=None):
         """
-        Iterates through all objects in ``src_shard_range`` in name order
-        yielding them in lists of up to CONTAINER_LISTING_LIMIT length. Both
-        deleted and undeleted objects are included.
+        Iterates through all object rows in ``src_shard_range`` in name order
+        yielding them in lists of up to ``batch_size`` in length. All batches
+        of rows that are not marked deleted are yielded before all batches of
+        rows that are marked deleted.
 
         :param broker: A :class:`~swift.container.backend.ContainerBroker`.
         :param src_shard_range: A :class:`~swift.common.utils.ShardRange`
             describing the source range.
-        :param since_row: include only items whose ROWID is greater than
-            the given row id; by default all rows are included.
-        :return: a generator of tuples of (list of objects, broker info dict)
+        :param since_row: include only object rows whose ROWID is greater than
+            the given row id; by default all object rows are included.
+        :param batch_size: The maximum number of object rows to include in each
+            yielded batch; defaults to cleave_row_batch_size.
+        :return: a generator of tuples of (list of rows, broker info dict)
         """
-        marker = src_shard_range.lower_str
-        while True:
-            info = broker.get_info()
-            info['max_row'] = broker.get_max_row()
-            start = time.time()
-            objects = broker.get_objects(
-                self.cleave_row_batch_size,
-                marker=marker,
-                end_marker=src_shard_range.end_marker,
-                include_deleted=None,  # give me everything
-                since_row=since_row)
-            if objects:
-                self.logger.debug('got %s objects from %s in %ss',
-                                  len(objects), broker.db_file,
-                                  time.time() - start)
-                yield objects, info
+        if (src_shard_range.lower == ShardRange.MAX or
+                src_shard_range.upper == ShardRange.MIN):
+            # this is an unexpected condition but handled with an early return
+            # just in case, because:
+            #   lower == ShardRange.MAX  ->  marker == ''
+            # which could result in rows being erroneously yielded.
+            return
 
-            if len(objects) < self.cleave_row_batch_size:
-                break
-            marker = objects[-1]['name']
+        batch_size = batch_size or self.cleave_row_batch_size
+        for include_deleted in (False, True):
+            marker = src_shard_range.lower_str
+            while True:
+                info = broker.get_info()
+                info['max_row'] = broker.get_max_row()
+                start = time.time()
+                objects = broker.get_objects(
+                    limit=batch_size,
+                    marker=marker,
+                    end_marker=src_shard_range.end_marker,
+                    include_deleted=include_deleted,
+                    since_row=since_row)
+                self.logger.debug(
+                    'got %s rows (deleted=%s) from %s in %ss',
+                    len(objects),
+                    include_deleted,
+                    broker.db_file,
+                    time.time() - start)
+                if objects:
+                    yield objects, info
+
+                if len(objects) < batch_size:
+                    break
+                marker = objects[-1]['name']
 
     def yield_objects_to_shard_range(self, broker, src_shard_range,
                                      dest_shard_ranges):
         """
-        Iterates through all objects in ``src_shard_range`` to place them in
-        destination shard ranges provided by the ``next_shard_range`` function.
-        Yields tuples of (object list, destination shard range in which those
-        objects belong). Note that the same destination shard range may be
-        referenced in more than one yielded tuple.
+        Iterates through all object rows in ``src_shard_range`` to place them
+        in destination shard ranges provided by the ``dest_shard_ranges``
+        function. Yields tuples of ``(batch of object rows, destination shard
+        range in which those object rows belong, broker info)``.
+
+        If no destination shard range exists for a batch of object rows then
+        tuples are yielded of ``(batch of object rows, None, broker info)``.
+        This indicates to the caller that there are a non-zero number of object
+        rows for which no destination shard range was found.
+
+        Note that the same destination shard range may be referenced in more
+        than one yielded tuple.
 
         :param broker: A :class:`~swift.container.backend.ContainerBroker`.
         :param src_shard_range: A :class:`~swift.common.utils.ShardRange`
             describing the source range.
         :param dest_shard_ranges: A function which should return a list of
-            destination shard ranges in name order.
-        :return: a generator of tuples of
-            (object list, shard range, broker info dict)
+            destination shard ranges sorted in the order defined by
+            :meth:`~swift.common.utils.ShardRange.sort_key`.
+        :return: a generator of tuples of ``(object row list, shard range,
+            broker info dict)``  where ``shard_range`` may be ``None``.
         """
-        dest_shard_range_iter = dest_shard_range = None
-        for objs, info in self.yield_objects(broker, src_shard_range):
-            if not objs:
-                return
+        # calling dest_shard_ranges() may result in a request to fetch shard
+        # ranges, so first check that the broker actually has misplaced object
+        # rows in the source namespace
+        for _ in self.yield_objects(broker, src_shard_range, batch_size=1):
+            break
+        else:
+            return
 
-            def next_or_none(it):
-                try:
-                    return next(it)
-                except StopIteration:
-                    return None
+        dest_shard_range_iter = iter(dest_shard_ranges())
+        src_shard_range_marker = src_shard_range.lower
+        for dest_shard_range in dest_shard_range_iter:
+            if dest_shard_range.upper <= src_shard_range.lower:
+                continue
 
-            if dest_shard_range_iter is None:
-                dest_shard_range_iter = iter(dest_shard_ranges())
-                dest_shard_range = next_or_none(dest_shard_range_iter)
+            if dest_shard_range.lower > src_shard_range_marker:
+                # no destination for a sub-namespace of the source namespace
+                sub_src_range = src_shard_range.copy(
+                    lower=src_shard_range_marker, upper=dest_shard_range.lower)
+                for objs, info in self.yield_objects(broker, sub_src_range):
+                    yield objs, None, info
 
-            unplaced = False
-            last_index = next_index = 0
-            for obj in objs:
-                if dest_shard_range is None:
-                    # no more destinations: yield remainder of batch and bail
-                    # NB there may be more batches of objects but none of them
-                    # will be placed so no point fetching them
-                    yield objs[last_index:], None, info
-                    return
-                if obj['name'] <= dest_shard_range.lower:
-                    unplaced = True
-                elif unplaced:
-                    # end of run of unplaced objects, yield them
-                    yield objs[last_index:next_index], None, info
-                    last_index = next_index
-                    unplaced = False
-                while (dest_shard_range and
-                       obj['name'] > dest_shard_range.upper):
-                    if next_index != last_index:
-                        # yield the objects in current dest_shard_range
-                        yield (objs[last_index:next_index],
-                               dest_shard_range,
-                               info)
-                    last_index = next_index
-                    dest_shard_range = next_or_none(dest_shard_range_iter)
-                next_index += 1
+            sub_src_range = src_shard_range.copy(
+                lower=max(dest_shard_range.lower, src_shard_range.lower),
+                upper=min(dest_shard_range.upper, src_shard_range.upper))
+            for objs, info in self.yield_objects(broker, sub_src_range):
+                yield objs, dest_shard_range, info
 
-            if next_index != last_index:
-                # yield tail of current batch of objects
-                # NB there may be more objects for the current
-                # dest_shard_range in the next batch from yield_objects
-                yield (objs[last_index:next_index],
-                       None if unplaced else dest_shard_range,
-                       info)
+            src_shard_range_marker = dest_shard_range.upper
+            if dest_shard_range.upper >= src_shard_range.upper:
+                # the entire source namespace has been traversed
+                break
+        else:
+            # dest_shard_ranges_iter was exhausted before reaching the end of
+            # the source namespace
+            sub_src_range = src_shard_range.copy(lower=src_shard_range_marker)
+            for objs, info in self.yield_objects(broker, sub_src_range):
+                yield objs, None, info
 
     def _post_replicate_hook(self, broker, info, responses):
         # override superclass behaviour
