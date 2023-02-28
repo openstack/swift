@@ -10,6 +10,7 @@ Configuration Documentation
     account_server_config.rst
     container_server_config.rst
     object_server_config.rst
+    global_memcache_config.rst
 
 Configuration options for middleware can be found at:
 
