@@ -17,6 +17,7 @@ import unittest
 import os
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring
+from unittest import SkipTest
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code
@@ -37,7 +38,7 @@ class TestS3Acl(S3ApiBase):
         self.obj = 'object'
         if 's3_access_key3' not in tf.config or \
                 's3_secret_key3' not in tf.config:
-            raise tf.SkipTest(
+            raise SkipTest(
                 'TestS3Acl requires s3_access_key3 and s3_secret_key3 '
                 'configured for reduced-access user')
         status, headers, body = self.conn.make_request('PUT', self.bucket)

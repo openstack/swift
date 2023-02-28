@@ -33,8 +33,8 @@ class TestS3ApiVersioning(S3ApiBase):
         super(TestS3ApiVersioning, self).setUp()
         if 'object_versioning' not in tf.cluster_info:
             # Alternatively, maybe we should assert we get 501s...
-            raise tf.SkipTest('S3 versioning requires that Swift object '
-                              'versioning be enabled')
+            self.skipTest('S3 versioning requires that Swift object '
+                          'versioning be enabled')
         status, headers, body = self.conn.make_request('PUT', 'bucket')
         self.assertEqual(status, 200)
 

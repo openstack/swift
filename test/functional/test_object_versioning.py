@@ -22,6 +22,7 @@ import six
 
 from copy import deepcopy
 from six.moves.urllib.parse import quote, unquote
+from unittest import SkipTest
 
 import test.functional as tf
 
@@ -31,7 +32,7 @@ from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
 
 from test.functional.tests import Base, Base2, BaseEnv, Utils
-from test.functional import cluster_info, SkipTest
+from test.functional import cluster_info
 from test.functional.swift_test_client import Connection, \
     ResponseError
 from test.functional.test_tempurl import TestContainerTempurlEnv, \

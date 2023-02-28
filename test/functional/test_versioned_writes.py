@@ -20,12 +20,13 @@ import time
 import unittest
 import six
 from six.moves.urllib.parse import quote, unquote
+from unittest import SkipTest
 
 import test.functional as tf
 
 from swift.common.utils import MD5_OF_EMPTY_STRING
 from test.functional.tests import Base, Base2, BaseEnv, Utils
-from test.functional import cluster_info, SkipTest
+from test.functional import cluster_info
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 
