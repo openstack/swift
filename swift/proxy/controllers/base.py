@@ -438,6 +438,11 @@ def get_container_info(env, app, swift_source=None):
     account = wsgi_to_str(wsgi_account)
     container = wsgi_to_str(wsgi_container)
 
+    # Try to cut through all the layers to the proxy app
+    try:
+        app = app._pipeline_final_app
+    except AttributeError:
+        pass
     # Check in environment cache and in memcache (in that order)
     info = _get_info_from_caches(app, env, account, container)
 
@@ -526,6 +531,11 @@ def get_account_info(env, app, swift_source=None):
 
     account = wsgi_to_str(wsgi_account)
 
+    # Try to cut through all the layers to the proxy app
+    try:
+        app = app._pipeline_final_app
+    except AttributeError:
+        pass
     # Check in environment cache and in memcache (in that order)
     info = _get_info_from_caches(app, env, account)
 

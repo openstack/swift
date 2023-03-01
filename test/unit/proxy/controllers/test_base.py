@@ -152,7 +152,10 @@ class ZeroCacheDynamicResponseFactory(DynamicResponseFactory):
 class FakeApp(object):
 
     recheck_container_existence = 30
+    container_existence_skip_cache = 0
     recheck_account_existence = 30
+    account_existence_skip_cache = 0
+    logger = None
 
     def __init__(self, response_factory=None, statuses=None):
         self.responses = response_factory or \
@@ -351,6 +354,29 @@ class TestFuncs(BaseTest):
         get_container_info(req.environ, app, swift_source='MC')
         self.assertEqual([e['swift.source'] for e in app.captured_envs],
                          ['MC', 'MC'])
+
+    def test_get_container_info_in_pipeline(self):
+        final_app = FakeApp()
+
+        def factory(app):
+            def wsgi_filter(env, start_response):
+                # lots of middlewares get info...
+                if env['PATH_INFO'].count('/') > 2:
+                    get_container_info(env, app)
+                else:
+                    get_account_info(env, app)
+                # ...then decide to no-op based on the result
+                return app(env, start_response)
+
+            wsgi_filter._pipeline_final_app = final_app
+            return wsgi_filter
+
+        # build up a pipeline
+        filtered_app = factory(factory(factory(final_app)))
+        req = Request.blank("/v1/a/c/o", environ={'swift.cache': FakeCache()})
+        req.get_response(filtered_app)
+        self.assertEqual([e['PATH_INFO'] for e in final_app.captured_envs],
+                         ['/v1/a', '/v1/a/c', '/v1/a/c/o'])
 
     def test_get_object_info_swift_source(self):
         app = FakeApp()
