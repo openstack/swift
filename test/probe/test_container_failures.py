@@ -13,13 +13,15 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import time
 from unittest import main
 from uuid import uuid4
 
 from eventlet import GreenPool, Timeout
 import eventlet
 from sqlite3 import connect
+
+from swift.common.manager import Manager
 from swiftclient import client
 
 from swift.common import direct_client
@@ -70,6 +72,75 @@ class TestContainerFailures(ReplProbeTest):
         self.assertEqual(headers['x-account-container-count'], '1')
         self.assertEqual(headers['x-account-object-count'], '1')
         self.assertEqual(headers['x-account-bytes-used'], '3')
+
+    def test_metadata_replicated_with_no_timestamp_update(self):
+        self.maxDiff = None
+        # Create container1
+        container1 = 'container-%s' % uuid4()
+        cpart, cnodes = self.container_ring.get_nodes(self.account, container1)
+        client.put_container(self.url, self.token, container1)
+        Manager(['container-replicator']).once()
+
+        exp_hdrs = None
+        for cnode in cnodes:
+            hdrs = direct_client.direct_head_container(
+                cnode, cpart, self.account, container1)
+            hdrs.pop('Date')
+            if exp_hdrs:
+                self.assertEqual(exp_hdrs, hdrs)
+            exp_hdrs = hdrs
+        self.assertIsNotNone(exp_hdrs)
+        self.assertIn('Last-Modified', exp_hdrs)
+        put_time = float(exp_hdrs['X-Backend-Put-Timestamp'])
+
+        # Post to only one replica of container1 at least 1 second after the
+        # put (to reveal any unexpected change in Last-Modified which is
+        # rounded to seconds)
+        time.sleep(put_time + 1 - time.time())
+        post_hdrs = {'x-container-meta-foo': 'bar',
+                     'x-backend-no-timestamp-update': 'true'}
+        direct_client.direct_post_container(
+            cnodes[1], cpart, self.account, container1, headers=post_hdrs)
+
+        # verify that put_timestamp was not modified
+        exp_hdrs.update({'x-container-meta-foo': 'bar'})
+        hdrs = direct_client.direct_head_container(
+            cnodes[1], cpart, self.account, container1)
+        hdrs.pop('Date')
+        self.assertDictEqual(exp_hdrs, hdrs)
+
+        # Get to a final state
+        Manager(['container-replicator']).once()
+
+        # Assert all container1 servers have consistent metadata
+        for cnode in cnodes:
+            hdrs = direct_client.direct_head_container(
+                cnode, cpart, self.account, container1)
+            hdrs.pop('Date')
+            self.assertDictEqual(exp_hdrs, hdrs)
+
+        # sanity check: verify the put_timestamp is modified without
+        # x-backend-no-timestamp-update
+        post_hdrs = {'x-container-meta-foo': 'baz'}
+        exp_hdrs.update({'x-container-meta-foo': 'baz'})
+        direct_client.direct_post_container(
+            cnodes[1], cpart, self.account, container1, headers=post_hdrs)
+
+        # verify that put_timestamp was modified
+        hdrs = direct_client.direct_head_container(
+            cnodes[1], cpart, self.account, container1)
+        self.assertLess(exp_hdrs['x-backend-put-timestamp'],
+                        hdrs['x-backend-put-timestamp'])
+        self.assertNotEqual(exp_hdrs['last-modified'], hdrs['last-modified'])
+        hdrs.pop('Date')
+        for key in ('x-backend-put-timestamp',
+                    'x-put-timestamp',
+                    'last-modified'):
+            self.assertNotEqual(exp_hdrs[key], hdrs[key])
+            exp_hdrs.pop(key)
+            hdrs.pop(key)
+
+        self.assertDictEqual(exp_hdrs, hdrs)
 
     def test_two_nodes_fail(self):
         # Create container1

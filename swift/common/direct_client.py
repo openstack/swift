@@ -378,6 +378,31 @@ def direct_put_container(node, part, account, container, conn_timeout=5,
               content_length=content_length, chunk_size=chunk_size)
 
 
+def direct_post_container(node, part, account, container, conn_timeout=5,
+                          response_timeout=15, headers=None):
+    """
+    Make a POST request to a container server.
+
+    :param node: node dictionary from the ring
+    :param part: partition the container is on
+    :param account: account name
+    :param container: container name
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :param headers: additional headers to include in the request
+    :raises ClientException: HTTP PUT request failed
+    """
+    if headers is None:
+        headers = {}
+
+    lower_headers = set(k.lower() for k in headers)
+    headers_out = gen_headers(headers,
+                              add_ts='x-timestamp' not in lower_headers)
+    path = _make_path(account, container)
+    return _make_req(node, part, 'POST', path, headers_out, 'Container',
+                     conn_timeout, response_timeout)
+
+
 def direct_put_container_object(node, part, account, container, obj,
                                 conn_timeout=5, response_timeout=15,
                                 headers=None):

@@ -620,6 +620,22 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(raised.exception.http_status, 500)
         self.assertTrue('PUT' in str(raised.exception))
 
+    def test_direct_post_container(self):
+        headers = {'x-foo': 'bar', 'User-Agent': 'my UA'}
+
+        with mocked_http_conn(204) as conn:
+            resp = direct_client.direct_post_container(
+                self.node, self.part, self.account, self.container,
+                headers=headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
+            self.assertEqual(conn.method, 'POST')
+            self.assertEqual(conn.path, self.container_path)
+            self.assertEqual(conn.req_headers['User-Agent'], 'my UA')
+            self.assertTrue('x-timestamp' in conn.req_headers)
+            self.assertEqual('bar', conn.req_headers.get('x-foo'))
+        self.assertEqual(204, resp.status)
+
     def test_direct_delete_container_object(self):
         with mocked_http_conn(204) as conn:
             rv = direct_client.direct_delete_container_object(

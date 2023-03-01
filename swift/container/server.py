@@ -860,7 +860,14 @@ class ContainerController(BaseStorageServer):
     @public
     @timing_stats()
     def POST(self, req):
-        """Handle HTTP POST request."""
+        """
+        Handle HTTP POST request.
+
+        A POST request will update the container's ``put_timestamp``, unless
+        it has an ``X-Backend-No-Timestamp-Update`` header with a truthy value.
+
+        :param req: an instance of :class:`~swift.common.swob.Request`.
+        """
         drive, part, account, container = get_container_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         if 'x-container-sync-to' in req.headers:
@@ -878,7 +885,9 @@ class ContainerController(BaseStorageServer):
         broker = self._get_container_broker(drive, part, account, container)
         if broker.is_deleted():
             return HTTPNotFound(request=req)
-        broker.update_put_timestamp(req_timestamp.internal)
+        if not config_true_value(
+                req.headers.get('x-backend-no-timestamp-update', False)):
+            broker.update_put_timestamp(req_timestamp.internal)
         self._update_metadata(req, broker, req_timestamp, 'POST')
         return HTTPNoContent(request=req)
 
