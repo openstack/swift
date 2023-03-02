@@ -426,6 +426,101 @@ class TestSharder(BaseTestSharder):
         _do_test_init_ic_log_name({'log_name': 'container-sharder-6021'},
                                   'container-sharder-6021-ic')
 
+    def test_log_broker(self):
+        broker = self._make_broker(container='c@d')
+
+        def do_test(level):
+            with self._mock_sharder() as sharder:
+                func = getattr(sharder, level)
+                func(broker, 'bonjour %s %s', 'mes', 'amis')
+                func(broker, 'hello my %s', 'friend%04ds')
+                func(broker, 'greetings friend%04ds')
+
+            self.assertEqual(
+                ['bonjour mes amis, path: a/c%40d, db: ' + broker.db_file,
+                 'hello my friend%04ds, path: a/c%40d, db: ' + broker.db_file,
+                 'greetings friend%04ds, path: a/c%40d, db: ' + broker.db_file
+                 ], sharder.logger.get_lines_for_level(level))
+
+            for log_level, lines in sharder.logger.all_log_lines().items():
+                if log_level == level:
+                    continue
+                else:
+                    self.assertFalse(lines)
+
+        do_test('debug')
+        do_test('info')
+        do_test('warning')
+        do_test('error')
+
+    def test_log_broker_exception(self):
+        broker = self._make_broker()
+
+        with self._mock_sharder() as sharder:
+            try:
+                raise ValueError('test')
+            except ValueError as err:
+                sharder.exception(broker, 'exception: %s', err)
+
+        self.assertEqual(
+            ['exception: test, path: a/c, db: %s: ' % broker.db_file],
+            sharder.logger.get_lines_for_level('error'))
+
+        for log_level, lines in sharder.logger.all_log_lines().items():
+            if log_level == 'error':
+                continue
+            else:
+                self.assertFalse(lines)
+
+    def test_log_broker_levels(self):
+        # verify that the broker is not queried if the log level is not enabled
+        broker = self._make_broker()
+        # erase cached properties...
+        broker.account = broker.container = None
+
+        with self._mock_sharder() as sharder:
+            with mock.patch.object(sharder.logger, 'isEnabledFor',
+                                   return_value=False):
+                sharder.debug(broker, 'test')
+                sharder.info(broker, 'test')
+                sharder.warning(broker, 'test')
+                sharder.error(broker, 'test')
+
+        # cached properties have not been set...
+        self.assertIsNone(broker.account)
+        self.assertIsNone(broker.container)
+        self.assertFalse(sharder.logger.all_log_lines())
+
+    def test_log_broker_exception_while_logging(self):
+        broker = self._make_broker()
+
+        def do_test(level):
+            with self._mock_sharder() as sharder:
+                func = getattr(sharder, level)
+            with mock.patch.object(broker, '_populate_instance_cache',
+                                   side_effect=Exception()):
+                func(broker, 'bonjour %s %s', 'mes', 'amis')
+            broker._db_files = None
+            with mock.patch.object(broker, 'reload_db_files',
+                                   side_effect=Exception()):
+                func(broker, 'bonjour %s %s', 'mes', 'amis')
+
+            self.assertEqual(
+                ['bonjour mes amis, path: , db: %s' % broker.db_file,
+                 'bonjour mes amis, path: a/c, db: '],
+                sharder.logger.get_lines_for_level(level))
+
+            for log_level, lines in sharder.logger.all_log_lines().items():
+                if log_level == level:
+                    continue
+                else:
+                    self.assertFalse(lines)
+
+        do_test('debug')
+        do_test('info')
+        do_test('warning')
+        do_test('error')
+
     def _assert_stats(self, expected, sharder, category):
         # assertEqual doesn't work with a stats defaultdict so copy to a dict
         # before comparing
@@ -587,6 +682,7 @@ class TestSharder(BaseTestSharder):
             lines = sharder.logger.get_lines_for_level('error')
             self.assertIn(
                 'Unhandled exception while dumping progress', lines[0])
+            self.assertIn('path: a/c', lines[0])  # match one of the brokers
             self.assertIn('Test over', lines[0])
 
             def check_recon(data, time, last, expected_stats):
@@ -782,6 +878,7 @@ class TestSharder(BaseTestSharder):
             self.assertEqual({'a/c0', 'a/c1', 'a/c2'}, set(processed_paths))
             lines = sharder.logger.get_lines_for_level('error')
             self.assertIn('Unhandled exception while processing', lines[0])
+            self.assertIn('path: a/c', lines[0])  # match one of the brokers
             self.assertFalse(lines[1:])
             sharder.logger.clear()
             expected_stats = {'attempted': 3, 'success': 2, 'failure': 1,
@@ -1983,7 +2080,8 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(UNSHARDED, broker.get_db_state())
         warning_lines = sharder.logger.get_lines_for_level('warning')
         self.assertEqual(warning_lines[0],
-                         'Failed to get own_shard_range for a/c')
+                         'Failed to get own_shard_range, path: a/c, db: %s'
+                         % broker.db_file)
         sharder._replicate_object.assert_not_called()
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
@@ -2374,10 +2472,13 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(12, context.max_row)  # note that max row increased
         lines = sharder.logger.get_lines_for_level('info')
         self.assertEqual(
-            ["Kick off container cleaving on a/c, own shard range in state "
-             "'sharding'", "Starting to cleave (2 todo): a/c"], lines[:2])
-        self.assertIn('Completed cleaving of a/c, DB remaining in '
-                      'sharding state', lines[1:])
+            ["Kick off container cleaving, own shard range in state "
+             "'sharding', path: a/c, db: %s" % broker.db_file,
+             "Starting to cleave (2 todo), path: a/c, db: %s"
+             % broker.db_file], lines[:2])
+        self.assertIn('Completed cleaving, DB remaining in sharding state, '
+                      'path: a/c, db: %s'
+                      % broker.db_file, lines[1:])
         lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn('Repeat cleaving required', lines[0])
         self.assertFalse(lines[1:])
@@ -2407,9 +2508,12 @@ class TestSharder(BaseTestSharder):
         self._check_shard_range(shard_ranges[1], updated_shard_ranges[1])
         self._check_objects(new_objects[1:], expected_shard_dbs[1])
         lines = sharder.logger.get_lines_for_level('info')
-        self.assertEqual('Starting to cleave (2 todo): a/c', lines[0])
-        self.assertIn('Completed cleaving of a/c, DB set to sharded state',
-                      lines[1:])
+        self.assertEqual(
+            'Starting to cleave (2 todo), path: a/c, db: %s'
+            % broker.db_file, lines[0])
+        self.assertIn(
+            'Completed cleaving, DB set to sharded state, path: a/c, db: %s'
+            % broker.db_file, lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
 
     def test_cleave_multiple_storage_policies(self):
@@ -3103,9 +3207,7 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder() as sharder:
             self.assertFalse(sharder._complete_sharding(broker))
         warning_lines = sharder.logger.get_lines_for_level('warning')
-        self.assertIn(
-            'Repeat cleaving required for %r' % broker.db_files[0],
-            warning_lines[0])
+        self.assertIn('Repeat cleaving required', warning_lines[0])
         self.assertFalse(warning_lines[1:])
         sharder.logger.clear()
         context = CleavingContext.load(broker)
@@ -3214,7 +3316,8 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(SHARDING, broker.get_db_state())
         warning_lines = sharder.logger.get_lines_for_level('warning')
         self.assertEqual(warning_lines[0],
-                         'Failed to get own_shard_range for a/c')
+                         'Failed to get own_shard_range, path: a/c, db: %s'
+                         % broker.db_file)
 
     def test_sharded_record_sharding_progress_missing_contexts(self):
         broker = self._check_complete_sharding(
@@ -3981,8 +4084,11 @@ class TestSharder(BaseTestSharder):
         self._assert_stats(expected_stats, sharder, 'misplaced')
 
         lines = sharder.logger.get_lines_for_level('warning')
-        self.assertIn('Refused to remove misplaced objects', lines[0])
-        self.assertIn('Refused to remove misplaced objects', lines[1])
+        shard_ranges = broker.get_shard_ranges()
+        self.assertIn('Refused to remove misplaced objects for dest %s'
+                      % shard_ranges[2], lines[0])
+        self.assertIn('Refused to remove misplaced objects for dest %s'
+                      % shard_ranges[3], lines[1])
         self.assertFalse(lines[2:])
 
         # they will be moved again on next cycle
@@ -5042,6 +5148,7 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(sharding_enabled(broker))
 
     def test_send_shard_ranges(self):
+        broker = self._make_broker()
         shard_ranges = self._make_shard_ranges((('', 'h'), ('h', '')))
 
         def do_test(replicas, *resp_codes):
@@ -5054,7 +5161,7 @@ class TestSharder(BaseTestSharder):
                 with mocked_http_conn(*resp_codes, give_send=on_send) as conn:
                     with mock_timestamp_now() as now:
                         res = sharder._send_shard_ranges(
-                            'a', 'c', shard_ranges)
+                            broker, 'a', 'c', shard_ranges)
 
             self.assertEqual(sharder.ring.replica_count, len(conn.requests))
             expected_body = json.dumps([dict(sr) for sr in shard_ranges])
@@ -5092,6 +5199,9 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, 202, 202, Exception)
         self.assertTrue(res)
@@ -5099,10 +5209,16 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, 202, 404, 404)
         self.assertFalse(res)
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, 500, 500, 500)
@@ -5110,15 +5226,24 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True, True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, Exception, Exception, 202)
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, Exception, eventlet.Timeout(), 202)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
 
         replicas = 2
@@ -5131,6 +5256,9 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, 202, Exception)
         self.assertTrue(res)
@@ -5138,10 +5266,16 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, 404, 404)
         self.assertFalse(res)
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, Exception, Exception)
@@ -5150,11 +5284,17 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, eventlet.Timeout(), Exception)
         self.assertFalse(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
 
         replicas = 4
@@ -5167,6 +5307,9 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, 202, 202, Exception, Exception)
         self.assertTrue(res)
@@ -5174,10 +5317,16 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, 202, 404, 404, 404)
         self.assertFalse(res)
         self.assertEqual([True, True, True], [
             'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True, True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, 500, 500, 500, 202)
@@ -5185,14 +5334,23 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True, True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         res, sharder = do_test(replicas, Exception, Exception, 202, 404)
         self.assertFalse(res)
         self.assertEqual([True], [
             all(msg in line for msg in ('Failed to put shard ranges', '404'))
             for line in sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(
             replicas, eventlet.Timeout(), eventlet.Timeout(), 202, 404)
@@ -5200,8 +5358,14 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True], [
             all(msg in line for msg in ('Failed to put shard ranges', '404'))
             for line in sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual([True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True, True], [
+            'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
 
     def test_process_broker_not_sharding_no_others(self):
@@ -5270,8 +5434,8 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(SHARDED, broker.get_db_state())
         self.assertEqual(epoch.normal, parse_db_filename(broker.db_file)[1])
         lines = broker.logger.get_lines_for_level('info')
-        self.assertIn('Completed creating shard range containers: 2 created, '
-                      'from sharding container a/c', lines)
+        self.assertIn('Completed creating 2 shard range containers, '
+                      'path: a/c, db: %s' % broker.db_file, lines)
         self.assertFalse(broker.logger.get_lines_for_level('warning'))
         self.assertFalse(broker.logger.get_lines_for_level('error'))
         self.assertEqual(deleted, broker.is_deleted())
@@ -5711,8 +5875,9 @@ class TestSharder(BaseTestSharder):
         mocked.assert_not_called()
 
         def assert_overlap_warning(line, state_text):
-            self.assertIn(
-                'Audit failed for root %s' % broker.db_file, line)
+            self.assertIn('Audit failed for root', line)
+            self.assertIn(broker.db_file, line)
+            self.assertIn(broker.path, line)
             self.assertIn(
                 'overlapping ranges in state %r: k-t s-y, y-z y-z'
                 % state_text, line)
@@ -5781,9 +5946,10 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges(shard_ranges)
 
         def assert_missing_warning(line):
-            self.assertIn(
-                'Audit failed for root %s' % broker.db_file, line)
+            self.assertIn('Audit failed for root', line)
             self.assertIn('missing range(s): -a j-k z-', line)
+            self.assertIn('path: %s, db: %s' % (broker.path, broker.db_file),
+                          line)
 
         def check_missing():
             own_shard_range = broker.get_own_shard_range()
@@ -5896,9 +6062,10 @@ class TestSharder(BaseTestSharder):
                 'swift.container.sharder.time.time',
                 return_value=future_time), self._mock_sharder() as sharder:
             sharder._audit_container(broker)
-        message = 'Reclaimable db stuck waiting for shrinking: %s (%s)' % (
-            broker.db_file, broker.path)
-        self.assertEqual([message], self.logger.get_lines_for_level('warning'))
+        self.assertEqual(
+            ['Reclaimable db stuck waiting for shrinking, path: %s, db: %s'
+             % (broker.path, broker.db_file)],
+            self.logger.get_lines_for_level('warning'))
 
         # delete all shard ranges
         for sr in shard_ranges:
@@ -5970,10 +6137,14 @@ class TestSharder(BaseTestSharder):
         sharder, mock_swift = self.call_audit_container(broker, shard_ranges)
         lines = sharder.logger.get_lines_for_level('warning')
         self._assert_stats(expected_stats, sharder, 'audit_shard')
-        self.assertIn('Audit failed for shard %s' % broker.db_file, lines[0])
+        self.assertIn('Audit failed for shard', lines[0])
         self.assertIn('missing own shard range', lines[0])
-        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[1])
+        self.assertIn('path: %s, db: %s' % (broker.path, broker.db_file),
+                      lines[0])
+        self.assertIn('Audit warnings for shard', lines[1])
         self.assertIn('account not in shards namespace', lines[1])
+        self.assertIn('path: %s, db: %s' % (broker.path, broker.db_file),
+                      lines[1])
         self.assertNotIn('root has no matching shard range', lines[1])
         self.assertNotIn('unable to get shard ranges from root', lines[1])
         self.assertFalse(lines[2:])
@@ -5984,8 +6155,10 @@ class TestSharder(BaseTestSharder):
         sharder, mock_swift = self.call_audit_container(broker, shard_ranges)
         lines = sharder.logger.get_lines_for_level('warning')
         self._assert_stats(expected_stats, sharder, 'audit_shard')
-        self.assertIn('Audit failed for shard %s' % broker.db_file, lines[0])
+        self.assertIn('Audit failed for shard', lines[0])
         self.assertIn('missing own shard range', lines[0])
+        self.assertIn('path: %s, db: %s' % (broker.path, broker.db_file),
+                      lines[0])
         self.assertNotIn('unable to get shard ranges from root', lines[0])
         self.assertFalse(lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
@@ -6009,12 +6182,14 @@ class TestSharder(BaseTestSharder):
             sharder, mock_swift = self.call_audit_container(
                 broker, shard_ranges)
         self._assert_stats(expected_stats, sharder, 'audit_shard')
-        self.assertEqual(['Updating own shard range from root'],
+        self.assertEqual(['Updating own shard range from root, path: '
+                          '.shards_a/shard_c, db: %s' % broker.db_file],
                          sharder.logger.get_lines_for_level('debug'))
         expected = shard_ranges[1].copy()
-        self.assertEqual(['Updated own shard range from %s to %s'
-                          % (own_shard_range, expected)],
-                         sharder.logger.get_lines_for_level('info'))
+        self.assertEqual(
+            ['Updated own shard range from %s to %s, path: .shards_a/shard_c, '
+             'db: %s' % (own_shard_range, expected, broker.db_file)],
+            sharder.logger.get_lines_for_level('info'))
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
@@ -6049,7 +6224,8 @@ class TestSharder(BaseTestSharder):
 
         sharder, mock_swift = self.call_audit_container(broker, shard_ranges)
         self._assert_stats(expected_stats, sharder, 'audit_shard')
-        self.assertEqual(['Updating own shard range from root'],
+        self.assertEqual(['Updating own shard range from root, path: '
+                          '.shards_a/shard_c, db: %s' % broker.db_file],
                          sharder.logger.get_lines_for_level('debug'))
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
@@ -6083,7 +6259,9 @@ class TestSharder(BaseTestSharder):
             exc=internal_client.UnexpectedResponse('bad', 'resp'))
         lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn('Failed to get shard ranges', lines[0])
-        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[1])
+        self.assertIn('Audit warnings for shard', lines[1])
+        self.assertIn('path: %s, db: %s' % (broker.path, broker.db_file),
+                      lines[1])
         self.assertNotIn('account not in shards namespace', lines[1])
         self.assertNotIn('missing own shard range', lines[1])
         self.assertNotIn('root has no matching shard range', lines[1])
@@ -6111,12 +6289,14 @@ class TestSharder(BaseTestSharder):
                 broker, shard_ranges)
         self.assert_no_audit_messages(sharder, mock_swift)
         self.assertFalse(broker.is_deleted())
-        self.assertEqual(['Updating own shard range from root'],
+        self.assertEqual(['Updating own shard range from root, path: '
+                          '.shards_a/shard_c, db: %s' % broker.db_file],
                          sharder.logger.get_lines_for_level('debug'))
         expected = shard_ranges[1].copy()
-        self.assertEqual(['Updated own shard range from %s to %s'
-                          % (own_shard_range, expected)],
-                         sharder.logger.get_lines_for_level('info'))
+        self.assertEqual(
+            ['Updated own shard range from %s to %s, path: .shards_a/shard_c, '
+             'db: %s' % (own_shard_range, expected, broker.db_file)],
+            sharder.logger.get_lines_for_level('info'))
         # own shard range state is updated from root version
         own_shard_range = broker.get_own_shard_range()
         self.assertEqual(ShardRange.SHARDING, own_shard_range.state)
@@ -6157,9 +6337,9 @@ class TestSharder(BaseTestSharder):
         shard_ranges = self._make_shard_ranges(shard_bounds, shard_states)
 
         def check_audit(own_state, root_state):
-            broker = self._make_broker(
-                account='.shards_a',
-                container='shard_c_%s' % root_ts.normal)
+            shard_container = 'shard_c_%s' % root_ts.normal
+            broker = self._make_broker(account='.shards_a',
+                                       container=shard_container)
             broker.set_sharding_sysmeta(*args)
             shard_ranges[1].name = broker.path
 
@@ -6180,8 +6360,10 @@ class TestSharder(BaseTestSharder):
             self._assert_stats(expected_stats, sharder, 'audit_shard')
             debug_lines = sharder.logger.get_lines_for_level('debug')
             self.assertGreater(len(debug_lines), 0)
-            self.assertEqual('Updating own shard range from root',
-                             debug_lines[0])
+            self.assertEqual(
+                'Updating own shard range from root, path: .shards_a/%s, '
+                'db: %s' % (shard_container, broker.db_file),
+                sharder.logger.get_lines_for_level('debug')[0])
             self.assertFalse(sharder.logger.get_lines_for_level('warning'))
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
             self.assertFalse(broker.is_deleted())
@@ -7254,8 +7436,10 @@ class TestSharder(BaseTestSharder):
         self._assert_shard_ranges_equal([donor, acceptor, shard_ranges[2]],
                                         broker.get_shard_ranges())
         sharder._send_shard_ranges.assert_has_calls(
-            [mock.call(acceptor.account, acceptor.container, [acceptor]),
-             mock.call(donor.account, donor.container, [donor, acceptor])]
+            [mock.call(broker, acceptor.account, acceptor.container,
+                       [acceptor]),
+             mock.call(broker, donor.account, donor.container,
+                       [donor, acceptor])]
         )
 
         # check idempotency
@@ -7266,8 +7450,10 @@ class TestSharder(BaseTestSharder):
         self._assert_shard_ranges_equal([donor, acceptor, shard_ranges[2]],
                                         broker.get_shard_ranges())
         sharder._send_shard_ranges.assert_has_calls(
-            [mock.call(acceptor.account, acceptor.container, [acceptor]),
-             mock.call(donor.account, donor.container, [donor, acceptor])]
+            [mock.call(broker, acceptor.account, acceptor.container,
+                       [acceptor]),
+             mock.call(broker, donor.account, donor.container,
+                       [donor, acceptor])]
         )
 
         # acceptor falls below threshold - not a candidate
@@ -7280,8 +7466,10 @@ class TestSharder(BaseTestSharder):
         self._assert_shard_ranges_equal([donor, acceptor, shard_ranges[2]],
                                         broker.get_shard_ranges())
         sharder._send_shard_ranges.assert_has_calls(
-            [mock.call(acceptor.account, acceptor.container, [acceptor]),
-             mock.call(donor.account, donor.container, [donor, acceptor])]
+            [mock.call(broker, acceptor.account, acceptor.container,
+                       [acceptor]),
+             mock.call(broker, donor.account, donor.container,
+                       [donor, acceptor])]
         )
 
         # ...until donor has shrunk
@@ -7300,9 +7488,9 @@ class TestSharder(BaseTestSharder):
             [donor, new_donor, new_acceptor],
             broker.get_shard_ranges(include_deleted=True))
         sharder._send_shard_ranges.assert_has_calls(
-            [mock.call(new_acceptor.account, new_acceptor.container,
+            [mock.call(broker, new_acceptor.account, new_acceptor.container,
                        [new_acceptor]),
-             mock.call(new_donor.account, new_donor.container,
+             mock.call(broker, new_donor.account, new_donor.container,
                        [new_donor, new_acceptor])]
         )
 
@@ -7321,7 +7509,7 @@ class TestSharder(BaseTestSharder):
             [donor, new_donor, final_donor],
             broker.get_shard_ranges(include_deleted=True))
         sharder._send_shard_ranges.assert_has_calls(
-            [mock.call(final_donor.account, final_donor.container,
+            [mock.call(broker, final_donor.account, final_donor.container,
                        [final_donor, broker.get_own_shard_range()])]
         )
 
@@ -7367,8 +7555,10 @@ class TestSharder(BaseTestSharder):
                                         broker.get_shard_ranges())
         for donor, acceptor in (shard_ranges[:2], shard_ranges[3:5]):
             sharder._send_shard_ranges.assert_has_calls(
-                [mock.call(acceptor.account, acceptor.container, [acceptor]),
-                 mock.call(donor.account, donor.container, [donor, acceptor])]
+                [mock.call(broker, acceptor.account, acceptor.container,
+                           [acceptor]),
+                 mock.call(broker, donor.account, donor.container,
+                           [donor, acceptor])]
             )
 
     def test_partition_and_device_filters(self):
