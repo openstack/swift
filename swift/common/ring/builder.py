@@ -87,6 +87,9 @@ class RingBuilder(object):
         if part_power > 32:
             raise ValueError("part_power must be at most 32 (was %d)"
                              % (part_power,))
+        if part_power < 0:
+            raise ValueError("part_power must be at least 0 (was %d)"
+                             % (part_power,))
         if replicas < 1:
             raise ValueError("replicas must be at least 1 (was %.6f)"
                              % (replicas,))

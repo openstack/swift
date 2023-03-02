@@ -544,7 +544,11 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         if len(argv) < 6:
             print(Commands.create.__doc__.strip())
             exit(EXIT_ERROR)
-        builder = RingBuilder(int(argv[3]), float(argv[4]), int(argv[5]))
+        try:
+            builder = RingBuilder(int(argv[3]), float(argv[4]), int(argv[5]))
+        except ValueError as e:
+            print(e)
+            exit(EXIT_ERROR)
         backup_dir = pathjoin(dirname(builder_file), 'backups')
         try:
             mkdir(backup_dir)
