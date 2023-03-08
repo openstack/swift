@@ -21,7 +21,8 @@ from six.moves.urllib.parse import unquote
 
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.utils import public, private, csv_append, Timestamp, \
-    config_true_value, ShardRange, cache_from_env, filter_shard_ranges
+    config_true_value, ShardRange, cache_from_env, filter_namespaces, \
+    NamespaceBoundList
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix, get_param, \
@@ -109,25 +110,42 @@ class ContainerController(Controller):
             req.swift_entity_path, concurrency)
         return resp
 
-    def _make_shard_ranges_response_body(self, req, shard_range_dicts):
-        # filter shard ranges according to request constraints and return a
-        # serialised list of shard ranges
+    def _make_namespaces_response_body(self, req, ns_bound_list):
+        """
+        Filter namespaces according to request constraints and return a
+        serialised list of namespaces.
+
+        :param req: the request object.
+        :param ns_bound_list: an instance of
+            :class:`~swift.common.utils.NamespaceBoundList`.
+        :return: a serialised list of namespaces.
+        """
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
         includes = get_param(req, 'includes')
         reverse = config_true_value(get_param(req, 'reverse'))
         if reverse:
             marker, end_marker = end_marker, marker
-        shard_ranges = [
-            ShardRange.from_dict(shard_range)
-            for shard_range in shard_range_dicts]
-        shard_ranges = filter_shard_ranges(shard_ranges, includes, marker,
-                                           end_marker)
+        namespaces = ns_bound_list.get_namespaces()
+        namespaces = filter_namespaces(
+            namespaces, includes, marker, end_marker)
         if reverse:
-            shard_ranges.reverse()
-        return json.dumps([dict(sr) for sr in shard_ranges]).encode('ascii')
+            namespaces.reverse()
+        return json.dumps([dict(ns) for ns in namespaces]).encode('ascii')
 
     def _get_shard_ranges_from_cache(self, req, headers):
+        """
+        Try to fetch shard namespace data from cache and, if successful, return
+        a response. Also return the cache state.
+
+        The response body will be a list of dicts each of which describes
+        a Namespace (i.e. includes the keys ``lower``, ``upper`` and ``name``).
+
+        :param req: an instance of ``swob.Request``.
+        :param headers: Headers to be sent with request.
+        :return: a tuple comprising (an instance of ``swob.Response``or
+            ``None`` if no namespaces were found in cache, the cache state).
+        """
         infocache = req.environ.setdefault('swift.infocache', {})
         memcache = cache_from_env(req.environ, True)
         cache_key = get_cache_key(self.account_name,
@@ -135,11 +153,10 @@ class ContainerController(Controller):
                                   shard='listing')
 
         resp_body = None
-        cached_range_dicts = infocache.get(cache_key)
-        if cached_range_dicts:
+        ns_bound_list = infocache.get(cache_key)
+        if ns_bound_list:
             cache_state = 'infocache_hit'
-            resp_body = self._make_shard_ranges_response_body(
-                req, cached_range_dicts)
+            resp_body = self._make_namespaces_response_body(req, ns_bound_list)
         elif memcache:
             skip_chance = \
                 self.app.container_listing_shard_ranges_skip_cache
@@ -147,12 +164,20 @@ class ContainerController(Controller):
                 cache_state = 'skip'
             else:
                 try:
-                    cached_range_dicts = memcache.get(
+                    cached_namespaces = memcache.get(
                         cache_key, raise_on_error=True)
-                    if cached_range_dicts:
+                    if cached_namespaces:
                         cache_state = 'hit'
-                        resp_body = self._make_shard_ranges_response_body(
-                            req, cached_range_dicts)
+                        if six.PY2:
+                            # json.loads() in memcache.get will convert json
+                            # 'string' to 'unicode' with python2, here we cast
+                            # 'unicode' back to 'str'
+                            cached_namespaces = [
+                                [lower.encode('utf-8'), name.encode('utf-8')]
+                                for lower, name in cached_namespaces]
+                        ns_bound_list = NamespaceBoundList(cached_namespaces)
+                        resp_body = self._make_namespaces_response_body(
+                            req, ns_bound_list)
                     else:
                         cache_state = 'miss'
                 except MemcacheConnectionError:
@@ -162,9 +187,9 @@ class ContainerController(Controller):
             resp = None
         else:
             # shard ranges can be returned from cache
-            infocache[cache_key] = tuple(cached_range_dicts)
+            infocache[cache_key] = ns_bound_list
             self.logger.debug('Found %d shards in cache for %s',
-                              len(cached_range_dicts), req.path_qs)
+                              len(ns_bound_list.bounds), req.path_qs)
             headers.update({'x-backend-record-type': 'shard',
                             'x-backend-cached-results': 'true'})
             # mimic GetOrHeadHandler.get_working_response...
@@ -180,36 +205,62 @@ class ContainerController(Controller):
         return resp, cache_state
 
     def _store_shard_ranges_in_cache(self, req, resp):
-        # parse shard ranges returned from backend, store them in infocache and
-        # memcache, and return a list of dicts
-        cache_key = get_cache_key(self.account_name, self.container_name,
-                                  shard='listing')
+        """
+        Parse shard ranges returned from backend, store them in both infocache
+        and memcache.
+
+        :param req: the request object.
+        :param resp: the response object for the shard range listing.
+        :return: an instance of
+            :class:`~swift.common.utils.NamespaceBoundList`.
+        """
+        # Note: Any gaps in the response's shard ranges will be 'lost' as a
+        # result of compacting the list of shard ranges to a
+        # NamespaceBoundList. That is ok. When the cached NamespaceBoundList is
+        # transformed back to shard range Namespaces to perform a listing, the
+        # Namespace before each gap will have expanded to include the gap,
+        # which means that the backend GET to that shard will have an
+        # end_marker beyond that shard's upper bound, and equal to the next
+        # available shard's lower. At worst, some misplaced objects, in the gap
+        # above the shard's upper, may be included in the shard's response.
         data = self._parse_listing_response(req, resp)
         backend_shard_ranges = self._parse_shard_ranges(req, data, resp)
         if backend_shard_ranges is None:
             return None
 
-        cached_range_dicts = [dict(sr) for sr in backend_shard_ranges]
+        ns_bound_list = NamespaceBoundList.parse(backend_shard_ranges)
         if resp.headers.get('x-backend-sharding-state') == 'sharded':
             # cache in infocache even if no shard ranges returned; this
             # is unexpected but use that result for this request
             infocache = req.environ.setdefault('swift.infocache', {})
-            infocache[cache_key] = tuple(cached_range_dicts)
+            cache_key = get_cache_key(
+                self.account_name, self.container_name, shard='listing')
+            infocache[cache_key] = ns_bound_list
             memcache = cache_from_env(req.environ, True)
-            if memcache and cached_range_dicts:
+            if memcache and ns_bound_list:
                 # cache in memcache only if shard ranges as expected
                 self.logger.debug('Caching %d shards for %s',
-                                  len(cached_range_dicts), req.path_qs)
-                memcache.set(cache_key, cached_range_dicts,
+                                  len(ns_bound_list.bounds), req.path_qs)
+                memcache.set(cache_key, ns_bound_list.bounds,
                              time=self.app.recheck_listing_shard_ranges)
-        return cached_range_dicts
+        return ns_bound_list
 
     def _get_shard_ranges_from_backend(self, req):
-        # Make a backend request for shard ranges. The response is cached and
-        # then returned as a list of dicts.
+        """
+        Make a backend request for shard ranges and return a response.
+
+        The response body will be a list of dicts each of which describes
+        a Namespace (i.e. includes the keys ``lower``, ``upper`` and ``name``).
+        If the response headers indicate that the response body contains a
+        complete list of shard ranges for a sharded container then the response
+        body will be transformed to a ``NamespaceBoundsList`` and cached.
+
+        :param req: an instance of ``swob.Request``.
+        :return: an instance of ``swob.Response``.
+        """
         # Note: We instruct the backend server to ignore name constraints in
         # request params if returning shard ranges so that the response can
-        # potentially be cached. Only do this if the container state is
+        # potentially be cached, but we only cache it if the container state is
         # 'sharded'. We don't attempt to cache shard ranges for a 'sharding'
         # container as they may include the container itself as a 'gap filler'
         # for shard ranges that have not yet cleaved; listings from 'gap
@@ -232,10 +283,10 @@ class ContainerController(Controller):
         if (resp_record_type == 'shard' and
                 sharding_state == 'sharded' and
                 complete_listing):
-            cached_range_dicts = self._store_shard_ranges_in_cache(req, resp)
-            if cached_range_dicts:
-                resp.body = self._make_shard_ranges_response_body(
-                    req, cached_range_dicts)
+            ns_bound_list = self._store_shard_ranges_in_cache(req, resp)
+            if ns_bound_list:
+                resp.body = self._make_namespaces_response_body(
+                    req, ns_bound_list)
         return resp
 
     def _record_shard_listing_cache_metrics(
@@ -334,7 +385,6 @@ class ContainerController(Controller):
             params['states'] = 'listing'
         req.params = params
 
-        memcache = cache_from_env(req.environ, True)
         if (req.method == 'GET'
                 and get_param(req, 'states') == 'listing'
                 and record_type != 'object'):
@@ -346,6 +396,7 @@ class ContainerController(Controller):
             info = None
             may_get_listing_shards = False
 
+        memcache = cache_from_env(req.environ, True)
         sr_cache_state = None
         if (may_get_listing_shards and
                 self.app.recheck_listing_shard_ranges > 0
@@ -424,8 +475,15 @@ class ContainerController(Controller):
             # 'X-Backend-Storage-Policy-Index'.
             req.headers[policy_key] = resp.headers[policy_key]
         shard_listing_history.append((self.account_name, self.container_name))
-        shard_ranges = [ShardRange.from_dict(data)
-                        for data in json.loads(resp.body)]
+        # Note: when the response body has been synthesised from cached data,
+        # each item in the list only has 'name', 'lower' and 'upper' keys. We
+        # therefore cannot use ShardRange.from_dict(), and the ShardRange
+        # instances constructed here will only have 'name', 'lower' and 'upper'
+        # attributes set.
+        # Ideally we would construct Namespace objects here, but later we use
+        # the ShardRange account and container properties to access parsed
+        # parts of the name.
+        shard_ranges = [ShardRange(**data) for data in json.loads(resp.body)]
         self.logger.debug('GET listing from %s shards for: %s',
                           len(shard_ranges), req.path_qs)
         if not shard_ranges:

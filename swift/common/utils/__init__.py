@@ -4699,6 +4699,12 @@ class NamespaceBoundList(object):
         """
         self.bounds = [] if bounds is None else bounds
 
+    def __eq__(self, other):
+        # test for equality of NamespaceBoundList objects only
+        if not isinstance(other, NamespaceBoundList):
+            return False
+        return self.bounds == other.bounds
+
     @classmethod
     def parse(cls, namespaces):
         """
@@ -4754,7 +4760,12 @@ class NamespaceBoundList(object):
 
     def get_namespace(self, item):
         """
-        Get a Namespace instance that contains ``item``.
+        Get a Namespace instance that contains ``item`` by bisecting on the
+        lower bounds directly. This function is used for performance sensitive
+        path, for example, '_get_update_shard' in proxy object controller. For
+        normal paths, convert NamespaceBoundList to a list of Namespaces, and
+        use `~swift.common.utils.find_namespace` or
+        `~swift.common.utils.filter_namespaces`.
 
         :param item: The item for a which a Namespace is to be found.
         :return: the Namespace that contains ``item``.
@@ -4764,6 +4775,24 @@ class NamespaceBoundList(object):
         upper = ('' if pos + 1 == len(self.bounds)
                  else self.bounds[pos + 1][0])
         return Namespace(name, lower, upper)
+
+    def get_namespaces(self):
+        """
+        Get the contained namespaces as a list of contiguous Namespaces ordered
+        by lower bound.
+
+        :return: A list of Namespace objects which are ordered by
+            ``lower bound``.
+        """
+        if not self.bounds:
+            return []
+        namespaces = []
+        num_ns = len(self.bounds)
+        for i in range(num_ns):
+            lower, name = self.bounds[i]
+            upper = ('' if i + 1 == num_ns else self.bounds[i + 1][0])
+            namespaces.append(Namespace(name, lower, upper))
+        return namespaces
 
 
 class ShardName(object):
@@ -4949,11 +4978,11 @@ class ShardRange(Namespace):
         '_deleted', '_state', '_count', '_bytes',
         '_tombstones', '_reported')
 
-    def __init__(self, name, timestamp,
+    def __init__(self, name, timestamp=0,
                  lower=Namespace.MIN, upper=Namespace.MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=False, state=None, state_timestamp=None, epoch=None,
-                 reported=False, tombstones=-1):
+                 reported=False, tombstones=-1, **kwargs):
         super(ShardRange, self).__init__(name=name, lower=lower, upper=upper)
         self.account = self.container = self._timestamp = \
             self._meta_timestamp = self._state_timestamp = self._epoch = None
@@ -4976,7 +5005,8 @@ class ShardRange(Namespace):
     def sort_key(cls, sr):
         # defines the sort order for shard ranges
         # note if this ever changes to *not* sort by upper first then it breaks
-        # a key assumption for bisect, which is used by utils.find_shard_range
+        # a key assumption for bisect, which is used by utils.find_namespace
+        # with shard ranges.
         return sr.upper, sr.state, sr.lower, sr.name
 
     def is_child_of(self, parent):
@@ -5532,7 +5562,7 @@ class ShardRangeList(UserList):
             containing the filtered shard ranges.
         """
         return ShardRangeList(
-            filter_shard_ranges(self, includes, marker, end_marker))
+            filter_namespaces(self, includes, marker, end_marker))
 
     def find_lower(self, condition):
         """
@@ -5553,44 +5583,45 @@ class ShardRangeList(UserList):
         return self.upper
 
 
-def find_shard_range(item, ranges):
+def find_namespace(item, namespaces):
     """
-    Find a ShardRange in given list of ``shard_ranges`` whose namespace
+    Find a Namespace/ShardRange in given list of ``namespaces`` whose namespace
     contains ``item``.
 
-    :param item: The item for a which a ShardRange is to be found.
-    :param ranges: a sorted list of ShardRanges.
-    :return: the ShardRange whose namespace contains ``item``, or None if
-        no suitable range is found.
+    :param item: The item for a which a Namespace is to be found.
+    :param ranges: a sorted list of Namespaces.
+    :return: the Namespace/ShardRange whose namespace contains ``item``, or
+        None if no suitable Namespace is found.
     """
-    index = bisect.bisect_left(ranges, item)
-    if index != len(ranges) and item in ranges[index]:
-        return ranges[index]
+    index = bisect.bisect_left(namespaces, item)
+    if index != len(namespaces) and item in namespaces[index]:
+        return namespaces[index]
     return None
 
 
-def filter_shard_ranges(shard_ranges, includes, marker, end_marker):
+def filter_namespaces(namespaces, includes, marker, end_marker):
     """
-    Filter the given shard ranges to those whose namespace includes the
-    ``includes`` name or any part of the namespace between ``marker`` and
+    Filter the given Namespaces/ShardRanges to those whose namespace includes
+    the ``includes`` name or any part of the namespace between ``marker`` and
     ``end_marker``. If none of ``includes``, ``marker`` or ``end_marker`` are
-    specified then all shard ranges will be returned.
+    specified then all Namespaces will be returned.
 
-    :param shard_ranges: A list of :class:`~swift.common.utils.ShardRange`.
-    :param includes: a string; if not empty then only the shard range, if any,
-        whose namespace includes this string will be returned, and ``marker``
-        and ``end_marker`` will be ignored.
+    :param namespaces: A list of :class:`~swift.common.utils.Namespace` or
+        :class:`~swift.common.utils.ShardRange`.
+    :param includes: a string; if not empty then only the Namespace,
+        if any, whose namespace includes this string will be returned,
+        ``marker`` and ``end_marker`` will be ignored.
     :param marker: if specified then only shard ranges whose upper bound is
         greater than this value will be returned.
     :param end_marker: if specified then only shard ranges whose lower bound is
         less than this value will be returned.
-    :return: A filtered list of :class:`~swift.common.utils.ShardRange`.
+    :return: A filtered list of :class:`~swift.common.utils.Namespace`.
     """
     if includes:
-        shard_range = find_shard_range(includes, shard_ranges)
-        return [shard_range] if shard_range else []
+        namespace = find_namespace(includes, namespaces)
+        return [namespace] if namespace else []
 
-    def shard_range_filter(sr):
+    def namespace_filter(sr):
         end = start = True
         if end_marker:
             end = end_marker > sr.lower
@@ -5599,13 +5630,13 @@ def filter_shard_ranges(shard_ranges, includes, marker, end_marker):
         return start and end
 
     if marker or end_marker:
-        return list(filter(shard_range_filter, shard_ranges))
+        return list(filter(namespace_filter, namespaces))
 
     if marker == Namespace.MAX or end_marker == Namespace.MIN:
-        # MIN and MAX are both Falsy so not handled by shard_range_filter
+        # MIN and MAX are both Falsy so not handled by namespace_filter
         return []
 
-    return shard_ranges
+    return namespaces
 
 
 def o_tmpfile_in_path_supported(dirpath):

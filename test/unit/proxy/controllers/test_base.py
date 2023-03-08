@@ -499,7 +499,7 @@ class TestFuncs(BaseTest):
                          expected)
 
         self.assertEqual(get_cache_key("account", "cont", shard="listing"),
-                         'shard-listing/account/cont')
+                         'shard-listing-v2/account/cont')
         self.assertEqual(get_cache_key("account", "cont", shard="updating"),
                          'shard-updating-v2/account/cont')
         self.assertRaises(ValueError,

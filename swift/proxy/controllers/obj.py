@@ -48,7 +48,7 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
-    ShardRange, find_shard_range, cache_from_env, NamespaceBoundList)
+    ShardRange, find_namespace, cache_from_env, NamespaceBoundList)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -388,7 +388,7 @@ class BaseObjectController(Controller):
                     memcache.set(
                         cache_key, cached_namespaces.bounds,
                         time=self.app.recheck_updating_shard_ranges)
-            update_shard = find_shard_range(obj, shard_ranges or [])
+            update_shard = find_namespace(obj, shard_ranges or [])
         record_cache_op_metrics(
             self.logger, 'shard_updating', cache_state, response)
         return update_shard
