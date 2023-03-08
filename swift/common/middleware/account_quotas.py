@@ -67,6 +67,24 @@ class AccountQuotaMiddleware(object):
     def __init__(self, app, *args, **kwargs):
         self.app = app
 
+    def handle_account(self, request):
+        # account request, so we pay attention to the quotas
+        new_quota = request.headers.get(
+            'X-Account-Meta-Quota-Bytes')
+        if request.headers.get(
+                'X-Remove-Account-Meta-Quota-Bytes'):
+            new_quota = 0    # X-Remove dominates if both are present
+
+        if request.environ.get('reseller_request') is True:
+            if new_quota and not new_quota.isdigit():
+                return HTTPBadRequest()
+            return self.app
+
+        # deny quota set for non-reseller
+        if new_quota is not None:
+            return HTTPForbidden()
+        return self.app
+
     @wsgify
     def __call__(self, request):
 
@@ -80,29 +98,16 @@ class AccountQuotaMiddleware(object):
             return self.app
 
         if not container:
-            # account request, so we pay attention to the quotas
-            new_quota = request.headers.get(
-                'X-Account-Meta-Quota-Bytes')
-            remove_quota = request.headers.get(
-                'X-Remove-Account-Meta-Quota-Bytes')
-        else:
-            # container or object request; even if the quota headers are set
-            # in the request, they're meaningless
-            new_quota = remove_quota = None
-
-        if remove_quota:
-            new_quota = 0    # X-Remove dominates if both are present
-
-        if request.environ.get('reseller_request') is True:
-            if new_quota and not new_quota.isdigit():
-                return HTTPBadRequest()
-            return self.app
-
-        # deny quota set for non-reseller
-        if new_quota is not None:
-            return HTTPForbidden()
+            return self.handle_account(request)
+        # container or object request; even if the quota headers are set
+        # in the request, they're meaningless
 
         if request.method == "POST" or not obj:
+            return self.app
+        # OK, object PUT
+
+        if request.environ.get('reseller_request') is True:
+            # but resellers aren't constrained by quotas :-)
             return self.app
 
         content_length = (request.content_length or 0)
