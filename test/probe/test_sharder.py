@@ -14,6 +14,7 @@
 # limitations under the License.
 import json
 import os
+import pickle
 import shutil
 import subprocess
 import unittest
@@ -701,8 +702,8 @@ class TestContainerShardingNonUTF8(BaseAutoContainerSharding):
 class TestContainerShardingFunkyNames(TestContainerShardingNonUTF8):
     DELIM = '\n'
 
-    def _make_object_names(self, number):
-        return ['obj\n%04d%%Ff' % x for x in range(number)]
+    def _make_object_names(self, number, start=0):
+        return ['obj\n%04d%%Ff' % x for x in range(start, start + number)]
 
     def _setup_container_name(self):
         self.container_name = 'container\n%%Ff\n%s' % uuid.uuid4()
@@ -1446,6 +1447,37 @@ class TestContainerSharding(BaseAutoContainerSharding):
                            additional_args='--partitions=%s' % self.brain.part)
         self.assert_container_listing(obj_names, req_hdrs={'x-newest': 'true'})
 
+    def assertInAsyncFile(self, async_path, expected):
+        with open(async_path, 'rb') as fd:
+            async_data = pickle.load(fd)
+
+        errors = []
+        for k, v in expected.items():
+            if k not in async_data:
+                errors.append("Key '%s' does not exist" % k)
+                continue
+            if async_data[k] != v:
+                errors.append(
+                    "Exp value %s != %s" % (str(v), str(async_data[k])))
+                continue
+
+        if errors:
+            self.fail('\n'.join(errors))
+
+    def assertNotInAsyncFile(self, async_path, not_expect_keys):
+        with open(async_path, 'rb') as fd:
+            async_data = pickle.load(fd)
+
+        errors = []
+        for k in not_expect_keys:
+            if k in async_data:
+                errors.append(
+                    "Key '%s' exists with value '%s'" % (k, async_data[k]))
+                continue
+
+        if errors:
+            self.fail('\n'.join(errors))
+
     def test_async_pendings(self):
         obj_names = self._make_object_names(self.max_shard_size * 2)
 
@@ -1458,6 +1490,13 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.brain.servers.stop(number=n)
             self.put_objects(obj_names[i::5])
             self.brain.servers.start(number=n)
+
+        # Check the async pendings, they are unsharded so that's the db_state
+        async_files = self.gather_async_pendings()
+        self.assertTrue(async_files)
+        for af in async_files:
+            self.assertInAsyncFile(af, {'db_state': 'unsharded'})
+            self.assertNotInAsyncFile(af, ['container_path'])
 
         # But there are also 1/5 updates *no one* gets
         self.brain.servers.stop()
@@ -1542,6 +1581,9 @@ class TestContainerSharding(BaseAutoContainerSharding):
         # Run updaters to clear the async pendings
         Manager(['object-updater']).once()
 
+        async_files = self.gather_async_pendings()
+        self.assertFalse(async_files)
+
         # Our "big" dbs didn't take updates
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
@@ -1605,6 +1647,66 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
                           for x in listing],
                          obj_names)
+
+        # Create a few more objects in async pending. Check them, they should
+        # now have the correct db_state as sharded
+        more_obj_names = self._make_object_names(10, self.max_shard_size * 2)
+
+        # No one should get these updates
+        self.brain.servers.stop()
+        self.put_objects(more_obj_names)
+        self.brain.servers.start()
+
+        async_files = self.gather_async_pendings()
+        self.assertTrue(async_files)
+        for af in async_files:
+            # They should have a sharded db_state
+            self.assertInAsyncFile(af, {'db_state': 'sharded'})
+            # But because the container-servers were down, they wont have
+            # container-path (because it couldn't get a shard range back)
+            self.assertNotInAsyncFile(af, ['container_path'])
+
+        # they don't exist yet
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name)
+        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
+                          for x in listing],
+                         obj_names)
+
+        # Now clear them out and they should now exist where we expect.
+        Manager(['object-updater']).once()
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name)
+        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
+                          for x in listing],
+                         obj_names + more_obj_names)
+
+        # And they're cleared up
+        async_files = self.gather_async_pendings()
+        self.assertFalse(async_files)
+
+        # If we take 1/2 the nodes offline when we add some more objects,
+        # we should get async pendings with container-path because there
+        # was a container-server to respond.
+        even_more_obj_names = self._make_object_names(
+            10, self.max_shard_size * 2 + 10)
+
+        self.brain.stop_primary_half()
+        self.put_objects(even_more_obj_names)
+        self.brain.start_primary_half()
+
+        async_files = self.gather_async_pendings()
+        self.assertTrue(async_files)
+        for af in async_files:
+            # They should have a sharded db_state AND container_path
+            self.assertInAsyncFile(af, {'db_state': 'sharded',
+                                        'container_path': mock.ANY})
+
+        Manager(['object-updater']).once()
+
+        # And they're cleared up
+        async_files = self.gather_async_pendings()
+        self.assertFalse(async_files)
 
     def test_shrinking(self):
         int_client = self.make_internal_client()
@@ -1783,8 +1885,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
 
             self.put_objects([beta])
             self.brain.servers.start()
-            async_pendings = self.gather_async_pendings(
-                self.get_all_object_nodes())
+            async_pendings = self.gather_async_pendings()
             num_container_replicas = len(self.brain.nodes)
             num_obj_replicas = self.policy.object_ring.replica_count
             expected_num_updates = num_container_updates(
@@ -2449,8 +2550,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.put_objects(['alpha'])
         self.assert_container_listing(['alpha'])
         self.assert_container_object_count(0)
-        self.assertLengthEqual(
-            self.gather_async_pendings(self.get_all_object_nodes()), 1)
+        self.assertLengthEqual(self.gather_async_pendings(), 1)
         self.brain.servers.start(number=shard_nodes[2])
 
         # run sharder on root to discover first shrink candidate
@@ -2497,8 +2597,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.put_objects(['beta'])
         self.assert_container_listing(['beta'])
         self.assert_container_object_count(1)
-        self.assertLengthEqual(
-            self.gather_async_pendings(self.get_all_object_nodes()), 2)
+        self.assertLengthEqual(self.gather_async_pendings(), 2)
         self.brain.servers.start(number=shard_nodes[2])
 
         # run sharder on root to discover second shrink candidate - root is not
@@ -3097,11 +3196,11 @@ class TestShardedAPI(BaseTestContainerSharding):
 
 
 class TestContainerShardingMoreUTF8(TestContainerSharding):
-    def _make_object_names(self, number):
+    def _make_object_names(self, number, start=0):
         # override default with names that include non-ascii chars
         name_length = self.cluster_info['swift']['max_object_name_length']
         obj_names = []
-        for x in range(number):
+        for x in range(start, start + number):
             name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
             name = name.encode('utf8').ljust(name_length, b'o')
             if not six.PY2:

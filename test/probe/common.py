@@ -555,16 +555,18 @@ class ProbeTest(unittest.TestCase):
         for policy in ENABLED_POLICIES:
             for dev in policy.object_ring.devs:
                 all_obj_nodes[dev['device']] = dev
-        return all_obj_nodes.values()
+        return list(all_obj_nodes.values())
 
-    def gather_async_pendings(self, onodes):
+    def gather_async_pendings(self, onodes=None):
         """
         Returns a list of paths to async pending files found on given nodes.
 
-        :param onodes: a list of nodes.
+        :param onodes: a list of nodes. If None, check all object nodes.
         :return: a list of file paths.
         """
         async_pendings = []
+        if onodes is None:
+            onodes = self.get_all_object_nodes()
         for onode in onodes:
             device_dir = self.device_dir(onode)
             for ap_pol_dir in os.listdir(device_dir):

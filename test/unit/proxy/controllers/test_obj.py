@@ -163,14 +163,22 @@ def make_footers_callback(body=None):
 
 
 class BaseObjectControllerMixin(object):
-    container_info = {
-        'status': 200,
-        'write_acl': None,
-        'read_acl': None,
-        'storage_policy': None,
-        'sync_key': None,
-        'versions': None,
-    }
+    def fake_container_info(self, extra_info=None):
+        container_info = {
+            'status': 200,
+            'read_acl': None,
+            'write_acl': None,
+            'sync_key': None,
+            'versions': None,
+            'storage_policy': '0',
+            'partition': 50,
+            'nodes': [],
+            'sharding_state': 'unsharded',
+        }
+
+        if extra_info:
+            container_info.update(extra_info)
+        return container_info
 
     # this needs to be set on the test case
     controller_cls = None
@@ -191,7 +199,7 @@ class BaseObjectControllerMixin(object):
 
         # you can over-ride the container_info just by setting it on the app
         # (see PatchedObjControllerApp for details)
-        self.app.container_info = dict(self.container_info)
+        self.app.container_info = dict(self.fake_container_info())
 
         # default policy and ring references
         self.policy = POLICIES.default
@@ -878,7 +886,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             conf, account_ring=FakeRing(),
             container_ring=FakeRing(), logger=None)
         # Use the same container info as the app used in other tests
-        self.app.container_info = dict(self.container_info)
+        self.app.container_info = dict(self.fake_container_info())
         self.obj_ring = self.app.get_object_ring(int(self.policy))
 
         for method, num_reqs in (
@@ -920,7 +928,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             conf, account_ring=FakeRing(),
             container_ring=FakeRing(), logger=None)
         # Use the same container info as the app used in other tests
-        self.app.container_info = dict(self.container_info)
+        self.app.container_info = dict(self.fake_container_info())
         self.obj_ring = self.app.get_object_ring(int(self.policy))
 
         for method, num_reqs in (
@@ -1073,8 +1081,10 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                                'port': '60%s' % str(i).zfill(2),
                                'device': 'sdb'} for i in range(num_containers)]
 
+                container_info = self.fake_container_info(
+                    {'nodes': containers})
                 backend_headers = controller._backend_requests(
-                    req, self.replicas(policy), 1, containers)
+                    req, self.replicas(policy), container_info)
 
                 # how many of the backend headers have a container update
                 n_container_updates = len(
@@ -1116,8 +1126,11 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                     {'ip': '1.0.0.%s' % i, 'port': '60%s' % str(i).zfill(2),
                      'device': 'sdb'} for i in range(num_del_at_nodes)]
 
+                container_info = self.fake_container_info(
+                    {'nodes': containers})
+
                 backend_headers = controller._backend_requests(
-                    req, self.replicas(policy), 1, containers,
+                    req, self.replicas(policy), container_info,
                     delete_at_container='dac', delete_at_partition=2,
                     delete_at_nodes=del_at_nodes)
 
@@ -1180,8 +1193,11 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                     {'ip': '1.0.0.%s' % i, 'port': '60%s' % str(i).zfill(2),
                      'device': 'sdb'} for i in range(num_containers)]
 
+                container_info = self.fake_container_info(
+                    {'nodes': containers})
+
                 backend_headers = controller._backend_requests(
-                    req, self.replicas(policy), 1, containers,
+                    req, self.replicas(policy), container_info,
                     delete_at_container='dac', delete_at_partition=2,
                     delete_at_nodes=del_at_nodes)
 
@@ -2435,7 +2451,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.app = PatchedObjControllerApp(
             conf, account_ring=FakeRing(),
             container_ring=FakeRing(), logger=None)
-        self.app.container_info = dict(self.container_info)
+        self.app.container_info = dict(self.fake_container_info())
         self.obj_ring = self.app.get_object_ring(int(self.policy))
 
         post_headers = []
@@ -2459,7 +2475,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.app = PatchedObjControllerApp(
             conf, account_ring=FakeRing(),
             container_ring=FakeRing(), logger=None)
-        self.app.container_info = dict(self.container_info)
+        self.app.container_info = dict(self.fake_container_info())
         self.obj_ring = self.app.get_object_ring(int(self.policy))
 
         post_headers = []

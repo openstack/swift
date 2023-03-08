@@ -170,12 +170,11 @@ class TestObjectExpirer(ReplProbeTest):
         # Make sure there's no async_pendings anywhere. Probe tests only run
         # on single-node installs anyway, so this set should be small enough
         # that an exhaustive check doesn't take too long.
-        all_obj_nodes = self.get_all_object_nodes()
-        pendings_before = self.gather_async_pendings(all_obj_nodes)
+        pendings_before = self.gather_async_pendings()
 
         # expire the objects
         Manager(['object-expirer']).once()
-        pendings_after = self.gather_async_pendings(all_obj_nodes)
+        pendings_after = self.gather_async_pendings()
         self.assertEqual(pendings_after, pendings_before)
 
     def test_expirer_object_should_not_be_expired(self):
