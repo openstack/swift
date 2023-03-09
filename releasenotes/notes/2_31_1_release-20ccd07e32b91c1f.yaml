@@ -1,0 +1,37 @@
+---
+fixes:
+  - |
+    Sharding fixes
+
+    * Shards no longer report stats to the root database when they are in
+      the ``CREATED`` state.
+
+    * Sharding metadata is no longer cleared when databases are deleted.
+      This could previously cause deleted shards that still had rows to
+      become stuck and never move them to the correct database.
+
+    * Fixed a performance regression in the handling of misplaced objects.
+
+    * Swift path and on-disk path are now included with all sharder logging.
+
+  - |
+    ``s3token`` no longer mangles request paths that include the Access Key ID.
+
+  - |
+    User metadata is now exposed via CORS when encryption is enabled,
+    matching the behavior when encryption is not enabled.
+
+  - |
+    Fewer backend requests are now required when account or container
+    information is missing from memcache.
+
+  - |
+    Fixed logging of IP and port in the proxy-server; in particular,
+    internal clients now correctly log about the replication IP/port.
+
+  - |
+    Fixed a bug in the object replicator that would cause an under-reporting
+    of failures.
+
+  - |
+    Various other minor bug fixes.
