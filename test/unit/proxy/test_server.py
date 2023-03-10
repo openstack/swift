@@ -10045,6 +10045,38 @@ class TestContainerController(unittest.TestCase):
                                   call['method'], key, call['headers']))
                 self.assertEqual(value, call['headers'][key])
 
+    def test_PUT_autocreate_account_utf8(self):
+        with save_globals():
+            controller = proxy_server.ContainerController(
+                self.app, wsgi_to_str('\xe2\x98\x83'),
+                wsgi_to_str('\xe2\x98\x83'))
+
+            def test_status_map(statuses, expected, headers=None, **kwargs):
+                set_http_connect(*statuses, **kwargs)
+                req = Request.blank('/v1/a/c', {}, headers=headers)
+                req.content_length = 0
+                self.app.update_request(req)
+                res = controller.PUT(req)
+                expected = str(expected)
+                self.assertEqual(res.status[:len(expected)], expected)
+
+            self.app.account_autocreate = True
+            calls = []
+            callback = _make_callback_func(calls)
+
+            # all goes according to plan
+            test_status_map(
+                (404, 404, 404,   # account_info fails on 404
+                 201, 201, 201,   # PUT account
+                 200,             # account_info success
+                 201, 201, 201),  # put container success
+                201, missing_container=True,
+                give_connect=callback)
+
+            self.assertEqual(10, len(calls))
+            for call in calls[3:6]:
+                self.assertEqual(wsgi_to_str('/\xe2\x98\x83'), call['path'])
+
     def test_POST(self):
         with save_globals():
             controller = proxy_server.ContainerController(self.app, 'account',
@@ -11580,6 +11612,15 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
                                          'QUERY_STRING': 'format=\xff\xfe'})
             resp = req.get_response(self.app)
             self.assertEqual(400, resp.status_int)
+
+    def test_GET_autocreate_utf8(self):
+        with save_globals():
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/\xe2\x98\x83',
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/\xe2\x98\x83'})
+            resp = req.get_response(self.app)
+            self.assertEqual(204, resp.status_int)
 
     def test_account_acl_header_access(self):
         acl = {

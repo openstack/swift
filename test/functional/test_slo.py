@@ -22,6 +22,7 @@ from copy import deepcopy
 from unittest import SkipTest
 
 import six
+from six.moves import urllib
 
 from swift.common.swob import normalize_etag
 from swift.common.utils import md5
@@ -709,7 +710,7 @@ class TestSlo(Base):
         self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
 
     def test_slo_copy_account(self):
-        acct = self.env.conn.account_name
+        acct = urllib.parse.unquote(self.env.conn.account_name)
         # same account copy
         file_item = self.env.container.file("manifest-abcde")
         file_item.copy_account(acct, self.env.container.name, "copied-abcde")
@@ -720,7 +721,7 @@ class TestSlo(Base):
 
         if not tf.skip2:
             # copy to different account
-            acct = self.env.conn2.account_name
+            acct = urllib.parse.unquote(self.env.conn2.account_name)
             dest_cont = self.env.account2.container(Utils.create_name())
             self.assertTrue(dest_cont.create(hdrs={
                 'X-Container-Write': self.env.conn.user_acl
@@ -871,7 +872,7 @@ class TestSlo(Base):
     def test_slo_copy_the_manifest_account(self):
         if tf.skip2:
             raise SkipTest('Account2 not set')
-        acct = self.env.conn.account_name
+        acct = urllib.parse.unquote(self.env.conn.account_name)
         # same account
         file_item = self.env.container.file("manifest-abcde")
         file_item.copy_account(acct,
@@ -887,7 +888,7 @@ class TestSlo(Base):
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
 
         # different account
-        acct = self.env.conn2.account_name
+        acct = urllib.parse.unquote(self.env.conn2.account_name)
         dest_cont = self.env.account2.container(Utils.create_name())
         self.assertTrue(dest_cont.create(hdrs={
             'X-Container-Write': self.env.conn.user_acl

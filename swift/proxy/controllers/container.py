@@ -433,7 +433,7 @@ class ContainerController(Controller):
             set_info_cache(self.app, req.environ, self.account_name,
                            self.container_name, resp)
         if 'swift.authorize' in req.environ:
-            req.acl = resp.headers.get('x-container-read')
+            req.acl = wsgi_to_str(resp.headers.get('x-container-read'))
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 # Don't cache this. It doesn't reflect the state of the

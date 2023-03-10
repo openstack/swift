@@ -23,7 +23,7 @@ import six
 from six.moves.urllib.parse import quote, urlparse
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
-from swift.common.swob import Request, Response
+from swift.common.swob import Request, Response, bytes_to_wsgi
 from swift.common.utils import split_path, StatsdClient
 from test.unit import FakeMemcache
 
@@ -1009,10 +1009,11 @@ class TestAuth(unittest.TestCase):
         quoted_acct = quote(u'/v1/AUTH_t\u00e9st'.encode('utf8'))
         memcache = FakeMemcache()
 
+        wsgi_user = bytes_to_wsgi(u't\u00e9st:t\u00e9ster'.encode('utf8'))
         req = self._make_request(
             '/auth/v1.0',
-            headers={'X-Auth-User': u't\u00e9st:t\u00e9ster',
-                     'X-Auth-Key': u'p\u00e1ss'})
+            headers={'X-Auth-User': wsgi_user,
+                     'X-Auth-Key': bytes_to_wsgi(u'p\u00e1ss'.encode('utf8'))})
         req.environ['swift.cache'] = memcache
         resp = req.get_response(ath)
         self.assertEqual(resp.status_int, 200)
@@ -1022,8 +1023,8 @@ class TestAuth(unittest.TestCase):
 
         req = self._make_request(
             '/auth/v1.0',
-            headers={'X-Auth-User': u't\u00e9st:t\u00e9ster',
-                     'X-Auth-Key': u'p\u00e1ss'})
+            headers={'X-Auth-User': wsgi_user,
+                     'X-Auth-Key': bytes_to_wsgi(u'p\u00e1ss'.encode('utf8'))})
         req.environ['swift.cache'] = memcache
         resp = req.get_response(ath)
         self.assertEqual(resp.status_int, 200)
