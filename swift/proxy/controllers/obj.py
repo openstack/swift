@@ -48,7 +48,7 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
-    ShardRange, find_shard_range, cache_from_env)
+    ShardRange, find_shard_range, cache_from_env, NamespaceBoundList)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -278,37 +278,67 @@ class BaseObjectController(Controller):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
-    def _get_cached_updating_shard_ranges(
+    def _get_cached_updating_namespaces(
             self, infocache, memcache, cache_key):
         """
-        Fetch cached shard ranges from infocache and memcache.
+        Fetch cached updating namespaces of updating shard ranges from
+        infocache and memcache.
 
         :param infocache: the infocache instance.
         :param memcache: an instance of a memcache client,
                          :class:`swift.common.memcached.MemcacheRing`.
         :param cache_key: the cache key for both infocache and memcache.
-        :return: a tuple of (list of shard ranges in dict format, cache state)
+        :return: a tuple of (an instance of NamespaceBoundList, cache state)
         """
-        cached_ranges = infocache.get(cache_key)
-        if cached_ranges:
-            cache_state = 'infocache_hit'
+        # try get namespaces from infocache first
+        namespace_list = infocache.get(cache_key)
+        if namespace_list:
+            return namespace_list, 'infocache_hit'
+
+        # then try get them from memcache
+        if not memcache:
+            return None, 'disabled'
+        skip_chance = self.app.container_updating_shard_ranges_skip_cache
+        if skip_chance and random.random() < skip_chance:
+            return None, 'skip'
+        try:
+            namespaces = memcache.get(cache_key, raise_on_error=True)
+            cache_state = 'hit' if namespaces else 'miss'
+        except MemcacheConnectionError:
+            namespaces = None
+            cache_state = 'error'
+
+        if namespaces:
+            if six.PY2:
+                # json.loads() in memcache.get will convert json 'string' to
+                # 'unicode' with python2, here we cast 'unicode' back to 'str'
+                namespaces = [
+                    [lower.encode('utf-8'), name.encode('utf-8')]
+                    for lower, name in namespaces]
+            namespace_list = NamespaceBoundList(namespaces)
         else:
-            if memcache:
-                skip_chance = \
-                    self.app.container_updating_shard_ranges_skip_cache
-                if skip_chance and random.random() < skip_chance:
-                    cache_state = 'skip'
-                else:
-                    try:
-                        cached_ranges = memcache.get(
-                            cache_key, raise_on_error=True)
-                        cache_state = 'hit' if cached_ranges else 'miss'
-                    except MemcacheConnectionError:
-                        cache_state = 'error'
-            else:
-                cache_state = 'disabled'
-        cached_ranges = cached_ranges or []
-        return cached_ranges, cache_state
+            namespace_list = None
+        return namespace_list, cache_state
+
+    def _get_update_shard_caching_disabled(self, req, account, container, obj):
+        """
+        Fetch all updating shard ranges for the given root container when
+        all caching is disabled.
+
+        :param req: original Request instance.
+        :param account: account from which shard ranges should be fetched.
+        :param container: container from which shard ranges should be fetched.
+        :param obj: object getting updated.
+        :return: an instance of :class:`swift.common.utils.ShardRange`,
+            or None if the update should go back to the root
+        """
+        # legacy behavior requests container server for includes=obj
+        shard_ranges, response = self._get_shard_ranges(
+            req, account, container, states='updating', includes=obj)
+        record_cache_op_metrics(
+            self.logger, 'shard_updating', 'disabled', response)
+        # there will be only one shard range in the list if any
+        return shard_ranges[0] if shard_ranges else None
 
     def _get_update_shard(self, req, account, container, obj):
         """
@@ -327,39 +357,41 @@ class BaseObjectController(Controller):
         """
         if not self.app.recheck_updating_shard_ranges:
             # caching is disabled
-            cache_state = 'disabled'
-            # legacy behavior requests container server for includes=obj
-            shard_ranges, response = self._get_shard_ranges(
-                req, account, container, states='updating', includes=obj)
-        else:
-            # try to get from cache
-            response = None
-            cache_key = get_cache_key(account, container, shard='updating')
-            infocache = req.environ.setdefault('swift.infocache', {})
-            memcache = cache_from_env(req.environ, True)
-            (cached_ranges, cache_state
-             ) = self._get_cached_updating_shard_ranges(
-                infocache, memcache, cache_key)
-            if cached_ranges:
-                # found cached shard ranges in either infocache or memcache
-                infocache[cache_key] = tuple(cached_ranges)
-                shard_ranges = [ShardRange.from_dict(shard_range)
-                                for shard_range in cached_ranges]
-            else:
-                # pull full set of updating shards from backend
-                shard_ranges, response = self._get_shard_ranges(
-                    req, account, container, states='updating')
-                if shard_ranges:
-                    cached_ranges = [dict(sr) for sr in shard_ranges]
-                    infocache[cache_key] = tuple(cached_ranges)
-                    if memcache:
-                        memcache.set(
-                            cache_key, cached_ranges,
-                            time=self.app.recheck_updating_shard_ranges)
+            return self._get_update_shard_caching_disabled(
+                req, account, container, obj)
 
+        # caching is enabled, try to get from caches
+        response = None
+        cache_key = get_cache_key(account, container, shard='updating')
+        infocache = req.environ.setdefault('swift.infocache', {})
+        memcache = cache_from_env(req.environ, True)
+        cached_namespaces, cache_state = self._get_cached_updating_namespaces(
+            infocache, memcache, cache_key)
+        if cached_namespaces:
+            # found cached namespaces in either infocache or memcache
+            infocache[cache_key] = cached_namespaces
+            namespace = cached_namespaces.get_namespace(obj)
+            update_shard = ShardRange(
+                name=namespace.name, timestamp=0, lower=namespace.lower,
+                upper=namespace.upper)
+        else:
+            # pull full set of updating shard ranges from backend
+            shard_ranges, response = self._get_shard_ranges(
+                req, account, container, states='updating')
+            if shard_ranges:
+                # only store the list of namespace lower bounds and names into
+                # infocache and memcache.
+                cached_namespaces = NamespaceBoundList.parse(
+                    shard_ranges)
+                infocache[cache_key] = cached_namespaces
+                if memcache:
+                    memcache.set(
+                        cache_key, cached_namespaces.bounds,
+                        time=self.app.recheck_updating_shard_ranges)
+            update_shard = find_shard_range(obj, shard_ranges or [])
         record_cache_op_metrics(
             self.logger, 'shard_updating', cache_state, response)
-        return find_shard_range(obj, shard_ranges or [])
+        return update_shard
 
     def _get_update_target(self, req, container_info):
         # find the sharded container to which we'll send the update

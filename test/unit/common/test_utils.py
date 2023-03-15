@@ -5910,6 +5910,7 @@ class UnsafeXrange(object):
     """
     Like range(limit), but with extra context switching to screw things up.
     """
+
     def __init__(self, upper_bound):
         self.current = 0
         self.concurrent_calls = 0
@@ -8209,6 +8210,83 @@ class TestShardName(unittest.TestCase):
             utils.ShardName.create('a', 'root', 'hash', 'bad', '0')
         with self.assertRaises(ValueError):
             utils.ShardName.create('a', 'root', None, '1235678', 'bad')
+
+
+class TestNamespace(unittest.TestCase):
+    def test_total_ordering(self):
+        a_start_ns = utils.Namespace('a/-a', '', 'a')
+        a_atob_ns = utils.Namespace('a/a-b', 'a', 'b')
+        a_atof_ns = utils.Namespace('a/a-f', 'a', 'f')
+        a_ftol_ns = utils.Namespace('a/f-l', 'f', 'l')
+        a_ltor_ns = utils.Namespace('a/l-r', 'l', 'r')
+        a_rtoz_ns = utils.Namespace('a/r-z', 'r', 'z')
+        a_end_ns = utils.Namespace('a/z-', 'z', '')
+        b_start_ns = utils.Namespace('b/-a', '', 'a')
+        self.assertEqual(a_start_ns, b_start_ns)
+        self.assertNotEqual(a_start_ns, a_atob_ns)
+        self.assertLess(a_start_ns, a_atob_ns)
+        self.assertLess(a_atof_ns, a_ftol_ns)
+        self.assertLess(a_ftol_ns, a_ltor_ns)
+        self.assertLess(a_ltor_ns, a_rtoz_ns)
+        self.assertLess(a_rtoz_ns, a_end_ns)
+        self.assertLessEqual(a_start_ns, a_atof_ns)
+        self.assertLessEqual(a_atof_ns, a_rtoz_ns)
+        self.assertGreater(a_end_ns, a_atof_ns)
+        self.assertGreater(a_rtoz_ns, a_ftol_ns)
+        self.assertGreater(a_end_ns, a_start_ns)
+        self.assertGreaterEqual(a_end_ns, a_atof_ns)
+        self.assertGreaterEqual(a_rtoz_ns, a_start_ns)
+
+
+class TestNamespaceBoundList(unittest.TestCase):
+    def test_functions(self):
+        start = ['', 'a/-a']
+        start_ns = utils.Namespace('a/-a', '', 'a')
+        atof = ['a', 'a/a-f']
+        atof_ns = utils.Namespace('a/a-f', 'a', 'f')
+        ftol = ['f', 'a/f-l']
+        ftol_ns = utils.Namespace('a/f-l', 'f', 'l')
+        ltor = ['l', 'a/l-r']
+        ltor_ns = utils.Namespace('a/l-r', 'l', 'r')
+        rtoz = ['r', 'a/r-z']
+        rtoz_ns = utils.Namespace('a/r-z', 'r', 'z')
+        end = ['z', 'a/z-']
+        end_ns = utils.Namespace('a/z-', 'z', '')
+        lowerbounds = [start, atof, ftol, ltor, rtoz, end]
+        namespace_list = utils.NamespaceBoundList(lowerbounds)
+
+        # test 'get_namespace'
+        self.assertEqual(namespace_list.get_namespace('1'), start_ns)
+        self.assertEqual(namespace_list.get_namespace('a'), start_ns)
+        self.assertEqual(namespace_list.get_namespace('b'), atof_ns)
+        self.assertEqual(namespace_list.get_namespace('f'), atof_ns)
+        self.assertEqual(namespace_list.get_namespace('f\x00'), ftol_ns)
+        self.assertEqual(namespace_list.get_namespace('l'), ftol_ns)
+        self.assertEqual(namespace_list.get_namespace('x'), rtoz_ns)
+        self.assertEqual(namespace_list.get_namespace('r'), ltor_ns)
+        self.assertEqual(namespace_list.get_namespace('}'), end_ns)
+
+        # test 'parse'
+        namespaces_list = utils.NamespaceBoundList.parse(None)
+        self.assertEqual(namespaces_list, None)
+        namespaces = [start_ns, atof_ns, ftol_ns, ltor_ns, rtoz_ns, end_ns]
+        namespace_list = utils.NamespaceBoundList.parse(namespaces)
+        self.assertEqual(namespace_list.get_namespace('1'), start_ns)
+        self.assertEqual(namespace_list.get_namespace('l'), ftol_ns)
+        self.assertEqual(namespace_list.get_namespace('x'), rtoz_ns)
+        self.assertEqual(namespace_list.get_namespace('r'), ltor_ns)
+        self.assertEqual(namespace_list.get_namespace('}'), end_ns)
+        self.assertEqual(namespace_list.bounds, lowerbounds)
+        overlap_f_ns = utils.Namespace('a/-f', '', 'f')
+        overlapping_namespaces = [start_ns, atof_ns, overlap_f_ns,
+                                  ftol_ns, ltor_ns, rtoz_ns, end_ns]
+        namespace_list = utils.NamespaceBoundList.parse(overlapping_namespaces)
+        self.assertEqual(namespace_list.bounds, lowerbounds)
+        overlap_l_ns = utils.Namespace('a/a-l', 'a', 'l')
+        overlapping_namespaces = [start_ns, atof_ns, ftol_ns,
+                                  overlap_l_ns, ltor_ns, rtoz_ns, end_ns]
+        namespace_list = utils.NamespaceBoundList.parse(overlapping_namespaces)
+        self.assertEqual(namespace_list.bounds, lowerbounds)
 
 
 class TestShardRange(unittest.TestCase):

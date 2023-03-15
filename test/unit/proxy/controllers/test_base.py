@@ -501,7 +501,7 @@ class TestFuncs(BaseTest):
         self.assertEqual(get_cache_key("account", "cont", shard="listing"),
                          'shard-listing/account/cont')
         self.assertEqual(get_cache_key("account", "cont", shard="updating"),
-                         'shard-updating/account/cont')
+                         'shard-updating-v2/account/cont')
         self.assertRaises(ValueError,
                           get_cache_key, "account", shard="listing")
         self.assertRaises(ValueError,
