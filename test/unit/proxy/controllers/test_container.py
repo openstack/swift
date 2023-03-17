@@ -546,7 +546,8 @@ class TestContainerController(TestRingBase):
                                      req['headers'])
         return resp
 
-    def check_response(self, resp, root_resp_hdrs, expected_objects=None):
+    def check_response(self, resp, root_resp_hdrs, expected_objects=None,
+                       exp_sharding_state='sharded'):
         info_hdrs = dict(root_resp_hdrs)
         if expected_objects is None:
             # default is to expect whatever the root container sent
@@ -561,7 +562,8 @@ class TestContainerController(TestRingBase):
                          int(resp.headers['X-Container-Bytes-Used']))
         self.assertEqual(expected_obj_count,
                          int(resp.headers['X-Container-Object-Count']))
-        self.assertEqual('sharded', resp.headers['X-Backend-Sharding-State'])
+        self.assertEqual(exp_sharding_state,
+                         resp.headers['X-Backend-Sharding-State'])
         for k, v in root_resp_hdrs.items():
             if k.lower().startswith('x-container-meta'):
                 self.assertEqual(v, resp.headers[k])
@@ -1864,7 +1866,7 @@ class TestContainerController(TestRingBase):
         self.check_response(resp, root_resp_hdrs,
                             expected_objects=expected_objects)
 
-    def test_GET_sharded_container_gap_in_shards(self):
+    def test_GET_sharded_container_gap_in_shards_no_memcache(self):
         # verify ordered listing even if unexpected gap between shard ranges
         shard_bounds = (('', 'ham'), ('onion', 'pie'), ('rhubarb', ''))
         shard_ranges = [
@@ -1888,6 +1890,7 @@ class TestContainerController(TestRingBase):
         num_all_objects = len(all_objects)
         limit = CONTAINER_LISTING_LIMIT
         root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Override-Shard-Name-Filter': 'true',
                           'X-Backend-Timestamp': '99',
                           'X-Container-Object-Count': num_all_objects,
                           'X-Container-Bytes-Used': size_all_objects,
@@ -1920,9 +1923,143 @@ class TestContainerController(TestRingBase):
         ]
 
         resp = self._check_GET_shard_listing(
-            mock_responses, all_objects, expected_requests)
-        # root object count will overridden by actual length of listing
+            mock_responses, all_objects, expected_requests, memcache=False)
+        # root object count will be overridden by actual length of listing
         self.check_response(resp, root_resp_hdrs)
+        self.assertNotIn('swift.cache', resp.request.environ)
+
+    def test_GET_sharding_container_gap_in_shards_memcache(self):
+        # verify ordered listing even if unexpected gap between shard ranges;
+        # root is sharding so shard ranges are not cached
+        shard_bounds = (('', 'ham'), ('onion', 'pie'), ('rhubarb', ''))
+        shard_ranges = [
+            ShardRange('.shards_a/c_' + upper, Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds]
+        sr_dicts = [dict(sr) for sr in shard_ranges]
+        sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
+        shard_resp_hdrs = [
+            {'X-Backend-Sharding-State': 'unsharded',
+             'X-Container-Object-Count': len(sr_objs[i]),
+             'X-Container-Bytes-Used':
+                 sum([obj['bytes'] for obj in sr_objs[i]]),
+             'X-Container-Meta-Flavour': 'flavour%d' % i,
+             'X-Backend-Storage-Policy-Index': 0}
+            for i in range(3)]
+
+        all_objects = []
+        for objects in sr_objs:
+            all_objects.extend(objects)
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        num_all_objects = len(all_objects)
+        limit = CONTAINER_LISTING_LIMIT
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharding',
+                          'X-Backend-Override-Shard-Name-Filter': 'true',
+                          'X-Backend-Timestamp': '99',
+                          'X-Container-Object-Count': num_all_objects,
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Container-Meta-Flavour': 'peach',
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        mock_responses = [
+            # status, body, headers
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2])
+        ]
+        # NB marker always advances to last object name
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing')),  # 200
+            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='ham\x00', states='listing',
+                  limit=str(limit))),  # 200
+            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),  # 200
+            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='p', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, all_objects, expected_requests, memcache=True)
+        # root object count will be overridden by actual length of listing
+        self.check_response(resp, root_resp_hdrs,
+                            exp_sharding_state='sharding')
+        self.assertIn('swift.cache', resp.request.environ)
+        self.assertNotIn('shard-listing/a/c',
+                         resp.request.environ['swift.cache'].store)
+
+    def test_GET_sharded_container_gap_in_shards_memcache(self):
+        # verify ordered listing even if unexpected gap between shard ranges
+        shard_bounds = (('', 'ham'), ('onion', 'pie'), ('rhubarb', ''))
+        shard_ranges = [
+            ShardRange('.shards_a/c_' + upper, Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds]
+        sr_dicts = [dict(sr) for sr in shard_ranges]
+        sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
+        shard_resp_hdrs = [
+            {'X-Backend-Sharding-State': 'unsharded',
+             'X-Container-Object-Count': len(sr_objs[i]),
+             'X-Container-Bytes-Used':
+                 sum([obj['bytes'] for obj in sr_objs[i]]),
+             'X-Container-Meta-Flavour': 'flavour%d' % i,
+             'X-Backend-Storage-Policy-Index': 0}
+            for i in range(3)]
+
+        all_objects = []
+        for objects in sr_objs:
+            all_objects.extend(objects)
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        num_all_objects = len(all_objects)
+        limit = CONTAINER_LISTING_LIMIT
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Override-Shard-Name-Filter': 'true',
+                          'X-Backend-Timestamp': '99',
+                          'X-Container-Object-Count': num_all_objects,
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Container-Meta-Flavour': 'peach',
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        mock_responses = [
+            # status, body, headers
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2])
+        ]
+        # NB marker always advances to last object name
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing')),  # 200
+            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='ham\x00', states='listing',
+                  limit=str(limit))),  # 200
+            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='h', end_marker='pie\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),  # 200
+            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='p', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, all_objects, expected_requests, memcache=True)
+        # root object count will be overridden by actual length of listing
+        self.check_response(resp, root_resp_hdrs)
+        self.assertIn('swift.cache', resp.request.environ)
+        self.assertIn('shard-listing/a/c',
+                      resp.request.environ['swift.cache'].store)
+        self.assertEqual(
+            sr_dicts,
+            resp.request.environ['swift.cache'].store['shard-listing/a/c'])
 
     def test_GET_sharded_container_empty_shard(self):
         # verify ordered listing when a shard is empty
