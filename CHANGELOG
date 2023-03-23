@@ -125,6 +125,17 @@ swift (2.31.0)
     * Various other minor bug fixes and improvements.
 
 
+swift (2.30.1, zed stable backports)
+
+    * Fixed a security issue in how `s3api` handles XML parsing that allowed
+      authenticated S3 clients to read arbitrary files from proxy servers.
+      Refer to CVE-2022-47950 for more information.
+
+    * Fixed a path-rewriting bug introduced in Python 3.7.14, 3.8.14, 3.9.14,
+      and 3.10.6 that could cause some `domain_remap` requests to be routed to
+      the wrong object.
+
+
 swift (2.30.0, OpenStack Zed)
 
     * Sharding improvements
@@ -260,6 +271,22 @@ swift (2.30.0, OpenStack Zed)
     * Ring builder output tables better display weights over 1000.
 
     * Various other minor bug fixes and improvements.
+
+
+swift (2.29.2, yoga stable backports)
+
+    * Fixed a security issue in how `s3api` handles XML parsing that allowed
+      authenticated S3 clients to read arbitrary files from proxy servers.
+      Refer to CVE-2022-47950 for more information.
+
+    * Constant-time string comparisons are now used when checking S3 API
+      signatures.
+
+    * Fixed a path-rewriting bug introduced in Python 3.7.14, 3.8.14, 3.9.14,
+      and 3.10.6 that could cause some `domain_remap` requests to be routed to
+      the wrong object.
+
+    * Improved compatibility with certain FIPS-mode-enabled systems.
 
 
 swift (2.29.1, OpenStack Yoga)
@@ -434,6 +461,25 @@ swift (2.29.0)
     * Removed translations from most logging.
 
     * Various other minor bug fixes and improvements.
+
+
+swift (2.28.1, xena stable backports)
+
+    * Fixed a security issue in how `s3api` handles XML parsing that allowed
+      authenticated S3 clients to read arbitrary files from proxy servers.
+      Refer to CVE-2022-47950 for more information.
+
+    * Constant-time string comparisons are now used when checking S3 API
+      signatures.
+
+    * Fixed a path-rewriting bug introduced in Python 3.7.14, 3.8.14, 3.9.14,
+      and 3.10.6 that could cause some `domain_remap` requests to be routed to
+      the wrong object.
+
+    * Improved compatibility with certain FIPS-mode-enabled systems.
+
+    * Ensure that non-durable data and .meta files are purged from handoffs
+      after syncing.
 
 
 swift (2.28.0, OpenStack Xena)
@@ -975,6 +1021,40 @@ swift (2.26.0, OpenStack Victoria)
     * Various other minor bug fixes and improvements.
 
 
+swift (2.25.1, ussuri stable backports)
+
+    * Python 3 bug fixes:
+
+      * Fixed an error when reading encrypted data that was written while
+        running Python 2 for a path that includes non-ASCII characters. This
+        was caused by a difference in string types that resulted in
+        ambiguity when decrypting. To prevent the ambiguity for new data, set
+        `meta_version_to_write = 3` in your keymaster configuration after
+        upgrading all proxy servers.
+
+        If upgrading from Swift 2.20.0 or Swift 2.19.1 or earlier, set
+        `meta_version_to_write = 1` in your keymaster configuration prior
+        to upgrading.
+
+      * Object expiration respects the `expiring_objects_container_divisor`
+        config option.
+
+      * `fallocate_reserve` may be specified as a percentage in more places.
+
+      * The ETag-quoting middleware no longer raises TypeErrors.
+
+    * Improved how containers reclaim deleted rows to reduce locking and object
+      update throughput.
+
+    * Fix a proxy-server error when retrieving erasure coded data when
+      there are durable fragments but not enough to reconstruct.
+
+    * Fixed some SignatureDoesNotMatch errors when using the AWS .NET SDK.
+
+    * Region name config option is now respected when configuring S3 credential
+      caching.
+
+
 swift (2.25.0, OpenStack Ussuri)
 
     * WSGI server processes can now notify systemd when they are ready.
@@ -1091,6 +1171,99 @@ swift (2.24.0)
     * Per-service `auto_create_account_prefix` settings are now deprecated
       and may be ignored in a future release; if you need to use this, please
       set it in the `[swift-constraints]` section of /etc/swift/swift.conf.
+
+    * Various other minor bug fixes and improvements.
+
+
+swift (2.23.3, train stable backports)
+
+    * Sharding improvements:
+
+      * Prevent object updates from auto-creating shard containers. This
+        ensures more consistent listings for sharded containers during
+        rebalances.
+
+      * Deleted shard containers are no longer considered root containers.
+        This prevents unnecessary sharding audit failures and allows the
+        deleted shard database to actually be unlinked.
+
+      * The sharder daemon has been enhanced to better support the shrinking
+        of shards that are no longer required. Shard containers will now
+        discover from their root container if they should be shrinking. They
+        will also discover the shards into which they should shrink, which may
+        include the root container itself.
+
+      * Improved performance of sharded container listings when performing
+        prefix listings.
+
+      * Improved container-sharder stat reporting to reduce load on root
+        container databases.
+
+      * The container sharder can now handle containers with special
+        characters in their names.
+
+      * `swift-container-info` now summarizes shard range information.
+        Pass `-v`/`--verbose` if you want to see all of them.
+
+      * Don't inject shard ranges when user quits.
+
+      * Various other minor bug fixes and improvements.
+
+    * Python 3 bug fixes:
+
+      * Fixed a potential server error when uploading data via a tempurl.
+
+      * Fixed a potential server error when getting symlink details.
+
+    * Added the ability to connect to memcached over TLS. See the
+      `tls_*` options in etc/memcache.conf-sample
+
+
+swift (2.23.2, train stable backports)
+
+    * Python 3 bug fixes:
+
+      * Fixed an error when reading encrypted data that was written while
+        running Python 2 for a path that includes non-ASCII characters. This
+        was caused by a difference in string types that resulted in
+        ambiguity when decrypting. To prevent the ambiguity for new data, set
+        `meta_version_to_write = 3` in your keymaster configuration after
+        upgrading all proxy servers.
+
+        If upgrading from Swift 2.20.0 or Swift 2.19.1 or earlier, set
+        `meta_version_to_write = 1` in your keymaster configuration prior
+        to upgrading.
+
+      * Fixed an issue when reading or writing objects with a content-type
+        like `message/*`. Previously, Swift would fail to respond.
+
+      * Object expiration respects the `expiring_objects_container_divisor`
+        config option.
+
+      * `fallocate_reserve` may be specified as a percentage in more places.
+
+      * The formpost middleware now works with unicode file names.
+
+      * Certain S3 API headers are now lower case as they would be coming
+        from AWS.
+
+    * Improved how containers reclaim deleted rows to reduce locking and object
+      update throughput.
+
+    * Fix a proxy-server error when retrieving erasure coded data when
+      there are durable fragments but not enough to reconstruct.
+
+    * Fixed 500 from cname_lookup middleware. Previously, if the looked-up
+      domain was used by domain_remap to update the request path, the
+      server would respond Internal Error.
+
+    * The bulk extract middleware once again allows clients to specify metadata
+      (including expiration timestamps) for all objects in the archive.
+
+    * Errors encountered while validating static symlink targets no longer
+      cause BadResponseLength errors in the proxy-server.
+
+    * Fixed some SignatureDoesNotMatch errors when using the AWS .NET SDK.
 
     * Various other minor bug fixes and improvements.
 
