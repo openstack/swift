@@ -435,6 +435,69 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)
 
+    def test_PUT_HEAD_put_timestamp_updates(self):
+        put_ts = Timestamp(1)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': put_ts.internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+
+        def do_put_head(put_ts, meta_value, extra_hdrs, body='', path='a/c'):
+            # Set metadata header
+            req = Request.blank('/sda1/p/' + path,
+                                environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'X-Timestamp': put_ts.internal,
+                                         'X-Container-Meta-Test': meta_value},
+                                body=body)
+            req.headers.update(extra_hdrs)
+            resp = req.get_response(self.controller)
+            self.assertTrue(resp.is_success)
+            req = Request.blank('/sda1/p/a/c',
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 204)
+            return resp.headers
+
+        # put timestamp is advanced on PUT with container path
+        put_ts = Timestamp(2)
+        resp_hdrs = do_put_head(put_ts, 'val1',
+                                {'x-backend-no-timestamp-update': 'false'})
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val1')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         put_ts.internal)
+        self.assertEqual(resp_hdrs.get('x-put-timestamp'), put_ts.internal)
+
+        put_ts = Timestamp(3)
+        resp_hdrs = do_put_head(put_ts, 'val2',
+                                {'x-backend-no-timestamp-update': 'true'})
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val2')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         put_ts.internal)
+        self.assertEqual(resp_hdrs.get('x-put-timestamp'), put_ts.internal)
+
+        # put timestamp is NOT updated if record type is shard
+        put_ts = Timestamp(4)
+        resp_hdrs = do_put_head(
+            put_ts, 'val3', {'x-backend-record-type': 'shard'},
+            body=json.dumps([dict(ShardRange('x/y', 123.4))]))
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         Timestamp(3).internal)
+        self.assertEqual(resp_hdrs.get('x-put-timestamp'),
+                         Timestamp(3).internal)
+
+        # put timestamp and metadata are NOT updated for request with obj path
+        put_ts = Timestamp(5)
+        resp_hdrs = do_put_head(
+            put_ts, 'val4',
+            {'x-content-type': 'plain/text', 'x-size': 0, 'x-etag': 'an-etag'},
+            path='a/c/o')
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         Timestamp(3).internal)
+        self.assertEqual(resp_hdrs.get('x-put-timestamp'),
+                         Timestamp(3).internal)
+
     def test_PUT_insufficient_space(self):
         conf = {'devices': self.testdir,
                 'mount_check': 'false',
@@ -1057,6 +1120,58 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         self.assertNotIn(key.lower(), resp.headers)
+
+    def test_POST_HEAD_no_timestamp_update(self):
+        put_ts = Timestamp(1)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': put_ts.internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+
+        def do_post_head(post_ts, value, extra_hdrs):
+            # Set metadata header
+            req = Request.blank('/sda1/p/a/c',
+                                environ={'REQUEST_METHOD': 'POST'},
+                                headers={'X-Timestamp': post_ts.internal,
+                                         'X-Container-Meta-Test': value})
+            req.headers.update(extra_hdrs)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 204)
+            req = Request.blank('/sda1/p/a/c',
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 204)
+            return resp.headers
+
+        # verify timestamp IS advanced
+        post_ts = Timestamp(2)
+        resp_hdrs = do_post_head(post_ts, 'val1', {})
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val1')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         post_ts.internal)
+
+        post_ts = Timestamp(3)
+        resp_hdrs = do_post_head(post_ts, 'val2',
+                                 {'x-backend-no-timestamp-update': 'false'})
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val2')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         post_ts.internal)
+
+        # verify timestamp IS NOT advanced, but metadata still updated
+        post_ts = Timestamp(4)
+        resp_hdrs = do_post_head(post_ts, 'val3',
+                                 {'x-backend-No-timeStamp-update': 'true'})
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         Timestamp(3).internal)
+
+        # verify timestamp will not go backwards
+        post_ts = Timestamp(2)
+        resp_hdrs = do_post_head(post_ts, 'val4',
+                                 {'x-backend-no-timestamp-update': 'true'})
+        self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
+        self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
+                         Timestamp(3).internal)
 
     def test_POST_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'POST',
