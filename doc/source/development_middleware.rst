@@ -231,7 +231,7 @@ client applications.  A perfect example use-case for user metadata is
 object it uploads to implement its ``--changed`` option which will only
 upload files that have changed since the last upload.
 
-.. _python-swiftclient: https://github.com/openstack/python-swiftclient
+.. _python-swiftclient: https://opendev.org/openstack/python-swiftclient
 
 New middleware should avoid storing metadata within the User Metadata
 namespace to avoid potential conflict with existing user metadata when
