@@ -141,7 +141,7 @@ For Client Apps
 ---------------
 
 For client applications, official Python language bindings are provided
-at https://github.com/openstack/python-swiftclient.
+at https://opendev.org/openstack/python-swiftclient.
 
 Complete API documentation at
 https://docs.openstack.org/api-ref/object-store/
