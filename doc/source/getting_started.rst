@@ -36,7 +36,7 @@ CLI client and SDK library
 There are many clients in the :ref:`ecosystem <application-bindings>`. The official CLI
 and SDK is python-swiftclient.
 
-* `Source code <https://github.com/openstack/python-swiftclient>`_
+* `Source code <https://opendev.org/openstack/python-swiftclient>`_
 * `Python Package Index <https://pypi.org/project/python-swiftclient>`_
 
 ----------
