@@ -18,6 +18,7 @@ from swift.common.swob import Request, wsgify, HTTPForbidden, HTTPOk, \
 
 from swift.common.middleware import account_quotas, copy
 
+from test.unit import patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -53,6 +54,8 @@ class TestAccountQuota(unittest.TestCase):
         self.app = FakeSwift()
         self.app.register('HEAD', '/v1/a', HTTPOk, {
             'x-account-bytes-used': '1000'})
+        self.app.register('HEAD', '/v1/a/c', HTTPOk, {
+            'x-backend-storage-policy-index': '1'})
         self.app.register('POST', '/v1/a', HTTPOk, {})
         self.app.register('PUT', '/v1/a/c/o', HTTPOk, {})
 
@@ -127,6 +130,48 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEqual(res.status_int, 413)
         self.assertEqual(res.body, b'Upload exceeds quota.')
+
+    @patch_policies
+    def test_exceed_per_policy_quota(self):
+        self.app.register('HEAD', '/v1/a', HTTPOk, {
+            'x-account-bytes-used': '100',
+            'x-account-storage-policy-unu-bytes-used': '100',
+            'x-account-sysmeta-quota-bytes-policy-1': '10',
+            'x-account-meta-quota-bytes': '1000'})
+        app = account_quotas.AccountQuotaMiddleware(self.app)
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, b'Upload exceeds policy quota.')
+
+    @patch_policies
+    def test_policy_quota_translation(self):
+        def do_test(method):
+            self.app.register(method, '/v1/a', HTTPOk, {
+                'x-account-bytes-used': '100',
+                'x-account-storage-policy-unu-bytes-used': '100',
+                'x-account-sysmeta-quota-bytes-policy-1': '10',
+                'x-account-meta-quota-bytes': '1000'})
+            app = account_quotas.AccountQuotaMiddleware(self.app)
+            cache = FakeCache(None)
+            req = Request.blank('/v1/a', method=method, environ={
+                'swift.cache': cache})
+            res = req.get_response(app)
+            self.assertEqual(res.status_int, 200)
+            self.assertEqual(res.headers.get(
+                'X-Account-Meta-Quota-Bytes'), '1000')
+            self.assertEqual(res.headers.get(
+                'X-Account-Sysmeta-Quota-Bytes-Policy-1'), '10')
+            self.assertEqual(res.headers.get(
+                'X-Account-Quota-Bytes-Policy-Unu'), '10')
+            self.assertEqual(res.headers.get(
+                'X-Account-Storage-Policy-Unu-Bytes-Used'), '100')
+
+        do_test('GET')
+        do_test('HEAD')
 
     def test_exceed_quota_not_authorized(self):
         self.app.register('HEAD', '/v1/a', HTTPOk, {
@@ -335,6 +380,19 @@ class TestAccountQuota(unittest.TestCase):
                                      'reseller_request': True})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 400)
+        self.assertEqual(self.app.calls, [])
+
+    def test_invalid_policy_quota(self):
+        app = account_quotas.AccountQuotaMiddleware(self.app)
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a', environ={
+            'REQUEST_METHOD': 'POST',
+            'swift.cache': cache,
+            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_POLICY_0': 'abc',
+            'reseller_request': True})
+        res = req.get_response(app)
+        self.assertEqual(res.status_int, 400)
+        self.assertEqual(self.app.calls, [])
 
     def test_valid_quotas_admin(self):
         app = account_quotas.AccountQuotaMiddleware(self.app)
@@ -345,6 +403,18 @@ class TestAccountQuota(unittest.TestCase):
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '100'})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 403)
+        self.assertEqual(self.app.calls, [])
+
+    def test_valid_policy_quota_admin(self):
+        app = account_quotas.AccountQuotaMiddleware(self.app)
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a', environ={
+            'REQUEST_METHOD': 'POST',
+            'swift.cache': cache,
+            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_POLICY_0': '100'})
+        res = req.get_response(app)
+        self.assertEqual(res.status_int, 403)
+        self.assertEqual(self.app.calls, [])
 
     def test_valid_quotas_reseller(self):
         app = account_quotas.AccountQuotaMiddleware(self.app)
@@ -356,6 +426,24 @@ class TestAccountQuota(unittest.TestCase):
                                      'reseller_request': True})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 200)
+        self.assertEqual(self.app.calls_with_headers, [
+            ('POST', '/v1/a', {'Host': 'localhost:80',
+                               'X-Account-Meta-Quota-Bytes': '100'})])
+
+    def test_valid_policy_quota_reseller(self):
+        app = account_quotas.AccountQuotaMiddleware(self.app)
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a', environ={
+            'REQUEST_METHOD': 'POST',
+            'swift.cache': cache,
+            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_POLICY_0': '100',
+            'reseller_request': True})
+        res = req.get_response(app)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(self.app.calls_with_headers, [
+            ('POST', '/v1/a', {
+                'Host': 'localhost:80',
+                'X-Account-Sysmeta-Quota-Bytes-Policy-0': '100'})])
 
     def test_delete_quotas(self):
         app = account_quotas.AccountQuotaMiddleware(self.app)
@@ -414,6 +502,8 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
         self.headers = []
         self.app = FakeSwift()
         self.app.register('HEAD', '/v1/a', HTTPOk, self.headers)
+        self.app.register('HEAD', '/v1/a/c', HTTPOk, {
+            'x-backend-storage-policy-index': '1'})
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk, {
             'content-length': '1000'})
         self.aq_filter = account_quotas.filter_factory({})(self.app)

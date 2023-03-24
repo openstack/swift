@@ -1,3 +1,5 @@
+.. _container_quotas:
+
 ================
 Container quotas
 ================

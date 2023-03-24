@@ -1110,11 +1110,11 @@ use = egg:swift#dlo
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
 
-# Note: Put after auth in the pipeline.
+# Note: Put after auth and server-side copy in the pipeline.
 [filter:container-quotas]
 use = egg:swift#container_quotas
 
-# Note: Put after auth in the pipeline.
+# Note: Put after auth and server-side copy in the pipeline.
 [filter:account-quotas]
 use = egg:swift#account_quotas
 
