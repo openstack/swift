@@ -167,24 +167,36 @@ def _encode_metadata(metadata):
     return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
 
 
-def _decode_metadata(metadata):
+def _decode_metadata(metadata, metadata_written_by_py3):
     """
     Given a metadata dict from disk, convert keys and values to native strings.
 
     :param metadata: a dict
+    :param metadata_written_by_py3:
     """
     if six.PY2:
-        def to_str(item):
+        def to_str(item, is_name=False):
+            # For years, py2 and py3 handled non-ascii metadata differently;
+            # see https://bugs.launchpad.net/swift/+bug/2012531
+            if metadata_written_by_py3 and not is_name:
+                # do our best to read new-style data replicated from a py3 node
+                item = item.decode('utf8').encode('latin1')
             if isinstance(item, six.text_type):
                 return item.encode('utf8')
             return item
     else:
-        def to_str(item):
+        def to_str(item, is_name=False):
+            # For years, py2 and py3 handled non-ascii metadata differently;
+            # see https://bugs.launchpad.net/swift/+bug/2012531
+            if not metadata_written_by_py3 and isinstance(item, bytes) \
+                    and not is_name:
+                # do our best to read old py2 data
+                item = item.decode('latin1')
             if isinstance(item, six.binary_type):
                 return item.decode('utf8', 'surrogateescape')
             return item
 
-    return dict(((to_str(k), to_str(v)) for k, v in metadata.items()))
+    return {to_str(k): to_str(v, k == b'name') for k, v in metadata.items()}
 
 
 def read_metadata(fd, add_missing_checksum=False):
@@ -238,6 +250,7 @@ def read_metadata(fd, add_missing_checksum=False):
                 "stored checksum='%s', computed='%s'" % (
                     fd, metadata_checksum, computed_checksum))
 
+    metadata_written_by_py3 = (b'_codecs\nencode' in metadata[:32])
     # strings are utf-8 encoded when written, but have not always been
     # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
     # when read
@@ -245,7 +258,7 @@ def read_metadata(fd, add_missing_checksum=False):
         metadata = pickle.loads(metadata)
     else:
         metadata = pickle.loads(metadata, encoding='bytes')
-    return _decode_metadata(metadata)
+    return _decode_metadata(metadata, metadata_written_by_py3)
 
 
 def write_metadata(fd, metadata, xattr_size=65536):

@@ -15,6 +15,8 @@
 
 """Tests for swift.obj.diskfile"""
 
+from __future__ import print_function
+import binascii
 import six.moves.cPickle as pickle
 import os
 import errno
@@ -28,6 +30,7 @@ import uuid
 import xattr
 import re
 import six
+import sys
 from collections import defaultdict
 from random import shuffle, randint
 from shutil import rmtree
@@ -554,6 +557,233 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         exp_dir = '/srv/node/sdb5/objects-1/123'
         self.assertEqual(part_dir, exp_dir)
 
+    def test_can_read_old_meta(self):
+        # outputs taken from `xattr -l <diskfile>`
+        cases = {
+            'python_2.7.18_swift_2.13_replicated': '''
+0000   80 02 7D 71 01 28 55 0E 43 6F 6E 74 65 6E 74 2D    ..}q.(U.Content-
+0010   4C 65 6E 67 74 68 71 02 55 02 31 33 55 04 6E 61    Lengthq.U.13U.na
+0020   6D 65 71 03 55 12 2F 41 55 54 48 5F 74 65 73 74    meq.U./AUTH_test
+0030   2F E2 98 83 2F E2 98 83 71 04 55 13 58 2D 4F 62    /.../...q.U.X-Ob
+0040   6A 65 63 74 2D 4D 65 74 61 2D 4D 74 69 6D 65 55    ject-Meta-MtimeU
+0050   11 31 36 38 32 39 35 39 38 37 34 2E 37 35 36 32    .1682959874.7562
+0060   30 35 71 05 55 04 45 54 61 67 71 06 55 20 36 62    05q.U.ETagq.U 6b
+0070   37 64 39 61 31 63 35 64 31 36 37 63 63 35 30 30    7d9a1c5d167cc500
+0080   33 37 66 32 39 66 32 39 30 62 62 33 37 35 71 07    37f29f290bb375q.
+0090   55 0B 58 2D 54 69 6D 65 73 74 61 6D 70 71 08 55    U.X-Timestampq.U
+00A0   10 31 36 38 32 39 36 32 36 35 31 2E 39 37 34 39    .1682962651.9749
+00B0   34 55 11 58 2D 4F 62 6A 65 63 74 2D 4D 65 74 61    4U.X-Object-Meta
+00C0   2D E2 98 83 55 03 E2 98 83 71 09 55 0C 43 6F 6E    -...U....q.U.Con
+00D0   74 65 6E 74 2D 54 79 70 65 71 0A 55 18 61 70 70    tent-Typeq.U.app
+00E0   6C 69 63 61 74 69 6F 6E 2F 6F 63 74 65 74 2D 73    lication/octet-s
+00F0   74 72 65 61 6D 71 0B 75 2E                         treamq.u.
+            ''',
+            'python_2.7.18_swift_2.13_ec': '''
+0000   80 02 7D 71 01 28 55 0E 43 6F 6E 74 65 6E 74 2D    ..}q.(U.Content-
+0010   4C 65 6E 67 74 68 71 02 55 02 38 34 55 04 6E 61    Lengthq.U.84U.na
+0020   6D 65 71 03 55 12 2F 41 55 54 48 5F 74 65 73 74    meq.U./AUTH_test
+0030   2F E2 98 83 2F E2 98 83 71 04 58 1E 00 00 00 58    /.../...q.X....X
+0040   2D 4F 62 6A 65 63 74 2D 53 79 73 6D 65 74 61 2D    -Object-Sysmeta-
+0050   45 63 2D 46 72 61 67 2D 49 6E 64 65 78 71 05 55    Ec-Frag-Indexq.U
+0060   01 35 55 13 58 2D 4F 62 6A 65 63 74 2D 4D 65 74    .5U.X-Object-Met
+0070   61 2D 4D 74 69 6D 65 55 11 31 36 38 32 39 35 39    a-MtimeU.1682959
+0080   38 37 34 2E 37 35 36 32 30 35 71 06 58 22 00 00    874.756205q.X"..
+0090   00 58 2D 4F 62 6A 65 63 74 2D 53 79 73 6D 65 74    .X-Object-Sysmet
+00A0   61 2D 45 63 2D 43 6F 6E 74 65 6E 74 2D 4C 65 6E    a-Ec-Content-Len
+00B0   67 74 68 71 07 55 02 31 33 71 08 58 18 00 00 00    gthq.U.13q.X....
+00C0   58 2D 4F 62 6A 65 63 74 2D 53 79 73 6D 65 74 61    X-Object-Sysmeta
+00D0   2D 45 63 2D 45 74 61 67 71 09 55 20 36 62 37 64    -Ec-Etagq.U 6b7d
+00E0   39 61 31 63 35 64 31 36 37 63 63 35 30 30 33 37    9a1c5d167cc50037
+00F0   66 32 39 66 32 39 30 62 62 33 37 35 71 0A 55 04    f29f290bb375q.U.
+0100   45 54 61 67 71 0B 55 20 65 32 66 64 34 33 30 65    ETagq.U e2fd430e
+0110   61 66 37 32 32 33 63 32 35 30 33 63 34 65 38 33    af7223c2503c4e83
+0120   30 31 63 66 66 33 37 63 71 0C 55 0B 58 2D 54 69    01cff37cq.U.X-Ti
+0130   6D 65 73 74 61 6D 70 71 0D 55 10 31 36 38 32 39    mestampq.U.16829
+0140   36 32 32 36 32 2E 31 36 31 39 39 55 11 58 2D 4F    62262.16199U.X-O
+0150   62 6A 65 63 74 2D 4D 65 74 61 2D E2 98 83 55 03    bject-Meta-...U.
+0160   E2 98 83 71 0E 58 1A 00 00 00 58 2D 4F 62 6A 65    ...q.X....X-Obje
+0170   63 74 2D 53 79 73 6D 65 74 61 2D 45 63 2D 53 63    ct-Sysmeta-Ec-Sc
+0180   68 65 6D 65 71 0F 55 1A 6C 69 62 65 72 61 73 75    hemeq.U.liberasu
+0190   72 65 63 6F 64 65 5F 72 73 5F 76 61 6E 64 20 34    recode_rs_vand 4
+01A0   2B 32 71 10 55 0C 43 6F 6E 74 65 6E 74 2D 54 79    +2q.U.Content-Ty
+01B0   70 65 71 11 55 18 61 70 70 6C 69 63 61 74 69 6F    peq.U.applicatio
+01C0   6E 2F 6F 63 74 65 74 2D 73 74 72 65 61 6D 71 12    n/octet-streamq.
+01D0   58 20 00 00 00 58 2D 4F 62 6A 65 63 74 2D 53 79    X ...X-Object-Sy
+01E0   73 6D 65 74 61 2D 45 63 2D 53 65 67 6D 65 6E 74    smeta-Ec-Segment
+01F0   2D 53 69 7A 65 71 13 55 07 31 30 34 38 35 37 36    -Sizeq.U.1048576
+0200   71 14 75 2E                                        q.u.
+            ''',
+            'python_2.7.18_swift_2.23_replicated': '''
+0000   80 02 7D 71 01 28 55 0E 43 6F 6E 74 65 6E 74 2D    ..}q.(U.Content-
+0010   4C 65 6E 67 74 68 71 02 55 02 31 33 71 03 55 04    Lengthq.U.13q.U.
+0020   6E 61 6D 65 71 04 55 12 2F 41 55 54 48 5F 74 65    nameq.U./AUTH_te
+0030   73 74 2F E2 98 83 2F E2 98 83 71 05 55 0C 43 6F    st/.../...q.U.Co
+0040   6E 74 65 6E 74 2D 54 79 70 65 71 06 55 18 61 70    ntent-Typeq.U.ap
+0050   70 6C 69 63 61 74 69 6F 6E 2F 6F 63 74 65 74 2D    plication/octet-
+0060   73 74 72 65 61 6D 71 07 55 04 45 54 61 67 71 08    streamq.U.ETagq.
+0070   55 20 36 62 37 64 39 61 31 63 35 64 31 36 37 63    U 6b7d9a1c5d167c
+0080   63 35 30 30 33 37 66 32 39 66 32 39 30 62 62 33    c50037f29f290bb3
+0090   37 35 71 09 55 0B 58 2D 54 69 6D 65 73 74 61 6D    75q.U.X-Timestam
+00A0   70 71 0A 55 10 31 36 38 32 39 36 33 32 30 39 2E    pq.U.1682963209.
+00B0   38 32 32 37 32 71 0B 55 11 58 2D 4F 62 6A 65 63    82272q.U.X-Objec
+00C0   74 2D 4D 65 74 61 2D E2 98 83 71 0C 55 03 E2 98    t-Meta-...q.U...
+00D0   83 71 0D 55 13 58 2D 4F 62 6A 65 63 74 2D 4D 65    .q.U.X-Object-Me
+00E0   74 61 2D 4D 74 69 6D 65 71 0E 55 11 31 36 38 32    ta-Mtimeq.U.1682
+00F0   39 35 39 38 37 34 2E 37 35 36 32 30 35 71 0F 75    959874.756205q.u
+0100   2E                                                 .
+            ''',
+            'python_3.10.6_swift_2.23_replicated': '''
+0000   80 02 7D 71 00 28 63 5F 63 6F 64 65 63 73 0A 65    ..}q.(c_codecs.e
+0010   6E 63 6F 64 65 0A 71 01 58 0B 00 00 00 58 2D 54    ncode.q.X....X-T
+0020   69 6D 65 73 74 61 6D 70 71 02 58 06 00 00 00 6C    imestampq.X....l
+0030   61 74 69 6E 31 71 03 86 71 04 52 71 05 68 01 58    atin1q..q.Rq.h.X
+0040   10 00 00 00 31 36 38 32 39 36 33 30 31 37 2E 31    ....1682963017.1
+0050   30 34 37 32 71 06 68 03 86 71 07 52 71 08 68 01    0472q.h..q.Rq.h.
+0060   58 0C 00 00 00 43 6F 6E 74 65 6E 74 2D 54 79 70    X....Content-Typ
+0070   65 71 09 68 03 86 71 0A 52 71 0B 68 01 58 18 00    eq.h..q.Rq.h.X..
+0080   00 00 61 70 70 6C 69 63 61 74 69 6F 6E 2F 6F 63    ..application/oc
+0090   74 65 74 2D 73 74 72 65 61 6D 71 0C 68 03 86 71    tet-streamq.h..q
+00A0   0D 52 71 0E 68 01 58 0E 00 00 00 43 6F 6E 74 65    .Rq.h.X....Conte
+00B0   6E 74 2D 4C 65 6E 67 74 68 71 0F 68 03 86 71 10    nt-Lengthq.h..q.
+00C0   52 71 11 68 01 58 02 00 00 00 31 33 71 12 68 03    Rq.h.X....13q.h.
+00D0   86 71 13 52 71 14 68 01 58 04 00 00 00 45 54 61    .q.Rq.h.X....ETa
+00E0   67 71 15 68 03 86 71 16 52 71 17 68 01 58 20 00    gq.h..q.Rq.h.X .
+00F0   00 00 36 62 37 64 39 61 31 63 35 64 31 36 37 63    ..6b7d9a1c5d167c
+0100   63 35 30 30 33 37 66 32 39 66 32 39 30 62 62 33    c50037f29f290bb3
+0110   37 35 71 18 68 03 86 71 19 52 71 1A 68 01 58 13    75q.h..q.Rq.h.X.
+0120   00 00 00 58 2D 4F 62 6A 65 63 74 2D 4D 65 74 61    ...X-Object-Meta
+0130   2D 4D 74 69 6D 65 71 1B 68 03 86 71 1C 52 71 1D    -Mtimeq.h..q.Rq.
+0140   68 01 58 11 00 00 00 31 36 38 32 39 35 39 38 37    h.X....168295987
+0150   34 2E 37 35 36 32 30 35 71 1E 68 03 86 71 1F 52    4.756205q.h..q.R
+0160   71 20 68 01 58 1A 00 00 00 58 2D 4F 62 6A 65 63    q h.X....X-Objec
+0170   74 2D 4D 65 74 61 2D C3 83 C2 A2 C3 82 C2 98 C3    t-Meta-.........
+0180   82 C2 83 71 21 68 03 86 71 22 52 71 23 68 01 58    ...q!h..q"Rq#h.X
+0190   0C 00 00 00 C3 83 C2 A2 C3 82 C2 98 C3 82 C2 83    ................
+01A0   71 24 68 03 86 71 25 52 71 26 68 01 58 04 00 00    q$h..q%Rq&h.X...
+01B0   00 6E 61 6D 65 71 27 68 03 86 71 28 52 71 29 68    .nameq'h..q(Rq)h
+01C0   01 58 18 00 00 00 2F 41 55 54 48 5F 74 65 73 74    .X..../AUTH_test
+01D0   2F C3 A2 C2 98 C2 83 2F C3 A2 C2 98 C2 83 71 2A    /....../......q*
+01E0   68 03 86 71 2B 52 71 2C 75 2E                      h..q+Rq,u.
+            ''',
+            'python_2.7.18_swift_2.23_ec': '''
+0000   80 02 7D 71 01 28 55 0E 43 6F 6E 74 65 6E 74 2D    ..}q.(U.Content-
+0010   4C 65 6E 67 74 68 71 02 55 02 38 34 71 03 55 04    Lengthq.U.84q.U.
+0020   6E 61 6D 65 71 04 55 12 2F 41 55 54 48 5F 74 65    nameq.U./AUTH_te
+0030   73 74 2F E2 98 83 2F E2 98 83 71 05 55 1E 58 2D    st/.../...q.U.X-
+0040   4F 62 6A 65 63 74 2D 53 79 73 6D 65 74 61 2D 45    Object-Sysmeta-E
+0050   63 2D 46 72 61 67 2D 49 6E 64 65 78 55 01 35 55    c-Frag-IndexU.5U
+0060   0C 43 6F 6E 74 65 6E 74 2D 54 79 70 65 71 06 55    .Content-Typeq.U
+0070   18 61 70 70 6C 69 63 61 74 69 6F 6E 2F 6F 63 74    .application/oct
+0080   65 74 2D 73 74 72 65 61 6D 71 07 55 22 58 2D 4F    et-streamq.U"X-O
+0090   62 6A 65 63 74 2D 53 79 73 6D 65 74 61 2D 45 63    bject-Sysmeta-Ec
+00A0   2D 43 6F 6E 74 65 6E 74 2D 4C 65 6E 67 74 68 55    -Content-LengthU
+00B0   02 31 33 71 08 55 18 58 2D 4F 62 6A 65 63 74 2D    .13q.U.X-Object-
+00C0   53 79 73 6D 65 74 61 2D 45 63 2D 45 74 61 67 55    Sysmeta-Ec-EtagU
+00D0   20 36 62 37 64 39 61 31 63 35 64 31 36 37 63 63     6b7d9a1c5d167cc
+00E0   35 30 30 33 37 66 32 39 66 32 39 30 62 62 33 37    50037f29f290bb37
+00F0   35 71 09 55 04 45 54 61 67 71 0A 55 20 65 32 66    5q.U.ETagq.U e2f
+0100   64 34 33 30 65 61 66 37 32 32 33 63 32 35 30 33    d430eaf7223c2503
+0110   63 34 65 38 33 30 31 63 66 66 33 37 63 71 0B 55    c4e8301cff37cq.U
+0120   0B 58 2D 54 69 6D 65 73 74 61 6D 70 71 0C 55 10    .X-Timestampq.U.
+0130   31 36 38 32 39 36 33 31 33 30 2E 33 35 39 38 36    1682963130.35986
+0140   71 0D 55 11 58 2D 4F 62 6A 65 63 74 2D 4D 65 74    q.U.X-Object-Met
+0150   61 2D E2 98 83 71 0E 55 03 E2 98 83 71 0F 55 1A    a-...q.U....q.U.
+0160   58 2D 4F 62 6A 65 63 74 2D 53 79 73 6D 65 74 61    X-Object-Sysmeta
+0170   2D 45 63 2D 53 63 68 65 6D 65 55 1A 6C 69 62 65    -Ec-SchemeU.libe
+0180   72 61 73 75 72 65 63 6F 64 65 5F 72 73 5F 76 61    rasurecode_rs_va
+0190   6E 64 20 34 2B 32 71 10 55 13 58 2D 4F 62 6A 65    nd 4+2q.U.X-Obje
+01A0   63 74 2D 4D 65 74 61 2D 4D 74 69 6D 65 71 11 55    ct-Meta-Mtimeq.U
+01B0   11 31 36 38 32 39 35 39 38 37 34 2E 37 35 36 32    .1682959874.7562
+01C0   30 35 71 12 55 20 58 2D 4F 62 6A 65 63 74 2D 53    05q.U X-Object-S
+01D0   79 73 6D 65 74 61 2D 45 63 2D 53 65 67 6D 65 6E    ysmeta-Ec-Segmen
+01E0   74 2D 53 69 7A 65 55 07 31 30 34 38 35 37 36 71    t-SizeU.1048576q
+01F0   13 75 2E                                           .u.
+            ''',
+            'python_3.10.6_swift_2.23_ec': '''
+0000   80 02 7D 71 00 28 63 5F 63 6F 64 65 63 73 0A 65    ..}q.(c_codecs.e
+0010   6E 63 6F 64 65 0A 71 01 58 0B 00 00 00 58 2D 54    ncode.q.X....X-T
+0020   69 6D 65 73 74 61 6D 70 71 02 58 06 00 00 00 6C    imestampq.X....l
+0030   61 74 69 6E 31 71 03 86 71 04 52 71 05 68 01 58    atin1q..q.Rq.h.X
+0040   10 00 00 00 31 36 38 32 39 36 32 39 35 35 2E 33    ....1682962955.3
+0050   37 35 34 36 71 06 68 03 86 71 07 52 71 08 68 01    7546q.h..q.Rq.h.
+0060   58 0C 00 00 00 43 6F 6E 74 65 6E 74 2D 54 79 70    X....Content-Typ
+0070   65 71 09 68 03 86 71 0A 52 71 0B 68 01 58 18 00    eq.h..q.Rq.h.X..
+0080   00 00 61 70 70 6C 69 63 61 74 69 6F 6E 2F 6F 63    ..application/oc
+0090   74 65 74 2D 73 74 72 65 61 6D 71 0C 68 03 86 71    tet-streamq.h..q
+00A0   0D 52 71 0E 68 01 58 0E 00 00 00 43 6F 6E 74 65    .Rq.h.X....Conte
+00B0   6E 74 2D 4C 65 6E 67 74 68 71 0F 68 03 86 71 10    nt-Lengthq.h..q.
+00C0   52 71 11 68 01 58 02 00 00 00 38 34 71 12 68 03    Rq.h.X....84q.h.
+00D0   86 71 13 52 71 14 68 01 58 04 00 00 00 45 54 61    .q.Rq.h.X....ETa
+00E0   67 71 15 68 03 86 71 16 52 71 17 68 01 58 20 00    gq.h..q.Rq.h.X .
+00F0   00 00 65 32 66 64 34 33 30 65 61 66 37 32 32 33    ..e2fd430eaf7223
+0100   63 32 35 30 33 63 34 65 38 33 30 31 63 66 66 33    c2503c4e8301cff3
+0110   37 63 71 18 68 03 86 71 19 52 71 1A 68 01 58 13    7cq.h..q.Rq.h.X.
+0120   00 00 00 58 2D 4F 62 6A 65 63 74 2D 4D 65 74 61    ...X-Object-Meta
+0130   2D 4D 74 69 6D 65 71 1B 68 03 86 71 1C 52 71 1D    -Mtimeq.h..q.Rq.
+0140   68 01 58 11 00 00 00 31 36 38 32 39 35 39 38 37    h.X....168295987
+0150   34 2E 37 35 36 32 30 35 71 1E 68 03 86 71 1F 52    4.756205q.h..q.R
+0160   71 20 68 01 58 1A 00 00 00 58 2D 4F 62 6A 65 63    q h.X....X-Objec
+0170   74 2D 4D 65 74 61 2D C3 83 C2 A2 C3 82 C2 98 C3    t-Meta-.........
+0180   82 C2 83 71 21 68 03 86 71 22 52 71 23 68 01 58    ...q!h..q"Rq#h.X
+0190   0C 00 00 00 C3 83 C2 A2 C3 82 C2 98 C3 82 C2 83    ................
+01A0   71 24 68 03 86 71 25 52 71 26 68 01 58 18 00 00    q$h..q%Rq&h.X...
+01B0   00 58 2D 4F 62 6A 65 63 74 2D 53 79 73 6D 65 74    .X-Object-Sysmet
+01C0   61 2D 45 63 2D 45 74 61 67 71 27 68 03 86 71 28    a-Ec-Etagq'h..q(
+01D0   52 71 29 68 01 58 20 00 00 00 36 62 37 64 39 61    Rq)h.X ...6b7d9a
+01E0   31 63 35 64 31 36 37 63 63 35 30 30 33 37 66 32    1c5d167cc50037f2
+01F0   39 66 32 39 30 62 62 33 37 35 71 2A 68 03 86 71    9f290bb375q*h..q
+0200   2B 52 71 2C 68 01 58 22 00 00 00 58 2D 4F 62 6A    +Rq,h.X"...X-Obj
+0210   65 63 74 2D 53 79 73 6D 65 74 61 2D 45 63 2D 43    ect-Sysmeta-Ec-C
+0220   6F 6E 74 65 6E 74 2D 4C 65 6E 67 74 68 71 2D 68    ontent-Lengthq-h
+0230   03 86 71 2E 52 71 2F 68 01 58 02 00 00 00 31 33    ..q.Rq/h.X....13
+0240   71 30 68 03 86 71 31 52 71 32 68 01 58 1E 00 00    q0h..q1Rq2h.X...
+0250   00 58 2D 4F 62 6A 65 63 74 2D 53 79 73 6D 65 74    .X-Object-Sysmet
+0260   61 2D 45 63 2D 46 72 61 67 2D 49 6E 64 65 78 71    a-Ec-Frag-Indexq
+0270   33 68 03 86 71 34 52 71 35 68 01 58 01 00 00 00    3h..q4Rq5h.X....
+0280   35 71 36 68 03 86 71 37 52 71 38 68 01 58 1A 00    5q6h..q7Rq8h.X..
+0290   00 00 58 2D 4F 62 6A 65 63 74 2D 53 79 73 6D 65    ..X-Object-Sysme
+02A0   74 61 2D 45 63 2D 53 63 68 65 6D 65 71 39 68 03    ta-Ec-Schemeq9h.
+02B0   86 71 3A 52 71 3B 68 01 58 1A 00 00 00 6C 69 62    .q:Rq;h.X....lib
+02C0   65 72 61 73 75 72 65 63 6F 64 65 5F 72 73 5F 76    erasurecode_rs_v
+02D0   61 6E 64 20 34 2B 32 71 3C 68 03 86 71 3D 52 71    and 4+2q<h..q=Rq
+02E0   3E 68 01 58 20 00 00 00 58 2D 4F 62 6A 65 63 74    >h.X ...X-Object
+02F0   2D 53 79 73 6D 65 74 61 2D 45 63 2D 53 65 67 6D    -Sysmeta-Ec-Segm
+0300   65 6E 74 2D 53 69 7A 65 71 3F 68 03 86 71 40 52    ent-Sizeq?h..q@R
+0310   71 41 68 01 58 07 00 00 00 31 30 34 38 35 37 36    qAh.X....1048576
+0320   71 42 68 03 86 71 43 52 71 44 68 01 58 04 00 00    qBh..qCRqDh.X...
+0330   00 6E 61 6D 65 71 45 68 03 86 71 46 52 71 47 68    .nameqEh..qFRqGh
+0340   01 58 18 00 00 00 2F 41 55 54 48 5F 74 65 73 74    .X..../AUTH_test
+0350   2F C3 A2 C2 98 C2 83 2F C3 A2 C2 98 C2 83 71 48    /....../......qH
+0360   68 03 86 71 49 52 71 4A 75 2E                      h..qIRqJu.
+            ''',
+        }
+
+        def raw_xattr(output):
+            return binascii.unhexlify(''.join(
+                line[7:55] for line in output.split('\n')
+            ).replace(' ', ''))
+
+        path = os.path.join(self.testdir, str(uuid.uuid4()))
+        for case, xattr_output in cases.items():
+            try:
+                to_write = raw_xattr(xattr_output)
+                with open(path, 'wb') as fp:
+                    xattr.setxattr(
+                        fp.fileno(), 'user.swift.metadata', to_write)
+                with open(path, 'rb') as fd:
+                    actual = diskfile.read_metadata(fd)
+                # name should come out as native strings
+                expected_name = b'/AUTH_test/\xe2\x98\x83/\xe2\x98\x83'
+                if not six.PY2:
+                    expected_name = expected_name.decode('utf8')
+                self.assertEqual(actual['name'], expected_name)
+                # other meta will be WSGI strings, though
+                self.assertEqual(
+                    actual['X-Object-Meta-\xe2\x98\x83'], '\xe2\x98\x83')
+            except Exception:
+                print('Failure in %s' % case, file=sys.stderr)
+                raise
+
     def test_write_read_metadata(self):
         path = os.path.join(self.testdir, str(uuid.uuid4()))
         metadata = {'name': '/a/c/o',
@@ -595,29 +825,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         # Check can write some crazy mix
         with open(path, 'wb') as fd:
             diskfile.write_metadata(fd, metadata)
-        check_metadata(as_native, str)
-
-        # mock the read path to check the write path encoded persisted metadata
-        with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
-            check_metadata(as_bytes, bytes)
-
-        # simulate a legacy diskfile that might have persisted
-        # (some) unicode metadata
-        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
-            with open(path, 'wb') as fd:
-                diskfile.write_metadata(fd, metadata)
-        # sanity check: mock read path again to see that we did persist unicode
-        with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
-            with open(path, 'rb') as fd:
-                actual = diskfile.read_metadata(fd)
-                for k, v in actual.items():
-                    if isinstance(k, six.text_type) and \
-                            k == u'X-Object-Meta-Strange':
-                        self.assertIsInstance(v, six.text_type)
-                        break
-                else:
-                    self.fail('Did not find X-Object-Meta-Strange')
-        # check that read_metadata converts binary_type
         check_metadata(as_native, str)
 
 
