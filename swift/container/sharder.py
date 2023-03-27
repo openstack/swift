@@ -1079,13 +1079,13 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             # container DB, which predicates sharding starting. But s-m-s-r and
             # auto-sharding do set epoch and then merge, so we use it to tell
             # whether sharding has been taking too long or not.
-            self.warning(broker,
-                         'Cleaving has not completed in %.2f seconds since %s.'
-                         'DB state: %s, own_shard_range state: %s, '
-                         'state count of shard ranges: %s' %
-                         (time.time() - float(own_shard_range.epoch),
-                          own_shard_range.epoch.isoformat, db_state,
-                          own_shard_range.state_text, str(state_count)))
+            self.warning(
+                broker, 'Cleaving has not completed in %.2f seconds since %s. '
+                'DB state: %s, own_shard_range state: %s, state count of '
+                'shard ranges: %s' %
+                (time.time() - float(own_shard_range.epoch),
+                 own_shard_range.epoch.isoformat, db_state,
+                 own_shard_range.state_text, str(state_count)))
 
     def _report_stats(self):
         # report accumulated stats since start of one sharder cycle
