@@ -3373,9 +3373,9 @@ class TestSharder(BaseTestSharder):
             sharder._record_sharding_progress(broker, {}, None)
         warning_lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn(
-            'Cleaving has not completed in %.2f seconds since %s.' %
-            (future_time - float(own_shard_range.epoch),
-             own_shard_range.epoch.isoformat),
+            'Cleaving has not completed in %.2f seconds since %s. DB state: '
+            'sharding' % (future_time - float(own_shard_range.epoch),
+                          own_shard_range.epoch.isoformat),
             warning_lines[0])
 
     def test_incomplete_shrinking_progress_warning_log(self):
