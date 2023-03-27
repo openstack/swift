@@ -5187,14 +5187,14 @@ class TestSharder(BaseTestSharder):
                 self.assertTrue(
                     req_headers['User-Agent'].startswith('container-sharder'))
             self.assertEqual(sharder.ring.replica_count, len(hosts))
-            return res, sharder
+            return res, sharder, hosts
 
         replicas = 3
-        res, sharder = do_test(replicas, 202, 202, 202)
+        res, sharder, _ = do_test(replicas, 202, 202, 202)
         self.assertTrue(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, 202, 202, 404)
+        res, sharder, _ = do_test(replicas, 202, 202, 404)
         self.assertTrue(res)
         self.assertEqual([True], [
             'Failed to put shard ranges' in line for line in
@@ -5203,7 +5203,7 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, 202, 202, Exception)
+        res, sharder, _ = do_test(replicas, 202, 202, Exception)
         self.assertTrue(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True], [
@@ -5212,7 +5212,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True], [
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
-        res, sharder = do_test(replicas, 202, 404, 404)
+        res, sharder, _ = do_test(replicas, 202, 404, 404)
         self.assertFalse(res)
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
@@ -5221,23 +5221,21 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, 500, 500, 500)
+        res, sharder, hosts = do_test(replicas, 500, 500, 500)
         self.assertFalse(res)
-        self.assertEqual([True, True, True], [
-            'Failed to put shard ranges' in line for line in
-            sharder.logger.get_lines_for_level('warning')])
-        self.assertEqual([True, True, True], [
-            'path: a/c, db: %s' % broker.db_file in line for line in
-            sharder.logger.get_lines_for_level('warning')])
+        self.assertEqual(set(
+            'Failed to put shard ranges to %s a/c: 500, path: a/c, db: %s' %
+            (host, broker.db_file) for host in hosts),
+            set(sharder.logger.get_lines_for_level('warning')))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, Exception, Exception, 202)
+        res, sharder, _ = do_test(replicas, Exception, Exception, 202)
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('error')])
         self.assertEqual([True, True], [
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
-        res, sharder = do_test(replicas, Exception, eventlet.Timeout(), 202)
+        res, sharder, _ = do_test(replicas, Exception, eventlet.Timeout(), 202)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
@@ -5247,11 +5245,11 @@ class TestSharder(BaseTestSharder):
             sharder.logger.get_lines_for_level('error')])
 
         replicas = 2
-        res, sharder = do_test(replicas, 202, 202)
+        res, sharder, _ = do_test(replicas, 202, 202)
         self.assertTrue(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, 202, 404)
+        res, sharder, _ = do_test(replicas, 202, 404)
         self.assertTrue(res)
         self.assertEqual([True], [
             'Failed to put shard ranges' in line for line in
@@ -5260,7 +5258,7 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, 202, Exception)
+        res, sharder, _ = do_test(replicas, 202, Exception)
         self.assertTrue(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True], [
@@ -5269,7 +5267,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True], [
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
-        res, sharder = do_test(replicas, 404, 404)
+        res, sharder, _ = do_test(replicas, 404, 404)
         self.assertFalse(res)
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
@@ -5278,16 +5276,14 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, Exception, Exception)
+        res, sharder, hosts = do_test(replicas, Exception, Exception)
         self.assertFalse(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
-        self.assertEqual([True, True], [
-            'Failed to put shard ranges' in line for line in
-            sharder.logger.get_lines_for_level('error')])
-        self.assertEqual([True, True], [
-            'path: a/c, db: %s' % broker.db_file in line for line in
-            sharder.logger.get_lines_for_level('error')])
-        res, sharder = do_test(replicas, eventlet.Timeout(), Exception)
+        self.assertEqual(set(
+            'Failed to put shard ranges to %s a/c: FakeStatus Error, '
+            'path: a/c, db: %s: ' % (host, broker.db_file) for host in hosts),
+            set(sharder.logger.get_lines_for_level('error')))
+        res, sharder, _ = do_test(replicas, eventlet.Timeout(), Exception)
         self.assertFalse(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True, True], [
@@ -5298,11 +5294,11 @@ class TestSharder(BaseTestSharder):
             sharder.logger.get_lines_for_level('error')])
 
         replicas = 4
-        res, sharder = do_test(replicas, 202, 202, 202, 202)
+        res, sharder, _ = do_test(replicas, 202, 202, 202, 202)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertTrue(res)
-        res, sharder = do_test(replicas, 202, 202, 404, 404)
+        res, sharder, _ = do_test(replicas, 202, 202, 404, 404)
         self.assertTrue(res)
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
@@ -5311,7 +5307,7 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, 202, 202, Exception, Exception)
+        res, sharder, _ = do_test(replicas, 202, 202, Exception, Exception)
         self.assertTrue(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True, True], [
@@ -5320,7 +5316,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True], [
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
-        res, sharder = do_test(replicas, 202, 404, 404, 404)
+        res, sharder, _ = do_test(replicas, 202, 404, 404, 404)
         self.assertFalse(res)
         self.assertEqual([True, True, True], [
             'Failed to put shard ranges' in line for line in
@@ -5329,7 +5325,7 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, 500, 500, 500, 202)
+        res, sharder, _ = do_test(replicas, 500, 500, 500, 202)
         self.assertFalse(res)
         self.assertEqual([True, True, True], [
             'Failed to put shard ranges' in line for line in
@@ -5338,7 +5334,7 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('warning')])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
-        res, sharder = do_test(replicas, Exception, Exception, 202, 404)
+        res, sharder, _ = do_test(replicas, Exception, Exception, 202, 404)
         self.assertFalse(res)
         self.assertEqual([True], [
             all(msg in line for msg in ('Failed to put shard ranges', '404'))
@@ -5352,7 +5348,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True], [
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
-        res, sharder = do_test(
+        res, sharder, _ = do_test(
             replicas, eventlet.Timeout(), eventlet.Timeout(), 202, 404)
         self.assertFalse(res)
         self.assertEqual([True], [
