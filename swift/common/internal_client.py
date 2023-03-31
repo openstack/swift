@@ -28,6 +28,7 @@ from zlib import compressobj
 from swift.common.exceptions import ClientException
 from swift.common.http import (HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES,
                                is_client_error, is_server_error)
+from swift.common.middleware.gatekeeper import GatekeeperMiddleware
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.swob import Request, bytes_to_wsgi
 from swift.common.utils import quote, close_if_possible, drain_and_close
@@ -144,6 +145,8 @@ class InternalClient(object):
     :param user_agent: User agent to be sent to requests to Swift.
     :param request_tries: Number of tries before InternalClient.make_request()
                           gives up.
+    :param use_replication_network: Force the client to use the replication
+        network over the cluster.
     :param global_conf: a dict of options to update the loaded proxy config.
         Options in ``global_conf`` will override those in ``conf_path`` except
         where the ``conf_path`` option is preceded by ``set``.
@@ -151,12 +154,15 @@ class InternalClient(object):
     """
 
     def __init__(self, conf_path, user_agent, request_tries,
-                 allow_modify_pipeline=False, use_replication_network=False,
-                 global_conf=None, app=None):
+                 use_replication_network=False, global_conf=None, app=None,
+                 **kwargs):
         if request_tries < 1:
             raise ValueError('request_tries must be positive')
+        # Internal clients don't use the gatekeeper and the pipeline remains
+        # static so we never allow anything to modify the proxy pipeline.
         self.app = app or loadapp(conf_path, global_conf=global_conf,
-                                  allow_modify_pipeline=allow_modify_pipeline,)
+                                  allow_modify_pipeline=False,)
+        self.check_gatekeeper_not_loaded(self.app)
         self.user_agent = \
             self.app._pipeline_final_app.backend_user_agent = user_agent
         self.request_tries = request_tries
@@ -166,6 +172,19 @@ class InternalClient(object):
         self.account_ring = self.app._pipeline_final_app.account_ring
         self.auto_create_account_prefix = \
             self.app._pipeline_final_app.auto_create_account_prefix
+
+    @staticmethod
+    def check_gatekeeper_not_loaded(app):
+        # the Gatekeeper middleware would prevent an InternalClient passing
+        # X-Backend-* headers to the proxy app, so ensure it's not present
+        try:
+            for app in app._pipeline:
+                if isinstance(app, GatekeeperMiddleware):
+                    raise ValueError(
+                        "Gatekeeper middleware is not allowed in the "
+                        "InternalClient proxy pipeline")
+        except AttributeError:
+            pass
 
     def make_request(
             self, method, path, headers, acceptable_statuses, body_file=None,

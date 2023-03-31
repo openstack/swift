@@ -30,6 +30,7 @@ from swift.common import exceptions, internal_client, request_helpers, swob, \
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
+from swift.common.middleware.gatekeeper import GatekeeperMiddleware
 
 from test.debug_logger import debug_logger
 from test.unit import with_tempdir, write_fake_ring, patch_policies
@@ -392,6 +393,21 @@ class TestInternalClient(unittest.TestCase):
                 conf_path, user_agent, request_tries=0)
         mock_loadapp.assert_not_called()
 
+        # if we load it with the gatekeeper middleware then we also get a
+        # value error
+        gate_keeper_app = GatekeeperMiddleware(app, {})
+        gate_keeper_app._pipeline_final_app = app
+        gate_keeper_app._pipeline = [gate_keeper_app, app]
+        with mock.patch.object(
+                internal_client, 'loadapp', return_value=gate_keeper_app) \
+                as mock_loadapp, self.assertRaises(ValueError) as err:
+            internal_client.InternalClient(
+                conf_path, user_agent, request_tries)
+        self.assertEqual(
+            str(err.exception),
+            ('Gatekeeper middleware is not allowed in the InternalClient '
+             'proxy pipeline'))
+
         with mock.patch.object(
                 internal_client, 'loadapp', return_value=app) as mock_loadapp:
             client = internal_client.InternalClient(
@@ -420,6 +436,51 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(user_agent, client.user_agent)
         self.assertEqual(request_tries, client.request_tries)
         self.assertTrue(client.use_replication_network)
+
+    def test_gatekeeper_not_loaded(self):
+        app = FakeSwift()
+        pipeline = [app]
+
+        class RandomMiddleware(object):
+            def __init__(self, app):
+                self.app = app
+                self._pipeline_final_app = app
+                self._pipeline = pipeline
+                self._pipeline.insert(0, self)
+
+        # if there is no Gatekeeper middleware then it's false
+        # just the final app
+        self.assertFalse(
+            internal_client.InternalClient.check_gatekeeper_not_loaded(app))
+
+        # now with a bunch of middlewares
+        app_no_gatekeeper = app
+        for i in range(5):
+            app_no_gatekeeper = RandomMiddleware(app_no_gatekeeper)
+            self.assertFalse(
+                internal_client.InternalClient.check_gatekeeper_not_loaded(
+                    app_no_gatekeeper))
+
+        # But if we put the gatekeeper on the end, it will be found
+        app_with_gatekeeper = GatekeeperMiddleware(app_no_gatekeeper, {})
+        pipeline.insert(0, app_with_gatekeeper)
+        app_with_gatekeeper._pipeline = pipeline
+        with self.assertRaises(ValueError) as err:
+            internal_client.InternalClient.check_gatekeeper_not_loaded(
+                app_with_gatekeeper)
+        self.assertEqual(str(err.exception),
+                         ('Gatekeeper middleware is not allowed in the '
+                          'InternalClient proxy pipeline'))
+
+        # even if we bury deep into the pipeline
+        for i in range(5):
+            app_with_gatekeeper = RandomMiddleware(app_with_gatekeeper)
+            with self.assertRaises(ValueError) as err:
+                internal_client.InternalClient.check_gatekeeper_not_loaded(
+                    app_with_gatekeeper)
+            self.assertEqual(str(err.exception),
+                             ('Gatekeeper middleware is not allowed in the '
+                              'InternalClient proxy pipeline'))
 
     def test_make_request_sets_user_agent(self):
         class FakeApp(FakeSwift):

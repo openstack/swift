@@ -1642,6 +1642,12 @@ class TestPipelineModification(unittest.TestCase):
             self.assertIs(app.app.app, app._pipeline_final_app)
             self.assertIs(app.app.app, app.app._pipeline_final_app)
             self.assertIs(app.app.app, app.app.app._pipeline_final_app)
+            exp_pipeline = [app, app.app, app.app.app]
+            self.assertEqual(exp_pipeline, app._pipeline)
+            self.assertEqual(exp_pipeline, app.app._pipeline)
+            self.assertEqual(exp_pipeline, app.app.app._pipeline)
+            self.assertIs(app._pipeline, app.app._pipeline)
+            self.assertIs(app._pipeline, app.app.app._pipeline)
 
             # make sure you can turn off the pipeline modification if you want
             def blow_up(*_, **__):
