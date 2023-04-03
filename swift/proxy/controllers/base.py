@@ -1848,16 +1848,22 @@ class Controller(object):
         :param transfer: If True, transfer headers from original client request
         :returns: a dictionary of headers
         """
-        # Use the additional headers first so they don't overwrite the headers
-        # we require.
-        headers = HeaderKeyDict(additional) if additional else HeaderKeyDict()
-        if transfer:
-            self.transfer_headers(orig_req.headers, headers)
-        headers.setdefault('x-timestamp', Timestamp.now().internal)
+        headers = HeaderKeyDict()
         if orig_req:
+            headers.update((k.lower(), v)
+                           for k, v in orig_req.headers.items()
+                           if k.lower().startswith('x-backend-'))
             referer = orig_req.as_referer()
         else:
             referer = ''
+        # additional headers can override x-backend-* headers from orig_req
+        if additional:
+            headers.update(additional)
+        if orig_req and transfer:
+            # transfer headers from orig_req can override additional headers
+            self.transfer_headers(orig_req.headers, headers)
+        headers.setdefault('x-timestamp', Timestamp.now().internal)
+        # orig_req and additional headers cannot override the following...
         headers['x-trans-id'] = self.trans_id
         headers['connection'] = 'close'
         headers['user-agent'] = self.app.backend_user_agent
