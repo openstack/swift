@@ -382,13 +382,14 @@ class TestAccountQuota(unittest.TestCase):
         self.assertEqual(res.status_int, 400)
         self.assertEqual(self.app.calls, [])
 
+    @patch_policies
     def test_invalid_policy_quota(self):
         app = account_quotas.AccountQuotaMiddleware(self.app)
         cache = FakeCache(None)
         req = Request.blank('/v1/a', environ={
             'REQUEST_METHOD': 'POST',
             'swift.cache': cache,
-            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_POLICY_0': 'abc',
+            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_NULO': 'abc',
             'reseller_request': True})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 400)
@@ -405,13 +406,14 @@ class TestAccountQuota(unittest.TestCase):
         self.assertEqual(res.status_int, 403)
         self.assertEqual(self.app.calls, [])
 
+    @patch_policies
     def test_valid_policy_quota_admin(self):
         app = account_quotas.AccountQuotaMiddleware(self.app)
         cache = FakeCache(None)
         req = Request.blank('/v1/a', environ={
             'REQUEST_METHOD': 'POST',
             'swift.cache': cache,
-            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_POLICY_0': '100'})
+            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_UNU': '100'})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 403)
         self.assertEqual(self.app.calls, [])
@@ -430,13 +432,14 @@ class TestAccountQuota(unittest.TestCase):
             ('POST', '/v1/a', {'Host': 'localhost:80',
                                'X-Account-Meta-Quota-Bytes': '100'})])
 
+    @patch_policies
     def test_valid_policy_quota_reseller(self):
         app = account_quotas.AccountQuotaMiddleware(self.app)
         cache = FakeCache(None)
         req = Request.blank('/v1/a', environ={
             'REQUEST_METHOD': 'POST',
             'swift.cache': cache,
-            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_POLICY_0': '100',
+            'HTTP_X_ACCOUNT_QUOTA_BYTES_POLICY_NULO': '100',
             'reseller_request': True})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 200)
