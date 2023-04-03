@@ -46,6 +46,8 @@ class S3ApiBase(unittest.TestCase):
             logging.getLogger('boto').setLevel(logging.DEBUG)
 
     def setUp(self):
+        if not tf.config.get('s3_access_key'):
+            raise SkipTest('no s3api user configured')
         if 's3api' not in tf.cluster_info:
             raise SkipTest('s3api middleware is not enabled')
         if tf.config.get('account'):
@@ -83,6 +85,8 @@ class S3ApiBase(unittest.TestCase):
 
 class S3ApiBaseBoto3(S3ApiBase):
     def setUp(self):
+        if not tf.config.get('s3_access_key'):
+            raise SkipTest('no s3api user configured')
         if 's3api' not in tf.cluster_info:
             raise SkipTest('s3api middleware is not enabled')
         try:
