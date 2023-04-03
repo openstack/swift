@@ -561,44 +561,46 @@ class TestObjectVersioning(Base):
             break
         self.assertEqual(backup_file.read(), b"never argue with the data")
 
-        # user3 (some random user with no access to any of account1)
-        # tries to read from versioned container
-        self.assertRaises(ResponseError, backup_file.read,
-                          cfg={'use_token': self.env.storage_token3})
+        if not tf.skip3:
+            # user3 (some random user with no access to any of account1)
+            # tries to read from versioned container
+            self.assertRaises(ResponseError, backup_file.read,
+                              cfg={'use_token': self.env.storage_token3})
 
-        # create an object user3 can try to copy
-        a2_container = self.env.account2.container(Utils.create_name())
-        a2_container.create(
-            hdrs={'X-Container-Read': self.env.conn3.user_acl},
-            cfg={'use_token': self.env.storage_token2})
-        a2_obj = a2_container.file(Utils.create_name())
-        self.assertTrue(a2_obj.write(b"unused",
-                        cfg={'use_token': self.env.storage_token2}))
+            # create an object user3 can try to copy
+            a2_container = self.env.account2.container(Utils.create_name())
+            a2_container.create(
+                hdrs={'X-Container-Read': self.env.conn3.user_acl},
+                cfg={'use_token': self.env.storage_token2})
+            a2_obj = a2_container.file(Utils.create_name())
+            self.assertTrue(a2_obj.write(b"unused",
+                            cfg={'use_token': self.env.storage_token2}))
 
-        # user3 cannot write, delete, or copy to/from source container either
-        number_of_versions = versions_container.info()['object_count']
-        self.assertRaises(ResponseError, versioned_obj.write,
-                          b"some random user trying to write data",
-                          cfg={'use_token': self.env.storage_token3})
-        self.assertEqual(number_of_versions,
-                         versions_container.info()['object_count'])
-        self.assertRaises(ResponseError, versioned_obj.delete,
-                          cfg={'use_token': self.env.storage_token3})
-        self.assertEqual(number_of_versions,
-                         versions_container.info()['object_count'])
-        self.assertRaises(
-            ResponseError, versioned_obj.write,
-            hdrs={'X-Copy-From': '%s/%s' % (a2_container.name, a2_obj.name),
-                  'X-Copy-From-Account': self.env.conn2.account_name},
-            cfg={'use_token': self.env.storage_token3})
-        self.assertEqual(number_of_versions,
-                         versions_container.info()['object_count'])
-        self.assertRaises(
-            ResponseError, a2_obj.copy_account,
-            self.env.conn.account_name, container.name, obj_name,
-            cfg={'use_token': self.env.storage_token3})
-        self.assertEqual(number_of_versions,
-                         versions_container.info()['object_count'])
+            # user3 also cannot write, delete, or copy to/from source container
+            number_of_versions = versions_container.info()['object_count']
+            self.assertRaises(ResponseError, versioned_obj.write,
+                              b"some random user trying to write data",
+                              cfg={'use_token': self.env.storage_token3})
+            self.assertEqual(number_of_versions,
+                             versions_container.info()['object_count'])
+            self.assertRaises(ResponseError, versioned_obj.delete,
+                              cfg={'use_token': self.env.storage_token3})
+            self.assertEqual(number_of_versions,
+                             versions_container.info()['object_count'])
+            self.assertRaises(
+                ResponseError, versioned_obj.write,
+                hdrs={
+                    'X-Copy-From': '%s/%s' % (a2_container.name, a2_obj.name),
+                    'X-Copy-From-Account': self.env.conn2.account_name},
+                cfg={'use_token': self.env.storage_token3})
+            self.assertEqual(number_of_versions,
+                             versions_container.info()['object_count'])
+            self.assertRaises(
+                ResponseError, a2_obj.copy_account,
+                self.env.conn.account_name, container.name, obj_name,
+                cfg={'use_token': self.env.storage_token3})
+            self.assertEqual(number_of_versions,
+                             versions_container.info()['object_count'])
 
         # user2 can't read or delete from versions-location
         self.assertRaises(ResponseError, backup_file.read,
@@ -615,7 +617,8 @@ class TestObjectVersioning(Base):
 
         # tear-down since we create these containers here
         # and not in self.env
-        a2_container.delete_recursive()
+        if not tf.skip3:
+            a2_container.delete_recursive()
         versions_container.delete_recursive()
         container.delete_recursive()
 
