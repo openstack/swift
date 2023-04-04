@@ -148,6 +148,8 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         app = wsgi.loadapp(conf_path)
         self.assertIsInstance(app, obj_server.ObjectController)
         self.assertTrue(isinstance(app, obj_server.ObjectController))
+        # N.B. paste config loading from *file* is already case-sensitive,
+        # so, CLIENT_TIMEOUT/client_timeout are unique options
         self.assertEqual(1, app.client_timeout)
         self.assertEqual(5, app.conn_timeout)
 
@@ -298,6 +300,8 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
             use = egg:swift#proxy
             client_timeout = 2
             CLIENT_TIMEOUT = 1
+            conn_timeout = 3
+            conn_timeout = 4
             """,
         }
         _fake_rings(tempdir)
@@ -306,7 +310,9 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
             with open(path, 'wt') as fd:
                 fd.write(dedent(conf_body))
         app_config = lambda: wsgi.loadapp(tempdir)
-        self.assertDuplicateOption(app_config, 'client_timeout', 2.0)
+        # N.B. our paste conf.d parsing re-uses readconf,
+        # so, CLIENT_TIMEOUT/client_timeout are unique options
+        self.assertDuplicateOption(app_config, 'conn_timeout', 4.0)
 
     @with_tempdir
     def test_load_app_config(self, tempdir):

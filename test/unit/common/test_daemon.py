@@ -226,7 +226,8 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
             d = daemon.run_daemon(MyDaemon, conf_path)
         # my-daemon section takes priority (!?)
         self.assertEqual('2', d.conf['client_timeout'])
-        self.assertEqual('10', d.conf['conn_timeout'])
+        self.assertEqual('10', d.conf['CONN_timeout'])
+        self.assertEqual('5', d.conf['conn_timeout'])
 
     @with_tempdir
     def test_run_daemon_from_conf_file_with_duplicate_var(self, tempdir):
@@ -237,13 +238,16 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
         [my-daemon]
         CLIENT_TIMEOUT = 2
         client_timeout = 1
+        conn_timeout = 1.1
+        conn_timeout = 1.2
         """
         contents = dedent(conf_body)
         with open(conf_path, 'w') as f:
             f.write(contents)
         with mock.patch('swift.common.daemon.use_hub'):
             app_config = lambda: daemon.run_daemon(MyDaemon, tempdir)
-            self.assertDuplicateOption(app_config, 'client_timeout', '1')
+            # N.B. CLIENT_TIMEOUT/client_timeout are unique options
+            self.assertDuplicateOption(app_config, 'conn_timeout', '1.2')
 
     @with_tempdir
     def test_run_deamon_from_conf_dir(self, tempdir):
@@ -270,7 +274,8 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
             d = daemon.run_daemon(MyDaemon, tempdir)
         # my-daemon section takes priority (!?)
         self.assertEqual('2', d.conf['client_timeout'])
-        self.assertEqual('10', d.conf['conn_timeout'])
+        self.assertEqual('10', d.conf['CONN_timeout'])
+        self.assertEqual('5', d.conf['conn_timeout'])
 
     @with_tempdir
     def test_run_daemon_from_conf_dir_with_duplicate_var(self, tempdir):
@@ -283,6 +288,8 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
             [my-daemon]
             client_timeout = 2
             CLIENT_TIMEOUT = 4
+            conn_timeout = 1.1
+            conn_timeout = 1.2
             """,
         }
         for filename, conf_body in conf_files.items():
@@ -291,7 +298,8 @@ class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
                 fd.write(dedent(conf_body))
         with mock.patch('swift.common.daemon.use_hub'):
             app_config = lambda: daemon.run_daemon(MyDaemon, tempdir)
-            self.assertDuplicateOption(app_config, 'client_timeout', '4')
+            # N.B. CLIENT_TIMEOUT/client_timeout are unique options
+            self.assertDuplicateOption(app_config, 'conn_timeout', '1.2')
 
     @contextmanager
     def mock_os(self, child_worker_cycles=3):

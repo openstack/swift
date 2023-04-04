@@ -2542,6 +2542,7 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
             # values like "1%" (which we want to support for
             # fallocate_reserve).
             c = ConfigParser(defaults, interpolation=NicerInterpolation())
+    c.optionxform = str  # Don't lower-case keys
 
     if hasattr(conf_path, 'readline'):
         if hasattr(conf_path, 'seek'):
