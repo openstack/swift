@@ -1408,3 +1408,36 @@ def generate_db_path(tempdir, server_type):
     return os.path.join(
         tempdir, '%ss' % server_type, 'part', 'suffix', 'hash',
         '%s-%s.db' % (server_type, uuid4()))
+
+
+class ConfigAssertMixin(object):
+    """
+    Use this with a TestCase to get py2/3 compatible assert for DuplicateOption
+    """
+    def assertDuplicateOption(self, app_config, option_name, option_value):
+        """
+        PY3 added a DuplicateOptionError, PY2 didn't seem to care
+        """
+        if six.PY3:
+            self.assertDuplicateOptionError(app_config, option_name)
+        else:
+            self.assertDuplicateOptionOK(app_config, option_name, option_value)
+
+    def assertDuplicateOptionError(self, app_config, option_name):
+        with self.assertRaises(
+                utils.configparser.DuplicateOptionError) as ctx:
+            app_config()
+        msg = str(ctx.exception)
+        self.assertIn(option_name, msg)
+        self.assertIn('already exists', msg)
+
+    def assertDuplicateOptionOK(self, app_config, option_name, option_value):
+        app = app_config()
+        if hasattr(app, 'conf'):
+            found_value = app.conf[option_name]
+        else:
+            if hasattr(app, '_pipeline_final_app'):
+                # special case for proxy app!
+                app = app._pipeline_final_app
+            found_value = getattr(app, option_name)
+        self.assertEqual(found_value, option_value)

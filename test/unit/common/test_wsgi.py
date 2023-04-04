@@ -43,7 +43,7 @@ from swift.common.storage_policy import POLICIES
 from test import listen_zero
 from test.debug_logger import debug_logger
 from test.unit import (
-    temptree, with_tempdir, write_fake_ring, patch_policies)
+    temptree, with_tempdir, write_fake_ring, patch_policies, ConfigAssertMixin)
 
 from paste.deploy import loadwsgi
 
@@ -60,7 +60,7 @@ def _fake_rings(tmpdir):
 
 
 @patch_policies
-class TestWSGI(unittest.TestCase):
+class TestWSGI(unittest.TestCase, ConfigAssertMixin):
     """Tests for swift.common.wsgi"""
 
     def test_init_request_processor(self):
@@ -133,14 +133,38 @@ class TestWSGI(unittest.TestCase):
     def test_loadapp_from_file(self, tempdir):
         conf_path = os.path.join(tempdir, 'object-server.conf')
         conf_body = """
+        [DEFAULT]
+        CONN_timeout = 10
+        client_timeout = 1
         [app:main]
         use = egg:swift#object
+        conn_timeout = 5
+        client_timeout = 2
+        CLIENT_TIMEOUT = 3
         """
         contents = dedent(conf_body)
         with open(conf_path, 'w') as f:
             f.write(contents)
         app = wsgi.loadapp(conf_path)
         self.assertIsInstance(app, obj_server.ObjectController)
+        self.assertTrue(isinstance(app, obj_server.ObjectController))
+        self.assertEqual(1, app.client_timeout)
+        self.assertEqual(5, app.conn_timeout)
+
+    @with_tempdir
+    def test_loadapp_from_file_with_duplicate_var(self, tempdir):
+        conf_path = os.path.join(tempdir, 'object-server.conf')
+        conf_body = """
+        [app:main]
+        use = egg:swift#object
+        client_timeout = 2
+        client_timeout = 3
+        """
+        contents = dedent(conf_body)
+        with open(conf_path, 'w') as f:
+            f.write(contents)
+        app_config = lambda: wsgi.loadapp(conf_path)
+        self.assertDuplicateOption(app_config, 'client_timeout', 3.0)
 
     @with_tempdir
     def test_loadapp_from_file_with_global_conf(self, tempdir):
@@ -204,11 +228,85 @@ class TestWSGI(unittest.TestCase):
 
     def test_loadapp_from_string(self):
         conf_body = """
+        [DEFAULT]
+        CONN_timeout = 10
+        client_timeout = 1
         [app:main]
         use = egg:swift#object
+        conn_timeout = 5
+        client_timeout = 2
         """
         app = wsgi.loadapp(wsgi.ConfigString(conf_body))
         self.assertTrue(isinstance(app, obj_server.ObjectController))
+        self.assertEqual(1, app.client_timeout)
+        self.assertEqual(5, app.conn_timeout)
+
+    @with_tempdir
+    def test_loadapp_from_dir(self, tempdir):
+        conf_files = {
+            'pipeline': """
+            [pipeline:main]
+            pipeline = tempauth proxy-server
+            """,
+            'tempauth': """
+            [DEFAULT]
+            swift_dir = %s
+            random_VAR = foo
+            [filter:tempauth]
+            use = egg:swift#tempauth
+            random_var = bar
+            """ % tempdir,
+            'proxy': """
+            [DEFAULT]
+            conn_timeout = 5
+            client_timeout = 1
+            [app:proxy-server]
+            use = egg:swift#proxy
+            CONN_timeout = 10
+            client_timeout = 2
+            """,
+        }
+        _fake_rings(tempdir)
+        for filename, conf_body in conf_files.items():
+            path = os.path.join(tempdir, filename + '.conf')
+            with open(path, 'wt') as fd:
+                fd.write(dedent(conf_body))
+        app = wsgi.loadapp(tempdir)
+        # DEFAULT takes priority (!?)
+        self.assertEqual(5, app._pipeline_final_app.conn_timeout)
+        self.assertEqual(1, app._pipeline_final_app.client_timeout)
+        self.assertEqual('foo', app.app.app.app.conf['random_VAR'])
+        self.assertEqual('bar', app.app.app.app.conf['random_var'])
+
+    @with_tempdir
+    def test_loadapp_from_dir_with_duplicate_var(self, tempdir):
+        conf_files = {
+            'pipeline': """
+            [pipeline:main]
+            pipeline = tempauth proxy-server
+            """,
+            'tempauth': """
+            [DEFAULT]
+            swift_dir = %s
+            random_VAR = foo
+            [filter:tempauth]
+            use = egg:swift#tempauth
+            random_var = bar
+            """ % tempdir,
+            'proxy': """
+            [app:proxy-server]
+            use = egg:swift#proxy
+            client_timeout = 2
+            CLIENT_TIMEOUT = 1
+            """,
+        }
+        _fake_rings(tempdir)
+        for filename, conf_body in conf_files.items():
+            path = os.path.join(tempdir, filename + '.conf')
+            with open(path, 'wt') as fd:
+                fd.write(dedent(conf_body))
+        app_config = lambda: wsgi.loadapp(tempdir)
+        self.assertDuplicateOption(app_config, 'client_timeout', 2.0)
 
     @with_tempdir
     def test_load_app_config(self, tempdir):

@@ -315,7 +315,9 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
 
     logger.notice('Starting %s', os.getpid())
     try:
-        DaemonStrategy(klass(conf), logger).run(once=once, **kwargs)
+        d = klass(conf)
+        DaemonStrategy(d, logger).run(once=once, **kwargs)
     except KeyboardInterrupt:
         logger.info('User quit')
     logger.notice('Exited %s', os.getpid())
+    return d
