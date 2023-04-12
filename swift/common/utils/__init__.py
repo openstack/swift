@@ -2073,6 +2073,11 @@ class SwiftLoggerAdapter(logging.LoggerAdapter):
     process() method to accomplish anything useful.
     """
 
+    @property
+    def name(self):
+        # py3 does this for us already; add it for py2
+        return self.logger.name
+
     def get_metric_name(self, metric):
         # subclasses may override this method to annotate the metric name
         return metric

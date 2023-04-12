@@ -2204,6 +2204,36 @@ class TestUtils(unittest.TestCase):
         finally:
             base_logger.logger.removeHandler(handler)
 
+    @reset_logger_state
+    def test_nested_prefixlogger(self):
+        # setup stream logging
+        sio = StringIO()
+        base_logger = utils.get_logger(None)
+        handler = logging.StreamHandler(sio)
+        base_logger.logger.addHandler(handler)
+        inner_logger = utils.PrefixLoggerAdapter(base_logger, {})
+        inner_logger.set_prefix('one: ')
+        outer_logger = utils.PrefixLoggerAdapter(inner_logger, {})
+        outer_logger.set_prefix('two: ')
+
+        def strip_value(sio):
+            sio.seek(0)
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        try:
+            # establish base case
+            self.assertEqual(strip_value(sio), '')
+            inner_logger.info('test')
+            self.assertEqual(strip_value(sio), 'one: test\n')
+
+            outer_logger.info('test')
+            self.assertEqual(strip_value(sio), 'one: two: test\n')
+            self.assertEqual(strip_value(sio), '')
+        finally:
+            base_logger.logger.removeHandler(handler)
+
     def test_storage_directory(self):
         self.assertEqual(utils.storage_directory('objects', '1', 'ABCDEF'),
                          'objects/1/DEF/ABCDEF')
@@ -6655,6 +6685,24 @@ class TestMetricsPrefixLoggerAdapter(unittest.TestCase):
         self.assertEqual(
             [mock.call('not one.test1'), mock.call('two.test2'),
              mock.call('test3'), mock.call('test')],
+            mock_increment.call_args_list)
+
+    def test_wrapped_prefixing(self):
+        logger = utils.get_logger({}, 'logger_name')
+        adapter1 = utils.MetricsPrefixLoggerAdapter(logger, {}, 'one')
+        adapter2 = utils.MetricsPrefixLoggerAdapter(adapter1, {}, 'two')
+        self.assertEqual('logger_name', logger.name)
+        self.assertEqual('logger_name', adapter1.logger.name)
+        self.assertEqual('logger_name', adapter2.logger.name)
+
+        with mock.patch.object(logger, 'increment') as mock_increment:
+            adapter1.increment('test1')
+            adapter2.increment('test2')
+            logger.increment('test')
+        self.assertEqual(
+            [mock.call('one.test1'),
+             mock.call('one.two.test2'),
+             mock.call('test')],
             mock_increment.call_args_list)
 
 
