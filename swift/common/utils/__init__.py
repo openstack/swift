@@ -2908,6 +2908,9 @@ class ContextPool(GreenPool):
         return self
 
     def __exit__(self, type, value, traceback):
+        self.close()
+
+    def close(self):
         for coro in list(self.coroutines_running):
             coro.kill()
 

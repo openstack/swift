@@ -38,7 +38,7 @@ import random
 import sys
 
 from greenlet import GreenletExit
-from eventlet import GreenPile, sleep
+from eventlet import GreenPile
 from eventlet.queue import Queue, Empty
 from eventlet.timeout import Timeout
 
@@ -1166,14 +1166,15 @@ class ECAppIter(object):
         self.mime_boundary = None
         self.learned_content_type = None
         self.stashed_iter = None
+        self.pool = ContextPool(len(internal_parts_iters))
 
     def close(self):
-        # close down the stashed iter first so the ContextPool can
-        # cleanup the frag queue feeding coros that may be currently
+        # close down the stashed iter and shutdown the context pool to
+        # clean up the frag queue feeding coroutines that may be currently
         # executing the internal_parts_iters.
         if self.stashed_iter:
             close_if_possible(self.stashed_iter)
-        sleep()  # Give the per-frag threads a chance to clean up
+        self.pool.close()
         for it in self.internal_parts_iters:
             close_if_possible(it)
 
@@ -1531,7 +1532,7 @@ class ECAppIter(object):
                 frag_iter.close()
 
         segments_decoded = 0
-        with ContextPool(len(fragment_iters)) as pool:
+        with self.pool as pool:
             for frag_iter, queue in zip(fragment_iters, queues):
                 pool.spawn(put_fragments_in_queue, frag_iter, queue,
                            self.logger.thread_locals)
