@@ -203,7 +203,6 @@ class TestSharder(BaseTestSharder):
             'container-sharder', sharder.logger.logger.name)
         mock_ic.assert_called_once_with(
             '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
-            allow_modify_pipeline=False,
             use_replication_network=True,
             global_conf={'log_name': 'container-sharder-ic'})
 
@@ -218,7 +217,6 @@ class TestSharder(BaseTestSharder):
         sharder, mock_ic = self._do_test_init(conf, expected)
         mock_ic.assert_called_once_with(
             '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
-            allow_modify_pipeline=False,
             use_replication_network=True,
             global_conf={'log_name': 'container-sharder-ic'})
 
@@ -280,7 +278,6 @@ class TestSharder(BaseTestSharder):
         sharder, mock_ic = self._do_test_init(conf, expected)
         mock_ic.assert_called_once_with(
             '/etc/swift/my-sharder-ic.conf', 'Swift Container Sharder', 2,
-            allow_modify_pipeline=False,
             use_replication_network=True,
             global_conf={'log_name': 'container-sharder-ic'})
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
@@ -418,7 +415,6 @@ class TestSharder(BaseTestSharder):
             mock_ic.assert_called_once_with(
                 '/etc/swift/internal-client.conf',
                 'Swift Container Sharder', 3,
-                allow_modify_pipeline=False,
                 global_conf={'log_name': exp_internal_client_log_name},
                 use_replication_network=True)
 

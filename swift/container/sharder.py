@@ -896,7 +896,6 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 internal_client_conf_path,
                 'Swift Container Sharder',
                 request_tries,
-                allow_modify_pipeline=False,
                 use_replication_network=True,
                 global_conf={'log_name': '%s-ic' % conf.get(
                     'log_name', self.log_route)})

@@ -361,10 +361,14 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
         if func and allow_modify_pipeline:
             func(PipelineWrapper(ctx))
         filters = [c.create() for c in reversed(ctx.filter_contexts)]
+        pipeline = [ultimate_app]
+        ultimate_app._pipeline = pipeline
+        ultimate_app._pipeline_final_app = ultimate_app
         app = ultimate_app
-        app._pipeline_final_app = ultimate_app
         for filter_app in filters:
-            app = filter_app(app)
+            app = filter_app(pipeline[0])
+            pipeline.insert(0, app)
+            app._pipeline = pipeline
             app._pipeline_final_app = ultimate_app
         return app
     return ctx.create()

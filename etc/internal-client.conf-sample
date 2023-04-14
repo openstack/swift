@@ -26,6 +26,7 @@
 # log_statsd_metric_prefix =
 
 [pipeline:main]
+# Note: gatekeeper middleware is not allowed in the internal client pipeline
 pipeline = catch_errors proxy-logging cache symlink proxy-server
 
 [app:proxy-server]
