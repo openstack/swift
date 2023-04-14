@@ -1464,6 +1464,7 @@ class TestSsyncReplication(TestBaseSsync):
 
         # o5 is on tx with meta, rx is in sync with data and meta
         t5 = next(self.ts_iter)
+        t5 = utils.Timestamp(t5, offset=1)  # note: use an offset for this test
         rx_objs['o5'] = self._create_ondisk_files(rx_df_mgr, 'o5', policy, t5)
         tx_objs['o5'] = self._create_ondisk_files(tx_df_mgr, 'o5', policy, t5)
         t5_meta = next(self.ts_iter)
