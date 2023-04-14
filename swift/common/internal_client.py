@@ -160,6 +160,8 @@ class InternalClient(object):
             raise ValueError('request_tries must be positive')
         # Internal clients don't use the gatekeeper and the pipeline remains
         # static so we never allow anything to modify the proxy pipeline.
+        if kwargs.get('allow_modify_pipeline'):
+            raise ValueError("'allow_modify_pipeline' is no longer supported")
         self.app = app or loadapp(conf_path, global_conf=global_conf,
                                   allow_modify_pipeline=False,)
         self.check_gatekeeper_not_loaded(self.app)

@@ -437,6 +437,27 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(request_tries, client.request_tries)
         self.assertTrue(client.use_replication_network)
 
+    def test_init_allow_modify_pipeline(self):
+        conf_path = 'some_path'
+        app = FakeSwift()
+        user_agent = 'some_user_agent'
+
+        with mock.patch.object(
+                internal_client, 'loadapp', return_value=app) as mock_loadapp,\
+                self.assertRaises(ValueError) as cm:
+            internal_client.InternalClient(
+                conf_path, user_agent, 1, allow_modify_pipeline=True)
+        mock_loadapp.assert_not_called()
+        self.assertIn("'allow_modify_pipeline' is no longer supported",
+                      str(cm.exception))
+
+        with mock.patch.object(
+                internal_client, 'loadapp', return_value=app) as mock_loadapp:
+            internal_client.InternalClient(
+                conf_path, user_agent, 1, allow_modify_pipeline=False)
+        mock_loadapp.assert_called_once_with(
+            conf_path, allow_modify_pipeline=False, global_conf=None)
+
     def test_gatekeeper_not_loaded(self):
         app = FakeSwift()
         pipeline = [app]
