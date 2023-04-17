@@ -123,6 +123,10 @@ class MemcacheConnectionError(Exception):
     pass
 
 
+class MemcacheIncrNotFoundError(MemcacheConnectionError):
+    pass
+
+
 class MemcachePoolTimeout(Timeout):
     pass
 
@@ -305,6 +309,12 @@ class MemcacheRing(object):
             # A new connection will be created the next time it is retrieved
             self._return_conn(server, None, None)
 
+        if isinstance(e, MemcacheIncrNotFoundError):
+            # these errors can be caused by other greenthreads not yielding to
+            # the incr greenthread often enough, rather than a server problem,
+            # so don't error limit the server
+            return
+
         if self._error_limit_time <= 0 or self._error_limit_duration <= 0:
             return
 
@@ -464,6 +474,23 @@ class MemcacheRing(object):
             raise MemcacheConnectionError(
                 "No memcached connections succeeded.")
 
+    def _incr_or_decr(self, fp, sock, cmd, delta):
+        sock.sendall(b' '.join([cmd.command, cmd.hash_key, delta]) + b'\r\n')
+        line = fp.readline().strip().split()
+        if not line:
+            raise MemcacheConnectionError('incomplete read')
+        if line[0].upper() == b'NOT_FOUND':
+            return None
+        return int(line[0].strip())
+
+    def _add(self, fp, sock, cmd, add_val, timeout):
+        sock.sendall(b' '.join([
+            b'add', cmd.hash_key, b'0', str(timeout).encode('ascii'),
+            str(len(add_val)).encode('ascii')
+        ]) + b'\r\n' + add_val + b'\r\n')
+        line = fp.readline().strip().split()
+        return None if line[0].upper() == b'NOT_STORED' else int(add_val)
+
     @memcached_timing_stats(sample_rate=TIMING_SAMPLE_RATE_LOW)
     def incr(self, key, delta=1, time=0):
         """
@@ -483,39 +510,28 @@ class MemcacheRing(object):
         :raises MemcacheConnectionError:
         """
         cmd = MemcacheCommand('incr' if delta >= 0 else 'decr', key)
-        delta = str(abs(int(delta))).encode('ascii')
+        delta_val = str(abs(int(delta))).encode('ascii')
         timeout = sanitize_timeout(time)
         for (server, fp, sock) in self._get_conns(cmd):
             conn_start_time = tm.time()
             try:
                 with Timeout(self._io_timeout):
-                    sock.sendall(b' '.join([
-                        cmd.command, cmd.hash_key, delta]) + b'\r\n')
-                    line = fp.readline().strip().split()
-                    if not line:
-                        raise MemcacheConnectionError('incomplete read')
-                    if line[0].upper() == b'NOT_FOUND':
-                        add_val = delta
-                        if cmd.command == b'decr':
-                            add_val = b'0'
-                        sock.sendall(
-                            b' '.join(
-                                [b'add', cmd.hash_key, b'0',
-                                 str(timeout).encode('ascii'),
-                                 str(len(add_val)).encode('ascii')
-                                 ]) + b'\r\n' + add_val + b'\r\n')
-                        line = fp.readline().strip().split()
-                        if line[0].upper() == b'NOT_STORED':
-                            sock.sendall(b' '.join([
-                                cmd.command, cmd.hash_key, delta]) + b'\r\n')
-                            line = fp.readline().strip().split()
-                            ret = int(line[0].strip())
-                        else:
-                            ret = int(add_val)
-                    else:
-                        ret = int(line[0].strip())
+                    new_val = self._incr_or_decr(fp, sock, cmd, delta_val)
+                    if new_val is None:
+                        add_val = b'0' if cmd.method == 'decr' else delta_val
+                        new_val = self._add(fp, sock, cmd, add_val, timeout)
+                        if new_val is None:
+                            new_val = self._incr_or_decr(
+                                fp, sock, cmd, delta_val)
+                            if new_val is None:
+                                # This can happen if this thread takes more
+                                # than the TTL to get from the first failed
+                                # incr to the second incr, during which time
+                                # the key was concurrently added and expired.
+                                raise MemcacheIncrNotFoundError(
+                                    'expired ttl=%s' % time)
                     self._return_conn(server, fp, sock)
-                    return ret
+                    return new_val
             except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, cmd, conn_start_time,
                                          sock=sock, fp=fp)
