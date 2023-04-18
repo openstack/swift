@@ -1437,19 +1437,21 @@ class TestSsyncReplication(TestBaseSsync):
         rx_objs['o2'] = self._create_ondisk_files(rx_df_mgr, 'o2', policy, t2)
         expected_subreqs['POST'].append('o2')
 
-        # o3 is on tx with meta, rx has newer data but no meta
+        # o3 is on tx with meta, rx has newer data but no meta,
+        # meta timestamp has an offset
         t3a = next(self.ts_iter)
         tx_objs['o3'] = self._create_ondisk_files(tx_df_mgr, 'o3', policy, t3a)
         t3b = next(self.ts_iter)
         rx_objs['o3'] = self._create_ondisk_files(rx_df_mgr, 'o3', policy, t3b)
         t3_meta = next(self.ts_iter)
+        t3_meta = utils.Timestamp(t3_meta, offset=2)
         metadata = {'X-Timestamp': t3_meta.internal,
                     'X-Object-Meta-Test': 'o3',
                     'X-Object-Sysmeta-Test': 'sys_o3'}
         tx_objs['o3'][0].write_metadata(metadata)
         expected_subreqs['POST'].append('o3')
 
-        # o4 is on tx with meta, rx has older data and up to date meta
+        # o4 is on tx with meta, rx has older data and up to date meta,
         t4a = next(self.ts_iter)
         rx_objs['o4'] = self._create_ondisk_files(rx_df_mgr, 'o4', policy, t4a)
         t4b = next(self.ts_iter)
@@ -1499,6 +1501,25 @@ class TestSsyncReplication(TestBaseSsync):
         tx_objs['o7'][0].write_metadata(metadata)
         rx_tombstones['o7'][0].delete(next(self.ts_iter))
 
+        # o8 is on tx with meta, rx has in sync data but meta with different
+        # offset
+        t8 = next(self.ts_iter)
+        rx_objs['o8'] = self._create_ondisk_files(rx_df_mgr, 'o8', policy, t8)
+        tx_objs['o8'] = self._create_ondisk_files(tx_df_mgr, 'o8', policy, t8)
+        t8_meta = next(self.ts_iter)
+        t8_meta_offset = utils.Timestamp(t8_meta, offset=4)
+        metadata = {'X-Timestamp': t8_meta_offset.internal,
+                    'X-Object-Meta-Test': 'o8',
+                    'X-Object-Sysmeta-Test': 'sys_o8'}
+        tx_objs['o8'][0].write_metadata(metadata)
+        # different ts_meta offset on rx
+        t8_meta_offset = utils.Timestamp(t8_meta, offset=3)
+        metadata = {'X-Timestamp': t8_meta_offset.internal,
+                    'X-Object-Meta-Test': 'o8',
+                    'X-Object-Sysmeta-Test': 'sys_o8'}
+        rx_objs['o8'][0].write_metadata(metadata)
+        expected_subreqs['POST'].append('o8')
+
         suffixes = set()
         for diskfiles in list(tx_objs.values()) + list(tx_tombstones.values()):
             for df in diskfiles:
@@ -1516,13 +1537,13 @@ class TestSsyncReplication(TestBaseSsync):
         # run the sync protocol...
         success, in_sync_objs = sender()
 
-        self.assertEqual(7, len(in_sync_objs))
+        self.assertEqual(8, len(in_sync_objs))
         self.assertTrue(success)
 
         # verify protocol
         results = self._analyze_trace(trace)
-        self.assertEqual(7, len(results['tx_missing']))
-        self.assertEqual(5, len(results['rx_missing']))
+        self.assertEqual(8, len(results['tx_missing']))
+        self.assertEqual(6, len(results['rx_missing']))
         for subreq in results.get('tx_updates'):
             obj = subreq['path'].split('/')[3]
             method = subreq['method']

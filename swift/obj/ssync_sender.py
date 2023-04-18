@@ -42,9 +42,13 @@ def encode_missing(object_hash, ts_data, ts_meta=None, ts_ctype=None,
     if ts_meta and ts_meta != ts_data:
         delta = ts_meta.raw - ts_data.raw
         extra_parts.append('m:%x' % delta)
+        if ts_meta.offset:
+            extra_parts[-1] += '__%x' % ts_meta.offset
         if ts_ctype and ts_ctype != ts_data:
             delta = ts_ctype.raw - ts_data.raw
             extra_parts.append('t:%x' % delta)
+            if ts_ctype.offset:
+                extra_parts[-1] += '__%x' % ts_ctype.offset
     if 'durable' in kwargs and kwargs['durable'] is False:
         # only send durable in the less common case that it is False
         extra_parts.append('durable:%s' % kwargs['durable'])

@@ -2524,6 +2524,24 @@ class TestModuleMethods(unittest.TestCase):
         self.assertEqual(
             expected, ssync_receiver.decode_missing(msg.encode('ascii')))
 
+        # timestamps have offsets
+        t_data_offset = utils.Timestamp(t_data, offset=99)
+        t_meta_offset = utils.Timestamp(t_meta, offset=1)
+        t_ctype_offset = utils.Timestamp(t_ctype, offset=2)
+        expected = dict(object_hash=object_hash,
+                        ts_data=t_data_offset,
+                        ts_meta=t_meta_offset,
+                        ts_ctype=t_ctype_offset,
+                        durable=True)
+        expected = ('%s %s_0000000000000063 m:%x__1,t:%x__2'
+                    % (object_hash, t_data.internal, d_meta_data,
+                       d_ctype_data))
+        self.assertEqual(
+            expected.encode('ascii'),
+            ssync_sender.encode_missing(
+                object_hash, t_data_offset, t_meta_offset, t_ctype_offset,
+                durable=True))
+
         # hex content type delta may be zero
         msg = '%s %s t:0,m:%x' % (object_hash, t_data.internal, d_meta_data)
         expected = dict(object_hash=object_hash,
