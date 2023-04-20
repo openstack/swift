@@ -500,6 +500,8 @@
 - job:
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
+    # This seems defensible for a l-c job
+    nodeset: ubuntu-jammy
     vars:
       bindep_profile: test py27
       python_version: 2.7
