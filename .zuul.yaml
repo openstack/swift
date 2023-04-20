@@ -526,13 +526,13 @@
 - job:
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
+    # This seems defensible for a l-c job
+    nodeset: ubuntu-bionic
     vars:
       bindep_profile: test py27
       python_version: 2.7
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
-      # This seems defensible for a l-c job
-      ensure_tox_version: '<4'
 
 # Image building jobs
 - secret:
