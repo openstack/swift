@@ -2627,15 +2627,14 @@ class ECFragGetter(object):
 
             # This is safe; it sets up a generator but does not call next()
             # on it, so no IO is performed.
-            parts_iter = [
-                http_response_to_document_iters(
-                    self.source, read_chunk_size=self.app.object_chunk_size)]
+            self.source_parts_iter = http_response_to_document_iters(
+                self.source, read_chunk_size=self.app.object_chunk_size)
 
             def get_next_doc_part():
                 while True:
                     # the loop here is to resume if trying to parse
                     # multipart/byteranges response raises a ChunkReadTimeout
-                    # and resets the parts_iter
+                    # and resets the source_parts_iter
                     try:
                         with WatchdogTimeout(self.app.watchdog, node_timeout,
                                              ChunkReadTimeout):
@@ -2647,7 +2646,7 @@ class ECFragGetter(object):
                             # we have a multipart/byteranges response; as it
                             # will read the MIME boundary and part headers.
                             start_byte, end_byte, length, headers, part = next(
-                                parts_iter[0])
+                                self.source_parts_iter)
                         return (start_byte, end_byte, length, headers, part)
                     except ChunkReadTimeout:
                         new_source, new_node = self._dig_for_source_and_node()
@@ -2663,9 +2662,10 @@ class ECFragGetter(object):
                         self.node = new_node
                         # This is safe; it sets up a generator but does
                         # not call next() on it, so no IO is performed.
-                        parts_iter[0] = http_response_to_document_iters(
-                            new_source,
-                            read_chunk_size=self.app.object_chunk_size)
+                        self.source_parts_iter = \
+                            http_response_to_document_iters(
+                                new_source,
+                                read_chunk_size=self.app.object_chunk_size)
 
             def iter_bytes_from_response_part(part_file, nbytes):
                 nchunks = 0
@@ -2706,9 +2706,10 @@ class ECFragGetter(object):
                             # This is safe; it just sets up a generator but
                             # does not call next() on it, so no IO is
                             # performed.
-                            parts_iter[0] = http_response_to_document_iters(
-                                new_source,
-                                read_chunk_size=self.app.object_chunk_size)
+                            self.source_parts_iter = \
+                                http_response_to_document_iters(
+                                    new_source,
+                                    read_chunk_size=self.app.object_chunk_size)
                             try:
                                 _junk, _junk, _junk, _junk, part_file = \
                                     get_next_doc_part()
