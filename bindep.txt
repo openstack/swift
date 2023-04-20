@@ -17,7 +17,7 @@ libxslt-devel [platform:rpm]
 libxslt1-dev [platform:dpkg]
 libxslt-dev [platform:apk]
 memcached
-python-dev [platform:dpkg platform:apk]
+python-dev [platform:dpkg platform:apk !platform:ubuntu-jammy]
 python-devel [platform:rpm !py36]
 python3-dev [platform:dpkg platform:apk test]
 python3-devel [platform:rpm !py27 test]
