@@ -2810,7 +2810,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, BaseTestCase):
     def test_cleanup_ondisk_files_commit_window(self):
         # verify that non-durable files are not reclaimed regardless of
         # timestamp if written to disk within commit_window
-        much_older = Timestamp(time() - 1001).internal
+        much_older = Timestamp(time() - 2000).internal
         older = Timestamp(time() - 1001).internal
         newer = Timestamp(time() - 900).internal
         scenarios = [
