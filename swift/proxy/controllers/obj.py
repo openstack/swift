@@ -2500,7 +2500,7 @@ class ECFragGetter(object):
         self.client_chunk_size = policy.fragment_size
         self.skip_bytes = 0
         self.bytes_used_from_backend = 0
-        self.source = None
+        self.source = self.node = None
         self.logger_thread_locals = logger_thread_locals
         self.logger = logger
 
@@ -2660,14 +2660,13 @@ class ECFragGetter(object):
                         read_chunk_size=self.app.object_chunk_size)
 
     def iter_bytes_from_response_part(self, part_file, nbytes):
-        client_chunk_size = self.client_chunk_size
-        node_timeout = self.app.recoverable_node_timeout
         nchunks = 0
         buf = b''
         part_file = ByteCountEnforcer(part_file, nbytes)
         while True:
             try:
-                with WatchdogTimeout(self.app.watchdog, node_timeout,
+                with WatchdogTimeout(self.app.watchdog,
+                                     self.app.recoverable_node_timeout,
                                      ChunkReadTimeout):
                     chunk = part_file.read(self.app.object_chunk_size)
                     nchunks += 1
@@ -2726,33 +2725,18 @@ class ECFragGetter(object):
                         self.bytes_used_from_backend += len(buf)
                         buf = b''
 
-                if not chunk:
-                    if buf:
-                        with WatchdogTimeout(self.app.watchdog,
-                                             self.app.client_timeout,
-                                             ChunkWriteTimeout):
-                            self.bytes_used_from_backend += len(buf)
-                            yield buf
-                        buf = b''
-                    break
-
-                if client_chunk_size is not None:
-                    while len(buf) >= client_chunk_size:
-                        client_chunk = buf[:client_chunk_size]
-                        buf = buf[client_chunk_size:]
-                        with WatchdogTimeout(self.app.watchdog,
-                                             self.app.client_timeout,
-                                             ChunkWriteTimeout):
-                            self.bytes_used_from_backend += \
-                                len(client_chunk)
-                            yield client_chunk
-                else:
+                client_chunk_size = self.client_chunk_size or len(buf)
+                while buf and (len(buf) >= client_chunk_size or not chunk):
+                    client_chunk = buf[:client_chunk_size]
+                    buf = buf[client_chunk_size:]
                     with WatchdogTimeout(self.app.watchdog,
                                          self.app.client_timeout,
                                          ChunkWriteTimeout):
-                        self.bytes_used_from_backend += len(buf)
-                        yield buf
-                    buf = b''
+                        self.bytes_used_from_backend += len(client_chunk)
+                        yield client_chunk
+
+                if not chunk:
+                    break
 
                 # This is for fairness; if the network is outpacing
                 # the CPU, we'll always be able to read and write
