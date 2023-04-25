@@ -96,6 +96,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
             'allow_versions': 't', 'node_timeout': 20}
     if extra_conf:
         conf.update(extra_conf)
+    context['conf'] = conf
     prolis = listen_zero()
     acc1lis = listen_zero()
     acc2lis = listen_zero()
