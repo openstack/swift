@@ -68,8 +68,10 @@ class TestRingData(unittest.TestCase):
 
     def test_attrs(self):
         r2p2d = [[0, 1, 0, 1], [0, 1, 0, 1]]
-        d = [{'id': 0, 'zone': 0, 'region': 0, 'ip': '10.1.1.0', 'port': 7000},
-             {'id': 1, 'zone': 1, 'region': 1, 'ip': '10.1.1.1', 'port': 7000}]
+        d = [{'id': 0, 'zone': 0, 'region': 0, 'ip': '10.1.1.0', 'port': 7000,
+              'replication_ip': '10.1.1.0', 'replication_port': 7000},
+             {'id': 1, 'zone': 1, 'region': 1, 'ip': '10.1.1.1', 'port': 7000,
+              'replication_ip': '10.1.1.1', 'replication_port': 7000}]
         s = 30
         rd = ring.RingData(r2p2d, d, s)
         self.assertEqual(rd._replica2part2dev_id, r2p2d)
@@ -88,10 +90,12 @@ class TestRingData(unittest.TestCase):
                 pickle.dump(rd, f, protocol=p)
             meta_only = ring.RingData.load(ring_fname, metadata_only=True)
             self.assertEqual([
-                {'id': 0, 'zone': 0, 'region': 1, 'ip': '10.1.1.0',
-                 'port': 7000},
-                {'id': 1, 'zone': 1, 'region': 1, 'ip': '10.1.1.1',
-                 'port': 7000},
+                {'id': 0, 'zone': 0, 'region': 1,
+                 'ip': '10.1.1.0', 'port': 7000,
+                 'replication_ip': '10.1.1.0', 'replication_port': 7000},
+                {'id': 1, 'zone': 1, 'region': 1,
+                 'ip': '10.1.1.1', 'port': 7000,
+                 'replication_ip': '10.1.1.1', 'replication_port': 7000},
             ], meta_only.devs)
             # Pickled rings can't load only metadata, so you get it all
             self.assert_ring_data_equal(rd, meta_only)
