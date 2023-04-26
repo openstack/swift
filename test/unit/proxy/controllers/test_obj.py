@@ -6715,27 +6715,12 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
                     b''.join(it)
         self.assertEqual('9 seconds', str(cm.exception))
 
-    def test_iter_bytes_from_response_part_null_chunk_size(self):
-        # we don't expect a policy to have fragment_size None or zero but
-        # verify that the getter is defensive
-        self.getter.client_chunk_size = None
-        part = FileLikeIter([b'some', b'thing', b''])
-        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
-        self.assertEqual(b'something', b''.join(it))
-
-        self.getter.client_chunk_size = 0
-        part = FileLikeIter([b'some', b'thing', b''])
-        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
-        self.assertEqual(b'something', b''.join(it))
-
-    def test_iter_bytes_from_response_part_small_chunk_size(self):
-        # we don't expect a policy to have fragment_size None or zero but
-        # verify that the getter is defensive
-        self.getter.client_chunk_size = 4
+    def test_iter_bytes_from_response_part_small_fragment_size(self):
+        self.getter.fragment_size = 4
         part = FileLikeIter([b'some', b'thing', b''])
         it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
         self.assertEqual([b'some', b'thin', b'g'], [ch for ch in it])
-        self.getter.client_chunk_size = 1
+        self.getter.fragment_size = 1
         part = FileLikeIter([b'some', b'thing', b''])
         it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
         self.assertEqual([c.encode() for c in 'something'], [ch for ch in it])

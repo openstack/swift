@@ -2497,7 +2497,7 @@ class ECFragGetter(object):
         self.backend_headers = backend_headers
         self.header_provider = header_provider
         self.req_query_string = req.query_string
-        self.client_chunk_size = policy.fragment_size
+        self.fragment_size = policy.fragment_size
         self.skip_bytes = 0
         self.bytes_used_from_backend = 0
         self.source = self.node = None
@@ -2578,8 +2578,8 @@ class ECFragGetter(object):
 
     def learn_size_from_content_range(self, start, end, length):
         """
-        If client_chunk_size is set, makes sure we yield things starting on
-        chunk boundaries based on the Content-Range header in the response.
+        Make sure we yield things starting on fragment boundaries based on the
+        Content-Range header in the response.
 
         Sets our Range header's first byterange to the value learned from
         the Content-Range header in the response; if we were given a
@@ -2593,8 +2593,7 @@ class ECFragGetter(object):
         if length == 0:
             return
 
-        if self.client_chunk_size:
-            self.skip_bytes = bytes_to_skip(self.client_chunk_size, start)
+        self.skip_bytes = bytes_to_skip(self.fragment_size, start)
 
         if 'Range' in self.backend_headers:
             try:
@@ -2725,10 +2724,9 @@ class ECFragGetter(object):
                         self.bytes_used_from_backend += len(buf)
                         buf = b''
 
-                client_chunk_size = self.client_chunk_size or len(buf)
-                while buf and (len(buf) >= client_chunk_size or not chunk):
-                    client_chunk = buf[:client_chunk_size]
-                    buf = buf[client_chunk_size:]
+                while buf and (len(buf) >= self.fragment_size or not chunk):
+                    client_chunk = buf[:self.fragment_size]
+                    buf = buf[self.fragment_size:]
                     with WatchdogTimeout(self.app.watchdog,
                                          self.app.client_timeout,
                                          ChunkWriteTimeout):
