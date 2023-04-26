@@ -4961,7 +4961,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertTrue(log_lines)
         for line in log_lines:
-            self.assertIn('ChunkWriteTimeout fetching fragments', line)
+            self.assertIn('ChunkWriteTimeout feeding fragments', line)
         # client gets a short read
         self.assertEqual(16051, len(test_data))
         self.assertEqual(8192, len(resp_body))
