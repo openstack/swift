@@ -273,18 +273,18 @@ class TestECObjectVersioning(ECProbeTest):
             self.fail('unable to find object on handoffs')
         # we want to repair the fault, but avoid doing the handoff revert
         self.revive_drive(failed_primary_device_path)
-        handoff_config = (handoff['id'] + 1) % 4
-        failed_config = (failed_primary['id'] + 1) % 4
+        handoff_config = self.config_number(handoff)
+        failed_config = self.config_number(failed_primary)
         partner_nodes = reconstructor._get_partners(
             failed_primary['index'], self.nodes)
         random.shuffle(partner_nodes)
         for partner in partner_nodes:
-            fix_config = (partner['id'] + 1) % 4
+            fix_config = self.config_number(partner)
             if fix_config not in (handoff_config, failed_config):
                 break
         else:
             self.fail('unable to find fix_config in %r excluding %r & %r' % (
-                [(d['device'], (d['id'] + 1) % 4) for d in partner_nodes],
+                [(d['device'], self.config_number(d)) for d in partner_nodes],
                 handoff_config, failed_config))
 
         self.reconstructor.once(number=fix_config)
