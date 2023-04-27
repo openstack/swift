@@ -39,8 +39,9 @@ else:
 
 import swift
 from swift.common import utils, swob, exceptions
-from swift.common.exceptions import ChunkWriteTimeout
-from swift.common.utils import Timestamp, list_from_csv, md5
+from swift.common.exceptions import ChunkWriteTimeout, ShortReadError, \
+    ChunkReadTimeout
+from swift.common.utils import Timestamp, list_from_csv, md5, FileLikeIter
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import \
@@ -6674,6 +6675,70 @@ class TestNumContainerUpdates(unittest.TestCase):
                 exp, got,
                 "Failed for c_replica=%d, o_replica=%d, o_quorum=%d" % (
                     c_replica, o_replica, o_quorum))
+
+
+@patch_policies(with_ec_default=True)
+class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
+    def setUp(self):
+        super(TestECFragGetter, self).setUp()
+        req = Request.blank(path='/a/c/o')
+        self.getter = obj.ECFragGetter(
+            self.app, req, None, None, self.policy, 'a/c/o',
+            {}, None, self.logger.thread_locals,
+            self.logger)
+
+    def test_iter_bytes_from_response_part(self):
+        part = FileLikeIter([b'some', b'thing'])
+        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        self.assertEqual(b'something', b''.join(it))
+
+    def test_iter_bytes_from_response_part_insufficient_bytes(self):
+        part = FileLikeIter([b'some', b'thing'])
+        it = self.getter.iter_bytes_from_response_part(part, nbytes=100)
+        with mock.patch.object(self.getter, '_dig_for_source_and_node',
+                               return_value=(None, None)):
+            with self.assertRaises(ShortReadError) as cm:
+                b''.join(it)
+        self.assertEqual('Too few bytes; read 9, expecting 100',
+                         str(cm.exception))
+
+    def test_iter_bytes_from_response_part_read_timeout(self):
+        part = FileLikeIter([b'some', b'thing'])
+        self.app.recoverable_node_timeout = 0.05
+        self.app.client_timeout = 0.8
+        it = self.getter.iter_bytes_from_response_part(part, nbytes=9)
+        with mock.patch.object(self.getter, '_dig_for_source_and_node',
+                               return_value=(None, None)):
+            with mock.patch.object(part, 'read',
+                                   side_effect=[b'some', ChunkReadTimeout(9)]):
+                with self.assertRaises(ChunkReadTimeout) as cm:
+                    b''.join(it)
+        self.assertEqual('9 seconds', str(cm.exception))
+
+    def test_iter_bytes_from_response_part_null_chunk_size(self):
+        # we don't expect a policy to have fragment_size None or zero but
+        # verify that the getter is defensive
+        self.getter.client_chunk_size = None
+        part = FileLikeIter([b'some', b'thing', b''])
+        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        self.assertEqual(b'something', b''.join(it))
+
+        self.getter.client_chunk_size = 0
+        part = FileLikeIter([b'some', b'thing', b''])
+        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        self.assertEqual(b'something', b''.join(it))
+
+    def test_iter_bytes_from_response_part_small_chunk_size(self):
+        # we don't expect a policy to have fragment_size None or zero but
+        # verify that the getter is defensive
+        self.getter.client_chunk_size = 4
+        part = FileLikeIter([b'some', b'thing', b''])
+        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        self.assertEqual([b'some', b'thin', b'g'], [ch for ch in it])
+        self.getter.client_chunk_size = 1
+        part = FileLikeIter([b'some', b'thing', b''])
+        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        self.assertEqual([c.encode() for c in 'something'], [ch for ch in it])
 
 
 if __name__ == '__main__':
