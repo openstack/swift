@@ -18,7 +18,7 @@ Middleware can be added to the Swift WSGI servers by modifying their
 `paste`_ configuration file.  The majority of Swift middleware is applied
 to the :ref:`proxy-server`.
 
-.. _paste: http://pythonpaste.org/
+.. _paste: https://pypi.org/project/Paste/
 
 Given the following basic configuration::
 
@@ -172,7 +172,7 @@ documentation for more information about the syntax of the ``use`` option.
 All middleware included with Swift is installed to support the ``egg:swift``
 syntax.
 
-.. _PasteDeploy: http://pythonpaste.org/deploy/#egg-uris
+.. _PasteDeploy: https://pypi.org/project/PasteDeploy/
 
 Middleware may advertize its availability and capabilities via Swift's
 :ref:`discoverability` support by using
