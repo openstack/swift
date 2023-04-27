@@ -14,18 +14,19 @@
 # limitations under the License.
 
 import os
-from six import StringIO
+import six
 import time
 import unittest
 from getpass import getuser
 import logging
-from test.unit import tmpfile
+from test.unit import tmpfile, with_tempdir, ConfigAssertMixin
 import mock
 import signal
 from contextlib import contextmanager
 import itertools
 from collections import defaultdict
 import errno
+from textwrap import dedent
 
 from swift.common import daemon, utils
 from test.debug_logger import debug_logger
@@ -106,7 +107,7 @@ class TestWorkerDaemon(unittest.TestCase):
         self.assertTrue(d.is_healthy())
 
 
-class TestRunDaemon(unittest.TestCase):
+class TestRunDaemon(unittest.TestCase, ConfigAssertMixin):
 
     def setUp(self):
         for patcher in [
@@ -167,7 +168,7 @@ class TestRunDaemon(unittest.TestCase):
                                   conf_file, once=True)
 
             # test user quit
-            sio = StringIO()
+            sio = six.StringIO()
             logger = logging.getLogger('server')
             logger.addHandler(logging.StreamHandler(sio))
             logger = utils.get_logger(None, 'server', log_route='server')
@@ -206,6 +207,91 @@ class TestRunDaemon(unittest.TestCase):
         finally:
             os.environ['TZ'] = old_tz
             time.tzset()
+
+    @with_tempdir
+    def test_run_deamon_from_conf_file(self, tempdir):
+        conf_path = os.path.join(tempdir, 'test-daemon.conf')
+        conf_body = """
+        [DEFAULT]
+        conn_timeout = 5
+        client_timeout = 1
+        [my-daemon]
+        CONN_timeout = 10
+        client_timeout = 2
+        """
+        contents = dedent(conf_body)
+        with open(conf_path, 'w') as f:
+            f.write(contents)
+        with mock.patch('swift.common.daemon.use_hub'):
+            d = daemon.run_daemon(MyDaemon, conf_path)
+        # my-daemon section takes priority (!?)
+        self.assertEqual('2', d.conf['client_timeout'])
+        self.assertEqual('10', d.conf['conn_timeout'])
+
+    @with_tempdir
+    def test_run_daemon_from_conf_file_with_duplicate_var(self, tempdir):
+        conf_path = os.path.join(tempdir, 'test-daemon.conf')
+        conf_body = """
+        [DEFAULT]
+        client_timeout = 3
+        [my-daemon]
+        CLIENT_TIMEOUT = 2
+        client_timeout = 1
+        """
+        contents = dedent(conf_body)
+        with open(conf_path, 'w') as f:
+            f.write(contents)
+        with mock.patch('swift.common.daemon.use_hub'):
+            app_config = lambda: daemon.run_daemon(MyDaemon, tempdir)
+            self.assertDuplicateOption(app_config, 'client_timeout', '1')
+
+    @with_tempdir
+    def test_run_deamon_from_conf_dir(self, tempdir):
+        conf_files = {
+            'default': """
+            [DEFAULT]
+            conn_timeout = 5
+            client_timeout = 1
+            """,
+            'daemon': """
+            [DEFAULT]
+            CONN_timeout = 3
+            CLIENT_TIMEOUT = 4
+            [my-daemon]
+            CONN_timeout = 10
+            client_timeout = 2
+            """,
+        }
+        for filename, conf_body in conf_files.items():
+            path = os.path.join(tempdir, filename + '.conf')
+            with open(path, 'wt') as fd:
+                fd.write(dedent(conf_body))
+        with mock.patch('swift.common.daemon.use_hub'):
+            d = daemon.run_daemon(MyDaemon, tempdir)
+        # my-daemon section takes priority (!?)
+        self.assertEqual('2', d.conf['client_timeout'])
+        self.assertEqual('10', d.conf['conn_timeout'])
+
+    @with_tempdir
+    def test_run_daemon_from_conf_dir_with_duplicate_var(self, tempdir):
+        conf_files = {
+            'default': """
+            [DEFAULT]
+            client_timeout = 3
+            """,
+            'daemon': """
+            [my-daemon]
+            client_timeout = 2
+            CLIENT_TIMEOUT = 4
+            """,
+        }
+        for filename, conf_body in conf_files.items():
+            path = os.path.join(tempdir, filename + '.conf')
+            with open(path, 'wt') as fd:
+                fd.write(dedent(conf_body))
+        with mock.patch('swift.common.daemon.use_hub'):
+            app_config = lambda: daemon.run_daemon(MyDaemon, tempdir)
+            self.assertDuplicateOption(app_config, 'client_timeout', '4')
 
     @contextmanager
     def mock_os(self, child_worker_cycles=3):
