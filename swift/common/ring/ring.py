@@ -48,6 +48,23 @@ def calc_replica_count(replica2part2dev_id):
     return base + extra
 
 
+def normalize_devices(devs):
+    # NOTE(akscram): Replication parameters like replication_ip
+    #                and replication_port are required for
+    #                replication process. An old replication
+    #                ring doesn't contain this parameters into
+    #                device. Old-style pickled rings won't have
+    #                region information.
+    for dev in devs:
+        if dev is None:
+            continue
+        dev.setdefault('region', 1)
+        if 'ip' in dev:
+            dev.setdefault('replication_ip', dev['ip'])
+        if 'port' in dev:
+            dev.setdefault('replication_port', dev['port'])
+
+
 class RingReader(object):
     chunk_size = 2 ** 16
 
@@ -118,16 +135,13 @@ class RingData(object):
 
     def __init__(self, replica2part2dev_id, devs, part_shift,
                  next_part_power=None, version=None):
+        normalize_devices(devs)
         self.devs = devs
         self._replica2part2dev_id = replica2part2dev_id
         self._part_shift = part_shift
         self.next_part_power = next_part_power
         self.version = version
         self.md5 = self.size = self.raw_size = None
-
-        for dev in self.devs:
-            if dev is not None:
-                dev.setdefault("region", 1)
 
     @property
     def replica_count(self):
@@ -194,7 +208,10 @@ class RingData(object):
                 gz_file.seek(0)
                 ring_data = pickle.load(gz_file)
 
-        if not hasattr(ring_data, 'devs'):
+        if hasattr(ring_data, 'devs'):
+            # pickled RingData; make sure we've got region/replication info
+            normalize_devices(ring_data.devs)
+        else:
             ring_data = RingData(ring_data['replica2part2dev_id'],
                                  ring_data['devs'], ring_data['part_shift'],
                                  ring_data.get('next_part_power'),
@@ -306,20 +323,6 @@ class Ring(object):
 
             self._mtime = getmtime(self.serialized_path)
             self._devs = ring_data.devs
-            # NOTE(akscram): Replication parameters like replication_ip
-            #                and replication_port are required for
-            #                replication process. An old replication
-            #                ring doesn't contain this parameters into
-            #                device. Old-style pickled rings won't have
-            #                region information.
-            for dev in self._devs:
-                if dev:
-                    dev.setdefault('region', 1)
-                    if 'ip' in dev:
-                        dev.setdefault('replication_ip', dev['ip'])
-                    if 'port' in dev:
-                        dev.setdefault('replication_port', dev['port'])
-
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
