@@ -32,7 +32,7 @@ from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, storage_directory, hash_path, \
     ShardRange, renamer, MD5_OF_EMPTY_STRING, mkdirs, get_db_files, \
     parse_db_filename, make_db_file_path, split_path, RESERVED_BYTE, \
-    filter_shard_ranges, ShardRangeList
+    filter_namespaces, ShardRangeList
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
     zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT
 
@@ -1866,8 +1866,8 @@ class ContainerBroker(DatabaseBroker):
         if includes:
             return shard_ranges[:1] if shard_ranges else []
 
-        shard_ranges = filter_shard_ranges(shard_ranges, includes,
-                                           marker, end_marker)
+        shard_ranges = filter_namespaces(
+            shard_ranges, includes, marker, end_marker)
 
         if fill_gaps:
             own_shard_range = self.get_own_shard_range()

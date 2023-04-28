@@ -3403,7 +3403,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             if tempdir:
                 shutil.rmtree(tempdir)
 
-    def test_find_shard_range(self):
+    def test_find_namespace(self):
         ts = utils.Timestamp.now().internal
         start = utils.ShardRange('a/-a', ts, '', 'a')
         atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
@@ -3413,29 +3413,29 @@ cluster_dfw1 = http://dfw1.host/v1/
         end = utils.ShardRange('a/z-', ts, 'z', '')
         ranges = [start, atof, ftol, ltor, rtoz, end]
 
-        found = utils.find_shard_range('', ranges)
+        found = utils.find_namespace('', ranges)
         self.assertEqual(found, None)
-        found = utils.find_shard_range(' ', ranges)
+        found = utils.find_namespace(' ', ranges)
         self.assertEqual(found, start)
-        found = utils.find_shard_range(' ', ranges[1:])
+        found = utils.find_namespace(' ', ranges[1:])
         self.assertEqual(found, None)
-        found = utils.find_shard_range('b', ranges)
+        found = utils.find_namespace('b', ranges)
         self.assertEqual(found, atof)
-        found = utils.find_shard_range('f', ranges)
+        found = utils.find_namespace('f', ranges)
         self.assertEqual(found, atof)
-        found = utils.find_shard_range('f\x00', ranges)
+        found = utils.find_namespace('f\x00', ranges)
         self.assertEqual(found, ftol)
-        found = utils.find_shard_range('x', ranges)
+        found = utils.find_namespace('x', ranges)
         self.assertEqual(found, rtoz)
-        found = utils.find_shard_range('r', ranges)
+        found = utils.find_namespace('r', ranges)
         self.assertEqual(found, ltor)
-        found = utils.find_shard_range('}', ranges)
+        found = utils.find_namespace('}', ranges)
         self.assertEqual(found, end)
-        found = utils.find_shard_range('}', ranges[:-1])
+        found = utils.find_namespace('}', ranges[:-1])
         self.assertEqual(found, None)
         # remove l-r from list of ranges and try and find a shard range for an
         # item in that range.
-        found = utils.find_shard_range('p', ranges[:-3] + ranges[-2:])
+        found = utils.find_namespace('p', ranges[:-3] + ranges[-2:])
         self.assertEqual(found, None)
 
         # add some sub-shards; a sub-shard's state is less than its parent
@@ -3445,20 +3445,20 @@ cluster_dfw1 = http://dfw1.host/v1/
         htok = utils.ShardRange('a/h-k', ts, 'h', 'k')
 
         overlapping_ranges = ranges[:2] + [ftoh, htok] + ranges[2:]
-        found = utils.find_shard_range('g', overlapping_ranges)
+        found = utils.find_namespace('g', overlapping_ranges)
         self.assertEqual(found, ftoh)
-        found = utils.find_shard_range('h', overlapping_ranges)
+        found = utils.find_namespace('h', overlapping_ranges)
         self.assertEqual(found, ftoh)
-        found = utils.find_shard_range('k', overlapping_ranges)
+        found = utils.find_namespace('k', overlapping_ranges)
         self.assertEqual(found, htok)
-        found = utils.find_shard_range('l', overlapping_ranges)
+        found = utils.find_namespace('l', overlapping_ranges)
         self.assertEqual(found, ftol)
-        found = utils.find_shard_range('m', overlapping_ranges)
+        found = utils.find_namespace('m', overlapping_ranges)
         self.assertEqual(found, ltor)
 
         ktol = utils.ShardRange('a/k-l', ts, 'k', 'l')
         overlapping_ranges = ranges[:2] + [ftoh, htok, ktol] + ranges[2:]
-        found = utils.find_shard_range('l', overlapping_ranges)
+        found = utils.find_namespace('l', overlapping_ranges)
         self.assertEqual(found, ktol)
 
     def test_parse_db_filename(self):
@@ -7960,7 +7960,7 @@ class TestShardRange(unittest.TestCase):
             with self.assertRaises(KeyError):
                 utils.ShardRange.from_dict(bad_dict)
             # But __init__ still (generally) works!
-            if key not in ('name', 'timestamp'):
+            if key != 'name':
                 utils.ShardRange(**bad_dict)
             else:
                 with self.assertRaises(TypeError):

@@ -615,10 +615,7 @@ def get_cache_key(account, container=None, obj=None, shard=None):
             raise ValueError('Shard cache key requires account and container')
         if obj:
             raise ValueError('Shard cache key cannot have obj')
-        if shard == 'updating':
-            cache_key = 'shard-%s-v2/%s/%s' % (shard, account, container)
-        else:
-            cache_key = 'shard-%s/%s/%s' % (shard, account, container)
+        cache_key = 'shard-%s-v2/%s/%s' % (shard, account, container)
     elif obj:
         if not (account and container):
             raise ValueError('Object cache key requires account and container')
