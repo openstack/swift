@@ -838,7 +838,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             return 1
 
     # patch event before loadapp
-    utils.eventlet_monkey_patch()
+    utils.monkey_patch()
 
     # Ensure the configuration and application can be loaded before proceeding.
     global_conf = {'log_name': log_name}

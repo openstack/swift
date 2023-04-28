@@ -995,6 +995,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         def _loadapp(uri, name=None, **kwargs):
             calls['_loadapp'] += 1
 
+        logging.logThreads = 1  # reset to default
         with mock.patch.object(wsgi, '_initrp', _initrp), \
                 mock.patch.object(wsgi, 'get_socket'), \
                 mock.patch.object(wsgi, 'drop_privileges') as _d_privs, \
@@ -1015,6 +1016,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         # just clean_up_deemon_hygene()
         self.assertEqual([], _d_privs.mock_calls)
         self.assertEqual([mock.call()], _c_hyg.mock_calls)
+        self.assertEqual(0, logging.logThreads)  # fixed in our monkey_patch
 
     @mock.patch('swift.common.wsgi.run_server')
     @mock.patch('swift.common.wsgi.WorkersStrategy')

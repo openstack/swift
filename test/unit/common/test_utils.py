@@ -210,6 +210,61 @@ class TestUtils(unittest.TestCase):
             self.md5_digest = '0d6dc3c588ae71a04ce9a6beebbbba06'
             self.fips_enabled = True
 
+    def test_monkey_patch(self):
+        def take_and_release(lock):
+            try:
+                lock.acquire()
+            finally:
+                lock.release()
+
+        def do_test():
+            res = 0
+            try:
+                # this module imports eventlet original threading, so re-import
+                # locally...
+                import threading
+                import traceback
+                logging_lock_before = logging._lock
+                my_lock_before = threading.RLock()
+                self.assertIsInstance(logging_lock_before,
+                                      type(my_lock_before))
+
+                utils.monkey_patch()
+
+                logging_lock_after = logging._lock
+                my_lock_after = threading.RLock()
+                self.assertIsInstance(logging_lock_after,
+                                      type(my_lock_after))
+
+                self.assertTrue(logging_lock_after.acquire())
+                thread = threading.Thread(target=take_and_release,
+                                          args=(logging_lock_after,))
+                thread.start()
+                self.assertTrue(thread.isAlive())
+                # we should timeout while the thread is still blocking on lock
+                eventlet.sleep()
+                thread.join(timeout=0.1)
+                self.assertTrue(thread.isAlive())
+
+                logging._lock.release()
+                thread.join(timeout=0.1)
+                self.assertFalse(thread.isAlive())
+            except AssertionError:
+                traceback.print_exc()
+                res = 1
+            finally:
+                os._exit(res)
+
+        pid = os.fork()
+        if pid == 0:
+            # run the test in an isolated environment to avoid monkey patching
+            # in this one
+            do_test()
+        else:
+            child_pid, errcode = os.waitpid(pid, 0)
+            self.assertEqual(0, os.WEXITSTATUS(errcode),
+                             'Forked do_test failed')
+
     def test_get_zero_indexed_base_string(self):
         self.assertEqual(utils.get_zero_indexed_base_string('something', 0),
                          'something')

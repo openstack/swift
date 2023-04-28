@@ -119,16 +119,10 @@ from swift.common.utils.timestamp import (  # noqa
     normalize_delete_at_timestamp,
 )
 
-# logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
 import logging
-logging.thread = eventlet.green.thread
-logging.threading = eventlet.green.threading
-logging._lock = logging.threading.RLock()
-# setup notice level logging
+
 NOTICE = 25
-logging.addLevelName(NOTICE, 'NOTICE')
-SysLogHandler.priority_map['NOTICE'] = 'notice'
 
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
@@ -442,6 +436,17 @@ def config_read_prefixed_options(conf, prefix_name, defaults):
     return params
 
 
+def logging_monkey_patch():
+    # explicitly patch the logging lock
+    logging._lock = logging.threading.RLock()
+    # setup notice level logging
+    logging.addLevelName(NOTICE, 'NOTICE')
+    SysLogHandler.priority_map['NOTICE'] = 'notice'
+    # Trying to log threads while monkey-patched can lead to deadlocks; see
+    # https://bugs.launchpad.net/swift/+bug/1895739
+    logging.logThreads = 0
+
+
 def eventlet_monkey_patch():
     """
     Install the appropriate Eventlet monkey patches.
@@ -452,9 +457,14 @@ def eventlet_monkey_patch():
     #         if thread is monkey-patched.
     eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
                                   thread=True)
-    # Trying to log threads while monkey-patched can lead to deadlocks; see
-    # https://bugs.launchpad.net/swift/+bug/1895739
-    logging.logThreads = 0
+
+
+def monkey_patch():
+    """
+    Apply all swift monkey patching consistently in one place.
+    """
+    eventlet_monkey_patch()
+    logging_monkey_patch()
 
 
 def validate_configuration():
