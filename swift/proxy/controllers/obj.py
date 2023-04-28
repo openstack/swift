@@ -1518,7 +1518,7 @@ class ECAppIter(object):
             except ChunkWriteTimeout:
                 # slow client disconnect
                 self.logger.exception(
-                    "ChunkWriteTimeout fetching fragments for %r",
+                    "ChunkWriteTimeout feeding fragments for %r",
                     quote(self.path))
             except:  # noqa
                 self.logger.exception("Exception fetching fragments for %r",
