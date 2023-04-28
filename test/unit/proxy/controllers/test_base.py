@@ -1155,17 +1155,74 @@ class TestFuncs(BaseTest):
         base = Controller(self.app)
         src_headers = {'x-remove-base-meta-owner': 'x',
                        'x-base-meta-size': '151M',
+                       'x-base-sysmeta-mysysmeta': 'myvalue',
+                       'x-Backend-No-Timestamp-Update': 'true',
+                       'X-Backend-Storage-Policy-Index': '3',
+                       'x-backendoftheworld': 'ignored',
                        'new-owner': 'Kun'}
         req = Request.blank('/v1/a/c/o', headers=src_headers)
-        dst_headers = base.generate_request_headers(req, transfer=True)
-        expected_headers = {'x-base-meta-owner': '',
-                            'x-base-meta-size': '151M',
+        dst_headers = base.generate_request_headers(req)
+        expected_headers = {'x-backend-no-timestamp-update': 'true',
+                            'x-backend-storage-policy-index': '3',
+                            'x-timestamp': mock.ANY,
+                            'x-trans-id': '-',
+                            'Referer': 'GET http://localhost/v1/a/c/o',
                             'connection': 'close',
                             'user-agent': 'proxy-server %d' % os.getpid()}
         for k, v in expected_headers.items():
             self.assertIn(k, dst_headers)
             self.assertEqual(v, dst_headers[k])
-        self.assertNotIn('new-owner', dst_headers)
+        for k, v in expected_headers.items():
+            dst_headers.pop(k)
+        self.assertFalse(dst_headers)
+
+        # with transfer=True
+        req = Request.blank('/v1/a/c/o', headers=src_headers)
+        dst_headers = base.generate_request_headers(req, transfer=True)
+        expected_headers.update({'x-base-meta-owner': '',
+                                 'x-base-meta-size': '151M',
+                                 'x-base-sysmeta-mysysmeta': 'myvalue'})
+        for k, v in expected_headers.items():
+            self.assertIn(k, dst_headers)
+            self.assertEqual(v, dst_headers[k])
+        for k, v in expected_headers.items():
+            dst_headers.pop(k)
+        self.assertFalse(dst_headers)
+
+        # with additional
+        req = Request.blank('/v1/a/c/o', headers=src_headers)
+        dst_headers = base.generate_request_headers(
+            req, transfer=True,
+            additional=src_headers)
+        expected_headers.update({'x-remove-base-meta-owner': 'x',
+                                 'x-backendoftheworld': 'ignored',
+                                 'new-owner': 'Kun'})
+        for k, v in expected_headers.items():
+            self.assertIn(k, dst_headers)
+            self.assertEqual(v, dst_headers[k])
+        for k, v in expected_headers.items():
+            dst_headers.pop(k)
+        self.assertFalse(dst_headers)
+
+        # with additional, verify precedence
+        req = Request.blank('/v1/a/c/o', headers=src_headers)
+        dst_headers = base.generate_request_headers(
+            req, transfer=False,
+            additional={'X-Backend-Storage-Policy-Index': '2',
+                        'X-Timestamp': '1234.56789'})
+        expected_headers = {'x-backend-no-timestamp-update': 'true',
+                            'x-backend-storage-policy-index': '2',
+                            'x-timestamp': '1234.56789',
+                            'x-trans-id': '-',
+                            'Referer': 'GET http://localhost/v1/a/c/o',
+                            'connection': 'close',
+                            'user-agent': 'proxy-server %d' % os.getpid()}
+        for k, v in expected_headers.items():
+            self.assertIn(k, dst_headers)
+            self.assertEqual(v, dst_headers[k])
+        for k, v in expected_headers.items():
+            dst_headers.pop(k)
+        self.assertFalse(dst_headers)
 
     def test_generate_request_headers_change_backend_user_agent(self):
         base = Controller(self.app)
@@ -1205,7 +1262,8 @@ class TestFuncs(BaseTest):
                        'x-base-meta-size': '151M',
                        'new-owner': 'Kun'}
         dst_headers = base.generate_request_headers(None,
-                                                    additional=src_headers)
+                                                    additional=src_headers,
+                                                    transfer=True)
         expected_headers = {'x-base-meta-size': '151M',
                             'connection': 'close'}
         for k, v in expected_headers.items():
