@@ -139,7 +139,8 @@ Metadata:
   UUID: abadf100d0ddba11
   X-Other-Something: boo
 No system metadata found in db file
-  User Metadata: {'x-account-meta-mydata': 'swift'}'''
+  User Metadata:
+    x-account-meta-mydata: swift'''
 
         self.assertEqual(out.getvalue().strip().split('\n'),
                          exp_out.split('\n'))
@@ -190,7 +191,8 @@ Metadata:
   UUID: abadf100d0ddba11
   X-Container-Bar: goo
   X-Container-Foo: bar
-  System Metadata: {'mydata': 'swift'}
+  System Metadata:
+    mydata: swift
 No user metadata found in db file
 Sharding Metadata:
   Type: root
@@ -232,7 +234,8 @@ Metadata:
   UUID: abadf100d0ddba11
   X-Other-Something: boo
 No system metadata found in db file
-  User Metadata: {'x-account-meta-mydata': 'swift'}'''
+  User Metadata:
+    x-account-meta-mydata: swift'''
 
         self.assertEqual(sorted(out.getvalue().strip().split('\n')),
                          sorted(exp_out.split('\n')))

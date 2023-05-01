@@ -298,12 +298,16 @@ def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False,
             title = key.replace('_', '-').title()
             print('  %s: %s' % (title, value))
     if sys_metadata:
-        print('  System Metadata: %s' % sys_metadata)
+        print('  System Metadata:')
+        for key, value in sys_metadata.items():
+            print('    %s: %s' % (key, value))
     else:
         print('No system metadata found in db file')
 
     if user_metadata:
-        print('  User Metadata: %s' % user_metadata)
+        print('  User Metadata:')
+        for key, value in user_metadata.items():
+            print('    %s: %s' % (key, value))
     else:
         print('No user metadata found in db file')
 
