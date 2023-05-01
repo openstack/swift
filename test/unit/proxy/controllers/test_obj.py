@@ -4927,7 +4927,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         for line in error_lines[:nparity]:
             self.assertIn('retrying', line)
         for line in error_lines[nparity:]:
-            self.assertIn('ChunkReadTimeout (0.01s)', line)
+            self.assertIn('ChunkReadTimeout (0.01s', line)
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
 
@@ -5012,7 +5012,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(ndata, len(error_lines))
         for line in error_lines:
-            self.assertIn('ChunkReadTimeout (0.01s)', line)
+            self.assertIn('ChunkReadTimeout (0.01s', line)
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
 

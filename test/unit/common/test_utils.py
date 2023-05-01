@@ -1199,11 +1199,15 @@ class TestUtils(unittest.TestCase):
             # test eventlet.Timeout
             with ConnectionTimeout(42, 'my error message') \
                     as connection_timeout:
-                log_exception(connection_timeout)
+                now = time.time()
+                connection_timeout.created_at = now - 123.456
+                with mock.patch('swift.common.utils.time.time',
+                                return_value=now):
+                    log_exception(connection_timeout)
                 log_msg = strip_value(sio)
                 self.assertNotIn('Traceback', log_msg)
                 self.assertTrue('ConnectionTimeout' in log_msg)
-                self.assertTrue('(42s)' in log_msg)
+                self.assertTrue('(42s after 123.46s)' in log_msg)
                 self.assertNotIn('my error message', log_msg)
 
             with MessageTimeout(42, 'my error message') as message_timeout:
@@ -8799,13 +8803,16 @@ class TestWatchdog(unittest.TestCase):
         w._evt.send = mock.Mock(side_effect=w._evt.send)
         gth = object()
 
+        now = time.time()
+        timeout_value = 1.0
         with patch('eventlet.greenthread.getcurrent', return_value=gth),\
-                patch('time.time', return_value=10.0):
+                patch('time.time', return_value=now):
             # On first call, _next_expiration is None, it should unblock
             # greenthread that is blocked for ever
-            key = w.start(1.0, Timeout)
+            key = w.start(timeout_value, Timeout)
             self.assertIn(key, w._timeouts)
-            self.assertEqual(w._timeouts[key], (1.0, 11.0, gth, Timeout))
+            self.assertEqual(w._timeouts[key], (
+                timeout_value, now + timeout_value, gth, Timeout, now))
             w._evt.send.assert_called_once()
 
             w.stop(key)

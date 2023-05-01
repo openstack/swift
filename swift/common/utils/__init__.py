@@ -1621,8 +1621,10 @@ class LogAdapter(logging.LoggerAdapter, object):
             emsg = '%s: %s' % (exc.__class__.__name__, exc.line)
         elif isinstance(exc, eventlet.Timeout):
             emsg = exc.__class__.__name__
-            if hasattr(exc, 'seconds'):
-                emsg += ' (%ss)' % exc.seconds
+            detail = '%ss' % exc.seconds
+            if hasattr(exc, 'created_at'):
+                detail += ' after %0.2fs' % (time.time() - exc.created_at)
+            emsg += ' (%s)' % detail
             if isinstance(exc, swift.common.exceptions.MessageTimeout):
                 if exc.msg:
                     emsg += ' %s' % exc.msg
@@ -6218,14 +6220,15 @@ class Watchdog(object):
 
         :param timeout: duration before the timeout expires
         :param exc: exception to throw when the timeout expire, must inherit
-                    from eventlet.timeouts.Timeout
+                    from eventlet.Timeout
         :param timeout_at: allow to force the expiration timestamp
         :return: id of the scheduled timeout, needed to cancel it
         """
+        now = time.time()
         if not timeout_at:
-            timeout_at = time.time() + timeout
+            timeout_at = now + timeout
         gth = eventlet.greenthread.getcurrent()
-        timeout_definition = (timeout, timeout_at, gth, exc)
+        timeout_definition = (timeout, timeout_at, gth, exc, now)
         key = id(timeout_definition)
         self._timeouts[key] = timeout_definition
 
@@ -6248,8 +6251,7 @@ class Watchdog(object):
         :param key: timeout id, as returned by start()
         """
         try:
-            if key in self._timeouts:
-                del(self._timeouts[key])
+            del(self._timeouts[key])
         except KeyError:
             pass
 
@@ -6269,15 +6271,14 @@ class Watchdog(object):
         self._next_expiration = None
         if self._evt.ready():
             self._evt.reset()
-        for k, (timeout, timeout_at, gth, exc) in list(self._timeouts.items()):
+        for k, (timeout, timeout_at, gth, exc,
+                created_at) in list(self._timeouts.items()):
             if timeout_at <= now:
-                try:
-                    if k in self._timeouts:
-                        del(self._timeouts[k])
-                except KeyError:
-                    pass
+                self.stop(k)
                 e = exc()
+                # set this after __init__ to keep it off the eventlet scheduler
                 e.seconds = timeout
+                e.created_at = created_at
                 eventlet.hubs.get_hub().schedule_call_global(0, gth.throw, e)
             else:
                 if (self._next_expiration is None
