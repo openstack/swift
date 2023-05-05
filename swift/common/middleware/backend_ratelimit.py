@@ -66,13 +66,14 @@ class BackendRateLimitMiddleware(object):
             try:
                 device, partition, _ = split_and_validate_path(req, 1, 3, True)
                 int(partition)  # check it's a valid partition
+            except Exception:  # noqa
+                # request may not have device/partition e.g. a healthcheck req
+                pass
+            else:
                 rate_limiter = self.rate_limiters[device]
                 if not rate_limiter.is_allowed():
                     self.logger.increment('backend.ratelimit')
                     handler = HTTPTooManyBackendRequests()
-            except Exception:  # noqa
-                # request may not have device/partition e.g. a healthcheck req
-                pass
         return handler(env, start_response)
 
 
