@@ -434,6 +434,9 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
         # header; "Etag" just won't do).
         'capitalize_response_headers': False,
     }
+    if conf.get('keepalive_timeout'):
+        server_kwargs['keepalive'] = float(conf['keepalive_timeout']) or False
+
     if ready_callback:
         ready_callback()
     # Yes, eventlet, we know -- we have to support bad clients, though
