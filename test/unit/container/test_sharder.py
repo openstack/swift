@@ -2466,6 +2466,16 @@ class TestSharder(BaseTestSharder):
         self.assertEqual('', context.cursor)
         self.assertEqual(10, context.cleave_to_row)
         self.assertEqual(12, context.max_row)  # note that max row increased
+        self.assertTrue(self.logger.log_dict['timing_since'])
+        self.assertEqual('sharder.sharding.move_misplaced',
+                         self.logger.log_dict['timing_since'][-3][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-3][0][1], 0)
+        self.assertEqual('sharder.sharding.set_state',
+                         self.logger.log_dict['timing_since'][-2][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-2][0][1], 0)
+        self.assertEqual('sharder.sharding.cleave',
+                         self.logger.log_dict['timing_since'][-1][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-1][0][1], 0)
         lines = sharder.logger.get_lines_for_level('info')
         self.assertEqual(
             ["Kick off container cleaving, own shard range in state "
@@ -2511,6 +2521,80 @@ class TestSharder(BaseTestSharder):
             'Completed cleaving, DB set to sharded state, path: a/c, db: %s'
             % broker.db_file, lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+        self.assertTrue(self.logger.log_dict['timing_since'])
+        self.assertEqual('sharder.sharding.move_misplaced',
+                         self.logger.log_dict['timing_since'][-4][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-4][0][1], 0)
+        self.assertEqual('sharder.sharding.cleave',
+                         self.logger.log_dict['timing_since'][-3][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-3][0][1], 0)
+        self.assertEqual('sharder.sharding.completed',
+                         self.logger.log_dict['timing_since'][-2][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-2][0][1], 0)
+        self.assertEqual('sharder.sharding.send_sr',
+                         self.logger.log_dict['timing_since'][-1][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-1][0][1], 0)
+
+    def test_cleave_timing_metrics(self):
+        broker = self._make_broker()
+        objects = [{'name': 'obj_%03d' % i,
+                    'created_at': Timestamp.now().normal,
+                    'content_type': 'text/plain',
+                    'etag': 'etag_%d' % i,
+                    'size': 1024 * i,
+                    'deleted': i % 2,
+                    'storage_policy_index': 0,
+                    } for i in range(1, 8)]
+        broker.merge_items([dict(obj) for obj in objects])
+        broker.enable_sharding(Timestamp.now())
+        shard_ranges = self._make_shard_ranges(
+            (('', 'obj_004'), ('obj_004', '')), state=ShardRange.CREATED)
+        expected_shard_dbs = []
+        for shard_range in shard_ranges:
+            db_hash = hash_path(shard_range.account, shard_range.container)
+            expected_shard_dbs.append(
+                os.path.join(self.tempdir, 'sda', 'containers', '0',
+                             db_hash[-3:], db_hash, db_hash + '.db'))
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+
+        with self._mock_sharder() as sharder:
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
+
+        lines = sharder.logger.get_lines_for_level('info')
+        self.assertEqual(
+            'Starting to cleave (2 todo), path: a/c, db: %s'
+            % broker.db_file, lines[0])
+        self.assertIn(
+            'Completed cleaving, DB set to sharded state, path: a/c, db: %s'
+            % broker.db_file, lines[1:])
+
+        self.assertTrue(self.logger.log_dict['timing_since'])
+        self.assertEqual('sharder.sharding.move_misplaced',
+                         self.logger.log_dict['timing_since'][-4][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-4][0][1], 0)
+        self.assertEqual('sharder.sharding.cleave',
+                         self.logger.log_dict['timing_since'][-3][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-3][0][1], 0)
+        self.assertEqual('sharder.sharding.completed',
+                         self.logger.log_dict['timing_since'][-2][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-2][0][1], 0)
+        self.assertEqual('sharder.sharding.send_sr',
+                         self.logger.log_dict['timing_since'][-1][0][0])
+        self.assertGreater(self.logger.log_dict['timing_since'][-1][0][1], 0)
+
+        # check shard ranges were updated to ACTIVE
+        self.assertEqual([ShardRange.ACTIVE] * 2,
+                         [sr.state for sr in broker.get_shard_ranges()])
+        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        actual_objects = shard_broker.get_objects()
+        self.assertEqual(objects[:4], actual_objects)
+        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        actual_objects = shard_broker.get_objects()
+        self.assertEqual(objects[4:], actual_objects)
 
     def test_cleave_multiple_storage_policies(self):
         # verify that objects in all storage policies are cleaved
