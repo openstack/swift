@@ -41,7 +41,7 @@ from swift.common.registry import register_swift_info
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
-from swift.proxy.controllers.base import get_container_info, NodeIter, \
+from swift.proxy.controllers.base import get_container_info, \
     DEFAULT_RECHECK_CONTAINER_EXISTENCE, DEFAULT_RECHECK_ACCOUNT_EXISTENCE, \
     DEFAULT_RECHECK_UPDATING_SHARD_RANGES, DEFAULT_RECHECK_LISTING_SHARD_RANGES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
@@ -742,11 +742,6 @@ class Application(object):
             ok = True
 
         return ok
-
-    def iter_nodes(self, ring, partition, logger, request, node_iter=None,
-                   policy=None):
-        return NodeIter(self, ring, partition, logger, request=request,
-                        node_iter=node_iter, policy=policy, )
 
     def exception_occurred(self, node, typ, additional_info,
                            **kwargs):

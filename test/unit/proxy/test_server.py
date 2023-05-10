@@ -1097,7 +1097,7 @@ class TestProxyServer(unittest.TestCase):
             conn = FakeConn(ip, *args, **kargs)
             return conn
 
-        with mock.patch('swift.proxy.server.Application.iter_nodes',
+        with mock.patch('swift.proxy.controllers.account.NodeIter',
                         fake_iter_nodes):
             with mock.patch('swift.common.bufferedhttp.http_connect_raw',
                             myfake_http_connect_raw):
@@ -5472,9 +5472,9 @@ class TestReplicatedObjectController(
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in self.app.iter_nodes(object_ring, partition,
-                                                self.logger,
-                                                request=Request.blank('')):
+                for node in proxy_base.NodeIter(
+                        self.app, object_ring, partition, self.logger,
+                        request=Request.blank('')):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 5)
 
@@ -5484,9 +5484,9 @@ class TestReplicatedObjectController(
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in self.app.iter_nodes(object_ring, partition,
-                                                self.logger,
-                                                request=Request.blank('')):
+                for node in proxy_base.NodeIter(
+                        self.app, object_ring, partition, self.logger,
+                        request=Request.blank('')):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 9)
 
@@ -5499,9 +5499,9 @@ class TestReplicatedObjectController(
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in self.app.iter_nodes(object_ring, partition,
-                                                self.logger,
-                                                request=Request.blank('')):
+                for node in proxy_base.NodeIter(
+                        self.app, object_ring, partition, self.logger,
+                        request=Request.blank('')):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 7)
                 self.assertEqual(self.app.logger.log_dict['warning'], [])
@@ -5517,9 +5517,9 @@ class TestReplicatedObjectController(
                                 last_error=(2 ** 63 - 1))
 
                 collected_nodes = []
-                for node in self.app.iter_nodes(object_ring, partition,
-                                                self.logger,
-                                                request=Request.blank('')):
+                for node in proxy_base.NodeIter(
+                        self.app, object_ring, partition, self.logger,
+                        request=Request.blank('')):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 7)
                 self.assertEqual(
@@ -5539,9 +5539,9 @@ class TestReplicatedObjectController(
                                     last_error=(2 ** 63 - 1))
 
                 collected_nodes = []
-                for node in self.app.iter_nodes(object_ring, partition,
-                                                self.logger,
-                                                request=Request.blank('')):
+                for node in proxy_base.NodeIter(
+                        self.app, object_ring, partition, self.logger,
+                        request=Request.blank('')):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 7)
                 self.assertEqual(
@@ -5565,9 +5565,9 @@ class TestReplicatedObjectController(
                                     last_error=(2 ** 63 - 1))
 
                 collected_nodes = []
-                for node in self.app.iter_nodes(object_ring, partition,
-                                                self.logger,
-                                                request=Request.blank('')):
+                for node in proxy_base.NodeIter(
+                        self.app, object_ring, partition, self.logger,
+                        request=Request.blank('')):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 10)
                 self.assertEqual(
@@ -5596,8 +5596,9 @@ class TestReplicatedObjectController(
         with mock.patch.object(self.app, 'sort_nodes',
                                side_effect=fake_sort_nodes):
             object_ring = self.app.get_object_ring(None)
-            for node in self.app.iter_nodes(object_ring, 0, self.logger,
-                                            request=Request.blank('')):
+            for node in proxy_base.NodeIter(
+                    self.app, object_ring, 0, self.logger,
+                    request=Request.blank('')):
                 pass
             self.assertEqual(called, [
                 mock.call(object_ring.get_part_nodes(0), policy=None)
@@ -5607,10 +5608,12 @@ class TestReplicatedObjectController(
         with mock.patch.object(self.app, 'sort_nodes',
                                lambda n, *args, **kwargs: n):
             object_ring = self.app.get_object_ring(None)
-            first_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, request=Request.blank('')))
-            second_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, request=Request.blank('')))
+            first_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger,
+                request=Request.blank('')))
+            second_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger,
+                request=Request.blank('')))
             self.assertIn(first_nodes[0], second_nodes)
 
             self.assertEqual(
@@ -5629,14 +5632,16 @@ class TestReplicatedObjectController(
                 ('Node will be error limited for 60.00s: %s, error: %s'
                  % (node_to_string(first_nodes[0]), 'test')), line)
 
-            second_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, request=Request.blank('')))
+            second_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger,
+                request=Request.blank('')))
             self.assertNotIn(first_nodes[0], second_nodes)
             self.assertEqual(
                 1, self.logger.statsd_client.get_increment_counts().get(
                     'error_limiter.is_limited', 0))
-            third_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, request=Request.blank('')))
+            third_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger,
+                request=Request.blank('')))
             self.assertNotIn(first_nodes[0], third_nodes)
             self.assertEqual(
                 2, self.logger.statsd_client.get_increment_counts().get(
@@ -5649,11 +5654,13 @@ class TestReplicatedObjectController(
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 6), \
                 mock.patch.object(object_ring, 'max_more_nodes', 99):
-            first_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, request=Request.blank('')))
+            first_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger,
+                request=Request.blank('')))
             second_nodes = []
-            for node in self.app.iter_nodes(object_ring, 0, self.logger,
-                                            request=Request.blank('')):
+            for node in proxy_base.NodeIter(
+                    self.app, object_ring, 0, self.logger,
+                    request=Request.blank('')):
                 if not second_nodes:
                     self.app.error_limit(node, 'test')
                 second_nodes.append(node)
@@ -5670,8 +5677,8 @@ class TestReplicatedObjectController(
                                lambda n, *args, **kwargs: n), \
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 3):
-            got_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, Request.blank(''),
+            got_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger, Request.blank(''),
                 node_iter=iter(node_list)))
         self.assertEqual(expected[:3], got_nodes)
 
@@ -5682,8 +5689,9 @@ class TestReplicatedObjectController(
                                lambda n, *args, **kwargs: n), \
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 1000000):
-            got_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, req, node_iter=iter(node_list)))
+            got_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger, req,
+                node_iter=iter(node_list)))
         self.assertEqual(expected, got_nodes)
 
     def test_iter_nodes_with_replication_network(self):
@@ -5697,8 +5705,9 @@ class TestReplicatedObjectController(
                                lambda n, *args, **kwargs: n), \
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 3):
-            got_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, req, node_iter=iter(node_list)))
+            got_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger, req,
+                node_iter=iter(node_list)))
         expected = [dict(n, use_replication=True) for n in node_list]
         self.assertEqual(expected[:3], got_nodes)
         req = Request.blank(
@@ -5708,8 +5717,9 @@ class TestReplicatedObjectController(
                                lambda n, *args, **kwargs: n), \
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 13):
-            got_nodes = list(self.app.iter_nodes(
-                object_ring, 0, self.logger, req, node_iter=iter(node_list)))
+            got_nodes = list(proxy_base.NodeIter(
+                self.app, object_ring, 0, self.logger, req,
+                node_iter=iter(node_list)))
         self.assertEqual(expected, got_nodes)
 
     def test_best_response_sets_headers(self):

@@ -27,7 +27,7 @@ from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix, get_param, \
     constrain_req_limit, validate_container_params
-from swift.proxy.controllers.base import Controller, delay_denial, \
+from swift.proxy.controllers.base import Controller, delay_denial, NodeIter, \
     cors_validation, set_info_cache, clear_info_cache, get_container_info, \
     record_cache_op_metrics, get_cache_key, headers_from_container_info, \
     update_headers
@@ -103,8 +103,8 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         concurrency = self.app.container_ring.replica_count \
             if self.app.get_policy_options(None).concurrent_gets else 1
-        node_iter = self.app.iter_nodes(self.app.container_ring, part,
-                                        self.logger, req)
+        node_iter = NodeIter(self.app, self.app.container_ring, part,
+                             self.logger, req)
         resp = self.GETorHEAD_base(
             req, 'Container', node_iter, part,
             req.swift_entity_path, concurrency)

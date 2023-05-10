@@ -70,7 +70,7 @@ from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
     record_cache_op_metrics, get_cache_key, GetterBase, GetterSource, \
-    is_good_source
+    is_good_source, NodeIter
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -201,8 +201,8 @@ class BaseObjectController(Controller):
         policy_options = self.app.get_policy_options(policy)
         is_local = policy_options.write_affinity_is_local_fn
         if is_local is None:
-            return self.app.iter_nodes(ring, partition, self.logger, request,
-                                       policy=policy)
+            return NodeIter(self.app, ring, partition, self.logger, request,
+                            policy=policy)
 
         primary_nodes = ring.get_part_nodes(partition)
         handoff_nodes = ring.get_more_nodes(partition)
@@ -235,8 +235,8 @@ class BaseObjectController(Controller):
             (node for node in all_nodes if node not in preferred_nodes)
         )
 
-        return self.app.iter_nodes(ring, partition, self.logger, request,
-                                   node_iter=node_iter, policy=policy)
+        return NodeIter(self.app, ring, partition, self.logger, request,
+                        node_iter=node_iter, policy=policy)
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -255,8 +255,8 @@ class BaseObjectController(Controller):
                 return aresp
         partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
-        node_iter = self.app.iter_nodes(obj_ring, partition, self.logger, req,
-                                        policy=policy)
+        node_iter = NodeIter(self.app, obj_ring, partition, self.logger, req,
+                             policy=policy)
 
         resp = self._get_or_head_response(req, node_iter, partition, policy)
 
