@@ -103,8 +103,9 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         concurrency = self.app.container_ring.replica_count \
             if self.app.get_policy_options(None).concurrent_gets else 1
-        node_iter = NodeIter(self.app, self.app.container_ring, part,
-                             self.logger, req)
+        node_iter = NodeIter(
+            'container', self.app, self.app.container_ring, part,
+            self.logger, req)
         resp = self.GETorHEAD_base(
             req, 'Container', node_iter, part,
             req.swift_entity_path, concurrency)
@@ -327,7 +328,8 @@ class ContainerController(Controller):
 
         if should_record:
             record_cache_op_metrics(
-                self.logger, 'shard_listing', cache_state, resp)
+                self.logger, self.server_type.lower(), 'shard_listing',
+                cache_state, resp)
 
     def _GET_using_cache(self, req, info):
         # It may be possible to fulfil the request from cache: we only reach

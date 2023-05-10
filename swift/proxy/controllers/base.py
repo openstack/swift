@@ -44,7 +44,7 @@ from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
     document_iters_to_http_response_body, ShardRange, cache_from_env, \
-    MetricsPrefixLoggerAdapter, CooperativeIterator
+    CooperativeIterator
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -423,9 +423,9 @@ def _record_ac_info_cache_metrics(
         logger = None
     else:
         logger = proxy_app.logger
-    op_type = 'container.info' if container else 'account.info'
+    server_type = 'container' if container else 'account'
     if logger:
-        record_cache_op_metrics(logger, op_type, cache_state, resp)
+        record_cache_op_metrics(logger, server_type, 'info', cache_state, resp)
 
 
 def get_container_info(env, app, swift_source=None, cache_only=False):
@@ -774,11 +774,12 @@ def _get_info_from_infocache(env, account, container=None):
 
 
 def record_cache_op_metrics(
-        logger, op_type, cache_state, resp=None):
+        logger, server_type, op_type, cache_state, resp=None):
     """
     Record a single cache operation into its corresponding metrics.
 
     :param  logger: the metrics logger
+    :param  server_type: 'account' or 'container'
     :param  op_type: the name of the operation type, includes 'shard_listing',
               'shard_updating', and etc.
     :param  cache_state: the state of this cache operation. When it's
@@ -787,21 +788,23 @@ def record_cache_op_metrics(
               which will make to backend, expect a valid 'resp'.
     :param  resp: the response from backend for all cases except cache hits.
     """
+    server_type = server_type.lower()
     if cache_state == 'infocache_hit':
-        logger.increment('%s.infocache.hit' % op_type)
+        logger.increment('%s.%s.infocache.hit' % (server_type, op_type))
     elif cache_state == 'hit':
         # memcache hits.
-        logger.increment('%s.cache.hit' % op_type)
+        logger.increment('%s.%s.cache.hit' % (server_type, op_type))
     else:
         # the cases of cache_state is memcache miss, error, skip, force_skip
         # or disabled.
         if resp:
-            logger.increment(
-                '%s.cache.%s.%d' % (op_type, cache_state, resp.status_int))
+            logger.increment('%s.%s.cache.%s.%d' % (
+                server_type, op_type, cache_state, resp.status_int))
         else:
             # In some situation, we choose not to lookup backend after cache
             # miss.
-            logger.increment('%s.cache.%s' % (op_type, cache_state))
+            logger.increment('%s.%s.cache.%s' % (
+                server_type, op_type, cache_state))
 
 
 def _get_info_from_memcache(app, env, account, container=None):
@@ -1383,7 +1386,8 @@ class GetOrHeadHandler(GetterBase):
             self.logger.info(
                 'Client did not read from proxy within %ss',
                 self.app.client_timeout)
-            self.logger.increment('client_timeouts')
+            self.logger.increment('%s.client_timeouts' %
+                                  self.server_type.lower())
         except GeneratorExit:
             warn = True
             req_range = self.backend_headers['Range']
@@ -1644,6 +1648,7 @@ class NodeIter(object):
     may not, depending on how logging is configured, the vagaries of
     socket IO and eventlet, and the phase of the moon.)
 
+    :param server_type: one of 'account', 'container', or 'object'
     :param app: a proxy app
     :param ring: ring to get yield nodes from
     :param partition: ring partition to yield nodes for
@@ -1656,8 +1661,9 @@ class NodeIter(object):
         None for an account or container ring.
     """
 
-    def __init__(self, app, ring, partition, logger, request, node_iter=None,
-                 policy=None):
+    def __init__(self, server_type, app, ring, partition, logger, request,
+                 node_iter=None, policy=None):
+        self.server_type = server_type
         self.app = app
         self.ring = ring
         self.partition = partition
@@ -1704,12 +1710,14 @@ class NodeIter(object):
             return
         extra_handoffs = handoffs - self.expected_handoffs
         if extra_handoffs > 0:
-            self.logger.increment('handoff_count')
+            self.logger.increment('%s.handoff_count' %
+                                  self.server_type.lower())
             self.logger.warning(
                 'Handoff requested (%d)' % handoffs)
             if (extra_handoffs == self.num_primary_nodes):
                 # all the primaries were skipped, and handoffs didn't help
-                self.logger.increment('handoff_all_count')
+                self.logger.increment('%s.handoff_all_count' %
+                                      self.server_type.lower())
 
     def set_node_provider(self, callback):
         """
@@ -1786,9 +1794,10 @@ class Controller(object):
         self.trans_id = '-'
         self._allowed_methods = None
         self._private_methods = None
-        # adapt the app logger to prefix statsd metrics with the server type
-        self.logger = MetricsPrefixLoggerAdapter(
-            self.app.logger, {}, self.server_type.lower())
+
+    @property
+    def logger(self):
+        return self.app.logger
 
     @property
     def allowed_methods(self):
@@ -2006,9 +2015,8 @@ class Controller(object):
         :param node_iterator: optional node iterator.
         :returns: a swob.Response object
         """
-        nodes = GreenthreadSafeIterator(
-            node_iterator or NodeIter(self.app, ring, part, self.logger, req)
-        )
+        nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
+            self.server_type.lower(), self.app, ring, part, self.logger, req))
         node_number = node_count or len(ring.get_part_nodes(part))
         pile = GreenAsyncPile(node_number)
 

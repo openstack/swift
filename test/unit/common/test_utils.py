@@ -5709,57 +5709,6 @@ class TestSwiftLoggerAdapter(unittest.TestCase):
         mocked.assert_called_with('Caught: Connection refused')
 
 
-class TestMetricsPrefixLoggerAdapter(unittest.TestCase):
-    def test_metric_prefix(self):
-        logger = utils.get_logger({}, 'logger_name')
-        adapter1 = utils.MetricsPrefixLoggerAdapter(logger, {}, 'one')
-        adapter2 = utils.MetricsPrefixLoggerAdapter(logger, {}, 'two')
-        adapter3 = utils.SwiftLoggerAdapter(logger, {})
-        self.assertEqual('logger_name', logger.name)
-        self.assertEqual('logger_name', adapter1.logger.name)
-        self.assertEqual('logger_name', adapter2.logger.name)
-        self.assertEqual('logger_name', adapter3.logger.name)
-
-        with mock.patch.object(logger, 'increment') as mock_increment:
-            adapter1.increment('test1')
-            adapter2.increment('test2')
-            adapter3.increment('test3')
-            logger.increment('test')
-        self.assertEqual(
-            [mock.call('one.test1'), mock.call('two.test2'),
-             mock.call('test3'), mock.call('test')],
-            mock_increment.call_args_list)
-
-        adapter1.metric_prefix = 'not one'
-        with mock.patch.object(logger, 'increment') as mock_increment:
-            adapter1.increment('test1')
-            adapter2.increment('test2')
-            adapter3.increment('test3')
-            logger.increment('test')
-        self.assertEqual(
-            [mock.call('not one.test1'), mock.call('two.test2'),
-             mock.call('test3'), mock.call('test')],
-            mock_increment.call_args_list)
-
-    def test_wrapped_prefixing(self):
-        logger = utils.get_logger({}, 'logger_name')
-        adapter1 = utils.MetricsPrefixLoggerAdapter(logger, {}, 'one')
-        adapter2 = utils.MetricsPrefixLoggerAdapter(adapter1, {}, 'two')
-        self.assertEqual('logger_name', logger.name)
-        self.assertEqual('logger_name', adapter1.logger.name)
-        self.assertEqual('logger_name', adapter2.logger.name)
-
-        with mock.patch.object(logger, 'increment') as mock_increment:
-            adapter1.increment('test1')
-            adapter2.increment('test2')
-            logger.increment('test')
-        self.assertEqual(
-            [mock.call('one.test1'),
-             mock.call('one.two.test2'),
-             mock.call('test')],
-            mock_increment.call_args_list)
-
-
 class TestAuditLocationGenerator(unittest.TestCase):
 
     def test_drive_tree_access(self):

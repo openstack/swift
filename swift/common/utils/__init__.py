@@ -1430,28 +1430,23 @@ class SwiftLoggerAdapter(logging.LoggerAdapter):
         # py3 does this for us already; add it for py2
         return self.logger.name
 
-    def get_metric_name(self, metric):
-        # subclasses may override this method to annotate the metric name
-        return metric
+    def update_stats(self, *a, **kw):
+        return self.logger.update_stats(*a, **kw)
 
-    def update_stats(self, metric, *a, **kw):
-        return self.logger.update_stats(self.get_metric_name(metric), *a, **kw)
+    def increment(self, *a, **kw):
+        return self.logger.increment(*a, **kw)
 
-    def increment(self, metric, *a, **kw):
-        return self.logger.increment(self.get_metric_name(metric), *a, **kw)
+    def decrement(self, *a, **kw):
+        return self.logger.decrement(*a, **kw)
 
-    def decrement(self, metric, *a, **kw):
-        return self.logger.decrement(self.get_metric_name(metric), *a, **kw)
+    def timing(self, *a, **kw):
+        return self.logger.timing(*a, **kw)
 
-    def timing(self, metric, *a, **kw):
-        return self.logger.timing(self.get_metric_name(metric), *a, **kw)
+    def timing_since(self, *a, **kw):
+        return self.logger.timing_since(*a, **kw)
 
-    def timing_since(self, metric, *a, **kw):
-        return self.logger.timing_since(self.get_metric_name(metric), *a, **kw)
-
-    def transfer_rate(self, metric, *a, **kw):
-        return self.logger.transfer_rate(
-            self.get_metric_name(metric), *a, **kw)
+    def transfer_rate(self, *a, **kw):
+        return self.logger.transfer_rate(*a, **kw)
 
     @property
     def thread_locals(self):
@@ -1486,27 +1481,6 @@ class PrefixLoggerAdapter(SwiftLoggerAdapter):
         if 'prefix' in self.extra:
             msg = self.extra['prefix'] + msg
         return (msg, kwargs)
-
-
-class MetricsPrefixLoggerAdapter(SwiftLoggerAdapter):
-    """
-    Adds a prefix to all Statsd metrics' names.
-    """
-
-    def __init__(self, logger, extra, metric_prefix):
-        """
-        :param logger: an instance of logging.Logger
-        :param extra: a dict-like object
-        :param metric_prefix: A prefix that will be added to the start of each
-            metric name such that the metric name is transformed to:
-            ``<metric_prefix>.<metric name>``. Note that the logger's
-            StatsdClient also adds its configured prefix to metric names.
-        """
-        super(MetricsPrefixLoggerAdapter, self).__init__(logger, extra)
-        self.metric_prefix = metric_prefix
-
-    def get_metric_name(self, metric):
-        return '%s.%s' % (self.metric_prefix, metric)
 
 
 # double inheritance to support property with setter

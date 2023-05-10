@@ -670,36 +670,36 @@ class TestFuncs(BaseTest):
 
     def test_record_cache_op_metrics(self):
         record_cache_op_metrics(
-            self.logger, 'shard_listing', 'infocache_hit')
+            self.logger, 'container', 'shard_listing', 'infocache_hit')
         self.assertEqual(
             self.logger.statsd_client.get_increment_counts().get(
-                'shard_listing.infocache.hit'),
+                'container.shard_listing.infocache.hit'),
             1)
         record_cache_op_metrics(
-            self.logger, 'shard_listing', 'hit')
+            self.logger, 'container', 'shard_listing', 'hit')
         self.assertEqual(
             self.logger.statsd_client.get_increment_counts().get(
-                'shard_listing.cache.hit'),
+                'container.shard_listing.cache.hit'),
             1)
         resp = FakeResponse(status_int=200)
         record_cache_op_metrics(
-            self.logger, 'shard_updating', 'skip', resp)
+            self.logger, 'object', 'shard_updating', 'skip', resp)
         self.assertEqual(
             self.logger.statsd_client.get_increment_counts().get(
-                'shard_updating.cache.skip.200'),
+                'object.shard_updating.cache.skip.200'),
             1)
         resp = FakeResponse(status_int=503)
         record_cache_op_metrics(
-            self.logger, 'shard_updating', 'disabled', resp)
+            self.logger, 'object', 'shard_updating', 'disabled', resp)
         self.assertEqual(
             self.logger.statsd_client.get_increment_counts().get(
-                'shard_updating.cache.disabled.503'),
+                'object.shard_updating.cache.disabled.503'),
             1)
 
         # test a cache miss call without response, expect no metric recorded.
         self.app.logger = mock.Mock()
         record_cache_op_metrics(
-            self.logger, 'shard_updating', 'miss')
+            self.logger, 'object', 'shard_updating', 'miss')
         self.app.logger.increment.assert_not_called()
 
     def test_get_account_info_swift_source(self):
@@ -1655,7 +1655,7 @@ class TestNodeIter(BaseTest):
     def test_iter_default_fake_ring(self):
         for ring in (self.account_ring, self.container_ring):
             self.assertEqual(ring.replica_count, 3.0)
-            node_iter = NodeIter(self.app, ring, 0, self.logger,
+            node_iter = NodeIter('db', self.app, ring, 0, self.logger,
                                  request=Request.blank(''))
             self.assertEqual(6, node_iter.nodes_left)
             self.assertEqual(3, node_iter.primaries_left)
@@ -1670,8 +1670,9 @@ class TestNodeIter(BaseTest):
     def test_iter_with_handoffs(self):
         ring = FakeRing(replicas=3, max_more_nodes=20)  # handoffs available
         policy = StoragePolicy(0, 'zero', object_ring=ring)
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, request=Request.blank(''))
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, request=Request.blank(''))
         self.assertEqual(6, node_iter.nodes_left)
         self.assertEqual(3, node_iter.primaries_left)
         primary_indexes = set()
@@ -1694,12 +1695,14 @@ class TestNodeIter(BaseTest):
         policy = StoragePolicy(0, 'ec', object_ring=ring)
 
         # sanity
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, request=Request.blank(''))
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, request=Request.blank(''))
         self.assertEqual(16, len([n for n in node_iter]))
 
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, request=Request.blank(''))
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, request=Request.blank(''))
         self.assertEqual(16, node_iter.nodes_left)
         self.assertEqual(8, node_iter.primaries_left)
         pile = GreenAsyncPile(5)
@@ -1729,31 +1732,35 @@ class TestNodeIter(BaseTest):
         ring = FakeRing(replicas=8, max_more_nodes=20)
         policy = StoragePolicy(0, 'ec', object_ring=ring)
 
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, request=Request.blank(''))
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, request=Request.blank(''))
         for node in node_iter:
             self.assertIn('use_replication', node)
             self.assertFalse(node['use_replication'])
 
         req = Request.blank('a/c')
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, request=req)
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, request=req)
         for node in node_iter:
             self.assertIn('use_replication', node)
             self.assertFalse(node['use_replication'])
 
         req = Request.blank(
             'a/c', headers={'x-backend-use-replication-network': 'False'})
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, request=req)
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, request=req)
         for node in node_iter:
             self.assertIn('use_replication', node)
             self.assertFalse(node['use_replication'])
 
         req = Request.blank(
             'a/c', headers={'x-backend-use-replication-network': 'yes'})
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, request=req)
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, request=req)
         for node in node_iter:
             self.assertIn('use_replication', node)
             self.assertTrue(node['use_replication'])
@@ -1762,9 +1769,10 @@ class TestNodeIter(BaseTest):
         ring = FakeRing(replicas=8, max_more_nodes=20)
         policy = StoragePolicy(0, 'ec', object_ring=ring)
         other_iter = ring.get_part_nodes(0)
-        node_iter = NodeIter(self.app, policy.object_ring, 0, self.logger,
-                             policy=policy, node_iter=iter(other_iter),
-                             request=Request.blank(''))
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            policy=policy, node_iter=iter(other_iter),
+            request=Request.blank(''))
         nodes = list(node_iter)
         self.assertEqual(len(other_iter), len(nodes))
         for node in nodes:

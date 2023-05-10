@@ -201,8 +201,9 @@ class BaseObjectController(Controller):
         policy_options = self.app.get_policy_options(policy)
         is_local = policy_options.write_affinity_is_local_fn
         if is_local is None:
-            return NodeIter(self.app, ring, partition, self.logger, request,
-                            policy=policy)
+            return NodeIter(
+                'object', self.app, ring, partition, self.logger, request,
+                policy=policy)
 
         primary_nodes = ring.get_part_nodes(partition)
         handoff_nodes = ring.get_more_nodes(partition)
@@ -235,8 +236,9 @@ class BaseObjectController(Controller):
             (node for node in all_nodes if node not in preferred_nodes)
         )
 
-        return NodeIter(self.app, ring, partition, self.logger, request,
-                        node_iter=node_iter, policy=policy)
+        return NodeIter(
+            'object', self.app, ring, partition, self.logger, request,
+            node_iter=node_iter, policy=policy)
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -255,8 +257,9 @@ class BaseObjectController(Controller):
                 return aresp
         partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
-        node_iter = NodeIter(self.app, obj_ring, partition, self.logger, req,
-                             policy=policy)
+        node_iter = NodeIter(
+            'object', self.app, obj_ring, partition, self.logger, req,
+            policy=policy)
 
         resp = self._get_or_head_response(req, node_iter, partition, policy)
 
@@ -337,7 +340,8 @@ class BaseObjectController(Controller):
         shard_ranges, response = self._get_shard_ranges(
             req, account, container, states='updating', includes=obj)
         record_cache_op_metrics(
-            self.logger, 'shard_updating', 'disabled', response)
+            self.logger, self.server_type.lower(), 'shard_updating',
+            'disabled', response)
         # there will be only one shard range in the list if any
         return shard_ranges[0] if shard_ranges else None
 
@@ -394,7 +398,8 @@ class BaseObjectController(Controller):
                         time=self.app.recheck_updating_shard_ranges)
             update_shard = find_namespace(obj, shard_ranges or [])
         record_cache_op_metrics(
-            self.logger, 'shard_updating', cache_state, response)
+            self.logger, self.server_type.lower(), 'shard_updating',
+            cache_state, response)
         return update_shard
 
     def _get_update_target(self, req, container_info):
@@ -1046,7 +1051,7 @@ class ReplicatedObjectController(BaseObjectController):
             if ml and bytes_transferred < ml:
                 self.logger.warning(
                     'Client disconnected without sending enough data')
-                self.logger.increment('client_disconnects')
+                self.logger.increment('object.client_disconnects')
                 raise HTTPClientDisconnect(request=req)
 
             trail_md = self._get_footers(req)
@@ -1061,14 +1066,14 @@ class ReplicatedObjectController(BaseObjectController):
         except ChunkReadTimeout as err:
             self.logger.warning(
                 'ERROR Client read timeout (%ss)', err.seconds)
-            self.logger.increment('client_timeouts')
+            self.logger.increment('object.client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except HTTPException:
             raise
         except ChunkReadError:
             self.logger.warning(
                 'Client disconnected without sending last chunk')
-            self.logger.increment('client_disconnects')
+            self.logger.increment('object.client_disconnects')
             raise HTTPClientDisconnect(request=req)
         except Timeout:
             self.logger.exception(
@@ -2624,7 +2629,7 @@ class ECFragGetter(GetterBase):
             self.logger.warning(
                 'Client did not read from proxy within %ss' %
                 self.app.client_timeout)
-            self.logger.increment('client_timeouts')
+            self.logger.increment('object.client_timeouts')
         except GeneratorExit:
             warn = True
             req_range = self.backend_headers['Range']
@@ -3226,7 +3231,7 @@ class ECObjectController(BaseObjectController):
             if ml and bytes_transferred < ml:
                 self.logger.warning(
                     'Client disconnected without sending enough data')
-                self.logger.increment('client_disconnects')
+                self.logger.increment('object.client_disconnects')
                 raise HTTPClientDisconnect(request=req)
 
             send_chunk(b'')  # flush out any buffered data
@@ -3296,12 +3301,12 @@ class ECObjectController(BaseObjectController):
         except ChunkReadTimeout as err:
             self.logger.warning(
                 'ERROR Client read timeout (%ss)', err.seconds)
-            self.logger.increment('client_timeouts')
+            self.logger.increment('object.client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except ChunkReadError:
             self.logger.warning(
                 'Client disconnected without sending last chunk')
-            self.logger.increment('client_disconnects')
+            self.logger.increment('object.client_disconnects')
             raise HTTPClientDisconnect(request=req)
         except HTTPException:
             raise
