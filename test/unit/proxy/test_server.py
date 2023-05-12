@@ -4358,6 +4358,10 @@ class TestReplicatedObjectController(
                               'object.shard_updating.cache.miss.200': 1},
                              stats)
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+            info_lines = self.logger.get_lines_for_level('info')
+            self.assertIn(
+                'Caching updating shards for shard-updating-v2/a/c (3 shards)',
+                info_lines)
 
             backend_requests = fake_conn.requests
             account_request = backend_requests[0]
