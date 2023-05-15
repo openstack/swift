@@ -1219,7 +1219,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             md = {'name': '/AUTH_admin/c/obj',
                   'Content-Type': 'application/octet-stream',
                   'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
-                  'Content-Length': 0}
+                  'Content-Length': '0'}
             write_metadata(fp, md)
 
     def test_print_obj(self):
@@ -1256,7 +1256,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             md = {'name': '/AUTH_admin/c/obj',
                   'Content-Type': 'application/octet-stream',
                   'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
-                  'Content-Length': 0}
+                  'Content-Length': '0'}
             write_metadata(fp, md)
 
         object_ring = ring.Ring(self.testdir, ring_name='object-2')
@@ -1297,7 +1297,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             md = {'name': '/AUTH_admin/c/obj',
                   'Content-Type': 'application/octet-stream',
                   'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
-                  'Content-Length': 0}
+                  'Content-Length': '0'}
             write_metadata(fp, md)
 
         object_ring = ring.Ring(self.testdir, ring_name='object-3')
@@ -1368,7 +1368,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             md = {'name': '/AUTH_admin/c/obj',
                   'Content-Type': 'application/octet-stream',
                   'ETag': 'badetag',
-                  'Content-Length': 0}
+                  'Content-Length': '0'}
             write_metadata(fp, md)
 
         out = StringIO()
@@ -1703,5 +1703,5 @@ class TestPrintObjWeirdPath(TestPrintObjFullMeta):
             md = {'name': '/AUTH_admin/c/obj',
                   'Content-Type': 'application/octet-stream',
                   'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
-                  'Content-Length': 0}
+                  'Content-Length': '0'}
             write_metadata(fp, md)

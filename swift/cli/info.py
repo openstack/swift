@@ -30,6 +30,7 @@ from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
     extract_policy
 from swift.common.storage_policy import POLICIES
+from swift.common.swob import wsgi_to_str
 from swift.common.middleware.crypto.crypto_utils import load_crypto_meta
 from swift.common.utils import md5
 
@@ -537,6 +538,8 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
         except EOFError:
             print("Invalid metadata")
             raise InfoSystemExit()
+        metadata = {wsgi_to_str(k): v if k == 'name' else wsgi_to_str(v)
+                    for k, v in metadata.items()}
 
         etag = metadata.pop('ETag', '')
         length = metadata.pop('Content-Length', '')
