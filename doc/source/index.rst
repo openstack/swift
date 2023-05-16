@@ -96,7 +96,6 @@ Administrator Documentation
 .. toctree::
     :maxdepth: 1
 
-    howto_installmultinode
     deployment_guide
     apache_deployment_guide
     admin_guide
