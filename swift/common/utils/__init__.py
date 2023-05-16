@@ -85,7 +85,6 @@ from six.moves.urllib.parse import quote as _quote, unquote
 from six.moves.urllib.parse import urlparse
 from six.moves import UserList
 
-from swift import gettext_ as _
 import swift.common.exceptions
 from swift.common.http import is_server_error
 from swift.common.header_key_dict import HeaderKeyDict
@@ -861,8 +860,8 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warning(_('Unable to perform fsync() on directory %(dir)s:'
-                          ' %(err)s'),
+        logging.warning('Unable to perform fsync() on directory %(dir)s:'
+                        ' %(err)s',
                         {'dir': dirpath, 'err': os.strerror(err.errno)})
     finally:
         if dirfd:
@@ -1174,9 +1173,9 @@ class LoggerFileObject(object):
             if value:
                 if 'Connection reset by peer' in value:
                     self.logger.error(
-                        _('%s: Connection reset by peer'), self.log_type)
+                        '%s: Connection reset by peer', self.log_type)
                 else:
-                    self.logger.error(_('%(type)s: %(value)s'),
+                    self.logger.error('%(type)s: %(value)s',
                                       {'type': self.log_type, 'value': value})
         finally:
             self._cls_thread_local.already_called_write = False
@@ -1187,7 +1186,7 @@ class LoggerFileObject(object):
 
         self._cls_thread_local.already_called_writelines = True
         try:
-            self.logger.error(_('%(type)s: %(value)s'),
+            self.logger.error('%(type)s: %(value)s',
                               {'type': self.log_type,
                                'value': '#012'.join(values)})
         finally:
@@ -1325,7 +1324,7 @@ class StatsdClient(object):
             except IOError as err:
                 if self.logger:
                     self.logger.warning(
-                        _('Error sending UDP message to %(target)r: %(err)s'),
+                        'Error sending UDP message to %(target)r: %(err)s',
                         {'target': self._target, 'err': err})
 
     def _open_socket(self):
@@ -1602,17 +1601,17 @@ class LogAdapter(logging.LoggerAdapter, object):
             if exc.errno in (errno.EIO, errno.ENOSPC):
                 emsg = str(exc)
             elif exc.errno == errno.ECONNREFUSED:
-                emsg = _('Connection refused')
+                emsg = 'Connection refused'
             elif exc.errno == errno.ECONNRESET:
-                emsg = _('Connection reset')
+                emsg = 'Connection reset'
             elif exc.errno == errno.EHOSTUNREACH:
-                emsg = _('Host unreachable')
+                emsg = 'Host unreachable'
             elif exc.errno == errno.ENETUNREACH:
-                emsg = _('Network unreachable')
+                emsg = 'Network unreachable'
             elif exc.errno == errno.ETIMEDOUT:
-                emsg = _('Connection timeout')
+                emsg = 'Connection timeout'
             elif exc.errno == errno.EPIPE:
-                emsg = _('Broken pipe')
+                emsg = 'Broken pipe'
             else:
                 call = self._exception
         elif isinstance(exc, (http_client.BadStatusLine,
@@ -1975,7 +1974,7 @@ def capture_stdio(logger, **kwargs):
     """
     # log uncaught exceptions
     sys.excepthook = lambda * exc_info: \
-        logger.critical(_('UNCAUGHT EXCEPTION'), exc_info=exc_info)
+        logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
 
     # collect stdio file desc not in use for logging
     stdio_files = [sys.stdin, sys.stdout, sys.stderr]
@@ -2029,12 +2028,12 @@ def parse_options(parser=None, once=False, test_args=None):
 
     if not args:
         parser.print_usage()
-        print(_("Error: missing config path argument"))
+        print("Error: missing config path argument")
         sys.exit(1)
     config = os.path.abspath(args.pop(0))
     if not os.path.exists(config):
         parser.print_usage()
-        print(_("Error: unable to locate %s") % config)
+        print("Error: unable to locate %s" % config)
         sys.exit(1)
 
     extra_args = []
@@ -2570,14 +2569,14 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
         else:
             success = c.read(conf_path)
         if not success:
-            raise IOError(_("Unable to read config from %s") %
+            raise IOError("Unable to read config from %s" %
                           conf_path)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
             raise ValueError(
-                _("Unable to find %(section)s config section in %(conf)s") %
+                "Unable to find %(section)s config section in %(conf)s" %
                 {'section': section_name, 'conf': conf_path})
         if "log_name" not in conf:
             if log_name is not None:
@@ -2807,7 +2806,7 @@ def audit_location_generator(devices, datadir, suffix='',
                 error_counter['unmounted'].append(device)
             if logger:
                 logger.warning(
-                    _('Skipping %s as it is not mounted'), device)
+                    'Skipping %s as it is not mounted', device)
             continue
         if hook_pre_device:
             hook_pre_device(os.path.join(devices, device))
@@ -2820,7 +2819,7 @@ def audit_location_generator(devices, datadir, suffix='',
                 error_counter.setdefault('unlistable_partitions', [])
                 error_counter['unlistable_partitions'].append(datadir_path)
             if logger:
-                logger.warning(_('Skipping %(datadir)s because %(err)s'),
+                logger.warning('Skipping %(datadir)s because %(err)s',
                                {'datadir': datadir_path, 'err': e})
             continue
         if partitions_filter:
@@ -3200,16 +3199,16 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
         data = value[2:].split('/')
         if len(data) != 4:
             return (
-                _('Invalid X-Container-Sync-To format %r') % orig_value,
+                'Invalid X-Container-Sync-To format %r' % orig_value,
                 None, None, None)
         realm, cluster, account, container = data
         realm_key = realms_conf.key(realm)
         if not realm_key:
-            return (_('No realm key for %r') % realm, None, None, None)
+            return ('No realm key for %r' % realm, None, None, None)
         endpoint = realms_conf.endpoint(realm, cluster)
         if not endpoint:
             return (
-                _('No cluster endpoint for %(realm)r %(cluster)r')
+                'No cluster endpoint for %(realm)r %(cluster)r'
                 % {'realm': realm, 'cluster': cluster},
                 None, None, None)
         return (
@@ -3219,19 +3218,19 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
     p = urlparse(value)
     if p.scheme not in ('http', 'https'):
         return (
-            _('Invalid scheme %r in X-Container-Sync-To, must be "//", '
-              '"http", or "https".') % p.scheme,
+            'Invalid scheme %r in X-Container-Sync-To, must be "//", '
+            '"http", or "https".' % p.scheme,
             None, None, None)
     if not p.path:
-        return (_('Path required in X-Container-Sync-To'), None, None, None)
+        return ('Path required in X-Container-Sync-To', None, None, None)
     if p.params or p.query or p.fragment:
         return (
-            _('Params, queries, and fragments not allowed in '
-              'X-Container-Sync-To'),
+            'Params, queries, and fragments not allowed in '
+            'X-Container-Sync-To',
             None, None, None)
     if p.hostname not in allowed_sync_hosts:
         return (
-            _('Invalid host %r in X-Container-Sync-To') % p.hostname,
+            'Invalid host %r in X-Container-Sync-To' % p.hostname,
             None, None, None)
     return (None, value, None, None)
 
@@ -4086,7 +4085,7 @@ def override_bytes_from_content_type(listing_dict, logger=None):
             listing_dict['bytes'] = int(swift_bytes)
         except ValueError:
             if logger:
-                logger.exception(_("Invalid swift_bytes"))
+                logger.exception("Invalid swift_bytes")
 
 
 def clean_content_type(value):
@@ -4405,7 +4404,7 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
                 pass
             else:
                 logger.warning(
-                    _("More than one part in a single-part response?"))
+                    "More than one part in a single-part response?")
 
         return string_along(response_body_iter, ranges_iter, logger)
 

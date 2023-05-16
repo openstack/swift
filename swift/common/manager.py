@@ -23,7 +23,6 @@ import time
 import subprocess
 import re
 import six
-from swift import gettext_ as _
 import tempfile
 from distutils.spawn import find_executable
 
@@ -68,22 +67,22 @@ def setup_env():
         resource.setrlimit(resource.RLIMIT_NOFILE,
                            (MAX_DESCRIPTORS, MAX_DESCRIPTORS))
     except ValueError:
-        print(_("WARNING: Unable to modify file descriptor limit.  "
-                "Running as non-root?"))
+        print("WARNING: Unable to modify file descriptor limit.  "
+              "Running as non-root?")
 
     try:
         resource.setrlimit(resource.RLIMIT_DATA,
                            (MAX_MEMORY, MAX_MEMORY))
     except ValueError:
-        print(_("WARNING: Unable to modify memory limit.  "
-                "Running as non-root?"))
+        print("WARNING: Unable to modify memory limit.  "
+              "Running as non-root?")
 
     try:
         resource.setrlimit(resource.RLIMIT_NPROC,
                            (MAX_PROCS, MAX_PROCS))
     except ValueError:
-        print(_("WARNING: Unable to modify max process limit.  "
-                "Running as non-root?"))
+        print("WARNING: Unable to modify max process limit.  "
+              "Running as non-root?")
 
     # Set PYTHON_EGG_CACHE if it isn't already set
     os.environ.setdefault('PYTHON_EGG_CACHE', tempfile.gettempdir())
@@ -277,7 +276,7 @@ class Manager(object):
                 try:
                     status += server.interact(**kwargs)
                 except KeyboardInterrupt:
-                    print(_('\nuser quit'))
+                    print('\nuser quit')
                     self.stop(**kwargs)
                     break
         elif kwargs.get('wait', True):
@@ -314,7 +313,7 @@ class Manager(object):
         for server in self.servers:
             signaled_pids = server.stop(**kwargs)
             if not signaled_pids:
-                print(_('No %s running') % server)
+                print('No %s running' % server)
             else:
                 server_pids[server] = signaled_pids
 
@@ -327,7 +326,7 @@ class Manager(object):
         for server, killed_pid in watch_server_pids(server_pids,
                                                     interval=kill_wait,
                                                     **kwargs):
-            print(_("%(server)s (%(pid)s) appears to have stopped") %
+            print("%(server)s (%(pid)s) appears to have stopped" %
                   {'server': server, 'pid': killed_pid})
             killed_pids.add(killed_pid)
             if not killed_pids.symmetric_difference(signaled_pids):
@@ -340,15 +339,15 @@ class Manager(object):
             if not killed_pids.issuperset(pids):
                 # some pids of this server were not killed
                 if kill_after_timeout:
-                    print(_('Waited %(kill_wait)s seconds for %(server)s '
-                            'to die; killing') %
+                    print('Waited %(kill_wait)s seconds for %(server)s '
+                          'to die; killing' %
                           {'kill_wait': kill_wait, 'server': server})
                     # Send SIGKILL to all remaining pids
                     for pid in set(pids.keys()) - killed_pids:
-                        print(_('Signal %(server)s  pid: %(pid)s  signal: '
-                                '%(signal)s') % {'server': server,
-                                                 'pid': pid,
-                                                 'signal': signal.SIGKILL})
+                        print('Signal %(server)s  pid: %(pid)s  signal: '
+                              '%(signal)s' % {'server': server,
+                                              'pid': pid,
+                                              'signal': signal.SIGKILL})
                         # Send SIGKILL to process group
                         try:
                             kill_group(pid, signal.SIGKILL)
@@ -357,8 +356,8 @@ class Manager(object):
                             if e.errno != errno.ESRCH:
                                 raise
                 else:
-                    print(_('Waited %(kill_wait)s seconds for %(server)s '
-                            'to die; giving up') %
+                    print('Waited %(kill_wait)s seconds for %(server)s '
+                          'to die; giving up' %
                           {'kill_wait': kill_wait, 'server': server})
         return 1
 
@@ -414,7 +413,7 @@ class Manager(object):
         for server in self.servers:
             signaled_pids = server.stop(**kwargs)
             if not signaled_pids:
-                print(_('No %s running') % server)
+                print('No %s running' % server)
                 status += 1
         return status
 
@@ -424,7 +423,7 @@ class Manager(object):
         for server in self.servers:
             signaled_pids = server.kill_child_pids(**kwargs)
             if not signaled_pids:
-                print(_('No %s running') % server)
+                print('No %s running' % server)
                 status += 1
         return status
 
@@ -584,7 +583,7 @@ class Server(object):
 
         def dump_found_configs():
             if found_conf_files:
-                print(_('Found configs:'))
+                print('Found configs:')
             for i, conf_file in enumerate(found_conf_files):
                 print('  %d) %s' % (i + 1, conf_file))
 
@@ -592,18 +591,18 @@ class Server(object):
             # maybe there's a config file(s) out there, but I couldn't find it!
             if not kwargs.get('quiet'):
                 if number:
-                    print(_('Unable to locate config number %(number)s for'
-                            ' %(server)s') %
+                    print('Unable to locate config number %(number)s for'
+                          ' %(server)s' %
                           {'number': number, 'server': self.server})
                 else:
-                    print(_('Unable to locate config for %s') % self.server)
+                    print('Unable to locate config for %s' % self.server)
             if kwargs.get('verbose') and not kwargs.get('quiet'):
                 dump_found_configs()
         elif any(["object-expirer" in name for name in conf_files]) and \
                 not kwargs.get('quiet'):
-            print(_("WARNING: object-expirer.conf is deprecated. "
-                    "Move object-expirers' configuration into "
-                    "object-server.conf."))
+            print("WARNING: object-expirer.conf is deprecated. "
+                  "Move object-expirers' configuration into "
+                  "object-server.conf.")
             if kwargs.get('verbose'):
                 dump_found_configs()
 
@@ -642,24 +641,24 @@ class Server(object):
     def _signal_pid(self, sig, pid, pid_file, verbose):
         try:
             if sig != signal.SIG_DFL:
-                print(_('Signal %(server)s  pid: %(pid)s  signal: '
-                        '%(signal)s') %
+                print('Signal %(server)s  pid: %(pid)s  signal: '
+                      '%(signal)s' %
                       {'server': self.server, 'pid': pid, 'signal': sig})
             safe_kill(pid, sig, 'swift-%s' % self.server)
         except InvalidPidFileException:
             if verbose:
-                print(_('Removing pid file %(pid_file)s with wrong pid '
-                        '%(pid)d') % {'pid_file': pid_file, 'pid': pid})
+                print('Removing pid file %(pid_file)s with wrong pid '
+                      '%(pid)d' % {'pid_file': pid_file, 'pid': pid})
             remove_file(pid_file)
             return False
         except OSError as e:
             if e.errno == errno.ESRCH:
                 # pid does not exist
                 if verbose:
-                    print(_("Removing stale pid file %s") % pid_file)
+                    print("Removing stale pid file %s" % pid_file)
                 remove_file(pid_file)
             elif e.errno == errno.EPERM:
-                print(_("No permission to signal PID %d") % pid)
+                print("No permission to signal PID %d" % pid)
             return False
         else:
             # process exists
@@ -676,7 +675,7 @@ class Server(object):
         pids = {}
         for pid_file, pid in self.iter_pid_files(**kwargs):
             if not pid:  # Catches None and 0
-                print(_('Removing pid file %s with invalid pid') % pid_file)
+                print('Removing pid file %s with invalid pid' % pid_file)
                 remove_file(pid_file)
                 continue
             if self._signal_pid(sig, pid, pid_file, kwargs.get('verbose')):
@@ -694,7 +693,7 @@ class Server(object):
         pids = {}
         for pid_file, pid in self.iter_pid_files(**kwargs):
             if not pid:  # Catches None and 0
-                print(_('Removing pid file %s with invalid pid') % pid_file)
+                print('Removing pid file %s with invalid pid' % pid_file)
                 remove_file(pid_file)
                 continue
             ps_cmd = ['ps', '--ppid', str(pid), '--no-headers', '-o', 'pid']
@@ -766,15 +765,15 @@ class Server(object):
                 kwargs['quiet'] = True
                 conf_files = self.conf_files(**kwargs)
                 if conf_files:
-                    print(_("%(server)s #%(number)d not running (%(conf)s)") %
+                    print("%(server)s #%(number)d not running (%(conf)s)" %
                           {'server': self.server, 'number': number,
                            'conf': conf_files[0]})
             else:
-                print(_("No %s running") % self.server)
+                print("No %s running" % self.server)
             return 1
         for pid, pid_file in pids.items():
             conf_file = self.get_conf_file_name(pid_file)
-            print(_("%(server)s running (%(pid)s - %(conf)s)") %
+            print("%(server)s running (%(pid)s - %(conf)s)" %
                   {'server': self.server, 'pid': pid, 'conf': conf_file})
         return 0
 
@@ -882,16 +881,16 @@ class Server(object):
             # any unstarted instances
             if conf_file in conf_files:
                 already_started = True
-                print(_("%(server)s running (%(pid)s - %(conf)s)") %
+                print("%(server)s running (%(pid)s - %(conf)s)" %
                       {'server': self.server, 'pid': pid, 'conf': conf_file})
             elif not kwargs.get('number', 0):
                 already_started = True
-                print(_("%(server)s running (%(pid)s - %(pid_file)s)") %
+                print("%(server)s running (%(pid)s - %(pid_file)s)" %
                       {'server': self.server, 'pid': pid,
                        'pid_file': pid_file})
 
         if already_started:
-            print(_("%s already started...") % self.server)
+            print("%s already started..." % self.server)
             return {}
 
         if self.server not in START_ONCE_SERVERS:
@@ -900,16 +899,16 @@ class Server(object):
         pids = {}
         for conf_file in conf_files:
             if kwargs.get('once'):
-                msg = _('Running %s once') % self.server
+                msg = 'Running %s once' % self.server
             else:
-                msg = _('Starting %s') % self.server
+                msg = 'Starting %s' % self.server
             print('%s...(%s)' % (msg, conf_file))
             try:
                 pid = self.spawn(conf_file, **kwargs)
             except OSError as e:
                 if e.errno == errno.ENOENT:
                     # TODO(clayg): should I check if self.cmd exists earlier?
-                    print(_("%s does not exist") % self.cmd)
+                    print("%s does not exist" % self.cmd)
                     break
                 else:
                     raise
