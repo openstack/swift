@@ -388,7 +388,8 @@ class Receiver(object):
             raise SsyncClientDisconnected
         if line.strip() != b':MISSING_CHECK: START':
             raise Exception(
-                'Looking for :MISSING_CHECK: START got %r' % line[:1024])
+                'Looking for :MISSING_CHECK: START got %r'
+                % utils.cap_length(line, 1024))
         object_hashes = []
         nlines = 0
         while True:
@@ -450,7 +451,8 @@ class Receiver(object):
             # Guess they hung up waiting for us to process the missing check
             raise SsyncClientDisconnected
         if line.strip() != b':UPDATES: START':
-            raise Exception('Looking for :UPDATES: START got %r' % line[:1024])
+            raise Exception('Looking for :UPDATES: START got %r'
+                            % utils.cap_length(line, 1024))
         successes = 0
         failures = 0
         updates = 0

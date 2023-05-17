@@ -3713,6 +3713,15 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))
 
+    def test_cap_length(self):
+        self.assertEqual(utils.cap_length(None, 3), None)
+        self.assertEqual(utils.cap_length('', 3), '')
+        self.assertEqual(utils.cap_length('asdf', 3), 'asd...')
+        self.assertEqual(utils.cap_length('asdf', 5), 'asdf')
+
+        self.assertEqual(utils.cap_length(b'asdf', 3), b'asd...')
+        self.assertEqual(utils.cap_length(b'asdf', 5), b'asdf')
+
     def test_get_partition_for_hash(self):
         hex_hash = 'af088baea4806dcaba30bf07d9e64c77'
         self.assertEqual(43, utils.get_partition_for_hash(hex_hash, 6))

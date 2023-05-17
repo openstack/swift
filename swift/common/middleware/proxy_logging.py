@@ -78,7 +78,7 @@ from swift.common.middleware.catch_errors import enforce_byte_count
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 config_true_value, reiterate,
-                                close_if_possible,
+                                close_if_possible, cap_length,
                                 InputProxy, list_from_csv, get_policy_index,
                                 split_path, StrAnonymizer, StrFormatTime,
                                 LogStringFormatter)
@@ -200,9 +200,7 @@ class ProxyLoggingMiddleware(object):
         env['swift.proxy_access_log_made'] = True
 
     def obscure_sensitive(self, value):
-        if value and len(value) > self.reveal_sensitive_prefix:
-            return value[:self.reveal_sensitive_prefix] + '...'
-        return value
+        return cap_length(value, self.reveal_sensitive_prefix)
 
     def obscure_req(self, req):
         for header in get_sensitive_headers():

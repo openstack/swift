@@ -5717,6 +5717,15 @@ def strict_b64decode(value, allow_line_breaks=False):
         raise ValueError
 
 
+def cap_length(value, max_length):
+    if value and len(value) > max_length:
+        if isinstance(value, bytes):
+            return value[:max_length] + b'...'
+        else:
+            return value[:max_length] + '...'
+    return value
+
+
 MD5_BLOCK_READ_BYTES = 4096
 
 

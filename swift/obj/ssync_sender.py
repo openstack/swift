@@ -266,7 +266,7 @@ class Sender(object):
                 self.daemon.node_timeout, 'connect receive'):
             response = connection.getresponse()
             if response.status != http.HTTP_OK:
-                err_msg = response.read()[:1024]
+                err_msg = utils.cap_length(response.read(), 1024)
                 raise exceptions.ReplicationException(
                     'Expected status %s; got %s (%s)' %
                     (http.HTTP_OK, response.status, err_msg))
@@ -358,7 +358,7 @@ class Sender(object):
                     except UnicodeDecodeError:
                         pass
                 raise exceptions.ReplicationException(
-                    'Unexpected response: %r' % line[:1024])
+                    'Unexpected response: %r' % utils.cap_length(line, 1024))
         while True:
             with exceptions.MessageTimeout(
                     self.daemon.http_timeout, 'missing_check line wait'):
@@ -447,7 +447,7 @@ class Sender(object):
                     except UnicodeDecodeError:
                         pass
                 raise exceptions.ReplicationException(
-                    'Unexpected response: %r' % line[:1024])
+                    'Unexpected response: %r' % utils.cap_length(line, 1024))
         while True:
             with exceptions.MessageTimeout(
                     self.daemon.http_timeout, 'updates line wait'):
@@ -464,7 +464,7 @@ class Sender(object):
                     except UnicodeDecodeError:
                         pass
                 raise exceptions.ReplicationException(
-                    'Unexpected response: %r' % line[:1024])
+                    'Unexpected response: %r' % utils.cap_length(line, 1024))
 
     def send_subrequest(self, connection, method, url_path, headers, df):
         msg = [b'%s %s' % (method.encode('ascii'), url_path.encode('utf8'))]
