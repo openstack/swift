@@ -512,6 +512,17 @@ def readuntil2crlfs(fd):
     return rv
 
 
+def readlength(fd, size, timeout=1.0):
+    buf = b''
+    with eventlet.Timeout(timeout):
+        while len(buf) < size:
+            chunk = fd.read(min(64, size - len(buf)))
+            buf += chunk
+            if len(buf) >= size:
+                break
+    return buf
+
+
 def connect_tcp(hostport):
     rv = socket.socket()
     rv.connect(hostport)
