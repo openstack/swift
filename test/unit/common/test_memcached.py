@@ -34,7 +34,8 @@ from eventlet.pools import Pool
 from eventlet.green import ssl
 
 from swift.common import memcached
-from swift.common.memcached import MemcacheConnectionError
+from swift.common.memcached import MemcacheConnectionError, md5hash, \
+    get_key_prefix
 from swift.common.utils import md5, human_readable
 from mock import patch, MagicMock
 from test.debug_logger import debug_logger
@@ -200,6 +201,21 @@ class TestMemcached(unittest.TestCase):
     def setUp(self):
         self.logger = debug_logger()
 
+    def test_get_key_prefix(self):
+        self.assertEqual(
+            get_key_prefix("shard-updating-v2/a/c"),
+            "shard-updating-v2/a")
+        self.assertEqual(
+            get_key_prefix("shard-listing-v2/accout/container3"),
+            "shard-listing-v2/accout")
+        self.assertEqual(
+            get_key_prefix("auth_reseller_name/token/X58E34EL2SDFLEY3"),
+            "auth_reseller_name/token")
+        self.assertEqual(
+            get_key_prefix("nvratelimit/v2/wf/2345392374"),
+            "nvratelimit/v2/wf")
+        self.assertEqual(get_key_prefix("some_key"), "some_key")
+
     def test_logger_kwarg(self):
         server_socket = '%s:%s' % ('[::1]', 11211)
         client = memcached.MemcacheRing([server_socket])
@@ -219,7 +235,7 @@ class TestMemcached(unittest.TestCase):
             self.assertIs(client._client_cache[server]._tls_context, context)
 
             key = uuid4().hex.encode('ascii')
-            list(client._get_conns(key))
+            list(client._get_conns('test', key))
             context.wrap_socket.assert_called_once()
 
     def test_get_conns(self):
@@ -241,7 +257,7 @@ class TestMemcached(unittest.TestCase):
             one = two = True
             while one or two:  # Run until we match hosts one and two
                 key = uuid4().hex.encode('ascii')
-                for conn in memcache_client._get_conns(key):
+                for conn in memcache_client._get_conns('test', key):
                     if 'b' not in getattr(conn[1], 'mode', ''):
                         self.assertIsInstance(conn[1], (
                             io.RawIOBase, io.BufferedIOBase))
@@ -268,7 +284,7 @@ class TestMemcached(unittest.TestCase):
             memcache_client = memcached.MemcacheRing([server_socket],
                                                      logger=self.logger)
             key = uuid4().hex.encode('ascii')
-            for conn in memcache_client._get_conns(key):
+            for conn in memcache_client._get_conns('test', key):
                 peer_sockaddr = conn[2].getpeername()
                 peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
                 self.assertEqual(peer_socket, server_socket)
@@ -290,7 +306,7 @@ class TestMemcached(unittest.TestCase):
             memcache_client = memcached.MemcacheRing([server_host],
                                                      logger=self.logger)
             key = uuid4().hex.encode('ascii')
-            for conn in memcache_client._get_conns(key):
+            for conn in memcache_client._get_conns('test', key):
                 peer_sockaddr = conn[2].getpeername()
                 peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
                 self.assertEqual(peer_socket, server_socket)
@@ -319,7 +335,7 @@ class TestMemcached(unittest.TestCase):
                 memcache_client = memcached.MemcacheRing([server_socket],
                                                          logger=self.logger)
                 key = uuid4().hex.encode('ascii')
-                for conn in memcache_client._get_conns(key):
+                for conn in memcache_client._get_conns('test', key):
                     peer_sockaddr = conn[2].getpeername()
                     peer_socket = '%s:%s' % (peer_sockaddr[0],
                                              peer_sockaddr[1])
@@ -345,7 +361,7 @@ class TestMemcached(unittest.TestCase):
                 memcache_client = memcached.MemcacheRing([server_socket],
                                                          logger=self.logger)
                 key = uuid4().hex.encode('ascii')
-                for conn in memcache_client._get_conns(key):
+                for conn in memcache_client._get_conns('test', key):
                     peer_sockaddr = conn[2].getpeername()
                     peer_socket = '[%s]:%s' % (peer_sockaddr[0],
                                                peer_sockaddr[1])
@@ -539,7 +555,7 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(mock1.exploded, True)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ])
 
         self.logger.clear()
@@ -548,7 +564,7 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(mock1.exploded, True)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ])
         # Check that we really did call create() twice
         self.assertEqual(memcache_client._client_cache['1.2.3.5:11211'].mocks,
@@ -571,7 +587,7 @@ class TestMemcached(unittest.TestCase):
         # to .4
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ] * 11 + [
             'Error limiting server 1.2.3.5:11211'
         ])
@@ -583,10 +599,10 @@ class TestMemcached(unittest.TestCase):
         # as we keep going, eventually .4 gets error limited, too
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.4:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ] * 10 + [
             'Error talking to memcached: 1.2.3.4:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
             'Error limiting server 1.2.3.4:11211',
             'All memcached servers error-limited',
         ])
@@ -619,7 +635,7 @@ class TestMemcached(unittest.TestCase):
         # to .4
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.4:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ] * 20)
 
     def test_error_raising(self):
@@ -634,7 +650,7 @@ class TestMemcached(unittest.TestCase):
             memcache_client.set('some_key', [1, 2, 3], raise_on_error=True)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.4:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ])
         self.logger.clear()
 
@@ -642,7 +658,17 @@ class TestMemcached(unittest.TestCase):
             memcache_client.get('some_key', raise_on_error=True)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.4:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
+        ])
+        self.logger.clear()
+
+        with self.assertRaises(MemcacheConnectionError):
+            memcache_client.set(
+                'shard-updating-v2/acc/container', [1, 2, 3],
+                raise_on_error=True)
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.4:11211: '
+            'with key_prefix shard-updating-v2/acc: [Errno 32] Broken pipe',
         ])
         self.logger.clear()
 
@@ -650,14 +676,21 @@ class TestMemcached(unittest.TestCase):
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.4:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ])
         self.logger.clear()
 
         memcache_client.get('some_key')
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.4:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
+        ])
+        self.logger.clear()
+
+        memcache_client.set('shard-updating-v2/acc/container', [1, 2, 3])
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.4:11211: '
+            'with key_prefix shard-updating-v2/acc: [Errno 32] Broken pipe',
         ])
 
     def test_error_limiting_custom_config(self):
@@ -680,10 +713,10 @@ class TestMemcached(unittest.TestCase):
         do_calls(5, 12)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ] * 10 + [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
             'Error limiting server 1.2.3.5:11211',
             'All memcached servers error-limited',
         ])
@@ -693,7 +726,7 @@ class TestMemcached(unittest.TestCase):
         do_calls(6, 20)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ] * 20)
 
         # with error_limit_time of 66, one call per 6 secs, twelfth one
@@ -701,10 +734,10 @@ class TestMemcached(unittest.TestCase):
         do_calls(6, 12, error_limit_time=66)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ] * 10 + [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
             'Error limiting server 1.2.3.5:11211',
             'All memcached servers error-limited',
         ])
@@ -714,10 +747,10 @@ class TestMemcached(unittest.TestCase):
         do_calls(6, 13, error_limit_time=70, error_limit_count=11)
         self.assertEqual(self.logger.get_lines_for_level('error'), [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
         ] * 11 + [
             'Error talking to memcached: 1.2.3.5:11211: '
-            '[Errno 32] Broken pipe',
+            'with key_prefix some_key: [Errno 32] Broken pipe',
             'Error limiting server 1.2.3.5:11211',
             'All memcached servers error-limited',
         ])
@@ -953,7 +986,8 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(len(memcache_client._errors['1.2.3.5:11211']), 8)
         self.assertEqual(
             self.logger.get_lines_for_level('error'),
-            ['Timeout getting a connection to memcached: 1.2.3.5:11211'] * 8)
+            ['Timeout getting a connection to memcached: 1.2.3.5:11211'
+             ': with key_prefix key'] * 8)
         self.assertEqual(served['1.2.3.5'], 2)
         self.assertEqual(pending['1.2.3.4'], 0)
         self.assertEqual(len(memcache_client._errors['1.2.3.4:11211']), 0)
@@ -992,7 +1026,8 @@ class TestMemcached(unittest.TestCase):
 
             # try to get connect and no connection found
             # so it will result in StopIteration
-            conn_generator = memcache_client._get_conns(b'key')
+            conn_generator = memcache_client._get_conns(
+                'key', md5hash(b'key'))
             with self.assertRaises(StopIteration):
                 next(conn_generator)
 
