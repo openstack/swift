@@ -48,7 +48,8 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
-    ShardRange, find_namespace, cache_from_env, NamespaceBoundList)
+    ShardRange, find_namespace, cache_from_env, NamespaceBoundList,
+    CooperativeIterator)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -1007,6 +1008,7 @@ class ReplicatedObjectController(BaseObjectController):
         This method was added in the PUT method extraction change
         """
         bytes_transferred = 0
+        data_source = CooperativeIterator(data_source)
 
         def send_chunk(chunk):
             timeout_at = time.time() + self.app.node_timeout
@@ -2659,7 +2661,6 @@ class ECFragGetter(object):
                         read_chunk_size=self.app.object_chunk_size)
 
     def iter_bytes_from_response_part(self, part_file, nbytes):
-        nchunks = 0
         buf = b''
         part_file = ByteCountEnforcer(part_file, nbytes)
         while True:
@@ -2668,7 +2669,6 @@ class ECFragGetter(object):
                                      self.app.recoverable_node_timeout,
                                      ChunkReadTimeout):
                     chunk = part_file.read(self.app.object_chunk_size)
-                    nchunks += 1
                     # NB: this append must be *inside* the context
                     # manager for test.unit.SlowBody to do its thing
                     buf += chunk
@@ -2736,25 +2736,6 @@ class ECFragGetter(object):
                 if not chunk:
                     break
 
-                # This is for fairness; if the network is outpacing
-                # the CPU, we'll always be able to read and write
-                # data without encountering an EWOULDBLOCK, and so
-                # eventlet will not switch greenthreads on its own.
-                # We do it manually so that clients don't starve.
-                #
-                # The number 5 here was chosen by making stuff up.
-                # It's not every single chunk, but it's not too big
-                # either, so it seemed like it would probably be an
-                # okay choice.
-                #
-                # Note that we may trampoline to other greenthreads
-                # more often than once every 5 chunks, depending on
-                # how blocking our network IO is; the explicit sleep
-                # here simply provides a lower bound on the rate of
-                # trampolining.
-                if nchunks % 5 == 0:
-                    sleep()
-
     def _get_response_parts_iter(self, req):
         try:
             # This is safe; it sets up a generator but does not call next()
@@ -2784,8 +2765,8 @@ class ECFragGetter(object):
                                   if (end_byte is not None
                                       and start_byte is not None)
                                   else None)
-                    part_iter = self.iter_bytes_from_response_part(
-                        part, byte_count)
+                    part_iter = CooperativeIterator(
+                        self.iter_bytes_from_response_part(part, byte_count))
                     yield {'start_byte': start_byte, 'end_byte': end_byte,
                            'entity_length': length, 'headers': headers,
                            'part_iter': part_iter}
@@ -3360,6 +3341,7 @@ class ECObjectController(BaseObjectController):
             # same part nodes index as the primaries they are covering
             putter_to_frag_index = self._determine_chunk_destinations(
                 putters, policy)
+            data_source = CooperativeIterator(data_source)
 
             while True:
                 with WatchdogTimeout(self.app.watchdog,

@@ -6323,3 +6323,48 @@ class WatchdogTimeout(object):
 
     def __exit__(self, type, value, traceback):
         self.watchdog.stop(self.key)
+
+
+class CooperativeIterator(object):
+    """
+    Wrapper to make a deliberate periodic call to ``sleep()`` while iterating
+    over wrapped iterator, providing an opportunity to switch greenthreads.
+
+    This is for fairness; if the network is outpacing the CPU, we'll always be
+    able to read and write data without encountering an EWOULDBLOCK, and so
+    eventlet will not switch greenthreads on its own. We do it manually so that
+    clients don't starve.
+
+    The number 5 here was chosen by making stuff up. It's not every single
+    chunk, but it's not too big either, so it seemed like it would probably be
+    an okay choice.
+
+    Note that we may trampoline to other greenthreads more often than once
+    every 5 chunks, depending on how blocking our network IO is; the explicit
+    sleep here simply provides a lower bound on the rate of trampolining.
+
+    :param iterable: iterator to wrap.
+    :param period: number of items yielded from this iterator between calls to
+        ``sleep()``.
+    """
+    __slots__ = ('period', 'count', 'wrapped_iter')
+
+    def __init__(self, iterable, period=5):
+        self.wrapped_iter = iterable
+        self.count = 0
+        self.period = period
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if self.count >= self.period:
+            self.count = 0
+            sleep()
+        self.count += 1
+        return next(self.wrapped_iter)
+
+    __next__ = next
+
+    def close(self):
+        close_if_possible(self.wrapped_iter)
