@@ -47,4 +47,4 @@ Production
 If you want to set up and configure Swift for a production cluster, the
 following doc should be useful:
 
-* :doc:`Multiple Server Swift Installation <howto_installmultinode>`
+* :doc:`install/index`
