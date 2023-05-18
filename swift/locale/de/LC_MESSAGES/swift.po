@@ -12,7 +12,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2022-05-27 18:57+0000\n"
+"POT-Creation-Date: 2023-05-17 23:35+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -75,10 +75,6 @@ msgstr ""
 "(%(rate).5f/s)"
 
 #, python-format
-msgid "Audit Failed for %(path)s: %(err)s"
-msgstr "Prüfung fehlgeschlagen für %(path)s: %(err)s"
-
-#, python-format
 msgid "Bad key for %(name)r: %(err)s"
 msgstr "Schlechter Schlüssel für %(name)r: %(err)s"
 
@@ -128,9 +124,6 @@ msgstr "FEHLER Eigene IPs konnten nicht abgerufen werden?"
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "FEHLER Entferntes Laufwerk nicht eingehängt %s"
-
-msgid "ERROR auditing"
-msgstr "FEHLER bei der Prüfung"
 
 #, python-format
 msgid "ERROR reading HTTP response from %s"
@@ -354,23 +347,12 @@ msgstr ""
 "%(section)s-Konfigurationsabschnitt in %(conf)s kann nicht gefunden werden"
 
 #, python-format
-msgid "Unable to locate %s in libc.  Leaving as a no-op."
-msgstr ""
-"%s konnte nicht in libc gefunden werden. Wird als Nullbefehl verlassen."
-
-#, python-format
 msgid "Unable to locate config for %s"
 msgstr "Konfiguration für %s wurde nicht gefunden."
 
 #, python-format
 msgid "Unable to locate config number %(number)s for %(server)s"
 msgstr "Konfigurationsnummer %(number)s für %(server)s wurde nicht gefunden."
-
-msgid ""
-"Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
-msgstr ""
-"fallocate, posix_fallocate konnte nicht in libc gefunden werden. Wird als "
-"Nullbefehl verlassen."
 
 #, python-format
 msgid "Unable to perform fsync() on directory %(dir)s: %(err)s"
@@ -387,14 +369,6 @@ msgstr ""
 "WARNUNG: SSL sollte nur zu Testzwecken aktiviert werden. Verwenden Sie die "
 "externe SSL-Beendigung für eine Implementierung in der Produktionsumgebung."
 
-msgid ""
-"WARNING: Unable to modify I/O scheduling class and priority of process. "
-"Keeping unchanged! Check logs for more info."
-msgstr ""
-"WARNUNG: I/O Planungsklasse und Priorität des Prozesses können nicht "
-"geändert werden. Es werden keine Änderungen vorgenommen! Überprüfen Sie die "
-"Log-Dateien für mehr Informationen."
-
 msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
 msgstr ""
 "WARNUNG: Grenzwert für Dateideskriptoren kann nicht geändert werden.  Wird "
@@ -409,14 +383,6 @@ msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "WARNUNG: Grenzwert für Speicher kann nicht geändert werden.  Wird nicht als "
 "Root ausgeführt?"
-
-msgid ""
-"WARNING: Unable to modify scheduling priority of process. Keeping unchanged! "
-"Check logs for more info. "
-msgstr ""
-"WARNUNG: Priorität der Planung des Prozesses kann nicht geändert werden. Es "
-"wird keine Änderung vorgenommen! Überprüfen Sie die Log-Dateien für mehr "
-"Informationen."
 
 #, python-format
 msgid "Waited %(kill_wait)s seconds for %(server)s to die; giving up"

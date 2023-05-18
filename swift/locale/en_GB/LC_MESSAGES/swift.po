@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the swift project.
 #
 # Translators:
-# Andi Chandler <andi@gowling.com>, 2016. #zanata
 # Andi Chandler <andi@gowling.com>, 2018. #zanata
 # Andi Chandler <andi@gowling.com>, 2019. #zanata
 # Andi Chandler <andi@gowling.com>, 2022. #zanata
@@ -11,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2022-05-27 18:57+0000\n"
+"POT-Creation-Date: 2023-05-17 23:35+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -47,14 +46,6 @@ msgid "%(server)s running (%(pid)s - %(pid_file)s)"
 msgstr "%(server)s running (%(pid)s - %(pid_file)s)"
 
 #, python-format
-msgid "%(server_type)s audit \"once\" mode completed: %(elapsed).02fs"
-msgstr "%(server_type)s audit \"once\" mode completed: %(elapsed).02fs"
-
-#, python-format
-msgid "%(server_type)s audit pass completed: %(elapsed).02fs"
-msgstr "%(server_type)s audit pass completed: %(elapsed).02fs"
-
-#, python-format
 msgid "%(success)s successes, %(failure)s failures"
 msgstr "%(success)s successes, %(failure)s failures"
 
@@ -81,18 +72,8 @@ msgstr ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 
 #, python-format
-msgid "Audit Failed for %(path)s: %(err)s"
-msgstr "Audit Failed for %(path)s: %(err)s"
-
-#, python-format
 msgid "Bad key for %(name)r: %(err)s"
 msgstr "Bad key for %(name)r: %(err)s"
-
-msgid "Begin {} audit \"once\" mode"
-msgstr "Begin {} audit \"once\" mode"
-
-msgid "Begin {} audit pass."
-msgstr "Begin {} audit pass."
 
 msgid "Beginning replication run"
 msgstr "Beginning replication run"
@@ -137,10 +118,6 @@ msgstr "Data download error: %s"
 msgid "Did not get a keys dict"
 msgstr "Did not get a keys dict"
 
-#, python-format
-msgid "ERROR Could not get %(server_type)s info %(path)s"
-msgstr "ERROR Could not get %(server_type)s info %(path)s"
-
 msgid "ERROR Failed to get my own IPs?"
 msgstr "ERROR Failed to get my own IPs?"
 
@@ -155,9 +132,6 @@ msgid ""
 msgstr ""
 "ERROR There are not enough hand-off nodes to reach replica count for "
 "partition %s"
-
-msgid "ERROR auditing"
-msgstr "ERROR auditing"
 
 msgid "ERROR get_keys() missing callback"
 msgstr "ERROR get_keys() missing callback"
@@ -363,14 +337,6 @@ msgid "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
 msgstr "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
 
 #, python-format
-msgid ""
-"Since %(time)s: %(server_type)s audits: %(pass)s passed audit, %(fail)s "
-"failed audit"
-msgstr ""
-"Since %(time)s: %(server_type)s audits: %(pass)s passed audit, %(fail)s "
-"failed audit"
-
-#, python-format
 msgid "Skipping %(datadir)s because %(err)s"
 msgstr "Skipping %(datadir)s because %(err)s"
 
@@ -393,21 +359,12 @@ msgid "Unable to find %(section)s config section in %(conf)s"
 msgstr "Unable to find %(section)s config section in %(conf)s"
 
 #, python-format
-msgid "Unable to locate %s in libc.  Leaving as a no-op."
-msgstr "Unable to locate %s in libc.  Leaving as a no-op."
-
-#, python-format
 msgid "Unable to locate config for %s"
 msgstr "Unable to locate config for %s"
 
 #, python-format
 msgid "Unable to locate config number %(number)s for %(server)s"
 msgstr "Unable to locate config number %(number)s for %(server)s"
-
-msgid ""
-"Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
-msgstr ""
-"Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 
 #, python-format
 msgid "Unable to perform fsync() on directory %(dir)s: %(err)s"
@@ -424,13 +381,6 @@ msgstr ""
 "WARNING: SSL should only be enabled for testing purposes. Use external SSL "
 "termination for a production deployment."
 
-msgid ""
-"WARNING: Unable to modify I/O scheduling class and priority of process. "
-"Keeping unchanged! Check logs for more info."
-msgstr ""
-"WARNING: Unable to modify I/O scheduling class and priority of process. "
-"Keeping unchanged! Check logs for more info."
-
 msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
 msgstr "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
 
@@ -439,13 +389,6 @@ msgstr "WARNING: Unable to modify max process limit.  Running as non-root?"
 
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr "WARNING: Unable to modify memory limit.  Running as non-root?"
-
-msgid ""
-"WARNING: Unable to modify scheduling priority of process. Keeping unchanged! "
-"Check logs for more info. "
-msgstr ""
-"WARNING: Unable to modify scheduling priority of process. Keeping unchanged! "
-"Check logs for more info. "
 
 msgid ""
 "WARNING: object-expirer.conf is deprecated. Move object-expirers' "

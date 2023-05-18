@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2022-05-27 18:57+0000\n"
+"POT-Creation-Date: 2023-05-17 23:35+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -79,9 +79,6 @@ msgstr "错误 无法获得我方IPs?"
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "错误 远程驱动器无法挂载 %s"
-
-msgid "ERROR auditing"
-msgstr "错误 审计"
 
 #, python-format
 msgid "ERROR reading HTTP response from %s"
@@ -243,16 +240,8 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕获的异常"
 
 #, python-format
-msgid "Unable to locate %s in libc.  Leaving as a no-op."
-msgstr "无法查询到%s 保留为no-op"
-
-#, python-format
 msgid "Unable to locate config for %s"
 msgstr "找不到 %s 的配置"
-
-msgid ""
-"Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
-msgstr "无法查询到fallocate， posix_fallocate。保存为no-op"
 
 #, python-format
 msgid "Unable to read config from %s"

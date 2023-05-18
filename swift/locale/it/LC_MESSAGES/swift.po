@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2022-05-27 18:57+0000\n"
+"POT-Creation-Date: 2023-05-17 23:35+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -82,9 +82,6 @@ msgstr "ERRORE Impossibile ottenere i propri IP?"
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "ERRORE Unità remota non montata %s"
-
-msgid "ERROR auditing"
-msgstr "ERRORE durante la verifica"
 
 #, python-format
 msgid "ERROR reading HTTP response from %s"
@@ -252,18 +249,8 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "ECCEZIONE NON RILEVATA"
 
 #, python-format
-msgid "Unable to locate %s in libc.  Leaving as a no-op."
-msgstr "Impossibile individuare %s in libc.  Lasciato come no-op."
-
-#, python-format
 msgid "Unable to locate config for %s"
 msgstr "Impossibile individuare la configurazione per %s"
-
-msgid ""
-"Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
-msgstr ""
-"Impossibile individuare fallocate, posix_fallocate in libc.  Lasciato come "
-"no-op."
 
 #, python-format
 msgid "Unable to read config from %s"
