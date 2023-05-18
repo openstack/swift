@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2022-05-27 18:57+0000\n"
+"POT-Creation-Date: 2023-05-17 23:35+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -72,10 +72,6 @@ msgstr ""
 "(%(rate).5f/s)"
 
 #, python-format
-msgid "Audit Failed for %(path)s: %(err)s"
-msgstr "Ha fallado la auditoría para %(path)s: %(err)s"
-
-#, python-format
 msgid "Bad key for %(name)r: %(err)s"
 msgstr "Clave errónea para  %(name)r: %(err)s"
 
@@ -123,9 +119,6 @@ msgstr "ERROR ¿No puedo obtener mis propias IP?"
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "ERROR Unidad remota no montada %s"
-
-msgid "ERROR auditing"
-msgstr "ERROR de auditoría"
 
 msgid "ERROR get_keys() missing callback"
 msgstr "ERROR get_keys() No se proporciona devolución de llamada "
@@ -315,10 +308,6 @@ msgid "Unable to find %(section)s config section in %(conf)s"
 msgstr "No se ha podido encontrar  %(section)s de la configuración en %(conf)s"
 
 #, python-format
-msgid "Unable to locate %s in libc.  Leaving as a no-op."
-msgstr "No se ha podido localizar %s en libc. Se dejará como no operativo."
-
-#, python-format
 msgid "Unable to locate config for %s"
 msgstr "No se ha podido encontrar el número de configuración de %s"
 
@@ -326,12 +315,6 @@ msgstr "No se ha podido encontrar el número de configuración de %s"
 msgid "Unable to locate config number %(number)s for %(server)s"
 msgstr ""
 "No se ha podido encontrar el número de configuración %(number)s de %(server)s"
-
-msgid ""
-"Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
-msgstr ""
-"No se ha podido localizar fallocate, posix_fallocate en libc. Se dejará como "
-"no operativo."
 
 #, python-format
 msgid "Unable to perform fsync() on directory %(dir)s: %(err)s"
