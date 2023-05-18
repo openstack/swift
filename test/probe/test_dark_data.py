@@ -95,7 +95,8 @@ class TestDarkDataDeletion(ReplProbeTest):
                     self.device_dir(node),
                     get_policy_string('objects', self.policy))):
                 for file in files:
-                    if file in ('.lock', 'hashes.pkl', 'hashes.invalid'):
+                    if file in ('.lock', 'hashes.pkl', 'hashes.invalid',
+                                '.lock-replication'):
                         continue
                     _, ext = os.path.splitext(file)
                     result[ext].add(os.path.join(path, file))
