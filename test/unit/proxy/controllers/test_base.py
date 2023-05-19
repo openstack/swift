@@ -553,7 +553,8 @@ class TestFuncs(BaseTest):
         self.assertEqual(resp['object_count'], 0)
         self.assertEqual(resp['versions'], None)
         self.assertEqual(
-            [x[0][0] for x in self.logger.logger.log_dict['increment']],
+            [x[0][0] for x in
+             self.logger.logger.statsd_client.calls['increment']],
             ['container.info.cache.miss'])
 
         # container info is cached in cache.
@@ -583,7 +584,8 @@ class TestFuncs(BaseTest):
                                  [(k, str, v, str)
                                   for k, v in subdict.items()])
         self.assertEqual(
-            [x[0][0] for x in self.logger.logger.log_dict['increment']],
+            [x[0][0] for x in
+             self.logger.logger.statsd_client.calls['increment']],
             ['container.info.cache.hit'])
 
     def test_get_cache_key(self):
@@ -668,27 +670,27 @@ class TestFuncs(BaseTest):
         record_cache_op_metrics(
             self.logger, 'shard_listing', 'infocache_hit')
         self.assertEqual(
-            self.logger.get_increment_counts().get(
+            self.logger.statsd_client.get_increment_counts().get(
                 'shard_listing.infocache.hit'),
             1)
         record_cache_op_metrics(
             self.logger, 'shard_listing', 'hit')
         self.assertEqual(
-            self.logger.get_increment_counts().get(
+            self.logger.statsd_client.get_increment_counts().get(
                 'shard_listing.cache.hit'),
             1)
         resp = FakeResponse(status_int=200)
         record_cache_op_metrics(
             self.logger, 'shard_updating', 'skip', resp)
         self.assertEqual(
-            self.logger.get_increment_counts().get(
+            self.logger.statsd_client.get_increment_counts().get(
                 'shard_updating.cache.skip.200'),
             1)
         resp = FakeResponse(status_int=503)
         record_cache_op_metrics(
             self.logger, 'shard_updating', 'disabled', resp)
         self.assertEqual(
-            self.logger.get_increment_counts().get(
+            self.logger.statsd_client.get_increment_counts().get(
                 'shard_updating.cache.disabled.503'),
             1)
 

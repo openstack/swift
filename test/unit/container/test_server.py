@@ -5530,7 +5530,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
         with mock.patch('time.time',
                         mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0,
-                                                    10002.0])), \
+                                                    10002.0, 10002.0])), \
                 mock.patch('os.getpid', mock.MagicMock(return_value=1234)):
             req.get_response(self.controller)
         info_lines = self.controller.logger.get_lines_for_level('info')

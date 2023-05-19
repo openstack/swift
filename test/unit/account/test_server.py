@@ -2649,7 +2649,7 @@ class TestAccountController(unittest.TestCase):
         with mock.patch(
                 'time.time',
                 mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0,
-                                            10002.0])):
+                                            10002.0, 10002.0])):
             with mock.patch(
                     'os.getpid', mock.MagicMock(return_value=1234)):
                 req.get_response(self.controller)

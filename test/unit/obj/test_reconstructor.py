@@ -140,9 +140,9 @@ def _create_test_rings(path, next_part_power=None):
 
 def count_stats(logger, key, metric):
     count = 0
-    for record in logger.log_dict[key]:
-        log_args, log_kwargs = record
-        m = log_args[0]
+    for record in logger.statsd_client.calls[key]:
+        stat_args, stat_kwargs = record
+        m = stat_args[0]
         if re.match(metric, m):
             count += 1
     return count
@@ -1704,7 +1704,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     part_info)
                 found_jobs.extend(jobs)
                 for job in jobs:
-                    self.logger._clear()
+                    self.logger.clear()
                     node_count = len(job['sync_to'])
                     rehash_count = node_count * rehash_per_job_type[
                         job['job_type']]
@@ -1745,7 +1745,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         part_info)
                     found_jobs.extend(jobs)
                     for job in jobs:
-                        self.logger._clear()
+                        self.logger.clear()
                         self.reconstructor.process_job(job)
                         for line in self.logger.get_lines_for_level('error'):
                             self.assertIn('responded as unmounted', line)
@@ -1778,7 +1778,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         part_info)
                     found_jobs.extend(jobs)
                     for job in jobs:
-                        self.logger._clear()
+                        self.logger.clear()
                         self.reconstructor.process_job(job)
                         for line in self.logger.get_lines_for_level('error'):
                             self.assertIn('Invalid response 400', line)
@@ -1810,7 +1810,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     part_info)
                 found_jobs.extend(jobs)
                 for job in jobs:
-                    self.logger._clear()
+                    self.logger.clear()
                     self.reconstructor.process_job(job)
                     for line in self.logger.get_lines_for_level('error'):
                         self.assertIn('Timeout (Nones)', line)

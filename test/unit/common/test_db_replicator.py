@@ -1155,8 +1155,9 @@ class TestDBReplicator(unittest.TestCase):
             self.assertFalse(os.path.exists(temp_file.name))
             self.assertTrue(os.path.exists(temp_hash_dir2))
             self.assertTrue(os.path.exists(temp_file2.name))
-            self.assertEqual([(('removes.some_device',), {})],
-                             replicator.logger.log_dict['increment'])
+            self.assertEqual(
+                [(('removes.some_device',), {})],
+                replicator.logger.statsd_client.calls['increment'])
             self.assertEqual(1, replicator.stats['remove'])
 
             temp_file2.db_file = temp_file2.name
@@ -1169,8 +1170,9 @@ class TestDBReplicator(unittest.TestCase):
             self.assertFalse(os.path.exists(temp_file.name))
             self.assertFalse(os.path.exists(temp_hash_dir2))
             self.assertFalse(os.path.exists(temp_file2.name))
-            self.assertEqual([(('removes.some_device',), {})] * 2,
-                             replicator.logger.log_dict['increment'])
+            self.assertEqual(
+                [(('removes.some_device',), {})] * 2,
+                replicator.logger.statsd_client.calls['increment'])
             self.assertEqual(2, replicator.stats['remove'])
         finally:
             rmtree(temp_dir)

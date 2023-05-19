@@ -123,7 +123,7 @@ class TestProxyLogging(unittest.TestCase):
             return info_calls[0][0][0].split(' ')
 
     def assertTiming(self, exp_metric, app, exp_timing=None):
-        timing_calls = app.access_logger.log_dict['timing']
+        timing_calls = app.access_logger.statsd_client.calls['timing']
         found = False
         for timing_call in timing_calls:
             self.assertEqual({}, timing_call[1])
@@ -138,12 +138,13 @@ class TestProxyLogging(unittest.TestCase):
                 exp_metric, timing_calls))
 
     def assertNotTiming(self, not_exp_metric, app):
-        timing_calls = app.access_logger.log_dict['timing']
+        timing_calls = app.access_logger.statsd_client.calls['timing']
         for timing_call in timing_calls:
             self.assertNotEqual(not_exp_metric, timing_call[0][0])
 
     def assertUpdateStats(self, exp_metrics_and_values, app):
-        update_stats_calls = sorted(app.access_logger.log_dict['update_stats'])
+        update_stats_calls = sorted(
+            app.access_logger.statsd_client.calls['update_stats'])
         got_metrics_values_and_kwargs = [(usc[0][0], usc[0][1], usc[1])
                                          for usc in update_stats_calls]
         exp_metrics_values_and_kwargs = [(emv[0], emv[1], {})
@@ -239,7 +240,7 @@ class TestProxyLogging(unittest.TestCase):
                     self.assertUpdateStats([('%s.GET.321.xfer' % exp_type,
                                              4 + 7),
                                             ('object.policy.0.GET.321.xfer',
-                                            4 + 7)],
+                                             4 + 7)],
                                            app)
                 else:
                     self.assertUpdateStats([('%s.GET.321.xfer' % exp_type,
@@ -335,8 +336,8 @@ class TestProxyLogging(unittest.TestCase):
                     self.assertNotTiming(
                         '%s.PUT.314.first-byte.timing' % exp_type, app)
                     # No results returned for the non-existent policy
-                    self.assertUpdateStats([('object.PUT.314.xfer', 6 + 8)],
-                                           app)
+                    self.assertUpdateStats(
+                        [('object.PUT.314.xfer', 6 + 8)], app)
 
     def test_log_request_stat_method_filtering_default(self):
         method_map = {
@@ -506,7 +507,8 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[6], '200')
         self.assertEqual(resp_body, b'somechunksof data')
         self.assertEqual(log_parts[11], str(len(resp_body)))
-        self.assertUpdateStats([('SOS.GET.200.xfer', len(resp_body))], app)
+        self.assertUpdateStats([('SOS.GET.200.xfer', len(resp_body))],
+                               app)
 
     def test_log_headers(self):
         for conf_key in ['access_log_headers', 'log_headers']:
