@@ -183,6 +183,25 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error('GET', '/bucket', swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
 
+    @s3acl
+    def test_bucket_GET_non_json(self):
+        # Suppose some middleware accidentally makes it return txt instead
+        resp_body = b'\n'.join([b'obj%d' % i for i in range(100)])
+        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
+                            resp_body)
+        # When we do our GET...
+        req = Request.blank('/bucket',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        # ...there isn't much choice but to error...
+        self.assertEqual(self._get_error_code(body), 'InternalError')
+        # ... but we should at least log the body to aid in debugging
+        self.assertIn(
+            'Got non-JSON response trying to list /bucket: %r'
+            % (resp_body[:60] + b'...'),
+            self.s3api.logger.get_lines_for_level('error'))
+
     def test_bucket_GET(self):
         bucket_name = 'junk'
         req = Request.blank('/%s' % bucket_name,

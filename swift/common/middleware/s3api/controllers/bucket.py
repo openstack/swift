@@ -23,7 +23,8 @@ from swift.common import swob
 from swift.common.http import HTTP_OK
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
-from swift.common.utils import json, public, config_true_value, Timestamp
+from swift.common.utils import json, public, config_true_value, Timestamp, \
+    cap_length
 from swift.common.registry import get_swift_info
 
 from swift.common.middleware.s3api.controllers.base import Controller
@@ -343,7 +344,12 @@ class BucketController(Controller):
 
         resp = req.get_response(self.app, query=query)
 
-        objects = json.loads(resp.body)
+        try:
+            objects = json.loads(resp.body)
+        except (TypeError, ValueError):
+            self.logger.error('Got non-JSON response trying to list %s: %r',
+                              req.path, cap_length(resp.body, 60))
+            raise
 
         is_truncated = max_keys > 0 and len(objects) > max_keys
         objects = objects[:max_keys]
