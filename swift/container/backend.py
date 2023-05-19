@@ -1942,9 +1942,19 @@ class ContainerBroker(DatabaseBroker):
 
         :return: a dict with keys {bytes_used, object_count}
         """
-        shard_ranges = self.get_shard_ranges(states=SHARD_STATS_STATES)
-        return {'bytes_used': sum(sr.bytes_used for sr in shard_ranges),
-                'object_count': sum(sr.object_count for sr in shard_ranges)}
+        with self.get() as conn:
+            sql = '''
+            SELECT COALESCE(SUM(bytes_used), 0),
+                   COALESCE(SUM(object_count), 0)
+            FROM %s
+            WHERE state in (%s)
+              AND deleted = 0
+              AND name != ?
+            ''' % (SHARD_RANGE_TABLE, ','.join('?' * len(SHARD_STATS_STATES)))
+            cur = conn.execute(sql, SHARD_STATS_STATES + [self.path])
+            bytes_used, object_count = cur.fetchone()
+        return {'bytes_used': bytes_used,
+                'object_count': object_count}
 
     def get_all_shard_range_data(self):
         """
