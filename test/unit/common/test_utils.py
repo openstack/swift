@@ -17,6 +17,7 @@
 from __future__ import print_function
 
 import hashlib
+import itertools
 
 from test import annotate_failure
 from test.debug_logger import debug_logger
@@ -8984,3 +8985,67 @@ class TestCloseableChain(unittest.TestCase):
         chain.close()
         self.assertEqual(1, test_iter1.close_call_count)
         self.assertTrue(generator_closed[0])
+
+
+class TestCooperativeIterator(unittest.TestCase):
+    def test_init(self):
+        wrapped = itertools.count()
+        it = utils.CooperativeIterator(wrapped, period=3)
+        self.assertIs(wrapped, it.wrapped_iter)
+        self.assertEqual(0, it.count)
+        self.assertEqual(3, it.period)
+
+    def test_iter(self):
+        it = utils.CooperativeIterator(itertools.count())
+        actual = []
+        with mock.patch('swift.common.utils.sleep') as mock_sleep:
+            for i in it:
+                if i >= 100:
+                    break
+                actual.append(i)
+        self.assertEqual(list(range(100)), actual)
+        self.assertEqual(20, mock_sleep.call_count)
+
+    def test_close(self):
+        it = utils.CooperativeIterator(range(5))
+        it.close()
+
+        closeable = mock.MagicMock()
+        closeable.close = mock.MagicMock()
+        it = utils.CooperativeIterator(closeable)
+        it.close()
+        self.assertTrue(closeable.close.called)
+
+    def test_next(self):
+        def do_test(it, period):
+            results = []
+            for i in range(period):
+                with mock.patch('swift.common.utils.sleep') as mock_sleep:
+                    results.append(next(it))
+                self.assertFalse(mock_sleep.called, i)
+
+            with mock.patch('swift.common.utils.sleep') as mock_sleep:
+                results.append(next(it))
+            self.assertTrue(mock_sleep.called)
+
+            for i in range(period - 1):
+                with mock.patch('swift.common.utils.sleep') as mock_sleep:
+                    results.append(next(it))
+                self.assertFalse(mock_sleep.called, i)
+
+            with mock.patch('swift.common.utils.sleep') as mock_sleep:
+                results.append(next(it))
+            self.assertTrue(mock_sleep.called)
+
+            return results
+
+        actual = do_test(utils.CooperativeIterator(itertools.count()), 5)
+        self.assertEqual(list(range(11)), actual)
+        actual = do_test(utils.CooperativeIterator(itertools.count(), 5), 5)
+        self.assertEqual(list(range(11)), actual)
+        actual = do_test(utils.CooperativeIterator(itertools.count(), 3), 3)
+        self.assertEqual(list(range(7)), actual)
+        actual = do_test(utils.CooperativeIterator(itertools.count(), 1), 1)
+        self.assertEqual(list(range(3)), actual)
+        actual = do_test(utils.CooperativeIterator(itertools.count(), 0), 0)
+        self.assertEqual(list(range(2)), actual)

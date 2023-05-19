@@ -36,7 +36,6 @@ import random
 from copy import deepcopy
 from sys import exc_info
 
-from eventlet import sleep
 from eventlet.timeout import Timeout
 import six
 
@@ -45,7 +44,7 @@ from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
     document_iters_to_http_response_body, ShardRange, cache_from_env, \
-    MetricsPrefixLoggerAdapter
+    MetricsPrefixLoggerAdapter, CooperativeIterator
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -1233,7 +1232,6 @@ class GetOrHeadHandler(object):
                             raise StopIteration()
 
             def iter_bytes_from_response_part(part_file, nbytes):
-                nchunks = 0
                 buf = b''
                 part_file = ByteCountEnforcer(part_file, nbytes)
                 while True:
@@ -1241,7 +1239,6 @@ class GetOrHeadHandler(object):
                         with WatchdogTimeout(self.app.watchdog, node_timeout,
                                              ChunkReadTimeout):
                             chunk = part_file.read(self.app.object_chunk_size)
-                            nchunks += 1
                             # NB: this append must be *inside* the context
                             # manager for test.unit.SlowBody to do its thing
                             buf += chunk
@@ -1325,25 +1322,6 @@ class GetOrHeadHandler(object):
                                 yield buf
                             buf = b''
 
-                        # This is for fairness; if the network is outpacing
-                        # the CPU, we'll always be able to read and write
-                        # data without encountering an EWOULDBLOCK, and so
-                        # eventlet will not switch greenthreads on its own.
-                        # We do it manually so that clients don't starve.
-                        #
-                        # The number 5 here was chosen by making stuff up.
-                        # It's not every single chunk, but it's not too big
-                        # either, so it seemed like it would probably be an
-                        # okay choice.
-                        #
-                        # Note that we may trampoline to other greenthreads
-                        # more often than once every 5 chunks, depending on
-                        # how blocking our network IO is; the explicit sleep
-                        # here simply provides a lower bound on the rate of
-                        # trampolining.
-                        if nchunks % 5 == 0:
-                            sleep()
-
             part_iter = None
             try:
                 while True:
@@ -1360,7 +1338,8 @@ class GetOrHeadHandler(object):
                                   if (end_byte is not None
                                       and start_byte is not None)
                                   else None)
-                    part_iter = iter_bytes_from_response_part(part, byte_count)
+                    part_iter = CooperativeIterator(
+                        iter_bytes_from_response_part(part, byte_count))
                     yield {'start_byte': start_byte, 'end_byte': end_byte,
                            'entity_length': length, 'headers': headers,
                            'part_iter': part_iter}
