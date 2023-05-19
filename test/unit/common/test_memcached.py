@@ -24,7 +24,6 @@ import six
 import socket
 import time
 import unittest
-from uuid import uuid4
 import os
 
 import mock
@@ -36,7 +35,7 @@ from eventlet.green import ssl
 
 from swift.common import memcached
 from swift.common.memcached import MemcacheConnectionError, md5hash, \
-    get_key_prefix
+    MemcacheCommand
 from swift.common.utils import md5, human_readable
 from mock import patch, MagicMock
 from test.debug_logger import debug_logger
@@ -196,26 +195,35 @@ class MockMemcached(object):
         pass
 
 
+class TestMemcacheCommand(unittest.TestCase):
+    def test_init(self):
+        cmd = MemcacheCommand("set", "shard-updating-v2/a/c")
+        self.assertEqual(cmd.method, "set")
+        self.assertEqual(cmd.command, b"set")
+        self.assertEqual(cmd.key, "shard-updating-v2/a/c")
+        self.assertEqual(cmd.key_prefix, "shard-updating-v2/a")
+        self.assertEqual(cmd.hash_key, md5hash("shard-updating-v2/a/c"))
+
+    def test_get_key_prefix(self):
+        cmd = MemcacheCommand("set", "shard-updating-v2/a/c")
+        self.assertEqual(cmd.key_prefix, "shard-updating-v2/a")
+        cmd = MemcacheCommand("set", "shard-listing-v2/accout/container3")
+        self.assertEqual(cmd.key_prefix, "shard-listing-v2/accout")
+        cmd = MemcacheCommand(
+            "set", "auth_reseller_name/token/X58E34EL2SDFLEY3")
+        self.assertEqual(cmd.key_prefix, "auth_reseller_name/token")
+        cmd = MemcacheCommand("set", "nvratelimit/v2/wf/2345392374")
+        self.assertEqual(cmd.key_prefix, "nvratelimit/v2/wf")
+        cmd = MemcacheCommand("set", "some_key")
+        self.assertEqual(cmd.key_prefix, "some_key")
+
+
 class TestMemcached(unittest.TestCase):
     """Tests for swift.common.memcached"""
 
     def setUp(self):
         self.logger = debug_logger()
-
-    def test_get_key_prefix(self):
-        self.assertEqual(
-            get_key_prefix("shard-updating-v2/a/c"),
-            "shard-updating-v2/a")
-        self.assertEqual(
-            get_key_prefix("shard-listing-v2/accout/container3"),
-            "shard-listing-v2/accout")
-        self.assertEqual(
-            get_key_prefix("auth_reseller_name/token/X58E34EL2SDFLEY3"),
-            "auth_reseller_name/token")
-        self.assertEqual(
-            get_key_prefix("nvratelimit/v2/wf/2345392374"),
-            "nvratelimit/v2/wf")
-        self.assertEqual(get_key_prefix("some_key"), "some_key")
+        self.set_cmd = MemcacheCommand('set', 'key')
 
     def test_logger_kwarg(self):
         server_socket = '%s:%s' % ('[::1]', 11211)
@@ -235,8 +243,7 @@ class TestMemcached(unittest.TestCase):
             client = memcached.MemcacheRing([server], tls_context=context)
             self.assertIs(client._client_cache[server]._tls_context, context)
 
-            key = uuid4().hex.encode('ascii')
-            list(client._get_conns('set', 'test', key))
+            list(client._get_conns(self.set_cmd))
             context.wrap_socket.assert_called_once()
 
     def test_get_conns(self):
@@ -257,8 +264,7 @@ class TestMemcached(unittest.TestCase):
                                                      logger=self.logger)
             one = two = True
             while one or two:  # Run until we match hosts one and two
-                key = uuid4().hex.encode('ascii')
-                for conn in memcache_client._get_conns('set', 'test', key):
+                for conn in memcache_client._get_conns(self.set_cmd):
                     if 'b' not in getattr(conn[1], 'mode', ''):
                         self.assertIsInstance(conn[1], (
                             io.RawIOBase, io.BufferedIOBase))
@@ -284,8 +290,7 @@ class TestMemcached(unittest.TestCase):
             server_socket = '[%s]:%s' % (sock_addr[0], sock_addr[1])
             memcache_client = memcached.MemcacheRing([server_socket],
                                                      logger=self.logger)
-            key = uuid4().hex.encode('ascii')
-            for conn in memcache_client._get_conns('set', 'test', key):
+            for conn in memcache_client._get_conns(self.set_cmd):
                 peer_sockaddr = conn[2].getpeername()
                 peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
                 self.assertEqual(peer_socket, server_socket)
@@ -306,8 +311,7 @@ class TestMemcached(unittest.TestCase):
             memcached.DEFAULT_MEMCACHED_PORT = sock_addr[1]
             memcache_client = memcached.MemcacheRing([server_host],
                                                      logger=self.logger)
-            key = uuid4().hex.encode('ascii')
-            for conn in memcache_client._get_conns('set', 'test', key):
+            for conn in memcache_client._get_conns(self.set_cmd):
                 peer_sockaddr = conn[2].getpeername()
                 peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
                 self.assertEqual(peer_socket, server_socket)
@@ -335,8 +339,7 @@ class TestMemcached(unittest.TestCase):
                                           ('127.0.0.1', sock_addr[1]))]
                 memcache_client = memcached.MemcacheRing([server_socket],
                                                          logger=self.logger)
-                key = uuid4().hex.encode('ascii')
-                for conn in memcache_client._get_conns('set', 'test', key):
+                for conn in memcache_client._get_conns(self.set_cmd):
                     peer_sockaddr = conn[2].getpeername()
                     peer_socket = '%s:%s' % (peer_sockaddr[0],
                                              peer_sockaddr[1])
@@ -361,8 +364,7 @@ class TestMemcached(unittest.TestCase):
                                           ('::1', sock_addr[1]))]
                 memcache_client = memcached.MemcacheRing([server_socket],
                                                          logger=self.logger)
-                key = uuid4().hex.encode('ascii')
-                for conn in memcache_client._get_conns('set', 'test', key):
+                for conn in memcache_client._get_conns(self.set_cmd):
                     peer_sockaddr = conn[2].getpeername()
                     peer_socket = '[%s]:%s' % (peer_sockaddr[0],
                                                peer_sockaddr[1])
@@ -1066,8 +1068,7 @@ class TestMemcached(unittest.TestCase):
 
             # try to get connect and no connection found
             # so it will result in StopIteration
-            conn_generator = memcache_client._get_conns(
-                'set', 'key', md5hash(b'key'))
+            conn_generator = memcache_client._get_conns(self.set_cmd)
             with self.assertRaises(StopIteration):
                 next(conn_generator)
 
