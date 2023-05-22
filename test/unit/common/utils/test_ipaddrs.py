@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ctypes
 from mock import patch
 import socket
 import unittest
@@ -125,6 +126,57 @@ class TestWhatAreMyIPs(unittest.TestCase):
     def test_whataremyips_bind_ip_specific(self):
         self.assertEqual(['1.2.3.4'], utils.whataremyips('1.2.3.4'))
 
+    def test_whataremyips_getifaddrs(self):
+        def mock_getifaddrs(ptr):
+            addrs = [
+                utils_ipaddrs.ifaddrs(None, b'lo', 0, ctypes.pointer(
+                    utils_ipaddrs.sockaddr_in4(
+                        sin_family=socket.AF_INET,
+                        sin_addr=(127, 0, 0, 1)))),
+                utils_ipaddrs.ifaddrs(None, b'lo', 0, ctypes.cast(
+                    ctypes.pointer(utils_ipaddrs.sockaddr_in6(
+                        sin6_family=socket.AF_INET6,
+                        sin6_addr=(
+                            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1))),
+                    ctypes.POINTER(utils_ipaddrs.sockaddr_in4))),
+                utils_ipaddrs.ifaddrs(None, b'eth0', 0, ctypes.pointer(
+                    utils_ipaddrs.sockaddr_in4(
+                        sin_family=socket.AF_INET,
+                        sin_addr=(192, 168, 50, 63)))),
+                utils_ipaddrs.ifaddrs(None, b'eth0', 0, ctypes.cast(
+                    ctypes.pointer(utils_ipaddrs.sockaddr_in6(
+                        sin6_family=socket.AF_INET6,
+                        sin6_addr=(
+                            254, 128, 0, 0, 0, 0, 0, 0,
+                            106, 191, 199, 168, 109, 243, 41, 35))),
+                    ctypes.POINTER(utils_ipaddrs.sockaddr_in4))),
+                # MAC address will be ignored
+                utils_ipaddrs.ifaddrs(None, b'eth0', 0, ctypes.cast(
+                    ctypes.pointer(utils_ipaddrs.sockaddr_in6(
+                        sin6_family=getattr(socket, 'AF_PACKET', 17),
+                        sin6_port=0,
+                        sin6_flowinfo=2,
+                        sin6_addr=(
+                            1, 0, 0, 6, 172, 116, 177, 85,
+                            64, 146, 0, 0, 0, 0, 0, 0))),
+                    ctypes.POINTER(utils_ipaddrs.sockaddr_in4))),
+                # Seen in the wild: no addresses at all
+                utils_ipaddrs.ifaddrs(None, b'cscotun0', 69841),
+            ]
+            for cur, nxt in zip(addrs, addrs[1:]):
+                cur.ifa_next = ctypes.pointer(nxt)
+            ptr._obj.contents = addrs[0]
+
+        with patch.object(utils_ipaddrs, 'getifaddrs', mock_getifaddrs), \
+                patch('swift.common.utils.ipaddrs.freeifaddrs') as mock_free:
+            self.assertEqual(utils.whataremyips(), [
+                '127.0.0.1',
+                '::1',
+                '192.168.50.63',
+                'fe80::6abf:c7a8:6df3:2923',
+            ])
+            self.assertEqual(len(mock_free.mock_calls), 1)
+
     def test_whataremyips_netifaces_error(self):
         class FakeNetifaces(object):
             @staticmethod
@@ -135,7 +187,8 @@ class TestWhatAreMyIPs(unittest.TestCase):
             def ifaddresses(interface):
                 raise ValueError
 
-        with patch.object(utils_ipaddrs, 'netifaces', FakeNetifaces):
+        with patch.object(utils_ipaddrs, 'getifaddrs', None), \
+                patch.object(utils_ipaddrs, 'netifaces', FakeNetifaces):
             self.assertEqual(utils.whataremyips(), [])
 
     def test_whataremyips_netifaces_ipv6(self):
@@ -156,7 +209,8 @@ class TestWhatAreMyIPs(unittest.TestCase):
                     {'netmask': 'ffff:ffff:ffff:ffff::',
                      'addr': '%s%%%s' % (test_ipv6_address, test_interface)}]}
 
-        with patch.object(utils_ipaddrs, 'netifaces', FakeNetifaces):
+        with patch.object(utils_ipaddrs, 'getifaddrs', None), \
+                patch.object(utils_ipaddrs, 'netifaces', FakeNetifaces):
             myips = utils.whataremyips()
             self.assertEqual(len(myips), 1)
             self.assertEqual(myips[0], test_ipv6_address)
