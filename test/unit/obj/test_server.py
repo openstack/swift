@@ -273,6 +273,9 @@ class TestObjectController(BaseTestCase):
         headers = {'X-Timestamp': post_timestamp,
                    'X-Object-Meta-3': 'Three',
                    'X-Object-Meta-4': 'Four',
+                   'x-object-meta-t\xc3\xa8st': 'm\xc3\xa8ta',
+                   'X-Backend-Replication-Headers':
+                       'x-object-meta-t\xc3\xa8st',
                    'Content-Encoding': 'gzip',
                    'Foo': 'fooheader',
                    'Bar': 'barheader'}
@@ -297,6 +300,7 @@ class TestObjectController(BaseTestCase):
             'X-Object-Sysmeta-Color': 'blue',
             'X-Object-Meta-3': 'Three',
             'X-Object-Meta-4': 'Four',
+            'X-Object-Meta-T\xc3\xa8St': 'm\xc3\xa8ta',
             'Foo': 'fooheader',
             'Bar': 'barheader',
             'Content-Encoding': 'gzip',
@@ -1424,9 +1428,10 @@ class TestObjectController(BaseTestCase):
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream',
                      'x-object-meta-test': 'one',
+                     'x-object-meta-t\xc3\xa8st': 'm\xc3\xa8ta',
                      'Custom-Header': '*',
                      'X-Backend-Replication-Headers':
-                     'Content-Type Content-Length'})
+                     'x-object-meta-t\xc3\xa8st Content-Type Content-Length'})
         req.body = 'VERIFY'
         with mock.patch.object(self.object_controller, 'allowed_headers',
                                ['Custom-Header']):
@@ -1448,6 +1453,7 @@ class TestObjectController(BaseTestCase):
                           'Content-Type': 'application/octet-stream',
                           'name': '/a/c/o',
                           'X-Object-Meta-Test': 'one',
+                          'X-Object-Meta-T\xc3\xa8St': 'm\xc3\xa8ta',
                           'Custom-Header': '*'})
 
     def test_PUT_overwrite(self):
