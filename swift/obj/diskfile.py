@@ -2370,7 +2370,7 @@ class BaseDiskFileReader(object):
                 self._logger.error(
                     'ERROR DiskFile %(data_file)s'
                     ' close failure: %(exc)s : %(stack)s',
-                    {'exc': e, 'stack': ''.join(traceback.format_stack()),
+                    {'exc': e, 'stack': ''.join(traceback.format_exc()),
                      'data_file': self._data_file})
             finally:
                 fp, self._fp = self._fp, None
