@@ -26,7 +26,6 @@ import time
 import errno
 import six
 import six.moves.cPickle as pickle
-from swift import gettext_ as _
 from tempfile import mkstemp
 
 from eventlet import sleep, Timeout
@@ -482,10 +481,10 @@ class DatabaseBroker(object):
                 raise
             quar_path = "%s-%s" % (quar_path, uuid4().hex)
             renamer(self.db_dir, quar_path, fsync=False)
-        detail = _('Quarantined %(db_dir)s to %(quar_path)s due to '
-                   '%(reason)s') % {'db_dir': self.db_dir,
-                                    'quar_path': quar_path,
-                                    'reason': reason}
+        detail = ('Quarantined %(db_dir)s to %(quar_path)s due to '
+                  '%(reason)s') % {'db_dir': self.db_dir,
+                                   'quar_path': quar_path,
+                                   'reason': reason}
         self.logger.error(detail)
         raise sqlite3.DatabaseError(detail)
 
@@ -584,7 +583,7 @@ class DatabaseBroker(object):
                 self.conn = conn
             except (Exception, Timeout):
                 logging.exception(
-                    _('Broker error trying to rollback locked connection'))
+                    'Broker error trying to rollback locked connection')
                 conn.close()
 
     def _new_db_id(self):
@@ -836,7 +835,7 @@ class DatabaseBroker(object):
                         self._commit_puts_load(item_list, data)
                     except Exception:
                         self.logger.exception(
-                            _('Invalid pending entry %(file)s: %(entry)s'),
+                            'Invalid pending entry %(file)s: %(entry)s',
                             {'file': self.pending_file, 'entry': entry})
             if item_list:
                 self.merge_items(item_list)

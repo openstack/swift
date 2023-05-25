@@ -27,7 +27,6 @@ import time
 import six
 from swift.common.header_key_dict import HeaderKeyDict
 
-from swift import gettext_ as _
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX, \
     CONTAINER_LISTING_LIMIT
 from swift.common.storage_policy import POLICIES
@@ -202,7 +201,7 @@ def get_name_and_placement(request, minsegs=1, maxsegs=None,
     policy = POLICIES.get_by_index(policy_index)
     if not policy:
         raise HTTPServiceUnavailable(
-            body=_("No policy with index %s") % policy_index,
+            body="No policy with index %s" % policy_index,
             request=request, content_type='text/plain')
     results = split_and_validate_path(request, minsegs=minsegs,
                                       maxsegs=maxsegs,
