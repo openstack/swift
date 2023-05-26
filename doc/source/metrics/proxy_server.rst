@@ -89,3 +89,25 @@ Metric Name                                  Description
 ``tempauth.<reseller_prefix>.token_denied``  Count of token requests which were denied.
 ``tempauth.<reseller_prefix>.errors``        Count of errors.
 ===========================================  ====================================================
+
+``tempurl`` Middleware
+----------------------
+
+==========================================  ====================================================
+Metric Name                                 Description
+------------------------------------------  ----------------------------------------------------
+``proxy-server.tempurl.digests.<digest>``   Count of requests authorized using the specified
+                                            ``<digest>``; may be one of ``sha1``, ``sha256``,
+                                            or ``sha512``.
+==========================================  ====================================================
+
+``formpost`` Middleware
+-----------------------
+
+==========================================  ====================================================
+Metric Name                                 Description
+------------------------------------------  ----------------------------------------------------
+``proxy-server.formpost.digests.<digest>``  Count of requests authorized using the specified
+                                            ``<digest>``; may be one of ``sha1``, ``sha256``,
+                                            or ``sha512``.
+==========================================  ====================================================
