@@ -1299,7 +1299,9 @@ class TestFuncs(BaseTest):
             self.app, req, None, Namespace(num_primary_nodes=3), None, None,
             {}, client_chunk_size=8)
 
-        app_iter = handler._make_app_iter(req, node, source)
+        handler.source = source
+        handler.node = node
+        app_iter = handler._make_app_iter(req)
         client_chunks = list(app_iter)
         self.assertEqual(client_chunks, [
             b'abcd1234', b'abcd1234', b'abcd1234', b'abcd12'])
@@ -1350,7 +1352,9 @@ class TestFuncs(BaseTest):
             range_headers.append(handler.backend_headers['Range'])
             return sources.pop(0)
 
-        app_iter = handler._make_app_iter(req, node, source1)
+        handler.source = source1
+        handler.node = node
+        app_iter = handler._make_app_iter(req)
         with mock.patch.object(handler, '_get_source_and_node',
                                side_effect=mock_get_source_and_node):
             client_chunks = list(app_iter)
@@ -1392,7 +1396,9 @@ class TestFuncs(BaseTest):
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
             None, {}, client_chunk_size=8)
 
-        app_iter = handler._make_app_iter(req, node, source1)
+        handler.source = source1
+        handler.node = node
+        app_iter = handler._make_app_iter(req)
         with mock.patch.object(handler, '_get_source_and_node',
                                lambda: (source2, node)):
             client_chunks = list(app_iter)
@@ -1423,7 +1429,9 @@ class TestFuncs(BaseTest):
         handler = GetOrHeadHandler(
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
             'some-path', {})
-        app_iter = handler._make_app_iter(req, node, source)
+        handler.source = source
+        handler.node = node
+        app_iter = handler._make_app_iter(req)
         app_iter.close()
         self.app.logger.info.assert_called_once_with(
             'Client disconnected on read of %r', 'some-path')
@@ -1433,7 +1441,9 @@ class TestFuncs(BaseTest):
         handler = GetOrHeadHandler(
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
             None, {})
-        app_iter = handler._make_app_iter(req, node, source)
+        handler.source = source
+        handler.node = node
+        app_iter = handler._make_app_iter(req)
         next(app_iter)
         app_iter.close()
         self.app.logger.warning.assert_not_called()
