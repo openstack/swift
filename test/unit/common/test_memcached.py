@@ -1373,6 +1373,83 @@ class TestMemcached(unittest.TestCase):
                 self.assertIn(
                     'config_timeout 0.01, time_spent 1.0', error_logs[0])
 
+    def test_incr_add_expires(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
+                                                 io_timeout=0.01,
+                                                 logger=self.logger)
+        mock_memcache = MockMemcached()
+        memcache_client._client_cache[
+            '1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock_memcache, mock_memcache)] * 2)
+        incr_calls = []
+        orig_incr = mock_memcache.handle_incr
+        orig_add = mock_memcache.handle_add
+
+        def handle_incr(key, value, noreply=b''):
+            if incr_calls:
+                mock_memcache.cache.clear()
+            incr_calls.append(key)
+            orig_incr(key, value, noreply)
+
+        def handle_add(key, flags, exptime, num_bytes, noreply=b''):
+            mock_memcache.cache[key] = 'already set!'
+            orig_add(key, flags, exptime, num_bytes, noreply)
+            mock_memcache.cache.clear()
+
+        with patch('time.time', ) as mock_time:
+            mock_time.side_effect = itertools.count(4000.99, 1.0)
+            with mock.patch.object(mock_memcache, 'handle_incr', handle_incr):
+                with mock.patch.object(mock_memcache, 'handle_add',
+                                       handle_add):
+                    with self.assertRaises(MemcacheConnectionError):
+                        memcache_client.incr(
+                            'shard-updating-v2/acc/container', time=1.23)
+        self.assertTrue(self.logger.log_dict['timing_since'])
+        last_stats = self.logger.log_dict['timing_since'][-1]
+        self.assertEqual('memcached.incr.conn_err.timing',
+                         last_stats[0][0])
+        self.assertEqual(last_stats[0][1], 4002.99)
+        error_logs = self.logger.get_lines_for_level('error')
+        self.assertIn('Error talking to memcached: 1.2.3.4:11211: ',
+                      error_logs[0])
+        self.assertIn('with key_prefix shard-updating-v2/acc, method incr, '
+                      'time_spent 1.0, expired ttl=1.23',
+                      error_logs[0])
+        self.assertIn('1.2.3.4:11211', memcache_client._errors)
+        self.assertFalse(memcache_client._errors['1.2.3.4:11211'])
+
+    def test_incr_unexpected_response(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
+                                                 io_timeout=0.01,
+                                                 logger=self.logger)
+        mock_memcache = MockMemcached()
+        memcache_client._client_cache[
+            '1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock_memcache, mock_memcache)] * 2)
+        resp = b'UNEXPECTED RESPONSE\r\n'
+
+        def handle_incr(key, value, noreply=b''):
+            mock_memcache.outbuf += resp
+
+        with patch('time.time') as mock_time:
+            mock_time.side_effect = itertools.count(4000.99, 1.0)
+            with mock.patch.object(mock_memcache, 'handle_incr', handle_incr):
+                with self.assertRaises(MemcacheConnectionError):
+                    memcache_client.incr(
+                        'shard-updating-v2/acc/container', time=1.23)
+        self.assertTrue(self.logger.log_dict['timing_since'])
+        last_stats = self.logger.log_dict['timing_since'][-1]
+        self.assertEqual('memcached.incr.errors.timing',
+                         last_stats[0][0])
+        self.assertEqual(last_stats[0][1], 4002.99)
+        error_logs = self.logger.get_lines_for_level('error')
+        self.assertIn('Error talking to memcached: 1.2.3.4:11211: ',
+                      error_logs[0])
+        self.assertIn("with key_prefix shard-updating-v2/acc"
+                      % resp.split(), error_logs[0])
+        self.assertIn('1.2.3.4:11211', memcache_client._errors)
+        self.assertEqual([4003.99], memcache_client._errors['1.2.3.4:11211'])
+
 
 class ExcConfigParser(object):
 
