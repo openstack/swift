@@ -438,12 +438,14 @@ def get_container_info(env, app, swift_source=None):
     container = wsgi_to_str(wsgi_container)
 
     # Try to cut through all the layers to the proxy app
+    # (while also preserving logging)
     try:
-        app = app._pipeline_final_app
+        logged_app = app._pipeline_request_logging_app
+        proxy_app = app._pipeline_final_app
     except AttributeError:
-        pass
+        logged_app = proxy_app = app
     # Check in environment cache and in memcache (in that order)
-    info = _get_info_from_caches(app, env, account, container)
+    info = _get_info_from_caches(proxy_app, env, account, container)
 
     if not info:
         # Cache miss; go HEAD the container and populate the caches
@@ -455,10 +457,10 @@ def get_container_info(env, app, swift_source=None):
         # account is successful whether the account actually has .db files
         # on disk or not.
         is_autocreate_account = account.startswith(
-            getattr(app, 'auto_create_account_prefix',
+            getattr(proxy_app, 'auto_create_account_prefix',
                     constraints.AUTO_CREATE_ACCOUNT_PREFIX))
         if not is_autocreate_account:
-            account_info = get_account_info(env, app, swift_source)
+            account_info = get_account_info(env, logged_app, swift_source)
             if not account_info or not is_success(account_info['status']):
                 return headers_to_container_info({}, 0)
 
@@ -468,7 +470,7 @@ def get_container_info(env, app, swift_source=None):
         # *Always* allow reserved names for get-info requests -- it's on the
         # caller to keep the result private-ish
         req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
-        resp = req.get_response(app)
+        resp = req.get_response(logged_app)
         drain_and_close(resp)
         # Check in infocache to see if the proxy (or anyone else) already
         # populated the cache for us. If they did, just use what's there.
@@ -531,8 +533,9 @@ def get_account_info(env, app, swift_source=None):
     account = wsgi_to_str(wsgi_account)
 
     # Try to cut through all the layers to the proxy app
+    # (while also preserving logging)
     try:
-        app = app._pipeline_final_app
+        app = app._pipeline_request_logging_app
     except AttributeError:
         pass
     # Check in environment cache and in memcache (in that order)

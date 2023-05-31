@@ -17,6 +17,10 @@ import re
 from swift.common.wsgi import WSGIContext
 
 
+def app_property(name):
+    return property(lambda self: getattr(self.app, name))
+
+
 class RewriteContext(WSGIContext):
     base_re = None
 

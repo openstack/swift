@@ -368,7 +368,10 @@ class TestFuncs(BaseTest):
                 # ...then decide to no-op based on the result
                 return app(env, start_response)
 
+            # Note that we have to do some book-keeping in tests to mimic what
+            # would be done in swift.common.wsgi.load_app
             wsgi_filter._pipeline_final_app = final_app
+            wsgi_filter._pipeline_request_logging_app = final_app
             return wsgi_filter
 
         # build up a pipeline
@@ -377,6 +380,66 @@ class TestFuncs(BaseTest):
         req.get_response(filtered_app)
         self.assertEqual([e['PATH_INFO'] for e in final_app.captured_envs],
                          ['/v1/a', '/v1/a/c', '/v1/a/c/o'])
+
+    def test_get_account_info_uses_logging_app(self):
+        def factory(app, func=None):
+            calls = []
+
+            def wsgi_filter(env, start_response):
+                calls.append(env)
+                if func:
+                    func(env, app)
+                return app(env, start_response)
+
+            return wsgi_filter, calls
+
+        # build up a pipeline, pretend there is a proxy_logging middleware
+        final_app = FakeApp()
+        logging_app, logging_app_calls = factory(final_app)
+        filtered_app, filtered_app_calls = factory(logging_app,
+                                                   func=get_account_info)
+        # mimic what would be done in swift.common.wsgi.load_app
+        for app in (filtered_app, logging_app):
+            app._pipeline_final_app = final_app
+            app._pipeline_request_logging_app = logging_app
+        req = Request.blank("/v1/a/c/o", environ={'swift.cache': FakeCache()})
+        req.get_response(filtered_app)
+        self.assertEqual([e['PATH_INFO'] for e in final_app.captured_envs],
+                         ['/v1/a', '/v1/a/c/o'])
+        self.assertEqual([e['PATH_INFO'] for e in logging_app_calls],
+                         ['/v1/a', '/v1/a/c/o'])
+        self.assertEqual([e['PATH_INFO'] for e in filtered_app_calls],
+                         ['/v1/a/c/o'])
+
+    def test_get_container_info_uses_logging_app(self):
+        def factory(app, func=None):
+            calls = []
+
+            def wsgi_filter(env, start_response):
+                calls.append(env)
+                if func:
+                    func(env, app)
+                return app(env, start_response)
+
+            return wsgi_filter, calls
+
+        # build up a pipeline, pretend there is a proxy_logging middleware
+        final_app = FakeApp()
+        logging_app, logging_app_calls = factory(final_app)
+        filtered_app, filtered_app_calls = factory(logging_app,
+                                                   func=get_container_info)
+        # mimic what would be done in swift.common.wsgi.load_app
+        for app in (filtered_app, logging_app):
+            app._pipeline_final_app = final_app
+            app._pipeline_request_logging_app = logging_app
+        req = Request.blank("/v1/a/c/o", environ={'swift.cache': FakeCache()})
+        req.get_response(filtered_app)
+        self.assertEqual([e['PATH_INFO'] for e in final_app.captured_envs],
+                         ['/v1/a', '/v1/a/c', '/v1/a/c/o'])
+        self.assertEqual([e['PATH_INFO'] for e in logging_app_calls],
+                         ['/v1/a', '/v1/a/c', '/v1/a/c/o'])
+        self.assertEqual([e['PATH_INFO'] for e in filtered_app_calls],
+                         ['/v1/a/c/o'])
 
     def test_get_object_info_swift_source(self):
         app = FakeApp()

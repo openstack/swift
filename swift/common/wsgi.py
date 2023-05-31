@@ -361,15 +361,29 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
             func(PipelineWrapper(ctx))
         filters = [c.create() for c in reversed(ctx.filter_contexts)]
         pipeline = [ultimate_app]
-        ultimate_app._pipeline = pipeline
-        ultimate_app._pipeline_final_app = ultimate_app
-        app = ultimate_app
+        request_logging_app = app = ultimate_app
         for filter_app in filters:
             app = filter_app(pipeline[0])
             pipeline.insert(0, app)
+            if request_logging_app is ultimate_app and \
+                    app.__class__.__name__ == 'ProxyLoggingMiddleware':
+                request_logging_app = filter_app(ultimate_app)
+                # Set some separate-pipeline attrs
+                request_logging_app._pipeline = [
+                    request_logging_app, ultimate_app]
+                request_logging_app._pipeline_request_logging_app = \
+                    request_logging_app
+                request_logging_app._pipeline_final_app = ultimate_app
+
+        for app in pipeline:
             app._pipeline = pipeline
+            # For things like making (logged) backend requests for
+            # get_account_info and get_container_info
+            app._pipeline_request_logging_app = request_logging_app
+            # For getting proxy-server options like *_existence_skip_cache_pct
             app._pipeline_final_app = ultimate_app
-        return app
+
+        return pipeline[0]
     return ctx.create()
 
 

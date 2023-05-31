@@ -1820,7 +1820,9 @@ class TestPipelineModification(unittest.TestCase):
             self.assertTrue(isinstance(app.app.app, exp), app.app.app)
             # Everybody gets a reference to the final app, too
             self.assertIs(app.app.app, app._pipeline_final_app)
+            self.assertIs(app.app.app, app._pipeline_request_logging_app)
             self.assertIs(app.app.app, app.app._pipeline_final_app)
+            self.assertIs(app.app.app, app.app._pipeline_request_logging_app)
             self.assertIs(app.app.app, app.app.app._pipeline_final_app)
             exp_pipeline = [app, app.app, app.app.app]
             self.assertEqual(exp_pipeline, app._pipeline)
@@ -1844,6 +1846,71 @@ class TestPipelineModification(unittest.TestCase):
             self.assertTrue(isinstance(app, exp), app)
             exp = swift.proxy.server.Application
             self.assertTrue(isinstance(app.app, exp), app.app)
+
+    def test_load_app_request_logging_app(self):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = catch_errors proxy_logging proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        conn_timeout = 0.2
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+
+        [filter:proxy_logging]
+        use = egg:swift#proxy_logging
+        """
+
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            app = wsgi.loadapp(conf_file, global_conf={})
+
+            self.assertEqual(self.pipeline_modules(app),
+                             ['swift.common.middleware.catch_errors',
+                              'swift.common.middleware.gatekeeper',
+                              'swift.common.middleware.proxy_logging',
+                              'swift.common.middleware.listing_formats',
+                              'swift.common.middleware.copy',
+                              'swift.common.middleware.dlo',
+                              'swift.common.middleware.versioned_writes',
+                              'swift.proxy.server'])
+
+            pipeline = app._pipeline
+            logging_app = app._pipeline_request_logging_app
+            final_app = app._pipeline_final_app
+            # Sanity check -- loadapp returns the start of the pipeline
+            self.assertIs(app, pipeline[0])
+            # ... and the final_app is the end
+            self.assertIs(final_app, pipeline[-1])
+
+            # The logging app is its own special short pipeline
+            self.assertEqual(self.pipeline_modules(logging_app), [
+                'swift.common.middleware.proxy_logging',
+                'swift.proxy.server'])
+            self.assertNotIn(logging_app, pipeline)
+            self.assertIs(logging_app.app, final_app)
+
+            # All the apps in the main pipeline got decorated identically
+            for app in pipeline:
+                self.assertIs(app._pipeline, pipeline)
+                self.assertIs(app._pipeline_request_logging_app, logging_app)
+                self.assertIs(app._pipeline_final_app, final_app)
+
+            # Special logging app got them, too
+            self.assertIs(logging_app._pipeline_request_logging_app,
+                          logging_app)
+            self.assertIs(logging_app._pipeline_final_app, final_app)
+            # Though the pipeline's different -- may or may not matter?
+            self.assertEqual(logging_app._pipeline, [logging_app, final_app])
 
     def test_proxy_unmodified_wsgi_pipeline(self):
         # Make sure things are sane even when we modify nothing

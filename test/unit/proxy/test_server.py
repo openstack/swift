@@ -515,7 +515,7 @@ class TestController(unittest.TestCase):
 
     def test_get_account_info_returns_values_as_strings(self):
         app = mock.MagicMock()
-        app._pipeline_final_app = app
+        app._pipeline_request_logging_app = app._pipeline_final_app = app
         app.account_existence_skip_cache = 0.0
         memcache = mock.MagicMock()
         memcache.get = mock.MagicMock()
@@ -542,7 +542,7 @@ class TestController(unittest.TestCase):
 
     def test_get_container_info_returns_values_as_strings(self):
         app = mock.MagicMock()
-        app._pipeline_final_app = app
+        app._pipeline_request_logging_app = app._pipeline_final_app = app
         app.container_existence_skip_cache = 0.0
         memcache = mock.MagicMock()
         memcache.get = mock.MagicMock()
