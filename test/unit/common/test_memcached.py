@@ -1195,9 +1195,10 @@ class TestMemcached(unittest.TestCase):
                 self.assertEqual('memcached.incr.errors.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4000.99)
-                self.assertEqual('Error talking to memcached: 1.2.3.4:11211: '
-                                 'with key_prefix incr_key: ',
-                                 self.logger.get_lines_for_level('error')[0])
+                self.assertEqual(
+                    'Error talking to memcached: 1.2.3.4:11211: '
+                    'with key_prefix incr_key, method incr, time_spent 0.0: ',
+                    self.logger.get_lines_for_level('error')[0])
 
     def test_operations_timing_stats_with_set_exception(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -1222,9 +1223,10 @@ class TestMemcached(unittest.TestCase):
                 self.assertEqual('memcached.set.errors.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4000.99)
-                self.assertEqual('Error talking to memcached: 1.2.3.4:11211: '
-                                 'with key_prefix set_key: ',
-                                 self.logger.get_lines_for_level('error')[0])
+                self.assertEqual(
+                    'Error talking to memcached: 1.2.3.4:11211: '
+                    'with key_prefix set_key, method set, time_spent 0.0: ',
+                    self.logger.get_lines_for_level('error')[0])
 
     def test_operations_timing_stats_with_get_exception(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -1247,9 +1249,10 @@ class TestMemcached(unittest.TestCase):
                 self.assertEqual('memcached.get.errors.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4000.99)
-                self.assertEqual('Error talking to memcached: 1.2.3.4:11211: '
-                                 'with key_prefix get_key: ',
-                                 self.logger.get_lines_for_level('error')[0])
+                self.assertEqual(
+                    'Error talking to memcached: 1.2.3.4:11211: '
+                    'with key_prefix get_key, method get, time_spent 0.0: ',
+                    self.logger.get_lines_for_level('error')[0])
 
     def test_operations_timing_stats_with_get_error(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -1445,10 +1448,10 @@ class TestMemcached(unittest.TestCase):
         error_logs = self.logger.get_lines_for_level('error')
         self.assertIn('Error talking to memcached: 1.2.3.4:11211: ',
                       error_logs[0])
-        self.assertIn("with key_prefix shard-updating-v2/acc"
-                      % resp.split(), error_logs[0])
+        self.assertIn("with key_prefix shard-updating-v2/acc, method incr, "
+                      "time_spent 1.0" % resp.split(), error_logs[0])
         self.assertIn('1.2.3.4:11211', memcache_client._errors)
-        self.assertEqual([4003.99], memcache_client._errors['1.2.3.4:11211'])
+        self.assertEqual([4004.99], memcache_client._errors['1.2.3.4:11211'])
 
 
 class ExcConfigParser(object):

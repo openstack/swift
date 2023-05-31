@@ -285,10 +285,13 @@ class MemcacheRing(object):
                 'memcached.' + cmd.method + '.conn_err.timing',
                 conn_start_time)
         else:
-            self.logger.exception("Error %(action)s to memcached: %(server)s"
-                                  ": with key_prefix %(key_prefix)s",
-                                  {'action': action, 'server': server,
-                                   'key_prefix': cmd.key_prefix})
+            self.logger.exception(
+                "Error %(action)s to memcached: %(server)s"
+                ": with key_prefix %(key_prefix)s, method %(method)s, "
+                "time_spent %(time_spent)s",
+                {'action': action, 'server': server,
+                 'key_prefix': cmd.key_prefix, 'method': cmd.method,
+                 'time_spent': tm.time() - conn_start_time})
             self.logger.timing_since(
                 'memcached.' + cmd.method + '.errors.timing', conn_start_time)
 
