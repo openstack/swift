@@ -523,7 +523,7 @@ class ContainerBroker(DatabaseBroker):
     def storage_policy_index(self):
         if not hasattr(self, '_storage_policy_index'):
             self._storage_policy_index = \
-                self.get_info()['storage_policy_index']
+                self._get_info()['storage_policy_index']
         return self._storage_policy_index
 
     @property
