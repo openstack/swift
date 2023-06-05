@@ -203,6 +203,10 @@ keep_cache_size                    5242880                Largest object size to
                                                           buffer cache
 keep_cache_private                 false                  Allow non-public objects to stay
                                                           in kernel's buffer cache
+keep_cache_slo_manifest            false                  Allow SLO object's manifest file to stay in
+                                                          kernel's buffer cache if its size is under
+                                                          keep_cache_size. This config will only matter
+                                                          when 'keep_cache_private' is false.
 allowed_headers                    Content-Disposition,   Comma separated list of headers
                                    Content-Encoding,      that can be set in metadata on an object.
                                    X-Delete-At,           This list is in addition to
