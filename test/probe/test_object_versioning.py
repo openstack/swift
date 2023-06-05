@@ -301,14 +301,20 @@ class TestECObjectVersioning(ECProbeTest):
                 missing.append(node)
                 continue
             etags.add(headers['X-Object-Sysmeta-Ec-Etag'])
-            metadata.append(headers['X-Object-Meta-Bar'])
+            metadata.append(headers.get(
+                'X-Object-Transient-Sysmeta-Crypto-Meta-Bar',
+                headers['X-Object-Meta-Bar']))
         if missing:
             self.fail('Ran reconstructor config #%s to repair %r but '
                       'found 404 on primary: %r' % (
                           fix_config, failed_primary['device'],
                           [d['device'] for d in missing]))
         self.assertEqual(1, len(etags))
-        self.assertEqual(['meta-bar'] * len(self.nodes), metadata)
+        if 'X-Object-Transient-Sysmeta-Crypto-Meta-Bar' in headers:
+            self.assertEqual(len(self.nodes), len(metadata))
+            self.assertEqual(1, len(set(metadata)))
+        else:
+            self.assertEqual(['meta-bar'] * len(self.nodes), metadata)
         # process revert
         self.reconstructor.once(number=handoff_config)
         # validate object (still?) in primary locations
@@ -317,9 +323,15 @@ class TestECObjectVersioning(ECProbeTest):
         for node in self.nodes:
             headers, etag = self.direct_get(node, self.part)
             etags.add(headers['X-Object-Sysmeta-Ec-Etag'])
-            metadata.append(headers['X-Object-Meta-Bar'])
+            metadata.append(headers.get(
+                'X-Object-Transient-Sysmeta-Crypto-Meta-Bar',
+                headers['X-Object-Meta-Bar']))
         self.assertEqual(1, len(etags))
-        self.assertEqual(['meta-bar'] * len(self.nodes), metadata)
+        if 'X-Object-Transient-Sysmeta-Crypto-Meta-Bar' in headers:
+            self.assertEqual(len(self.nodes), len(metadata))
+            self.assertEqual(1, len(set(metadata)))
+        else:
+            self.assertEqual(['meta-bar'] * len(self.nodes), metadata)
         # and removed form handoff
         with self.assertRaises(direct_client.DirectClientException) as ctx:
             headers, etag = self.direct_get(handoff, self.part)
