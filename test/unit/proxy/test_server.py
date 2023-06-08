@@ -4330,7 +4330,11 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
             self.assertEqual(
-                {'object.shard_updating.cache.disabled.200': 1},
+                {'account.info.cache.disabled.200': 1,
+                 'account.info.infocache.hit': 2,
+                 'container.info.cache.disabled.200': 1,
+                 'container.info.infocache.hit': 1,
+                 'object.shard_updating.cache.disabled.200': 1},
                 stats)
             backend_requests = fake_conn.requests
             # verify statsd prefix is not mutated
@@ -4422,8 +4426,10 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'account.info.cache.miss': 1,
-                              'container.info.cache.miss': 1,
+            self.assertEqual({'account.info.cache.miss.200': 1,
+                              'account.info.infocache.hit': 2,
+                              'container.info.cache.miss.200': 1,
+                              'container.info.infocache.hit': 1,
                               'object.shard_updating.cache.miss.200': 1},
                              stats)
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
@@ -4533,8 +4539,10 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'account.info.cache.miss': 1,
-                              'container.info.cache.miss': 1,
+            self.assertEqual({'account.info.cache.miss.200': 1,
+                              'account.info.infocache.hit': 1,
+                              'container.info.cache.miss.200': 1,
+                              'container.info.infocache.hit': 1,
                               'object.shard_updating.cache.hit': 1}, stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
@@ -4629,7 +4637,11 @@ class TestReplicatedObjectController(
             # verify request hitted infocache.
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'object.shard_updating.infocache.hit': 1}, stats)
+            self.assertEqual({'account.info.cache.disabled.200': 1,
+                              'account.info.infocache.hit': 1,
+                              'container.info.cache.disabled.200': 1,
+                              'container.info.infocache.hit': 1,
+                              'object.shard_updating.infocache.hit': 1}, stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
 
@@ -4726,8 +4738,10 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'account.info.cache.miss': 1,
-                              'container.info.cache.miss': 1,
+            self.assertEqual({'account.info.cache.miss.200': 1,
+                              'account.info.infocache.hit': 1,
+                              'container.info.cache.miss.200': 1,
+                              'container.info.infocache.hit': 1,
                               'object.shard_updating.cache.hit': 1}, stats)
 
             # cached shard ranges are still there
@@ -4769,12 +4783,15 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
-            self.assertEqual({'account.info.cache.miss': 1,
-                              'account.info.cache.hit': 1,
-                              'container.info.cache.miss': 1,
+            self.assertEqual({'account.info.cache.miss.200': 1,
+                              'account.info.infocache.hit': 1,
+                              'container.info.cache.miss.200': 1,
+                              'container.info.infocache.hit': 2,
+                              'object.shard_updating.cache.hit': 1,
                               'container.info.cache.hit': 1,
-                              'object.shard_updating.cache.skip.200': 1,
-                              'object.shard_updating.cache.hit': 1}, stats)
+                              'account.info.cache.hit': 1,
+                              'object.shard_updating.cache.skip.200': 1},
+                             stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
 
@@ -4836,9 +4853,11 @@ class TestReplicatedObjectController(
             stats = self.app.logger.get_increment_counts()
             self.assertEqual(stats, {
                 'account.info.cache.hit': 2,
-                'account.info.cache.miss': 1,
+                'account.info.cache.miss.200': 1,
+                'account.info.infocache.hit': 1,
                 'container.info.cache.hit': 2,
-                'container.info.cache.miss': 1,
+                'container.info.cache.miss.200': 1,
+                'container.info.infocache.hit': 3,
                 'object.shard_updating.cache.skip.200': 1,
                 'object.shard_updating.cache.hit': 1,
                 'object.shard_updating.cache.error.200': 1})
@@ -4879,7 +4898,11 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.get_increment_counts()
             self.assertEqual(
-                {'object.shard_updating.cache.disabled.404': 1},
+                {'account.info.cache.disabled.200': 1,
+                 'account.info.infocache.hit': 2,
+                 'container.info.cache.disabled.200': 1,
+                 'container.info.infocache.hit': 1,
+                 'object.shard_updating.cache.disabled.404': 1},
                 stats)
 
             backend_requests = fake_conn.requests

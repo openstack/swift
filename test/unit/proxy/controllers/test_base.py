@@ -542,6 +542,50 @@ class TestFuncs(BaseTest):
                                  [(k, str, v, str)
                                   for k, v in subdict.items()])
 
+    def test_get_container_info_only_lookup_cache(self):
+        # no container info is cached in cache.
+        req = Request.blank("/v1/AUTH_account/cont",
+                            environ={'swift.cache': FakeCache({})})
+        resp = get_container_info(
+            req.environ, self.app, swift_source=None, cache_only=True)
+        self.assertEqual(resp['storage_policy'], 0)
+        self.assertEqual(resp['bytes'], 0)
+        self.assertEqual(resp['object_count'], 0)
+        self.assertEqual(resp['versions'], None)
+        self.assertEqual(
+            [x[0][0] for x in self.logger.logger.log_dict['increment']],
+            ['container.info.cache.miss'])
+
+        # container info is cached in cache.
+        self.logger.clear()
+        cache_stub = {
+            'status': 404, 'bytes': 3333, 'object_count': 10,
+            'versions': u"\U0001F4A9",
+            'meta': {u'some-\N{SNOWMAN}': u'non-ascii meta \U0001F334'}}
+        req = Request.blank("/v1/account/cont",
+                            environ={'swift.cache': FakeCache(cache_stub)})
+        resp = get_container_info(
+            req.environ, self.app, swift_source=None, cache_only=True)
+        self.assertEqual([(k, type(k)) for k in resp],
+                         [(k, str) for k in resp])
+        self.assertEqual(resp['storage_policy'], 0)
+        self.assertEqual(resp['bytes'], 3333)
+        self.assertEqual(resp['object_count'], 10)
+        self.assertEqual(resp['status'], 404)
+        expected = u'\U0001F4A9'
+        if six.PY2:
+            expected = expected.encode('utf8')
+        self.assertEqual(resp['versions'], expected)
+        for subdict in resp.values():
+            if isinstance(subdict, dict):
+                self.assertEqual([(k, type(k), v, type(v))
+                                  for k, v in subdict.items()],
+                                 [(k, str, v, str)
+                                  for k, v in subdict.items()])
+        self.assertEqual(
+            [x[0][0] for x in self.logger.logger.log_dict['increment']],
+            ['container.info.cache.hit'])
+
     def test_get_cache_key(self):
         self.assertEqual(get_cache_key("account", "cont"),
                          'container/account/cont')
