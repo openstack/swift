@@ -2006,11 +2006,13 @@ def capture_stdio(logger, **kwargs):
         sys.stderr = LoggerFileObject(logger, 'STDERR')
 
 
-def parse_options(parser=None, once=False, test_args=None):
+def parse_options(parser=None, once=False, test_config=False, test_args=None):
     """Parse standard swift server/daemon options with optparse.OptionParser.
 
     :param parser: OptionParser to use. If not sent one will be created.
     :param once: Boolean indicating the "once" option is available
+    :param test_config: Boolean indicating the "test-config" option is
+                        available
     :param test_args: Override sys.argv; used in testing
 
     :returns: Tuple of (config, options); config is an absolute path to the
@@ -2025,6 +2027,11 @@ def parse_options(parser=None, once=False, test_args=None):
     if once:
         parser.add_option("-o", "--once", default=False, action="store_true",
                           help="only run one pass of daemon")
+    if test_config:
+        parser.add_option("-t", "--test-config",
+                          default=False, action="store_true",
+                          help="exit after loading and validating config; "
+                               "do not run the daemon")
 
     # if test_args is None, optparse will use sys.argv[:1]
     options, args = parser.parse_args(args=test_args)

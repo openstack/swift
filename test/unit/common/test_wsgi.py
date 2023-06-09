@@ -988,7 +988,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
                                                            thread=True)
 
     def test_run_server_success(self):
-        calls = defaultdict(lambda: 0)
+        calls = defaultdict(int)
 
         def _initrp(conf_file, app_section, *args, **kwargs):
             calls['_initrp'] += 1
@@ -1018,10 +1018,45 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
                                                            select=True,
                                                            thread=True)
         # run_wsgi() no longer calls drop_privileges() in the parent process,
-        # just clean_up_deemon_hygene()
+        # just clean_up_daemon_hygene()
         self.assertEqual([], _d_privs.mock_calls)
         self.assertEqual([mock.call()], _c_hyg.mock_calls)
         self.assertEqual(0, logging.logThreads)  # fixed in our monkey_patch
+
+    def test_run_server_test_config(self):
+        calls = defaultdict(int)
+
+        def _initrp(conf_file, app_section, *args, **kwargs):
+            calls['_initrp'] += 1
+            return (
+                {'__file__': 'test', 'workers': 0, 'bind_port': 12345},
+                'logger',
+                'log_name')
+
+        def _loadapp(uri, name=None, **kwargs):
+            calls['_loadapp'] += 1
+
+        with mock.patch.object(wsgi, '_initrp', _initrp), \
+                mock.patch.object(wsgi, 'get_socket') as _get_socket, \
+                mock.patch.object(wsgi, 'drop_privileges') as _d_privs, \
+                mock.patch.object(wsgi, 'clean_up_daemon_hygiene') as _c_hyg, \
+                mock.patch.object(wsgi, 'loadapp', _loadapp), \
+                mock.patch.object(wsgi, 'capture_stdio'), \
+                mock.patch.object(wsgi, 'run_server'), \
+                mock.patch('swift.common.utils.eventlet') as _utils_evt:
+            rc = wsgi.run_wsgi('conf_file', 'app_section', test_config=True)
+        self.assertEqual(calls['_initrp'], 1)
+        self.assertEqual(calls['_loadapp'], 1)
+        self.assertEqual(rc, 0)
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
+        # run_wsgi() stops before calling clean_up_daemon_hygene() or
+        # creating sockets
+        self.assertEqual([], _d_privs.mock_calls)
+        self.assertEqual([], _c_hyg.mock_calls)
+        self.assertEqual([], _get_socket.mock_calls)
 
     @mock.patch('swift.common.wsgi.run_server')
     @mock.patch('swift.common.wsgi.WorkersStrategy')
@@ -1107,6 +1142,40 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         self.assertEqual(calls['_initrp'], 1)
         self.assertEqual(calls['_loadapp'], 0)
         self.assertEqual(rc, 1)
+
+    def test_run_server_bad_bind_port(self):
+        def do_test(port):
+            calls = defaultdict(lambda: 0)
+            logger = debug_logger()
+
+            def _initrp(conf_file, app_section, *args, **kwargs):
+                calls['_initrp'] += 1
+                return (
+                    {'__file__': 'test', 'workers': 0, 'bind_port': port},
+                    logger,
+                    'log_name')
+
+            def _loadapp(uri, name=None, **kwargs):
+                calls['_loadapp'] += 1
+
+            with mock.patch.object(wsgi, '_initrp', _initrp), \
+                    mock.patch.object(wsgi, 'get_socket'), \
+                    mock.patch.object(wsgi, 'drop_privileges'), \
+                    mock.patch.object(wsgi, 'loadapp', _loadapp), \
+                    mock.patch.object(wsgi, 'capture_stdio'), \
+                    mock.patch.object(wsgi, 'run_server'):
+                rc = wsgi.run_wsgi('conf_file', 'app_section')
+            self.assertEqual(calls['_initrp'], 1)
+            self.assertEqual(calls['_loadapp'], 0)
+            self.assertEqual(rc, 1)
+            self.assertEqual(
+                ["bind_port wasn't properly set in the config file. "
+                 "It must be explicitly set to a valid port number."],
+                logger.get_lines_for_level('error')
+            )
+
+        do_test('bad')
+        do_test('80000')
 
     def test_pre_auth_req_with_empty_env_no_path(self):
         r = wsgi.make_pre_authed_request(
