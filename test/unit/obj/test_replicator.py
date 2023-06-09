@@ -1705,7 +1705,7 @@ class TestObjectReplicator(unittest.TestCase):
                 instance.errno = error_no
                 instance.strerror = os.strerror(error_no)
 
-                def func(directory):
+                def func(directory, dir_fd=None):
                     if directory == suffix_dir_path:
                         raise instance
                     else:
