@@ -634,6 +634,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         server_sock, server_app, server_logger = args
         self.assertEqual(sock, server_sock)
         self.assertIsInstance(server_app, swift.proxy.server.Application)
+        self.assertIsNone(server_app.watchdog._run_gth)
         self.assertEqual(20, server_app.client_timeout)
         self.assertIsInstance(server_logger, wsgi.NullLogger)
         self.assertTrue('custom_pool' in kwargs)

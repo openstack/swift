@@ -4853,6 +4853,14 @@ class Watchdog(object):
         if self._run_gth is None:
             self._run_gth = eventlet.spawn(self.run)
 
+    def kill(self):
+        """
+        Stop the watchdog greenthread.
+        """
+        if self._run_gth is not None:
+            self._run_gth.kill()
+            self._run_gth = None
+
     def run(self):
         while True:
             self._run()

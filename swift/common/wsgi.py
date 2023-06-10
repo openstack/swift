@@ -460,7 +460,10 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
     except socket.error as err:
         if err.errno != errno.EINVAL:
             raise
-    pool.waitall()
+    finally:
+        pool.waitall()
+        if hasattr(app._pipeline_final_app, 'watchdog'):
+            app._pipeline_final_app.watchdog.kill()
 
 
 class StrategyBase(object):

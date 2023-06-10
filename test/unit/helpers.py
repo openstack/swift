@@ -335,6 +335,10 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
 def teardown_servers(context):
     for server in context["test_coros"]:
         server.kill()
+    # We didn't start the proxy w/ run_server, so we have to kill the
+    # watchdog ourselves
+    context["test_servers"][0].watchdog.kill()
+    assert context["test_servers"][0].watchdog._run_gth is None
     rmtree(os.path.dirname(context["testdir"]))
     utils.logs.SysLogHandler = context["orig_SysLogHandler"]
     storage_policy._POLICIES = context["orig_POLICIES"]
