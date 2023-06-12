@@ -571,12 +571,12 @@ class TestFuncs(BaseTest):
         check_in_cache(req, acct_cache_key)
         check_in_cache(req, cont_cache_key)
 
-        clear_info_cache('app-is-unused', req.environ, 'account', 'cont')
+        clear_info_cache(req.environ, 'account', 'cont')
         check_in_cache(req, acct_cache_key)
         check_not_in_cache(req, cont_cache_key)
 
         # Can also use set_info_cache interface
-        set_info_cache('app-is-unused', req.environ, 'account', None, None)
+        set_info_cache(req.environ, 'account', None, None)
         check_not_in_cache(req, acct_cache_key)
         check_not_in_cache(req, cont_cache_key)
 
@@ -586,7 +586,7 @@ class TestFuncs(BaseTest):
         req.environ['swift.infocache'][shard_cache_key] = shard_data
         req.environ['swift.cache'].set(shard_cache_key, shard_data, time=600)
         check_in_cache(req, shard_cache_key)
-        clear_info_cache('app-is-unused', req.environ, 'account', 'cont',
+        clear_info_cache(req.environ, 'account', 'cont',
                          shard='listing')
         check_not_in_cache(req, shard_cache_key)
 

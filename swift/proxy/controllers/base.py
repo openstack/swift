@@ -476,7 +476,7 @@ def get_container_info(env, app, swift_source=None):
         # See similar comment in get_account_info() for justification.
         info = _get_info_from_infocache(env, account, container)
         if info is None:
-            info = set_info_cache(app, env, account, container, resp)
+            info = set_info_cache(env, account, container, resp)
 
     if info:
         info = deepcopy(info)  # avoid mutating what's in swift.infocache
@@ -565,7 +565,7 @@ def get_account_info(env, app, swift_source=None):
         # memcache would defeat the purpose.
         info = _get_info_from_infocache(env, account)
         if info is None:
-            info = set_info_cache(app, env, account, None, resp)
+            info = set_info_cache(env, account, None, resp)
 
     if info:
         info = info.copy()  # avoid mutating what's in swift.infocache
@@ -632,11 +632,11 @@ def get_cache_key(account, container=None, obj=None, shard=None):
     return cache_key
 
 
-def set_info_cache(app, env, account, container, resp):
+def set_info_cache(env, account, container, resp):
     """
     Cache info in both memcache and env.
 
-    :param  app: the application object
+    :param  env: the WSGI request environment
     :param  account: the unquoted account name
     :param  container: the unquoted container name or None
     :param  resp: the response received or None if info cache should be cleared
@@ -648,7 +648,7 @@ def set_info_cache(app, env, account, container, resp):
     infocache = env.setdefault('swift.infocache', {})
     memcache = cache_from_env(env, True)
     if resp is None:
-        clear_info_cache(app, env, account, container)
+        clear_info_cache(env, account, container)
         return
 
     if container:
@@ -705,12 +705,11 @@ def set_object_info_cache(app, env, account, container, obj, resp):
     return info
 
 
-def clear_info_cache(app, env, account, container=None, shard=None):
+def clear_info_cache(env, account, container=None, shard=None):
     """
     Clear the cached info in both memcache and env
 
-    :param  app: the application object
-    :param  env: the WSGI environment
+    :param  env: the WSGI request environment
     :param  account: the account name
     :param  container: the container name if clearing info for containers, or
               None
@@ -2157,7 +2156,7 @@ class Controller(object):
                                   path, [headers] * len(nodes))
         if is_success(resp.status_int):
             self.logger.info('autocreate account %r', path)
-            clear_info_cache(self.app, req.environ, account)
+            clear_info_cache(req.environ, account)
             return True
         else:
             self.logger.warning('Could not autocreate account %r', path)
