@@ -38,7 +38,7 @@ from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, UNSHARDED, SHARDING, SHARDED, \
     COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES, sift_shard_ranges
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
-    TombstoneReclaimer
+    TombstoneReclaimer, GreenDBCursor
 from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     ShardRange, make_db_file_path, md5, ShardRangeList
@@ -117,9 +117,43 @@ class TestContainerBroker(test_db.TestDbBase):
             if not is_migrated:
                 # pre spi tests don't set policy on initialize
                 broker.set_storage_policy_index(policy.idx)
-            self.assertEqual(policy.idx, broker.storage_policy_index)
+            # clear cached state
+            if hasattr(broker, '_storage_policy_index'):
+                del broker._storage_policy_index
+
+            execute_queries = []
+            real_execute = GreenDBCursor.execute
+
+            def tracking_exec(*args):
+                if not args[1].startswith('PRAGMA '):
+                    execute_queries.append(args[1])
+                return real_execute(*args)
+
+            with mock.patch.object(GreenDBCursor, 'execute', tracking_exec):
+                self.assertEqual(policy.idx, broker.storage_policy_index)
+            self.assertEqual(len(execute_queries), 1, execute_queries)
+
+            broker.enable_sharding(next(self.ts))
+            self.assertTrue(broker.set_sharding_state())
+            if not is_migrated:
+                # pre spi tests don't set policy when initializing the
+                # new broker, either
+                broker.set_storage_policy_index(policy.idx)
+            del execute_queries[:]
+            del broker._storage_policy_index
+            with mock.patch.object(GreenDBCursor, 'execute', tracking_exec):
+                self.assertEqual(policy.idx, broker.storage_policy_index)
+            self.assertEqual(len(execute_queries), 1, execute_queries)
+
+            self.assertTrue(broker.set_sharded_state())
+            del execute_queries[:]
+            del broker._storage_policy_index
+            with mock.patch.object(GreenDBCursor, 'execute', tracking_exec):
+                self.assertEqual(policy.idx, broker.storage_policy_index)
+            self.assertEqual(len(execute_queries), 1, execute_queries)
+
             # make sure it's cached
-            with mock.patch.object(broker, 'get'):
+            with mock.patch.object(broker, 'get', side_effect=RuntimeError):
                 self.assertEqual(policy.idx, broker.storage_policy_index)
 
     def test_exception(self):
