@@ -8921,3 +8921,23 @@ class TestCooperativeIterator(unittest.TestCase):
         self.assertEqual(list(range(3)), actual)
         actual = do_test(utils.CooperativeIterator(itertools.count(), 0), 0)
         self.assertEqual(list(range(2)), actual)
+
+
+class TestContextPool(unittest.TestCase):
+    def test_context_manager(self):
+        size = 5
+        pool = utils.ContextPool(size)
+        with pool:
+            for _ in range(size):
+                pool.spawn(eventlet.sleep, 10)
+            self.assertEqual(pool.running(), size)
+        self.assertEqual(pool.running(), 0)
+
+    def test_close(self):
+        size = 10
+        pool = utils.ContextPool(size)
+        for _ in range(size):
+            pool.spawn(eventlet.sleep, 10)
+        self.assertEqual(pool.running(), size)
+        pool.close()
+        self.assertEqual(pool.running(), 0)

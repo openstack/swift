@@ -2411,6 +2411,10 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
     def test_GET_disconnect(self):
         self.app.recoverable_node_timeout = 0.01
         self.app.client_timeout = 0.1
+        # Before, we used the default 64k chunk size, so the entire ~16k test
+        # data would come in the first chunk, and the generator should
+        # cleanly exit by the time we reiterate() the response.
+        self.app.object_chunk_size = 10
         segment_size = self.policy.ec_segment_size
         test_data = (b'test' * segment_size)[:-743]
         etag = md5(test_data, usedforsecurity=False).hexdigest()
@@ -2455,6 +2459,17 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             if stats:
                 actual[self.app.error_limiter.node_key(n)] = stats
         self.assertEqual(actual, expected_error_limiting)
+        expected = ["Client disconnected on read of EC frag '/a/c/o'"] * 10
+        self.assertEqual(
+            self.app.logger.get_lines_for_level('warning'),
+            expected)
+        for read_line in self.app.logger.get_lines_for_level('error'):
+            self.assertIn("Trying to read EC fragment during GET (retrying)",
+                          read_line)
+        self.assertEqual(
+            len(self.logger.logger.records['ERROR']), 4,
+            'Expected 4 ERROR lines, got %r' % (
+                self.logger.logger.records['ERROR'], ))
 
     def test_GET_not_found_when_404_newer(self):
         # if proxy receives a 404, it keeps waiting for other connections until
