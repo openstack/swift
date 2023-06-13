@@ -92,9 +92,9 @@ class ContainerController(Controller):
         return None
 
     def _clear_container_info_cache(self, req):
-        clear_info_cache(self.app, req.environ,
+        clear_info_cache(req.environ,
                          self.account_name, self.container_name)
-        clear_info_cache(self.app, req.environ,
+        clear_info_cache(req.environ,
                          self.account_name, self.container_name, 'listing')
         # TODO: should we also purge updating shards from cache?
 
@@ -430,7 +430,7 @@ class ContainerController(Controller):
             # node and got up-to-date information for the container.
             resp.headers['X-Backend-Recheck-Container-Existence'] = str(
                 self.app.recheck_container_existence)
-            set_info_cache(self.app, req.environ, self.account_name,
+            set_info_cache(req.environ, self.account_name,
                            self.container_name, resp)
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
