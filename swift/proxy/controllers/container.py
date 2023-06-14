@@ -239,8 +239,8 @@ class ContainerController(Controller):
             memcache = cache_from_env(req.environ, True)
             if memcache and ns_bound_list:
                 # cache in memcache only if shard ranges as expected
-                self.logger.debug('Caching %d shards for %s',
-                                  len(ns_bound_list.bounds), req.path_qs)
+                self.logger.info('Caching listing shards for %s (%d shards)',
+                                 cache_key, len(ns_bound_list.bounds))
                 memcache.set(cache_key, ns_bound_list.bounds,
                              time=self.app.recheck_listing_shard_ranges)
         return ns_bound_list

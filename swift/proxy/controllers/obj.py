@@ -386,6 +386,9 @@ class BaseObjectController(Controller):
                     shard_ranges)
                 infocache[cache_key] = cached_namespaces
                 if memcache:
+                    self.logger.info(
+                        'Caching updating shards for %s (%d shards)',
+                        cache_key, len(cached_namespaces.bounds))
                     memcache.set(
                         cache_key, cached_namespaces.bounds,
                         time=self.app.recheck_updating_shard_ranges)
