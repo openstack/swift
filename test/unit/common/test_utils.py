@@ -3840,22 +3840,25 @@ cluster_dfw1 = http://dfw1.host/v1/
     @mock.patch('importlib.metadata.distribution')
     def test_load_pkg_resource_importlib(self, mock_driver):
         import importlib.metadata
+
+        class TestEntryPoint(importlib.metadata.EntryPoint):
+            def load(self):
+                return self.value
+
         repl_obj = object()
         ec_obj = object()
         other_obj = object()
         mock_driver.return_value.entry_points = [
-            importlib.metadata.EntryPoint(group='swift.diskfile',
-                                          name='replication.fs',
-                                          value=repl_obj),
-            importlib.metadata.EntryPoint(group='swift.diskfile',
-                                          name='erasure_coding.fs',
-                                          value=ec_obj),
-            importlib.metadata.EntryPoint(group='swift.section',
-                                          name='thing.other',
-                                          value=other_obj),
+            TestEntryPoint(group='swift.diskfile',
+                           name='replication.fs',
+                           value=repl_obj),
+            TestEntryPoint(group='swift.diskfile',
+                           name='erasure_coding.fs',
+                           value=ec_obj),
+            TestEntryPoint(group='swift.section',
+                           name='thing.other',
+                           value=other_obj),
         ]
-        for ep in mock_driver.return_value.entry_points:
-            ep.load = lambda ep=ep: ep.value
         tests = {
             ('swift.diskfile', 'egg:swift#replication.fs'): repl_obj,
             ('swift.diskfile', 'egg:swift#erasure_coding.fs'): ec_obj,
