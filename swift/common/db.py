@@ -129,6 +129,9 @@ class DatabaseAlreadyExists(sqlite3.DatabaseError):
 
 class GreenDBConnection(sqlite3.Connection):
     """SQLite DB Connection handler that plays well with eventlet."""
+    # slots are needed for python 3.11.0 (there's an issue fixed in 3.11.1,
+    # see https://github.com/python/cpython/issues/99886)
+    __slots__ = ('timeout', 'db_file')
 
     def __init__(self, database, timeout=None, *args, **kwargs):
         if timeout is None:
@@ -157,6 +160,9 @@ class GreenDBConnection(sqlite3.Connection):
 
 class GreenDBCursor(sqlite3.Cursor):
     """SQLite Cursor handler that plays well with eventlet."""
+    # slots are needed for python 3.11.0 (there's an issue fixed in 3.11.1,
+    # see https://github.com/python/cpython/issues/99886)
+    __slots__ = ('timeout', 'db_file')
 
     def __init__(self, *args, **kwargs):
         self.timeout = args[0].timeout
