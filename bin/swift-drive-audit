@@ -45,6 +45,8 @@ def get_devices(device_dir, logger):
                 device_num = os.stat(block_device).st_rdev
             except OSError:
                 # If we can't stat the device, then something weird is going on
+                # In this case, an error search in the Kernel logs must also be carried out, and the device unmounted if necessary
+                devices.append(device)
                 logger.error("Error: Could not stat %s!" %
                              block_device)
                 continue
