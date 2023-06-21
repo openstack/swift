@@ -69,7 +69,7 @@ from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, close_swift_conn, \
-    ByteCountEnforcer, record_cache_op_metrics, get_cache_key
+    ByteCountEnforcer, record_cache_op_metrics, get_cache_key, GetterBase
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -2490,97 +2490,19 @@ def is_good_source(status):
     return is_success(status) or is_redirection(status)
 
 
-class ECFragGetter(object):
+class ECFragGetter(GetterBase):
 
     def __init__(self, app, req, node_iter, partition, policy, path,
                  backend_headers, header_provider, logger_thread_locals,
                  logger):
-        self.app = app
-        self.req = req
-        self.node_iter = node_iter
-        self.partition = partition
-        self.path = path
-        self.backend_headers = backend_headers
+        super(ECFragGetter, self).__init__(
+            app=app, req=req, node_iter=node_iter,
+            partition=partition, policy=policy, path=path,
+            backend_headers=backend_headers, logger=logger)
         self.header_provider = header_provider
-        self.req_query_string = req.query_string
         self.fragment_size = policy.fragment_size
         self.skip_bytes = 0
-        self.bytes_used_from_backend = 0
-        self.source = self.node = None
         self.logger_thread_locals = logger_thread_locals
-        self.logger = logger
-
-    def fast_forward(self, num_bytes):
-        """
-        Will skip num_bytes into the current ranges.
-
-        :params num_bytes: the number of bytes that have already been read on
-                           this request. This will change the Range header
-                           so that the next req will start where it left off.
-
-        :raises HTTPRequestedRangeNotSatisfiable: if begin + num_bytes
-                                                  > end of range + 1
-        :raises RangeAlreadyComplete: if begin + num_bytes == end of range + 1
-        """
-        try:
-            req_range = Range(self.backend_headers.get('Range'))
-        except ValueError:
-            req_range = None
-
-        if req_range:
-            begin, end = req_range.ranges[0]
-            if begin is None:
-                # this is a -50 range req (last 50 bytes of file)
-                end -= num_bytes
-                if end == 0:
-                    # we sent out exactly the first range's worth of bytes, so
-                    # we're done with it
-                    raise RangeAlreadyComplete()
-
-                if end < 0:
-                    raise HTTPRequestedRangeNotSatisfiable()
-
-            else:
-                begin += num_bytes
-                if end is not None and begin == end + 1:
-                    # we sent out exactly the first range's worth of bytes, so
-                    # we're done with it
-                    raise RangeAlreadyComplete()
-
-                if end is not None and begin > end:
-                    raise HTTPRequestedRangeNotSatisfiable()
-
-            req_range.ranges = [(begin, end)] + req_range.ranges[1:]
-            self.backend_headers['Range'] = str(req_range)
-        else:
-            self.backend_headers['Range'] = 'bytes=%d-' % num_bytes
-
-        # Reset so if we need to do this more than once, we don't double-up
-        self.bytes_used_from_backend = 0
-
-    def pop_range(self):
-        """
-        Remove the first byterange from our Range header.
-
-        This is used after a byterange has been completely sent to the
-        client; this way, should we need to resume the download from another
-        object server, we do not re-fetch byteranges that the client already
-        has.
-
-        If we have no Range header, this is a no-op.
-        """
-        if 'Range' in self.backend_headers:
-            try:
-                req_range = Range(self.backend_headers['Range'])
-            except ValueError:
-                # there's a Range header, but it's garbage, so get rid of it
-                self.backend_headers.pop('Range')
-                return
-            begin, end = req_range.ranges.pop(0)
-            if len(req_range.ranges) > 0:
-                self.backend_headers['Range'] = str(req_range)
-            else:
-                self.backend_headers.pop('Range')
 
     def learn_size_from_content_range(self, start, end, length):
         """
@@ -2833,7 +2755,7 @@ class ECFragGetter(object):
                     ip, port, node['device'],
                     self.partition, 'GET', self.path,
                     headers=req_headers,
-                    query_string=self.req_query_string)
+                    query_string=self.req.query_string)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
             with Timeout(node_timeout):

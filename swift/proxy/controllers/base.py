@@ -1014,55 +1014,21 @@ class ByteCountEnforcer(object):
             return chunk
 
 
-class GetOrHeadHandler(object):
-    def __init__(self, app, req, server_type, node_iter, partition, path,
-                 backend_headers, concurrency=1, policy=None,
-                 client_chunk_size=None, newest=None, logger=None):
+class GetterBase(object):
+    def __init__(self, app, req, node_iter, partition, policy,
+                 path, backend_headers, logger=None):
         self.app = app
+        self.req = req
         self.node_iter = node_iter
-        self.server_type = server_type
         self.partition = partition
+        self.policy = policy
         self.path = path
         self.backend_headers = backend_headers
-        self.client_chunk_size = client_chunk_size
         self.logger = logger or app.logger
-        self.skip_bytes = 0
         self.bytes_used_from_backend = 0
-        self.used_nodes = []
-        self.used_source_etag = ''
-        self.concurrency = concurrency
-        self.policy = policy
         self.node = None
         self.source = None
         self.source_parts_iter = None
-        self.latest_404_timestamp = Timestamp(0)
-        if self.server_type == 'Object':
-            self.node_timeout = self.app.recoverable_node_timeout
-        else:
-            self.node_timeout = self.app.node_timeout
-        policy_options = self.app.get_policy_options(self.policy)
-        self.rebalance_missing_suppression_count = min(
-            policy_options.rebalance_missing_suppression_count,
-            node_iter.num_primary_nodes - 1)
-
-        # stuff from request
-        self.req_method = req.method
-        self.req_path = req.path
-        self.req_query_string = req.query_string
-        if newest is None:
-            self.newest = config_true_value(req.headers.get('x-newest', 'f'))
-        else:
-            self.newest = newest
-
-        # populated when finding source
-        self.statuses = []
-        self.reasons = []
-        self.bodies = []
-        self.source_headers = []
-        self.sources = []
-
-        # populated from response headers
-        self.start_byte = self.end_byte = self.length = None
 
     def fast_forward(self, num_bytes):
         """
@@ -1135,6 +1101,46 @@ class GetOrHeadHandler(object):
                 self.backend_headers['Range'] = str(req_range)
             else:
                 self.backend_headers.pop('Range')
+
+
+class GetOrHeadHandler(GetterBase):
+    def __init__(self, app, req, server_type, node_iter, partition, path,
+                 backend_headers, concurrency=1, policy=None,
+                 client_chunk_size=None, newest=None, logger=None):
+        super(GetOrHeadHandler, self).__init__(
+            app=app, req=req, node_iter=node_iter,
+            partition=partition, policy=policy, path=path,
+            backend_headers=backend_headers, logger=logger)
+        self.server_type = server_type
+        self.client_chunk_size = client_chunk_size
+        self.skip_bytes = 0
+        self.used_nodes = []
+        self.used_source_etag = ''
+        self.concurrency = concurrency
+        self.latest_404_timestamp = Timestamp(0)
+        if self.server_type == 'Object':
+            self.node_timeout = self.app.recoverable_node_timeout
+        else:
+            self.node_timeout = self.app.node_timeout
+        policy_options = self.app.get_policy_options(self.policy)
+        self.rebalance_missing_suppression_count = min(
+            policy_options.rebalance_missing_suppression_count,
+            node_iter.num_primary_nodes - 1)
+
+        if newest is None:
+            self.newest = config_true_value(req.headers.get('x-newest', 'f'))
+        else:
+            self.newest = newest
+
+        # populated when finding source
+        self.statuses = []
+        self.reasons = []
+        self.bodies = []
+        self.source_headers = []
+        self.sources = []
+
+        # populated from response headers
+        self.start_byte = self.end_byte = self.length = None
 
     def learn_size_from_content_range(self, start, end, length):
         """
@@ -1403,9 +1409,9 @@ class GetOrHeadHandler(object):
             with ConnectionTimeout(self.app.conn_timeout):
                 conn = http_connect(
                     ip, port, node['device'],
-                    self.partition, self.req_method, self.path,
+                    self.partition, self.req.method, self.path,
                     headers=req_headers,
-                    query_string=self.req_query_string)
+                    query_string=self.req.query_string)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
             with Timeout(node_timeout):
@@ -1416,7 +1422,7 @@ class GetOrHeadHandler(object):
             self.app.exception_occurred(
                 node, self.server_type,
                 'Trying to %(method)s %(path)s' %
-                {'method': self.req_method, 'path': self.req_path})
+                {'method': self.req.method, 'path': self.req.path})
             return False
 
         src_headers = dict(
@@ -1486,7 +1492,7 @@ class GetOrHeadHandler(object):
                 if ts > self.latest_404_timestamp:
                     self.latest_404_timestamp = ts
             self.app.check_response(node, self.server_type, possible_source,
-                                    self.req_method, self.path,
+                                    self.req.method, self.path,
                                     self.bodies[-1])
         return False
 
