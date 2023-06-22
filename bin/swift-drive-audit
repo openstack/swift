@@ -33,6 +33,27 @@ from swift.common.utils import backward, get_logger, dump_recon_cache, \
 
 def get_devices(device_dir, logger):
     devices = []
+    majmin_devices = {}
+
+    # List /dev/block
+    # Using os.scandir on recent versions of python, else os.listdir
+    if 'scandir' in dir(os):
+        with os.scandir("/dev/block") as it:
+            for ent in it:
+                if ent.is_symlink():
+                    dev_name = os.path.basename(os.readlink(ent.path))
+                    majmin = os.path.basename(ent.path).split(':')
+                    majmin_devices[dev_name] = {'major': majmin[0],
+                                                'minor': majmin[1]}
+    else:
+        for ent in os.listdir("/dev/block"):
+            ent_path = os.path.join("/dev/block", ent)
+            if os.path.is_symlink(ent_path):
+                dev_name = os.path.basename(os.readlink(ent_path))
+                majmin = os.path.basename(ent_path).split(':')
+                majmin_devices[dev_name] = {'major': majmin[0],
+                                            'minor': majmin[1]}
+
     for line in open('/proc/mounts').readlines():
         data = line.strip().split()
         block_device = data[0]
@@ -41,15 +62,25 @@ def get_devices(device_dir, logger):
             device = {}
             device['mount_point'] = mount_point
             device['block_device'] = block_device
-            try:
-                device_num = os.stat(block_device).st_rdev
-            except OSError:
-                # If we can't stat the device, then something weird is going on
-                logger.error("Error: Could not stat %s!" %
-                             block_device)
-                continue
-            device['major'] = str(os.major(device_num))
-            device['minor'] = str(os.minor(device_num))
+            dev_name = os.path.basename(block_device)
+            if dev_name in majmin_devices:
+                # If symlink is in /dev/block
+                device['major'] = majmin_devices[dev_name]['major']
+                device['minor'] = majmin_devices[dev_name]['minor']
+            else:
+                # Else we try to stat block_device
+                try:
+                    device_num = os.stat(block_device).st_rdev
+                except OSError:
+                    # If we can't stat the device,
+                    # then something weird is going on
+                    logger.error(
+                        'Could not determine major:minor numbers for %s '
+                        '(mounted at %s)! Skipping...',
+                        block_device, mount_point)
+                    continue
+                device['major'] = str(os.major(device_num))
+                device['minor'] = str(os.minor(device_num))
             devices.append(device)
     for line in open('/proc/partitions').readlines()[2:]:
         major, minor, blocks, kernel_device = line.strip().split()
@@ -85,7 +116,7 @@ def get_errors(error_re, log_file_pattern, minutes, logger,
     # track of the year and month in case the year recently
     # ticked over
     year = now_time.year
-    prev_entry_month = now_time.strftime('%b')
+    prev_ent_month = now_time.strftime('%b')
     errors = {}
 
     reached_old_logs = False
@@ -107,11 +138,11 @@ def get_errors(error_re, log_file_pattern, minutes, logger,
                 break
             # Solves the problem with year change - kern.log does not
             # keep track of the year.
-            log_time_entry = line.split()[:3]
-            if log_time_entry[0] == 'Dec' and prev_entry_month == 'Jan':
+            log_time_ent = line.split()[:3]
+            if log_time_ent[0] == 'Dec' and prev_ent_month == 'Jan':
                 year -= 1
-            prev_entry_month = log_time_entry[0]
-            log_time_string = '%d %s' % (year, ' '.join(log_time_entry))
+            prev_ent_month = log_time_ent[0]
+            log_time_string = '%d %s' % (year, ' '.join(log_time_ent))
             try:
                 log_time = datetime.datetime.strptime(
                     log_time_string, '%Y %b %d %H:%M:%S')
