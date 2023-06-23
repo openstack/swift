@@ -1030,6 +1030,31 @@ class GetterBase(object):
         self.source = None
         self.source_parts_iter = None
 
+    def _get_source_and_node(self):
+        raise NotImplementedError()
+
+    def _replace_source_and_node(self, err_msg):
+        # be defensive against _get_source_and_node modifying self.source
+        # or self.node...
+        old_source = self.source
+        old_node = self.node
+
+        new_source, new_node = self._get_source_and_node()
+        if not new_source:
+            return False
+
+        self.app.error_occurred(old_node, err_msg)
+        # Close-out the connection as best as possible.
+        if getattr(old_source, 'swift_conn', None):
+            close_swift_conn(old_source)
+        self.source = new_source
+        self.node = new_node
+        # This is safe; it sets up a generator but does
+        # not call next() on it, so no IO is performed.
+        self.source_parts_iter = http_response_to_document_iters(
+            new_source, read_chunk_size=self.app.object_chunk_size)
+        return True
+
     def fast_forward(self, num_bytes):
         """
         Will skip num_bytes into the current ranges.
@@ -1207,22 +1232,8 @@ class GetOrHeadHandler(GetterBase):
                         self.source_parts_iter)
                 return (start_byte, end_byte, length, headers, part)
             except ChunkReadTimeout:
-                new_source, new_node = self._get_source_and_node()
-                if new_source:
-                    self.app.error_occurred(
-                        self.node, 'Trying to read object during '
-                        'GET (retrying)')
-                    # Close-out the connection as best as possible.
-                    if getattr(self.source, 'swift_conn', None):
-                        close_swift_conn(self.source)
-                    self.source = new_source
-                    self.node = new_node
-                    # This is safe; it sets up a generator but does
-                    # not call next() on it, so no IO is performed.
-                    self.source_parts_iter = http_response_to_document_iters(
-                        new_source,
-                        read_chunk_size=self.app.object_chunk_size)
-                else:
+                if not self._replace_source_and_node(
+                        'Trying to read object during GET (retrying)'):
                     raise StopIteration()
 
     def iter_bytes_from_response_part(self, part_file, nbytes):
@@ -1249,24 +1260,8 @@ class GetOrHeadHandler(GetterBase):
                 except RangeAlreadyComplete:
                     break
                 buf = b''
-                new_source, new_node = self._get_source_and_node()
-                if new_source:
-                    self.app.error_occurred(
-                        self.node, 'Trying to read object during '
-                        'GET (retrying)')
-                    # Close-out the connection as best as possible.
-                    if getattr(self.source, 'swift_conn', None):
-                        close_swift_conn(self.source)
-                    self.source = new_source
-                    self.node = new_node
-                    # This is safe; it just sets up a generator but
-                    # does not call next() on it, so no IO is
-                    # performed.
-                    self.source_parts_iter = \
-                        http_response_to_document_iters(
-                            new_source,
-                            read_chunk_size=self.app.object_chunk_size)
-
+                if self._replace_source_and_node(
+                        'Trying to read object during GET (retrying)'):
                     try:
                         _junk, _junk, _junk, _junk, part_file = \
                             self.get_next_doc_part()

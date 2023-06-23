@@ -1575,6 +1575,54 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
 
+    def test_GET_slow_read(self):
+        self.app.recoverable_node_timeout = 0.01
+        self.app.client_timeout = 0.1
+        self.app.object_chunk_size = 10
+        body = b'test'
+        etag = md5(body, usedforsecurity=False).hexdigest()
+        headers = {
+            'Etag': etag,
+            'Content-Length': len(body),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+        }
+        responses = [(200, body, headers)] * 2
+        status_codes, body_iter, headers = zip(*responses)
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        # make the first response slow...
+        read_sleeps = [0.1, 0]
+        with mocked_http_conn(*status_codes, body_iter=body_iter,
+                              headers=headers, slow=read_sleeps) as log:
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 200)
+            _ = resp.body
+        self.assertEqual(len(log.requests), 2)
+
+        def make_key(r):
+            r['device'] = r['path'].split('/')[1]
+            return '%(ip)s:%(port)s/%(device)s' % r
+        # the first node got errors incr'd
+        expected_error_limiting = {
+            make_key(log.requests[0]): {
+                'errors': 1,
+                'last_error': mock.ANY,
+            }
+        }
+        actual = {}
+        for n in self.app.get_object_ring(int(self.policy)).devs:
+            node_key = self.app.error_limiter.node_key(n)
+            stats = self.app.error_limiter.stats.get(node_key) or {}
+            if stats:
+                actual[self.app.error_limiter.node_key(n)] = stats
+        self.assertEqual(actual, expected_error_limiting)
+        for read_line in self.app.logger.get_lines_for_level('error'):
+            self.assertIn("Trying to read object during GET (retrying)",
+                          read_line)
+        self.assertEqual(
+            len(self.logger.logger.records['ERROR']), 1,
+            'Expected 1 ERROR lines, got %r' % (
+                self.logger.logger.records['ERROR'], ))
+
     def test_GET_transfer_encoding_chunked(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         with set_http_connect(200, headers={'transfer-encoding': 'chunked'}):
@@ -6710,7 +6758,7 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
     def test_iter_bytes_from_response_part_insufficient_bytes(self):
         part = FileLikeIter([b'some', b'thing'])
         it = self.getter.iter_bytes_from_response_part(part, nbytes=100)
-        with mock.patch.object(self.getter, '_dig_for_source_and_node',
+        with mock.patch.object(self.getter, '_get_source_and_node',
                                return_value=(None, None)):
             with self.assertRaises(ShortReadError) as cm:
                 b''.join(it)
@@ -6722,7 +6770,7 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         self.app.recoverable_node_timeout = 0.05
         self.app.client_timeout = 0.8
         it = self.getter.iter_bytes_from_response_part(part, nbytes=9)
-        with mock.patch.object(self.getter, '_dig_for_source_and_node',
+        with mock.patch.object(self.getter, '_get_source_and_node',
                                return_value=(None, None)):
             with mock.patch.object(part, 'read',
                                    side_effect=[b'some', ChunkReadTimeout(9)]):
