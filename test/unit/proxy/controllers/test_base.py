@@ -40,7 +40,7 @@ from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies,
-    make_timestamp_iter, mocked_http_conn, patch_policies)
+    make_timestamp_iter, mocked_http_conn, patch_policies, FakeSource)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -181,39 +181,6 @@ class FakeCache(FakeMemcache):
 
     def get(self, key):
         return self.stub or self.store.get(key)
-
-
-class FakeSource(object):
-    def __init__(self, chunks, headers=None, body=b''):
-        self.chunks = list(chunks)
-        self.headers = headers or {}
-        self.status = 200
-        self.swift_conn = None
-        self.body = body
-
-    def read(self, _read_size):
-        if self.chunks:
-            chunk = self.chunks.pop(0)
-            if chunk is None:
-                raise exceptions.ChunkReadTimeout()
-            else:
-                return chunk
-        else:
-            return self.body
-
-    def getheader(self, header):
-        # content-length for the whole object is generated dynamically
-        # by summing non-None chunks
-        if header.lower() == "content-length":
-            if self.chunks:
-                return str(sum(len(c) for c in self.chunks
-                               if c is not None))
-            return len(self.read(-1))
-        return self.headers.get(header.lower())
-
-    def getheaders(self):
-        return [('content-length', self.getheader('content-length'))] + \
-               [(k, v) for k, v in self.headers.items()]
 
 
 class BaseTest(unittest.TestCase):
@@ -1303,70 +1270,6 @@ class TestFuncs(BaseTest):
             self.assertIn(k, dst_headers)
             self.assertEqual(v, dst_headers[k])
         self.assertEqual('', dst_headers['Referer'])
-
-    def test_client_chunk_size(self):
-        source = FakeSource((
-            b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))
-        req = Request.blank('/v1/a/c/o')
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {}, client_chunk_size=8)
-
-        with mock.patch.object(handler, '_get_source_and_node',
-                               return_value=(source, {})):
-            resp = handler.get_working_response(req)
-            client_chunks = list(resp.app_iter)
-        self.assertEqual(client_chunks, [
-            b'abcd1234', b'abcd1234', b'abcd1234', b'abcd12'])
-
-    def test_client_chunk_size_resuming(self):
-        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
-
-        source1 = FakeSource([b'abcd', b'1234', None,
-                              b'efgh', b'5678', b'lots', b'more', b'data'])
-        # incomplete reads of client_chunk_size will be re-fetched
-        source2 = FakeSource([b'efgh', b'5678', b'lots', None])
-        source3 = FakeSource([b'lots', b'more', b'data'])
-        req = Request.blank('/v1/a/c/o')
-        handler = GetOrHeadHandler(
-            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
-            None, {}, client_chunk_size=8)
-
-        range_headers = []
-        sources = [(source1, node), (source2, node), (source3, node)]
-
-        def mock_get_source_and_node():
-            range_headers.append(handler.backend_headers.get('Range'))
-            return sources.pop(0)
-
-        with mock.patch.object(handler, '_get_source_and_node',
-                               mock_get_source_and_node):
-            resp = handler.get_working_response(req)
-            client_chunks = list(resp.app_iter)
-        self.assertEqual(range_headers, [None, 'bytes=8-27', 'bytes=16-27'])
-        self.assertEqual(client_chunks, [
-            b'abcd1234', b'efgh5678', b'lotsmore', b'data'])
-
-    def test_client_chunk_size_resuming_chunked(self):
-        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
-        headers = {'transfer-encoding': 'chunked',
-                   'content-type': 'text/plain'}
-        source1 = FakeSource([b'abcd', b'1234', b'abc', None], headers=headers)
-        source2 = FakeSource([b'efgh5678'], headers=headers)
-        sources = [(source1, node), (source2, node)]
-        req = Request.blank('/v1/a/c/o')
-        handler = GetOrHeadHandler(
-            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
-            None, {}, client_chunk_size=8)
-
-        def mock_get_source_and_node():
-            return sources.pop(0)
-
-        with mock.patch.object(handler, '_get_source_and_node',
-                               mock_get_source_and_node):
-            resp = handler.get_working_response(req)
-            client_chunks = list(resp.app_iter)
-        self.assertEqual(client_chunks, [b'abcd1234', b'efgh5678'])
 
     def test_disconnected_logging(self):
         self.app.logger = mock.Mock()
