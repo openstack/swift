@@ -2396,7 +2396,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                                       'state')
                     self.logger.timing_since(
                         'sharder.sharding.completed',
-                        broker.get_own_shard_range().epoch)
+                        float(broker.get_own_shard_range().epoch))
                 else:
                     self.info(broker, 'Completed cleaving, DB remaining in '
                                       'sharding state')
