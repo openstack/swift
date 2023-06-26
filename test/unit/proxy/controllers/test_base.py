@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import operator
 import os
 from argparse import Namespace
 import itertools
@@ -28,7 +29,7 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
     Controller, GetOrHeadHandler, bytes_to_skip, clear_info_cache, \
     set_info_cache, NodeIter, headers_from_container_info, \
-    record_cache_op_metrics
+    record_cache_op_metrics, GetterSource
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
@@ -40,7 +41,8 @@ from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies,
-    make_timestamp_iter, mocked_http_conn, patch_policies, FakeSource)
+    make_timestamp_iter, mocked_http_conn, patch_policies, FakeSource,
+    StubResponse)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -1291,8 +1293,13 @@ class TestFuncs(BaseTest):
         handler = GetOrHeadHandler(
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
             'some-path', {})
-        with mock.patch.object(handler, '_get_source_and_node',
-                               return_value=(source, node)):
+
+        def mock_find_source():
+            handler.source = GetterSource(self.app, source, node)
+            return True
+
+        with mock.patch.object(handler, '_find_source',
+                               mock_find_source):
             resp = handler.get_working_response(req)
             resp.app_iter.close()
         self.app.logger.info.assert_called_once_with(
@@ -1304,8 +1311,8 @@ class TestFuncs(BaseTest):
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
             None, {})
 
-        with mock.patch.object(handler, '_get_source_and_node',
-                               return_value=(source, node)):
+        with mock.patch.object(handler, '_find_source',
+                               mock_find_source):
             resp = handler.get_working_response(req)
             next(resp.app_iter)
             resp.app_iter.close()
@@ -1620,3 +1627,74 @@ class TestNodeIter(BaseTest):
             self.assertIn('use_replication', node)
             self.assertFalse(node['use_replication'])
         self.assertEqual(other_iter, ring.get_part_nodes(0))
+
+
+class TestGetterSource(unittest.TestCase):
+    def _make_source(self, headers, node):
+        resp = StubResponse(200, headers=headers)
+        return GetterSource(self.app, resp, node)
+
+    def setUp(self):
+        self.app = FakeApp()
+        self.node = {'ip': '1.2.3.4', 'port': '999'}
+        self.headers = {'X-Timestamp': '1234567.12345'}
+        self.resp = StubResponse(200, headers=self.headers)
+
+    def test_init(self):
+        src = GetterSource(self.app, self.resp, self.node)
+        self.assertIs(self.app, src.app)
+        self.assertIs(self.resp, src.resp)
+        self.assertEqual(self.node, src.node)
+
+    def test_timestamp(self):
+        # first test the no timestamp header case. Defaults to 0.
+        headers = {}
+        src = self._make_source(headers, self.node)
+        self.assertIsInstance(src.timestamp, Timestamp)
+        self.assertEqual(Timestamp(0), src.timestamp)
+        # now x-timestamp
+        headers = dict(self.headers)
+        src = self._make_source(headers, self.node)
+        self.assertIsInstance(src.timestamp, Timestamp)
+        self.assertEqual(Timestamp(1234567.12345), src.timestamp)
+        headers['x-put-timestamp'] = '1234567.11111'
+        src = self._make_source(headers, self.node)
+        self.assertIsInstance(src.timestamp, Timestamp)
+        self.assertEqual(Timestamp(1234567.11111), src.timestamp)
+        headers['x-backend-timestamp'] = '1234567.22222'
+        src = self._make_source(headers, self.node)
+        self.assertIsInstance(src.timestamp, Timestamp)
+        self.assertEqual(Timestamp(1234567.22222), src.timestamp)
+        headers['x-backend-data-timestamp'] = '1234567.33333'
+        src = self._make_source(headers, self.node)
+        self.assertIsInstance(src.timestamp, Timestamp)
+        self.assertEqual(Timestamp(1234567.33333), src.timestamp)
+
+    def test_sort(self):
+        # verify sorting by timestamp
+        srcs = [
+            self._make_source({'X-Timestamp': '12345.12345'},
+                              {'ip': '1.2.3.7', 'port': '9'}),
+            self._make_source({'X-Timestamp': '12345.12346'},
+                              {'ip': '1.2.3.8', 'port': '8'}),
+            self._make_source({'X-Timestamp': '12345.12343',
+                               'X-Put-Timestamp': '12345.12344'},
+                              {'ip': '1.2.3.9', 'port': '7'}),
+        ]
+        actual = sorted(srcs, key=operator.attrgetter('timestamp'))
+        self.assertEqual([srcs[2], srcs[0], srcs[1]], actual)
+
+    def test_close(self):
+        # verify close is robust...
+        # source has no resp
+        src = GetterSource(self.app, None, self.node)
+        src.close()
+        # resp has no swift_conn
+        src = GetterSource(self.app, self.resp, self.node)
+        self.assertFalse(hasattr(src.resp, 'swift_conn'))
+        src.close()
+        # verify close is plumbed through...
+        src.resp.swift_conn = mock.MagicMock()
+        src.resp.nuke_from_orbit = mock.MagicMock()
+        src.close()
+        src.resp.nuke_from_orbit.assert_called_once_with()

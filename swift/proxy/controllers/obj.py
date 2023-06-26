@@ -68,8 +68,8 @@ from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    cors_validation, update_headers, bytes_to_skip, close_swift_conn, \
-    ByteCountEnforcer, record_cache_op_metrics, get_cache_key, GetterBase
+    cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
+    record_cache_op_metrics, get_cache_key, GetterBase, GetterSource
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -77,8 +77,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError, \
     normalize_etag
 from swift.common.request_helpers import update_etag_is_at_header, \
-    resolve_etag_is_at_header, validate_internal_obj, get_ip_port, \
-    http_response_to_document_iters
+    resolve_etag_is_at_header, validate_internal_obj, get_ip_port
 
 
 def check_content_type(req):
@@ -2233,8 +2232,8 @@ class ECGetResponseBucket(object):
         Close bucket's responses; they won't be used for a client response.
         """
         for getter, frag_iter in self.get_responses():
-            if getattr(getter.source, 'swift_conn', None):
-                close_swift_conn(getter.source)
+            if getter.source:
+                getter.source.close()
 
     def __str__(self):
         # return a string summarising bucket state, useful for debugging.
@@ -2324,7 +2323,8 @@ class ECGetResponseCollection(object):
         frag_sets = safe_json_loads(headers.get('X-Backend-Fragments')) or {}
         for t_frag, frag_set in frag_sets.items():
             t_frag = Timestamp(t_frag)
-            self._get_bucket(t_frag).add_alternate_nodes(get.node, frag_set)
+            self._get_bucket(t_frag).add_alternate_nodes(
+                get.source.node, frag_set)
         # If the response includes a durable timestamp then mark that bucket as
         # durable. Note that this may be a different bucket than the one this
         # response got added to, and that we may never go and get a durable
@@ -2506,13 +2506,15 @@ class ECFragGetter(GetterBase):
         self.status = self.reason = self.body = self.source_headers = None
 
     def response_parts_iter(self, req):
-        try:
-            self.source, self.node = next(self.source_and_node_iter)
-        except StopIteration:
-            return
         it = None
-        if self.source:
-            it = self._get_response_parts_iter(req)
+        try:
+            source = next(self.source_iter)
+        except StopIteration:
+            pass
+        else:
+            if source:
+                self.source = source
+                it = self._get_response_parts_iter(req)
         return it
 
     def get_next_doc_part(self):
@@ -2533,10 +2535,10 @@ class ECFragGetter(GetterBase):
                     # we have a multipart/byteranges response; as it
                     # will read the MIME boundary and part headers.
                     start_byte, end_byte, length, headers, part = next(
-                        self.source_parts_iter)
+                        self.source.parts_iter)
                 return (start_byte, end_byte, length, headers, part)
             except ChunkReadTimeout:
-                if not self._replace_source_and_node(
+                if not self._replace_source(
                         'Trying to read next part of EC multi-part GET '
                         '(retrying)'):
                     raise
@@ -2565,7 +2567,7 @@ class ECFragGetter(GetterBase):
                 except RangeAlreadyComplete:
                     break
                 buf = b''
-                if self._replace_source_and_node(
+                if self._replace_source(
                         'Trying to read EC fragment during GET (retrying)'):
                     try:
                         _junk, _junk, _junk, _junk, part_file = \
@@ -2603,11 +2605,6 @@ class ECFragGetter(GetterBase):
 
     def _get_response_parts_iter(self, req):
         try:
-            # This is safe; it sets up a generator but does not call next()
-            # on it, so no IO is performed.
-            self.source_parts_iter = http_response_to_document_iters(
-                self.source, read_chunk_size=self.app.object_chunk_size)
-
             part_iter = None
             try:
                 while True:
@@ -2669,9 +2666,7 @@ class ECFragGetter(GetterBase):
             self.logger.exception('Trying to send to client')
             raise
         finally:
-            # Close-out the connection as best as possible.
-            if getattr(self.source, 'swift_conn', None):
-                close_swift_conn(self.source)
+            self.source.close()
 
     @property
     def last_status(self):
@@ -2743,37 +2738,39 @@ class ECFragGetter(GetterBase):
             return None
 
     @property
-    def source_and_node_iter(self):
-        if not hasattr(self, '_source_and_node_iter'):
-            self._source_and_node_iter = self._source_and_node_gen()
-        return self._source_and_node_iter
+    def source_iter(self):
+        if not hasattr(self, '_source_iter'):
+            self._source_iter = self._source_gen()
+        return self._source_iter
 
-    def _source_and_node_gen(self):
+    def _source_gen(self):
         self.status = self.reason = self.body = self.source_headers = None
         for node in self.node_iter:
             source = self._make_node_request(
                 node, self.app.recoverable_node_timeout)
 
             if source:
-                yield source, node
+                yield GetterSource(self.app, source, node)
             else:
-                yield None, None
+                yield None
             self.status = self.reason = self.body = self.source_headers = None
 
-    def _get_source_and_node(self):
+    def _find_source(self):
         # capture last used etag before continuation
         used_etag = self.last_headers.get('X-Object-Sysmeta-EC-ETag')
-        for source, node in self.source_and_node_iter:
+        for source in self.source_iter:
             if not source:
                 # _make_node_request only returns good sources
                 continue
-            if source.getheader('X-Object-Sysmeta-EC-ETag') != used_etag:
+            if source.resp.getheader('X-Object-Sysmeta-EC-ETag') != used_etag:
                 self.logger.warning(
                     'Skipping source (etag mismatch: got %s, expected %s)',
-                    source.getheader('X-Object-Sysmeta-EC-ETag'), used_etag)
+                    source.resp.getheader('X-Object-Sysmeta-EC-ETag'),
+                    used_etag)
             else:
-                return source, node
-        return None, None
+                self.source = source
+                return True
+        return False
 
 
 @ObjectControllerRouter.register(EC_POLICY)
