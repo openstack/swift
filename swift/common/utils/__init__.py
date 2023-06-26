@@ -1600,7 +1600,14 @@ class LogAdapter(logging.LoggerAdapter, object):
         _junk, exc, _junk = sys.exc_info()
         call = self.error
         emsg = ''
-        if isinstance(exc, (OSError, socket.error)):
+        if isinstance(exc, (http_client.BadStatusLine,
+                            green_http_client.BadStatusLine)):
+            # Use error(); not really exceptional
+            emsg = repr(exc)
+            # Note that on py3, we've seen a RemoteDisconnected error getting
+            # raised, which inherits from *both* BadStatusLine and OSError;
+            # we want it getting caught here
+        elif isinstance(exc, (OSError, socket.error)):
             if exc.errno in (errno.EIO, errno.ENOSPC):
                 emsg = str(exc)
             elif exc.errno == errno.ECONNREFUSED:
@@ -1617,10 +1624,6 @@ class LogAdapter(logging.LoggerAdapter, object):
                 emsg = 'Broken pipe'
             else:
                 call = self._exception
-        elif isinstance(exc, (http_client.BadStatusLine,
-                              green_http_client.BadStatusLine)):
-            # Use error(); not really exceptional
-            emsg = '%s: %s' % (exc.__class__.__name__, exc.line)
         elif isinstance(exc, eventlet.Timeout):
             emsg = exc.__class__.__name__
             detail = '%ss' % exc.seconds

@@ -1221,15 +1221,33 @@ class TestUtils(unittest.TestCase):
             log_exception(http_client.BadStatusLine(''))
             log_msg = strip_value(sio)
             self.assertNotIn('Traceback', log_msg)
-            self.assertIn('BadStatusLine', log_msg)
-            self.assertIn("''", log_msg)
+            self.assertIn('''BadStatusLine("''"''', log_msg)
 
             # green version is separate :-(
             log_exception(green_http_client.BadStatusLine(''))
             log_msg = strip_value(sio)
             self.assertNotIn('Traceback', log_msg)
-            self.assertIn('BadStatusLine', log_msg)
-            self.assertIn("''", log_msg)
+            self.assertIn('''BadStatusLine("''"''', log_msg)
+
+            if not six.PY2:
+                # py3 introduced RemoteDisconnected exceptions which inherit
+                # from both BadStatusLine *and* OSError; make sure those are
+                # handled as BadStatusLine, not OSError
+                log_exception(http_client.RemoteDisconnected(
+                    'Remote end closed connection'))
+                log_msg = strip_value(sio)
+                self.assertNotIn('Traceback', log_msg)
+                self.assertIn(
+                    "RemoteDisconnected('Remote end closed connection'",
+                    log_msg)
+
+                log_exception(green_http_client.RemoteDisconnected(
+                    'Remote end closed connection'))
+                log_msg = strip_value(sio)
+                self.assertNotIn('Traceback', log_msg)
+                self.assertIn(
+                    "RemoteDisconnected('Remote end closed connection'",
+                    log_msg)
 
             # test unhandled
             log_exception(Exception('my error message'))
