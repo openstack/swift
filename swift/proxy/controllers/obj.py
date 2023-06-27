@@ -2568,23 +2568,10 @@ class ECFragGetter(GetterBase):
                         self.source_parts_iter)
                 return (start_byte, end_byte, length, headers, part)
             except ChunkReadTimeout:
-                new_source, new_node = self._dig_for_source_and_node()
-                if not new_source:
+                if not self._replace_source_and_node(
+                        'Trying to read next part of EC multi-part GET '
+                        '(retrying)'):
                     raise
-                self.app.error_occurred(
-                    self.node, 'Trying to read next part of '
-                    'EC multi-part GET (retrying)')
-                # Close-out the connection as best as possible.
-                if getattr(self.source, 'swift_conn', None):
-                    close_swift_conn(self.source)
-                self.source = new_source
-                self.node = new_node
-                # This is safe; it sets up a generator but does
-                # not call next() on it, so no IO is performed.
-                self.source_parts_iter = \
-                    http_response_to_document_iters(
-                        new_source,
-                        read_chunk_size=self.app.object_chunk_size)
 
     def iter_bytes_from_response_part(self, part_file, nbytes):
         buf = b''
@@ -2610,24 +2597,8 @@ class ECFragGetter(GetterBase):
                 except RangeAlreadyComplete:
                     break
                 buf = b''
-                old_node = self.node
-                new_source, new_node = self._dig_for_source_and_node()
-                if new_source:
-                    self.app.error_occurred(
-                        old_node, 'Trying to read EC fragment '
-                        'during GET (retrying)')
-                    # Close-out the connection as best as possible.
-                    if getattr(self.source, 'swift_conn', None):
-                        close_swift_conn(self.source)
-                    self.source = new_source
-                    self.node = new_node
-                    # This is safe; it just sets up a generator but
-                    # does not call next() on it, so no IO is
-                    # performed.
-                    self.source_parts_iter = \
-                        http_response_to_document_iters(
-                            new_source,
-                            read_chunk_size=self.app.object_chunk_size)
+                if self._replace_source_and_node(
+                        'Trying to read EC fragment during GET (retrying)'):
                     try:
                         _junk, _junk, _junk, _junk, part_file = \
                             self.get_next_doc_part()
@@ -2814,13 +2785,12 @@ class ECFragGetter(GetterBase):
                 node, self.app.recoverable_node_timeout)
 
             if source:
-                self.node = node
                 yield source, node
             else:
                 yield None, None
             self.status = self.reason = self.body = self.source_headers = None
 
-    def _dig_for_source_and_node(self):
+    def _get_source_and_node(self):
         # capture last used etag before continuation
         used_etag = self.last_headers.get('X-Object-Sysmeta-EC-ETag')
         for source, node in self.source_and_node_iter:
