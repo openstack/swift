@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2023-05-17 23:35+0000\n"
+"POT-Creation-Date: 2023-06-27 13:31+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -20,40 +20,6 @@ msgstr ""
 "X-Generator: Zanata 4.3.3\n"
 "Language-Team: Chinese (Taiwan)\n"
 
-msgid ""
-"\n"
-"user quit"
-msgstr ""
-"\n"
-"使用者退出"
-
-#, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "%(success)s 個成功，%(failure)s 個失敗"
-
-#, python-format
-msgid "%s already started..."
-msgstr "%s 已啟動..."
-
-#, python-format
-msgid "%s does not exist"
-msgstr "%s 不存在"
-
-#, python-format
-msgid "%s: Connection reset by peer"
-msgstr "%s：已由對等項目重設連線"
-
-#, python-format
-msgid ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-msgstr "已嘗試在 %(time).5f 秒內抄寫 %(count)d 個資料庫 (%(rate).5f/s)"
-
-msgid "Beginning replication run"
-msgstr "正在開始抄寫執行"
-
-msgid "Broker error trying to rollback locked connection"
-msgstr "嘗試回復已鎖定的連線時發生分配管理系統錯誤"
-
 #, python-format
 msgid "Can not access the file %s."
 msgstr "無法存取檔案 %s。"
@@ -62,41 +28,9 @@ msgstr "無法存取檔案 %s。"
 msgid "Can not load profile data from %s."
 msgstr "無法從 %s 中載入設定檔資料。"
 
-msgid "Connection refused"
-msgstr "連線遭拒"
-
-msgid "Connection timeout"
-msgstr "連線逾時"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "資料下載錯誤：%s"
-
-msgid "ERROR Failed to get my own IPs?"
-msgstr "錯誤：無法取得我自己的 IP？"
-
-#, python-format
-msgid "ERROR Remote drive not mounted %s"
-msgstr "錯誤：未裝載遠端磁碟機 %s"
-
-#, python-format
-msgid "ERROR reading HTTP response from %s"
-msgstr "從 %s 讀取 HTTP 回應時發生錯誤"
-
-#, python-format
-msgid "ERROR reading db %s"
-msgstr "讀取資料庫 %s 時發生錯誤"
-
-#, python-format
-msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "錯誤：遠端同步失敗，%(code)s：%(args)s"
-
-#, python-format
-msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "同步 %(file)s 與節點 %(node)s 時發生錯誤"
-
-msgid "ERROR trying to replicate"
-msgstr "嘗試抄寫時發生錯誤"
 
 msgid "Error listing devices"
 msgstr "列出裝置時發生錯誤"
@@ -123,143 +57,28 @@ msgstr "擷取 recon 資料時發生錯誤"
 msgid "Error: An error occurred"
 msgstr "錯誤：發生錯誤"
 
-msgid "Error: missing config path argument"
-msgstr "錯誤：遺漏配置路徑引數"
-
-#, python-format
-msgid "Error: unable to locate %s"
-msgstr "錯誤：找不到 %s"
-
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "遵循 %(given_domain)s 到 %(found_domain)s 的 CNAME 鏈"
-
-msgid "Found configs:"
-msgstr "找到配置："
-
-msgid "Host unreachable"
-msgstr "無法抵達主機"
-
-#, python-format
-msgid "Invalid X-Container-Sync-To format %r"
-msgstr "無效的 X-Container-Sync-To 格式 %r"
-
-#, python-format
-msgid "Invalid host %r in X-Container-Sync-To"
-msgstr "X-Container-Sync-To 中的主機 %r 無效"
-
-#, python-format
-msgid "Invalid pending entry %(file)s: %(entry)s"
-msgstr "無效的擱置項目 %(file)s：%(entry)s"
-
-#, python-format
-msgid ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-msgstr ""
-"X-Container-Sync-To 中的架構 %r 無效，必須是 \"//\"、\"http\" 或\"https\"。"
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "已將 %(given_domain)s 對映至 %(found_domain)s"
 
 #, python-format
-msgid "No %s running"
-msgstr "沒有 %s 在執行中"
-
-#, python-format
-msgid "No permission to signal PID %d"
-msgstr "沒有信號 PID %d 的許可權"
-
-#, python-format
-msgid "No policy with index %s"
-msgstr "沒有具有索引 %s 的原則"
-
-#, python-format
-msgid "No realm key for %r"
-msgstr "沒有 %r 的範圍金鑰"
-
-msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
-msgstr "X-Container-Sync-To 中不容許參數、查詢及片段"
-
-msgid "Path required in X-Container-Sync-To"
-msgstr "X-Container-Sync-To 中需要路徑"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "側寫錯誤：%s"
-
-#, python-format
-msgid "Quarantining DB %s"
-msgstr "正在隔離資料庫 %s"
 
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
 msgstr "%(account)s/%(container)s/%(object)s 的 ratelimit 休眠日誌：%(sleep)s"
 
 #, python-format
-msgid "Removed %(remove)d dbs"
-msgstr "已移除 %(remove)d 個資料庫"
-
-#, python-format
-msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
-msgstr "正在移除具有錯誤 PID %(pid)d 的 PID 檔 %(pid_file)s"
-
-#, python-format
-msgid "Removing pid file %s with invalid pid"
-msgstr "正在移除具有無效 PID 的 PID 檔 %s"
-
-#, python-format
-msgid "Removing stale pid file %s"
-msgstr "正在移除過時 PID 檔案 %s"
-
-msgid "Replication run OVER"
-msgstr "抄寫執行結束"
-
-#, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr "由於黑名單，正在傳回 497：%s"
 
-#, python-format
-msgid "Running %s once"
-msgstr "正在執行 %s 一次"
-
-#, python-format
-msgid "Skipping %s as it is not mounted"
-msgstr "正在跳過 %s，原因是它未裝載"
-
-#, python-format
-msgid "Starting %s"
-msgstr "正在啟動 %s"
-
 msgid "The file type are forbidden to access!"
 msgstr "此檔案類型禁止存取！"
-
-msgid "UNCAUGHT EXCEPTION"
-msgstr "未捕捉的異常狀況"
-
-#, python-format
-msgid "Unable to locate config for %s"
-msgstr "找不到 %s 的配置"
-
-#, python-format
-msgid "Unable to read config from %s"
-msgstr "無法從 %s 讀取配置"
-
-msgid ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-msgstr ""
-"警告：應該僅啟用 SSL 以用於測試目的。使用外部SSL 終止以進行正式作業部署。"
-
-msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-msgstr "警告：無法修改檔案描述子限制。以非 root 使用者身分執行？"
-
-msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
-msgstr "警告：無法修改處理程序數上限限制。以非 root 使用者身分執行？"
-
-msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
-msgstr "警告：無法修改記憶體限制。以非 root 使用者身分執行？"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告：無法在沒有 memcached 用戶端的情況下限制速率"

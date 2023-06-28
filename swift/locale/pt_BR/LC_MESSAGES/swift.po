@@ -12,7 +12,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2023-05-17 23:35+0000\n"
+"POT-Creation-Date: 2023-06-27 13:31+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -24,41 +24,6 @@ msgstr ""
 "X-Generator: Zanata 4.3.3\n"
 "Language-Team: Portuguese (Brazil)\n"
 
-msgid ""
-"\n"
-"user quit"
-msgstr ""
-"\n"
-"encerramento do usuário"
-
-#, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "%(success)s sucessos, %(failure)s falhas"
-
-#, python-format
-msgid "%s already started..."
-msgstr "%s já iniciado..."
-
-#, python-format
-msgid "%s does not exist"
-msgstr "%s não existe"
-
-#, python-format
-msgid "%s: Connection reset by peer"
-msgstr "%s: Reconfiguração da conexão por peer"
-
-#, python-format
-msgid ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-msgstr ""
-"Tentativa de replicação do %(count)d dbs em%(time).5f segundos (%(rate).5f/s)"
-
-msgid "Beginning replication run"
-msgstr "Começando execução de replicação"
-
-msgid "Broker error trying to rollback locked connection"
-msgstr "Erro do Broker ao tentar retroceder a conexão bloqueada"
-
 #, python-format
 msgid "Can not access the file %s."
 msgstr "Não é possível acessar o arquivo %s."
@@ -67,41 +32,9 @@ msgstr "Não é possível acessar o arquivo %s."
 msgid "Can not load profile data from %s."
 msgstr "Não é possível carregar dados do perfil a partir de %s."
 
-msgid "Connection refused"
-msgstr "Conexão recusada"
-
-msgid "Connection timeout"
-msgstr "Tempo limite de conexão"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "Erro ao fazer download de dados: %s"
-
-msgid "ERROR Failed to get my own IPs?"
-msgstr "ERRO Falha ao pegar meu próprio IPs?"
-
-#, python-format
-msgid "ERROR Remote drive not mounted %s"
-msgstr "ERRO Drive remoto não montado %s"
-
-#, python-format
-msgid "ERROR reading HTTP response from %s"
-msgstr "ERRO lendo resposta HTTP de %s"
-
-#, python-format
-msgid "ERROR reading db %s"
-msgstr "ERRO lendo db %s"
-
-#, python-format
-msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "ERRO rsync falhou com %(code)s: %(args)s"
-
-#, python-format
-msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "ERRO sincronizando %(file)s com nodo %(node)s"
-
-msgid "ERROR trying to replicate"
-msgstr "ERRO tentando replicar"
 
 msgid "Error listing devices"
 msgstr "Erro ao listar dispositivos"
@@ -128,77 +61,17 @@ msgstr "Erro ao recuperar dados de reconhecimento"
 msgid "Error: An error occurred"
 msgstr "Erro: Ocorreu um erro"
 
-msgid "Error: missing config path argument"
-msgstr "Erro: argumento do caminho de configuração ausente"
-
-#, python-format
-msgid "Error: unable to locate %s"
-msgstr "Erro: não é possível localizar %s"
-
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "Cadeia CNAME a seguir para %(given_domain)s para%(found_domain)s"
-
-msgid "Found configs:"
-msgstr "Localizados arquivos de configuração:"
-
-msgid "Host unreachable"
-msgstr "Destino inalcançável"
-
-#, python-format
-msgid "Invalid X-Container-Sync-To format %r"
-msgstr "Formato X-Container-Sync-To inválido %r"
-
-#, python-format
-msgid "Invalid host %r in X-Container-Sync-To"
-msgstr "Host inválido %r em X-Container-Sync-To"
-
-#, python-format
-msgid "Invalid pending entry %(file)s: %(entry)s"
-msgstr "Entrada pendente inválida %(file)s: %(entry)s"
-
-#, python-format
-msgid ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-msgstr ""
-"Esquema inválido %r em X-Container-Sync-To, deve ser \" // \", \"http\" ou "
-"\"https\"."
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s mapeado para %(found_domain)s"
 
 #, python-format
-msgid "No %s running"
-msgstr "Nenhum %s rodando"
-
-#, python-format
-msgid "No permission to signal PID %d"
-msgstr "Nenhuma permissão para PID do sinal %d"
-
-#, python-format
-msgid "No policy with index %s"
-msgstr "Nenhuma política com índice %s"
-
-#, python-format
-msgid "No realm key for %r"
-msgstr "Nenhuma chave do domínio para %r"
-
-msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
-msgstr ""
-"Parâmetros, consultas e fragmentos não permitidos em X-Container-Sync-To"
-
-msgid "Path required in X-Container-Sync-To"
-msgstr "Caminho necessário em X-Container-Sync-To"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Erro da Criação de Perfil: %s"
-
-#, python-format
-msgid "Quarantining DB %s"
-msgstr "Quarentenando BD %s"
 
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
@@ -207,74 +80,11 @@ msgstr ""
 "%(object)s"
 
 #, python-format
-msgid "Removed %(remove)d dbs"
-msgstr "Dbs %(remove)d removido"
-
-#, python-format
-msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
-msgstr "Removendo arquivo pid %(pid_file)s com pid errado %(pid)d"
-
-#, python-format
-msgid "Removing pid file %s with invalid pid"
-msgstr "Removendo o arquivo pid %s com pid inválido"
-
-#, python-format
-msgid "Removing stale pid file %s"
-msgstr "Removendo o arquivo pid %s antigo"
-
-msgid "Replication run OVER"
-msgstr "Execução de replicação TERMINADA"
-
-#, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr "Retornando 497 por causa da listagem negra: %s"
 
-#, python-format
-msgid "Running %s once"
-msgstr "Executando %s uma vez,"
-
-#, python-format
-msgid "Skipping %s as it is not mounted"
-msgstr "Pulando %s porque não está montado"
-
-#, python-format
-msgid "Starting %s"
-msgstr "Iniciando %s"
-
 msgid "The file type are forbidden to access!"
 msgstr "O tipo de arquivo é de acesso proibido!"
-
-msgid "UNCAUGHT EXCEPTION"
-msgstr "EXCEÇÃO NÃO CAPTURADA"
-
-#, python-format
-msgid "Unable to locate config for %s"
-msgstr "Não é possível localizar configuração para %s"
-
-#, python-format
-msgid "Unable to read config from %s"
-msgstr "Não é possível ler a configuração a partir de %s"
-
-msgid ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-msgstr ""
-"AVISO: SSL deve ser ativada somente para fins de teste. Use rescisão SSL "
-"externa para uma implementação de produção."
-
-msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-msgstr ""
-"AVISO: Não é possível modificar o limite do descritor de arquivo. Executar "
-"como não raiz?"
-
-msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
-msgstr ""
-"AVISO: Não é possível modificar o limite máximo do processo. Executar como "
-"não raiz?"
-
-msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
-msgstr ""
-"AVISO: Não é possível modificar o limite de memória. Executar como não raiz?"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Aviso: Não é possível um limite de taxa sem um cliente memcached"

@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2023-05-17 23:35+0000\n"
+"POT-Creation-Date: 2023-06-27 13:31+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -21,40 +21,6 @@ msgstr ""
 "X-Generator: Zanata 4.3.3\n"
 "Language-Team: Turkish (Turkey)\n"
 
-msgid ""
-"\n"
-"user quit"
-msgstr ""
-"\n"
-"kullanıcı çıktı"
-
-#, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "%(success)s başarı, %(failure)s başarısızlık"
-
-#, python-format
-msgid "%s already started..."
-msgstr "%s zaten başlatıldı..."
-
-#, python-format
-msgid "%s does not exist"
-msgstr "%s mevcut değil"
-
-#, python-format
-msgid "%s: Connection reset by peer"
-msgstr "%s: Bağlantı eş tarafından sıfırlandı"
-
-#, python-format
-msgid ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-msgstr "%(count)d db %(time).5f saniyede çoğaltılmaya çalışıldı (%(rate).5f/s)"
-
-msgid "Beginning replication run"
-msgstr "Çoğaltmanın çalıştırılmasına başlanıyor"
-
-msgid "Broker error trying to rollback locked connection"
-msgstr "Kilitli bağlantı geri alınmaya çalışılırken vekil hatası"
-
 #, python-format
 msgid "Can not access the file %s."
 msgstr "%s dosyasına erişilemiyor."
@@ -63,41 +29,9 @@ msgstr "%s dosyasına erişilemiyor."
 msgid "Can not load profile data from %s."
 msgstr "%s'den profil verisi yüklenemiyor."
 
-msgid "Connection refused"
-msgstr "Bağlantı reddedildi"
-
-msgid "Connection timeout"
-msgstr "Bağlantı zaman aşımına uğradı"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "Veri indirme hatası: %s"
-
-msgid "ERROR Failed to get my own IPs?"
-msgstr "Kendi IP'lerimi alırken HATA?"
-
-#, python-format
-msgid "ERROR Remote drive not mounted %s"
-msgstr "HATA Uzak sürücü bağlı değil %s"
-
-#, python-format
-msgid "ERROR reading HTTP response from %s"
-msgstr "%s'den HTTP yanıtı okumada HATA"
-
-#, python-format
-msgid "ERROR reading db %s"
-msgstr "%s veri tabanı okumada HATA"
-
-#, python-format
-msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "HATA rsync %(code)s ile başarısız oldu: %(args)s"
-
-#, python-format
-msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "%(node)s düğümlü %(file)s eş zamanlamada HATA"
-
-msgid "ERROR trying to replicate"
-msgstr "Çoğaltmaya çalışmada HATA"
 
 msgid "Error listing devices"
 msgstr "Aygıtları listelemede hata"
@@ -124,76 +58,17 @@ msgstr "Recon verisini almada hata"
 msgid "Error: An error occurred"
 msgstr "Hata: Bir hata oluştu"
 
-msgid "Error: missing config path argument"
-msgstr "Hata: yapılandırma yolu değişkeni eksik"
-
-#, python-format
-msgid "Error: unable to locate %s"
-msgstr "Hata: %s bulunamıyor"
-
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s den %(found_domain)s e CNAME zinciri takip ediliyor"
-
-msgid "Found configs:"
-msgstr "Yapılandırmalar bulundu:"
-
-msgid "Host unreachable"
-msgstr "İstemci erişilebilir değil"
-
-#, python-format
-msgid "Invalid X-Container-Sync-To format %r"
-msgstr "Geçersix X-Container-Sync-To biçimi %r"
-
-#, python-format
-msgid "Invalid host %r in X-Container-Sync-To"
-msgstr "X-Container-Sync-To'da geçersiz istemci %r"
-
-#, python-format
-msgid "Invalid pending entry %(file)s: %(entry)s"
-msgstr "Geçersiz bekleyen girdi %(file)s: %(entry)s"
-
-#, python-format
-msgid ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-msgstr ""
-"X-Container-Sync-To'da geçersiz şema %r, \"//\", \"http\", veya \"https\" "
-"olmalı."
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s %(found_domain)s eşleştirildi"
 
 #, python-format
-msgid "No %s running"
-msgstr "Çalışan %s yok"
-
-#, python-format
-msgid "No permission to signal PID %d"
-msgstr "%d PID'ine sinyalleme izni yok"
-
-#, python-format
-msgid "No policy with index %s"
-msgstr "%s indisine sahip ilke yok"
-
-#, python-format
-msgid "No realm key for %r"
-msgstr "%r için realm anahtarı yok"
-
-msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
-msgstr "X-Container-Sync-To'da parametre, sorgular, ve parçalara izin verilmez"
-
-msgid "Path required in X-Container-Sync-To"
-msgstr "X-Container-Sync-To'de yol gerekli"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Profilleme Hatası: %s"
-
-#, python-format
-msgid "Quarantining DB %s"
-msgstr "DB %s karantinaya alınıyor"
 
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
@@ -201,65 +76,11 @@ msgstr ""
 "Oran sınırı uyku kaydı: %(account)s/%(container)s/%(object)s için %(sleep)s"
 
 #, python-format
-msgid "Removed %(remove)d dbs"
-msgstr "%(remove)d db silindi"
-
-#, python-format
-msgid "Removing pid file %s with invalid pid"
-msgstr "Geçersiz pid'e sahip pid dosyası %s siliniyor"
-
-#, python-format
-msgid "Removing stale pid file %s"
-msgstr "Askıdaki pid dosyası siliniyor %s"
-
-msgid "Replication run OVER"
-msgstr "Çoğaltma çalışması BİTTİ"
-
-#, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr "Kara listeleme yüzünden 497 döndürülüyor: %s"
 
-#, python-format
-msgid "Running %s once"
-msgstr "%s bir kere çalıştırılıyor"
-
-#, python-format
-msgid "Skipping %s as it is not mounted"
-msgstr "Bağlı olmadığından %s atlanıyor"
-
-#, python-format
-msgid "Starting %s"
-msgstr "%s başlatılıyor"
-
 msgid "The file type are forbidden to access!"
 msgstr "Dosya türüne erişim yasaklanmış!"
-
-msgid "UNCAUGHT EXCEPTION"
-msgstr "YAKALANMAYAN İSTİSNA"
-
-#, python-format
-msgid "Unable to locate config for %s"
-msgstr "%s için yapılandırma bulunamıyor"
-
-#, python-format
-msgid "Unable to read config from %s"
-msgstr "%s'den yapılandırma okunamıyor"
-
-msgid ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-msgstr ""
-"UYARI: SSL yalnızca test amaçlı etkinleştirilmelidir. Üretim için kurulumda "
-"harici SSL sonlandırma kullanın."
-
-msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-msgstr "UYARI: Dosya göstericisi sınırı değiştirilemiyor.  Root değil misiniz?"
-
-msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
-msgstr "UYARI: Azami süreç limiti değiştirilemiyor.  Root değil misiniz?"
-
-msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
-msgstr "UYARI: Hafıza sınırı değiştirilemiyor.  Root değil misiniz?"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Uyarı: Memcached istemcisi olmadan oran sınırlama yapılamaz"
