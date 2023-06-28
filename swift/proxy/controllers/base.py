@@ -1067,6 +1067,9 @@ class GetterBase(object):
                                                   > end of range + 1
         :raises RangeAlreadyComplete: if begin + num_bytes == end of range + 1
         """
+        self.backend_headers.pop(
+            'X-Backend-Ignore-Range-If-Metadata-Present', None)
+
         try:
             req_range = Range(self.backend_headers.get('Range'))
         except ValueError:

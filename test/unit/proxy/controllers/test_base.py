@@ -1142,6 +1142,16 @@ class TestFuncs(BaseTest):
         self.assertRaises(exceptions.RangeAlreadyComplete,
                           handler.fast_forward, 1)
 
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=23-',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+             'X-Static-Large-Object'})
+        handler.fast_forward(20)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=43-')
+        self.assertNotIn('X-Backend-Ignore-Range-If-Metadata-Present',
+                         handler.backend_headers)
+
     def test_range_fast_forward_after_data_timeout(self):
         req = Request.blank('/')
 
