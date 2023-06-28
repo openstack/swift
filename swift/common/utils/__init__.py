@@ -1666,13 +1666,13 @@ class LogAdapter(logging.LoggerAdapter, object):
 
         :param statsd_func_name: the name of a method on StatsdClient.
         """
-
         func = getattr(StatsdClient, statsd_func_name)
 
         @functools.wraps(func)
         def wrapped(self, *a, **kw):
             if getattr(self.logger, 'statsd_client'):
-                return func(self.logger.statsd_client, *a, **kw)
+                func = getattr(self.logger.statsd_client, statsd_func_name)
+                return func(*a, **kw)
         return wrapped
 
     update_stats = statsd_delegate('update_stats')
