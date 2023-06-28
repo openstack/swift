@@ -2252,7 +2252,9 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertFalse(self.logger.get_lines_for_level('debug'))
 
     def test_rsync_success_logging(self):
-        with mock.patch('swift.obj.replicator.subprocess.Popen') as mock_popen:
+        with mock.patch(
+                'swift.obj.replicator.subprocess.Popen') as mock_popen, \
+                mock.patch('time.time', side_effect=[123.4, 123.5]):
             mock_popen.return_value.stdout = io.BytesIO(b'\n'.join([
                 b'',
                 b'cd+++++++++ suf',
@@ -2288,10 +2290,12 @@ class TestObjectReplicator(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(info_lines, [
             'Successful rsync of /srv/node/d1/objects/part/... to '
-            '192.168.50.30::object/d8/objects/241 (0.000)'])
+            '192.168.50.30::object/d8/objects/241 (0.100)'])
 
     def test_rsync_success_logging_no_transfer(self):
-        with mock.patch('swift.obj.replicator.subprocess.Popen') as mock_popen:
+        with mock.patch(
+                'swift.obj.replicator.subprocess.Popen') as mock_popen, \
+                mock.patch('time.time', side_effect=[123.4, 123.5]):
             mock_popen.return_value.stdout = io.BytesIO(b'\n'.join([
                 b'',
                 b'cd+++++++++ sf1',
@@ -2323,7 +2327,7 @@ class TestObjectReplicator(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(info_lines, [
             'Successful rsync of /srv/node/d1/objects/part/... to '
-            '192.168.50.30::object/d8/objects/241 (0.000)'])
+            '192.168.50.30::object/d8/objects/241 (0.100)'])
 
     def test_do_listdir(self):
         # Test if do_listdir is enabled for every 10th partition to rehash
