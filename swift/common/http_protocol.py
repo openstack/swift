@@ -16,11 +16,16 @@
 from eventlet import wsgi, websocket
 import six
 
+from swift.common.utils import generate_trans_id
+from swift.common.http import HTTP_NO_CONTENT, HTTP_RESET_CONTENT, \
+    HTTP_NOT_MODIFIED
 
 if six.PY2:
     from eventlet.green import httplib as http_client
+    from cgi import escape
 else:
     from eventlet.green.http import client as http_client
+    from html import escape
 
 
 class SwiftHttpProtocol(wsgi.HttpProtocol):
@@ -52,7 +57,7 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
             self.server.log.info('ERROR WSGI: ' + f, *a)
 
     class MessageClass(wsgi.HttpProtocol.MessageClass):
-        '''Subclass to see when the client didn't provide a Content-Type'''
+        """Subclass to see when the client didn't provide a Content-Type"""
         # for py2:
         def parsetype(self):
             if self.typeheader is None:
@@ -61,7 +66,7 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
 
         # for py3:
         def get_default_type(self):
-            '''If the client didn't provide a content type, leave it blank.'''
+            """If the client didn't provide a content type, leave it blank."""
             return ''
 
     def parse_request(self):
@@ -241,6 +246,74 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                 self.conn_state[2] = wsgi.STATE_IDLE
         return got
 
+    def send_error(self, code, message=None, explain=None):
+        """Send and log an error reply, we are overriding the cpython parent
+        class method, so we can have logger generate txn_id's for error
+        response from wsgi since we are at the edge of the proxy server.
+        This sends an error response (so it must be called before any output
+        has been generated), logs the error, and finally sends a piece of HTML
+        explaining the error to the user.
+
+        :param code:    an HTTP error code
+                   3 digits
+        :param message: a simple optional 1 line reason phrase.
+                   *( HTAB / SP / VCHAR / %x80-FF )
+                   defaults to short entry matching the response code
+        :param explain: a detailed message defaults to the long entry
+                   matching the response code.
+        """
+
+        try:
+            shortmsg, longmsg = self.responses[code]
+        except KeyError:
+            shortmsg, longmsg = '???', '???'
+        if message is None:
+            message = shortmsg
+        if explain is None:
+            explain = longmsg
+
+        try:
+            # assume we have a LogAdapter
+            txn_id = self.server.app.logger.txn_id  # just in case it was set
+        except AttributeError:
+            # turns out we don't have a LogAdapter, so go direct
+            txn_id = generate_trans_id('')
+            self.log_error("code %d, message %s, (txn: %s)", code,
+                           message, txn_id)
+        else:
+            # we do have a LogAdapter, but likely not yet a txn_id
+            txn_id = txn_id or generate_trans_id('')
+            self.server.app.logger.txn_id = txn_id
+            self.log_error("code %d, message %s", code, message)
+        self.send_response(code, message)
+        self.send_header('Connection', 'close')
+
+        # Message body is omitted for cases described in:
+        #  - RFC7230: 3.3. 1xx, 204(No Content), 304(Not Modified)
+        #  - RFC7231: 6.3.6. 205(Reset Content)
+        body = None
+        exclude_status = (HTTP_NO_CONTENT,
+                          HTTP_RESET_CONTENT,
+                          HTTP_NOT_MODIFIED)
+        if (code >= 200 and
+                code not in exclude_status):
+            # HTML encode to prevent Cross Site Scripting attacks
+            # (see bug https://bugs.python.org/issue1100201)
+            content = (self.error_message_format % {
+                'code': code,
+                'message': escape(message, quote=False),
+                'explain': escape(explain, quote=False)
+            })
+            body = content.encode('UTF-8', 'replace')
+            self.send_header("Content-Type", self.error_content_type)
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('X-Trans-Id', txn_id)
+            self.send_header('X-Openstack-Request-Id', txn_id)
+        self.end_headers()
+
+        if self.command != 'HEAD' and body:
+            self.wfile.write(body)
+
 
 class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
     """
@@ -271,7 +344,6 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
         # ourselves and our gateway proxy before processing the client
         # protocol request.  Hopefully the operator will know what to do!
         msg = 'Invalid PROXY line %r' % connection_line
-        self.log_message(msg)
         # Even assuming HTTP we don't even known what version of HTTP the
         # client is sending?  This entire endeavor seems questionable.
         self.request_version = self.default_request_version
