@@ -942,7 +942,7 @@ class SloGetContext(WSGIContext):
         try:
             segments = json.loads(resp_body)
         except ValueError:
-            segments = []
+            raise HTTPServerError('Unable to load SLO manifest')
 
         return segments
 

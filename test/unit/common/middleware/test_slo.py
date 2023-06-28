@@ -3303,10 +3303,14 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         headers = HeaderKeyDict(headers)
 
-        self.assertEqual(status, '200 OK')
-        self.assertEqual(headers['Content-Length'], '0')
-        self.assertEqual(headers['X-Object-Meta-Fish'], 'Bass')
-        self.assertEqual(body, b'')
+        # This often (usually?) happens because of an incomplete read -- the
+        # proxy app started getting a large manifest and sending it back to
+        # SLO, then there was a timeout or something, couldn't resume in time,
+        # and we've got just part of a JSON document. Having the client retry
+        # seems reasonable
+        self.assertEqual(status, '500 Internal Error')
+        self.assertEqual(body, b'Unable to load SLO manifest')
+        self.assertNotIn('X-Object-Meta-Fish', headers)
 
     def _do_test_generator_closure(self, leaks):
         # Test that the SLO WSGI iterable closes its internal .app_iter when
