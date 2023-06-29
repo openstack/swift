@@ -4,13 +4,12 @@
 #
 # Translators:
 # Andi Chandler <andi@gowling.com>, 2018. #zanata
-# Andi Chandler <andi@gowling.com>, 2019. #zanata
 # Andi Chandler <andi@gowling.com>, 2022. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2023-05-17 23:35+0000\n"
+"POT-Creation-Date: 2023-06-27 13:31+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -22,67 +21,9 @@ msgstr ""
 "X-Generator: Zanata 4.3.3\n"
 "Language-Team: English (United Kingdom)\n"
 
-msgid ""
-"\n"
-"user quit"
-msgstr ""
-"\n"
-"user quit"
-
-#, python-format
-msgid "%(server)s #%(number)d not running (%(conf)s)"
-msgstr "%(server)s #%(number)d not running (%(conf)s)"
-
-#, python-format
-msgid "%(server)s (%(pid)s) appears to have stopped"
-msgstr "%(server)s (%(pid)s) appears to have stopped"
-
-#, python-format
-msgid "%(server)s running (%(pid)s - %(conf)s)"
-msgstr "%(server)s running (%(pid)s - %(conf)s)"
-
-#, python-format
-msgid "%(server)s running (%(pid)s - %(pid_file)s)"
-msgstr "%(server)s running (%(pid)s - %(pid_file)s)"
-
-#, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "%(success)s successes, %(failure)s failures"
-
-#, python-format
-msgid "%(type)s: %(value)s"
-msgstr "%(type)s: %(value)s"
-
-#, python-format
-msgid "%s already started..."
-msgstr "%s already started..."
-
-#, python-format
-msgid "%s does not exist"
-msgstr "%s does not exist"
-
-#, python-format
-msgid "%s: Connection reset by peer"
-msgstr "%s: Connection reset by peer"
-
-#, python-format
-msgid ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-msgstr ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-
 #, python-format
 msgid "Bad key for %(name)r: %(err)s"
 msgstr "Bad key for %(name)r: %(err)s"
-
-msgid "Beginning replication run"
-msgstr "Beginning replication run"
-
-msgid "Broken pipe"
-msgstr "Broken pipe"
-
-msgid "Broker error trying to rollback locked connection"
-msgstr "Broker error trying to rollback locked connection"
 
 #, python-format
 msgid "Can not access the file %s."
@@ -92,25 +33,6 @@ msgstr "Can not access the file %s."
 msgid "Can not load profile data from %s."
 msgstr "Can not load profile data from %s."
 
-msgid "Connection refused"
-msgstr "Connection refused"
-
-msgid "Connection reset"
-msgstr "Connection reset"
-
-msgid "Connection timeout"
-msgstr "Connection timeout"
-
-#, python-format
-msgid ""
-"Could not bind to %(addr)s:%(port)s after trying for %(timeout)s seconds"
-msgstr ""
-"Could not bind to %(addr)s:%(port)s after trying for %(timeout)s seconds"
-
-#, python-format
-msgid "Could not load %(conf)r: %(error)s"
-msgstr "Could not load %(conf)r: %(error)s"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "Data download error: %s"
@@ -118,42 +40,8 @@ msgstr "Data download error: %s"
 msgid "Did not get a keys dict"
 msgstr "Did not get a keys dict"
 
-msgid "ERROR Failed to get my own IPs?"
-msgstr "ERROR Failed to get my own IPs?"
-
-#, python-format
-msgid "ERROR Remote drive not mounted %s"
-msgstr "ERROR Remote drive not mounted %s"
-
-#, python-format
-msgid ""
-"ERROR There are not enough handoff nodes to reach replica count for "
-"partition %s"
-msgstr ""
-"ERROR There are not enough hand-off nodes to reach replica count for "
-"partition %s"
-
 msgid "ERROR get_keys() missing callback"
 msgstr "ERROR get_keys() missing callback"
-
-#, python-format
-msgid "ERROR reading HTTP response from %s"
-msgstr "ERROR reading HTTP response from %s"
-
-#, python-format
-msgid "ERROR reading db %s"
-msgstr "ERROR reading db %s"
-
-#, python-format
-msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "ERROR rsync failed with %(code)s: %(args)s"
-
-#, python-format
-msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "ERROR syncing %(file)s with node %(node)s"
-
-msgid "ERROR trying to replicate"
-msgstr "ERROR trying to replicate"
 
 #, python-format
 msgid "Error decrypting %(resp_type)s: %(reason)s"
@@ -170,10 +58,6 @@ msgstr "Error decrypting header %(header)s: %(error)s"
 #, python-format
 msgid "Error decrypting object: %s"
 msgstr "Error decrypting object: %s"
-
-#, python-format
-msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
-msgstr "Error in %(conf)r with mtime_check_interval: %(error)s"
 
 msgid "Error listing devices"
 msgstr "Error listing devices"
@@ -197,52 +81,12 @@ msgstr "Error reading swift.conf"
 msgid "Error retrieving recon data"
 msgstr "Error retrieving recon data"
 
-#, python-format
-msgid "Error sending UDP message to %(target)r: %(err)s"
-msgstr "Error sending UDP message to %(target)r: %(err)s"
-
 msgid "Error: An error occurred"
 msgstr "Error: An error occurred"
-
-msgid "Error: missing config path argument"
-msgstr "Error: missing config path argument"
-
-#, python-format
-msgid "Error: unable to locate %s"
-msgstr "Error: unable to locate %s"
 
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
-
-msgid "Found configs:"
-msgstr "Found configs:"
-
-msgid "Host unreachable"
-msgstr "Host unreachable"
-
-#, python-format
-msgid "Invalid X-Container-Sync-To format %r"
-msgstr "Invalid X-Container-Sync-To format %r"
-
-#, python-format
-msgid "Invalid host %r in X-Container-Sync-To"
-msgstr "Invalid host %r in X-Container-Sync-To"
-
-#, python-format
-msgid "Invalid pending entry %(file)s: %(entry)s"
-msgstr "Invalid pending entry %(file)s: %(entry)s"
-
-#, python-format
-msgid ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-msgstr ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-
-msgid "Invalid swift_bytes"
-msgstr "Invalid swift_bytes"
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
@@ -252,73 +96,14 @@ msgstr "Mapped %(given_domain)s to %(found_domain)s"
 msgid "Missing key for %r"
 msgstr "Missing key for %r"
 
-msgid "More than one part in a single-part response?"
-msgstr "More than one part in a single-part response?"
-
-msgid "Network unreachable"
-msgstr "Network unreachable"
-
-#, python-format
-msgid "No %s running"
-msgstr "No %s running"
-
-#, python-format
-msgid "No cluster endpoint for %(realm)r %(cluster)r"
-msgstr "No cluster endpoint for %(realm)r %(cluster)r"
-
-#, python-format
-msgid "No permission to signal PID %d"
-msgstr "No permission to signal PID %d"
-
-#, python-format
-msgid "No policy with index %s"
-msgstr "No policy with index %s"
-
-#, python-format
-msgid "No realm key for %r"
-msgstr "No realm key for %r"
-
-msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
-msgstr "Params, queries, and fragments not allowed in X-Container-Sync-To"
-
-msgid "Path required in X-Container-Sync-To"
-msgstr "Path required in X-Container-Sync-To"
-
 #, python-format
 msgid "Profiling Error: %s"
 msgstr "Profiling Error: %s"
 
 #, python-format
-msgid "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
-msgstr "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
-
-#, python-format
-msgid "Quarantining DB %s"
-msgstr "Quarantining DB %s"
-
-#, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
 msgstr ""
 "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
-
-#, python-format
-msgid "Removed %(remove)d dbs"
-msgstr "Removed %(remove)d dbs"
-
-#, python-format
-msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
-msgstr "Removing pid file %(pid_file)s with wrong pid %(pid)d"
-
-#, python-format
-msgid "Removing pid file %s with invalid pid"
-msgstr "Removing pid file %s with invalid pid"
-
-#, python-format
-msgid "Removing stale pid file %s"
-msgstr "Removing stale pid file %s"
-
-msgid "Replication run OVER"
-msgstr "Replication run OVER"
 
 #, python-format
 msgid "Returning 497 because of blacklisting: %s"
@@ -328,82 +113,8 @@ msgstr "Returning 497 because of blacklisting: %s"
 msgid "Returning 498 for %(meth)s to %(path)s. Ratelimit (Max Sleep) %(e)s"
 msgstr "Returning 498 for %(meth)s to %(path)s. Ratelimit (Max Sleep) %(e)s"
 
-#, python-format
-msgid "Running %s once"
-msgstr "Running %s once"
-
-#, python-format
-msgid "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
-msgstr "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
-
-#, python-format
-msgid "Skipping %(datadir)s because %(err)s"
-msgstr "Skipping %(datadir)s because %(err)s"
-
-#, python-format
-msgid "Skipping %s as it is not mounted"
-msgstr "Skipping %s as it is not mounted"
-
-#, python-format
-msgid "Starting %s"
-msgstr "Starting %s"
-
 msgid "The file type are forbidden to access!"
 msgstr "The file type are forbidden to access!"
-
-msgid "UNCAUGHT EXCEPTION"
-msgstr "UNCAUGHT EXCEPTION"
-
-#, python-format
-msgid "Unable to find %(section)s config section in %(conf)s"
-msgstr "Unable to find %(section)s config section in %(conf)s"
-
-#, python-format
-msgid "Unable to locate config for %s"
-msgstr "Unable to locate config for %s"
-
-#, python-format
-msgid "Unable to locate config number %(number)s for %(server)s"
-msgstr "Unable to locate config number %(number)s for %(server)s"
-
-#, python-format
-msgid "Unable to perform fsync() on directory %(dir)s: %(err)s"
-msgstr "Unable to perform fsync() on directory %(dir)s: %(err)s"
-
-#, python-format
-msgid "Unable to read config from %s"
-msgstr "Unable to read config from %s"
-
-msgid ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-msgstr ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-
-msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-msgstr "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-
-msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
-msgstr "WARNING: Unable to modify max process limit.  Running as non-root?"
-
-msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
-msgstr "WARNING: Unable to modify memory limit.  Running as non-root?"
-
-msgid ""
-"WARNING: object-expirer.conf is deprecated. Move object-expirers' "
-"configuration into object-server.conf."
-msgstr ""
-"WARNING: object-expirer.conf is deprecated. Move object-expirers' "
-"configuration into object-server.conf."
-
-#, python-format
-msgid "Waited %(kill_wait)s seconds for %(server)s to die; giving up"
-msgstr "Waited %(kill_wait)s seconds for %(server)s to die; giving up"
-
-#, python-format
-msgid "Waited %(kill_wait)s seconds for %(server)s to die; killing"
-msgstr "Waited %(kill_wait)s seconds for %(server)s to die; killing"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Warning: Cannot ratelimit without a memcached client"

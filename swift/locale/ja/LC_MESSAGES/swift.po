@@ -10,11 +10,11 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2023-05-17 23:35+0000\n"
+"POT-Creation-Date: 2023-06-27 13:31+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2018-02-09 05:39+0000\n"
+"PO-Revision-Date: 2018-02-09 01:00+0000\n"
 "Last-Translator: Shu Muto <shu.mutow@gmail.com>\n"
 "Language: ja\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
@@ -22,63 +22,9 @@ msgstr ""
 "X-Generator: Zanata 4.3.3\n"
 "Language-Team: Japanese\n"
 
-msgid ""
-"\n"
-"user quit"
-msgstr ""
-"\n"
-"ユーザー終了"
-
-#, python-format
-msgid "%(server)s #%(number)d not running (%(conf)s)"
-msgstr "%(server)s #%(number)d は稼働していません (%(conf)s)"
-
-#, python-format
-msgid "%(server)s (%(pid)s) appears to have stopped"
-msgstr "%(server)s (%(pid)s) が停止された可能性があります"
-
-#, python-format
-msgid "%(server)s running (%(pid)s - %(conf)s)"
-msgstr "%(server)s 稼働中 (%(pid)s - %(conf)s)"
-
-#, python-format
-msgid "%(server)s running (%(pid)s - %(pid_file)s)"
-msgstr "%(server)s 稼働中 (%(pid)s - %(pid_file)s)"
-
-#, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "成功 %(success)s、失敗 %(failure)s"
-
-#, python-format
-msgid "%(type)s: %(value)s"
-msgstr "%(type)s: %(value)s"
-
-#, python-format
-msgid "%s already started..."
-msgstr "%s は既に開始されています..."
-
-#, python-format
-msgid "%s does not exist"
-msgstr "%s が存在しません"
-
-#, python-format
-msgid "%s: Connection reset by peer"
-msgstr "%s: 接続がピアによってリセットされました"
-
-#, python-format
-msgid ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-msgstr "%(time).5f 秒で %(count)d 個の DB の複製を試行しました (%(rate).5f/s)"
-
 #, python-format
 msgid "Bad key for %(name)r: %(err)s"
 msgstr "%(name)r のキーが不正です: %(err)s"
-
-msgid "Beginning replication run"
-msgstr "複製の実行を開始中"
-
-msgid "Broker error trying to rollback locked connection"
-msgstr "ロック済み接続のロールバックを試行中のブローカーエラー"
 
 #, python-format
 msgid "Can not access the file %s."
@@ -88,16 +34,6 @@ msgstr "ファイル %s にアクセスできません。"
 msgid "Can not load profile data from %s."
 msgstr "プロファイルデータを %s からロードできません。"
 
-msgid "Connection refused"
-msgstr "接続が拒否されました"
-
-msgid "Connection timeout"
-msgstr "接続がタイムアウトになりました"
-
-#, python-format
-msgid "Could not load %(conf)r: %(error)s"
-msgstr "%(conf)r をロードできませんでした: %(error)s"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "データダウンロードエラー: %s"
@@ -105,46 +41,8 @@ msgstr "データダウンロードエラー: %s"
 msgid "Did not get a keys dict"
 msgstr "キーの辞書を取得できませんでした。"
 
-msgid "ERROR Failed to get my own IPs?"
-msgstr "エラー: 自分の IP の取得に失敗?"
-
-#, python-format
-msgid "ERROR Remote drive not mounted %s"
-msgstr "エラー: リモートドライブに %s がマウントされていません"
-
-#, python-format
-msgid ""
-"ERROR There are not enough handoff nodes to reach replica count for "
-"partition %s"
-msgstr ""
-"エラー パーティション %s のレプリカ数に達するための handoff ノードが不足して"
-"います。"
-
 msgid "ERROR get_keys() missing callback"
 msgstr "エラー get_keys() コールバックがありません"
-
-#, python-format
-msgid "ERROR reading HTTP response from %s"
-msgstr "%s からの HTTP 応答の読み取りエラー"
-
-#, python-format
-msgid "ERROR reading db %s"
-msgstr "DB %s の読み取りエラー"
-
-#, python-format
-msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "エラー: %(code)s との再同期に失敗しました: %(args)s"
-
-#, python-format
-msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "ノード %(node)s との %(file)s の同期エラー"
-
-msgid "ERROR trying to replicate"
-msgstr "複製の試行エラー"
-
-#, python-format
-msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
-msgstr "mtime_check_interval で %(conf)r にエラーがあります: %(error)s"
 
 msgid "Error listing devices"
 msgstr "デバイスのリストエラー"
@@ -168,52 +66,12 @@ msgstr "swift.conf の読み取りエラー"
 msgid "Error retrieving recon data"
 msgstr "再構成データの取得エラー"
 
-#, python-format
-msgid "Error sending UDP message to %(target)r: %(err)s"
-msgstr "%(target)r への UDP メッセージ送信エラー: %(err)s"
-
 msgid "Error: An error occurred"
 msgstr "エラー: エラーが発生しました"
-
-msgid "Error: missing config path argument"
-msgstr "エラー: 構成パス引数がありません"
-
-#, python-format
-msgid "Error: unable to locate %s"
-msgstr "エラー: %s が見つかりません"
 
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s から %(found_domain)s へ CNAME チェーンをフォロー中"
-
-msgid "Found configs:"
-msgstr "構成が見つかりました:"
-
-msgid "Host unreachable"
-msgstr "ホストが到達不能です"
-
-#, python-format
-msgid "Invalid X-Container-Sync-To format %r"
-msgstr "X-Container-Sync-To 形式 %r が無効です"
-
-#, python-format
-msgid "Invalid host %r in X-Container-Sync-To"
-msgstr "無効なホスト %r が X-Container-Sync-To にあります"
-
-#, python-format
-msgid "Invalid pending entry %(file)s: %(entry)s"
-msgstr "無効な保留中項目 %(file)s: %(entry)s"
-
-#, python-format
-msgid ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-msgstr ""
-"無効なスキーム %r が X-Container-Sync-To にあります。「//」、「http」、"
-"「https」のいずれかでなければなりません。"
-
-msgid "Invalid swift_bytes"
-msgstr "無効な swift_bytes"
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
@@ -224,40 +82,8 @@ msgid "Missing key for %r"
 msgstr "%r にキーがありません。"
 
 #, python-format
-msgid "No %s running"
-msgstr "%s が実行されていません"
-
-#, python-format
-msgid "No cluster endpoint for %(realm)r %(cluster)r"
-msgstr "%(realm)r %(cluster)r のエンドポイントクラスターがありません"
-
-#, python-format
-msgid "No permission to signal PID %d"
-msgstr "PID %d にシグナル通知する許可がありません"
-
-#, python-format
-msgid "No policy with index %s"
-msgstr "インデックス %s のポリシーはありません"
-
-#, python-format
-msgid "No realm key for %r"
-msgstr "%r のレルムキーがありません"
-
-msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
-msgstr ""
-"パラメーター、照会、およびフラグメントは X-Container-Sync-To で許可されていま"
-"せん"
-
-msgid "Path required in X-Container-Sync-To"
-msgstr "X-Container-Sync-To にパスが必要です"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "プロファイル作成エラー: %s"
-
-#, python-format
-msgid "Quarantining DB %s"
-msgstr "DB %s の検疫中"
 
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
@@ -265,97 +91,11 @@ msgstr ""
 "Ratelimit スリープログ: %(account)s/%(container)s/%(object)s の %(sleep)s"
 
 #, python-format
-msgid "Removed %(remove)d dbs"
-msgstr "%(remove)d 個の DB が削除されました"
-
-#, python-format
-msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
-msgstr "正しくない pid %(pid)d の pid ファイル %(pid_file)s を削除中"
-
-#, python-format
-msgid "Removing pid file %s with invalid pid"
-msgstr "無効な pid の pid ファイル %s を削除中"
-
-#, python-format
-msgid "Removing stale pid file %s"
-msgstr "失効した pid ファイル %s を削除中"
-
-msgid "Replication run OVER"
-msgstr "複製の実行が終了しました"
-
-#, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr "ブラックリスティングのため 497 を返しています: %s"
 
-#, python-format
-msgid "Running %s once"
-msgstr "%s を 1 回実行中"
-
-#, python-format
-msgid "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
-msgstr "%(server)s pid: %(pid)s へのシグナル: %(signal)s"
-
-#, python-format
-msgid "Skipping %(datadir)s because %(err)s"
-msgstr "%(err)s のため %(datadir)s をスキップします"
-
-#, python-format
-msgid "Skipping %s as it is not mounted"
-msgstr "マウントされていないため、 %s をスキップします"
-
-#, python-format
-msgid "Starting %s"
-msgstr "%s を開始しています"
-
 msgid "The file type are forbidden to access!"
 msgstr "このファイルタイプにはアクセスが禁止されています"
-
-msgid "UNCAUGHT EXCEPTION"
-msgstr "キャッチされていない例外"
-
-#, python-format
-msgid "Unable to find %(section)s config section in %(conf)s"
-msgstr "%(section)s 構成セクションが %(conf)s に見つかりません"
-
-#, python-format
-msgid "Unable to locate config for %s"
-msgstr "%s の設定が見つかりません"
-
-#, python-format
-msgid "Unable to locate config number %(number)s for %(server)s"
-msgstr "%(server)s の設定番号 %(number)s が見つかりません"
-
-#, python-format
-msgid "Unable to perform fsync() on directory %(dir)s: %(err)s"
-msgstr "ディレクトリー %(dir)s で fsync() を実行できません: %(err)s"
-
-#, python-format
-msgid "Unable to read config from %s"
-msgstr "構成を %s から読み取ることができません"
-
-msgid ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-msgstr ""
-"警告: SSL を有効にするのはテスト目的のみでなければなりません。製品のデプロイ"
-"には外部 SSL 終端を使用してください。"
-
-msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-msgstr "警告: ファイル記述子制限を変更できません。非ルートとして実行しますか?"
-
-msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
-msgstr "警告: 最大処理限界を変更できません。非ルートとして実行しますか?"
-
-msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
-msgstr "警告: メモリー制限を変更できません。非ルートとして実行しますか?"
-
-#, python-format
-msgid "Waited %(kill_wait)s seconds for %(server)s to die; giving up"
-msgstr "%(kill_wait)s 秒間、%(server)s の停止を待機しました。中止します"
-
-#, python-format
-msgid "Waited %(kill_wait)s seconds for %(server)s to die; killing"
-msgstr "%(kill_wait)s 秒間、%(server)s の停止を待機しました。強制終了します"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告: memcached クライアントなしで ratelimit を行うことはできません"

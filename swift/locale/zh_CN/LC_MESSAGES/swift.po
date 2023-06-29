@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2023-05-17 23:35+0000\n"
+"POT-Creation-Date: 2023-06-27 13:31+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -21,40 +21,6 @@ msgstr ""
 "X-Generator: Zanata 4.3.3\n"
 "Language-Team: Chinese (China)\n"
 
-msgid ""
-"\n"
-"user quit"
-msgstr ""
-"\n"
-"用户退出"
-
-#, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "%(success)s成功，%(failure)s失败"
-
-#, python-format
-msgid "%s already started..."
-msgstr "%s已启动..."
-
-#, python-format
-msgid "%s does not exist"
-msgstr "%s不存在"
-
-#, python-format
-msgid "%s: Connection reset by peer"
-msgstr "%s：已由同级重置连接"
-
-#, python-format
-msgid ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-msgstr "%(time).5f seconds (%(rate).5f/s)尝试复制%(count)d dbs"
-
-msgid "Beginning replication run"
-msgstr "开始运行复制"
-
-msgid "Broker error trying to rollback locked connection"
-msgstr "服务器错误并尝试去回滚已经锁住的链接"
-
 #, python-format
 msgid "Can not access the file %s."
 msgstr "无法访问文件%s"
@@ -63,41 +29,9 @@ msgstr "无法访问文件%s"
 msgid "Can not load profile data from %s."
 msgstr "无法从%s下载分析数据"
 
-msgid "Connection refused"
-msgstr "连接被拒绝"
-
-msgid "Connection timeout"
-msgstr "连接超时"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "数据下载错误：%s"
-
-msgid "ERROR Failed to get my own IPs?"
-msgstr "错误 无法获得我方IPs?"
-
-#, python-format
-msgid "ERROR Remote drive not mounted %s"
-msgstr "错误 远程驱动器无法挂载 %s"
-
-#, python-format
-msgid "ERROR reading HTTP response from %s"
-msgstr "读取HTTP错误 响应来源%s"
-
-#, python-format
-msgid "ERROR reading db %s"
-msgstr "错误 读取db %s"
-
-#, python-format
-msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "错误 rsync失败 %(code)s: %(args)s"
-
-#, python-format
-msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "错误 同步 %(file)s 和 节点%(node)s"
-
-msgid "ERROR trying to replicate"
-msgstr "尝试复制时发生错误"
 
 msgid "Error listing devices"
 msgstr "设备列表时出现错误"
@@ -124,142 +58,28 @@ msgstr "检索recon data时出现错误"
 msgid "Error: An error occurred"
 msgstr "错误：一个错误发生了"
 
-msgid "Error: missing config path argument"
-msgstr "错误：设置路径信息丢失"
-
-#, python-format
-msgid "Error: unable to locate %s"
-msgstr "错误：无法查询到 %s"
-
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "跟随CNAME链从%(given_domain)s到%(found_domain)s"
-
-msgid "Found configs:"
-msgstr "找到配置"
-
-msgid "Host unreachable"
-msgstr "无法连接到主机"
-
-#, python-format
-msgid "Invalid X-Container-Sync-To format %r"
-msgstr "无效的X-Container-Sync-To格式%r"
-
-#, python-format
-msgid "Invalid host %r in X-Container-Sync-To"
-msgstr "X-Container-Sync-To中无效主机%r"
-
-#, python-format
-msgid "Invalid pending entry %(file)s: %(entry)s"
-msgstr "不可用的等待输入%(file)s: %(entry)s"
-
-#, python-format
-msgid ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-msgstr ""
-"在X-Container-Sync-To中%r是无效的方案，须为\"//\", \"http\", or \"https\"。"
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "集合%(given_domain)s到%(found_domain)s"
 
 #, python-format
-msgid "No %s running"
-msgstr "无%s账号运行"
-
-#, python-format
-msgid "No permission to signal PID %d"
-msgstr "无权限发送信号PID%d"
-
-#, python-format
-msgid "No policy with index %s"
-msgstr "没有具备索引 %s 的策略"
-
-#, python-format
-msgid "No realm key for %r"
-msgstr "%r权限key不存在"
-
-msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
-msgstr "在X-Container-Sync-To中，变量，查询和碎片不被允许"
-
-msgid "Path required in X-Container-Sync-To"
-msgstr "在X-Container-Sync-To中路径是必须的"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "分析代码时出现错误：%s"
-
-#, python-format
-msgid "Quarantining DB %s"
-msgstr "隔离DB%s"
 
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
 msgstr "流量控制休眠日志：%(sleep)s for %(account)s/%(container)s/%(object)s"
 
 #, python-format
-msgid "Removed %(remove)d dbs"
-msgstr "删除%(remove)d dbs"
-
-#, python-format
-msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
-msgstr "移除 pid 文件 %(pid_file)s 失败，pid %(pid)d 不正确"
-
-#, python-format
-msgid "Removing pid file %s with invalid pid"
-msgstr "正在移除带有无效 pid 的 pid 文件 %s"
-
-#, python-format
-msgid "Removing stale pid file %s"
-msgstr "移除原有pid文件%s"
-
-msgid "Replication run OVER"
-msgstr "复制运行结束"
-
-#, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr "返回497因为黑名单：%s"
 
-#, python-format
-msgid "Running %s once"
-msgstr "运行%s一次"
-
-#, python-format
-msgid "Skipping %s as it is not mounted"
-msgstr "挂载失败 跳过%s"
-
-#, python-format
-msgid "Starting %s"
-msgstr "启动%s"
-
 msgid "The file type are forbidden to access!"
 msgstr "该文件类型被禁止访问！"
-
-msgid "UNCAUGHT EXCEPTION"
-msgstr "未捕获的异常"
-
-#, python-format
-msgid "Unable to locate config for %s"
-msgstr "找不到 %s 的配置"
-
-#, python-format
-msgid "Unable to read config from %s"
-msgstr "无法从%s读取设置"
-
-msgid ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-msgstr "警告：SSL仅可以做测试使用。产品部署时请使用外连SSL终端"
-
-msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-msgstr "警告：无法修改文件描述限制。是否按非root运行？"
-
-msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
-msgstr "警告：无法修改最大运行极限，是否按非root运行？"
-
-msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
-msgstr "警告：无法修改内存极限，是否按非root运行？"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告：缺失缓存客户端 无法控制流量 "

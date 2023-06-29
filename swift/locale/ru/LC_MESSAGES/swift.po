@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2023-05-17 23:35+0000\n"
+"POT-Creation-Date: 2023-06-27 13:31+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -22,41 +22,6 @@ msgstr ""
 "X-Generator: Zanata 4.3.3\n"
 "Language-Team: Russian\n"
 
-msgid ""
-"\n"
-"user quit"
-msgstr ""
-"\n"
-"Завершение работы пользователя"
-
-#, python-format
-msgid "%(success)s successes, %(failure)s failures"
-msgstr "%(success)s успешно, %(failure)s с ошибками"
-
-#, python-format
-msgid "%s already started..."
-msgstr "%s уже запущен..."
-
-#, python-format
-msgid "%s does not exist"
-msgstr "%s не существует"
-
-#, python-format
-msgid "%s: Connection reset by peer"
-msgstr "%s: соединение сброшено на другой стороне"
-
-#, python-format
-msgid ""
-"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
-msgstr ""
-"Попытка репликации %(count)d баз данных за %(time).5f секунд (%(rate).5f/s)"
-
-msgid "Beginning replication run"
-msgstr "Запуск репликации"
-
-msgid "Broker error trying to rollback locked connection"
-msgstr "Ошибка посредника при попытке отката заблокированного соединения"
-
 #, python-format
 msgid "Can not access the file %s."
 msgstr "Отсутствует доступ к файлу %s."
@@ -65,41 +30,9 @@ msgstr "Отсутствует доступ к файлу %s."
 msgid "Can not load profile data from %s."
 msgstr "Не удается загрузить данные профайла из %s."
 
-msgid "Connection refused"
-msgstr "Соединение отклонено"
-
-msgid "Connection timeout"
-msgstr "Тайм-аут соединения"
-
 #, python-format
 msgid "Data download error: %s"
 msgstr "Ошибка загрузки данных: %s"
-
-msgid "ERROR Failed to get my own IPs?"
-msgstr "Ошибка: не удалось получить собственные IP-адреса?"
-
-#, python-format
-msgid "ERROR Remote drive not mounted %s"
-msgstr "Ошибка: удаленный накопитель не смонтирован %s"
-
-#, python-format
-msgid "ERROR reading HTTP response from %s"
-msgstr "Ошибка чтения ответа HTTP из %s"
-
-#, python-format
-msgid "ERROR reading db %s"
-msgstr "Ошибка чтения базы данных %s"
-
-#, python-format
-msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "Ошибка: команда rsync не выполнена с кодом %(code)s: %(args)s"
-
-#, python-format
-msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "Ошибка синхронизации %(file)s с узлом %(node)s"
-
-msgid "ERROR trying to replicate"
-msgstr "Ошибка при попытке репликации"
 
 msgid "Error listing devices"
 msgstr "Ошибка при выводе списка устройств"
@@ -126,76 +59,17 @@ msgstr "Ошибка при получении данных recon"
 msgid "Error: An error occurred"
 msgstr "Ошибка: произошла ошибка"
 
-msgid "Error: missing config path argument"
-msgstr "Ошибка: отсутствует аргумент пути конфигурации"
-
-#, python-format
-msgid "Error: unable to locate %s"
-msgstr "Ошибка: не удалось найти %s"
-
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "Следующая цепочка CNAME для %(given_domain)s в %(found_domain)s"
-
-msgid "Found configs:"
-msgstr "Обнаружены конфигурации:"
-
-msgid "Host unreachable"
-msgstr "Хост недоступен"
-
-#, python-format
-msgid "Invalid X-Container-Sync-To format %r"
-msgstr "Недопустимый формат X-Container-Sync-To %r"
-
-#, python-format
-msgid "Invalid host %r in X-Container-Sync-To"
-msgstr "Недопустимый хост %r в X-Container-Sync-To"
-
-#, python-format
-msgid "Invalid pending entry %(file)s: %(entry)s"
-msgstr "Недопустимая ожидающая запись %(file)s: %(entry)s"
-
-#, python-format
-msgid ""
-"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
-"\"https\"."
-msgstr ""
-"Недопустимая схема %r в X-Container-Sync-To, допустимые значения: \"//\", "
-"\"http\" или \"https\"."
 
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "Преобразовано %(given_domain)s в %(found_domain)s"
 
 #, python-format
-msgid "No %s running"
-msgstr "%s не выполняется"
-
-#, python-format
-msgid "No permission to signal PID %d"
-msgstr "Нет прав доступа для отправки сигнала в PID %d"
-
-#, python-format
-msgid "No policy with index %s"
-msgstr "Не найдено стратегии с индексом %s"
-
-#, python-format
-msgid "No realm key for %r"
-msgstr "Отсутствует ключ области для %r"
-
-msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
-msgstr "В X-Container-Sync-To не разрешены параметры, запросы и фрагменты"
-
-msgid "Path required in X-Container-Sync-To"
-msgstr "Требуется путь в X-Container-Sync-To"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Ошибка профилирования: %s"
-
-#, python-format
-msgid "Quarantining DB %s"
-msgstr "БД %s помещена в карантин"
 
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
@@ -204,75 +78,11 @@ msgstr ""
 "%(container)s/%(object)s"
 
 #, python-format
-msgid "Removed %(remove)d dbs"
-msgstr "Удалено баз данных: %(remove)d"
-
-#, python-format
-msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
-msgstr "Удаление файла pid %(pid_file)s с ошибочным pid %(pid)d"
-
-#, python-format
-msgid "Removing pid file %s with invalid pid"
-msgstr "Удаление pid файла %s с неверным pid-ом"
-
-#, python-format
-msgid "Removing stale pid file %s"
-msgstr "Удаление устаревшего файла pid %s"
-
-msgid "Replication run OVER"
-msgstr "Репликация запущена поверх"
-
-#, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr "Возвращено 497 из-за черного списка: %s"
 
-#, python-format
-msgid "Running %s once"
-msgstr "Однократное выполнение %s"
-
-#, python-format
-msgid "Skipping %s as it is not mounted"
-msgstr "%s будет пропущен, так как он не смонтирован"
-
-#, python-format
-msgid "Starting %s"
-msgstr "Запуск %s"
-
 msgid "The file type are forbidden to access!"
 msgstr "Запрещен доступ к этому типу файла!"
-
-msgid "UNCAUGHT EXCEPTION"
-msgstr "Необрабатываемая исключительная ситуация"
-
-#, python-format
-msgid "Unable to locate config for %s"
-msgstr "Не удалось найти конфигурационный файл для %s"
-
-#, python-format
-msgid "Unable to read config from %s"
-msgstr "Не удалось прочитать конфигурацию из %s"
-
-msgid ""
-"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
-"termination for a production deployment."
-msgstr ""
-"Предупреждение: SSL должен быть включен только в целях тестирования. "
-"Используйте внешнее завершение SSL для развертывания в рабочем режиме."
-
-msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
-msgstr ""
-"Предупреждение: не удалось изменить предельное значение для дескриптора "
-"файла. Запущен без прав доступа root?"
-
-msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
-msgstr ""
-"Предупреждение: не удалось изменить предельное значение для числа процессов. "
-"Запущен без прав доступа root?"
-
-msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
-msgstr ""
-"Предупреждение: не удалось изменить предельное значение для памяти. Запущен "
-"без прав доступа root?"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr ""
