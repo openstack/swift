@@ -163,9 +163,9 @@ class S3ApiTestCase(unittest.TestCase):
                              {x.tag for x in elem})
         return self._get_error_code(body)
 
-    def get_date_header(self):
+    def get_date_header(self, skew=0):
         # email.utils.formatdate returns utc timestamp in default
-        return email.utils.formatdate(time.time())
+        return email.utils.formatdate(time.time() + skew)
 
     def get_v4_amz_date_header(self, when=None):
         if when is None:
