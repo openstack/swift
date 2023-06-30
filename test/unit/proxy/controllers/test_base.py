@@ -183,7 +183,7 @@ class FakeCache(FakeMemcache):
         return self.stub or self.store.get(key)
 
 
-class TestSource(object):
+class FakeSource(object):
     def __init__(self, chunks, headers=None, body=b''):
         self.chunks = list(chunks)
         self.headers = headers or {}
@@ -1305,7 +1305,7 @@ class TestFuncs(BaseTest):
         self.assertEqual('', dst_headers['Referer'])
 
     def test_client_chunk_size(self):
-        source = TestSource((
+        source = FakeSource((
             b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
@@ -1322,11 +1322,11 @@ class TestFuncs(BaseTest):
     def test_client_chunk_size_resuming(self):
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
-        source1 = TestSource([b'abcd', b'1234', None,
+        source1 = FakeSource([b'abcd', b'1234', None,
                               b'efgh', b'5678', b'lots', b'more', b'data'])
         # incomplete reads of client_chunk_size will be re-fetched
-        source2 = TestSource([b'efgh', b'5678', b'lots', None])
-        source3 = TestSource([b'lots', b'more', b'data'])
+        source2 = FakeSource([b'efgh', b'5678', b'lots', None])
+        source3 = FakeSource([b'lots', b'more', b'data'])
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
@@ -1351,8 +1351,8 @@ class TestFuncs(BaseTest):
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
         headers = {'transfer-encoding': 'chunked',
                    'content-type': 'text/plain'}
-        source1 = TestSource([b'abcd', b'1234', b'abc', None], headers=headers)
-        source2 = TestSource([b'efgh5678'], headers=headers)
+        source1 = FakeSource([b'abcd', b'1234', b'abc', None], headers=headers)
+        source2 = FakeSource([b'efgh5678'], headers=headers)
         sources = [(source1, node), (source2, node)]
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
@@ -1372,7 +1372,7 @@ class TestFuncs(BaseTest):
         self.app.logger = mock.Mock()
         req = Request.blank('/v1/a/c/o')
         headers = {'content-type': 'text/plain'}
-        source = TestSource([], headers=headers, body=b'the cake is a lie')
+        source = FakeSource([], headers=headers, body=b'the cake is a lie')
 
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
         handler = GetOrHeadHandler(
