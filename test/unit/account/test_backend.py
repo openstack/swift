@@ -1521,23 +1521,37 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         real_get = broker.get
         called = []
 
+        class ExpectedError(Exception):
+            '''Expected error to be raised during the test'''
+
         @contextmanager
         def mock_get():
             with real_get() as conn:
 
-                def mock_executescript(script):
-                    if called:
-                        raise Exception('kaboom!')
-                    called.append(script)
+                class MockConn(object):
+                    def __init__(self, real_conn):
+                        self.real_conn = real_conn
 
-                conn.executescript = mock_executescript
-                yield conn
+                    @property
+                    def cursor(self):
+                        return self.real_conn.cursor
+
+                    @property
+                    def execute(self):
+                        return self.real_conn.execute
+
+                    def executescript(self, script):
+                        if called:
+                            raise ExpectedError('kaboom!')
+                        called.append(script)
+
+                yield MockConn(conn)
 
         broker.get = mock_get
 
         try:
             broker._commit_puts()
-        except Exception:
+        except ExpectedError:
             pass
         else:
             self.fail('mock exception was not raised')
