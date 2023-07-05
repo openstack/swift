@@ -229,11 +229,12 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
     _code = ''
     xml_declaration = True
 
-    def __init__(self, msg=None, *args, **kwargs):
+    def __init__(self, msg=None, reason=None, *args, **kwargs):
         if msg:
             self._msg = msg
         if not self._code:
             self._code = self.__class__.__name__
+        self.reason = reason
 
         self.info = kwargs.copy()
         for reserved_key in ('headers', 'body'):
@@ -246,6 +247,14 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
             content_type='application/xml', *args,
             **kwargs)
         self.headers = HeaderKeyDict(self.headers)
+
+    @property
+    def metric_name(self):
+        parts = [str(self.status_int), self._code]
+        if self.reason:
+            parts.append(self.reason)
+        metric = '.'.join(parts)
+        return metric.replace(' ', '_')
 
     def _body_iter(self):
         error_elem = Element('Error')

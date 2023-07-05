@@ -189,11 +189,13 @@ class SigV4Mixin(object):
                         timestamp = mktime(self.headers.get('Date'))
             except (ValueError, TypeError):
                 raise AccessDenied('AWS authentication requires a valid Date '
-                                   'or x-amz-date header')
+                                   'or x-amz-date header',
+                                   reason='invalid_date')
 
             if timestamp < 0:
                 raise AccessDenied('AWS authentication requires a valid Date '
-                                   'or x-amz-date header')
+                                   'or x-amz-date header',
+                                   reason='invalid_date')
 
             try:
                 self._timestamp = S3Timestamp(timestamp)
@@ -214,7 +216,7 @@ class SigV4Mixin(object):
         try:
             expires = int(self.params['X-Amz-Expires'])
         except KeyError:
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_expires')
         except ValueError:
             err = 'X-Amz-Expires should be a number'
         else:
@@ -230,14 +232,14 @@ class SigV4Mixin(object):
             raise AuthorizationQueryParametersError(err)
 
         if int(self.timestamp) + expires < S3Timestamp.now():
-            raise AccessDenied('Request has expired')
+            raise AccessDenied('Request has expired', reason='expired')
 
     def _parse_credential(self, credential_string):
         parts = credential_string.split("/")
         # credential must be in following format:
         # <access-key-id>/<date>/<AWS-region>/<AWS-service>/aws4_request
         if not parts[0] or len(parts) != 5:
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_credential')
         return dict(zip(['access', 'date', 'region', 'service', 'terminal'],
                         parts))
 
@@ -257,9 +259,9 @@ class SigV4Mixin(object):
                 swob.wsgi_to_str(self.params['X-Amz-Credential']))
             sig = swob.wsgi_to_str(self.params['X-Amz-Signature'])
             if not sig:
-                raise AccessDenied()
+                raise AccessDenied(reason='invalid_query_auth')
         except KeyError:
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_query_auth')
 
         try:
             signed_headers = swob.wsgi_to_str(
@@ -311,7 +313,7 @@ class SigV4Mixin(object):
             "Credential=")[2].split(',')[0])
         sig = auth_str.partition("Signature=")[2].split(',')[0]
         if not sig:
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_header_auth')
         signed_headers = auth_str.partition(
             "SignedHeaders=")[2].split(',', 1)[0]
         if not signed_headers:
@@ -582,11 +584,13 @@ class S3Request(swob.Request):
                                          self.headers.get('Date')))
             except ValueError:
                 raise AccessDenied('AWS authentication requires a valid Date '
-                                   'or x-amz-date header')
+                                   'or x-amz-date header',
+                                   reason='invalid_date')
 
             if timestamp < 0:
                 raise AccessDenied('AWS authentication requires a valid Date '
-                                   'or x-amz-date header')
+                                   'or x-amz-date header',
+                                   reason='invalid_date')
             try:
                 self._timestamp = S3Timestamp(timestamp)
             except ValueError:
@@ -658,10 +662,10 @@ class S3Request(swob.Request):
             expires = swob.wsgi_to_str(self.params['Expires'])
             sig = swob.wsgi_to_str(self.params['Signature'])
         except KeyError:
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_query_auth')
 
         if not all([access, sig, expires]):
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_query_auth')
 
         return access, sig
 
@@ -674,7 +678,7 @@ class S3Request(swob.Request):
         """
         auth_str = swob.wsgi_to_str(self.headers['Authorization'])
         if not auth_str.startswith('AWS ') or ':' not in auth_str:
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_header_auth')
         # This means signature format V2
         access, sig = auth_str.split(' ', 1)[1].rsplit(':', 1)
         return access, sig
@@ -705,15 +709,15 @@ class S3Request(swob.Request):
         try:
             ex = S3Timestamp(float(self.params['Expires']))
         except (KeyError, ValueError):
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_expires')
 
         if S3Timestamp.now() > ex:
-            raise AccessDenied('Request has expired')
+            raise AccessDenied('Request has expired', reason='expired')
 
         if ex >= 2 ** 31:
             raise AccessDenied(
                 'Invalid date (should be seconds since epoch): %s' %
-                self.params['Expires'])
+                self.params['Expires'], reason='invalid_expires')
 
     def _validate_dates(self):
         """
@@ -725,12 +729,13 @@ class S3Request(swob.Request):
         amz_date_header = self.headers.get('X-Amz-Date')
         if not date_header and not amz_date_header:
             raise AccessDenied('AWS authentication requires a valid Date '
-                               'or x-amz-date header')
+                               'or x-amz-date header',
+                               reason='invalid_date')
 
         # Anyways, request timestamp should be validated
         epoch = S3Timestamp(0)
         if self.timestamp < epoch:
-            raise AccessDenied()
+            raise AccessDenied(reason='invalid_date')
 
         # If the standard date is too far ahead or behind, it is an
         # error
@@ -984,7 +989,7 @@ class S3Request(swob.Request):
         else:
             # Should have already raised NotS3Request in _parse_auth_info,
             # but as a sanity check...
-            raise AccessDenied()
+            raise AccessDenied(reason='not_s3')
 
         for key, value in sorted(amz_headers.items()):
             buf.append(swob.wsgi_to_bytes("%s:%s" % (key, value)))
@@ -1412,7 +1417,7 @@ class S3Request(swob.Request):
             raise SignatureDoesNotMatch(
                 **self.signature_does_not_match_kwargs())
         if status == HTTP_FORBIDDEN:
-            raise AccessDenied()
+            raise AccessDenied(reason='forbidden')
         if status == HTTP_SERVICE_UNAVAILABLE:
             raise ServiceUnavailable()
         if status in (HTTP_RATE_LIMITED, HTTP_TOO_MANY_REQUESTS):
