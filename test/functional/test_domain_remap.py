@@ -34,6 +34,7 @@ def tearDownModule():
 
 class TestDomainRemapEnv(BaseEnv):
     domain_remap_enabled = None  # tri-state: None initially, then True/False
+    dns_safe_account_name = None  # tri-state: None initially, then True/False
 
     @classmethod
     def setUp(cls):
@@ -43,6 +44,11 @@ class TestDomainRemapEnv(BaseEnv):
         if cls.domain_remap_enabled is None:
             cls.domain_remap_enabled = 'domain_remap' in cluster_info
             if not cls.domain_remap_enabled:
+                return
+
+        if cls.dns_safe_account_name is None:
+            cls.dns_safe_account_name = ('%' not in cls.conn.account_name)
+            if not cls.dns_safe_account_name:
                 return
 
         cls.account = Account(
@@ -69,6 +75,14 @@ class TestDomainRemap(Base):
         if self.env.domain_remap_enabled is False:
             raise SkipTest("Domain Remap is not enabled")
         elif self.env.domain_remap_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected domain_remap_enabled to be True/False, got %r" %
+                (self.env.domain_remap_enabled,))
+        if self.env.dns_safe_account_name is False:
+            raise SkipTest("Account name %r cannot work with Domain Remap" %
+                           (self.env.conn.account_name,))
+        elif self.env.dns_safe_account_name is not True:
             # just some sanity checking
             raise Exception(
                 "Expected domain_remap_enabled to be True/False, got %r" %

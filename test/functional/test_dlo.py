@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from six.moves import urllib
+
 from swift.common.swob import str_to_wsgi
 import test.functional as tf
 from test.functional.tests import Utils, Base, Base2, BaseEnv
@@ -157,7 +159,7 @@ class TestDlo(Base):
 
     def test_copy_account(self):
         # dlo use same account and same container only
-        acct = self.env.conn.account_name
+        acct = urllib.parse.unquote(self.env.conn.account_name)
         # Adding a new segment, copying the manifest, and then deleting the
         # segment proves that the new object is really the concatenated
         # segments and not just a manifest.

@@ -804,24 +804,23 @@ class TempAuth(object):
                 key = req.headers.get('x-storage-pass')
         else:
             return HTTPBadRequest(request=req)
+        unauthed_headers = {
+            'Www-Authenticate': 'Swift realm="%s"' % (account or 'unknown'),
+        }
         if not all((account, user, key)):
             self.logger.increment('token_denied')
-            realm = account or 'unknown'
-            return HTTPUnauthorized(request=req, headers={'Www-Authenticate':
-                                                          'Swift realm="%s"' %
-                                                          realm})
+            return HTTPUnauthorized(request=req, headers=unauthed_headers)
         # Authenticate user
+        account = wsgi_to_str(account)
+        user = wsgi_to_str(user)
+        key = wsgi_to_str(key)
         account_user = account + ':' + user
         if account_user not in self.users:
             self.logger.increment('token_denied')
-            auth = 'Swift realm="%s"' % account
-            return HTTPUnauthorized(request=req,
-                                    headers={'Www-Authenticate': auth})
+            return HTTPUnauthorized(request=req, headers=unauthed_headers)
         if self.users[account_user]['key'] != key:
             self.logger.increment('token_denied')
-            auth = 'Swift realm="unknown"'
-            return HTTPUnauthorized(request=req,
-                                    headers={'Www-Authenticate': auth})
+            return HTTPUnauthorized(request=req, headers=unauthed_headers)
         account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
         # Get memcache client
         memcache_client = cache_from_env(req.environ)

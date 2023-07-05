@@ -2152,7 +2152,7 @@ class Controller(object):
         headers.update((k, v)
                        for k, v in req.headers.items()
                        if is_sys_meta('account', k))
-        resp = self.make_requests(Request.blank('/v1' + path),
+        resp = self.make_requests(Request.blank(str_to_wsgi('/v1' + path)),
                                   self.app.account_ring, partition, 'PUT',
                                   path, [headers] * len(nodes))
         if is_success(resp.status_int):

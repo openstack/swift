@@ -190,7 +190,8 @@ class TestObjectVersioning(TestObjectVersioningBase):
     @property
     def account_name(self):
         if not self._account_name:
-            self._account_name = self.env.conn.storage_path.rsplit('/', 1)[-1]
+            self._account_name = unquote(
+                self.env.conn.storage_path.rsplit('/', 1)[-1])
         return self._account_name
 
     def test_disable_version(self):
