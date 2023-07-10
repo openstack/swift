@@ -143,6 +143,11 @@ use = egg:swift#object
 # if small enough
 # keep_cache_private = false
 #
+# If true, SLO object's manifest file for GET requests may be kept in buffer cache
+# if smaller than 'keep_cache_size'. And this config will only matter when
+# 'keep_cache_private' is false.
+# keep_cache_slo_manifest = false
+#
 # on PUTs, sync data every n MB
 # mb_per_sync = 512
 #

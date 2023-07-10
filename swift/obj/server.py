@@ -150,6 +150,8 @@ class ObjectController(BaseStorageServer):
         self.slow = int(conf.get('slow', 0))
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
+        self.keep_cache_slo_manifest = \
+            config_true_value(conf.get('keep_cache_slo_manifest', 'false'))
 
         default_allowed_headers = '''
             content-disposition,
@@ -1098,9 +1100,19 @@ class ObjectController(BaseStorageServer):
                     request.headers.pop('Range', None)
                 obj_size = int(metadata['Content-Length'])
                 file_x_ts = Timestamp(metadata['X-Timestamp'])
-                keep_cache = (self.keep_cache_private or
-                              ('X-Auth-Token' not in request.headers and
-                               'X-Storage-Token' not in request.headers))
+                keep_cache = (
+                    self.keep_cache_private
+                    or (
+                        "X-Auth-Token" not in request.headers
+                        and "X-Storage-Token" not in request.headers
+                    )
+                    or (
+                        self.keep_cache_slo_manifest
+                        and config_true_value(
+                            metadata.get("X-Static-Large-Object")
+                        )
+                    )
+                )
                 conditional_etag = resolve_etag_is_at_header(request, metadata)
                 response = Response(
                     app_iter=disk_file.reader(keep_cache=keep_cache),

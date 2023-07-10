@@ -2298,6 +2298,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertTrue(utils.config_true_value(True) is True)
             self.assertTrue(utils.config_true_value('foo') is False)
             self.assertTrue(utils.config_true_value(False) is False)
+            self.assertTrue(utils.config_true_value(None) is False)
         finally:
             utils.TRUE_VALUES = orig_trues
 
