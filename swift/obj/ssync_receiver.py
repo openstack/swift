@@ -476,9 +476,9 @@ class Receiver(object):
                 line = line.strip()
                 if not line:
                     break
-                header, value = swob.bytes_to_wsgi(line).split(':', 1)
-                header = header.strip().lower()
-                value = value.strip()
+                header, value = line.split(b':', 1)
+                header = swob.bytes_to_wsgi(header.strip().lower())
+                value = swob.bytes_to_wsgi(value.strip())
                 subreq.headers[header] = value
                 if header not in ('etag', 'x-backend-no-commit'):
                     # we'll use X-Backend-Replication-Headers to force the

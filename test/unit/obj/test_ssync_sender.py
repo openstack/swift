@@ -23,6 +23,7 @@ import six
 
 from swift.common import exceptions, utils
 from swift.common.storage_policy import POLICIES
+from swift.common.swob import wsgi_to_bytes, wsgi_to_str
 from swift.common.utils import Timestamp
 from swift.obj import ssync_sender, diskfile, ssync_receiver
 from swift.obj.replicator import ObjectReplicator
@@ -1691,12 +1692,15 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), '0.01 seconds: send_put chunk')
 
-    def _check_send_put(self, obj_name, meta_value, durable=True):
+    def _check_send_put(self, obj_name, meta_value,
+                        meta_name='Unicode-Meta-Name', durable=True):
         ts_iter = make_timestamp_iter()
         t1 = next(ts_iter)
         body = b'test'
         extra_metadata = {'Some-Other-Header': 'value',
-                          u'Unicode-Meta-Name': meta_value}
+                          meta_name: meta_value}
+        # Note that diskfile expects obj_name to be a native string
+        # but metadata to be wsgi strings
         df = self._make_open_diskfile(obj=obj_name, body=body,
                                       timestamp=t1,
                                       extra_metadata=extra_metadata,
@@ -1705,12 +1709,13 @@ class TestSender(BaseTest):
         expected['body'] = body if six.PY2 else body.decode('ascii')
         expected['chunk_size'] = len(body)
         expected['meta'] = meta_value
-        wire_meta = meta_value if six.PY2 else meta_value.encode('utf8')
+        expected['meta_name'] = meta_name
         path = six.moves.urllib.parse.quote(expected['name'])
         expected['path'] = path
         no_commit = '' if durable else 'X-Backend-No-Commit: True\r\n'
         expected['no_commit'] = no_commit
-        length = 145 + len(path) + len(wire_meta) + len(no_commit)
+        length = 128 + len(path) + len(meta_value) + len(no_commit) + \
+            len(meta_name)
         expected['length'] = format(length, 'x')
         # .meta file metadata is not included in expected for data only PUT
         t2 = next(ts_iter)
@@ -1725,15 +1730,14 @@ class TestSender(BaseTest):
             'Content-Length: %(Content-Length)s\r\n'
             'ETag: %(ETag)s\r\n'
             'Some-Other-Header: value\r\n'
-            'Unicode-Meta-Name: %(meta)s\r\n'
+            '%(meta_name)s: %(meta)s\r\n'
             '%(no_commit)s'
             'X-Timestamp: %(X-Timestamp)s\r\n'
             '\r\n'
             '\r\n'
             '%(chunk_size)s\r\n'
             '%(body)s\r\n' % expected)
-        if not six.PY2:
-            expected = expected.encode('utf8')
+        expected = wsgi_to_bytes(expected)
         self.assertEqual(b''.join(connection.sent), expected)
 
     def test_send_put(self):
@@ -1743,12 +1747,14 @@ class TestSender(BaseTest):
         self._check_send_put('o', 'meta', durable=False)
 
     def test_send_put_unicode(self):
-        if six.PY2:
-            self._check_send_put(
-                'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
-        else:
-            self._check_send_put(
-                'o_with_caract\u00e8res_like_in_french', 'm\u00e8ta')
+        self._check_send_put(
+            wsgi_to_str('o_with_caract\xc3\xa8res_like_in_french'),
+            'm\xc3\xa8ta')
+
+    def test_send_put_unicode_header_name(self):
+        self._check_send_put(
+            wsgi_to_str('o_with_caract\xc3\xa8res_like_in_french'),
+            'm\xc3\xa8ta', meta_name='X-Object-Meta-Nam\xc3\xa8')
 
     def _check_send_post(self, obj_name, meta_value):
         ts_iter = make_timestamp_iter()
@@ -1764,9 +1770,11 @@ class TestSender(BaseTest):
         ts_1 = next(ts_iter)
         newer_metadata = {u'X-Object-Meta-Foo': meta_value,
                           'X-Timestamp': ts_1.internal}
+        # Note that diskfile expects obj_name to be a native string
+        # but metadata to be wsgi strings
         df.write_metadata(newer_metadata)
         path = six.moves.urllib.parse.quote(df.read_metadata()['name'])
-        wire_meta = meta_value if six.PY2 else meta_value.encode('utf8')
+        wire_meta = wsgi_to_bytes(meta_value)
         length = format(61 + len(path) + len(wire_meta), 'x')
 
         connection = FakeConnection()
@@ -1787,12 +1795,9 @@ class TestSender(BaseTest):
         self._check_send_post('o', 'meta')
 
     def test_send_post_unicode(self):
-        if six.PY2:
-            self._check_send_post(
-                'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
-        else:
-            self._check_send_post(
-                'o_with_caract\u00e8res_like_in_french', 'm\u00e8ta')
+        self._check_send_post(
+            wsgi_to_str('o_with_caract\xc3\xa8res_like_in_french'),
+            'm\xc3\xa8ta')
 
     def test_disconnect_timeout(self):
         connection = FakeConnection()

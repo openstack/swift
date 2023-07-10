@@ -56,7 +56,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
-    HTTPServerError, wsgi_to_bytes, wsgi_to_str, normalize_etag
+    HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, normalize_etag
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj
 
@@ -678,7 +678,8 @@ class ObjectController(BaseStorageServer):
                 list(self.allowed_headers))
             for header_key in headers_to_copy:
                 if header_key in request.headers:
-                    header_caps = header_key.title()
+                    header_caps = bytes_to_wsgi(
+                        wsgi_to_bytes(header_key).title())
                     metadata[header_caps] = request.headers[header_key]
             orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
             if orig_delete_at != new_delete_at:
@@ -927,7 +928,8 @@ class ObjectController(BaseStorageServer):
             list(self.allowed_headers))
         for header_key in headers_to_copy:
             if header_key in request.headers:
-                header_caps = header_key.title()
+                header_caps = bytes_to_wsgi(
+                    wsgi_to_bytes(header_key).title())
                 metadata[header_caps] = request.headers[header_key]
         return metadata
 

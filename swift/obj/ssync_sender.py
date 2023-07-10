@@ -21,6 +21,7 @@ from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
 from swift.common import utils
+from swift.common.swob import wsgi_to_bytes
 
 
 def encode_missing(object_hash, ts_data, ts_meta=None, ts_ctype=None,
@@ -469,12 +470,7 @@ class Sender(object):
     def send_subrequest(self, connection, method, url_path, headers, df):
         msg = [b'%s %s' % (method.encode('ascii'), url_path.encode('utf8'))]
         for key, value in sorted(headers.items()):
-            if six.PY2:
-                msg.append(b'%s: %s' % (key, value))
-            else:
-                msg.append(b'%s: %s' % (
-                    key.encode('utf8', 'surrogateescape'),
-                    str(value).encode('utf8', 'surrogateescape')))
+            msg.append(wsgi_to_bytes('%s: %s' % (key, value)))
         msg = b'\r\n'.join(msg) + b'\r\n\r\n'
         with exceptions.MessageTimeout(self.daemon.node_timeout,
                                        'send_%s' % method.lower()):

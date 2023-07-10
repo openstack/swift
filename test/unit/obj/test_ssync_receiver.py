@@ -1711,18 +1711,19 @@ class TestReceiver(unittest.TestCase):
             req = swob.Request.blank(
                 '/device/partition',
                 environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'PUT /a/c/o\r\n'
-                     'Content-Length: 1\r\n'
-                     'Etag: c4ca4238a0b923820dcc509a6f75849b\r\n'
-                     'X-Timestamp: 1364456113.12344\r\n'
-                     'X-Object-Meta-Test1: one\r\n'
-                     'Content-Encoding: gzip\r\n'
-                     'Specialty-Header: value\r\n'
-                     'X-Backend-No-Commit: True\r\n'
-                     '\r\n'
-                     '1')
+                body=b':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                     b':UPDATES: START\r\n'
+                     b'PUT /a/c/o\r\n'
+                     b'Content-Length: 1\r\n'
+                     b'Etag: c4ca4238a0b923820dcc509a6f75849b\r\n'
+                     b'X-Timestamp: 1364456113.12344\r\n'
+                     b'X-Object-Meta-Test1: one\r\n'
+                     b'X-Object-Meta-T\xc3\xa8st2: m\xc3\xa8ta\r\n'
+                     b'Content-Encoding: gzip\r\n'
+                     b'Specialty-Header: value\r\n'
+                     b'X-Backend-No-Commit: True\r\n'
+                     b'\r\n'
+                     b'1')
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -1735,11 +1736,12 @@ class TestReceiver(unittest.TestCase):
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
-            self.assertEqual(req.headers, {
+            expected = {
                 'Etag': 'c4ca4238a0b923820dcc509a6f75849b',
                 'Content-Length': '1',
                 'X-Timestamp': '1364456113.12344',
                 'X-Object-Meta-Test1': 'one',
+                'X-Object-Meta-T\xc3\xa8st2': 'm\xc3\xa8ta',
                 'Content-Encoding': 'gzip',
                 'Specialty-Header': 'value',
                 'X-Backend-No-Commit': 'True',
@@ -1749,7 +1751,9 @@ class TestReceiver(unittest.TestCase):
                 # note: Etag and X-Backend-No-Commit not in replication-headers
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
-                    'content-encoding specialty-header')})
+                    'x-object-meta-t\xc3\xa8st2 content-encoding '
+                    'specialty-header')}
+            self.assertEqual({k: req.headers[k] for k in expected}, expected)
 
     def test_UPDATES_PUT_replication_headers(self):
         self.controller.logger = mock.MagicMock()
