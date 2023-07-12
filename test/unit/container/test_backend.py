@@ -41,7 +41,7 @@ from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
     TombstoneReclaimer, GreenDBCursor
 from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
-    ShardRange, make_db_file_path, md5, ShardRangeList
+    ShardRange, make_db_file_path, md5, ShardRangeList, Namespace
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -4211,6 +4211,76 @@ class TestContainerBroker(test_db.TestDbBase):
         actual = broker.get_shard_ranges(marker='e', end_marker='e')
         self.assertFalse([dict(sr) for sr in actual])
 
+        # includes overrides include_own
+        actual = broker.get_shard_ranges(includes='b', include_own=True)
+        self.assertEqual([dict(shard_ranges[0])], [dict(sr) for sr in actual])
+        # ... unless they coincide
+        actual = broker.get_shard_ranges(includes='t', include_own=True)
+        self.assertEqual([dict(own_shard_range)], [dict(sr) for sr in actual])
+
+        # exclude_others overrides includes
+        actual = broker.get_shard_ranges(includes='b', exclude_others=True)
+        self.assertFalse(actual)
+
+        # include_deleted overrides includes
+        actual = broker.get_shard_ranges(includes='i', include_deleted=True)
+        self.assertEqual([dict(shard_ranges[-1])], [dict(sr) for sr in actual])
+        actual = broker.get_shard_ranges(includes='i', include_deleted=False)
+        self.assertFalse(actual)
+
+        # includes overrides marker/end_marker
+        actual = broker.get_shard_ranges(includes='b', marker='e',
+                                         end_marker='')
+        self.assertEqual([dict(shard_ranges[0])], [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(includes='b', marker=Namespace.MAX)
+        self.assertEqual([dict(shard_ranges[0])], [dict(sr) for sr in actual])
+
+        # end_marker is Namespace.MAX
+        actual = broker.get_shard_ranges(marker='e', end_marker='')
+        self.assertEqual([dict(sr) for sr in undeleted[2:]],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(marker='e', end_marker='',
+                                         reverse=True)
+        self.assertEqual([dict(sr) for sr in reversed(undeleted[:3])],
+                         [dict(sr) for sr in actual])
+
+        # marker is Namespace.MIN
+        actual = broker.get_shard_ranges(marker='', end_marker='d')
+        self.assertEqual([dict(sr) for sr in shard_ranges[:2]],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(marker='', end_marker='d',
+                                         reverse=True, include_deleted=True)
+        self.assertEqual([dict(sr) for sr in reversed(shard_ranges[2:])],
+                         [dict(sr) for sr in actual])
+
+        # marker, end_marker span entire namespace
+        actual = broker.get_shard_ranges(marker='', end_marker='')
+        self.assertEqual([dict(sr) for sr in undeleted],
+                         [dict(sr) for sr in actual])
+
+        # marker, end_marker override include_own
+        actual = broker.get_shard_ranges(marker='', end_marker='k',
+                                         include_own=True)
+        self.assertEqual([dict(sr) for sr in undeleted],
+                         [dict(sr) for sr in actual])
+        actual = broker.get_shard_ranges(marker='u', end_marker='',
+                                         include_own=True)
+        self.assertFalse(actual)
+        # ...unless they coincide
+        actual = broker.get_shard_ranges(marker='t', end_marker='',
+                                         include_own=True)
+        self.assertEqual([dict(own_shard_range)], [dict(sr) for sr in actual])
+
+        # null namespace cases
+        actual = broker.get_shard_ranges(end_marker=Namespace.MIN)
+        self.assertFalse(actual)
+
+        actual = broker.get_shard_ranges(marker=Namespace.MAX)
+        self.assertFalse(actual)
+
         orig_execute = GreenDBConnection.execute
         mock_call_args = []
 
@@ -4227,6 +4297,19 @@ class TestContainerBroker(test_db.TestDbBase):
         # verify that includes keyword plumbs through to an SQL condition
         self.assertIn("WHERE deleted=0 AND name != ? AND lower < ? AND "
                       "(upper = '' OR upper >= ?)", mock_call_args[0][1])
+        self.assertEqual(['a/c', 'f', 'f'], mock_call_args[0][2])
+
+        mock_call_args = []
+        with mock.patch('swift.common.db.GreenDBConnection.execute',
+                        mock_execute):
+            actual = broker.get_shard_ranges(marker='c', end_marker='d')
+        self.assertEqual([dict(sr) for sr in shard_ranges[1:2]],
+                         [dict(sr) for sr in actual])
+        self.assertEqual(1, len(mock_call_args))
+        # verify that marker & end_marker plumb through to an SQL condition
+        self.assertIn("WHERE deleted=0 AND name != ? AND lower < ? AND "
+                      "(upper = '' OR upper > ?)", mock_call_args[0][1])
+        self.assertEqual(['a/c', 'd', 'c'], mock_call_args[0][2])
 
         actual = broker.get_shard_ranges(includes='i')
         self.assertFalse(actual)
@@ -4253,6 +4336,10 @@ class TestContainerBroker(test_db.TestDbBase):
         filler.upper = 'k'
         self.assertEqual([dict(sr) for sr in undeleted + [filler]],
                          [dict(sr) for sr in actual])
+        # includes overrides fill_gaps
+        actual = broker.get_shard_ranges(includes='b', fill_gaps=True)
+        self.assertEqual([dict(shard_ranges[0])], [dict(sr) for sr in actual])
+
         # no filler needed...
         actual = broker.get_shard_ranges(fill_gaps=True, end_marker='h')
         self.assertEqual([dict(sr) for sr in undeleted],
