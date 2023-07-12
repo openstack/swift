@@ -1623,6 +1623,99 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             'Expected 1 ERROR lines, got %r' % (
                 self.logger.logger.records['ERROR'], ))
 
+    def test_GET_resuming_ignores_416(self):
+        # verify that a resuming getter will not try to use the content of a
+        # 416 response (because it's etag will mismatch that from the first
+        # response)
+        self.app.recoverable_node_timeout = 0.01
+        self.app.client_timeout = 0.1
+        self.app.object_chunk_size = 10
+        body = b'length 8'
+        body_short = b'four'
+        body_416 = b'<html><h1>Requested Range Not Satisfiable</h1>' \
+                   b'<p>The Range requested is not available.</p></html>'
+        etag = md5(body, usedforsecurity=False).hexdigest()
+        etag_short = md5(body_short, usedforsecurity=False).hexdigest()
+        headers_206 = {
+            'Etag': etag,
+            'Content-Length': len(body),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+            'Content-Range': 'bytes 7-8/8'
+        }
+        headers_416 = {
+            # note: 416 when applying the same range implies different object
+            # length and therefore different etag
+            'Etag': etag_short,
+            'Content-Length': len(body_416),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+            'Content-Range': 'bytes */4'
+        }
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', headers={'Range': 'bytes=7-8'})
+        # make the first response slow...
+        read_sleeps = [0.1, 0]
+        with mocked_http_conn(206, 416, 206, body_iter=[body, body_416, body],
+                              headers=[headers_206, headers_416, headers_206],
+                              slow=read_sleeps) as log:
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 206)
+            resp_body = resp.body
+        self.assertEqual(b'length 8', resp_body)
+        self.assertEqual(len(log.requests), 3)
+        self.assertEqual('bytes=7-8', log.requests[0]['headers']['Range'])
+        self.assertEqual('bytes=7-8', log.requests[1]['headers']['Range'])
+        self.assertEqual('bytes=7-8', log.requests[2]['headers']['Range'])
+
+    def test_GET_resuming(self):
+        self.app.recoverable_node_timeout = 0.01
+        self.app.client_timeout = 0.1
+        self.app.object_chunk_size = 10
+        body = b'length 8'
+        etag = md5(body, usedforsecurity=False).hexdigest()
+        headers_200 = {
+            'Etag': etag,
+            'Content-Length': len(body),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+        }
+        headers_206 = {
+            # note: use of 'X-Backend-Ignore-Range-If-Metadata-Present' in
+            # request means that 200 response did not evaluate the Range and
+            # the proxy modifies requested backend range accordingly
+            'Etag': etag,
+            'Content-Length': len(body),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+            'Content-Range': 'bytes 0-7/8'
+        }
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o',
+            headers={'Range': 'bytes=9-10, 20-30',
+                     'X-Backend-Ignore-Range-If-Metadata-Present':
+                         'X-Static-Large-Object'})
+        # make the first 2 responses slow...
+        read_sleeps = [0.1, 0.1, 0]
+        with mocked_http_conn(200, 206, 206, body_iter=[body, body, body],
+                              headers=[headers_200, headers_206, headers_206],
+                              slow=read_sleeps) as log:
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 200)
+            resp_body = resp.body
+        self.assertEqual(b'length 8', resp_body)
+        self.assertEqual(len(log.requests), 3)
+        # NB: original range is not satisfiable but is ignored
+        self.assertEqual('bytes=9-10, 20-30',
+                         log.requests[0]['headers']['Range'])
+        self.assertIn('X-Backend-Ignore-Range-If-Metadata-Present',
+                      log.requests[0]['headers'])
+        # backend Range is updated to something that is satisfiable
+        self.assertEqual('bytes=0-7,20-30',
+                         log.requests[1]['headers']['Range'])
+        self.assertNotIn('X-Backend-Ignore-Range-If-Metadata-Present',
+                         log.requests[1]['headers'])
+        self.assertEqual('bytes=0-7,20-30',
+                         log.requests[2]['headers']['Range'])
+        self.assertNotIn('X-Backend-Ignore-Range-If-Metadata-Present',
+                         log.requests[2]['headers'])
+
     def test_GET_transfer_encoding_chunked(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         with set_http_connect(200, headers={'transfer-encoding': 'chunked'}):
