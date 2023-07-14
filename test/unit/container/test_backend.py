@@ -4623,6 +4623,58 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual([shard_ranges[2]], actual)
 
     @with_tempdir
+    def test_get_shard_range_rows_with_limit(self, tempdir):
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+        shard_ranges = [
+            ShardRange('a/c', next(self.ts), 'a', 'c'),
+            ShardRange('.a/c1', next(self.ts), 'c', 'd'),
+            ShardRange('.a/c2', next(self.ts), 'd', 'f'),
+            ShardRange('.a/c3', next(self.ts), 'd', 'f', deleted=1),
+        ]
+        broker.merge_shard_ranges(shard_ranges)
+        actual = broker._get_shard_range_rows(include_deleted=True,
+                                              include_own=True)
+        self.assertEqual(4, len(actual))
+        # the order of rows is not predictable, but they should be unique
+        self.assertEqual(4, len(set(actual)))
+        actual = broker._get_shard_range_rows(include_deleted=True)
+        self.assertEqual(3, len(actual))
+        self.assertEqual(3, len(set(actual)))
+        # negative -> unlimited
+        actual = broker._get_shard_range_rows(include_deleted=True, limit=-1)
+        self.assertEqual(3, len(actual))
+        self.assertEqual(3, len(set(actual)))
+        # zero is applied
+        actual = broker._get_shard_range_rows(include_deleted=True, limit=0)
+        self.assertFalse(actual)
+        actual = broker._get_shard_range_rows(include_deleted=True, limit=1)
+        self.assertEqual(1, len(actual))
+        self.assertEqual(1, len(set(actual)))
+        actual = broker._get_shard_range_rows(include_deleted=True, limit=2)
+        self.assertEqual(2, len(actual))
+        self.assertEqual(2, len(set(actual)))
+        actual = broker._get_shard_range_rows(include_deleted=True, limit=3)
+        self.assertEqual(3, len(actual))
+        self.assertEqual(3, len(set(actual)))
+        actual = broker._get_shard_range_rows(include_deleted=True, limit=4)
+        self.assertEqual(3, len(actual))
+        self.assertEqual(3, len(set(actual)))
+        actual = broker._get_shard_range_rows(include_deleted=True,
+                                              include_own=True,
+                                              exclude_others=True,
+                                              limit=1)
+        self.assertEqual(1, len(actual))
+        self.assertEqual(shard_ranges[0], ShardRange(*actual[0]))
+        actual = broker._get_shard_range_rows(include_deleted=True,
+                                              include_own=True,
+                                              exclude_others=True,
+                                              limit=4)
+        self.assertEqual(1, len(actual))
+        self.assertEqual(shard_ranges[0], ShardRange(*actual[0]))
+
+    @with_tempdir
     def test_get_own_shard_range(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
@@ -4687,6 +4739,22 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.merge_shard_ranges([own_sr])
         actual = broker.get_own_shard_range()
         self.assertEqual(dict(own_sr), dict(actual))
+
+        orig_execute = GreenDBConnection.execute
+        mock_call_args = []
+
+        def mock_execute(*args, **kwargs):
+            mock_call_args.append(args)
+            return orig_execute(*args, **kwargs)
+
+        with mock.patch('swift.common.db.GreenDBConnection.execute',
+                        mock_execute):
+            actual = broker.get_own_shard_range()
+        self.assertEqual(dict(own_sr), dict(actual))
+        self.assertEqual(1, len(mock_call_args))
+        # verify that SQL is optimised with LIMIT
+        self.assertIn("WHERE name = ? LIMIT 1", mock_call_args[0][1])
+        self.assertEqual(['.shards_a/shard_c'], mock_call_args[0][2])
 
     @with_tempdir
     def test_enable_sharding(self, tempdir):

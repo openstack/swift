@@ -1688,7 +1688,8 @@ class ContainerBroker(DatabaseBroker):
     def _get_shard_range_rows(self, connection=None, marker=None,
                               end_marker=None, includes=None,
                               include_deleted=False, states=None,
-                              include_own=False, exclude_others=False):
+                              include_own=False, exclude_others=False,
+                              limit=None):
         """
         Returns a list of shard range rows.
 
@@ -1717,6 +1718,14 @@ class ContainerBroker(DatabaseBroker):
             names do not match the broker's path are included in the returned
             list. If True, those rows are not included, otherwise they are
             included. Default is False.
+        :param limit: restricts the returned list to the given number of rows.
+            Should be a whole number; negative values will be ignored.
+            The ``limit`` parameter is useful to optimise a search
+            when the maximum number of expected matching rows is known, and
+            particularly when that maximum number is much less than the total
+            number of rows in the DB. However, the DB search is not ordered and
+            the subset of rows returned when ``limit`` is less than all
+            possible matching rows is therefore unpredictable.
         :return: a list of tuples.
         """
 
@@ -1761,6 +1770,8 @@ class ContainerBroker(DatabaseBroker):
                 params.extend((includes, includes))
             if conditions:
                 condition = ' WHERE ' + ' AND '.join(conditions)
+            if limit is not None and limit >= 0:
+                condition += ' LIMIT %d' % limit
             columns = SHARD_RANGE_KEYS[:-2]
             for column in SHARD_RANGE_KEYS[-2:]:
                 if column in defaults:
@@ -1834,8 +1845,8 @@ class ContainerBroker(DatabaseBroker):
 
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
                          reverse=False, include_deleted=False, states=None,
-                         include_own=False,
-                         exclude_others=False, fill_gaps=False):
+                         include_own=False, exclude_others=False,
+                         fill_gaps=False):
         """
         Returns a list of persisted shard ranges.
 
@@ -1923,13 +1934,13 @@ class ContainerBroker(DatabaseBroker):
             default shard range is returned.
         :return: an instance of :class:`~swift.common.utils.ShardRange`
         """
-        shard_ranges = self.get_shard_ranges(include_own=True,
-                                             include_deleted=True,
-                                             exclude_others=True)
-        if shard_ranges:
-            own_shard_range = shard_ranges[0]
+        rows = self._get_shard_range_rows(
+            include_own=True, include_deleted=True, exclude_others=True,
+            limit=1)
+        if rows:
+            own_shard_range = ShardRange(*rows[0])
         elif no_default:
-            return None
+            own_shard_range = None
         else:
             own_shard_range = ShardRange(
                 self.path, Timestamp.now(), ShardRange.MIN, ShardRange.MAX,
