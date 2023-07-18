@@ -32,7 +32,7 @@ from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.keystoneauth import KeystoneAuth
 from swift.common import swob, registry
 from swift.common.swob import Request
-from swift.common.utils import md5
+from swift.common.utils import md5, get_logger
 
 from keystonemiddleware.auth_token import AuthProtocol
 from keystoneauth1.access import AccessInfoV2
@@ -213,6 +213,24 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.s3api = S3ApiMiddleware(None, conf)
             loader.assert_called_with(loadwsgi.APP, 'proxy-conf-file')
             pipeline.assert_called_with(context)
+
+    def test_init_logger(self):
+        proxy_logger = get_logger({}, log_route='proxy-server').logger
+
+        s3api = S3ApiMiddleware(None, {})
+        self.assertEqual('s3api', s3api.logger.name)
+        self.assertEqual('s3api', s3api.logger.logger.name)
+        self.assertIsNot(s3api.logger.logger, proxy_logger)
+        self.assertEqual('swift', s3api.logger.server)
+        self.assertIsNone(s3api.logger.logger.statsd_client)
+
+        s3api = S3ApiMiddleware(None, {'log_name': 'proxy-server',
+                                       'log_statsd_host': '1.2.3.4'})
+        self.assertEqual('s3api', s3api.logger.name)
+        self.assertEqual('s3api', s3api.logger.logger.name)
+        self.assertIsNot(s3api.logger.logger, proxy_logger)
+        self.assertEqual('proxy-server', s3api.logger.server)
+        self.assertEqual('s3api.', s3api.logger.logger.statsd_client._prefix)
 
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')

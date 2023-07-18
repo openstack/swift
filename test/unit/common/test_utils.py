@@ -73,7 +73,8 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
     MimeInvalid
 from swift.common import utils
-from swift.common.utils import set_swift_dir, md5, ShardRangeList
+from swift.common.utils import set_swift_dir, md5, ShardRangeList, \
+    SwiftLogFormatter
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
@@ -989,25 +990,108 @@ class TestUtils(unittest.TestCase):
                          'test1\ntest3\ntest4\ntest6\n')
 
     def test_get_logger_name_and_route(self):
+        @contextlib.contextmanager
+        def add_log_handler(logger):
+            # install a handler to capture log messages formatted as per swift
+            sio = StringIO()
+            handler = logging.StreamHandler(sio)
+            handler.setFormatter(SwiftLogFormatter(
+                fmt="%(server)s: %(message)s", max_line_length=20)
+            )
+            logger.logger.addHandler(handler)
+            yield sio
+            logger.logger.removeHandler(handler)
+
         logger = utils.get_logger({}, name='name', log_route='route')
+        # log_route becomes the LogAdapter.name and logging.Logger.name
         self.assertEqual('route', logger.name)
+        self.assertEqual('route', logger.logger.name)
+        # name becomes the LogAdapter.server!
         self.assertEqual('name', logger.server)
+        # LogAdapter.server is used when formatting a log message
+        with add_log_handler(logger) as sio:
+            logger.info('testing')
+            self.assertEqual('name: testing\n', sio.getvalue())
+
         logger = utils.get_logger({'log_name': 'conf-name'}, name='name',
                                   log_route='route')
         self.assertEqual('route', logger.name)
         self.assertEqual('name', logger.server)
+        with add_log_handler(logger) as sio:
+            logger.info('testing')
+            self.assertEqual('name: testing\n', sio.getvalue())
+
         logger = utils.get_logger({'log_name': 'conf-name'}, log_route='route')
         self.assertEqual('route', logger.name)
         self.assertEqual('conf-name', logger.server)
+        with add_log_handler(logger) as sio:
+            logger.info('testing')
+            self.assertEqual('conf-name: testing\n', sio.getvalue())
+
         logger = utils.get_logger({'log_name': 'conf-name'})
         self.assertEqual('conf-name', logger.name)
         self.assertEqual('conf-name', logger.server)
+        with add_log_handler(logger) as sio:
+            logger.info('testing')
+            self.assertEqual('conf-name: testing\n', sio.getvalue())
+
         logger = utils.get_logger({})
         self.assertEqual('swift', logger.name)
         self.assertEqual('swift', logger.server)
+        with add_log_handler(logger) as sio:
+            logger.info('testing')
+            self.assertEqual('swift: testing\n', sio.getvalue())
+
         logger = utils.get_logger({}, log_route='route')
         self.assertEqual('route', logger.name)
         self.assertEqual('swift', logger.server)
+        with add_log_handler(logger) as sio:
+            logger.info('testing')
+            self.assertEqual('swift: testing\n', sio.getvalue())
+
+        # same log_route, different names...
+        logger1 = utils.get_logger({'log_statsd_host': '1.2.3.4'},
+                                   name='name1', log_route='route')
+        logger2 = utils.get_logger({'log_statsd_host': '1.2.3.5'},
+                                   name='name2', log_route='route')
+        self.assertEqual('route', logger1.name)
+        self.assertEqual('route', logger1.logger.name)
+        self.assertEqual('name1', logger1.server)
+        # oh dear, the statsd client on the common logging.Logger instance got
+        # mutated when logger2 was created
+        self.assertEqual('name2.', logger1.logger.statsd_client._prefix)
+        self.assertEqual('route', logger2.name)
+        self.assertEqual('route', logger2.logger.name)
+        self.assertEqual('name2', logger2.server)
+        self.assertEqual('name2.', logger2.logger.statsd_client._prefix)
+        self.assertIs(logger2.logger, logger1.logger)
+        with add_log_handler(logger1) as sio:
+            logger1.info('testing')
+            self.assertEqual('name1: testing\n', sio.getvalue())
+        with add_log_handler(logger2) as sio:
+            logger2.info('testing')
+            self.assertEqual('name2: testing\n', sio.getvalue())
+
+        # different log_route, different names...
+        logger1 = utils.get_logger({'log_statsd_host': '1.2.3.4'},
+                                   name='name1', log_route='route1')
+        logger2 = utils.get_logger({'log_statsd_host': '1.2.3.5'},
+                                   name='name2', log_route='route2')
+        self.assertEqual('route1', logger1.name)
+        self.assertEqual('route1', logger1.logger.name)
+        self.assertEqual('name1', logger1.server)
+        self.assertEqual('name1.', logger1.logger.statsd_client._prefix)
+        self.assertEqual('route2', logger2.name)
+        self.assertEqual('route2', logger2.logger.name)
+        self.assertEqual('name2', logger2.server)
+        self.assertEqual('name2.', logger2.logger.statsd_client._prefix)
+        self.assertIsNot(logger2.logger, logger1.logger)
+        with add_log_handler(logger1) as sio:
+            logger1.info('testing')
+            self.assertEqual('name1: testing\n', sio.getvalue())
+        with add_log_handler(logger2) as sio:
+            logger2.info('testing')
+            self.assertEqual('name2: testing\n', sio.getvalue())
 
     @with_tempdir
     def test_get_logger_sysloghandler_plumbing(self, tempdir):

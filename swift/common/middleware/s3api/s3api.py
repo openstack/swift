@@ -293,8 +293,7 @@ class S3ApiMiddleware(object):
             wsgi_conf.get('ratelimit_as_client_error', False))
 
         self.logger = get_logger(
-            wsgi_conf, log_route=wsgi_conf.get('log_name', 's3api'),
-            statsd_tail_prefix='s3api')
+            wsgi_conf, log_route='s3api', statsd_tail_prefix='s3api')
         self.check_pipeline(wsgi_conf)
 
     def is_s3_cors_preflight(self, env):
