@@ -1706,14 +1706,16 @@ class ContainerBroker(DatabaseBroker):
             ignored if ``includes`` is specified.
         :param includes: restricts the returned list to the shard range that
             includes the given value; if ``includes`` is specified then
-            ``marker`` and ``end_marker`` are ignored
-        :param include_deleted: include rows marked as deleted
+            ``marker`` and ``end_marker`` are ignored, but other constraints
+            are applied (e.g. ``exclude_others`` and ``include_deleted``).
+        :param include_deleted: include rows marked as deleted.
         :param states: include only rows matching the given state(s); can be an
             int or a list of ints.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
-            True, that row is included, otherwise it is not included. Default
-            is False.
+            True, that row is included unless it is excluded by other
+            constraints (e.g. ``marker``, ``end_marker``, ``includes``). If
+            False, that row is not included. Default is False.
         :param exclude_others: boolean that governs whether the rows whose
             names do not match the broker's path are included in the returned
             list. If True, those rows are not included, otherwise they are
@@ -1851,23 +1853,28 @@ class ContainerBroker(DatabaseBroker):
         Returns a list of persisted shard ranges.
 
         :param marker: restricts the returned list to shard ranges whose
-            namespace includes or is greater than the marker value.
+            namespace includes or is greater than the marker value. If
+            ``reverse=True`` then ``marker`` is treated as ``end_marker``.
             ``marker`` is ignored if ``includes`` is specified.
         :param end_marker: restricts the returned list to shard ranges whose
-            namespace includes or is less than the end_marker value.
+            namespace includes or is less than the end_marker value. If
+            ``reverse=True`` then ``end_marker`` is treated as ``marker``.
             ``end_marker`` is ignored if ``includes`` is specified.
         :param includes: restricts the returned list to the shard range that
             includes the given value; if ``includes`` is specified then
-            ``marker`` and ``end_marker`` are ignored.
+            ``fill_gaps``, ``marker`` and ``end_marker`` are ignored, but other
+            constraints are applied (e.g. ``exclude_others`` and
+            ``include_deleted``).
         :param reverse: reverse the result order.
-        :param include_deleted: include items that have the delete marker set
+        :param include_deleted: include items that have the delete marker set.
         :param states: if specified, restricts the returned list to shard
             ranges that have the given state(s); can be a list of ints or a
             single int.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
-            True, that row is included, otherwise it is not included. Default
-            is False.
+            True, that row is included unless it is excluded by other
+            constraints (e.g. ``marker``, ``end_marker``, ``includes``). If
+            False, that row is not included. Default is False.
         :param exclude_others: boolean that governs whether the rows whose
             names do not match the broker's path are included in the returned
             list. If True, those rows are not included, otherwise they are
@@ -1877,7 +1884,7 @@ class ContainerBroker(DatabaseBroker):
             upper bound of own shard range. Gaps enclosed within the found
             shard ranges are not filled. ``fill_gaps`` is ignored if
             ``includes`` is specified.
-        :return: a list of instances of :class:`swift.common.utils.ShardRange`
+        :return: a list of instances of :class:`swift.common.utils.ShardRange`.
         """
         if includes is None and (marker == Namespace.MAX
                                  or end_marker == Namespace.MIN):
