@@ -61,7 +61,7 @@ def sharding_enabled(broker):
     # if broker has been marked deleted it will have lost sysmeta, but we still
     # need to process the broker (for example, to shrink any shard ranges) so
     # fallback to checking if it has any shard ranges
-    if broker.get_shard_ranges():
+    if broker.has_other_shard_ranges():
         return True
     return False
 
@@ -2348,7 +2348,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
             own_shard_range = broker.get_own_shard_range()
             if own_shard_range.state in ShardRange.CLEAVING_STATES:
-                if broker.get_shard_ranges():
+                if broker.has_other_shard_ranges():
                     # container has been given shard ranges rather than
                     # found them e.g. via replication or a shrink event,
                     # or manually triggered cleaving.
