@@ -4403,7 +4403,16 @@ class NamespaceOuterBound(object):
 
 @functools.total_ordering
 class Namespace(object):
+    """
+    A Namespace encapsulates parameters that define a range of the object
+    namespace.
 
+    :param name: the name of the ``Namespace``.
+    :param lower: the lower bound of object names contained in the namespace;
+        the lower bound *is not* included in the namespace.
+    :param upper: the upper bound of object names contained in the namespace;
+        the upper bound *is* included in the namespace.
+    """
     __slots__ = ('_lower', '_upper', 'name')
 
     @functools.total_ordering
