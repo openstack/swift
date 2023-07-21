@@ -270,7 +270,7 @@ More specifically:
 #.  Sphinx is used to build documentation, so use the restructured text
     markup to designate parameters, return values, etc.  Documentation on
     the sphinx specific markup can be found here:
-    http://sphinx.pocoo.org/markup/index.html
+    https://www.sphinx-doc.org/en/master/
 
 To build documentation run::
 
