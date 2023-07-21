@@ -446,7 +446,7 @@ class ContainerBroker(DatabaseBroker):
             return UNSHARDED
         if self.db_epoch != self.get_own_shard_range().epoch:
             return UNSHARDED
-        if not self.get_shard_ranges():
+        if not self.has_other_shard_ranges():
             return COLLAPSED
         return SHARDED
 
@@ -457,7 +457,7 @@ class ContainerBroker(DatabaseBroker):
         """
         own_shard_range = self.get_own_shard_range()
         if own_shard_range.state in ShardRange.CLEAVING_STATES:
-            return bool(self.get_shard_ranges())
+            return self.has_other_shard_ranges()
         return False
 
     def sharding_required(self):
@@ -867,7 +867,7 @@ class ContainerBroker(DatabaseBroker):
                 Timestamp(info['put_timestamp']))
 
     def is_empty_enough_to_reclaim(self):
-        if self.is_root_container() and (self.get_shard_ranges() or
+        if self.is_root_container() and (self.has_other_shard_ranges() or
                                          self.get_db_state() == SHARDING):
             return False
         return self.empty()
@@ -1955,6 +1955,28 @@ class ContainerBroker(DatabaseBroker):
             bytes_used, object_count = cur.fetchone()
         return {'bytes_used': bytes_used,
                 'object_count': object_count}
+
+    def has_other_shard_ranges(self):
+        """
+        This function tells if there is any shard range other than the
+        broker's own shard range, that is not marked as deleted.
+
+        :return: A boolean value as described above.
+        """
+        with self.get() as conn:
+            sql = '''
+            SELECT 1 FROM %s
+            WHERE deleted = 0 AND name != ? LIMIT 1
+            ''' % (SHARD_RANGE_TABLE)
+            try:
+                data = conn.execute(sql, [self.path])
+                data.row_factory = None
+                return True if [row for row in data] else False
+            except sqlite3.OperationalError as err:
+                if ('no such table: %s' % SHARD_RANGE_TABLE) in str(err):
+                    return False
+                else:
+                    raise
 
     def get_all_shard_range_data(self):
         """

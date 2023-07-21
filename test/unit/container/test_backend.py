@@ -70,6 +70,33 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual([dict(sr) for sr in expected],
                          [dict(sr) for sr in actual])
 
+    def _delete_table(self, broker, table):
+        """
+        Delete the table  ``table`` from broker database.
+
+        :param broker: an object instance of ContainerBroker.
+        :param table: the name of the table to delete.
+        """
+        with broker.get() as conn:
+            try:
+                conn.execute("""
+                    DROP TABLE %s
+                """ % table)
+            except sqlite3.OperationalError as err:
+                if ('no such table: %s' % table) in str(err):
+                    return
+                else:
+                    raise
+
+    def _add_shard_range_table(self, broker):
+        """
+        Add the 'shard_range' table into the broker database.
+
+        :param broker: an object instance of ContainerBroker.
+        """
+        with broker.get() as conn:
+            broker.create_shard_range_table(conn)
+
     def test_creation(self):
         # Test ContainerBroker.__init__
         db_file = self.get_db_path()
@@ -1698,6 +1725,64 @@ class TestContainerBroker(test_db.TestDbBase):
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
         self._test_put_object_multiple_encoded_timestamps(broker)
+
+    @with_tempdir
+    def test_has_other_shard_ranges(self, tempdir):
+        acct = 'account'
+        cont = 'container'
+        hsh = hash_path(acct, cont)
+        epoch = Timestamp.now()
+        db_file = "%s_%s.db" % (hsh, epoch.normal)
+        db_path = os.path.join(tempdir, db_file)
+        ts = Timestamp.now()
+        broker = ContainerBroker(db_path, account=acct,
+                                 container=cont, force_db_file=True)
+        # Create the test container database and all the tables.
+        broker.initialize(ts.internal, 0)
+
+        # Test the case which the 'shard_range' table doesn't exist yet.
+        self._delete_table(broker, 'shard_range')
+        self.assertFalse(broker.has_other_shard_ranges())
+
+        # Add the 'shard_range' table back to the database, but it doesn't
+        # have any shard range row in it yet.
+        self._add_shard_range_table(broker)
+        shard_ranges = broker.get_shard_ranges(
+            include_deleted=True, states=None, include_own=True)
+        self.assertEqual(shard_ranges, [])
+        self.assertFalse(broker.has_other_shard_ranges())
+
+        # Insert its 'own_shard_range' into this test database.
+        own_shard_range = broker.get_own_shard_range()
+        own_shard_range.update_state(ShardRange.SHARDING)
+        own_shard_range.epoch = epoch
+        broker.merge_shard_ranges([own_shard_range])
+        self.assertTrue(broker.get_shard_ranges(include_own=True))
+        self.assertFalse(broker.has_other_shard_ranges())
+
+        # Insert a child shard range into this test database.
+        first_child_sr = ShardRange(
+            '.shards_%s/%s_1' % (acct, cont), Timestamp.now())
+        broker.merge_shard_ranges([first_child_sr])
+        self.assertTrue(broker.has_other_shard_ranges())
+
+        # Mark the first child shard range as deleted.
+        first_child_sr.deleted = 1
+        first_child_sr.timestamp = Timestamp.now()
+        broker.merge_shard_ranges([first_child_sr])
+        self.assertFalse(broker.has_other_shard_ranges())
+
+        # Insert second child shard range into this test database.
+        second_child_sr = ShardRange(
+            '.shards_%s/%s_2' % (acct, cont), Timestamp.now())
+        broker.merge_shard_ranges([second_child_sr])
+        self.assertTrue(broker.has_other_shard_ranges())
+
+        # Mark the 'own_shard_range' as deleted.
+        own_shard_range.deleted = 1
+        own_shard_range.timestamp = Timestamp.now()
+        broker.merge_shard_ranges([own_shard_range])
+        self.assertTrue(broker.has_other_shard_ranges())
 
     @with_tempdir
     def test_get_db_state(self, tempdir):
