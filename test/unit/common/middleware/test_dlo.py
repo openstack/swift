@@ -333,12 +333,36 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(body, b'manifest-contents')
         self.assertFalse(self.app.unread_requests)
 
+        # HEAD query param worked, since GET with query param is registered
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'HEAD',
+                     'QUERY_STRING': 'multipart-manifest=get'})
+        status, headers, body = self.call_dlo(req)
+        headers = HeaderKeyDict(headers)
+        self.assertEqual(headers["Etag"], "manifest-etag")
+        self.assertEqual(body, b'')
+
     def test_error_passthrough(self):
         self.app.register(
             'GET', '/v1/AUTH_test/gone/404ed',
             swob.HTTPNotFound, {}, None)
         req = swob.Request.blank('/v1/AUTH_test/gone/404ed',
                                  environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_dlo(req)
+        self.assertEqual(status, '404 Not Found')
+
+        # ... and multipart-manifest=get also returns registered 404 response
+        req = swob.Request.blank('/v1/AUTH_test/gone/404ed',
+                                 method='GET',
+                                 params={'multipart-manifest': 'get'})
+        status, headers, body = self.call_dlo(req)
+        self.assertEqual(status, '404 Not Found')
+
+        # HEAD with same params find same registered GET
+        req = swob.Request.blank('/v1/AUTH_test/gone/404ed',
+                                 method='HEAD',
+                                 params={'multipart-manifest': 'get'})
         status, headers, body = self.call_dlo(req)
         self.assertEqual(status, '404 Not Found')
 

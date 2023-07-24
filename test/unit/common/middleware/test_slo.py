@@ -1865,6 +1865,12 @@ class TestSloDeleteManifest(SloTestCase):
 
 
 class TestSloHeadOldManifest(SloTestCase):
+    """
+    Exercise legacy manifests written before we added etag/size SLO Sysmeta
+
+    N.B. We used to GET the whole manifest to calculate etag/size, just to
+    respond to HEAD requests.
+    """
     slo_etag = md5hex("seg01-hashseg02-hash")
 
     def setUp(self):
@@ -1887,6 +1893,7 @@ class TestSloHeadOldManifest(SloTestCase):
             'X-Static-Large-Object': 'true',
             'X-Object-Sysmeta-Artisanal-Etag': 'bespoke',
             'Etag': self.manifest_json_etag}
+        # see TestSloHeadManifest for tests w/ manifest_has_sysmeta = True
         manifest_headers.update(getattr(self, 'extra_manifest_headers', {}))
         self.manifest_has_sysmeta = all(h in manifest_headers for h in (
             'X-Object-Sysmeta-Slo-Etag', 'X-Object-Sysmeta-Slo-Size'))
@@ -1910,6 +1917,24 @@ class TestSloHeadOldManifest(SloTestCase):
         expected_app_calls = [('HEAD', '/v1/AUTH_test/headtest/man')]
         if not self.manifest_has_sysmeta:
             expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
+        self.assertEqual(self.app.calls, expected_app_calls)
+
+    def test_get_manifest_passthrough(self):
+        req = Request.blank(
+            '/v1/AUTH_test/headtest/man?multipart-manifest=get',
+            environ={'REQUEST_METHOD': 'HEAD'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn(('Etag', self.manifest_json_etag), headers)
+        self.assertIn(('Content-Type', 'application/json; charset=utf-8'),
+                      headers)
+        self.assertIn(('X-Static-Large-Object', 'true'), headers)
+        self.assertIn(('X-Object-Sysmeta-Artisanal-Etag', 'bespoke'), headers)
+        self.assertEqual(body, b'')  # it's a HEAD request, after all
+
+        expected_app_calls = [(
+            'HEAD', '/v1/AUTH_test/headtest/man?multipart-manifest=get')]
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_if_none_match_etag_matching(self):
@@ -1986,6 +2011,10 @@ class TestSloHeadOldManifest(SloTestCase):
 
 
 class TestSloHeadManifest(TestSloHeadOldManifest):
+    """
+    Exercise manifests written after we added etag/size SLO Sysmeta
+    """
+
     def setUp(self):
         self.extra_manifest_headers = {
             'X-Object-Sysmeta-Slo-Etag': self.slo_etag,

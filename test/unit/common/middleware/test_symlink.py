@@ -400,13 +400,24 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
 
     def test_get_symlink(self):
         self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
-                          {'X-Object-Sysmeta-Symlink-Target': 'c1/o'})
+                          {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
+                           'X-Object-Meta-Color': 'Red'})
         req = Request.blank('/v1/a/c/symlink?symlink=get', method='GET')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '200 OK')
         self.assertIsInstance(headers, list)
         self.assertIn(('X-Symlink-Target', 'c1/o'), headers)
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
+        self.assertIn(('X-Object-Meta-Color', 'Red'), headers)
+        self.assertEqual(body, b'')
+        # HEAD with same params find same registered GET
+        req = Request.blank('/v1/a/c/symlink?symlink=get', method='HEAD')
+        head_status, head_headers, head_body = self.call_sym(req)
+        self.assertEqual(head_status, '200 OK')
+        self.assertIn(('X-Symlink-Target', 'c1/o'), head_headers)
+        self.assertNotIn('X-Symlink-Target-Account', dict(head_headers))
+        self.assertIn(('X-Object-Meta-Color', 'Red'), head_headers)
+        self.assertEqual(head_body, b'')
 
     def test_get_symlink_with_account(self):
         self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,

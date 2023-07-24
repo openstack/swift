@@ -115,6 +115,40 @@ class FakeSwift(object):
                                      (method, path),))
         return resp
 
+    def _select_response(self, env, method, path):
+        # in some cases we can borrow different registered response
+        # ... the order is brittle and significant
+        preferences = [(method, path)]
+        if env.get('QUERY_STRING'):
+            # we can always reuse response w/o query string
+            preferences.append((method, env['PATH_INFO']))
+        if method == 'HEAD':
+            # any path suitable for GET always works for HEAD
+            # N.B. list(preferences) to avoid iter+modify/sigkill
+            preferences.extend(('GET', p) for _, p in list(preferences))
+        for m, p in preferences:
+            try:
+                resp_class, headers, body = self._find_response(m, p)
+            except KeyError:
+                pass
+            else:
+                break
+        else:
+            # special case for re-reading an uploaded file
+            # ... uploaded is only objects and always raw path
+            if method in ('GET', 'HEAD') and path in self.uploaded:
+                resp_class = swob.HTTPOk
+                headers, body = self.uploaded[path]
+            else:
+                raise KeyError("Didn't find %r in allowed responses" % (
+                    (method, path),))
+
+        if method == 'HEAD':
+            # HEAD resp never has body
+            body = None
+
+        return resp_class, HeaderKeyDict(headers), body
+
     def __call__(self, env, start_response):
         if self.can_ignore_range:
             # we might pop off the Range header
@@ -139,26 +173,7 @@ class FakeSwift(object):
         self.swift_sources.append(env.get('swift.source'))
         self.txn_ids.append(env.get('swift.trans_id'))
 
-        try:
-            resp_class, raw_headers, body = self._find_response(method, path)
-            headers = HeaderKeyDict(raw_headers)
-        except KeyError:
-            if (env.get('QUERY_STRING')
-                    and (method, env['PATH_INFO']) in self._responses):
-                resp_class, raw_headers, body = self._find_response(
-                    method, env['PATH_INFO'])
-                headers = HeaderKeyDict(raw_headers)
-            elif method == 'HEAD' and ('GET', path) in self._responses:
-                resp_class, raw_headers, body = self._find_response(
-                    'GET', path)
-                body = None
-                headers = HeaderKeyDict(raw_headers)
-            elif method == 'GET' and obj and path in self.uploaded:
-                resp_class = swob.HTTPOk
-                headers, body = self.uploaded[path]
-            else:
-                raise KeyError("Didn't find %r in allowed responses" % (
-                    (method, path),))
+        resp_class, headers, body = self._select_response(env, method, path)
 
         ignore_range_meta = req.headers.get(
             'x-backend-ignore-range-if-metadata-present')
@@ -182,9 +197,10 @@ class FakeSwift(object):
             headers.setdefault('Content-Length', len(req_body))
 
             # keep it for subsequent GET requests later
-            self.uploaded[path] = (dict(req.headers), req_body)
+            resp_headers = dict(req.headers)
             if "CONTENT_TYPE" in env:
-                self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
+                resp_headers['Content-Type'] = env["CONTENT_TYPE"]
+            self.uploaded[path] = (resp_headers, req_body)
 
         # simulate object POST
         elif method == 'POST' and obj:
