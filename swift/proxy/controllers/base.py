@@ -1130,18 +1130,44 @@ class GetterBase(object):
             else:
                 self.backend_headers.pop('Range')
 
+    def learn_size_from_content_range(self, start, end, length):
+        """
+        Sets our Range header's first byterange to the value learned from
+        the Content-Range header in the response; if we were given a
+        fully-specified range (e.g. "bytes=123-456"), this is a no-op.
+
+        If we were given a half-specified range (e.g. "bytes=123-" or
+        "bytes=-456"), then this changes the Range header to a
+        semantically-equivalent one *and* it lets us resume on a proper
+        boundary instead of just in the middle of a piece somewhere.
+        """
+        if length == 0:
+            return
+
+        if 'Range' in self.backend_headers:
+            try:
+                req_range = Range(self.backend_headers['Range'])
+                new_ranges = [(start, end)] + req_range.ranges[1:]
+            except ValueError:
+                new_ranges = [(start, end)]
+        else:
+            new_ranges = [(start, end)]
+
+        self.backend_headers['Range'] = (
+            "bytes=" + (",".join("%s-%s" % (s if s is not None else '',
+                                            e if e is not None else '')
+                                 for s, e in new_ranges)))
+
 
 class GetOrHeadHandler(GetterBase):
     def __init__(self, app, req, server_type, node_iter, partition, path,
                  backend_headers, concurrency=1, policy=None,
-                 client_chunk_size=None, newest=None, logger=None):
+                 newest=None, logger=None):
         super(GetOrHeadHandler, self).__init__(
             app=app, req=req, node_iter=node_iter,
             partition=partition, policy=policy, path=path,
             backend_headers=backend_headers, logger=logger)
         self.server_type = server_type
-        self.client_chunk_size = client_chunk_size
-        self.skip_bytes = 0
         self.used_nodes = []
         self.used_source_etag = ''
         self.concurrency = concurrency
@@ -1169,40 +1195,6 @@ class GetOrHeadHandler(GetterBase):
 
         # populated from response headers
         self.start_byte = self.end_byte = self.length = None
-
-    def learn_size_from_content_range(self, start, end, length):
-        """
-        If client_chunk_size is set, makes sure we yield things starting on
-        chunk boundaries based on the Content-Range header in the response.
-
-        Sets our Range header's first byterange to the value learned from
-        the Content-Range header in the response; if we were given a
-        fully-specified range (e.g. "bytes=123-456"), this is a no-op.
-
-        If we were given a half-specified range (e.g. "bytes=123-" or
-        "bytes=-456"), then this changes the Range header to a
-        semantically-equivalent one *and* it lets us resume on a proper
-        boundary instead of just in the middle of a piece somewhere.
-        """
-        if length == 0:
-            return
-
-        if self.client_chunk_size:
-            self.skip_bytes = bytes_to_skip(self.client_chunk_size, start)
-
-        if 'Range' in self.backend_headers:
-            try:
-                req_range = Range(self.backend_headers['Range'])
-                new_ranges = [(start, end)] + req_range.ranges[1:]
-            except ValueError:
-                new_ranges = [(start, end)]
-        else:
-            new_ranges = [(start, end)]
-
-        self.backend_headers['Range'] = (
-            "bytes=" + (",".join("%s-%s" % (s if s is not None else '',
-                                            e if e is not None else '')
-                                 for s, e in new_ranges)))
 
     def is_good_source(self, src):
         """
@@ -1240,16 +1232,12 @@ class GetOrHeadHandler(GetterBase):
                     raise StopIteration()
 
     def iter_bytes_from_response_part(self, part_file, nbytes):
-        buf = b''
         part_file = ByteCountEnforcer(part_file, nbytes)
         while True:
             try:
                 with WatchdogTimeout(self.app.watchdog, self.node_timeout,
                                      ChunkReadTimeout):
                     chunk = part_file.read(self.app.object_chunk_size)
-                    # NB: this append must be *inside* the context
-                    # manager for test.unit.SlowBody to do its thing
-                    buf += chunk
                     if nbytes is not None:
                         nbytes -= len(chunk)
             except (ChunkReadTimeout, ShortReadError):
@@ -1262,7 +1250,6 @@ class GetOrHeadHandler(GetterBase):
                     six.reraise(exc_type, exc_value, exc_traceback)
                 except RangeAlreadyComplete:
                     break
-                buf = b''
                 if self._replace_source_and_node(
                         'Trying to read object during GET (retrying)'):
                     try:
@@ -1277,43 +1264,14 @@ class GetOrHeadHandler(GetterBase):
                 else:
                     six.reraise(exc_type, exc_value, exc_traceback)
             else:
-                if buf and self.skip_bytes:
-                    if self.skip_bytes < len(buf):
-                        buf = buf[self.skip_bytes:]
-                        self.bytes_used_from_backend += self.skip_bytes
-                        self.skip_bytes = 0
-                    else:
-                        self.skip_bytes -= len(buf)
-                        self.bytes_used_from_backend += len(buf)
-                        buf = b''
-
                 if not chunk:
-                    if buf:
-                        with WatchdogTimeout(self.app.watchdog,
-                                             self.app.client_timeout,
-                                             ChunkWriteTimeout):
-                            self.bytes_used_from_backend += len(buf)
-                            yield buf
-                        buf = b''
                     break
 
-                if self.client_chunk_size is not None:
-                    while len(buf) >= self.client_chunk_size:
-                        client_chunk = buf[:self.client_chunk_size]
-                        buf = buf[self.client_chunk_size:]
-                        with WatchdogTimeout(self.app.watchdog,
-                                             self.app.client_timeout,
-                                             ChunkWriteTimeout):
-                            self.bytes_used_from_backend += \
-                                len(client_chunk)
-                            yield client_chunk
-                else:
-                    with WatchdogTimeout(self.app.watchdog,
-                                         self.app.client_timeout,
-                                         ChunkWriteTimeout):
-                        self.bytes_used_from_backend += len(buf)
-                        yield buf
-                    buf = b''
+                with WatchdogTimeout(self.app.watchdog,
+                                     self.app.client_timeout,
+                                     ChunkWriteTimeout):
+                    self.bytes_used_from_backend += len(chunk)
+                    yield chunk
 
     def _get_response_parts_iter(self, req):
         try:
@@ -1328,14 +1286,12 @@ class GetOrHeadHandler(GetterBase):
                 while True:
                     start_byte, end_byte, length, headers, part = \
                         self.get_next_doc_part()
-                    # note: learn_size_from_content_range() sets
-                    # self.skip_bytes
                     self.learn_size_from_content_range(
                         start_byte, end_byte, length)
                     self.bytes_used_from_backend = 0
                     # not length; that refers to the whole object, so is the
                     # wrong value to use for GET-range responses
-                    byte_count = ((end_byte - start_byte + 1) - self.skip_bytes
+                    byte_count = ((end_byte - start_byte + 1)
                                   if (end_byte is not None
                                       and start_byte is not None)
                                   else None)
@@ -2167,7 +2123,7 @@ class Controller(object):
             return False
 
     def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
-                       concurrency=1, policy=None, client_chunk_size=None):
+                       concurrency=1, policy=None):
         """
         Base handler for HTTP GET or HEAD requests.
 
@@ -2178,7 +2134,6 @@ class Controller(object):
         :param path: path for the request
         :param concurrency: number of requests to run concurrently
         :param policy: the policy instance, or None if Account or Container
-        :param client_chunk_size: chunk size for response body iterator
         :returns: swob.Response object
         """
         backend_headers = self.generate_request_headers(
@@ -2187,7 +2142,6 @@ class Controller(object):
         handler = GetOrHeadHandler(self.app, req, self.server_type, node_iter,
                                    partition, path, backend_headers,
                                    concurrency, policy=policy,
-                                   client_chunk_size=client_chunk_size,
                                    logger=self.logger)
         res = handler.get_working_response(req)
 

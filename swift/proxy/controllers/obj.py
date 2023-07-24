@@ -2503,39 +2503,7 @@ class ECFragGetter(GetterBase):
         self.fragment_size = policy.fragment_size
         self.skip_bytes = 0
         self.logger_thread_locals = logger_thread_locals
-
-    def learn_size_from_content_range(self, start, end, length):
-        """
-        Make sure we yield things starting on fragment boundaries based on the
-        Content-Range header in the response.
-
-        Sets our Range header's first byterange to the value learned from
-        the Content-Range header in the response; if we were given a
-        fully-specified range (e.g. "bytes=123-456"), this is a no-op.
-
-        If we were given a half-specified range (e.g. "bytes=123-" or
-        "bytes=-456"), then this changes the Range header to a
-        semantically-equivalent one *and* it lets us resume on a proper
-        boundary instead of just in the middle of a piece somewhere.
-        """
-        if length == 0:
-            return
-
-        self.skip_bytes = bytes_to_skip(self.fragment_size, start)
-
-        if 'Range' in self.backend_headers:
-            try:
-                req_range = Range(self.backend_headers['Range'])
-                new_ranges = [(start, end)] + req_range.ranges[1:]
-            except ValueError:
-                new_ranges = [(start, end)]
-        else:
-            new_ranges = [(start, end)]
-
-        self.backend_headers['Range'] = (
-            "bytes=" + (",".join("%s-%s" % (s if s is not None else '',
-                                            e if e is not None else '')
-                                 for s, e in new_ranges)))
+        self.status = self.reason = self.body = self.source_headers = None
 
     def response_parts_iter(self, req):
         try:
@@ -2651,8 +2619,10 @@ class ECFragGetter(GetterBase):
                         # sure why the req.environ update is always needed
                         req.environ['swift.non_client_disconnect'] = True
                         break
-                    # note: learn_size_from_content_range() sets
-                    # self.skip_bytes
+                    # skip_bytes compensates for the backend request range
+                    # expansion done in _convert_range
+                    self.skip_bytes = bytes_to_skip(
+                        self.fragment_size, start_byte)
                     self.learn_size_from_content_range(
                         start_byte, end_byte, length)
                     self.bytes_used_from_backend = 0

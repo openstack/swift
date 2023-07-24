@@ -54,7 +54,7 @@ from test.unit import (
     FakeRing, fake_http_connect, patch_policies, SlowBody, FakeStatus,
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub,
     fake_ec_node_response, StubResponse, mocked_http_conn,
-    quiet_eventlet_exceptions)
+    quiet_eventlet_exceptions, FakeSource)
 from test.unit.proxy.test_server import node_error_count
 
 
@@ -6880,6 +6880,73 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         part = FileLikeIter([b'some', b'thing', b''])
         it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
         self.assertEqual([c.encode() for c in 'something'], [ch for ch in it])
+
+    def test_fragment_size(self):
+        source = FakeSource((
+            b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))
+        req = Request.blank('/v1/a/c/o')
+
+        def mock_source_and_node_gen():
+            yield source, {}
+
+        self.getter.fragment_size = 8
+        with mock.patch.object(self.getter, '_source_and_node_gen',
+                               mock_source_and_node_gen):
+            it = self.getter.response_parts_iter(req)
+            fragments = list(next(it)['part_iter'])
+
+        self.assertEqual(fragments, [
+            b'abcd1234', b'abcd1234', b'abcd1234', b'abcd12'])
+
+    def test_fragment_size_resuming(self):
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+
+        source1 = FakeSource([b'abcd', b'1234', None,
+                              b'efgh', b'5678', b'lots', b'more', b'data'])
+        # incomplete reads of fragment_size will be re-fetched
+        source2 = FakeSource([b'efgh', b'5678', b'lots', None])
+        source3 = FakeSource([b'lots', b'more', b'data'])
+        req = Request.blank('/v1/a/c/o')
+        range_headers = []
+        sources = [(source1, node), (source2, node), (source3, node)]
+
+        def mock_source_and_node_gen():
+            for source in sources:
+                range_headers.append(self.getter.backend_headers.get('Range'))
+                yield source
+
+        self.getter.fragment_size = 8
+        with mock.patch.object(self.getter, '_source_and_node_gen',
+                               mock_source_and_node_gen):
+            it = self.getter.response_parts_iter(req)
+            fragments = list(next(it)['part_iter'])
+
+        self.assertEqual(fragments, [
+            b'abcd1234', b'efgh5678', b'lotsmore', b'data'])
+        self.assertEqual(range_headers, [None, 'bytes=8-27', 'bytes=16-27'])
+
+    def test_fragment_size_resuming_chunked(self):
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+        headers = {'transfer-encoding': 'chunked',
+                   'content-type': 'text/plain'}
+        source1 = FakeSource([b'abcd', b'1234', b'abc', None], headers=headers)
+        source2 = FakeSource([b'efgh5678'], headers=headers)
+        range_headers = []
+        sources = [(source1, node), (source2, node)]
+        req = Request.blank('/v1/a/c/o')
+
+        def mock_source_and_node_gen():
+            for source in sources:
+                range_headers.append(self.getter.backend_headers.get('Range'))
+                yield source
+
+        self.getter.fragment_size = 8
+        with mock.patch.object(self.getter, '_source_and_node_gen',
+                               mock_source_and_node_gen):
+            it = self.getter.response_parts_iter(req)
+            fragments = list(next(it)['part_iter'])
+        self.assertEqual(fragments, [b'abcd1234', b'efgh5678'])
+        self.assertEqual(range_headers, [None, 'bytes=8-'])
 
 
 if __name__ == '__main__':

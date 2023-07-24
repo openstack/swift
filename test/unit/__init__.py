@@ -49,7 +49,7 @@ import six.moves.cPickle as pickle
 from six.moves import range
 from six.moves.http_client import HTTPException
 
-from swift.common import storage_policy, swob, utils
+from swift.common import storage_policy, swob, utils, exceptions
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
@@ -1452,3 +1452,36 @@ class ConfigAssertMixin(object):
                 app = app._pipeline_final_app
             found_value = getattr(app, option_name)
         self.assertEqual(found_value, option_value)
+
+
+class FakeSource(object):
+    def __init__(self, chunks, headers=None, body=b''):
+        self.chunks = list(chunks)
+        self.headers = headers or {}
+        self.status = 200
+        self.swift_conn = None
+        self.body = body
+
+    def read(self, _read_size):
+        if self.chunks:
+            chunk = self.chunks.pop(0)
+            if chunk is None:
+                raise exceptions.ChunkReadTimeout()
+            else:
+                return chunk
+        else:
+            return self.body
+
+    def getheader(self, header):
+        # content-length for the whole object is generated dynamically
+        # by summing non-None chunks
+        if header.lower() == "content-length":
+            if self.chunks:
+                return str(sum(len(c) for c in self.chunks
+                               if c is not None))
+            return len(self.read(-1))
+        return self.headers.get(header.lower())
+
+    def getheaders(self):
+        return [('content-length', self.getheader('content-length'))] + \
+               [(k, v) for k, v in self.headers.items()]
