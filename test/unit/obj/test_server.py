@@ -56,7 +56,8 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     Timestamp, md5
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
-from swift.common.swob import Request, WsgiBytesIO
+from swift.common.swob import Request, WsgiBytesIO, \
+    HTTPRequestedRangeNotSatisfiable
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
@@ -3291,6 +3292,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 416)
         self.assertIn(b'Not Satisfiable', resp.body)
+        self.assertEqual('bytes */6', resp.headers['content-range'])
 
         # Proxy (SLO in particular) can say that if some metadata's present,
         # it wants the whole thing
@@ -3302,6 +3304,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, b'VERIFY')
         self.assertEqual(resp.headers['content-length'], '6')
+        self.assertNotIn('content-range', resp.headers)
 
         # If it's not present, Range is still respected
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
@@ -3312,6 +3315,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 206)
         self.assertEqual(resp.body, b'ERI')
         self.assertEqual(resp.headers['content-length'], '3')
+        self.assertEqual('bytes 1-3/6', resp.headers['content-range'])
 
         # Works like "any", not "all"; also works where we would've 416ed
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
@@ -3322,6 +3326,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, b'VERIFY')
         self.assertEqual(resp.headers['content-length'], '6')
+        self.assertNotIn('content-range', resp.headers)
 
         objfile = os.path.join(
             self.testdir, 'sda1',
@@ -3373,6 +3378,39 @@ class TestObjectController(BaseTestCase):
                             headers={'Range': 'bytes=-10'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
+
+    def test_GET_range_not_satisfiable(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/zero-byte',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'7 bytes'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/zero-byte',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Range': 'bytes=1-20, 30-40'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 206)
+        self.assertEqual('bytes 1-6/7', resp.headers.get('Content-Range'))
+        self.assertEqual(b' bytes', resp.body)
+
+        req = Request.blank('/sda1/p/a/c/zero-byte',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Range': 'bytes=10-20'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 416)
+        self.assertEqual('bytes */7', resp.headers.get('Content-Range'))
+        exp_resp_body = b''.join(
+            HTTPRequestedRangeNotSatisfiable()({}, lambda *args: None))
+        self.assertEqual(str(len(exp_resp_body)),
+                         resp.headers.get('Content-Length'))
+        self.assertEqual(
+            '"%s"' % md5(b'7 bytes', usedforsecurity=False).hexdigest(),
+            resp.headers.get('Etag'))
+        self.assertEqual(exp_resp_body, resp.body)
 
     def test_GET_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
