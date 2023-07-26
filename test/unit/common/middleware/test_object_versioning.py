@@ -101,6 +101,11 @@ class ObjectVersioningBaseTestCase(unittest.TestCase):
         self.cache_version_off.set(
             get_cache_key('a', self.build_container_name('c')),
             {'status': 200})
+
+        self.cache_version_never_on = FakeMemcache()
+        self.cache_version_never_on.set(get_cache_key('a'), {'status': 200})
+        self.cache_version_never_on.set(get_cache_key('a', 'c'),
+                                        {'status': 200})
         self.expected_unread_requests = {}
 
     def tearDown(self):
@@ -2998,6 +3003,73 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             'is_latest': True,
         }]
         self.assertEqual(expected, json.loads(body))
+
+    def test_list_versions_never_enabled(self):
+        listing_body = [{
+            'bytes': 8,
+            'name': 'my-other-object',
+            'hash': 'ebdd8d46ecb4a07f6c433d67eb05d5f3',
+            'last_modified': '1970-01-01T00:00:05.000000',
+            'content_type': 'application/bar',
+        }, {
+            'bytes': 9,
+            'name': 'obj',
+            'hash': 'e55cedc11adb39c404b7365f7d6291fa',
+            'last_modified': '1970-01-01T00:00:20.000000',
+            'content_type': 'text/plain',
+        }]
+
+        self.app.register(
+            'GET', self.build_versions_path(), swob.HTTPNotFound, {}, '')
+        self.app.register(
+            'GET', '/v1/a/c', swob.HTTPOk, {},
+            json.dumps(listing_body).encode('utf8'))
+        req = Request.blank(
+            '/v1/a/c?versions',
+            environ={'REQUEST_METHOD': 'GET',
+                     'swift.cache': self.cache_version_never_on})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertNotIn('x-versions-enabled', [h.lower() for h, _ in headers])
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+        expected = [{
+            'bytes': 8,
+            'name': 'my-other-object',
+            'version_id': 'null',
+            'hash': 'ebdd8d46ecb4a07f6c433d67eb05d5f3',
+            'last_modified': '1970-01-01T00:00:05.000000',
+            'content_type': 'application/bar',
+            'is_latest': True,
+        }, {
+            'bytes': 9,
+            'name': 'obj',
+            'version_id': 'null',
+            'hash': 'e55cedc11adb39c404b7365f7d6291fa',
+            'last_modified': '1970-01-01T00:00:20.000000',
+            'content_type': 'text/plain',
+            'is_latest': True,
+        }]
+        self.assertEqual(expected, json.loads(body))
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c?format=json'),
+            ('HEAD', self.build_versions_path()),
+        ])
+
+        # if it's in cache, we won't even get the HEAD
+        self.app._calls = []
+        self.cache_version_never_on.set(
+            get_cache_key('a', self.build_container_name('c')),
+            {'status': 404})
+        req = Request.blank(
+            '/v1/a/c?versions',
+            environ={'REQUEST_METHOD': 'GET',
+                     'swift.cache': self.cache_version_never_on})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertNotIn('x-versions-enabled', [h.lower() for h, _ in headers])
+        self.assertEqual(expected, json.loads(body))
+        self.assertEqual(self.app.calls, [('GET', '/v1/a/c?format=json')])
 
     def test_bytes_count(self):
         self.app.register(

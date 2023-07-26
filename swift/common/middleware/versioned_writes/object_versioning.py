@@ -1165,12 +1165,22 @@ class ContainerContext(ObjectVersioningContext):
             params['prefix'] = get_reserved_name(params['prefix'])
 
         # NB: no end_marker support (yet)
-        versions_req.params = {
-            k: params.get(k, '')
-            for k in ('prefix', 'marker', 'limit', 'delimiter', 'reverse')}
-        versions_resp = versions_req.get_response(self.app)
+        if get_container_info(versions_req.environ, self.app,
+                              swift_source='OV')['status'] == 404:
+            # we don't usually like to LBYL like this, but 404s tend to be
+            # expensive (since we check all primaries and a bunch of handoffs)
+            # and we expect this to be a reasonably common way to listing
+            # objects since it's more complete from the user's perspective
+            # (see also: s3api and that client ecosystem)
+            versions_resp = None
+        else:
+            versions_req.params = {
+                k: params.get(k, '') for k in (
+                    'prefix', 'marker', 'limit', 'delimiter', 'reverse')}
+            versions_resp = versions_req.get_response(self.app)
 
-        if versions_resp.status_int == HTTP_NOT_FOUND:
+        if versions_resp is None \
+                or versions_resp.status_int == HTTP_NOT_FOUND:
             subdir_listing = [{'subdir': s} for s in subdir_set]
             broken_listing = []
             for item in current_versions.values():
