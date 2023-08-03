@@ -32,7 +32,7 @@ from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, storage_directory, hash_path, \
     ShardRange, renamer, MD5_OF_EMPTY_STRING, mkdirs, get_db_files, \
     parse_db_filename, make_db_file_path, split_path, RESERVED_BYTE, \
-    filter_namespaces, ShardRangeList
+    ShardRangeList, Namespace
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
     zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT
 
@@ -1685,7 +1685,8 @@ class ContainerBroker(DatabaseBroker):
             if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
                 raise
 
-    def _get_shard_range_rows(self, connection=None, includes=None,
+    def _get_shard_range_rows(self, connection=None, marker=None,
+                              end_marker=None, includes=None,
                               include_deleted=False, states=None,
                               include_own=False, exclude_others=False):
         """
@@ -1696,8 +1697,15 @@ class ContainerBroker(DatabaseBroker):
         ``exclude_others=True``.
 
         :param connection: db connection
+        :param marker: restricts the returned list to rows whose namespace
+            includes or is greater than the marker value. ``marker`` is ignored
+             if ``includes`` is specified.
+        :param end_marker: restricts the returned list to rows whose namespace
+            includes or is less than the end_marker value. ``end_marker`` is
+            ignored if ``includes`` is specified.
         :param includes: restricts the returned list to the shard range that
-            includes the given value
+            includes the given value; if ``includes`` is specified then
+            ``marker`` and ``end_marker`` are ignored
         :param include_deleted: include rows marked as deleted
         :param states: include only rows matching the given state(s); can be an
             int or a list of ints.
@@ -1741,7 +1749,14 @@ class ContainerBroker(DatabaseBroker):
             if exclude_others:
                 conditions.append('name = ?')
                 params.append(self.path)
-            if includes is not None:
+            if includes is None:
+                if end_marker:
+                    conditions.append('lower < ?')
+                    params.append(end_marker)
+                if marker:
+                    conditions.append("(upper = '' OR upper > ?)")
+                    params.append(marker)
+            else:
                 conditions.extend(('lower < ?', "(upper = '' OR upper >= ?)"))
                 params.extend((includes, includes))
             if conditions:
@@ -1826,8 +1841,10 @@ class ContainerBroker(DatabaseBroker):
 
         :param marker: restricts the returned list to shard ranges whose
             namespace includes or is greater than the marker value.
+            ``marker`` is ignored if ``includes`` is specified.
         :param end_marker: restricts the returned list to shard ranges whose
             namespace includes or is less than the end_marker value.
+            ``end_marker`` is ignored if ``includes`` is specified.
         :param includes: restricts the returned list to the shard range that
             includes the given value; if ``includes`` is specified then
             ``marker`` and ``end_marker`` are ignored.
@@ -1847,9 +1864,14 @@ class ContainerBroker(DatabaseBroker):
         :param fill_gaps: if True, insert a modified copy of own shard range to
             fill any gap between the end of any found shard ranges and the
             upper bound of own shard range. Gaps enclosed within the found
-            shard ranges are not filled.
+            shard ranges are not filled. ``fill_gaps`` is ignored if
+            ``includes`` is specified.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
+        if includes is None and (marker == Namespace.MAX
+                                 or end_marker == Namespace.MIN):
+            return []
+
         if reverse:
             marker, end_marker = end_marker, marker
         if marker and end_marker and marker >= end_marker:
@@ -1858,16 +1880,12 @@ class ContainerBroker(DatabaseBroker):
         shard_ranges = [
             ShardRange(*row)
             for row in self._get_shard_range_rows(
-                includes=includes, include_deleted=include_deleted,
-                states=states, include_own=include_own,
-                exclude_others=exclude_others)]
-
+                marker=marker, end_marker=end_marker, includes=includes,
+                include_deleted=include_deleted, states=states,
+                include_own=include_own, exclude_others=exclude_others)]
         shard_ranges.sort(key=ShardRange.sort_key)
         if includes:
             return shard_ranges[:1] if shard_ranges else []
-
-        shard_ranges = filter_namespaces(
-            shard_ranges, includes, marker, end_marker)
 
         if fill_gaps:
             own_shard_range = self.get_own_shard_range()
