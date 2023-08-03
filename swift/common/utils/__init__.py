@@ -280,7 +280,7 @@ def backward(f, blocksize=4096):
 
 
 # Used when reading config values
-TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
+TRUE_VALUES = {'true', '1', 'yes', 'on', 't', 'y'}
 
 
 def non_negative_float(value):
@@ -5096,11 +5096,18 @@ class ShardRange(Namespace):
 
     @classmethod
     def sort_key(cls, sr):
+        return cls.sort_key_order(sr.name, sr.lower, sr.upper, sr.state)
+
+    @staticmethod
+    def sort_key_order(name, lower, upper, state):
+        # Use Namespace.MaxBound() for upper bound '', this will allow this
+        # record to be sorted correctly by upper.
+        upper = upper if upper else Namespace.MaxBound()
         # defines the sort order for shard ranges
         # note if this ever changes to *not* sort by upper first then it breaks
         # a key assumption for bisect, which is used by utils.find_namespace
         # with shard ranges.
-        return sr.upper, sr.state, sr.lower, sr.name
+        return upper, state, lower, name
 
     def is_child_of(self, parent):
         """

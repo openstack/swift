@@ -1685,6 +1685,125 @@ class ContainerBroker(DatabaseBroker):
             if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
                 raise
 
+    def _make_filler_shard_range(self, namespaces, marker, end_marker):
+        if namespaces and namespaces[-1].upper == Namespace.MAX:
+            return None
+
+        # Insert a modified copy of own shard range to fill any gap between the
+        # end of any found and the upper bound of own shard range. Gaps
+        # enclosed within the found shard ranges are not filled.
+        own_shard_range = self.get_own_shard_range()
+        if namespaces:
+            last_upper = namespaces[-1].upper
+        else:
+            last_upper = max(marker or own_shard_range.lower,
+                             own_shard_range.lower)
+        required_upper = min(end_marker or own_shard_range.upper,
+                             own_shard_range.upper)
+        if required_upper > last_upper:
+            filler_sr = own_shard_range
+            filler_sr.lower = last_upper
+            filler_sr.upper = required_upper
+            return filler_sr
+        else:
+            return None
+
+    def get_namespaces(self, marker=None, end_marker=None, includes=None,
+                       reverse=False, states=None, fill_gaps=False):
+        """
+        Returns a list of persisted namespaces per input parameters.
+
+        :param marker: restricts the returned list to shard ranges whose
+            namespace includes or is greater than the marker value. If
+            ``reverse=True`` then ``marker`` is treated as ``end_marker``.
+            ``marker`` is ignored if ``includes`` is specified.
+        :param end_marker: restricts the returned list to shard ranges whose
+            namespace includes or is less than the end_marker value. If
+            ``reverse=True`` then ``end_marker`` is treated as ``marker``.
+            ``end_marker`` is ignored if ``includes`` is specified.
+        :param includes: restricts the returned list to the shard range that
+            includes the given value; if ``includes`` is specified then
+            ``fill_gaps``, ``marker`` and ``end_marker`` are ignored.
+        :param reverse: reverse the result order.
+        :param states: if specified, restricts the returned list to namespaces
+            that have one of the given states; should be a list of ints.
+        :param fill_gaps: if True, insert a modified copy of own shard range to
+            fill any gap between the end of any found shard ranges and the
+            upper bound of own shard range. Gaps enclosed within the found
+            shard ranges are not filled.
+        :return: a list of Namespace objects.
+        """
+        if includes is None and (marker == Namespace.MAX
+                                 or end_marker == Namespace.MIN):
+            return []
+
+        if reverse:
+            marker, end_marker = end_marker, marker
+        if marker and end_marker and marker >= end_marker:
+            return []
+
+        included_states = set(states) if states else None
+        with self.get() as conn:
+            # Namespace only needs 'name', 'lower' and 'upper', but the query
+            # also need to include 'state' to be used when subesequently
+            # sorting the rows. And the sorting can't be done within SQLite
+            # since the value for maximum upper bound is an empty string.
+
+            conditions = ['deleted = 0', 'name != ?']
+            params = [self.path]
+            if included_states:
+                conditions.append('state in (%s)' % ','.join(
+                    '?' * len(included_states)))
+                params.extend(included_states)
+            if includes is None:
+                if end_marker:
+                    conditions.append('lower < ?')
+                    params.append(end_marker)
+                if marker:
+                    conditions.append("(upper = '' OR upper > ?)")
+                    params.append(marker)
+            else:
+                conditions.extend(('lower < ?', "(upper = '' OR upper >= ?)"))
+                params.extend((includes, includes))
+            condition = ' WHERE ' + ' AND '.join(conditions)
+            sql = '''
+            SELECT name, lower, upper, state FROM %s%s
+            ''' % (SHARD_RANGE_TABLE, condition)
+            try:
+                data = conn.execute(sql, params)
+                data.row_factory = None
+                namespaces = [row for row in data]
+            except sqlite3.OperationalError as err:
+                if ('no such table: %s' % SHARD_RANGE_TABLE) in str(err):
+                    return []
+                else:
+                    raise
+
+        # Sort those namespaces in order, note that each namespace record also
+        # include additional attribute 'state'.
+        def sort_key(namespace):
+            return ShardRange.sort_key_order(name=namespace[0],
+                                             lower=namespace[1],
+                                             upper=namespace[2],
+                                             state=namespace[3])
+        namespaces.sort(key=sort_key)
+        # Convert the record tuples to Namespace objects.
+        namespaces = [Namespace(row[0], row[1], row[2]) for row in namespaces]
+        if includes:
+            return namespaces[:1] if namespaces else []
+
+        if fill_gaps:
+            filler_sr = self._make_filler_shard_range(
+                namespaces, marker, end_marker)
+            if filler_sr:
+                namespaces.append(Namespace(filler_sr.name,
+                                            filler_sr.lower,
+                                            filler_sr.upper))
+        if reverse:
+            namespaces.reverse()
+
+        return namespaces
+
     def _get_shard_range_rows(self, connection=None, marker=None,
                               end_marker=None, includes=None,
                               include_deleted=False, states=None,
@@ -1901,18 +2020,9 @@ class ContainerBroker(DatabaseBroker):
             return shard_ranges[:1] if shard_ranges else []
 
         if fill_gaps:
-            own_shard_range = self.get_own_shard_range()
-            if shard_ranges:
-                last_upper = shard_ranges[-1].upper
-            else:
-                last_upper = max(marker or own_shard_range.lower,
-                                 own_shard_range.lower)
-            required_upper = min(end_marker or own_shard_range.upper,
-                                 own_shard_range.upper)
-            if required_upper > last_upper:
-                filler_sr = own_shard_range
-                filler_sr.lower = last_upper
-                filler_sr.upper = required_upper
+            filler_sr = self._make_filler_shard_range(
+                shard_ranges, marker, end_marker)
+            if filler_sr:
                 shard_ranges.append(filler_sr)
 
         if reverse:

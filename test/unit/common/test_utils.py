@@ -8600,6 +8600,42 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
             'a', 'root', 'parent', ts.internal, '3')
         self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
 
+    def test_sort_key_order(self):
+        self.assertEqual(
+            utils.ShardRange.sort_key_order(
+                name="a/c",
+                lower='lower',
+                upper='upper',
+                state=utils.ShardRange.ACTIVE),
+            ('upper', utils.ShardRange.ACTIVE, 'lower', "a/c"))
+
+    def test_sort_key(self):
+        orig_shard_ranges = [
+            utils.ShardRange('a/c', next(self.ts_iter), '', '',
+                             state=utils.ShardRange.SHARDED),
+            utils.ShardRange('.a/c1', next(self.ts_iter), 'a', 'd',
+                             state=utils.ShardRange.CREATED),
+            utils.ShardRange('.a/c0', next(self.ts_iter), '', 'a',
+                             state=utils.ShardRange.CREATED),
+            utils.ShardRange('.a/c2b', next(self.ts_iter), 'd', 'f',
+                             state=utils.ShardRange.SHARDING),
+            utils.ShardRange('.a/c2', next(self.ts_iter), 'c', 'f',
+                             state=utils.ShardRange.SHARDING),
+            utils.ShardRange('.a/c2a', next(self.ts_iter), 'd', 'f',
+                             state=utils.ShardRange.SHARDING),
+            utils.ShardRange('.a/c4', next(self.ts_iter), 'f', '',
+                             state=utils.ShardRange.ACTIVE)
+        ]
+        shard_ranges = list(orig_shard_ranges)
+        shard_ranges.sort(key=utils.ShardRange.sort_key)
+        self.assertEqual(shard_ranges[0], orig_shard_ranges[2])
+        self.assertEqual(shard_ranges[1], orig_shard_ranges[1])
+        self.assertEqual(shard_ranges[2], orig_shard_ranges[4])
+        self.assertEqual(shard_ranges[3], orig_shard_ranges[5])
+        self.assertEqual(shard_ranges[4], orig_shard_ranges[3])
+        self.assertEqual(shard_ranges[5], orig_shard_ranges[6])
+        self.assertEqual(shard_ranges[6], orig_shard_ranges[0])
+
     def test_is_child_of(self):
         # Set up some shard ranges in relational hierarchy:
         # account -> root -> grandparent -> parent -> child

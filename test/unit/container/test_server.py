@@ -43,7 +43,7 @@ from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
                                 storage_directory, lock_parent_directory,
-                                ShardRange, RESERVED_STR)
+                                ShardRange, RESERVED_STR, Namespace)
 from test.debug_logger import debug_logger
 from test.unit import fake_http_connect, mock_check_drive
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
@@ -1722,64 +1722,89 @@ class TestContainerController(unittest.TestCase):
              'content_type': 'foo/bar', 'last_modified': obj_ts.isoformat},
         ])
 
-    def test_DELETE(self):
-        ts_iter = make_timestamp_iter()
+    def _populate_container(self, path):
         req = Request.blank(
-            '/sda1/p/a/c',
+            path,
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(ts_iter).internal})
+            headers={'X-Timestamp': next(self.ts).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
 
         # PUT an *empty* shard range
-        sr = ShardRange('.shards_a/c', next(ts_iter), 'l', 'u', 0, 0,
+        sr = ShardRange('.shards_a/c', next(self.ts), 'l', 'u', 0, 0,
                         state=ShardRange.ACTIVE)
         req = Request.blank(
-            '/sda1/p/a/c',
+            path,
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(ts_iter).internal,
+            headers={'X-Timestamp': next(self.ts).internal,
                      'X-Backend-Record-Type': 'shard'},
             body=json.dumps([dict(sr)]))
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)
+        return sr
 
+    def _populate_and_delete_container(self, path):
+        sr = self._populate_container(path)
+        req = Request.blank(
+            path,
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': next(self.ts).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        return sr
+
+    def test_DELETE(self):
+        self._populate_container('/sda1/p/a/c')
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': next(ts_iter).internal})
+            headers={'X-Timestamp': next(self.ts).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
 
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(ts_iter).internal})
+            headers={'X-Timestamp': next(self.ts).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(ts_iter).internal,
+            headers={'X-Timestamp': next(self.ts).internal,
                      'X-Backend-Record-Type': 'shard'},
             params={'format': 'json'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(self.ts).internal,
+                     'X-Backend-Record-Type': 'namespace'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
 
+    def test_GET_with_override_deleted_ignored_for_objects(self):
+        self._populate_and_delete_container('/sda1/p/a/c')
         # the override-deleted header is ignored for object records
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(ts_iter).internal,
+            headers={'X-Timestamp': next(self.ts).internal,
                      'X-Backend-Override-Deleted': 'true'},
             params={'format': 'json'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
 
-        # but override-deleted header makes shard ranges available after DELETE
+    def test_GET_with_override_deleted_for_shard_ranges(self):
+        sr = self._populate_and_delete_container('/sda1/p/a/c')
+
+        # override-deleted header makes shard ranges available after DELETE
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(ts_iter).internal,
+            headers={'X-Timestamp': next(self.ts).internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Override-Deleted': 'true'},
             params={'format': 'json'})
@@ -1789,12 +1814,33 @@ class TestContainerController(unittest.TestCase):
                          json.loads(resp.body))
         self.assertIn('X-Backend-Record-Type', resp.headers)
         self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+        self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+        self.assertEqual(
+            'full', resp.headers['X-Backend-Record-Shard-Format'])
+
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(self.ts).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Record-Shard-Format': 'full',
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual([dict(sr, last_modified=sr.timestamp.isoformat)],
+                         json.loads(resp.body))
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+        self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+        self.assertEqual(
+            'full', resp.headers['X-Backend-Record-Shard-Format'])
 
         # ... unless the override header equates to False
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(ts_iter).internal,
+            headers={'X-Timestamp': next(self.ts).internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Override-Deleted': 'no'},
             params={'format': 'json'})
@@ -1802,7 +1848,42 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 404)
         self.assertNotIn('X-Backend-Record-Type', resp.headers)
 
-        # ...or the db file is unlinked
+    def test_GET_with_override_deleted_for_namespaces(self):
+        sr = self._populate_and_delete_container('/sda1/p/a/c')
+        # override-deleted header makes shard ranges available after DELETE
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(self.ts).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Record-Shard-Format': 'namespace',
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual([dict(Namespace(sr.name, sr.lower, sr.upper))],
+                         json.loads(resp.body))
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+        self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+        self.assertEqual(
+            'namespace', resp.headers['X-Backend-Record-Shard-Format'])
+
+        # ... unless the override header equates to False
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(self.ts).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Record-Shard-Format': 'namespace',
+                     'X-Backend-Override-Deleted': 'no'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertNotIn('X-Backend-Record-Type', resp.headers)
+
+    def test_GET_with_override_deleted_for_shard_ranges_db_unlinked(self):
+        self._populate_and_delete_container('/sda1/p/a/c')
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self.assertTrue(os.path.exists(broker.db_file))
         os.unlink(broker.db_file)
@@ -1810,7 +1891,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(ts_iter).internal,
+            headers={'X-Timestamp': next(self.ts).internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Override-Deleted': 'true'},
             params={'format': 'json'})
@@ -3079,6 +3160,31 @@ class TestContainerController(unittest.TestCase):
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 
+    def test_GET_shard_ranges_with_format_header(self):
+        # verify that shard range GET defaults to the 'full' format
+        sr = self._populate_container('/sda1/p/a/c')
+
+        def do_test(headers):
+            headers.update({'X-Timestamp': next(self.ts).internal,
+                            'X-Backend-Record-Type': 'shard'})
+            req = Request.blank(
+                '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'},
+                headers=headers, params={'format': 'json'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual([dict(sr, last_modified=sr.timestamp.isoformat)],
+                             json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+            self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+            self.assertEqual(
+                'full', resp.headers['X-Backend-Record-Shard-Format'])
+
+        do_test({})
+        do_test({'X-Backend-Record-Shard-Format': ''})
+        do_test({'X-Backend-Record-Shard-Format': 'full'})
+        do_test({'X-Backend-Record-Shard-Format': 'nonsense'})
+
     def test_GET_shard_ranges_from_compacted_shard(self):
         # make a shrunk shard container with two acceptors that overlap with
         # the shard's namespace
@@ -3472,6 +3578,391 @@ class TestContainerController(unittest.TestCase):
                                 'states': 'auditing'})
         self.assertEqual(expected, json.loads(resp.body))
 
+    def _do_get_namespaces_unsharded(self, root_path, path,
+                                     params, expected_states):
+        # make a shard container
+        shard_ranges = []
+        lower = ''
+        for state in sorted(ShardRange.STATES.keys()):
+            upper = str(state)
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                           lower, upper, state * 100, state * 1000,
+                           meta_timestamp=next(self.ts),
+                           state=state, state_timestamp=next(self.ts)))
+            lower = upper
+        expected_sr = [
+            sr for sr in shard_ranges if sr.state in expected_states]
+        own_shard_range = ShardRange(path, next(self.ts), '', '',
+                                     state=ShardRange.ACTIVE)
+        filler_sr = own_shard_range.copy(lower=expected_sr[-1].upper)
+        expected_sr.append(filler_sr)
+        expected_ns = [{'name': sr.name, 'lower': sr.lower_str,
+                        'upper': sr.upper_str} for sr in expected_sr]
+        headers = {'X-Timestamp': next(self.ts).normal}
+
+        # create container
+        req = Request.blank(
+            '/sda1/p/%s' % path, method='PUT', headers=headers)
+        self.assertIn(
+            req.get_response(self.controller).status_int, (201, 202))
+        # PUT some shard ranges
+        headers = {'X-Timestamp': next(self.ts).normal,
+                   'X-Container-Sysmeta-Shard-Root': root_path,
+                   'X-Backend-Record-Type': 'shard'}
+        body = json.dumps(
+            [dict(sr) for sr in shard_ranges + [own_shard_range]])
+        req = Request.blank(
+            '/sda1/p/%s' % path, method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+        # GET namespaces.
+        req = Request.blank(
+            "/sda1/p/%s?format=json%s" % (path, params),
+            method="GET",
+            headers={
+                "X-Backend-Record-Type": "shard",
+                "X-Backend-Record-shard-format": "namespace",
+                "X-Backend-Override-Shard-Name-Filter": "sharded",
+            },
+        )
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(expected_ns, json.loads(resp.body))
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual(
+            'shard', resp.headers['X-Backend-Record-Type'])
+        self.assertEqual(
+            'namespace', resp.headers['X-Backend-Record-Shard-Format'])
+        self.assertNotIn(
+            'X-Backend-Override-Shard-Name-Filter', resp.headers)
+        # GET shard ranges to cross-check.
+        req = Request.blank('/sda1/p/%s?format=json%s' %
+                            (path, params), method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = req.get_response(self.controller)
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual(
+            'shard', resp.headers['X-Backend-Record-Type'])
+        self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+        self.assertEqual(
+            'full', resp.headers['X-Backend-Record-Shard-Format'])
+        raw_sr = json.loads(resp.body)
+        expected_sr = [{'name': sr['name'], 'lower': sr['lower'],
+                        'upper': sr['upper']}
+                       for sr in raw_sr]
+        self.assertEqual(expected_ns, expected_sr)
+        # GET shard ranges with explicit 'full' shard format.
+        req = Request.blank(
+            "/sda1/p/%s?format=json%s" % (path, params),
+            method="GET",
+            headers={
+                "X-Backend-Record-Type": "shard",
+                "X-Backend-Record-shard-format": "full",
+            },
+        )
+        resp = req.get_response(self.controller)
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual(
+            'shard', resp.headers['X-Backend-Record-Type'])
+        self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+        self.assertEqual(
+            'full', resp.headers['X-Backend-Record-Shard-Format'])
+        self.assertEqual(raw_sr, json.loads(resp.body))
+
+    def test_GET_namespaces_unsharded_root_state_listing(self):
+        # root's namespaces for listing
+        root_path = container_path = 'a/c'
+        params = '&states=listing'
+        expected_states = [
+            ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
+            ShardRange.SHRINKING]
+        self._do_get_namespaces_unsharded(
+            root_path, container_path, params, expected_states)
+
+    def test_GET_namespaces_unsharded_subshard_state_listing(self):
+        # shard's namespaces for listing
+        root_path = 'a/c'
+        container_path = '.shards_a/c'
+        params = '&states=listing'
+        expected_states = [
+            ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
+            ShardRange.SHRINKING]
+        self._do_get_namespaces_unsharded(
+            root_path, container_path, params, expected_states)
+
+    def test_GET_namespaces_unsharded_root_state_updating(self):
+        # root's namespaces for updating
+        root_path = container_path = 'a/c'
+        params = '&states=updating'
+        expected_states = [
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHARDING]
+        container_path = root_path
+        self._do_get_namespaces_unsharded(
+            root_path, container_path, params, expected_states)
+
+    def test_GET_namespaces_unsharded_subshard_state_updating(self):
+        # shard's namespaces for updating
+        root_path = 'a/c'
+        container_path = '.shards_a/c'
+        params = '&states=updating'
+        expected_states = [
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHARDING]
+        self._do_get_namespaces_unsharded(
+            root_path, container_path, params, expected_states)
+
+    def _do_get_namespaces_sharded(self, root_path, path,
+                                   params, expected_states):
+        # make a shard container
+        shard_ranges = []
+        lower = ''
+        for state in sorted(ShardRange.STATES.keys()):
+            upper = str(state)
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                           lower, upper, state * 100, state * 1000,
+                           meta_timestamp=next(self.ts),
+                           state=state, state_timestamp=next(self.ts)))
+            lower = upper
+        expected_sr = [
+            sr for sr in shard_ranges if sr.state in expected_states]
+        own_shard_range = ShardRange(path, next(self.ts), '', '',
+                                     100, 1000,
+                                     meta_timestamp=next(self.ts),
+                                     state=ShardRange.ACTIVE,
+                                     state_timestamp=next(self.ts),
+                                     epoch=next(self.ts))
+        filler_sr = own_shard_range.copy(lower=expected_sr[-1].upper)
+        expected_sr.append(filler_sr)
+        expected_ns = [{'name': sr.name, 'lower': sr.lower_str,
+                        'upper': sr.upper_str} for sr in expected_sr]
+        headers = {'X-Timestamp': next(self.ts).normal}
+
+        # create container
+        req = Request.blank(
+            '/sda1/p/%s' % path, method='PUT', headers=headers)
+        self.assertIn(
+            req.get_response(self.controller).status_int, (201, 202))
+        # PUT some shard ranges
+        headers = {'X-Timestamp': next(self.ts).normal,
+                   'X-Container-Sysmeta-Shard-Root': root_path,
+                   'X-Backend-Record-Type': 'shard'}
+        body = json.dumps(
+            [dict(sr) for sr in shard_ranges + [own_shard_range]])
+        req = Request.blank(
+            '/sda1/p/%s' % path, method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+
+        # set broker to sharded state so
+        # X-Backend-Override-Shard-Name-Filter does have effect
+        shard_broker = self.controller._get_container_broker(
+            'sda1', 'p', '.shards_a', 'c')
+        self.assertTrue(shard_broker.set_sharding_state())
+        self.assertTrue(shard_broker.set_sharded_state())
+
+        # GET namespaces.
+        req = Request.blank(
+            "/sda1/p/%s?format=json%s" % (path, params),
+            method="GET",
+            headers={
+                "X-Backend-Record-Type": "shard",
+                "X-Backend-Record-shard-format": "namespace",
+                "X-Backend-Override-Shard-Name-Filter": "sharded",
+            },
+        )
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(expected_ns, json.loads(resp.body))
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual(
+            'shard', resp.headers['X-Backend-Record-Type'])
+        self.assertEqual(
+            'namespace', resp.headers['X-Backend-Record-Shard-Format'])
+        self.assertIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        self.assertTrue(
+            resp.headers['X-Backend-Override-Shard-Name-Filter'])
+        # GET shard ranges to cross-check.
+        req = Request.blank(
+            "/sda1/p/%s?format=json%s" % (path, params),
+            method="GET",
+            headers={
+                "X-Backend-Record-Type": "shard",
+                "X-Backend-Record-shard-format": "full",
+                "X-Backend-Override-Shard-Name-Filter": "sharded",
+            },
+        )
+        resp = req.get_response(self.controller)
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual(
+            'shard', resp.headers['X-Backend-Record-Type'])
+        self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+        self.assertEqual(
+            'full', resp.headers['X-Backend-Record-Shard-Format'])
+        raw_sr = json.loads(resp.body)
+        expected_sr = [{'name': sr['name'], 'lower': sr['lower'],
+                        'upper': sr['upper']}
+                       for sr in raw_sr]
+        self.assertEqual(expected_ns, expected_sr)
+
+    def test_GET_namespaces_sharded_subshard_state_listing(self):
+        # shard's namespaces for listing
+        root_path = 'a/c'
+        container_path = '.shards_a/c'
+        params = '&states=listing'
+        expected_states = [
+            ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
+            ShardRange.SHRINKING]
+        self._do_get_namespaces_sharded(
+            root_path, container_path, params, expected_states)
+
+    def test_GET_namespaces_sharded_subshard_state_updating(self):
+        # shard's namespaces for updating
+        root_path = 'a/c'
+        container_path = '.shards_a/c'
+        params = '&states=updating'
+        expected_states = [
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHARDING]
+        self._do_get_namespaces_sharded(
+            root_path, container_path, params, expected_states)
+
+    def _do_create_container_for_GET_namespaces(self):
+        # make a container
+        ts_put = next(self.ts)
+        headers = {'X-Timestamp': ts_put.normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        # PUT some shard ranges
+        shard_bounds = [('', 'apple', ShardRange.SHRINKING),
+                        ('apple', 'ham', ShardRange.CLEAVED),
+                        ('ham', 'salami', ShardRange.ACTIVE),
+                        ('salami', 'yoghurt', ShardRange.CREATED),
+                        ('yoghurt', '', ShardRange.FOUND),
+                        ]
+        shard_ranges = [
+            ShardRange('.sharded_a/_%s' % upper, next(self.ts),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(self.ts),
+                       state=state, state_timestamp=next(self.ts))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
+        for shard_range in shard_ranges:
+            self._put_shard_range(shard_range)
+
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertTrue(broker.is_root_container())  # sanity
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+
+        return shard_ranges
+
+    def test_GET_namespaces_other_params(self):
+        shard_ranges = self._do_create_container_for_GET_namespaces()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+
+        # Test namespace GET with 'include' or 'marker/end_marker' or 'reverse'
+        # parameters which are not supported.
+        def check_namespace_GET(expected_namespaces, path, params=''):
+            req = Request.blank(
+                '/sda1/p/%s?format=json%s' % (path, params), method='GET',
+                headers={
+                    "X-Backend-Record-Type": "shard",
+                    "X-Backend-Record-shard-format": "namespace",
+                })
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected_ns = [dict(ns) for ns in expected_namespaces]
+            self.assertEqual(expected_ns, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+            self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+            self.assertEqual(
+                'namespace', resp.headers['X-Backend-Record-Shard-Format'])
+
+        namespaces = [Namespace(sr.name, sr.lower, sr.upper)
+                      for sr in shard_ranges]
+        check_namespace_GET(
+            namespaces[:3], 'a/c',
+            params='&states=listing&end_marker=pickle')
+        check_namespace_GET(
+            reversed(namespaces[:3]), 'a/c',
+            params='&states=listing&reverse=true&marker=pickle')
+        check_namespace_GET(namespaces[1:4], 'a/c',
+                            params='&states=updating&end_marker=treacle')
+        check_namespace_GET(
+            reversed(namespaces[1:4]), 'a/c',
+            params='&states=updating&reverse=true&marker=treacle')
+        check_namespace_GET(namespaces[1:2],
+                            'a/c', params='&includes=cheese')
+        check_namespace_GET(namespaces[1:2], 'a/c', params='&includes=ham')
+        check_namespace_GET(reversed(namespaces),
+                            'a/c', params='&reverse=true')
+
+    def test_GET_namespaces_not_supported(self):
+        self._do_create_container_for_GET_namespaces()
+
+        # Test namespace GET with 'X-Backend-Include-Deleted' header.
+        req = Request.blank(
+            '/sda1/p/%s?format=json%s' % ('a/c', '&states=listing'),
+            method='GET',
+            headers={
+                "X-Backend-Record-Type": "shard",
+                "X-Backend-Record-shard-format": "namespace",
+                'X-Backend-Include-Deleted': 'True'
+            })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status, '400 Bad Request')
+        self.assertEqual(resp.body, b'No include_deleted for namespace GET')
+
+        # Test namespace GET with 'auditing' state in query params.
+        req = Request.blank(
+            '/sda1/p/%s?format=json%s' % ('a/c', '&states=auditing'),
+            method='GET',
+            headers={
+                "X-Backend-Record-Type": "shard",
+                "X-Backend-Record-shard-format": "namespace",
+            })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status, '400 Bad Request')
+        self.assertEqual(resp.body, b'No auditing state for namespace GET')
+
+    def test_GET_namespaces_errors(self):
+        self._do_create_container_for_GET_namespaces()
+
+        def do_test(params, expected_status):
+            params['format'] = 'json'
+            headers = {'X-Backend-Record-Type': 'shard',
+                       "X-Backend-Record-shard-format": "namespace"}
+            req = Request.blank('/sda1/p/a/c', method='GET',
+                                headers=headers, params=params)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, expected_status)
+            self.assertEqual(resp.content_type, 'text/html')
+            self.assertNotIn('X-Backend-Record-Type', resp.headers)
+            self.assertNotIn('X-Backend-Record-shard-format', resp.headers)
+            self.assertNotIn('X-Backend-Sharding-State', resp.headers)
+            self.assertNotIn('X-Container-Object-Count', resp.headers)
+            self.assertNotIn('X-Container-Bytes-Used', resp.headers)
+            self.assertNotIn('X-Timestamp', resp.headers)
+            self.assertNotIn('X-PUT-Timestamp', resp.headers)
+
+        do_test({'states': 'bad'}, 400)
+
+        with mock.patch('swift.container.server.check_drive',
+                        side_effect=ValueError('sda1 is not mounted')):
+            do_test({}, 507)
+
+        # delete the container
+        req = Request.blank('/sda1/p/a/c', method='DELETE',
+                            headers={'X-Timestamp': Timestamp.now().normal})
+        self.assertEqual(204, req.get_response(self.controller).status_int)
+
+        do_test({'states': 'bad'}, 404)
+
     def test_GET_auto_record_type(self):
         # make a container
         ts_now = Timestamp.now()  # used when mocking Timestamp.now()
@@ -3539,6 +4030,9 @@ class TestContainerController(unittest.TestCase):
             self.assertIn('X-Backend-Record-Type', resp.headers)
             self.assertEqual(
                 'shard', resp.headers.pop('X-Backend-Record-Type'))
+            self.assertIn('X-Backend-Record-Shard-Format', resp.headers)
+            self.assertEqual(
+                'full', resp.headers.pop('X-Backend-Record-Shard-Format'))
             self.assertEqual(
                 str(POLICIES.default.idx),
                 resp.headers.pop('X-Backend-Storage-Policy-Index'))
