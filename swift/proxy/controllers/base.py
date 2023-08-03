@@ -416,10 +416,42 @@ def get_object_info(env, app, path=None, swift_source=None):
     return info
 
 
-def get_container_info(env, app, swift_source=None):
+def _record_ac_info_cache_metrics(
+        app, cache_state, container=None, resp=None):
+    """
+    Record a single cache operation by account or container lookup into its
+    corresponding metrics.
+
+    :param  app: the application object
+    :param  cache_state: the state of this cache operation, includes
+                infocache_hit, memcache hit, miss, error, skip, force_skip
+                and disabled.
+    :param  container: the container name
+    :param  resp: the response from either backend or cache hit.
+    """
+    try:
+        proxy_app = app._pipeline_final_app
+    except AttributeError:
+        logger = None
+    else:
+        logger = proxy_app.logger
+    op_type = 'container.info' if container else 'account.info'
+    if logger:
+        record_cache_op_metrics(logger, op_type, cache_state, resp)
+
+
+def get_container_info(env, app, swift_source=None, cache_only=False):
     """
     Get the info structure for a container, based on env and app.
     This is useful to middlewares.
+
+    :param env: the environment used by the current request
+    :param app: the application object
+    :param swift_source: Used to mark the request as originating out of
+                         middleware. Will be logged in proxy logs.
+    :param cache_only: If true, indicates that caller doesn't want to HEAD the
+                       backend container when cache miss.
+    :returns: the object info
 
     .. note::
 
@@ -445,9 +477,11 @@ def get_container_info(env, app, swift_source=None):
     except AttributeError:
         logged_app = proxy_app = app
     # Check in environment cache and in memcache (in that order)
-    info = _get_info_from_caches(proxy_app, env, account, container)
+    info, cache_state = _get_info_from_caches(
+        proxy_app, env, account, container)
 
-    if not info:
+    resp = None
+    if not info and not cache_only:
         # Cache miss; go HEAD the container and populate the caches
         env.setdefault('swift.infocache', {})
         # Before checking the container, make sure the account exists.
@@ -462,6 +496,8 @@ def get_container_info(env, app, swift_source=None):
         if not is_autocreate_account:
             account_info = get_account_info(env, logged_app, swift_source)
             if not account_info or not is_success(account_info['status']):
+                _record_ac_info_cache_metrics(
+                    logged_app, cache_state, container)
                 return headers_to_container_info({}, 0)
 
         req = _prepare_pre_auth_info_request(
@@ -483,7 +519,8 @@ def get_container_info(env, app, swift_source=None):
     if info:
         info = deepcopy(info)  # avoid mutating what's in swift.infocache
     else:
-        info = headers_to_container_info({}, 503)
+        status_int = 0 if cache_only else 503
+        info = headers_to_container_info({}, status_int)
 
     # Old data format in memcache immediately after a Swift upgrade; clean
     # it up so consumers of get_container_info() aren't exposed to it.
@@ -510,6 +547,7 @@ def get_container_info(env, app, swift_source=None):
         versions_info = get_container_info(versions_req.environ, app)
         info['bytes'] = info['bytes'] + versions_info['bytes']
 
+    _record_ac_info_cache_metrics(logged_app, cache_state, container, resp)
     return info
 
 
@@ -539,10 +577,12 @@ def get_account_info(env, app, swift_source=None):
     except AttributeError:
         pass
     # Check in environment cache and in memcache (in that order)
-    info = _get_info_from_caches(app, env, account)
+    info, cache_state = _get_info_from_caches(app, env, account)
 
     # Cache miss; go HEAD the account and populate the caches
-    if not info:
+    if info:
+        resp = None
+    else:
         env.setdefault('swift.infocache', {})
         req = _prepare_pre_auth_info_request(
             env, "/%s/%s" % (version, wsgi_account),
@@ -581,6 +621,7 @@ def get_account_info(env, app, swift_source=None):
         else:
             info[field] = int(info[field])
 
+    _record_ac_info_cache_metrics(app, cache_state, container=None, resp=resp)
     return info
 
 
@@ -766,10 +807,13 @@ def record_cache_op_metrics(
     else:
         # the cases of cache_state is memcache miss, error, skip, force_skip
         # or disabled.
-        if resp is not None:
-            # Note: currently there is no case that 'resp' will be None.
+        if resp:
             logger.increment(
                 '%s.cache.%s.%d' % (op_type, cache_state, resp.status_int))
+        else:
+            # In some situation, we choose not to lookup backend after cache
+            # miss.
+            logger.increment('%s.cache.%s' % (op_type, cache_state))
 
 
 def _get_info_from_memcache(app, env, account, container=None):
@@ -781,61 +825,58 @@ def _get_info_from_memcache(app, env, account, container=None):
     :param  account: the account name
     :param  container: the container name
 
-    :returns: a dictionary of cached info on cache hit, None on miss. Also
-      returns None if memcache is not in use.
+    :returns: a tuple of two values, the first is a dictionary of cached info
+      on cache hit, None on miss or if memcache is not in use; the second is
+      cache state.
     """
-    cache_key = get_cache_key(account, container)
     memcache = cache_from_env(env, True)
-    if memcache:
-        try:
-            proxy_app = app._pipeline_final_app
-        except AttributeError:
-            # Only the middleware entry-points get a reference to the
-            # proxy-server app; if a middleware composes itself as multiple
-            # filters, we'll just have to choose a reasonable default
-            skip_chance = 0.0
-            logger = None
+    if not memcache:
+        return None, 'disabled'
+
+    try:
+        proxy_app = app._pipeline_final_app
+    except AttributeError:
+        # Only the middleware entry-points get a reference to the
+        # proxy-server app; if a middleware composes itself as multiple
+        # filters, we'll just have to choose a reasonable default
+        skip_chance = 0.0
+    else:
+        if container:
+            skip_chance = proxy_app.container_existence_skip_cache
         else:
-            if container:
-                skip_chance = proxy_app.container_existence_skip_cache
+            skip_chance = proxy_app.account_existence_skip_cache
+
+    cache_key = get_cache_key(account, container)
+    if skip_chance and random.random() < skip_chance:
+        info = None
+        cache_state = 'skip'
+    else:
+        info = memcache.get(cache_key)
+        cache_state = 'hit' if info else 'miss'
+    if info and six.PY2:
+        # Get back to native strings
+        new_info = {}
+        for key in info:
+            new_key = key.encode("utf-8") if isinstance(
+                key, six.text_type) else key
+            if isinstance(info[key], six.text_type):
+                new_info[new_key] = info[key].encode("utf-8")
+            elif isinstance(info[key], dict):
+                new_info[new_key] = {}
+                for subkey, value in info[key].items():
+                    new_subkey = subkey.encode("utf-8") if isinstance(
+                        subkey, six.text_type) else subkey
+                    if isinstance(value, six.text_type):
+                        new_info[new_key][new_subkey] = \
+                            value.encode("utf-8")
+                    else:
+                        new_info[new_key][new_subkey] = value
             else:
-                skip_chance = proxy_app.account_existence_skip_cache
-            logger = proxy_app.logger
-        info_type = 'container' if container else 'account'
-        if skip_chance and random.random() < skip_chance:
-            info = None
-            if logger:
-                logger.increment('%s.info.cache.skip' % info_type)
-        else:
-            info = memcache.get(cache_key)
-            if logger:
-                logger.increment('%s.info.cache.%s' % (
-                    info_type, 'hit' if info else 'miss'))
-        if info and six.PY2:
-            # Get back to native strings
-            new_info = {}
-            for key in info:
-                new_key = key.encode("utf-8") if isinstance(
-                    key, six.text_type) else key
-                if isinstance(info[key], six.text_type):
-                    new_info[new_key] = info[key].encode("utf-8")
-                elif isinstance(info[key], dict):
-                    new_info[new_key] = {}
-                    for subkey, value in info[key].items():
-                        new_subkey = subkey.encode("utf-8") if isinstance(
-                            subkey, six.text_type) else subkey
-                        if isinstance(value, six.text_type):
-                            new_info[new_key][new_subkey] = \
-                                value.encode("utf-8")
-                        else:
-                            new_info[new_key][new_subkey] = value
-                else:
-                    new_info[new_key] = info[key]
-            info = new_info
-        if info:
-            env.setdefault('swift.infocache', {})[cache_key] = info
-        return info
-    return None
+                new_info[new_key] = info[key]
+        info = new_info
+    if info:
+        env.setdefault('swift.infocache', {})[cache_key] = info
+    return info, cache_state
 
 
 def _get_info_from_caches(app, env, account, container=None):
@@ -845,13 +886,16 @@ def _get_info_from_caches(app, env, account, container=None):
 
     :param  app: the application object
     :param  env: the environment used by the current request
-    :returns: the cached info or None if not cached
+    :returns: a tuple of (the cached info or None if not cached, cache state)
     """
 
     info = _get_info_from_infocache(env, account, container)
-    if info is None:
-        info = _get_info_from_memcache(app, env, account, container)
-    return info
+    if info:
+        cache_state = 'infocache_hit'
+    else:
+        info, cache_state = _get_info_from_memcache(
+            app, env, account, container)
+    return info, cache_state
 
 
 def _prepare_pre_auth_info_request(env, path, swift_source):

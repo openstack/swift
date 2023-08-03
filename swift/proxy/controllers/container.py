@@ -28,7 +28,7 @@ from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix, get_param, \
     constrain_req_limit, validate_container_params
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    cors_validation, set_info_cache, clear_info_cache, _get_info_from_caches, \
+    cors_validation, set_info_cache, clear_info_cache, get_container_info, \
     record_cache_op_metrics, get_cache_key, headers_from_container_info, \
     update_headers
 from swift.common.storage_policy import POLICIES
@@ -389,9 +389,10 @@ class ContainerController(Controller):
                 and get_param(req, 'states') == 'listing'
                 and record_type != 'object'):
             may_get_listing_shards = True
-            info = _get_info_from_caches(self.app, req.environ,
-                                         self.account_name,
-                                         self.container_name)
+            # Only lookup container info from cache and skip the backend HEAD,
+            # since we are going to GET the backend container anyway.
+            info = get_container_info(
+                req.environ, self.app, swift_source=None, cache_only=True)
         else:
             info = None
             may_get_listing_shards = False

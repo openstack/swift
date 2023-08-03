@@ -2914,7 +2914,8 @@ class TestContainerController(TestRingBase):
                          req.environ['swift.infocache'][cache_key])
         self.assertEqual(
             [x[0][0] for x in self.logger.logger.log_dict['increment']],
-            ['container.shard_listing.infocache.hit'])
+            ['container.info.infocache.hit',
+             'container.shard_listing.infocache.hit'])
 
         # put this back the way we found it for later subtests
         self.app.container_listing_shard_ranges_skip_cache = 0.0
