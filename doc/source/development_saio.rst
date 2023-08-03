@@ -84,10 +84,10 @@ Installing dependencies
 
         sudo dnf update
         sudo dnf install curl gcc memcached rsync-daemon sqlite xfsprogs git-core \
-                         libffi-devel xinetd liberasurecode-devel \
+                         libffi-devel liberasurecode-devel python-pyeclib \
                          openssl-devel python-setuptools \
                          python-coverage python-devel python-nose \
-                         pyxattr python-eventlet \
+                         python-pyxattr python-eventlet \
                          python-greenlet python-paste-deploy \
                          python-netifaces python-pip python-dns \
                          python-mock
