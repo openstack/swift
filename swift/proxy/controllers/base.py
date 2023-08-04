@@ -1185,7 +1185,7 @@ class GetOrHeadHandler(GetterBase):
             backend_headers=backend_headers, logger=logger)
         self.server_type = server_type
         self.used_nodes = []
-        self.used_source_etag = ''
+        self.used_source_etag = None
         self.concurrency = concurrency
         self.latest_404_timestamp = Timestamp(0)
         if self.server_type == 'Object':
@@ -1498,16 +1498,15 @@ class GetOrHeadHandler(GetterBase):
             for unused_source in self.sources:
                 unused_source.close()
             self.used_nodes.append(source.node)
-            src_headers = dict(
-                (k.lower(), v) for k, v in
-                source.resp.getheaders())
 
             # Save off the source etag so that, if we lose the connection
             # and have to resume from a different node, we can be sure that
             # we have the same object (replication). Otherwise, if the cluster
             # has two versions of the same object, we might end up switching
             # between old and new mid-stream and giving garbage to the client.
-            self.used_source_etag = normalize_etag(src_headers.get('etag', ''))
+            if self.used_source_etag is None:
+                self.used_source_etag = normalize_etag(
+                    source.resp.getheader('etag', ''))
             self.source = source
             return True
         return False
