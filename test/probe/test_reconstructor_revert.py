@@ -52,8 +52,10 @@ class TestReconstructorRevert(ECProbeTest):
 
         # PUT object
         contents = Body()
-        headers = {'x-object-meta-foo': 'meta-foo'}
-        headers_post = {'x-object-meta-bar': 'meta-bar'}
+        headers = {'x-object-meta-foo': 'meta-foo',
+                   u'x-object-meta-non-ascii-value1': u'meta-f\xf6\xf6'}
+        headers_post = {'x-object-meta-bar': 'meta-bar',
+                        u'x-object-meta-non-ascii-value2': u'meta-b\xe4r'}
         client.put_object(self.url, self.token, self.container_name,
                           self.object_name, contents=contents,
                           headers=headers)
