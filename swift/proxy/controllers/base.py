@@ -1122,18 +1122,15 @@ class GetterBase(object):
         :return: ``True`` if ``self.source`` has been updated, ``False``
             otherwise.
         """
-        # Subclasses must implement this method
+        # Subclasses must implement this method, but _replace_source should be
+        # called to get a source installed
         raise NotImplementedError()
 
-    def _replace_source(self, err_msg):
-        # _find_source can modify self.source so stash current source
-        old_source = self.source
-        if not self._find_source():
-            return False
-
-        self.app.error_occurred(old_source.node, err_msg)
-        old_source.close()
-        return True
+    def _replace_source(self, err_msg=''):
+        if self.source:
+            self.app.error_occurred(self.source.node, err_msg)
+            self.source.close()
+        return self._find_source()
 
     def fast_forward(self, num_bytes):
         """
@@ -1609,7 +1606,7 @@ class GetOrHeadHandler(GetterBase):
 
     def get_working_response(self, req):
         res = None
-        if self._find_source():
+        if self._replace_source():
             res = Response(request=req)
             res.status = self.source.resp.status
             update_headers(res, self.source.resp.getheaders())

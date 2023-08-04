@@ -4538,12 +4538,14 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 500)
         self.assertEqual(len(log), self.policy.ec_n_unique_fragments * 2)
         log_lines = self.app.logger.get_lines_for_level('error')
-        self.assertEqual(2, len(log_lines), log_lines)
-        self.assertIn('Trying to read during GET: ChunkReadTimeout',
+        self.assertEqual(3, len(log_lines), log_lines)
+        self.assertIn('Trying to read next part of EC multi-part GET',
                       log_lines[0])
+        self.assertIn('Trying to read during GET: ChunkReadTimeout',
+                      log_lines[1])
         # not the most graceful ending
         self.assertIn('Unhandled exception in request: ChunkReadTimeout',
-                      log_lines[1])
+                      log_lines[2])
 
     def test_GET_with_multirange_short_resume_body(self):
         self.app.object_chunk_size = 256
@@ -5082,12 +5084,17 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                 md5(resp.body, usedforsecurity=False).hexdigest(),
                 etag)
         error_lines = self.logger.get_lines_for_level('error')
-        nparity = self.policy.ec_nparity
-        self.assertGreater(len(error_lines), nparity)
-        for line in error_lines[:nparity]:
-            self.assertIn('retrying', line)
-        for line in error_lines[nparity:]:
-            self.assertIn('ChunkReadTimeout (0.01s', line)
+        # all primaries timeout and get error limited
+        error_limit_lines = [
+            line for line in error_lines
+            if 'Trying to read EC fragment during GET (retrying)' in line]
+        self.assertEqual(self.policy.ec_n_unique_fragments,
+                         len(error_limit_lines))
+        # all ec_ndata frag getters eventually get a read timeout
+        read_timeout_lines = [
+            line for line in error_lines if 'ChunkReadTimeout (0.01s' in line]
+        self.assertEqual(self.policy.ec_ndata,
+                         len(read_timeout_lines))
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
 
@@ -5170,11 +5177,17 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             # resume but won't be able to give us all the right bytes
             self.assertNotEqual(md5(resp.body).hexdigest(), etag)
         error_lines = self.logger.get_lines_for_level('error')
-        self.assertEqual(ndata, len(error_lines))
-        for line in error_lines:
-            self.assertIn('ChunkReadTimeout (0.01s', line)
-        for line in self.logger.logger.records['ERROR']:
-            self.assertIn(req.headers['x-trans-id'], line)
+        # only ec_ndata primaries that timeout get error limited (404 or
+        # different etag primaries do not get error limited)
+        error_limit_lines = [
+            line for line in error_lines
+            if 'Trying to read EC fragment during GET (retrying)' in line]
+        self.assertEqual(self.policy.ec_ndata, len(error_limit_lines))
+        # all ec_ndata frag getters eventually get a read timeout
+        read_timeout_lines = [
+            line for line in error_lines if 'ChunkReadTimeout (0.01s' in line]
+        self.assertEqual(self.policy.ec_ndata,
+                         len(read_timeout_lines))
 
         debug_lines = self.logger.get_lines_for_level('debug')
         nparity = self.policy.ec_nparity
