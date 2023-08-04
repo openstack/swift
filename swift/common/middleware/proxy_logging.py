@@ -19,12 +19,12 @@ Logging middleware for the Swift proxy.
 This serves as both the default logging implementation and an example of how
 to plug in your own logging format/method.
 
-The logging format implemented below is as follows:
+The logging format implemented below is as follows::
 
-client_ip remote_addr end_time.datetime method path protocol
-    status_int referer user_agent auth_token bytes_recvd bytes_sent
-    client_etag transaction_id headers request_time source log_info
-    start_time end_time policy_index
+    client_ip remote_addr end_time.datetime method path protocol
+        status_int referer user_agent auth_token bytes_recvd bytes_sent
+        client_etag transaction_id headers request_time source log_info
+        start_time end_time policy_index
 
 These values are space-separated, and each is url-encoded, so that they can
 be separated with a simple .split()
@@ -48,6 +48,11 @@ be separated with a simple .split()
 
 * Values that are missing (e.g. due to a header not being present) or zero
   are generally represented by a single hyphen ('-').
+
+.. note::
+   The message format may be configured using the ``log_msg_template`` option,
+   allowing fields to be added, removed, re-ordered, and even anonymized. For
+   more information, see https://docs.openstack.org/swift/latest/logs.html
 
 The proxy-logging can be used twice in the proxy server's pipeline when there
 is middleware installed that can return custom responses that don't follow the
