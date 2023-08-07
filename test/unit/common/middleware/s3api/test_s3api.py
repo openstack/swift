@@ -1,3 +1,4 @@
+
 # Copyright (c) 2011-2014 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,7 +38,7 @@ from swift.common.utils import md5, get_logger
 from keystonemiddleware.auth_token import AuthProtocol
 from keystoneauth1.access import AccessInfoV2
 
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, FakeStatsdClient
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import FakeSwift
 from test.unit.common.middleware.s3api.test_s3token import \
@@ -224,13 +225,19 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual('swift', s3api.logger.server)
         self.assertIsNone(s3api.logger.logger.statsd_client)
 
-        s3api = S3ApiMiddleware(None, {'log_name': 'proxy-server',
-                                       'log_statsd_host': '1.2.3.4'})
+        with mock.patch('swift.common.utils.StatsdClient', FakeStatsdClient):
+            s3api = S3ApiMiddleware(None, {'log_name': 'proxy-server',
+                                           'log_statsd_host': '1.2.3.4'})
+            s3api.logger.increment('test-metric')
         self.assertEqual('s3api', s3api.logger.name)
         self.assertEqual('s3api', s3api.logger.logger.name)
         self.assertIsNot(s3api.logger.logger, proxy_logger)
         self.assertEqual('proxy-server', s3api.logger.server)
         self.assertEqual('s3api.', s3api.logger.logger.statsd_client._prefix)
+        client = s3api.logger.logger.statsd_client
+        self.assertEqual({'test-metric': 1}, client.get_increment_counts())
+        self.assertEqual(1, len(client.sendto_calls))
+        self.assertEqual(b's3api.test-metric:1|c', client.sendto_calls[0][0])
 
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')
