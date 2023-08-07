@@ -37,7 +37,7 @@ The default log format is::
 
 Some keywords, signaled by the (anonymizable) flag, can be anonymized by
 using the transformer 'anonymized'. The data are applied the hashing method of
-`log_anonymization_method` and an optional salt `log_anonymization_salt`.
+``log_anonymization_method`` and an optional salt ``log_anonymization_salt``.
 
 Some keywords, signaled by the (timestamp) flag, can be converted to standard
 dates formats using the matching transformers: 'datetime', 'asctime' or
@@ -46,9 +46,11 @@ seconds, milliseconds, microseconds and nanoseconds. Python's strftime
 directives can also be used as tranformers (a, A, b, B, c, d, H, I, j, m, M, p,
 S, U, w, W, x, X, y, Y, Z).
 
-Example {client_ip.anonymized} {remote_addr.anonymized} {start_time.iso8601}
-            {end_time.H}:{end_time.M} {method} acc:{account} cnt:{container}
-            obj:{object.anonymized}
+Example::
+
+    {client_ip.anonymized} {remote_addr.anonymized} {start_time.iso8601}
+        {end_time.H}:{end_time.M} {method} acc:{account} cnt:{container}
+        obj:{object.anonymized}
 
 =================== ==========================================================
 **Log Field**       **Value**
