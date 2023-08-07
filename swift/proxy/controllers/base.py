@@ -53,7 +53,8 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
+    HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE, \
+    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, wsgi_unquote, \
@@ -1017,6 +1018,21 @@ def bytes_to_skip(record_size, range_start):
     return (record_size - (range_start % record_size)) % record_size
 
 
+def is_good_source(status, server_type):
+    """
+    Indicates whether or not the request made to the backend found
+    what it was looking for.
+
+    :param resp: the response from the backend.
+    :param server_type: the type of server: 'Account', 'Container' or 'Object'.
+    :returns: True if the response status code is acceptable, False if not.
+    """
+    if (server_type == 'Object' and
+            status == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE):
+        return True
+    return is_success(status) or is_redirection(status)
+
+
 class ByteCountEnforcer(object):
     """
     Enforces that successive calls to file_like.read() give at least
@@ -1260,18 +1276,6 @@ class GetOrHeadHandler(GetterBase):
         # populated from response headers
         self.start_byte = self.end_byte = self.length = None
 
-    def _is_good_source(self, src):
-        """
-        Indicates whether or not the request made to the backend found
-        what it was looking for.
-
-        :param src: the response from the backend
-        :returns: True if found, False if not
-        """
-        if self.server_type == 'Object' and src.status == 416:
-            return True
-        return is_success(src.status) or is_redirection(src.status)
-
     def _get_next_response_part(self):
         # return the next part of the response body; there may only be one part
         # unless it's a multipart/byteranges response
@@ -1448,7 +1452,7 @@ class GetOrHeadHandler(GetterBase):
         src_headers = dict(
             (k.lower(), v) for k, v in
             possible_source.getheaders())
-        if self._is_good_source(possible_source):
+        if is_good_source(possible_source.status, self.server_type):
             # 404 if we know we don't have a synced copy
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
                 self.statuses.append(HTTP_NOT_FOUND)
