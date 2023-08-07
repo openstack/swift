@@ -1072,7 +1072,8 @@ class GetterSource(object):
 
     @property
     def parts_iter(self):
-        # lazy load a source parts iter if and when the source is actually read
+        # lazy load a source response body parts iter if and when the source is
+        # actually read
         if self.resp and not self._parts_iter:
             self._parts_iter = http_response_to_document_iters(
                 self.resp, read_chunk_size=self.app.object_chunk_size)
@@ -1259,7 +1260,7 @@ class GetOrHeadHandler(GetterBase):
         # populated from response headers
         self.start_byte = self.end_byte = self.length = None
 
-    def is_good_source(self, src):
+    def _is_good_source(self, src):
         """
         Indicates whether or not the request made to the backend found
         what it was looking for.
@@ -1271,7 +1272,9 @@ class GetOrHeadHandler(GetterBase):
             return True
         return is_success(src.status) or is_redirection(src.status)
 
-    def get_next_doc_part(self):
+    def _get_next_response_part(self):
+        # return the next part of the response body; there may only be one part
+        # unless it's a multipart/byteranges response
         while True:
             try:
                 # This call to next() performs IO when we have a
@@ -1294,7 +1297,9 @@ class GetOrHeadHandler(GetterBase):
                         'Trying to read object during GET (retrying)'):
                     raise StopIteration()
 
-    def iter_bytes_from_response_part(self, part_file, nbytes):
+    def _iter_bytes_from_response_part(self, part_file, nbytes):
+        # yield chunks of bytes from a single response part; if an error
+        # occurs, try to resume yielding bytes from a different source
         part_file = ByteCountEnforcer(part_file, nbytes)
         while True:
             try:
@@ -1317,7 +1322,7 @@ class GetOrHeadHandler(GetterBase):
                         'Trying to read object during GET (retrying)'):
                     try:
                         _junk, _junk, _junk, _junk, part_file = \
-                            self.get_next_doc_part()
+                            self._get_next_response_part()
                     except StopIteration:
                         # Tried to find a new node from which to
                         # finish the GET, but failed. There's
@@ -1336,13 +1341,15 @@ class GetOrHeadHandler(GetterBase):
                     self.bytes_used_from_backend += len(chunk)
                     yield chunk
 
-    def _get_response_parts_iter(self, req):
+    def _iter_parts_from_response(self, req):
+        # iterate over potentially multiple response body parts; for each
+        # part, yield an iterator over the part's bytes
         try:
             part_iter = None
             try:
                 while True:
                     start_byte, end_byte, length, headers, part = \
-                        self.get_next_doc_part()
+                        self._get_next_response_part()
                     self.learn_size_from_content_range(
                         start_byte, end_byte, length)
                     self.bytes_used_from_backend = 0
@@ -1353,7 +1360,7 @@ class GetOrHeadHandler(GetterBase):
                                       and start_byte is not None)
                                   else None)
                     part_iter = CooperativeIterator(
-                        self.iter_bytes_from_response_part(part, byte_count))
+                        self._iter_bytes_from_response_part(part, byte_count))
                     yield {'start_byte': start_byte, 'end_byte': end_byte,
                            'entity_length': length, 'headers': headers,
                            'part_iter': part_iter}
@@ -1408,6 +1415,10 @@ class GetOrHeadHandler(GetterBase):
             return None
 
     def _make_node_request(self, node, node_timeout, logger_thread_locals):
+        # make a backend request; return True if the response is deemed good
+        # (has an acceptable status code), useful (matches any previously
+        # discovered etag) and sufficient (a single good response is
+        # insufficient when we're searching for the newest timestamp)
         self.logger.thread_locals = logger_thread_locals
         if node in self.used_nodes:
             return False
@@ -1437,7 +1448,7 @@ class GetOrHeadHandler(GetterBase):
         src_headers = dict(
             (k.lower(), v) for k, v in
             possible_source.getheaders())
-        if self.is_good_source(possible_source):
+        if self._is_good_source(possible_source):
             # 404 if we know we don't have a synced copy
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
                 self.statuses.append(HTTP_NOT_FOUND)
@@ -1566,9 +1577,7 @@ class GetOrHeadHandler(GetterBase):
         collection works and the underlying socket of the source is closed.
 
         :param req: incoming request object
-        :param source: The httplib.Response object this iterator should read
-                       from.
-        :param node: The node the source is reading from, for logging purposes.
+        :return: an iterator that yields chunks of response body bytes
         """
 
         ct = self.source.resp.getheader('Content-Type')
@@ -1584,7 +1593,7 @@ class GetOrHeadHandler(GetterBase):
             # furnished one for us, so we'll just re-use it
             boundary = dict(content_type_attrs)["boundary"]
 
-        parts_iter = self._get_response_parts_iter(req)
+        parts_iter = self._iter_parts_from_response(req)
 
         def add_content_type(response_part):
             response_part["content_type"] = \

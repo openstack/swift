@@ -2504,20 +2504,9 @@ class ECFragGetter(GetterBase):
         self.skip_bytes = 0
         self.logger_thread_locals = logger_thread_locals
         self.status = self.reason = self.body = self.source_headers = None
+        self._source_iter = None
 
-    def response_parts_iter(self, req):
-        it = None
-        try:
-            source = next(self.source_iter)
-        except StopIteration:
-            pass
-        else:
-            if source:
-                self.source = source
-                it = self._get_response_parts_iter(req)
-        return it
-
-    def get_next_doc_part(self):
+    def _get_next_response_part(self):
         node_timeout = self.app.recoverable_node_timeout
 
         while True:
@@ -2543,7 +2532,7 @@ class ECFragGetter(GetterBase):
                         '(retrying)'):
                     raise
 
-    def iter_bytes_from_response_part(self, part_file, nbytes):
+    def _iter_bytes_from_response_part(self, part_file, nbytes):
         buf = b''
         part_file = ByteCountEnforcer(part_file, nbytes)
         while True:
@@ -2571,10 +2560,10 @@ class ECFragGetter(GetterBase):
                         'Trying to read EC fragment during GET (retrying)'):
                     try:
                         _junk, _junk, _junk, _junk, part_file = \
-                            self.get_next_doc_part()
+                            self._get_next_response_part()
                     except StopIteration:
                         # it's not clear to me how to make
-                        # get_next_doc_part raise StopIteration for the
+                        # _get_next_response_part raise StopIteration for the
                         # first doc part of a new request
                         six.reraise(exc_type, exc_value, exc_traceback)
                     part_file = ByteCountEnforcer(part_file, nbytes)
@@ -2603,14 +2592,14 @@ class ECFragGetter(GetterBase):
                 if not chunk:
                     break
 
-    def _get_response_parts_iter(self, req):
+    def _iter_parts_from_response(self, req):
         try:
             part_iter = None
             try:
                 while True:
                     try:
                         start_byte, end_byte, length, headers, part = \
-                            self.get_next_doc_part()
+                            self._get_next_response_part()
                     except StopIteration:
                         # it seems this is the only way out of the loop; not
                         # sure why the req.environ update is always needed
@@ -2630,7 +2619,7 @@ class ECFragGetter(GetterBase):
                                       and start_byte is not None)
                                   else None)
                     part_iter = CooperativeIterator(
-                        self.iter_bytes_from_response_part(part, byte_count))
+                        self._iter_bytes_from_response_part(part, byte_count))
                     yield {'start_byte': start_byte, 'end_byte': end_byte,
                            'entity_length': length, 'headers': headers,
                            'part_iter': part_iter}
@@ -2680,6 +2669,8 @@ class ECFragGetter(GetterBase):
             return HeaderKeyDict()
 
     def _make_node_request(self, node, node_timeout):
+        # make a backend request; return a response if it has an acceptable
+        # status code, otherwise None
         self.logger.thread_locals = self.logger_thread_locals
         req_headers = dict(self.backend_headers)
         ip, port = get_ip_port(node, req_headers)
@@ -2739,7 +2730,11 @@ class ECFragGetter(GetterBase):
 
     @property
     def source_iter(self):
-        if not hasattr(self, '_source_iter'):
+        """
+        An iterator over responses to backend fragment GETs. Yields an
+        instance of ``GetterSource`` if a response is good, otherwise ``None``.
+        """
+        if self._source_iter is None:
             self._source_iter = self._source_gen()
         return self._source_iter
 
@@ -2771,6 +2766,25 @@ class ECFragGetter(GetterBase):
                 self.source = source
                 return True
         return False
+
+    def response_parts_iter(self, req):
+        """
+        Create an iterator over a single fragment response body.
+
+        :param req: a ``swob.Request``.
+        :return: an interator that yields chunks of bytes from a fragment
+            response body.
+        """
+        it = None
+        try:
+            source = next(self.source_iter)
+        except StopIteration:
+            pass
+        else:
+            if source:
+                self.source = source
+                it = self._iter_parts_from_response(req)
+        return it
 
 
 @ObjectControllerRouter.register(EC_POLICY)

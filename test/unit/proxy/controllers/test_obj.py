@@ -6845,12 +6845,12 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
 
     def test_iter_bytes_from_response_part(self):
         part = FileLikeIter([b'some', b'thing'])
-        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        it = self.getter._iter_bytes_from_response_part(part, nbytes=None)
         self.assertEqual(b'something', b''.join(it))
 
     def test_iter_bytes_from_response_part_insufficient_bytes(self):
         part = FileLikeIter([b'some', b'thing'])
-        it = self.getter.iter_bytes_from_response_part(part, nbytes=100)
+        it = self.getter._iter_bytes_from_response_part(part, nbytes=100)
         with mock.patch.object(self.getter, '_find_source',
                                return_value=False):
             with self.assertRaises(ShortReadError) as cm:
@@ -6862,7 +6862,7 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         part = FileLikeIter([b'some', b'thing'])
         self.app.recoverable_node_timeout = 0.05
         self.app.client_timeout = 0.8
-        it = self.getter.iter_bytes_from_response_part(part, nbytes=9)
+        it = self.getter._iter_bytes_from_response_part(part, nbytes=9)
         with mock.patch.object(self.getter, '_find_source',
                                return_value=False):
             with mock.patch.object(part, 'read',
@@ -6874,11 +6874,11 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
     def test_iter_bytes_from_response_part_small_fragment_size(self):
         self.getter.fragment_size = 4
         part = FileLikeIter([b'some', b'thing', b''])
-        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        it = self.getter._iter_bytes_from_response_part(part, nbytes=None)
         self.assertEqual([b'some', b'thin', b'g'], [ch for ch in it])
         self.getter.fragment_size = 1
         part = FileLikeIter([b'some', b'thing', b''])
-        it = self.getter.iter_bytes_from_response_part(part, nbytes=None)
+        it = self.getter._iter_bytes_from_response_part(part, nbytes=None)
         self.assertEqual([c.encode() for c in 'something'], [ch for ch in it])
 
     def test_fragment_size(self):
