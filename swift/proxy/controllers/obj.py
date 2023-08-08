@@ -69,7 +69,8 @@ from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
-    record_cache_op_metrics, get_cache_key, GetterBase, GetterSource
+    record_cache_op_metrics, get_cache_key, GetterBase, GetterSource, \
+    is_good_source
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -2477,19 +2478,6 @@ class ECGetResponseCollection(object):
             return nodes.pop(0).copy()
 
 
-def is_good_source(status):
-    """
-    Indicates whether or not the request made to the backend found
-    what it was looking for.
-
-    :param status: the response from the backend
-    :returns: True if found, False if not
-    """
-    if status == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE:
-        return True
-    return is_success(status) or is_redirection(status)
-
-
 class ECFragGetter(GetterBase):
 
     def __init__(self, app, req, node_iter, partition, policy, path,
@@ -2714,7 +2702,7 @@ class ECFragGetter(GetterBase):
         self.status = possible_source.status
         self.reason = possible_source.reason
         self.source_headers = possible_source.getheaders()
-        if is_good_source(possible_source.status):
+        if is_good_source(possible_source.status, server_type='Object'):
             self.body = None
             return possible_source
         else:
@@ -2945,9 +2933,9 @@ class ECObjectController(BaseObjectController):
                     break
                 requests_available = extra_requests < max_extra_requests and (
                     node_iter.nodes_left > 0 or buckets.has_alternate_node())
-                bad_resp = not is_good_source(get.last_status)
                 if requests_available and (
-                        buckets.shortfall > pile._pending or bad_resp):
+                        buckets.shortfall > pile._pending or
+                        not is_good_source(get.last_status, self.server_type)):
                     extra_requests += 1
                     pile.spawn(self._fragment_GET_request, req, safe_iter,
                                partition, policy, buckets.get_extra_headers,
