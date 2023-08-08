@@ -1134,28 +1134,28 @@ class TestMemcached(unittest.TestCase):
         with patch('time.time',) as mock_time:
             mock_time.return_value = 1000.99
             memcache_client.set('some_key', [1, 2, 3])
-            last_stats = self.logger.log_dict['timing_since'][-1]
+            last_stats = self.logger.statsd_client.calls['timing_since'][-1]
             self.assertEqual('memcached.set.timing', last_stats[0][0])
             self.assertEqual(last_stats[0][1], 1000.99)
             mock_time.return_value = 2000.99
             self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
-            last_stats = self.logger.log_dict['timing_since'][-1]
+            last_stats = self.logger.statsd_client.calls['timing_since'][-1]
             self.assertEqual('memcached.get.timing', last_stats[0][0])
             self.assertEqual(last_stats[0][1], 2000.99)
             mock_time.return_value = 3000.99
             self.assertEqual(memcache_client.decr('decr_key', delta=5), 0)
-            last_stats = self.logger.log_dict['timing_since'][-1]
+            last_stats = self.logger.statsd_client.calls['timing_since'][-1]
             self.assertEqual('memcached.decr.timing', last_stats[0][0])
             self.assertEqual(last_stats[0][1], 3000.99)
             mock_time.return_value = 4000.99
             self.assertEqual(memcache_client.incr('decr_key', delta=5), 5)
-            last_stats = self.logger.log_dict['timing_since'][-1]
+            last_stats = self.logger.statsd_client.calls['timing_since'][-1]
             self.assertEqual('memcached.incr.timing', last_stats[0][0])
             self.assertEqual(last_stats[0][1], 4000.99)
             mock_time.return_value = 5000.99
             memcache_client.set_multi(
                 {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key')
-            last_stats = self.logger.log_dict['timing_since'][-1]
+            last_stats = self.logger.statsd_client.calls['timing_since'][-1]
             self.assertEqual('memcached.set_multi.timing', last_stats[0][0])
             self.assertEqual(last_stats[0][1], 5000.99)
             mock_time.return_value = 6000.99
@@ -1165,12 +1165,12 @@ class TestMemcached(unittest.TestCase):
                     'multi_key'),
                 [[4, 5, 6],
                  [1, 2, 3]])
-            last_stats = self.logger.log_dict['timing_since'][-1]
+            last_stats = self.logger.statsd_client.calls['timing_since'][-1]
             self.assertEqual('memcached.get_multi.timing', last_stats[0][0])
             self.assertEqual(last_stats[0][1], 6000.99)
             mock_time.return_value = 7000.99
             memcache_client.delete('some_key')
-            last_stats = self.logger.log_dict['timing_since'][-1]
+            last_stats = self.logger.statsd_client.calls['timing_since'][-1]
             self.assertEqual('memcached.delete.timing', last_stats[0][0])
             self.assertEqual(last_stats[0][1], 7000.99)
 
@@ -1190,8 +1190,10 @@ class TestMemcached(unittest.TestCase):
                 mock_time.return_value = 4000.99
                 with self.assertRaises(MemcacheConnectionError):
                     memcache_client.incr('incr_key', delta=5)
-                self.assertTrue(self.logger.log_dict['timing_since'])
-                last_stats = self.logger.log_dict['timing_since'][-1]
+                self.assertTrue(
+                    self.logger.statsd_client.calls['timing_since'])
+                last_stats = \
+                    self.logger.statsd_client.calls['timing_since'][-1]
                 self.assertEqual('memcached.incr.errors.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4000.99)
@@ -1218,8 +1220,10 @@ class TestMemcached(unittest.TestCase):
                     memcache_client.set(
                         'set_key', [1, 2, 3],
                         raise_on_error=True)
-                self.assertTrue(self.logger.log_dict['timing_since'])
-                last_stats = self.logger.log_dict['timing_since'][-1]
+                self.assertTrue(
+                    self.logger.statsd_client.calls['timing_since'])
+                last_stats = \
+                    self.logger.statsd_client.calls['timing_since'][-1]
                 self.assertEqual('memcached.set.errors.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4000.99)
@@ -1244,8 +1248,10 @@ class TestMemcached(unittest.TestCase):
                 mock_time.return_value = 4000.99
                 with self.assertRaises(MemcacheConnectionError):
                     memcache_client.get('get_key', raise_on_error=True)
-                self.assertTrue(self.logger.log_dict['timing_since'])
-                last_stats = self.logger.log_dict['timing_since'][-1]
+                self.assertTrue(
+                    self.logger.statsd_client.calls['timing_since'])
+                last_stats = \
+                    self.logger.statsd_client.calls['timing_since'][-1]
                 self.assertEqual('memcached.get.errors.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4000.99)
@@ -1270,8 +1276,10 @@ class TestMemcached(unittest.TestCase):
                 mock_time.return_value = 4000.99
                 with self.assertRaises(MemcacheConnectionError):
                     memcache_client.get('get_key', raise_on_error=True)
-                self.assertTrue(self.logger.log_dict['timing_since'])
-                last_stats = self.logger.log_dict['timing_since'][-1]
+                self.assertTrue(
+                    self.logger.statsd_client.calls['timing_since'])
+                last_stats = \
+                    self.logger.statsd_client.calls['timing_since'][-1]
                 self.assertEqual('memcached.get.conn_err.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4000.99)
@@ -1297,8 +1305,10 @@ class TestMemcached(unittest.TestCase):
                 mock_time.side_effect = itertools.count(4000.99, 1.0)
                 with self.assertRaises(MemcacheConnectionError):
                     memcache_client.incr('nvratelimit/v2/wf/124593', delta=5)
-                self.assertTrue(self.logger.log_dict['timing_since'])
-                last_stats = self.logger.log_dict['timing_since'][-1]
+                self.assertTrue(
+                    self.logger.statsd_client.calls['timing_since'])
+                last_stats = \
+                    self.logger.statsd_client.calls['timing_since'][-1]
                 self.assertEqual('memcached.incr.timeout.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4002.99)
@@ -1330,8 +1340,10 @@ class TestMemcached(unittest.TestCase):
                     memcache_client.set(
                         'shard-updating-v2/acc/container', [1, 2, 3],
                         raise_on_error=True)
-                self.assertTrue(self.logger.log_dict['timing_since'])
-                last_stats = self.logger.log_dict['timing_since'][-1]
+                self.assertTrue(
+                    self.logger.statsd_client.calls['timing_since'])
+                last_stats = \
+                    self.logger.statsd_client.calls['timing_since'][-1]
                 self.assertEqual('memcached.set.timeout.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4002.99)
@@ -1362,8 +1374,10 @@ class TestMemcached(unittest.TestCase):
                 with self.assertRaises(MemcacheConnectionError):
                     memcache_client.get(
                         'shard-updating-v2/acc/container', raise_on_error=True)
-                self.assertTrue(self.logger.log_dict['timing_since'])
-                last_stats = self.logger.log_dict['timing_since'][-1]
+                self.assertTrue(
+                    self.logger.statsd_client.calls['timing_since'])
+                last_stats = \
+                    self.logger.statsd_client.calls['timing_since'][-1]
                 self.assertEqual('memcached.get.timeout.timing',
                                  last_stats[0][0])
                 self.assertEqual(last_stats[0][1], 4002.99)
@@ -1407,8 +1421,8 @@ class TestMemcached(unittest.TestCase):
                     with self.assertRaises(MemcacheConnectionError):
                         memcache_client.incr(
                             'shard-updating-v2/acc/container', time=1.23)
-        self.assertTrue(self.logger.log_dict['timing_since'])
-        last_stats = self.logger.log_dict['timing_since'][-1]
+        self.assertTrue(self.logger.statsd_client.calls['timing_since'])
+        last_stats = self.logger.statsd_client.calls['timing_since'][-1]
         self.assertEqual('memcached.incr.conn_err.timing',
                          last_stats[0][0])
         self.assertEqual(last_stats[0][1], 4002.99)
@@ -1440,8 +1454,8 @@ class TestMemcached(unittest.TestCase):
                 with self.assertRaises(MemcacheConnectionError):
                     memcache_client.incr(
                         'shard-updating-v2/acc/container', time=1.23)
-        self.assertTrue(self.logger.log_dict['timing_since'])
-        last_stats = self.logger.log_dict['timing_since'][-1]
+        self.assertTrue(self.logger.statsd_client.calls['timing_since'])
+        last_stats = self.logger.statsd_client.calls['timing_since'][-1]
         self.assertEqual('memcached.incr.errors.timing',
                          last_stats[0][0])
         self.assertEqual(last_stats[0][1], 4002.99)
@@ -1451,7 +1465,7 @@ class TestMemcached(unittest.TestCase):
         self.assertIn("with key_prefix shard-updating-v2/acc, method incr, "
                       "time_spent 1.0" % resp.split(), error_logs[0])
         self.assertIn('1.2.3.4:11211', memcache_client._errors)
-        self.assertEqual([4004.99], memcache_client._errors['1.2.3.4:11211'])
+        self.assertEqual([4005.99], memcache_client._errors['1.2.3.4:11211'])
 
 
 class ExcConfigParser(object):

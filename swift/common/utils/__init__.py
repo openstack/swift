@@ -1234,21 +1234,7 @@ class StatsdClient(object):
         self.logger = logger
 
         # Determine if host is IPv4 or IPv6
-        addr_info = None
-        try:
-            addr_info = socket.getaddrinfo(host, port, socket.AF_INET)
-            self._sock_family = socket.AF_INET
-        except socket.gaierror:
-            try:
-                addr_info = socket.getaddrinfo(host, port, socket.AF_INET6)
-                self._sock_family = socket.AF_INET6
-            except socket.gaierror:
-                # Don't keep the server from starting from what could be a
-                # transient DNS failure.  Any hostname will get re-resolved as
-                # necessary in the .sendto() calls.
-                # However, we don't know if we're IPv4 or IPv6 in this case, so
-                # we assume legacy IPv4.
-                self._sock_family = socket.AF_INET
+        addr_info, self._sock_family = self._determine_sock_family(host, port)
 
         # NOTE: we use the original host value, not the DNS-resolved one
         # because if host is a hostname, we don't want to cache the DNS
@@ -1267,6 +1253,24 @@ class StatsdClient(object):
             self._target = (host,) + (sockaddr[1:])
         else:
             self._target = (host, port)
+
+    def _determine_sock_family(self, host, port):
+        addr_info = sock_family = None
+        try:
+            addr_info = socket.getaddrinfo(host, port, socket.AF_INET)
+            sock_family = socket.AF_INET
+        except socket.gaierror:
+            try:
+                addr_info = socket.getaddrinfo(host, port, socket.AF_INET6)
+                sock_family = socket.AF_INET6
+            except socket.gaierror:
+                # Don't keep the server from starting from what could be a
+                # transient DNS failure.  Any hostname will get re-resolved as
+                # necessary in the .sendto() calls.
+                # However, we don't know if we're IPv4 or IPv6 in this case, so
+                # we assume legacy IPv4.
+                sock_family = socket.AF_INET
+        return addr_info, sock_family
 
     def _set_prefix(self, tail_prefix):
         """
@@ -1342,12 +1346,16 @@ class StatsdClient(object):
     def decrement(self, metric, sample_rate=None):
         return self.update_stats(metric, -1, sample_rate)
 
-    def timing(self, metric, timing_ms, sample_rate=None):
+    def _timing(self, metric, timing_ms, sample_rate):
+        # This method was added to disagregate timing metrics when testing
         return self._send(metric, timing_ms, 'ms', sample_rate)
 
+    def timing(self, metric, timing_ms, sample_rate=None):
+        return self._timing(metric, timing_ms, sample_rate)
+
     def timing_since(self, metric, orig_time, sample_rate=None):
-        return self.timing(metric, (time.time() - orig_time) * 1000,
-                           sample_rate)
+        return self._timing(metric, (time.time() - orig_time) * 1000,
+                            sample_rate)
 
     def transfer_rate(self, metric, elapsed_time, byte_xfer, sample_rate=None):
         if byte_xfer:

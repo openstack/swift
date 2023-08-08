@@ -107,7 +107,8 @@ class TestBackendRatelimitMiddleware(unittest.TestCase):
                 fake_time[0] += 0.01
         self.assertEqual(
             ratelimited,
-            logger.get_increment_counts().get('backend.ratelimit', 0))
+            logger.statsd_client.get_increment_counts().get(
+                'backend.ratelimit', 0))
         return success
 
     def test_ratelimited(self):
@@ -163,7 +164,8 @@ class TestBackendRatelimitMiddleware(unittest.TestCase):
                 resp = req.get_response(rl)
                 self.assertEqual(200, resp.status_int)
             self.assertEqual(
-                0, logger.get_increment_counts().get('backend.ratelimit', 0))
+                0, logger.statsd_client.get_increment_counts().get(
+                    'backend.ratelimit', 0))
 
         do_test('/recon/version')
         do_test('/healthcheck')

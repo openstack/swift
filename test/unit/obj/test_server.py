@@ -8155,7 +8155,7 @@ class TestObjectController(BaseTestCase):
         self.object_controller.logger = self.logger
         with mock.patch('time.time',
                         side_effect=[10000.0, 10000.0, 10001.0, 10002.0,
-                                     10002.0]), \
+                                     10002.0, 10002.0]), \
                 mock.patch('os.getpid', return_value=1234):
             req.get_response(self.object_controller)
         self.assertEqual(

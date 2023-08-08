@@ -469,7 +469,8 @@ class TestReaper(unittest.TestCase):
                 patch('swift.account.reaper.AccountReaper.reap_object',
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 1)
+        self.assertEqual(
+            r.logger.statsd_client.get_increment_counts()['return_codes.4'], 1)
         self.assertEqual(r.stats_containers_deleted, 1)
 
     def test_reap_container_partial_fail(self):
@@ -488,7 +489,8 @@ class TestReaper(unittest.TestCase):
                 patch('swift.account.reaper.AccountReaper.reap_object',
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 4)
+        self.assertEqual(
+            r.logger.statsd_client.get_increment_counts()['return_codes.4'], 4)
         self.assertEqual(r.stats_containers_possibly_remaining, 1)
 
     def test_reap_container_full_fail(self):
@@ -507,7 +509,8 @@ class TestReaper(unittest.TestCase):
                 patch('swift.account.reaper.AccountReaper.reap_object',
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 5)
+        self.assertEqual(
+            r.logger.statsd_client.get_increment_counts()['return_codes.4'], 5)
         self.assertEqual(r.stats_containers_remaining, 1)
 
     def test_reap_container_get_object_timeout(self):

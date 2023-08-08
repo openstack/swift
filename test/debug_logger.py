@@ -29,6 +29,74 @@ class WARN_DEPRECATED(Exception):
         print(self.msg)
 
 
+class FakeStatsdClient(utils.StatsdClient):
+    def __init__(self, host, port, base_prefix='', tail_prefix='',
+                 default_sample_rate=1, sample_rate_factor=1, logger=None):
+        super(FakeStatsdClient, self).__init__(
+            host, port, base_prefix, tail_prefix, default_sample_rate,
+            sample_rate_factor, logger)
+        self.clear()
+
+        # Capture then call parent pubic stat functions
+        self.update_stats = self._capture("update_stats")
+        self.increment = self._capture("increment")
+        self.decrement = self._capture("decrement")
+        self.timing = self._capture("timing")
+        self.timing_since = self._capture("timing_since")
+        self.transfer_rate = self._capture("transfer_rate")
+
+    def _capture(self, func_name):
+        func = getattr(super(FakeStatsdClient, self), func_name)
+
+        def wrapper(*args, **kwargs):
+            self.calls[func_name].append((args, kwargs))
+            return func(*args, **kwargs)
+        return wrapper
+
+    def _determine_sock_family(self, host, port):
+        return None, None
+
+    def _open_socket(self):
+        return self
+
+    # sendto and close are mimicing the socket calls.
+    def sendto(self, msg, target):
+        self.sendto_calls.append((msg, target))
+
+    def close(self):
+        pass
+
+    def _send(self, *args, **kwargs):
+        self.send_calls.append((args, kwargs))
+        super(FakeStatsdClient, self)._send(*args, **kwargs)
+
+    def clear(self):
+        self.send_calls = []
+        self.calls = defaultdict(list)
+        self.sendto_calls = []
+
+    def get_increments(self):
+        return [call[0][0] for call in self.calls['increment']]
+
+    def get_increment_counts(self):
+        # note: this method reports the sum of stats sent via the increment
+        # method only; consider using get_stats_counts instead to get the sum
+        # of stats sent via both the increment and update_stats methods
+        counts = defaultdict(int)
+        for metric in self.get_increments():
+            counts[metric] += 1
+        return counts
+
+    def get_update_stats(self):
+        return [call[0][:2] for call in self.calls['update_stats']]
+
+    def get_stats_counts(self):
+        counts = defaultdict(int)
+        for metric, step in self.get_update_stats():
+            counts[metric] += step
+        return counts
+
+
 class CaptureLog(object):
     """
     Captures log records passed to the ``handle`` method and provides accessor
@@ -79,7 +147,7 @@ class FakeLogger(logging.Logger, CaptureLog):
         self.level = logging.NOTSET
         if 'facility' in kwargs:
             self.facility = kwargs['facility']
-        self.statsd_client = None
+        self.statsd_client = FakeStatsdClient("host", 8125)
         self.thread_locals = None
         self.parent = None
 
@@ -91,6 +159,13 @@ class FakeLogger(logging.Logger, CaptureLog):
         logging.CRITICAL: 'critical',
         NOTICE: 'notice',
     }
+
+    def clear(self):
+        self._clear()
+        self.statsd_client.clear()
+
+    def close(self):
+        self.clear()
 
     def warn(self, *args, **kwargs):
         raise WARN_DEPRECATED("Deprecated Method warn use warning instead")
@@ -116,52 +191,8 @@ class FakeLogger(logging.Logger, CaptureLog):
         self.log_dict[store_name].append((tuple(cargs), captured))
         super(FakeLogger, self)._log(level, msg, *args, **kwargs)
 
-    def _store_in(store_name):
-        def stub_fn(self, *args, **kwargs):
-            self.log_dict[store_name].append((args, kwargs))
-        return stub_fn
-
-    # mock out the StatsD logging methods:
-    update_stats = _store_in('update_stats')
-    increment = _store_in('increment')
-    decrement = _store_in('decrement')
-    timing = _store_in('timing')
-    timing_since = _store_in('timing_since')
-    transfer_rate = _store_in('transfer_rate')
-    set_statsd_prefix = _store_in('set_statsd_prefix')
-
-    def get_increments(self):
-        return [call[0][0] for call in self.log_dict['increment']]
-
-    def get_increment_counts(self):
-        # note: this method reports the sum of stats sent via the increment
-        # method only; consider using get_stats_counts instead to get the sum
-        # of stats sent via both the increment and update_stats methods
-        counts = {}
-        for metric in self.get_increments():
-            if metric not in counts:
-                counts[metric] = 0
-            counts[metric] += 1
-        return counts
-
-    def get_update_stats(self):
-        return [call[0] for call in self.log_dict['update_stats']]
-
-    def get_stats_counts(self):
-        # return dict key->count for stats, aggregating calls to both the
-        # increment and update methods
-        counts = self.get_increment_counts()
-        for metric, step in self.get_update_stats():
-            if metric not in counts:
-                counts[metric] = 0
-            counts[metric] += step
-        return counts
-
     def setFormatter(self, obj):
         self.formatter = obj
-
-    def close(self):
-        self._clear()
 
     def set_name(self, name):
         # don't touch _handlers
@@ -213,20 +244,6 @@ class DebugLogger(FakeLogger):
 
 
 class DebugLogAdapter(utils.LogAdapter):
-
-    def _send_to_logger(name):
-        def stub_fn(self, *args, **kwargs):
-            return getattr(self.logger, name)(*args, **kwargs)
-        return stub_fn
-
-    # delegate to FakeLogger's mocks
-    update_stats = _send_to_logger('update_stats')
-    increment = _send_to_logger('increment')
-    decrement = _send_to_logger('decrement')
-    timing = _send_to_logger('timing')
-    timing_since = _send_to_logger('timing_since')
-    transfer_rate = _send_to_logger('transfer_rate')
-    set_statsd_prefix = _send_to_logger('set_statsd_prefix')
 
     def __getattribute__(self, name):
         try:

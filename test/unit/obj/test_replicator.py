@@ -1881,9 +1881,9 @@ class TestObjectReplicator(unittest.TestCase):
 
         # attempt to 16 times but succeeded only 15 times due to Timeout
         suffix_hashes = sum(
-            count for (metric, count), _junk in
-            replicator.logger.logger.log_dict['update_stats']
-            if metric == 'suffix.hashes')
+            call[0][1] for call in
+            replicator.logger.logger.statsd_client.calls['update_stats']
+            if call[0][0] == 'suffix.hashes')
         self.assertEqual(15, suffix_hashes)
 
     def test_run(self):

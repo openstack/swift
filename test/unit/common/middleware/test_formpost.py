@@ -1553,7 +1553,7 @@ class TestFormPost(unittest.TestCase):
             do_test(digest, False)
 
         # NB: one increment per *upload*, not client request
-        self.assertEqual(self.logger.get_increment_counts(), {
+        self.assertEqual(self.logger.statsd_client.get_increment_counts(), {
             'formpost.digests.sha1': 4,
             'formpost.digests.sha256': 4,
             'formpost.digests.sha512': 4,

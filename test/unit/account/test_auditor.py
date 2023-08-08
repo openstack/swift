@@ -130,8 +130,9 @@ class TestAuditorRealBroker(unittest.TestCase):
             'The total container_count for the account a (%d) does not match '
             'the sum of container_count across policies (%d)'
             % (num_containers, num_containers - 1), error_message)
-        self.assertEqual(test_auditor.logger.get_increment_counts(),
-                         {'failures': 1})
+        self.assertEqual(
+            test_auditor.logger.statsd_client.get_increment_counts(),
+            {'failures': 1})
 
 
 if __name__ == '__main__':
