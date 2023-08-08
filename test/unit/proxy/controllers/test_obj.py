@@ -45,7 +45,7 @@ from swift.common.utils import Timestamp, list_from_csv, md5, FileLikeIter
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import \
-    get_container_info as _real_get_container_info
+    get_container_info as _real_get_container_info, GetterSource
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
 from swift.common.swob import Request
@@ -6851,8 +6851,8 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
     def test_iter_bytes_from_response_part_insufficient_bytes(self):
         part = FileLikeIter([b'some', b'thing'])
         it = self.getter.iter_bytes_from_response_part(part, nbytes=100)
-        with mock.patch.object(self.getter, '_get_source_and_node',
-                               return_value=(None, None)):
+        with mock.patch.object(self.getter, '_find_source',
+                               return_value=False):
             with self.assertRaises(ShortReadError) as cm:
                 b''.join(it)
         self.assertEqual('Too few bytes; read 9, expecting 100',
@@ -6863,8 +6863,8 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         self.app.recoverable_node_timeout = 0.05
         self.app.client_timeout = 0.8
         it = self.getter.iter_bytes_from_response_part(part, nbytes=9)
-        with mock.patch.object(self.getter, '_get_source_and_node',
-                               return_value=(None, None)):
+        with mock.patch.object(self.getter, '_find_source',
+                               return_value=False):
             with mock.patch.object(part, 'read',
                                    side_effect=[b'some', ChunkReadTimeout(9)]):
                 with self.assertRaises(ChunkReadTimeout) as cm:
@@ -6886,12 +6886,12 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
             b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))
         req = Request.blank('/v1/a/c/o')
 
-        def mock_source_and_node_gen():
-            yield source, {}
+        def mock_source_gen():
+            yield GetterSource(self.app, source, {})
 
         self.getter.fragment_size = 8
-        with mock.patch.object(self.getter, '_source_and_node_gen',
-                               mock_source_and_node_gen):
+        with mock.patch.object(self.getter, '_source_gen',
+                               mock_source_gen):
             it = self.getter.response_parts_iter(req)
             fragments = list(next(it)['part_iter'])
 
@@ -6908,16 +6908,17 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         source3 = FakeSource([b'lots', b'more', b'data'])
         req = Request.blank('/v1/a/c/o')
         range_headers = []
-        sources = [(source1, node), (source2, node), (source3, node)]
+        sources = [GetterSource(self.app, src, node)
+                   for src in (source1, source2, source3)]
 
-        def mock_source_and_node_gen():
+        def mock_source_gen():
             for source in sources:
                 range_headers.append(self.getter.backend_headers.get('Range'))
                 yield source
 
         self.getter.fragment_size = 8
-        with mock.patch.object(self.getter, '_source_and_node_gen',
-                               mock_source_and_node_gen):
+        with mock.patch.object(self.getter, '_source_gen',
+                               mock_source_gen):
             it = self.getter.response_parts_iter(req)
             fragments = list(next(it)['part_iter'])
 
@@ -6932,17 +6933,18 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         source1 = FakeSource([b'abcd', b'1234', b'abc', None], headers=headers)
         source2 = FakeSource([b'efgh5678'], headers=headers)
         range_headers = []
-        sources = [(source1, node), (source2, node)]
+        sources = [GetterSource(self.app, src, node)
+                   for src in (source1, source2)]
         req = Request.blank('/v1/a/c/o')
 
-        def mock_source_and_node_gen():
+        def mock_source_gen():
             for source in sources:
                 range_headers.append(self.getter.backend_headers.get('Range'))
                 yield source
 
         self.getter.fragment_size = 8
-        with mock.patch.object(self.getter, '_source_and_node_gen',
-                               mock_source_and_node_gen):
+        with mock.patch.object(self.getter, '_source_gen',
+                               mock_source_gen):
             it = self.getter.response_parts_iter(req)
             fragments = list(next(it)['part_iter'])
         self.assertEqual(fragments, [b'abcd1234', b'efgh5678'])
