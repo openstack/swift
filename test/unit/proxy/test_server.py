@@ -1082,7 +1082,7 @@ class TestProxyServer(unittest.TestCase):
                     elif header == "Content-Length":
                         return str(len(body))
                     else:
-                        return 1
+                        return "1"
 
                 resp = mock.Mock()
                 resp.read.side_effect = [body.encode('ascii'), b'']
