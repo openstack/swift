@@ -4538,8 +4538,12 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 500)
         self.assertEqual(len(log), self.policy.ec_n_unique_fragments * 2)
         log_lines = self.app.logger.get_lines_for_level('error')
+        self.assertEqual(2, len(log_lines), log_lines)
+        self.assertIn('Trying to read during GET: ChunkReadTimeout',
+                      log_lines[0])
         # not the most graceful ending
-        self.assertIn('Unhandled exception', log_lines[-1])
+        self.assertIn('Unhandled exception in request: ChunkReadTimeout',
+                      log_lines[1])
 
     def test_GET_with_multirange_short_resume_body(self):
         self.app.object_chunk_size = 256

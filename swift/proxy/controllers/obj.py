@@ -2617,7 +2617,7 @@ class ECFragGetter(GetterBase):
                     part_iter.close()
 
         except ChunkReadTimeout:
-            self.app.exception_occurred(self.node, 'Object',
+            self.app.exception_occurred(self.source.node, 'Object',
                                         'Trying to read during GET')
             raise
         except ChunkWriteTimeout:
