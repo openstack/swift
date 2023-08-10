@@ -31,7 +31,7 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     set_info_cache, NodeIter, headers_from_container_info, \
     record_cache_op_metrics, GetterSource
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
-    bytes_to_wsgi
+    bytes_to_wsgi, wsgi_to_str
 from swift.common import exceptions
 from swift.common.utils import split_path, ShardRange, Timestamp, \
     GreenthreadSafeIterator, GreenAsyncPile
@@ -1516,6 +1516,41 @@ class TestFuncs(BaseTest):
         params = sorted(captured[1]['qs'].split('&'))
         self.assertEqual(
             ['format=json', 'includes=1_test'], params)
+        self.assertEqual(
+            'shard', captured[1]['headers'].get('X-Backend-Record-Type'))
+        self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
+        self.assertFalse(self.app.logger.get_lines_for_level('error'))
+
+    def test_get_shard_ranges_for_utf8_object_put(self):
+        ts_iter = make_timestamp_iter()
+        shard_ranges = [dict(ShardRange(
+            '.sharded_a/sr%d' % i, next(ts_iter), u'\u1234%d_lower' % i,
+            u'\u1234%d_upper' % i, object_count=i, bytes_used=1024 * i,
+            meta_timestamp=next(ts_iter)))
+            for i in range(3)]
+        base = Controller(self.app)
+        req = Request.blank('/v1/a/c/o', method='PUT')
+        resp_headers = {'X-Backend-Record-Type': 'shard'}
+        with mocked_http_conn(
+            200, 200,
+            body_iter=iter([b'',
+                            json.dumps(shard_ranges[1:2]).encode('ascii')]),
+            headers=resp_headers
+        ) as fake_conn:
+            actual, resp = base._get_shard_ranges(
+                req, 'a', 'c', wsgi_to_str('\xe1\x88\xb41_test'))
+        self.assertEqual(200, resp.status_int)
+
+        # account info
+        captured = fake_conn.requests
+        self.assertEqual('HEAD', captured[0]['method'])
+        self.assertEqual('a', captured[0]['path'][7:])
+        # container GET
+        self.assertEqual('GET', captured[1]['method'])
+        self.assertEqual('a/c', captured[1]['path'][7:])
+        params = sorted(captured[1]['qs'].split('&'))
+        self.assertEqual(
+            ['format=json', 'includes=%E1%88%B41_test'], params)
         self.assertEqual(
             'shard', captured[1]['headers'].get('X-Backend-Record-Type'))
         self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])

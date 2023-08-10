@@ -2425,7 +2425,7 @@ class Controller(object):
         params.pop('limit', None)
         params['format'] = 'json'
         if includes:
-            params['includes'] = includes
+            params['includes'] = str_to_wsgi(includes)
         if states:
             params['states'] = states
         headers = {'X-Backend-Record-Type': 'shard'}
