@@ -694,6 +694,8 @@ class TestS3ApiObj(S3ApiTestCase):
         _, _, headers = self.swift.calls_with_headers[-1]
         # No way to determine ETag to send
         self.assertNotIn('etag', headers)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ.get('swift.backend_path'))
 
     @s3acl
     def test_object_PUT_v4_bad_hash(self):
@@ -717,6 +719,8 @@ class TestS3ApiObj(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
         self.assertEqual(self._get_error_code(body), 'BadDigest')
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ.get('swift.backend_path'))
 
     @s3acl
     def test_object_PUT_v4_unsigned_payload(self):

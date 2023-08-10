@@ -1552,6 +1552,31 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         for conn in conns:
             self.assertTrue(conn.closed)
 
+    def test_PUT_insufficient_data_from_client(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise Timeout()
+        conns = []
+
+        def capture_expect(conn):
+            # stash connections so that we can verify they all get closed
+            conns.append(conn)
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='7 bytes')
+        req.headers['content-length'] = '99'
+        with set_http_connect(201, 201, 201, give_expect=capture_expect):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 499)
+        warning_lines = self.app.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warning_lines))
+        self.assertIn('Client disconnected without sending enough data',
+                      warning_lines[0])
+        self.assertEqual(self.replicas(), len(conns))
+        for conn in conns:
+            self.assertTrue(conn.closed)
+
     def test_PUT_exception_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
