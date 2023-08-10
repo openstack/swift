@@ -109,8 +109,9 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             missing = len(nodes) - found_count
             print('\r\x1B[K', end='')
             stdout.flush()
-            print('# Container partition %s missing %s cop%s' % (
-                part, missing, 'y' if missing == 1 else 'ies'), file=stderr)
+            print('# Container partition %s missing %s cop%s (%s/%s)' % (
+                part, missing, 'y' if missing == 1 else 'ies', account,
+                container), file=stderr)
         container_copies_found[0] += found_count
         containers_queried[0] += 1
         container_copies_missing[len(nodes) - found_count] += 1
@@ -222,8 +223,9 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             missing = len(nodes) - found_count
             print('\r\x1B[K', end='')
             stdout.flush()
-            print('# Object partition %s missing %s cop%s' % (
-                part, missing, 'y' if missing == 1 else 'ies'), file=stderr)
+            print('# Object partition %s missing %s cop%s (%s/%s/%s)' % (
+                part, missing, 'y' if missing == 1 else 'ies', account,
+                container, obj), file=stderr)
         object_copies_found[0] += found_count
         object_copies_missing[len(nodes) - found_count] += 1
         objects_queried[0] += 1
