@@ -830,13 +830,14 @@ class FileLikeIter(object):
         self.closed = True
 
 
-def fs_has_free_space(fs_path, space_needed, is_percent):
+def fs_has_free_space(fs_path_or_fd, space_needed, is_percent):
     """
     Check to see whether or not a filesystem has the given amount of space
     free. Unlike fallocate(), this does not reserve any space.
 
-    :param fs_path: path to a file or directory on the filesystem; typically
-        the path to the filesystem's mount point
+    :param fs_path_or_fd: path to a file or directory on the filesystem, or an
+        open file descriptor; if a directory, typically the path to the
+        filesystem's mount point
 
     :param space_needed: minimum bytes or percentage of free space
 
@@ -849,7 +850,10 @@ def fs_has_free_space(fs_path, space_needed, is_percent):
 
     :raises OSError: if fs_path does not exist
     """
-    st = os.statvfs(fs_path)
+    if isinstance(fs_path_or_fd, int):
+        st = os.fstatvfs(fs_path_or_fd)
+    else:
+        st = os.statvfs(fs_path_or_fd)
     free_bytes = st.f_frsize * st.f_bavail
     if is_percent:
         size_bytes = st.f_frsize * st.f_blocks

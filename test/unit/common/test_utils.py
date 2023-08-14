@@ -6958,8 +6958,8 @@ class TestHashForFileFunction(unittest.TestCase):
 
 
 class TestFsHasFreeSpace(unittest.TestCase):
-    def test_bytes(self):
-        fake_result = posix.statvfs_result([
+    def setUp(self):
+        self.fake_result = posix.statvfs_result([
             4096,     # f_bsize
             4096,     # f_frsize
             2854907,  # f_blocks
@@ -6971,28 +6971,31 @@ class TestFsHasFreeSpace(unittest.TestCase):
             4096,     # f_flag
             255,      # f_namemax
         ])
-        with mock.patch('os.statvfs', return_value=fake_result):
+
+    def test_bytes(self):
+        with mock.patch(
+                'os.statvfs', return_value=self.fake_result) as mock_statvfs:
             self.assertTrue(utils.fs_has_free_space("/", 0, False))
             self.assertTrue(utils.fs_has_free_space("/", 1, False))
             # free space left = f_bavail * f_bsize = 7078252544
             self.assertTrue(utils.fs_has_free_space("/", 7078252544, False))
             self.assertFalse(utils.fs_has_free_space("/", 7078252545, False))
             self.assertFalse(utils.fs_has_free_space("/", 2 ** 64, False))
+        mock_statvfs.assert_has_calls([mock.call("/")] * 5)
+
+    def test_bytes_using_file_descriptor(self):
+        with mock.patch(
+                'os.fstatvfs', return_value=self.fake_result) as mock_fstatvfs:
+            self.assertTrue(utils.fs_has_free_space(99, 0, False))
+            self.assertTrue(utils.fs_has_free_space(99, 1, False))
+            # free space left = f_bavail * f_bsize = 7078252544
+            self.assertTrue(utils.fs_has_free_space(99, 7078252544, False))
+            self.assertFalse(utils.fs_has_free_space(99, 7078252545, False))
+            self.assertFalse(utils.fs_has_free_space(99, 2 ** 64, False))
+        mock_fstatvfs.assert_has_calls([mock.call(99)] * 5)
 
     def test_percent(self):
-        fake_result = posix.statvfs_result([
-            4096,     # f_bsize
-            4096,     # f_frsize
-            2854907,  # f_blocks
-            1984802,  # f_bfree   (free blocks for root)
-            1728089,  # f_bavail  (free blocks for non-root)
-            1280000,  # f_files
-            1266040,  # f_ffree,
-            1266040,  # f_favail,
-            4096,     # f_flag
-            255,      # f_namemax
-        ])
-        with mock.patch('os.statvfs', return_value=fake_result):
+        with mock.patch('os.statvfs', return_value=self.fake_result):
             self.assertTrue(utils.fs_has_free_space("/", 0, True))
             self.assertTrue(utils.fs_has_free_space("/", 1, True))
             # percentage of free space for the faked statvfs is 60%

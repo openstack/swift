@@ -7765,9 +7765,7 @@ class TestObjectController(BaseTestCase):
         def fake_fallocate(fd, size):
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
 
-        orig_fallocate = diskfile.fallocate
-        try:
-            diskfile.fallocate = fake_fallocate
+        with mock.patch.object(diskfile, 'fallocate', fake_fallocate):
             timestamp = normalize_timestamp(time())
             body_reader = IgnoredBody()
             req = Request.blank(
@@ -7781,8 +7779,118 @@ class TestObjectController(BaseTestCase):
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 507)
             self.assertFalse(body_reader.read_called)
-        finally:
-            diskfile.fallocate = orig_fallocate
+
+    def test_chunked_PUT_with_full_drive(self):
+
+        class IgnoredBody(object):
+
+            def __init__(self):
+                self.read_called = False
+
+            def read(self, size=-1):
+                if not self.read_called:
+                    self.read_called = True
+                    return b'VERIFY'
+                return b''
+
+        with mock.patch.object(diskfile, 'fs_has_free_space',
+                               return_value=False):
+            timestamp = normalize_timestamp(time())
+            body_reader = IgnoredBody()
+            req = Request.blank(
+                '/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'PUT',
+                         'wsgi.input': body_reader},
+                headers={'X-Timestamp': timestamp,
+                         'Transfer-Encoding': 'chunked',
+                         'Content-Type': 'application/octet-stream',
+                         'Expect': '100-continue'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 507)
+            self.assertFalse(body_reader.read_called)
+
+    def test_POST_with_full_drive(self):
+        ts_iter = make_timestamp_iter()
+        timestamp = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            body=b'VERIFY',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        with mock.patch.object(diskfile, 'fs_has_free_space',
+                               return_value=False):
+            timestamp = next(ts_iter).internal
+            req = Request.blank(
+                '/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'POST'},
+                headers={'X-Timestamp': timestamp,
+                         'Content-Type': 'application/octet-stream'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 507)
+
+    def test_DELETE_with_full_drive(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            body=b'VERIFY',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        with mock.patch.object(diskfile, 'fs_has_free_space',
+                               return_value=False):
+            timestamp = normalize_timestamp(time())
+            req = Request.blank(
+                '/sda1/p/a/c/o',
+                method='DELETE',
+                body=b'',
+                headers={'X-Timestamp': timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 204)
+
+    def test_chunked_DELETE_with_full_drive(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            body=b'VERIFY',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        class IgnoredBody(object):
+
+            def __init__(self):
+                self.read_called = False
+
+            def read(self, size=-1):
+                if not self.read_called:
+                    self.read_called = True
+                    return b'VERIFY'
+                return b''
+
+        with mock.patch.object(diskfile, 'fs_has_free_space',
+                               return_value=False):
+            timestamp = normalize_timestamp(time())
+            body_reader = IgnoredBody()
+            req = Request.blank(
+                '/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'DELETE',
+                         'wsgi.input': body_reader},
+                headers={'X-Timestamp': timestamp,
+                         'Transfer-Encoding': 'chunked',
+                         'Content-Type': 'application/octet-stream',
+                         'Expect': '100-continue'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 204)
+            self.assertFalse(body_reader.read_called)
 
     def test_global_conf_callback_does_nothing(self):
         preloaded_app_conf = {}

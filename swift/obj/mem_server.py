@@ -32,6 +32,7 @@ class ObjectController(server.ObjectController):
         :param conf: WSGI configuration parameter
         """
         self._filesystem = InMemoryFileSystem()
+        self.fallocate_reserve = 0
 
     def get_diskfile(self, device, partition, account, container, obj,
                      **kwargs):

@@ -65,7 +65,8 @@ from swift.common.utils import mkdirs, Timestamp, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
     O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory, \
-    md5, is_file_older, non_negative_float
+    md5, is_file_older, non_negative_float, config_fallocate_value, \
+    fs_has_free_space
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -751,6 +752,8 @@ class BaseDiskFileManager(object):
                 replication_concurrency_per_device)
         self.replication_lock_timeout = int(conf.get(
             'replication_lock_timeout', 15))
+        self.fallocate_reserve, self.fallocate_is_percent = \
+            config_fallocate_value(conf.get('fallocate_reserve', '1%'))
 
         self.use_splice = False
         self.pipe_size = None
@@ -1858,13 +1861,26 @@ class BaseDiskFileWriter(object):
                 # No more inodes in filesystem
                 raise DiskFileNoSpace()
             raise
-        if self._size is not None and self._size > 0:
+        if self._extension == '.ts':
+            # DELETEs always bypass any free-space reserve checks
+            pass
+        elif self._size:
             try:
                 fallocate(self._fd, self._size)
             except OSError as err:
                 if err.errno in (errno.ENOSPC, errno.EDQUOT):
                     raise DiskFileNoSpace()
                 raise
+        else:
+            # If we don't know the size (i.e. self._size is None) or the size
+            # is known to be zero, we still want to block writes once we're
+            # past the reserve threshold.
+            if not fs_has_free_space(
+                    self._fd,
+                    self.manager.fallocate_reserve,
+                    self.manager.fallocate_is_percent
+            ):
+                raise DiskFileNoSpace()
         return self
 
     def close(self):
