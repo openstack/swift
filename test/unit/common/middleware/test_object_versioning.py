@@ -552,6 +552,20 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertIn(
             ('X-Symlink-Target', 'c/o?version-id=0000001234.00000'),
             headers)
+        self.assertEqual(body, b'')
+        # N.B. HEAD req already works with existing registered GET response
+        req = Request.blank(
+            '/v1/a/c/o?symlink=get', method='HEAD',
+            environ={'swift.cache': self.cache_version_on})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertIn(('X-Object-Version-Id', '0000001234.00000'), headers)
+        self.assertIn(
+            ('X-Symlink-Target', 'c/o?version-id=0000001234.00000'),
+            headers)
+        self.assertEqual(body, b'')
 
     def test_put_object_no_versioning(self):
         self.app.register(

@@ -28,6 +28,8 @@ from six.moves.urllib.parse import quote
 import swift.common.swob as swob
 from swift.common import utils, exceptions
 
+from test.unit.common.middleware.helpers import LeakTrackingIter
+
 
 class TestHeaderEnvironProxy(unittest.TestCase):
     def test_proxy(self):
@@ -1232,16 +1234,34 @@ class TestResponse(unittest.TestCase):
         The Response object's __call__ method should be able to reify a
         Request object from the env it gets passed.
         """
+        tracking = {
+            'closed': 0,
+            'read': 0,
+        }
+
+        def mark_closed(*args):
+            tracking['closed'] += 1
+
+        def mark_read(*args):
+            tracking['read'] += 1
+
         def test_app(environ, start_response):
             start_response('200 OK', [])
-            return [b'hi']
+            body = [b'hi']
+            return LeakTrackingIter(body, mark_closed, mark_read, None)
         req = swob.Request.blank('/')
         req.method = 'HEAD'
         status, headers, app_iter = req.call_application(test_app)
         resp = swob.Response(status=status, headers=dict(headers),
                              app_iter=app_iter)
         output_iter = resp(req.environ, lambda *_: None)
-        self.assertEqual(list(output_iter), [b''])
+        with utils.closing_if_possible(output_iter):
+            body = b''.join(output_iter)
+        self.assertEqual(body, b'')
+        self.assertEqual(tracking, {
+            'closed': 1,
+            'read': 1,
+        })
 
     def test_call_preserves_closeability(self):
         def test_app(environ, start_response):
