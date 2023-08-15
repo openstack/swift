@@ -156,29 +156,46 @@ def _get_direct_account_container(path, stype, node, part,
                                   marker=None, limit=None,
                                   prefix=None, delimiter=None,
                                   conn_timeout=5, response_timeout=15,
-                                  end_marker=None, reverse=None, headers=None):
-    """Base class for get direct account and container.
+                                  end_marker=None, reverse=None, headers=None,
+                                  extra_params=None):
+    """Base function for get direct account and container.
 
-    Do not use directly use the get_direct_account or
-    get_direct_container instead.
+    Do not use directly use the direct_get_account or
+    direct_get_container instead.
     """
     if headers is None:
         headers = {}
 
-    params = ['format=json']
+    params = {'format': 'json'}
+    if extra_params:
+        for key, value in extra_params.items():
+            if value is not None:
+                params[key] = value
     if marker:
-        params.append('marker=%s' % quote(marker))
+        if 'marker' in params:
+            raise TypeError('duplicate values for keyword arg: marker')
+        params['marker'] = quote(marker)
     if limit:
-        params.append('limit=%d' % limit)
+        if 'limit' in params:
+            raise TypeError('duplicate values for keyword arg: limit')
+        params['limit'] = '%d' % limit
     if prefix:
-        params.append('prefix=%s' % quote(prefix))
+        if 'prefix' in params:
+            raise TypeError('duplicate values for keyword arg: prefix')
+        params['prefix'] = quote(prefix)
     if delimiter:
-        params.append('delimiter=%s' % quote(delimiter))
+        if 'delimiter' in params:
+            raise TypeError('duplicate values for keyword arg: delimiter')
+        params['delimiter'] = quote(delimiter)
     if end_marker:
-        params.append('end_marker=%s' % quote(end_marker))
+        if 'end_marker' in params:
+            raise TypeError('duplicate values for keyword arg: end_marker')
+        params['end_marker'] = quote(end_marker)
     if reverse:
-        params.append('reverse=%s' % quote(reverse))
-    qs = '&'.join(params)
+        if 'reverse' in params:
+            raise TypeError('duplicate values for keyword arg: reverse')
+        params['reverse'] = quote(reverse)
+    qs = '&'.join('%s=%s' % (k, v) for k, v in params.items())
 
     ip, port = get_ip_port(node, headers)
     with Timeout(conn_timeout):
@@ -293,7 +310,7 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
 def direct_get_container(node, part, account, container, marker=None,
                          limit=None, prefix=None, delimiter=None,
                          conn_timeout=5, response_timeout=15, end_marker=None,
-                         reverse=None, headers=None):
+                         reverse=None, headers=None, extra_params=None):
     """
     Get container listings directly from the container server.
 
@@ -310,6 +327,12 @@ def direct_get_container(node, part, account, container, marker=None,
     :param end_marker: end_marker query
     :param reverse: reverse the returned listing
     :param headers: headers to be included in the request
+    :param extra_params: a dict of extra parameters to be included in the
+        request. It can be used to pass additional parameters, e.g,
+        {'states':'updating'} can be used with shard_range/namespace listing.
+        It can also be used to pass the existing keyword args, like 'marker' or
+        'limit', but if the same parameter appears twice in both keyword arg
+        (not None) and extra_params, this function will raise TypeError.
     :returns: a tuple of (response headers, a list of objects) The response
               headers will be a HeaderKeyDict.
     """
@@ -322,7 +345,8 @@ def direct_get_container(node, part, account, container, marker=None,
                                          reverse=reverse,
                                          conn_timeout=conn_timeout,
                                          response_timeout=response_timeout,
-                                         headers=headers)
+                                         headers=headers,
+                                         extra_params=extra_params)
 
 
 def direct_delete_container(node, part, account, container, conn_timeout=5,
