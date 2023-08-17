@@ -50,7 +50,6 @@ from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        encode_frag_archive_bodies, skip_if_no_xattrs)
 from swift.obj import diskfile
 from swift.common import utils
-from swift.common.utils import libc
 from swift.common.utils import hash_path, mkdirs, Timestamp, \
     encode_timestamps, O_TMPFILE, md5 as _md5
 from swift.common import ring
@@ -4989,7 +4988,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # This is a horrible hack so you can run this test in isolation.
         # Some of the ctypes machinery calls os.close(), and that runs afoul
         # of our mock.
-        with mock.patch.object(libc, '_sys_fallocate', None):
+        with mock.patch.object(utils, '_sys_fallocate', None):
             utils.disable_fallocate()
 
             df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc',
