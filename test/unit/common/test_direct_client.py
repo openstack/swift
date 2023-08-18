@@ -224,12 +224,12 @@ class TestDirectClient(unittest.TestCase):
                                  self.user_agent)
                 self.assertEqual(resp_headers, stub_headers)
                 self.assertEqual(json.loads(body), resp)
-                self.assertIn('format=json', conn.query_string)
-                for k, v in req_params.items():
-                    if v is None:
-                        self.assertNotIn('&%s' % k, conn.query_string)
-                    else:
-                        self.assertIn('&%s=%s' % (k, v), conn.query_string)
+                actual_params = conn.query_string.split('&')
+                exp_params = ['%s=%s' % (k, v)
+                              for k, v in req_params.items()
+                              if v is not None]
+                exp_params.append('format=json')
+                self.assertEqual(sorted(actual_params), sorted(exp_params))
 
             except AssertionError as err:
                 self.fail('Failed with params %s: %s' % (req_params, err))
@@ -443,12 +443,12 @@ class TestDirectClient(unittest.TestCase):
                                  self.user_agent)
                 self.assertEqual(headers, resp_headers)
                 self.assertEqual(json.loads(body), resp)
-                self.assertIn('format=json', conn.query_string)
-                for k, v in req_params.items():
-                    if v is None:
-                        self.assertNotIn('&%s' % k, conn.query_string)
-                    else:
-                        self.assertIn('&%s=%s' % (k, v), conn.query_string)
+                actual_params = conn.query_string.split('&')
+                exp_params = ['%s=%s' % (k, v)
+                              for k, v in req_params.items()
+                              if v is not None]
+                exp_params.append('format=json')
+                self.assertEqual(sorted(actual_params), sorted(exp_params))
             except AssertionError as err:
                 self.fail('Failed with params %s: %s' % (req_params, err))
 
@@ -474,6 +474,98 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual(headers, resp_headers)
         self.assertEqual([], resp)
+
+    def test_direct_get_container_with_extra_params(self):
+        def do_test(req_params, expected_params):
+            headers = HeaderKeyDict({'key': 'value'})
+            body = (b'[{"hash": "8f4e3", "last_modified": "317260", '
+                    b'"bytes": 209}]')
+
+            with mocked_http_conn(200, headers, body) as conn:
+                resp_headers, resp = direct_client.direct_get_container(
+                    self.node, self.part, self.account, self.container,
+                    **req_params)
+
+            self.assertEqual(conn.method, 'GET')
+            self.assertEqual(conn.path, self.container_path)
+            self.assertEqual(
+                conn.req_headers['user-agent'], self.user_agent)
+            self.assertEqual(headers, resp_headers)
+            self.assertEqual(json.loads(body), resp)
+            actual_params = conn.query_string.split('&')
+            exp_params = ['%s=%s' % (k, v)
+                          for k, v in expected_params.items()]
+            exp_params.append('format=json')
+            self.assertEqual(sorted(actual_params), sorted(exp_params))
+
+        req_params = dict(marker='my-marker', prefix='my-prefix',
+                          delimiter='my-delimiter',
+                          limit=10, end_marker='my-endmarker', reverse='on',
+                          extra_params={'states': 'updating',
+                                        'test': 'okay'})
+        expected_params = dict(marker='my-marker', prefix='my-prefix',
+                               delimiter='my-delimiter', limit=10,
+                               end_marker='my-endmarker', reverse='on',
+                               states='updating', test='okay')
+        do_test(req_params, expected_params)
+
+        req_params = dict(marker='my-marker', prefix='my-prefix',
+                          delimiter='my-delimiter',
+                          limit=10, end_marker='my-endmarker', reverse='on',
+                          extra_params={'states': None})
+        expected_params = dict(marker='my-marker', prefix='my-prefix',
+                               delimiter='my-delimiter', limit=10,
+                               end_marker='my-endmarker', reverse='on')
+
+        req_params = dict(marker='my-marker', prefix='my-prefix',
+                          delimiter='my-delimiter',
+                          limit=10, end_marker='my-endmarker', reverse='on',
+                          extra_params={})
+        expected_params = dict(marker='my-marker', prefix='my-prefix',
+                               delimiter='my-delimiter', limit=10,
+                               end_marker='my-endmarker', reverse='on')
+        do_test(req_params, expected_params)
+
+        req_params = dict(marker='my-marker', prefix='my-prefix',
+                          delimiter='my-delimiter',
+                          limit=10, end_marker='my-endmarker', reverse='on',
+                          extra_params={'states': 'updating',
+                                        'marker': 'others'})
+        with self.assertRaises(TypeError) as cm:
+            do_test(req_params, expected_params={})
+        self.assertIn('duplicate values for keyword arg: marker',
+                      str(cm.exception))
+
+        req_params = dict(marker='my-marker', prefix='my-prefix',
+                          delimiter='my-delimiter',
+                          limit=10, end_marker='my-endmarker', reverse='on',
+                          extra_params={'prefix': 'others'})
+        with self.assertRaises(TypeError) as cm:
+            do_test(req_params, expected_params=None)
+        self.assertIn('duplicate values for keyword arg: prefix',
+                      str(cm.exception))
+
+        req_params = dict(marker='my-marker', delimiter='my-delimiter',
+                          limit=10, end_marker='my-endmarker', reverse='on',
+                          extra_params={'prefix': 'others'})
+        expected_params = dict(marker='my-marker', prefix='others',
+                               delimiter='my-delimiter', limit=10,
+                               end_marker='my-endmarker', reverse='on')
+        do_test(req_params, expected_params)
+
+        req_params = dict(marker='my-marker', prefix=None,
+                          delimiter='my-delimiter',
+                          limit=10, end_marker='my-endmarker', reverse='on',
+                          extra_params={'prefix': 'others'})
+        expected_params = dict(marker='my-marker', prefix='others',
+                               delimiter='my-delimiter', limit=10,
+                               end_marker='my-endmarker', reverse='on')
+        do_test(req_params, expected_params)
+
+        req_params = dict(extra_params={'limit': 10, 'empty': '',
+                                        'test': True, 'zero': 0})
+        expected_params = dict(limit='10', empty='', test='True', zero='0')
+        do_test(req_params, expected_params)
 
     def test_direct_delete_container(self):
         with mocked_http_conn(200) as conn:
