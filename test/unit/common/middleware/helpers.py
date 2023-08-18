@@ -178,9 +178,9 @@ class FakeSwift(object):
         else:
             # special case for re-reading an uploaded file
             # ... uploaded is only objects and always raw path
-            if method in ('GET', 'HEAD') and path in self.uploaded:
+            if method in ('GET', 'HEAD') and env['PATH_INFO'] in self.uploaded:
                 resp_class = swob.HTTPOk
-                headers, body = self.uploaded[path]
+                headers, body = self.uploaded[env['PATH_INFO']]
             else:
                 raise KeyError("Didn't find %r in allowed responses" % (
                     (method, path),))
@@ -242,11 +242,11 @@ class FakeSwift(object):
             resp_headers = dict(req.headers)
             if "CONTENT_TYPE" in env:
                 resp_headers['Content-Type'] = env["CONTENT_TYPE"]
-            self.uploaded[path] = (resp_headers, req_body)
+            self.uploaded[env['PATH_INFO']] = (resp_headers, req_body)
 
         # simulate object POST
         elif method == 'POST' and obj:
-            metadata, data = self.uploaded.get(path, ({}, None))
+            metadata, data = self.uploaded.get(env['PATH_INFO'], ({}, None))
             # select items to keep from existing...
             new_metadata = dict(
                 (k, v) for k, v in metadata.items()
@@ -258,7 +258,7 @@ class FakeSwift(object):
                      if (is_user_meta('object', k) or
                          is_object_transient_sysmeta(k) or
                          k.lower == 'content-type')))
-            self.uploaded[path] = new_metadata, data
+            self.uploaded[env['PATH_INFO']] = new_metadata, data
 
         # simulate object GET/HEAD
         elif method in ('GET', 'HEAD') and obj:

@@ -153,7 +153,8 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(('HEAD', '/v1/a/c/o?p=q'), swift.calls[-1])
 
     def test_PUT_uploaded(self):
-        # verify an uploaded object is sufficient to handle GETs and HEADS
+        # verify an uploaded object is sufficient to handle GETs and HEADS,
+        # with and without query strings
         swift = FakeSwift()
         swift.register('PUT', '/v1/a/c/o', HTTPCreated, {}, None)
         req = Request.blank('/v1/a/c/o', body=b'stuff')
@@ -181,6 +182,19 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(('GET', '/v1/a/c/o'), swift.calls[-1])
 
         req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        req.query_string = 'p=q'
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8',
+                          'Host': 'localhost:80'},
+                         resp.headers)
+        self.assertEqual(b'stuff', resp.body)
+        self.assertEqual(3, swift.call_count)
+        self.assertEqual(('GET', '/v1/a/c/o?p=q'), swift.calls[-1])
+
+        req = Request.blank('/v1/a/c/o')
         req.method = 'HEAD'
         resp = req.get_response(swift)
         self.assertEqual(200, resp.status_int)
@@ -189,18 +203,25 @@ class TestFakeSwift(unittest.TestCase):
                           'Host': 'localhost:80'},
                          resp.headers)
         self.assertEqual(b'', resp.body)
-        self.assertEqual(3, swift.call_count)
+        self.assertEqual(4, swift.call_count)
         self.assertEqual(('HEAD', '/v1/a/c/o'), swift.calls[-1])
 
         req = Request.blank('/v1/a/c/o')
-        req.method = 'GET'
+        req.method = 'HEAD'
         req.query_string = 'p=q'
-        with self.assertRaises(KeyError):
-            resp = req.get_response(swift)
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8',
+                          'Host': 'localhost:80'},
+                         resp.headers)
+        self.assertEqual(b'', resp.body)
+        self.assertEqual(5, swift.call_count)
+        self.assertEqual(('HEAD', '/v1/a/c/o?p=q'), swift.calls[-1])
 
     def test_PUT_uploaded_with_query_string(self):
         # verify an uploaded object with query string is sufficient to handle
-        # GETs and HEADS
+        # GETs and HEADS, with and without query strings
         swift = FakeSwift()
         swift.register('PUT', '/v1/a/c/o', HTTPCreated, {}, None)
         req = Request.blank('/v1/a/c/o', body=b'stuff')
@@ -218,19 +239,13 @@ class TestFakeSwift(unittest.TestCase):
                          swift.calls[-1])
         # note: query string is not included in uploaded key
         self.assertEqual(
-            {'/v1/a/c/o?multipart-manifest=put': ({'Host': 'localhost:80',
-                                                   'Content-Length': '5'},
-                                                  b'stuff')},
+            {'/v1/a/c/o': ({'Host': 'localhost:80',
+                            'Content-Length': '5'},
+                           b'stuff')},
             swift.uploaded)
 
         req = Request.blank('/v1/a/c/o')
         req.method = 'GET'
-        with self.assertRaises(KeyError):
-            resp = req.get_response(swift)
-
-        req = Request.blank('/v1/a/c/o')
-        req.method = 'GET'
-        req.query_string = 'multipart-manifest=put'
         resp = req.get_response(swift)
         self.assertEqual(200, resp.status_int)
         self.assertEqual({'Content-Length': '5',
@@ -239,12 +254,23 @@ class TestFakeSwift(unittest.TestCase):
                          resp.headers)
         self.assertEqual(b'stuff', resp.body)
         self.assertEqual(2, swift.call_count)
-        self.assertEqual(('GET', '/v1/a/c/o?multipart-manifest=put'),
-                         swift.calls[-1])
+        self.assertEqual(('GET', '/v1/a/c/o'), swift.calls[-1])
+
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        req.query_string = 'p=q'  # note: differs from PUT query string
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8',
+                          'Host': 'localhost:80'},
+                         resp.headers)
+        self.assertEqual(b'stuff', resp.body)
+        self.assertEqual(3, swift.call_count)
+        self.assertEqual(('GET', '/v1/a/c/o?p=q'), swift.calls[-1])
 
         req = Request.blank('/v1/a/c/o')
         req.method = 'HEAD'
-        req.query_string = 'multipart-manifest=put'
         resp = req.get_response(swift)
         self.assertEqual(200, resp.status_int)
         self.assertEqual({'Content-Length': '5',
@@ -252,14 +278,21 @@ class TestFakeSwift(unittest.TestCase):
                           'Host': 'localhost:80'},
                          resp.headers)
         self.assertEqual(b'', resp.body)
-        self.assertEqual(3, swift.call_count)
-        self.assertEqual(('HEAD', '/v1/a/c/o?multipart-manifest=put'),
-                         swift.calls[-1])
+        self.assertEqual(4, swift.call_count)
+        self.assertEqual(('HEAD', '/v1/a/c/o'), swift.calls[-1])
 
         req = Request.blank('/v1/a/c/o')
         req.method = 'HEAD'
-        with self.assertRaises(KeyError):
-            resp = req.get_response(swift)
+        req.query_string = 'p=q'
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8',
+                          'Host': 'localhost:80'},
+                         resp.headers)
+        self.assertEqual(b'', resp.body)
+        self.assertEqual(5, swift.call_count)
+        self.assertEqual(('HEAD', '/v1/a/c/o?p=q'), swift.calls[-1])
 
     def test_PUT_POST(self):
         # verify an uploaded object is updated by a POST
@@ -323,47 +356,15 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(b'', resp.body)
         self.assertEqual(1, swift.call_count)
         self.assertEqual(('PUT', '/v1/a/c/o?p=q'), swift.calls[-1])
+        # note: query string is not included in uploaded key
         self.assertEqual(
-            {'/v1/a/c/o?p=q': ({'Host': 'localhost:80',
-                                'Content-Length': '5',
-                                'X-Object-Meta-Foo': 'Bar'},
-                               b'stuff')},
+            {'/v1/a/c/o': ({'Host': 'localhost:80',
+                            'Content-Length': '5',
+                            'X-Object-Meta-Foo': 'Bar'},
+                           b'stuff')},
             swift.uploaded)
 
-        # POST with query string should update the uploaded object
-        req = Request.blank('/v1/a/c/o', body=b'stuff',
-                            headers={'X-Object-Meta-Foo': 'Bof'})
-        req.method = 'POST'
-        req.query_string = 'p=q'
-        resp = req.get_response(swift)
-        self.assertEqual(201, resp.status_int)
-        self.assertEqual({'Content-Type': 'text/html; charset=UTF-8'},
-                         resp.headers)
-        self.assertEqual(b'', resp.body)
-        self.assertEqual(2, swift.call_count)
-        self.assertEqual(('POST', '/v1/a/c/o?p=q'), swift.calls[-1])
-        self.assertEqual(
-            {'/v1/a/c/o?p=q': ({'Host': 'localhost:80',
-                                'Content-Length': '5',
-                                'X-Object-Meta-Foo': 'Bof'},
-                               b'stuff')},
-            swift.uploaded)
-
-        req = Request.blank('/v1/a/c/o')
-        req.method = 'GET'
-        req.query_string = 'p=q'
-        resp = req.get_response(swift)
-        self.assertEqual(200, resp.status_int)
-        self.assertEqual({'Content-Length': '5',
-                          'Content-Type': 'text/html; charset=UTF-8',
-                          'Host': 'localhost:80',
-                          'X-Object-Meta-Foo': 'Bof'},
-                         resp.headers)
-        self.assertEqual(b'stuff', resp.body)
-        self.assertEqual(3, swift.call_count)
-        self.assertEqual(('GET', '/v1/a/c/o?p=q'), swift.calls[-1])
-
-        # POST without query string doesn't match
+        # POST without query string should update the uploaded object
         req = Request.blank('/v1/a/c/o', body=b'stuff',
                             headers={'X-Object-Meta-Foo': 'Baz'})
         req.method = 'POST'
@@ -372,15 +373,46 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual({'Content-Type': 'text/html; charset=UTF-8'},
                          resp.headers)
         self.assertEqual(b'', resp.body)
-        self.assertEqual(4, swift.call_count)
+        self.assertEqual(2, swift.call_count)
         self.assertEqual(('POST', '/v1/a/c/o'), swift.calls[-1])
         self.assertEqual(
-            {'/v1/a/c/o?p=q': ({'Host': 'localhost:80',
-                                'Content-Length': '5',
-                                'X-Object-Meta-Foo': 'Bof'},
-                               b'stuff'),
-             '/v1/a/c/o': ({'X-Object-Meta-Foo': 'Baz'}, None)},
+            {'/v1/a/c/o': ({'Host': 'localhost:80',
+                            'Content-Length': '5',
+                            'X-Object-Meta-Foo': 'Baz'},
+                           b'stuff')},
             swift.uploaded)
+
+        # POST with different query string should update the uploaded object
+        req = Request.blank('/v1/a/c/o', body=b'stuff',
+                            headers={'X-Object-Meta-Foo': 'Bof'})
+        req.method = 'POST'
+        req.query_string = 'x=y'
+        resp = req.get_response(swift)
+        self.assertEqual(201, resp.status_int)
+        self.assertEqual({'Content-Type': 'text/html; charset=UTF-8'},
+                         resp.headers)
+        self.assertEqual(b'', resp.body)
+        self.assertEqual(3, swift.call_count)
+        self.assertEqual(('POST', '/v1/a/c/o?x=y'), swift.calls[-1])
+        self.assertEqual(
+            {'/v1/a/c/o': ({'Host': 'localhost:80',
+                            'Content-Length': '5',
+                            'X-Object-Meta-Foo': 'Bof'},
+                           b'stuff')},
+            swift.uploaded)
+
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8',
+                          'Host': 'localhost:80',
+                          'X-Object-Meta-Foo': 'Bof'},
+                         resp.headers)
+        self.assertEqual(b'stuff', resp.body)
+        self.assertEqual(4, swift.call_count)
+        self.assertEqual(('GET', '/v1/a/c/o'), swift.calls[-1])
 
     def test_GET_registered_overrides_uploaded(self):
         swift = FakeSwift()
