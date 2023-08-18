@@ -73,6 +73,48 @@ def normalize_path(path):
 class FakeSwift(object):
     """
     A good-enough fake Swift proxy server to use in testing middleware.
+
+    Responses for expected requests should be registered using the ``register``
+    method. Registered requests are keyed by their method and path *including
+    query string*.
+
+    Received requests are matched to registered requests with the same method
+    as follows, in order of preference:
+
+      * A received request matches a registered request if the received
+        request's path, including query string, is the same as the registered
+        request's path, including query string.
+      * A received request matches a registered request if the received
+        request's path, excluding query string, is the same as the registered
+        request's path, including query string.
+
+    A received ``HEAD`` request will be matched to a registered ``GET``,
+    according to the same path preferences, if a match cannot be made to a
+    registered ``HEAD`` request.
+
+    A ``PUT`` request that matches a registered ``PUT`` request will create an
+    entry in the ``uploaded`` object cache that is keyed by the received
+    request's path, excluding query string. A subsequent ``GET`` or ``HEAD``
+    request that does not match a registered request will match an ``uploaded``
+    object based on the ``GET`` or ``HEAD`` request's path, excluding query
+    string.
+
+    A ``POST`` request whose path, excluding query string, matches an object in
+    the ``uploaded`` cache will modify the metadata of the object in the
+    ``uploaded`` cache. However, the ``POST`` request must first match a
+    registered ``POST`` request.
+
+    Examples:
+
+      * received ``GET /v1/a/c/o`` will match registered ``GET /v1/a/c/o``
+      * received ``GET /v1/a/c/o?x=y`` will match registered ``GET /v1/a/c/o``
+      * received ``HEAD /v1/a/c/o?x=y`` will match registered ``GET /v1/a/c/o``
+      * received ``GET /v1/a/c/o`` will NOT match registered
+        ``GET /v1/a/c/o?x=y``
+      * received ``PUT /v1/a/c/o?x=y``, if it matches a registered ``PUT``,
+        will create uploaded ``/v1/a/c/o``
+      * received ``POST /v1/a/c/o?x=y``, if it matches a registered ``POST``,
+        will update uploaded ``/v1/a/c/o``
     """
     ALLOWED_METHODS = [
         'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE',
