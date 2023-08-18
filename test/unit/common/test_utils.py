@@ -6304,10 +6304,14 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile.spawn(self._exploder, Exception('kaboom'))
         self.assertEqual(1, next(pile))
         self.assertEqual(2, next(pile))
-        with self.assertRaises(StopIteration):
+        with mock.patch('sys.stderr', StringIO()) as mock_stderr, \
+                self.assertRaises(StopIteration):
             next(pile)
         self.assertEqual(pile.inflight, 0)
         self.assertEqual(pile._pending, 0)
+        self.assertIn('Exception: kaboom', mock_stderr.getvalue())
+        self.assertIn('Traceback (most recent call last):',
+                      mock_stderr.getvalue())
 
     def test_no_blocking_last_next_explodes(self):
         pile = utils.GreenAsyncPile(10)
@@ -6316,13 +6320,18 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile.spawn(self._exploder, 2)
         self.assertEqual(2, next(pile))
         pile.spawn(self._exploder, Exception('kaboom'))
-        with self.assertRaises(StopIteration):
+        with mock.patch('sys.stderr', StringIO()) as mock_stderr, \
+                self.assertRaises(StopIteration):
             next(pile)
         self.assertEqual(pile.inflight, 0)
         self.assertEqual(pile._pending, 0)
+        self.assertIn('Exception: kaboom', mock_stderr.getvalue())
+        self.assertIn('Traceback (most recent call last):',
+                      mock_stderr.getvalue())
 
     def test_exceptions_in_streaming_pile(self):
-        with utils.StreamingPile(2) as pile:
+        with mock.patch('sys.stderr', StringIO()) as mock_stderr, \
+                utils.StreamingPile(2) as pile:
             results = list(pile.asyncstarmap(self._exploder, [
                 (1,),
                 (Exception('kaboom'),),
@@ -6331,9 +6340,13 @@ class TestGreenAsyncPile(unittest.TestCase):
         self.assertEqual(results, [1, 3])
         self.assertEqual(pile.inflight, 0)
         self.assertEqual(pile._pending, 0)
+        self.assertIn('Exception: kaboom', mock_stderr.getvalue())
+        self.assertIn('Traceback (most recent call last):',
+                      mock_stderr.getvalue())
 
     def test_exceptions_at_end_of_streaming_pile(self):
-        with utils.StreamingPile(2) as pile:
+        with mock.patch('sys.stderr', StringIO()) as mock_stderr, \
+                utils.StreamingPile(2) as pile:
             results = list(pile.asyncstarmap(self._exploder, [
                 (1,),
                 (2,),
@@ -6342,6 +6355,9 @@ class TestGreenAsyncPile(unittest.TestCase):
         self.assertEqual(results, [1, 2])
         self.assertEqual(pile.inflight, 0)
         self.assertEqual(pile._pending, 0)
+        self.assertIn('Exception: kaboom', mock_stderr.getvalue())
+        self.assertIn('Traceback (most recent call last):',
+                      mock_stderr.getvalue())
 
 
 class TestLRUCache(unittest.TestCase):
