@@ -181,6 +181,19 @@ class FakeSwift(object):
                 ignore_range_meta.split(',')).intersection(headers.keys()):
             req.headers.pop('range', None)
 
+        # Update req.headers before capturing the request
+        if method in ('GET', 'HEAD') and obj:
+            req.headers['X-Backend-Storage-Policy-Index'] = headers.get(
+                'x-backend-storage-policy-index', '2')
+
+        # Capture the request before reading the body, in case the iter raises
+        # an exception.
+        # note: tests may assume this copy of req_headers is case insensitive
+        # so we deliberately use a HeaderKeyDict
+        req_headers_copy = HeaderKeyDict(req.headers)
+        self._calls.append(
+            FakeSwiftCall(method, path, req_headers_copy))
+
         req_body = None  # generally, we don't care and let eventlet discard()
         if (cont and not obj and method == 'UPDATE') or (
                 obj and method == 'PUT'):
@@ -192,6 +205,7 @@ class FakeSwift(object):
                 footers = HeaderKeyDict()
                 env['swift.callback.update_footers'](footers)
                 req.headers.update(footers)
+                req_headers_copy.update(footers)
             etag = md5(req_body, usedforsecurity=False).hexdigest()
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(req_body))
@@ -218,15 +232,6 @@ class FakeSwift(object):
                          k.lower == 'content-type')))
             self.uploaded[path] = new_metadata, data
 
-        # simulate object GET/HEAD
-        elif method in ('GET', 'HEAD') and obj:
-            req.headers['X-Backend-Storage-Policy-Index'] = headers.get(
-                'x-backend-storage-policy-index', '2')
-
-        # note: tests may assume this copy of req_headers is case insensitive
-        # so we deliberately use a HeaderKeyDict
-        self._calls.append(
-            FakeSwiftCall(method, path, HeaderKeyDict(req.headers)))
         self.req_bodies.append(req_body)
 
         # Apply conditional etag overrides

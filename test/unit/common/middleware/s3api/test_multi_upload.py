@@ -174,6 +174,33 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
         ], self.swift.calls)
 
+    def test_bucket_upload_part_v4_bad_hash(self):
+        authz_header = 'AWS4-HMAC-SHA256 ' + ', '.join([
+            'Credential=test:tester/%s/us-east-1/s3/aws4_request' %
+            self.get_v4_amz_date_header().split('T', 1)[0],
+            'SignedHeaders=host;x-amz-date',
+            'Signature=X',
+        ])
+        req = Request.blank(
+            '/bucket/object?partNumber=1&uploadId=X',
+            method='PUT',
+            headers={'Authorization': authz_header,
+                     'X-Amz-Date': self.get_v4_amz_date_header(),
+                     'X-Amz-Content-SHA256': 'not_the_hash'},
+            body=b'test')
+        with patch('swift.common.middleware.s3api.s3request.'
+                   'get_container_info',
+                   lambda env, app, swift_source: {'status': 204}):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertEqual(self._get_error_code(body), 'BadDigest')
+        self.assertEqual([
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
+            ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
+        ], self.swift.calls)
+        self.assertEqual('/v1/AUTH_test/bucket+segments/object/X/1',
+                         req.environ.get('swift.backend_path'))
+
     @s3acl
     def test_object_multipart_uploads_list(self):
         req = Request.blank('/bucket/object?uploads',
@@ -1321,6 +1348,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual('400 Bad Request', status)
         self.assertEqual(self._get_error_code(body), 'BadDigest')
+        self.assertEqual('/v1/AUTH_test/bucket+segments/object/X',
+                         req.environ.get('swift.backend_path'))
 
     def test_object_multipart_upload_upper_sha256(self):
         upper_sha = hashlib.sha256(

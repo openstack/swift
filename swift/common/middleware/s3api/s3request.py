@@ -1353,15 +1353,18 @@ class S3Request(swob.Request):
         try:
             sw_resp = sw_req.get_response(app)
         except swob.HTTPException as err:
+            # Maybe a 422 from HashingInput? Put something in
+            # s3api.backend_path - hopefully by now any modifications to the
+            # path (e.g. tenant to account translation) will have been made by
+            # auth middleware
+            self.environ['s3api.backend_path'] = sw_req.environ['PATH_INFO']
             sw_resp = err
         else:
             # reuse account
             _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
                                             2, 3, True)
-            # Propagate swift.backend_path in environ for middleware
-            # in pipeline that need Swift PATH_INFO like ceilometermiddleware.
-            self.environ['s3api.backend_path'] = \
-                sw_resp.environ['PATH_INFO']
+            # Update s3.backend_path from the response environ
+            self.environ['s3api.backend_path'] = sw_resp.environ['PATH_INFO']
             # Propogate backend headers back into our req headers for logging
             for k, v in sw_req.headers.items():
                 if k.lower().startswith('x-backend-'):
