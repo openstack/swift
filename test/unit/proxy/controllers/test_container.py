@@ -403,8 +403,9 @@ class TestContainerController(TestRingBase):
             def __iter__(self):
                 return iter([])
 
-        with mocked_http_conn(), mock.patch.object(self.app, 'iter_nodes',
-                                                   return_value=FakeIter()):
+        with mocked_http_conn(), mock.patch(
+                'swift.proxy.controllers.container.NodeIter',
+                return_value=FakeIter()):
             req = Request.blank('/v1/a/c')
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 503)

@@ -21,7 +21,7 @@ from swift.common.utils import public
 from swift.common.constraints import check_metadata
 from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
 from swift.proxy.controllers.base import Controller, clear_info_cache, \
-    set_info_cache
+    set_info_cache, NodeIter
 from swift.common.middleware import listing_formats
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -63,8 +63,8 @@ class AccountController(Controller):
         partition = self.app.account_ring.get_part(self.account_name)
         concurrency = self.app.account_ring.replica_count \
             if self.app.get_policy_options(None).concurrent_gets else 1
-        node_iter = self.app.iter_nodes(self.app.account_ring, partition,
-                                        self.logger, req)
+        node_iter = NodeIter(self.app, self.app.account_ring, partition,
+                             self.logger, req)
         params = req.params
         params['format'] = 'json'
         req.params = params

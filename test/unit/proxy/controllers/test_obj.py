@@ -45,7 +45,8 @@ from swift.common.utils import Timestamp, list_from_csv, md5, FileLikeIter
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import \
-    get_container_info as _real_get_container_info, GetterSource
+    get_container_info as _real_get_container_info, GetterSource, \
+    NodeIter
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
 from swift.common.swob import Request
@@ -2775,9 +2776,9 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
     def test_feed_remaining_primaries(self):
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
-        safe_iter = utils.GreenthreadSafeIterator(self.app.iter_nodes(
-            self.policy.object_ring, 0, self.logger, policy=self.policy,
-            request=Request.blank('')))
+        safe_iter = utils.GreenthreadSafeIterator(NodeIter(
+            self.app, self.policy.object_ring, 0, self.logger,
+            policy=self.policy, request=Request.blank('')))
         controller._fragment_GET_request = lambda *a, **k: next(safe_iter)
         pile = utils.GreenAsyncPile(self.policy.ec_ndata)
         for i in range(self.policy.ec_ndata):
