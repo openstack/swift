@@ -849,9 +849,7 @@ class TestSloPutManifest(SloTestCase):
 
         # go behind SLO's back and see what actually got stored
         req = Request.blank(
-            # this string looks weird, but it's just an artifact
-            # of FakeSwift
-            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=get',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_app(req)
         headers = dict(headers)
@@ -903,9 +901,7 @@ class TestSloPutManifest(SloTestCase):
 
         # Check that we still populated the manifest properly from our HEADs
         req = Request.blank(
-            # this string looks weird, but it's just an artifact
-            # of FakeSwift
-            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=get',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_app(req)
         manifest_data = json.loads(body)
@@ -956,9 +952,7 @@ class TestSloPutManifest(SloTestCase):
 
         # Check that we still populated the manifest properly from our HEADs
         req = Request.blank(
-            # this string looks weird, but it's just an artifact
-            # of FakeSwift
-            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=get',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_app(req)
         manifest_data = json.loads(body)
@@ -983,7 +977,7 @@ class TestSloPutManifest(SloTestCase):
 
         # Check that we still populated the manifest properly from our HEADs
         req = Request.blank(
-            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=get',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_app(req)
         manifest_data = json.loads(body)
@@ -1085,9 +1079,7 @@ class TestSloPutManifest(SloTestCase):
 
         # Check that we still populated the manifest properly from our HEADs
         req = Request.blank(
-            # this string looks weird, but it's just an artifact
-            # of FakeSwift
-            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=get',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_app(req)
         manifest_data = json.loads(body)
