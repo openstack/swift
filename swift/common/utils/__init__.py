@@ -39,6 +39,8 @@ import functools
 import email.parser
 from random import random, shuffle
 from contextlib import contextmanager, closing
+import ctypes
+import ctypes.util
 from optparse import OptionParser
 import traceback
 import warnings
@@ -94,13 +96,10 @@ from swift.common.registry import register_swift_info, get_swift_info  # noqa
 from swift.common.utils.libc import (  # noqa
     F_SETPIPE_SZ,
     load_libc_function,
-    config_fallocate_value,
-    disable_fallocate,
-    fallocate,
-    punch_hole,
     drop_buffer_cache,
     get_md5_socket,
     modify_priority,
+    _LibcWrapper,
 )
 from swift.common.utils.timestamp import (  # noqa
     NORMAL_FORMAT,
@@ -129,6 +128,21 @@ import logging
 
 NOTICE = 25
 
+# These are lazily pulled from libc elsewhere
+_sys_fallocate = None
+
+# If set to non-zero, fallocate routines will fail based on free space
+# available being at or below this amount, in bytes.
+FALLOCATE_RESERVE = 0
+# Indicates if FALLOCATE_RESERVE is the percentage of free space (True) or
+# the number of bytes (False).
+FALLOCATE_IS_PERCENT = False
+
+# from /usr/include/linux/falloc.h
+FALLOC_FL_KEEP_SIZE = 1
+FALLOC_FL_PUNCH_HOLE = 2
+
+
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
@@ -137,6 +151,10 @@ HASH_PATH_PREFIX = b''
 
 SWIFT_CONF_FILE = '/etc/swift/swift.conf'
 
+# These constants are Linux-specific, and Python doesn't seem to know
+# about them. We ask anyway just in case that ever gets fixed.
+#
+# The values were copied from the Linux 3.x kernel headers.
 O_TMPFILE = getattr(os, 'O_TMPFILE', 0o20000000 | os.O_DIRECTORY)
 
 MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
@@ -672,6 +690,25 @@ def get_trans_id_time(trans_id):
     return None
 
 
+def config_fallocate_value(reserve_value):
+    """
+    Returns fallocate reserve_value as an int or float.
+    Returns is_percent as a boolean.
+    Returns a ValueError on invalid fallocate value.
+    """
+    try:
+        if str(reserve_value[-1:]) == '%':
+            reserve_value = float(reserve_value[:-1])
+            is_percent = True
+        else:
+            reserve_value = int(reserve_value)
+            is_percent = False
+    except ValueError:
+        raise ValueError('Error: %s is an invalid value for fallocate'
+                         '_reserve.' % reserve_value)
+    return reserve_value, is_percent
+
+
 class FileLikeIter(object):
 
     def __init__(self, iterable):
@@ -820,6 +857,116 @@ def fs_has_free_space(fs_path, space_needed, is_percent):
         return free_percent >= space_needed
     else:
         return free_bytes >= space_needed
+
+
+_fallocate_enabled = True
+_fallocate_warned_about_missing = False
+_sys_fallocate = _LibcWrapper('fallocate')
+_sys_posix_fallocate = _LibcWrapper('posix_fallocate')
+
+
+def disable_fallocate():
+    global _fallocate_enabled
+    _fallocate_enabled = False
+
+
+def fallocate(fd, size, offset=0):
+    """
+    Pre-allocate disk space for a file.
+
+    This function can be disabled by calling disable_fallocate(). If no
+    suitable C function is available in libc, this function is a no-op.
+
+    :param fd: file descriptor
+    :param size: size to allocate (in bytes)
+    """
+    global _fallocate_enabled
+    if not _fallocate_enabled:
+        return
+
+    if size < 0:
+        size = 0  # Done historically; not really sure why
+    if size >= (1 << 63):
+        raise ValueError('size must be less than 2 ** 63')
+    if offset < 0:
+        raise ValueError('offset must be non-negative')
+    if offset >= (1 << 63):
+        raise ValueError('offset must be less than 2 ** 63')
+
+    # Make sure there's some (configurable) amount of free space in
+    # addition to the number of bytes we're allocating.
+    if FALLOCATE_RESERVE:
+        st = os.fstatvfs(fd)
+        free = st.f_frsize * st.f_bavail - size
+        if FALLOCATE_IS_PERCENT:
+            free = (float(free) / float(st.f_frsize * st.f_blocks)) * 100
+        if float(free) <= float(FALLOCATE_RESERVE):
+            raise OSError(
+                errno.ENOSPC,
+                'FALLOCATE_RESERVE fail %g <= %g' %
+                (free, FALLOCATE_RESERVE))
+
+    if _sys_fallocate.available:
+        # Parameters are (fd, mode, offset, length).
+        #
+        # mode=FALLOC_FL_KEEP_SIZE pre-allocates invisibly (without
+        # affecting the reported file size).
+        ret = _sys_fallocate(
+            fd, FALLOC_FL_KEEP_SIZE, ctypes.c_uint64(offset),
+            ctypes.c_uint64(size))
+        err = ctypes.get_errno()
+    elif _sys_posix_fallocate.available:
+        # Parameters are (fd, offset, length).
+        ret = _sys_posix_fallocate(fd, ctypes.c_uint64(offset),
+                                   ctypes.c_uint64(size))
+        err = ctypes.get_errno()
+    else:
+        # No suitable fallocate-like function is in our libc. Warn about it,
+        # but just once per process, and then do nothing.
+        global _fallocate_warned_about_missing
+        if not _fallocate_warned_about_missing:
+            logging.warning("Unable to locate fallocate, posix_fallocate in "
+                            "libc.  Leaving as a no-op.")
+            _fallocate_warned_about_missing = True
+        return
+
+    if ret and err not in (0, errno.ENOSYS, errno.EOPNOTSUPP,
+                           errno.EINVAL):
+        raise OSError(err, 'Unable to fallocate(%s)' % size)
+
+
+def punch_hole(fd, offset, length):
+    """
+    De-allocate disk space in the middle of a file.
+
+    :param fd: file descriptor
+    :param offset: index of first byte to de-allocate
+    :param length: number of bytes to de-allocate
+    """
+    if offset < 0:
+        raise ValueError('offset must be non-negative')
+    if offset >= (1 << 63):
+        raise ValueError('offset must be less than 2 ** 63')
+    if length <= 0:
+        raise ValueError('length must be positive')
+    if length >= (1 << 63):
+        raise ValueError('length must be less than 2 ** 63')
+
+    if _sys_fallocate.available:
+        # Parameters are (fd, mode, offset, length).
+        ret = _sys_fallocate(
+            fd,
+            FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+            ctypes.c_uint64(offset),
+            ctypes.c_uint64(length))
+        err = ctypes.get_errno()
+        if ret and err:
+            mode_str = "FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE"
+            raise OSError(err, "Unable to fallocate(%d, %s, %d, %d)" % (
+                fd, mode_str, offset, length))
+    else:
+        raise OSError(errno.ENOTSUP,
+                      'No suitable C function found for hole punching')
 
 
 def fsync(fd):
