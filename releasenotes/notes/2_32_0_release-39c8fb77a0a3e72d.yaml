@@ -1,0 +1,122 @@
+---
+features:
+  - |
+    Python 3.11 is now supported.
+
+  - |
+    Added the ability for reseller admins to set per-policy account quotas by
+    posting metadata of the form ``X-Account-Quota-Bytes-Policy-<policy name>``.
+
+  - |
+    Added a ``keepalive_timeout`` option to the proxy server to limit how long
+    to wait for a client to initiate a request, separate from the general
+    ``client_timeout`` option. Note that this requires eventlet 0.33.4
+    (currently unreleased) or later.
+
+  - |
+    Added a ``keep_cache_slo_manifest`` option to the object server to better
+    control whether SLO manifests are dropped from the page cache.
+
+  - |
+    WSGI servers now accept a ``--test-config`` option that may be used to
+    validate configuration changes before reloading/restarting the server.
+
+  - |
+    Metrics improvements:
+
+    * Metrics are now emitted for a variety of S3 error responses, in the
+      form ``s3api.<status_int>.<error_class>[.<reason>]``
+
+    * Account and container info metrics now include the response status code
+      when backend requests are made.
+
+    * Added timing metrics to the container sharder for various operations.
+
+  - |
+    A variety of performance improvements have been made for sharded
+    container databases.
+
+  - |
+    Various logging and metrics improvements when talking to memcache.
+
+  - |
+    Improved formatting of meta and sysmeta for ``swift-account-info`` and
+    ``swift-container-info``.
+
+upgrade:
+  - |
+    Previously, under some circumstances, a non-standard config option such
+    as ``RECLAIM_AGE`` might get parsed as ``reclaim_age`` for some processes
+    but ignored by others. Now, all config parsing is case-sensitive;
+    non-standard names will always be ignored.
+
+  - |
+    The structure of cached shard ranges has changed, improving performance
+    when listing or writing to sharded containers. Note that immediately
+    after upgrade, the new structures will all be cache misses, which may
+    lead to a thundering herd problem. To avoid this, upgrade just a few
+    nodes first, let them service some fraction of traffic to populate the
+    cache, then upgrade the rest of the cluster.
+
+deprecations:
+  - |
+    Removed the hard dependency on netifaces; it may still be used if the
+    ``getifaddrs`` C function is not available. This fallback support may be
+    removed in a future release.
+
+fixes:
+  - |
+    Python 3 fixes:
+
+    * Python 3 object servers can now read unencrypted non-ASCII metadata
+      that was written under Python 2.
+
+    * Ssync no longer corrupts unencrypted non-ASCII metadata during
+      transfers.
+
+    * Fixed an encoding issue when writing non-ASCII object names to sharded
+      containers and shard range caching is not enabled.
+
+    * Fixed an encoding issue when handling non-ASCII account names.
+
+    * Fixed a ``generator already executing`` error on client disconnect.
+
+    * Suppressed ``RemoteDisconnected`` tracebacks.
+
+  - |
+    Fixed an issue that prevented proxy servers from emitting metrics and
+    logs for backend requests made when getting account or container info.
+
+  - |
+    Fixed ssync's handling of timestamp offsets. Previously, this could cause
+    ssync to fail with a 409 Conflict, causing the transfer to fail and
+    preventing handoffs from clearing.
+
+  - |
+    Fixed an issue where an erasure-coded PUT could prevent other requests
+    from being processed when network calls rarely or never blocked.
+
+  - |
+    Fixed an issue when downloading an SLO manifest would hit a recoverable
+    error and attempt to resume from another node. This would manifest as
+    either a pyeclib decode error or an unexpected empty response.
+
+  - |
+    The proxy server now applies error-limiting to the correct node when
+    handling a recoverable node error.
+
+  - |
+    Account, container, and object log fields are now correctly identified
+    when returning ``BadDigest`` responses to S3 requests.
+
+  - |
+    Reduced the backend load of making ``?versions`` requests to a container
+    that has never had object versioning enabled.
+
+  - |
+    The standard-library ``logging`` module is no longer monkey-patched when
+    importing ``swift.common.utils``, making it easier to re-use swift code
+    in other contexts.
+
+  - |
+    Various other minor bug fixes and improvements.
