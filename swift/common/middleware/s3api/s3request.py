@@ -1497,7 +1497,7 @@ class S3Request(swob.Request):
 
             _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
                                             2, 3, True)
-        sw_req = self.to_swift_req(app, self.container_name, None)
+        sw_req = self.to_swift_req('TEST', self.container_name, None)
         info = get_container_info(sw_req.environ, app, swift_source='S3')
         if is_success(info['status']):
             return info
