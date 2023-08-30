@@ -19,8 +19,10 @@ import json
 import mock
 import types
 import unittest
-import eventlet.wsgi
+import eventlet.wsgi as wsgi
 import six
+
+from test.debug_logger import debug_logger
 from swift.common import http_protocol, swob
 
 
@@ -129,13 +131,15 @@ class ProtocolTest(unittest.TestCase):
 
         # If we let the WSGI server close rfile/wfile then we can't access
         # their contents any more.
+        self.logger = debug_logger('proxy')
         with mock.patch.object(wfile, 'close', lambda: None), \
                 mock.patch.object(rfile, 'close', lambda: None):
-            eventlet.wsgi.server(
+            wsgi.server(
                 fake_listen_socket, app or self.app,
                 protocol=self.protocol_class,
                 custom_pool=FakePool(),
-                log_output=False,  # quiet the test run
+                log=self.logger,
+                log_output=True,
             )
         return wfile.getvalue()
 
@@ -229,9 +233,60 @@ class TestSwiftHttpProtocolSomeMore(ProtocolTest):
             b"\r\n"
         ))
         lines = [l for l in bytes_out.split(b"\r\n") if l]
+        info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(
             lines[0], b"HTTP/1.1 400 Bad request syntax ('ONLY-METHOD')")
         self.assertIn(b"Bad request syntax or unsupported method.", lines[-1])
+        self.assertIn(b"X-Trans-Id", lines[6])
+        self.assertIn(b"X-Openstack-Request-Id", lines[7])
+        self.assertIn("wsgi starting up", info_lines[0])
+        self.assertIn("ERROR WSGI: code 400", info_lines[1])
+        self.assertIn("txn:", info_lines[1])
+
+    def test_bad_request_server_logging(self):
+        with mock.patch('swift.common.http_protocol.generate_trans_id',
+                        return_value='test-trans-id'):
+            bytes_out = self._run_bytes_through_protocol(
+                b"ONLY-METHOD\r\n"
+                b"Server: example.com\r\n"
+                b"\r\n"
+            )
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(
+            lines[0], b"HTTP/1.1 400 Bad request syntax ('ONLY-METHOD')")
+        self.assertIn(b"Bad request syntax or unsupported method.", lines[-1])
+        self.assertIn(b"X-Trans-Id: test-trans-id", lines[6])
+        self.assertIn(b"X-Openstack-Request-Id: test-trans-id", lines[7])
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(
+            "ERROR WSGI: code 400, message "
+            "Bad request syntax ('ONLY-METHOD'), (txn: test-trans-id)",
+            info_lines[1])
+
+    def test_bad_request_app_logging(self):
+        app_logger = debug_logger()
+        app = mock.MagicMock()
+        app.logger = app_logger
+        with mock.patch('swift.common.http_protocol.generate_trans_id',
+                        return_value='test-trans-id'):
+            bytes_out = self._run_bytes_through_protocol((
+                b"ONLY-METHOD\r\n"
+                b"Server: example.com\r\n"
+                b"\r\n"
+            ), app=app)
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(
+            lines[0], b"HTTP/1.1 400 Bad request syntax ('ONLY-METHOD')")
+        self.assertIn(b"Bad request syntax or unsupported method.", lines[-1])
+        self.assertIn(b"X-Trans-Id: test-trans-id", lines[6])
+        self.assertIn(b"X-Openstack-Request-Id: test-trans-id", lines[7])
+        self.assertEqual(1, len(app_logger.records.get('ERROR', [])))
+        self.assertIn(
+            "ERROR WSGI: code 400, message Bad request syntax ('ONLY-METHOD') "
+            "(txn: test-trans-id)",
+            app_logger.records.get('ERROR')[0])
+        # but we can at least assert that the logger txn_id was set
+        self.assertEqual('test-trans-id', app_logger.txn_id)
 
     def test_leading_slashes(self):
         bytes_out = self._run_bytes_through_protocol((
@@ -379,15 +434,29 @@ class TestProxyProtocol(ProtocolTest):
         self.assertEqual(addr_lines, [b"https is on (scheme https)"] * 2)
 
     def test_missing_proxy_line(self):
-        bytes_out = self._run_bytes_through_protocol(
-            # whoops, no PROXY line here
-            b"GET /someurl HTTP/1.0\r\n"
-            b"User-Agent: something or other\r\n"
-            b"\r\n"
-        )
+        with mock.patch('swift.common.http_protocol.generate_trans_id',
+                        return_value='test-bad-req-trans-id'):
+            bytes_out = self._run_bytes_through_protocol(
+                # whoops, no PROXY line here
+                b"GET /someurl HTTP/1.0\r\n"
+                b"User-Agent: something or other\r\n"
+                b"\r\n"
+            )
 
         lines = [l for l in bytes_out.split(b"\r\n") if l]
-        self.assertIn(b"400 Invalid PROXY line", lines[0])
+        info_lines = self.logger.get_lines_for_level('info')
+
+        self.assertEqual(
+            lines[0],
+            b"HTTP/1.1 400 Invalid PROXY line 'GET /someurl HTTP/1.0\\r\\n'")
+        self.assertIn(b"X-Trans-Id: test-bad-req-trans-id", lines[6])
+        self.assertIn(b"X-Openstack-Request-Id: test-bad-req-trans-id",
+                      lines[7])
+        self.assertEqual(
+            "ERROR WSGI: code 400, message Invalid PROXY line "
+            "'GET /someurl HTTP/1.0\\r\\n', "
+            "(txn: test-bad-req-trans-id)",
+            info_lines[1])
 
     def test_malformed_proxy_lines(self):
         for bad_line in [b'PROXY jojo',
@@ -396,7 +465,12 @@ class TestProxyProtocol(ProtocolTest):
                          ]:
             bytes_out = self._run_bytes_through_protocol(bad_line)
             lines = [l for l in bytes_out.split(b"\r\n") if l]
+            info_lines = self.logger.get_lines_for_level('info')
             self.assertIn(b"400 Invalid PROXY line", lines[0])
+            self.assertIn(b"X-Trans-Id", lines[6])
+            self.assertIn(b"X-Openstack-Request-Id", lines[7])
+            self.assertIn("wsgi starting up", info_lines[0])
+            self.assertIn("txn:", info_lines[1])
 
     def test_unknown_client_addr(self):
         # For "UNKNOWN", the rest of the line before the CRLF may be omitted by
