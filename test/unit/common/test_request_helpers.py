@@ -653,3 +653,54 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         do_test()
         metadata = dict((k.upper(), v) for k, v in metadata.items())
         do_test()
+
+    def test_ignore_range_header(self):
+        req = Request.blank('/v/a/c/o')
+        self.assertIsNone(req.headers.get(
+            'X-Backend-Ignore-Range-If-Metadata-Present'))
+        rh.update_ignore_range_header(req, 'X-Static-Large-Object')
+        self.assertEqual('X-Static-Large-Object', req.headers.get(
+            'X-Backend-Ignore-Range-If-Metadata-Present'))
+        rh.update_ignore_range_header(req, 'X-Static-Large-Object')
+        self.assertEqual(
+            'X-Static-Large-Object,X-Static-Large-Object',
+            req.headers.get('X-Backend-Ignore-Range-If-Metadata-Present'))
+        rh.update_ignore_range_header(req, 'X-Object-Sysmeta-Slo-Etag')
+        self.assertEqual(
+            'X-Static-Large-Object,X-Static-Large-Object,'
+            'X-Object-Sysmeta-Slo-Etag',
+            req.headers.get('X-Backend-Ignore-Range-If-Metadata-Present'))
+
+    def test_resolove_ignore_range_header(self):
+        # no ignore header is no-op
+        req = Request.blank('/v/a/c/o', headers={'Range': 'bytes=0-4'})
+        self.assertEqual(str(req.range), 'bytes=0-4')
+        rh.resolve_ignore_range_header(req, {
+            'X-Static-Large-Object': True,
+            'X-Object-Meta-Color': 'blue',
+        })
+        self.assertEqual(str(req.range), 'bytes=0-4')
+
+        # missing matching metadata is no-op
+        rh.update_ignore_range_header(req, 'X-Static-Large-Object')
+        rh.resolve_ignore_range_header(req, {
+            'X-Object-Meta-Color': 'blue',
+        })
+        self.assertEqual(str(req.range), 'bytes=0-4')
+
+        # matching metadata pops range
+        rh.resolve_ignore_range_header(req, {
+            'X-Static-Large-Object': True,
+            'X-Object-Meta-Color': 'blue',
+        })
+        self.assertIsNone(req.range)
+
+    def test_multiple_resolove_ignore_range_header(self):
+        req = Request.blank('/v/a/c/o', headers={'Range': 'bytes=0-4'})
+        rh.update_ignore_range_header(req, 'X-Static-Large-Object')
+        rh.update_ignore_range_header(req, 'X-Object-Sysmeta-Slo-Etag')
+        rh.resolve_ignore_range_header(req, {
+            'X-Static-Large-Object': True,
+            'X-Object-Meta-Color': 'blue',
+        })
+        self.assertIsNone(req.range)

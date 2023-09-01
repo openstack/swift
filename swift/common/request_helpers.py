@@ -900,6 +900,24 @@ def update_ignore_range_header(req, name):
     req.headers[hdr] = csv_append(req.headers.get(hdr), name)
 
 
+def resolve_ignore_range_header(req, metadata):
+    """
+    Helper function to remove Range header from request if metadata matching
+    the X-Backend-Ignore-Range-If-Metadata-Present header is found.
+
+    :param req: a swob Request
+    :param metadata: dictionary of object metadata
+    """
+    ignore_range_headers = set(
+        h.strip().lower()
+        for h in req.headers.get(
+            'X-Backend-Ignore-Range-If-Metadata-Present',
+            '').split(','))
+    if ignore_range_headers.intersection(
+            h.lower() for h in metadata):
+        req.headers.pop('Range', None)
+
+
 def is_use_replication_network(headers=None):
     """
     Determine if replication network should be used.

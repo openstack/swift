@@ -20,7 +20,8 @@ from six.moves.urllib import parse
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import is_user_meta, \
-    is_object_transient_sysmeta, resolve_etag_is_at_header
+    is_object_transient_sysmeta, resolve_etag_is_at_header, \
+    resolve_ignore_range_header
 from swift.common.swob import HTTPNotImplemented
 from swift.common.utils import split_path, md5
 
@@ -140,10 +141,11 @@ class FakeSwift(object):
         self.auto_create_account_prefix = '.'
         self.backend_user_agent = "fake_swift"
         self._pipeline_final_app = self
-        # some tests want to opt in to mimicking the
-        # X-Backend-Ignore-Range-If-Metadata-Present header behavior,
-        # but default to old-swift behavior
-        self.can_ignore_range = False
+        # Object Servers learned to resolve_ignore_range_header in Jan-2020,
+        # and although we still maintain some middleware tests that assert
+        # proper behavior across rolling upgrades, having a FakeSwift not act
+        # like modern swift is now opt-in.
+        self.can_ignore_range = True
 
     def _find_response(self, method, path):
         path = normalize_path(path)
@@ -192,9 +194,6 @@ class FakeSwift(object):
         return resp_class, HeaderKeyDict(headers), body
 
     def __call__(self, env, start_response):
-        if self.can_ignore_range:
-            # we might pop off the Range header
-            env = dict(env)
         method = env['REQUEST_METHOD']
         if method not in self.ALLOWED_METHODS:
             raise HTTPNotImplemented()
@@ -216,12 +215,6 @@ class FakeSwift(object):
         self.txn_ids.append(env.get('swift.trans_id'))
 
         resp_class, headers, body = self._select_response(env, method, path)
-
-        ignore_range_meta = req.headers.get(
-            'x-backend-ignore-range-if-metadata-present')
-        if self.can_ignore_range and ignore_range_meta and set(
-                ignore_range_meta.split(',')).intersection(headers.keys()):
-            req.headers.pop('range', None)
 
         # Update req.headers before capturing the request
         if method in ('GET', 'HEAD') and obj:
@@ -279,6 +272,11 @@ class FakeSwift(object):
         # Apply conditional etag overrides
         conditional_etag = resolve_etag_is_at_header(req, headers)
 
+        if self.can_ignore_range:
+            # avoid popping range from original environ
+            req = swob.Request(dict(req.environ))
+            resolve_ignore_range_header(req, headers)
+
         # range requests ought to work, hence conditional_response=True
         if isinstance(body, list):
             resp = resp_class(
@@ -290,7 +288,7 @@ class FakeSwift(object):
                 req=req, headers=headers, body=body,
                 conditional_response=req.method in ('GET', 'HEAD'),
                 conditional_etag=conditional_etag)
-        wsgi_iter = resp(env, start_response)
+        wsgi_iter = resp(req.environ, start_response)
         self.mark_opened((method, path))
         return LeakTrackingIter(wsgi_iter, self.mark_closed,
                                 self.mark_read, (method, path))
