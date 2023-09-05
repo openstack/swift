@@ -150,6 +150,9 @@ class FakeLogger(logging.Logger, CaptureLog):
         self.statsd_client = FakeStatsdClient("host", 8125)
         self.thread_locals = None
         self.parent = None
+        # ensure the NOTICE level has been named, in case it has not already
+        # been set
+        logging.addLevelName(NOTICE, 'NOTICE')
 
     store_in = {
         logging.ERROR: 'error',
