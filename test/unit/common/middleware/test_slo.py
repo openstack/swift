@@ -1319,7 +1319,6 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Errors'], [])
 
     def test_handle_multipart_delete_segment_404(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/man?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE',
@@ -1338,7 +1337,6 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Number Not Found'], 1)
 
     def test_handle_multipart_delete_whole(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE'})
@@ -1383,7 +1381,6 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', ('/v1/AUTH_test/deltest/man-all-there'))]))
 
     def test_handle_multipart_delete_non_ascii(self):
-        self.app.can_ignore_range = True
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
         req = Request.blank(
@@ -1411,7 +1408,6 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', ('/v1/%s/deltest/man-all-there' % wsgi_acct))]))
 
     def test_handle_multipart_delete_nested(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-submanifest?' +
             'multipart-manifest=delete',
@@ -1431,7 +1427,6 @@ class TestSloDeleteManifest(SloTestCase):
              ('DELETE', '/v1/AUTH_test/deltest/manifest-with-submanifest')})
 
     def test_handle_multipart_delete_nested_too_many_segments(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-too-many-segs?' +
             'multipart-manifest=delete',
@@ -1446,7 +1441,6 @@ class TestSloDeleteManifest(SloTestCase):
                          'Too many buffered slo segments to delete.')
 
     def test_handle_multipart_delete_nested_404(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-missing-submanifest' +
             '?multipart-manifest=delete',
@@ -1470,7 +1464,6 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Errors'], [])
 
     def test_handle_multipart_delete_nested_401(self):
-        self.app.can_ignore_range = True
         self.app.register(
             'GET', '/v1/AUTH_test/deltest/submanifest',
             swob.HTTPUnauthorized, {}, None)
@@ -1488,7 +1481,6 @@ class TestSloDeleteManifest(SloTestCase):
                          [['/deltest/submanifest', '401 Unauthorized']])
 
     def test_handle_multipart_delete_nested_500(self):
-        self.app.can_ignore_range = True
         self.app.register(
             'GET', '/v1/AUTH_test/deltest/submanifest',
             swob.HTTPServerError, {}, None)
@@ -1507,7 +1499,6 @@ class TestSloDeleteManifest(SloTestCase):
                            'Unable to load SLO manifest or segment.']])
 
     def test_handle_multipart_delete_not_a_manifest(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/a_1?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE',
@@ -1526,7 +1517,6 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertFalse(self.app.unread_requests)
 
     def test_handle_multipart_delete_bad_json(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-badjson?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE',
@@ -1545,7 +1535,6 @@ class TestSloDeleteManifest(SloTestCase):
                            'Unable to load SLO manifest']])
 
     def test_handle_multipart_delete_401(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-unauth-segment' +
             '?multipart-manifest=delete',
@@ -1569,7 +1558,6 @@ class TestSloDeleteManifest(SloTestCase):
                          [['/deltest-unauth/q_17', '401 Unauthorized']])
 
     def test_handle_multipart_delete_client_content_type(self):
-        self.app.can_ignore_range = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE', 'CONTENT_TYPE': 'foo/bar'},
@@ -1601,7 +1589,6 @@ class TestSloDeleteManifest(SloTestCase):
               '/v1/AUTH_test/deltest/man_404?multipart-manifest=get')])
 
     def test_handle_async_delete_turned_off(self):
-        self.app.can_ignore_range = True
         self.slo.allow_async_delete = False
         req = Request.blank(
             '/v1/AUTH_test/deltest/man-all-there?'
@@ -1622,7 +1609,6 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', '/v1/AUTH_test/deltest/man-all-there')]))
 
     def test_handle_async_delete_whole(self):
-        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         now = Timestamp(time.time())
         exp_obj_cont = get_expirer_container(
@@ -1675,7 +1661,6 @@ class TestSloDeleteManifest(SloTestCase):
         ])
 
     def test_handle_async_delete_non_ascii(self):
-        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
@@ -1750,7 +1735,6 @@ class TestSloDeleteManifest(SloTestCase):
         ])
 
     def test_handle_async_delete_non_ascii_same_container(self):
-        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
@@ -1821,7 +1805,6 @@ class TestSloDeleteManifest(SloTestCase):
         ])
 
     def test_handle_async_delete_nested(self):
-        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         req = Request.blank(
             '/v1/AUTH_test/deltest/manifest-with-submanifest' +
@@ -1835,7 +1818,6 @@ class TestSloDeleteManifest(SloTestCase):
              'manifest-with-submanifest?multipart-manifest=get')])
 
     def test_handle_async_delete_too_many_containers(self):
-        self.app.can_ignore_range = True
         self.slo.allow_async_delete = True
         self.app.register(
             'GET', '/v1/AUTH_test/deltest/man',
@@ -2115,9 +2097,9 @@ class TestSloGetRawManifest(SloTestCase):
             body)
 
 
-class TestSloGetManifest(SloTestCase):
+class TestSloGetOldManifests(SloTestCase):
     def setUp(self):
-        super(TestSloGetManifest, self).setUp()
+        super(TestSloGetOldManifests, self).setUp()
 
         # some plain old objects
         self.app.register(
@@ -2573,13 +2555,13 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '15')
+        self.assertEqual(headers['Content-Range'], 'bytes 3-17/50')
         self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(body, b'aabbbbbbbbbbccc')
 
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
              ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
@@ -2589,7 +2571,6 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(ranges, [
             'bytes=3-17',
             None,
-            None,
             'bytes=3-',
             None,
             'bytes=0-2'])
@@ -2598,7 +2579,6 @@ class TestSloGetManifest(SloTestCase):
             for c in self.app.calls_with_headers]
         self.assertEqual(ignore_range_headers, [
             'X-Static-Large-Object',
-            None,
             None,
             None,
             None,
@@ -2627,6 +2607,8 @@ class TestSloGetManifest(SloTestCase):
             boundary = boundary.encode('utf-8')
 
         self.assertEqual(len(body), int(headers['Content-Length']))
+        # this is a multi-range resp
+        self.assertNotIn('Content-Range', headers)
 
         got_mime_docs = []
         for mime_doc_fh in iter_multipart_mime_documents(
@@ -2663,7 +2645,6 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
              ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
@@ -2673,7 +2654,6 @@ class TestSloGetManifest(SloTestCase):
         ranges = [c[2].get('Range') for c in self.app.calls_with_headers]
         self.assertEqual(ranges, [
             'bytes=3-17,20-24,35-999999',  # initial GET
-            None,                          # re-fetch top-level manifest
             None,                          # fetch manifest-bc as sub-slo
             'bytes=3-',                    # a_5
             None,                          # b_10
@@ -2722,9 +2702,12 @@ class TestSloGetManifest(SloTestCase):
                          'bytes 29-49/50')
         self.assertEqual(second_range_body, b'cdddddddddddddddddddd')
 
-    def test_range_get_includes_whole_manifest(self):
+    def test_old_swift_range_get_includes_whole_manifest(self):
+        self.app.can_ignore_range = False
         # If the first range GET results in retrieval of the entire manifest
-        # body (which we can detect by looking at Content-Range), then we
+        # body (and not because of X-Backend-Ignore-Range-If-Metadata-Present,
+        # but because the requested range happened to be sufficient which we
+        # detected by looking at the Content-Range response header), then we
         # should not go make a second, non-ranged request just to retrieve the
         # same bytes again.
         req = Request.blank(
@@ -2747,7 +2730,8 @@ class TestSloGetManifest(SloTestCase):
              ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
 
-    def test_range_get_beyond_manifest(self):
+    def test_old_swift_range_get_beyond_manifest(self):
+        self.app.can_ignore_range = False
         big = 'e' * 1024 * 1024
         big_etag = md5hex(big)
         self.app.register(
@@ -2784,12 +2768,15 @@ class TestSloGetManifest(SloTestCase):
             self.app.calls, [
                 # has Range header, gets 416
                 ('GET', '/v1/AUTH_test/gettest/big_manifest'),
-                # retry the first one
+                # old swift can't ignore range request to manifest and we have
+                # to refetch; new swift has exactly the same behavior but w/o
+                # this extra refetch request as lots of other tests demonstrate
                 ('GET', '/v1/AUTH_test/gettest/big_manifest'),
                 ('GET',
                  '/v1/AUTH_test/gettest/big_seg?multipart-manifest=get')])
 
-    def test_range_get_beyond_manifest_refetch_fails(self):
+    def test_old_swift_range_get_beyond_manifest_refetch_fails(self):
+        self.app.can_ignore_range = False
         big = 'e' * 1024 * 1024
         big_etag = md5hex(big)
         big_manifest = json.dumps(
@@ -2802,6 +2789,9 @@ class TestSloGetManifest(SloTestCase):
                             'X-Backend-Timestamp': '1234',
                             'Etag': md5hex(big_manifest)},
               big_manifest),
+             # new swift would have ignored the range and got the whole
+             # manifest on the first try and therefore never have attempted
+             # this second refetch which fails
              (swob.HTTPNotFound, {}, None)])
 
         req = Request.blank(
@@ -2820,7 +2810,8 @@ class TestSloGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
 
-    def test_range_get_beyond_manifest_refetch_finds_old(self):
+    def test_old_swift_range_get_beyond_manifest_refetch_finds_old(self):
+        self.app.can_ignore_range = False
         big = 'e' * 1024 * 1024
         big_etag = md5hex(big)
         big_manifest = json.dumps(
@@ -2833,6 +2824,9 @@ class TestSloGetManifest(SloTestCase):
                             'X-Backend-Timestamp': '1234',
                             'Etag': md5hex(big_manifest)},
               big_manifest),
+             # new swift would have ignored the range and got the whole
+             # manifest on the first try and therefore never have attempted
+             # this second refetch which is too old
              (swob.HTTPOk, {'X-Backend-Timestamp': '1233'}, [b'small body'])])
 
         req = Request.blank(
@@ -2851,7 +2845,8 @@ class TestSloGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
 
-    def test_range_get_beyond_manifest_refetch_small_non_slo(self):
+    def test_old_swift_range_get_beyond_manifest_refetch_small_non_slo(self):
+        self.app.can_ignore_range = False
         big = 'e' * 1024 * 1024
         big_etag = md5hex(big)
         big_manifest = json.dumps(
@@ -2864,6 +2859,9 @@ class TestSloGetManifest(SloTestCase):
                             'X-Backend-Timestamp': '1234',
                             'Etag': md5hex(big_manifest)},
               big_manifest),
+             # new swift would have ignored the range and got the whole
+             # manifest on the first try and therefore never have attempted
+             # this second refetch which isn't an SLO
              (swob.HTTPOk, {'X-Backend-Timestamp': '1235'}, [b'small body'])])
 
         req = Request.blank(
@@ -2882,7 +2880,8 @@ class TestSloGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
 
-    def test_range_get_beyond_manifest_refetch_big_non_slo(self):
+    def test_old_swift_range_get_beyond_manifest_refetch_big_non_slo(self):
+        self.app.can_ignore_range = False
         big = 'e' * 1024 * 1024
         big_etag = md5hex(big)
         big_manifest = json.dumps(
@@ -2895,6 +2894,9 @@ class TestSloGetManifest(SloTestCase):
                             'X-Backend-Timestamp': '1234',
                             'Etag': md5hex(big_manifest)},
               big_manifest),
+             # new swift would have ignored the range and got the whole
+             # manifest on the first try and therefore never have attempted
+             # this second refetch which isn't an SLO
              (swob.HTTPOk, {'X-Backend-Timestamp': '1235'},
               [b'x' * 1024 * 1024])])
 
@@ -2916,7 +2918,8 @@ class TestSloGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
 
-    def test_range_get_beyond_manifest_refetch_tombstone(self):
+    def test_old_swift_range_get_beyond_manifest_refetch_tombstone(self):
+        self.app.can_ignore_range = False
         big = 'e' * 1024 * 1024
         big_etag = md5hex(big)
         big_manifest = json.dumps(
@@ -2929,6 +2932,9 @@ class TestSloGetManifest(SloTestCase):
                             'X-Backend-Timestamp': '1234',
                             'Etag': md5hex(big_manifest)},
               big_manifest),
+             # new swift would have ignored the range and got the whole
+             # manifest on the first try and therefore never have attempted
+             # this second refetch which shows it was deleted
              (swob.HTTPNotFound, {'X-Backend-Timestamp': '1345'}, None)])
 
         req = Request.blank(
@@ -2947,10 +2953,11 @@ class TestSloGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
 
-    def test_range_get_bogus_content_range(self):
+    def test_old_swift_range_get_bogus_content_range(self):
+        self.app.can_ignore_range = False
         # Just a little paranoia; Swift currently sends back valid
         # Content-Range headers, but if somehow someone sneaks an invalid one
-        # in there, we'll ignore it.
+        # in there, we'll ignore it, when sniffing a 206 manifest response.
 
         def content_range_breaker_factory(app):
             def content_range_breaker(env, start_response):
@@ -2977,6 +2984,11 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             # new swift would have ignored the range and got the whole
+             # manifest on the first try and therefore never have attempted to
+             # look at Content-Range; new swift has exactly the same behavior
+             # but w/o this extra refetch request, however on new swift the
+             # broken content-range in the resp isn't intresting or relevant
              ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
              ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
@@ -2994,13 +3006,13 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '25')
+        self.assertEqual(headers['Content-Range'], 'bytes 5-29/50')
         self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(body, b'bbbbbbbbbbccccccccccccccc')
 
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
              ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')])
@@ -3010,7 +3022,6 @@ class TestSloGetManifest(SloTestCase):
         self.assertIsNone(headers[1].get('Range'))
         self.assertIsNone(headers[2].get('Range'))
         self.assertIsNone(headers[3].get('Range'))
-        self.assertIsNone(headers[4].get('Range'))
 
     def test_range_get_manifest_first_byte(self):
         req = Request.blank(
@@ -3022,6 +3033,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '1')
+        self.assertEqual(headers['Content-Range'], 'bytes 0-0/50')
         self.assertEqual(body, b'a')
 
         # Make sure we don't get any objects we don't need, including
@@ -3029,7 +3041,6 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get')])
 
     def test_range_get_manifest_sub_slo(self):
@@ -3041,6 +3052,7 @@ class TestSloGetManifest(SloTestCase):
         headers = HeaderKeyDict(headers)
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '6')
+        self.assertEqual(headers['Content-Range'], 'bytes 25-30/50')
         self.assertEqual(body, b'cccccd')
 
         # Make sure we don't get any objects we don't need, including
@@ -3048,7 +3060,6 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
              ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
@@ -3063,7 +3074,13 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '5')
+        self.assertEqual(headers['Content-Range'], 'bytes 45-49/50')
         self.assertEqual(body, b'ddddd')
+
+        self.assertEqual(
+            self.app.calls,
+            [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
 
     def test_range_get_manifest_unsatisfiable(self):
         req = Request.blank(
@@ -3207,6 +3224,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '20')
+        self.assertEqual(headers['Content-Range'], 'bytes 7-26/32')
         self.assertEqual(headers['Content-Type'], 'application/json')
         self.assertIn('Etag', headers)
         self.assertEqual(body, b'accccccccbbbbbbbbddd')
@@ -3214,7 +3232,6 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd-ranges'),
-             ('GET', '/v1/AUTH_test/gettest/manifest-abcd-ranges'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc-ranges'),
              ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
@@ -3224,7 +3241,6 @@ class TestSloGetManifest(SloTestCase):
         ranges = [c[2].get('Range') for c in self.app.calls_with_headers]
         self.assertEqual(ranges, [
             'bytes=7-26',
-            None,
             None,
             'bytes=4-',
             'bytes=0-3,11-',
@@ -3245,13 +3261,13 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '9')
+        self.assertEqual(headers['Content-Range'], 'bytes 4-12/17')
         self.assertEqual(headers['Content-Type'], 'application/json')
         self.assertEqual(body, b'cdccbbbab')
 
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd-subranges'),
-             ('GET', '/v1/AUTH_test/gettest/manifest-abcd-subranges'),
              ('GET', '/v1/AUTH_test/gettest/manifest-abcd-ranges'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc-ranges'),
              ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
@@ -3266,7 +3282,6 @@ class TestSloGetManifest(SloTestCase):
             'bytes=4-12',
             None,
             None,
-            None,
             'bytes=2-2',
             'bytes=11-11',
             'bytes=13-',
@@ -3278,9 +3293,12 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(self.app.swift_sources[1:],
                          ['SLO'] * (len(self.app.swift_sources) - 1))
 
-    def test_range_get_includes_whole_range_manifest(self):
+    def test_old_swift_range_get_includes_whole_range_manifest(self):
+        self.app.can_ignore_range = False
         # If the first range GET results in retrieval of the entire manifest
-        # body (which we can detect by looking at Content-Range), then we
+        # body (and not because of X-Backend-Ignore-Range-If-Metadata-Present,
+        # but because the requested range happened to be sufficient which we
+        # detected by looking at the Content-Range response header), then we
         # should not go make a second, non-ranged request just to retrieve the
         # same bytes again.
         req = Request.blank(
@@ -4516,7 +4534,8 @@ class TestSloConditionalGetOldManifest(SloTestCase):
             self.app.headers[0].get('X-Backend-Etag-Is-At'),
             'X-Object-Sysmeta-Custom-Etag,x-object-sysmeta-slo-etag')
 
-    def test_if_match_matches_and_range(self):
+    def test_old_swift_if_match_matches_and_range(self):
+        self.app.can_ignore_range = False
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'},
@@ -4531,12 +4550,46 @@ class TestSloConditionalGetOldManifest(SloTestCase):
 
         expected_app_calls = [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-            # Needed to re-fetch because Range (and, for old manifests, 412)
+            # new-sytle manifest sysmeta was added 2016, but ignore-range
+            # didn't get added until 2020, so both new and old manifest
+            # will still require refetch with old-swift
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
             ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
         ]
+        self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
+                         'x-object-sysmeta-slo-etag')
+
+    def test_if_match_matches_and_range(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Match': self.slo_etag,
+                     'Range': 'bytes=3-6'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertIn(('Content-Length', '4'), headers)
+        self.assertIn(('Content-Range', 'bytes 3-6/50'), headers)
+        self.assertIn(('Etag', '"%s"' % self.manifest_abcd_etag), headers)
+        self.assertEqual(body, b'aabb')
+
+        expected_app_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+        ]
+        if not self.manifest_has_sysmeta:
+            # Needed to re-fetch because if-match can't find slo-etag
+            expected_app_calls.append(
+                ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+            )
+        # and then fetch the segments
+        expected_app_calls.extend([
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+        ])
         self.assertEqual(self.app.calls, expected_app_calls)
         self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
                          'x-object-sysmeta-slo-etag')

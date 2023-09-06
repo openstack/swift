@@ -16,6 +16,7 @@
 import unittest
 
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated
+from swift.common import request_helpers as rh
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -448,3 +449,62 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(b'not stuff', resp.body)
         self.assertEqual(2, swift.call_count)
         self.assertEqual(('GET', '/v1/a/c/o'), swift.calls[-1])
+
+    def test_range(self):
+        swift = FakeSwift()
+        swift.register('GET', '/v1/a/c/o', HTTPOk, {}, b'stuff')
+        req = Request.blank('/v1/a/c/o', headers={'Range': 'bytes=0-2'})
+        resp = req.get_response(swift)
+        self.assertEqual(206, resp.status_int)
+        self.assertEqual(b'stu', resp.body)
+        self.assertEqual('bytes 0-2/5', resp.headers['Content-Range'])
+        self.assertEqual('bytes=0-2', req.headers.get('Range'))
+        self.assertEqual('bytes=0-2',
+                         swift.calls_with_headers[-1].headers.get('Range'))
+
+    def test_range_ignore_range_header(self):
+        swift = FakeSwift()
+        swift.register('GET', '/v1/a/c/o', HTTPOk, {
+            # the value of the matching header doesn't matter
+            'X-Object-Sysmeta-Magic': 'False'
+        }, b'stuff')
+        req = Request.blank('/v1/a/c/o', headers={'Range': 'bytes=0-2'})
+        rh.update_ignore_range_header(req, 'X-Object-Sysmeta-Magic')
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual(b'stuff', resp.body)
+        self.assertNotIn('Content-Range', resp.headers)
+        self.assertEqual('bytes=0-2', req.headers.get('Range'))
+        self.assertEqual('bytes=0-2',
+                         swift.calls_with_headers[-1].headers.get('Range'))
+
+    def test_range_ignore_range_header_old_swift(self):
+        swift = FakeSwift()
+        swift.can_ignore_range = False
+        swift.register('GET', '/v1/a/c/o', HTTPOk, {
+            # the value of the matching header doesn't matter
+            'X-Object-Sysmeta-Magic': 'False'
+        }, b'stuff')
+        req = Request.blank('/v1/a/c/o', headers={'Range': 'bytes=0-2'})
+        rh.update_ignore_range_header(req, 'X-Object-Sysmeta-Magic')
+        resp = req.get_response(swift)
+        self.assertEqual(206, resp.status_int)
+        self.assertEqual(b'stu', resp.body)
+        self.assertEqual('bytes 0-2/5', resp.headers['Content-Range'])
+        self.assertEqual('bytes=0-2', req.headers.get('Range'))
+        self.assertEqual('bytes=0-2',
+                         swift.calls_with_headers[-1].headers.get('Range'))
+
+    def test_range_ignore_range_header_ignored(self):
+        swift = FakeSwift()
+        # range is only ignored if registered response has matching metadata
+        swift.register('GET', '/v1/a/c/o', HTTPOk, {}, b'stuff')
+        req = Request.blank('/v1/a/c/o', headers={'Range': 'bytes=0-2'})
+        rh.update_ignore_range_header(req, 'X-Object-Sysmeta-Magic')
+        resp = req.get_response(swift)
+        self.assertEqual(206, resp.status_int)
+        self.assertEqual(b'stu', resp.body)
+        self.assertEqual('bytes 0-2/5', resp.headers['Content-Range'])
+        self.assertEqual('bytes=0-2', req.headers.get('Range'))
+        self.assertEqual('bytes=0-2',
+                         swift.calls_with_headers[-1].headers.get('Range'))
