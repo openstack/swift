@@ -19,6 +19,10 @@ from contextlib import contextmanager
 import logging
 from unittest import SkipTest
 
+import os
+import boto
+from distutils.version import StrictVersion
+
 import test.functional as tf
 from test.functional.s3api.s3_test_client import (
     Connection, get_boto3_conn, tear_down_s3)
@@ -104,3 +108,30 @@ class S3ApiBaseBoto3(S3ApiBase):
 
     def tearDown(self):
         tear_down_s3(self.conn)
+
+
+def skip_boto2_sort_header_bug(m):
+    def wrapped(self, *args, **kwargs):
+        if (os.environ.get('S3_USE_SIGV4') == "True" and
+                StrictVersion(boto.__version__) < StrictVersion('3.0')):
+            # boto 2 doesn't sort headers properly; see
+            # https://github.com/boto/boto/pull/3032
+            # or https://github.com/boto/boto/pull/3176
+            # or https://github.com/boto/boto/pull/3751
+            # or https://github.com/boto/boto/pull/3824
+            self.skipTest('This stuff got the issue of boto<=2.x')
+        return m(self, *args, **kwargs)
+    return wrapped
+
+
+class SigV4Mixin(object):
+    @classmethod
+    def setUpClass(cls):
+        os.environ['S3_USE_SIGV4'] = "True"
+
+    @classmethod
+    def tearDownClass(cls):
+        del os.environ['S3_USE_SIGV4']
+
+    def setUp(self):
+        super(SigV4Mixin, self).setUp()

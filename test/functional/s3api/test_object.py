@@ -15,12 +15,6 @@
 # limitations under the License.
 
 import unittest
-import os
-import boto
-
-# For an issue with venv and distutils, disable pylint message here
-# pylint: disable-msg=E0611,F0401
-from distutils.version import StrictVersion
 
 import calendar
 import email.parser
@@ -35,7 +29,8 @@ from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import S3Timestamp
 from swift.common.utils import md5, quote
 
-from test.functional.s3api import S3ApiBase
+from test.functional.s3api import S3ApiBase, SigV4Mixin, \
+    skip_boto2_sort_header_bug
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code, calculate_md5, \
     get_error_msg
@@ -368,6 +363,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
 
+    @skip_boto2_sort_header_bug
     def test_put_object_metadata(self):
         self._test_put_object_headers({
             'X-Amz-Meta-Bar': 'foo',
@@ -586,6 +582,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('PUT', dst_bucket, dst_obj, headers)
         self.assertEqual(status, 400)
 
+    @skip_boto2_sort_header_bug
     def test_put_object_copy_source_if_modified_since(self):
         obj = 'object'
         dst_bucket = 'dst-bucket'
@@ -606,6 +603,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
 
+    @skip_boto2_sort_header_bug
     def test_put_object_copy_source_if_unmodified_since(self):
         obj = 'object'
         dst_bucket = 'dst-bucket'
@@ -626,6 +624,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
 
+    @skip_boto2_sort_header_bug
     def test_put_object_copy_source_if_match(self):
         obj = 'object'
         dst_bucket = 'dst-bucket'
@@ -645,6 +644,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
 
+    @skip_boto2_sort_header_bug
     def test_put_object_copy_source_if_none_match(self):
         obj = 'object'
         dst_bucket = 'dst-bucket'
@@ -954,46 +954,8 @@ class TestS3ApiObject(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
 
 
-class TestS3ApiObjectSigV4(TestS3ApiObject):
-    @classmethod
-    def setUpClass(cls):
-        os.environ['S3_USE_SIGV4'] = "True"
-
-    @classmethod
-    def tearDownClass(cls):
-        del os.environ['S3_USE_SIGV4']
-
-    def setUp(self):
-        super(TestS3ApiObjectSigV4, self).setUp()
-
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
-    def test_put_object_metadata(self):
-        super(TestS3ApiObjectSigV4, self).test_put_object_metadata()
-
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
-    def test_put_object_copy_source_if_modified_since(self):
-        super(TestS3ApiObjectSigV4, self).\
-            test_put_object_copy_source_if_modified_since()
-
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
-    def test_put_object_copy_source_if_unmodified_since(self):
-        super(TestS3ApiObjectSigV4, self).\
-            test_put_object_copy_source_if_unmodified_since()
-
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
-    def test_put_object_copy_source_if_match(self):
-        super(TestS3ApiObjectSigV4,
-              self).test_put_object_copy_source_if_match()
-
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
-    def test_put_object_copy_source_if_none_match(self):
-        super(TestS3ApiObjectSigV4,
-              self).test_put_object_copy_source_if_none_match()
+class TestS3ApiObjectSigV4(TestS3ApiObject, SigV4Mixin):
+    pass
 
 
 if __name__ == '__main__':
