@@ -3910,6 +3910,35 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         # all 28 nodes tried with an optimistic get, none are durable and none
         # report having a durable timestamp
         self.assertEqual(28, len(log))
+        self.assertEqual([], self.app.logger.get_lines_for_level('error'))
+
+    def test_GET_nondurable_when_node_iter_runs_out_of_nodes(self):
+        policy_opts = self.app.get_policy_options(self.policy)
+        policy_opts.concurrent_gets = True
+        policy_opts.concurrent_ec_extra_requests = 1
+        policy_opts.concurrency_timeout = 0.1
+
+        obj1 = self._make_ec_object_stub(pattern='obj1')
+        node_frags = [
+            {'obj': obj1, 'frag': i, 'durable': False}
+            for i in range(self.policy.ec_ndata + 1)
+        ]
+        fake_response = self._fake_ec_node_response(node_frags)
+        # limit remaining nodes
+        obj_ring = self.app.get_object_ring(int(self.policy))
+        part, nodes = obj_ring.get_nodes('a', 'c', 'o')
+        nodes.extend(list(obj_ring.get_more_nodes(part)))
+        for dev in nodes[self.policy.ec_ndata + 1:]:
+            self.app.error_limiter.limit(dev)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        # non-durable responds 404
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(len(log), self.policy.ec_ndata + 1)
+        self.assertEqual([], self.app.logger.get_lines_for_level('error'))
 
     def test_GET_with_missing_durable_files_and_mixed_etags(self):
         obj1 = self._make_ec_object_stub(pattern='obj1')
