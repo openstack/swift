@@ -360,7 +360,7 @@ class TestFuncs(BaseTest):
     def test_get_container_info_in_pipeline(self):
         final_app = FakeApp()
 
-        def factory(app):
+        def factory(app, include_pipeline_ref=True):
             def wsgi_filter(env, start_response):
                 # lots of middlewares get info...
                 if env['PATH_INFO'].count('/') > 2:
@@ -370,10 +370,11 @@ class TestFuncs(BaseTest):
                 # ...then decide to no-op based on the result
                 return app(env, start_response)
 
-            # Note that we have to do some book-keeping in tests to mimic what
-            # would be done in swift.common.wsgi.load_app
-            wsgi_filter._pipeline_final_app = final_app
-            wsgi_filter._pipeline_request_logging_app = final_app
+            if include_pipeline_ref:
+                # Note that we have to do some book-keeping in tests to mimic
+                # what would be done in swift.common.wsgi.load_app
+                wsgi_filter._pipeline_final_app = final_app
+                wsgi_filter._pipeline_request_logging_app = final_app
             return wsgi_filter
 
         # build up a pipeline
@@ -382,6 +383,17 @@ class TestFuncs(BaseTest):
         req.get_response(filtered_app)
         self.assertEqual([e['PATH_INFO'] for e in final_app.captured_envs],
                          ['/v1/a', '/v1/a/c', '/v1/a/c/o'])
+
+        # but we can't completely rely on our run_server pipeline-building
+        # attaching proxy-app references; some 3rd party middlewares may
+        # compose themselves as multiple filters, and only the outer-most one
+        # would have the reference
+        filtered_app = factory(factory(factory(final_app), False))
+        del final_app.captured_envs[:]
+        req = Request.blank("/v1/a/c/o", environ={'swift.cache': FakeCache()})
+        req.get_response(filtered_app)
+        self.assertEqual([e['PATH_INFO'] for e in final_app.captured_envs], [
+            '/v1/a', '/v1/a', '/v1/a/c', '/v1/a/c', '/v1/a/c/o'])
 
     def test_get_account_info_uses_logging_app(self):
         def factory(app, func=None):
