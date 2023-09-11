@@ -174,10 +174,9 @@ your situation, but in short:
   will get the Swift memcache from the request environment.
 * ``include_service_catalog`` defaults to ``True`` if not set. This means
   that when validating a token, the service catalog is retrieved
-  and stored in the ``X-Service-Catalog`` header. Since Swift does not
-  use the ``X-Service-Catalog`` header, there is no point in getting
-  the service catalog. We recommend you set ``include_service_catalog``
-  to ``False``.
+  and stored in the ``X-Service-Catalog`` header. This is required if you use
+  access-rules in Application Credentials. You may also need to increase
+  `max_header_size`.
 
 
 .. note::
