@@ -194,6 +194,7 @@ class BaseTestContainerSharding(ReplProbeTest):
             self.assertEqual('object', resp_record_type)
         else:
             self.assertIsNone(resp_record_type)
+        self.assertNotIn('X-Backend-Record-Shard-Format', resp.headers)
         return json.loads(resp.body)
 
     def get_container_shard_ranges(self, account=None, container=None,

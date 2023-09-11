@@ -19,8 +19,7 @@ import six
 from six.moves.urllib.parse import unquote
 
 from swift.common.utils import public, private, csv_append, Timestamp, \
-    config_true_value, ShardRange, cache_from_env, filter_namespaces, \
-    NamespaceBoundList
+    config_true_value, cache_from_env, filter_namespaces, NamespaceBoundList
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix, get_param, \
@@ -191,7 +190,7 @@ class ContainerController(Controller):
         # available shard's lower. At worst, some misplaced objects, in the gap
         # above the shard's upper, may be included in the shard's response.
         data = self._parse_listing_response(req, resp)
-        backend_shard_ranges = self._parse_shard_ranges(req, data, resp)
+        backend_shard_ranges = self._parse_namespaces(req, data, resp)
         if backend_shard_ranges is None:
             return None
 
@@ -248,6 +247,10 @@ class ContainerController(Controller):
         if (resp_record_type == 'shard' and
                 sharding_state == 'sharded' and
                 complete_listing):
+            # note: old container servers return a list of shard ranges, newer
+            # ones return a list of namespaces. If we ever need to know we can
+            # look for a 'x-backend-record-shard-format' header from newer
+            # container servers.
             ns_bound_list = self._store_shard_ranges_in_cache(req, resp)
             if ns_bound_list:
                 resp.body = self._make_namespaces_response_body(
@@ -353,6 +356,7 @@ class ContainerController(Controller):
         else:
             record_type = 'auto'
             req.headers['X-Backend-Record-Type'] = 'auto'
+            req.headers['X-Backend-Record-Shard-Format'] = 'namespace'
             params['states'] = 'listing'
         req.params = params
 
@@ -394,10 +398,18 @@ class ContainerController(Controller):
 
         if all((req.method == "GET", record_type == 'auto',
                resp_record_type.lower() == 'shard')):
-            resp = self._get_from_shards(req, resp)
+            data = self._parse_listing_response(req, resp)
+            namespaces = self._parse_namespaces(req, data, resp)
+            if namespaces is not None:
+                # we got namespaces, so the container must be sharded; now
+                # build the listing from shards
+                # NB: the filtered namespaces list may be empty but we still
+                # need to build a response body with an empty list of shards
+                resp = self._get_from_shards(req, resp, namespaces)
 
         if orig_record_type not in ('object', 'shard'):
             resp.headers.pop('X-Backend-Record-Type', None)
+            resp.headers.pop('X-Backend-Record-Shard-Format', None)
 
         if not config_true_value(
                 resp.headers.get('X-Backend-Cached-Results')):
@@ -425,17 +437,28 @@ class ContainerController(Controller):
                                  'False'))
         return resp
 
-    def _get_from_shards(self, req, resp):
-        # Construct listing using shards described by the response body.
-        # The history of containers that have returned shard ranges is
+    def _get_from_shards(self, req, resp, namespaces):
+        """
+        Construct an object listing using shards described by the list of
+        namespaces.
+
+        :param req: an instance of :class:`~swift.common.swob.Request`.
+        :param resp: an instance of :class:`~swift.common.swob.Response`.
+        :param namespaces: a list of :class:`~swift.common.utils.Namespace`.
+        :return: an instance of :class:`~swift.common.swob.Response`. If an
+            error is encountered while building the listing an instance of
+            ``HTTPServiceUnavailable`` may be returned. Otherwise, the given
+            ``resp`` is returned with a body that is an object listing.
+        """
+        # The history of containers that have returned namespaces is
         # maintained in the request environ so that loops can be avoided by
         # forcing an object listing if the same container is visited again.
         # This can happen in at least two scenarios:
-        #   1. a container has filled a gap in its shard ranges with a
-        #      shard range pointing to itself
-        #   2. a root container returns a (stale) shard range pointing to a
+        #   1. a container has filled a gap in its namespaces with a
+        #      namespace pointing to itself
+        #   2. a root container returns a (stale) namespace pointing to a
         #      shard that has shrunk into the root, in which case the shrunken
-        #      shard may return the root's shard range.
+        #      shard may return the root's namespace.
         shard_listing_history = req.environ.setdefault(
             'swift.shard_listing_history', [])
         policy_key = 'X-Backend-Storage-Policy-Index'
@@ -443,28 +466,15 @@ class ContainerController(Controller):
             # We're handling the original request to the root container: set
             # the root policy index in the request, unless it is already set,
             # so that shards will return listings for that policy index.
-            # Note: we only get here if the root responded with shard ranges,
-            # or if the shard ranges were cached and the cached root container
+            # Note: we only get here if the root responded with namespaces,
+            # or if the namespaces were cached and the cached root container
             # info has sharding_state==sharded; in both cases we can assume
             # that the response is "modern enough" to include
             # 'X-Backend-Storage-Policy-Index'.
             req.headers[policy_key] = resp.headers[policy_key]
         shard_listing_history.append((self.account_name, self.container_name))
-        # Note: when the response body has been synthesised from cached data,
-        # each item in the list only has 'name', 'lower' and 'upper' keys. We
-        # therefore cannot use ShardRange.from_dict(), and the ShardRange
-        # instances constructed here will only have 'name', 'lower' and 'upper'
-        # attributes set.
-        # Ideally we would construct Namespace objects here, but later we use
-        # the ShardRange account and container properties to access parsed
-        # parts of the name.
-        shard_ranges = [ShardRange(**data) for data in json.loads(resp.body)]
         self.logger.debug('GET listing from %s shards for: %s',
-                          len(shard_ranges), req.path_qs)
-        if not shard_ranges:
-            # can't find ranges or there was a problem getting the ranges. So
-            # return what we have.
-            return resp
+                          len(namespaces), req.path_qs)
 
         objects = []
         req_limit = constrain_req_limit(req, CONTAINER_LISTING_LIMIT)
@@ -478,12 +488,12 @@ class ContainerController(Controller):
 
         limit = req_limit
         all_resp_status = []
-        for i, shard_range in enumerate(shard_ranges):
+        for i, namespace in enumerate(namespaces):
             params['limit'] = limit
             # Always set marker to ensure that object names less than or equal
             # to those already in the listing are not fetched; if the listing
             # is empty then the original request marker, if any, is used. This
-            # allows misplaced objects below the expected shard range to be
+            # allows misplaced objects below the expected namespace to be
             # included in the listing.
             last_name = ''
             last_name_was_subdir = False
@@ -502,18 +512,18 @@ class ContainerController(Controller):
             else:
                 params['marker'] = ''
             # Always set end_marker to ensure that misplaced objects beyond the
-            # expected shard range are not fetched. This prevents a misplaced
+            # expected namespace are not fetched. This prevents a misplaced
             # object obscuring correctly placed objects in the next shard
             # range.
-            if end_marker and end_marker in shard_range:
+            if end_marker and end_marker in namespace:
                 params['end_marker'] = str_to_wsgi(end_marker)
             elif reverse:
-                params['end_marker'] = str_to_wsgi(shard_range.lower_str)
+                params['end_marker'] = str_to_wsgi(namespace.lower_str)
             else:
-                params['end_marker'] = str_to_wsgi(shard_range.end_marker)
+                params['end_marker'] = str_to_wsgi(namespace.end_marker)
 
             headers = {}
-            if ((shard_range.account, shard_range.container) in
+            if ((namespace.account, namespace.container) in
                     shard_listing_history):
                 # directed back to same container - force GET of objects
                 headers['X-Backend-Record-Type'] = 'object'
@@ -521,26 +531,26 @@ class ContainerController(Controller):
                 headers['X-Newest'] = 'true'
 
             if prefix:
-                if prefix > shard_range:
+                if prefix > namespace:
                     continue
                 try:
                     just_past = prefix[:-1] + chr(ord(prefix[-1]) + 1)
                 except ValueError:
                     pass
                 else:
-                    if just_past < shard_range:
+                    if just_past < namespace:
                         continue
 
             if last_name_was_subdir and str(
-                shard_range.lower if reverse else shard_range.upper
+                namespace.lower if reverse else namespace.upper
             ).startswith(last_name):
                 continue
 
             self.logger.debug(
                 'Getting listing part %d from shard %s %s with %s',
-                i, shard_range, shard_range.name, headers)
+                i, namespace, namespace.name, headers)
             objs, shard_resp = self._get_container_listing(
-                req, shard_range.account, shard_range.container,
+                req, namespace.account, namespace.container,
                 headers=headers, params=params)
             all_resp_status.append(shard_resp.status_int)
 

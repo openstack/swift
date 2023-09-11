@@ -1283,7 +1283,8 @@ class TestSharder(BaseTestSharder):
 
         expected_headers = {'X-Backend-Record-Type': 'shard',
                             'X-Backend-Include-Deleted': 'False',
-                            'X-Backend-Override-Deleted': 'true'}
+                            'X-Backend-Override-Deleted': 'true',
+                            'X-Backend-Record-Shard-Format': 'full'}
         broker = self._make_broker()
         shard_ranges = self._make_shard_ranges((('', 'm'), ('m', '')))
 
@@ -6325,8 +6326,9 @@ class TestSharder(BaseTestSharder):
                     as mocked, mock.patch.object(
                         sharder, 'int_client') as mock_swift:
                 mock_response = mock.MagicMock()
-                mock_response.headers = {'x-backend-record-type':
-                                         'shard'}
+                mock_response.headers = {
+                    'x-backend-record-type': 'shard',
+                    'X-Backend-Record-Shard-Format': 'full'}
                 shard_ranges.sort(key=ShardRange.sort_key)
                 mock_response.body = json.dumps(
                     [dict(sr) for sr in shard_ranges])
@@ -6348,7 +6350,8 @@ class TestSharder(BaseTestSharder):
         expected_headers = {'X-Backend-Record-Type': 'shard',
                             'X-Newest': 'true',
                             'X-Backend-Include-Deleted': 'True',
-                            'X-Backend-Override-Deleted': 'true'}
+                            'X-Backend-Override-Deleted': 'true',
+                            'X-Backend-Record-Shard-Format': 'full'}
         params = {'format': 'json', 'marker': marker, 'end_marker': end_marker,
                   'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
@@ -6434,7 +6437,8 @@ class TestSharder(BaseTestSharder):
         expected_headers = {'X-Backend-Record-Type': 'shard',
                             'X-Newest': 'true',
                             'X-Backend-Include-Deleted': 'True',
-                            'X-Backend-Override-Deleted': 'true'}
+                            'X-Backend-Override-Deleted': 'true',
+                            'X-Backend-Record-Shard-Format': 'full'}
         params = {'format': 'json', 'marker': 'j', 'end_marker': 'k',
                   'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
@@ -6471,7 +6475,8 @@ class TestSharder(BaseTestSharder):
         expected_headers = {'X-Backend-Record-Type': 'shard',
                             'X-Newest': 'true',
                             'X-Backend-Include-Deleted': 'True',
-                            'X-Backend-Override-Deleted': 'true'}
+                            'X-Backend-Override-Deleted': 'true',
+                            'X-Backend-Record-Shard-Format': 'full'}
         params = {'format': 'json', 'marker': 'k', 'end_marker': 't',
                   'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
@@ -6608,7 +6613,8 @@ class TestSharder(BaseTestSharder):
             expected_headers = {'X-Backend-Record-Type': 'shard',
                                 'X-Newest': 'true',
                                 'X-Backend-Include-Deleted': 'True',
-                                'X-Backend-Override-Deleted': 'true'}
+                                'X-Backend-Override-Deleted': 'true',
+                                'X-Backend-Record-Shard-Format': 'full'}
             params = {'format': 'json', 'marker': 'k', 'end_marker': 't',
                       'states': 'auditing'}
             mock_swift.make_request.assert_called_once_with(
@@ -6690,7 +6696,8 @@ class TestSharder(BaseTestSharder):
         expected_headers = {'X-Backend-Record-Type': 'shard',
                             'X-Newest': 'true',
                             'X-Backend-Include-Deleted': 'True',
-                            'X-Backend-Override-Deleted': 'true'}
+                            'X-Backend-Override-Deleted': 'true',
+                            'X-Backend-Record-Shard-Format': 'full'}
         params = {'format': 'json', 'marker': 'a', 'end_marker': 'b',
                   'states': 'auditing'}
         mock_swift.make_request.assert_called_once_with(
@@ -7391,7 +7398,8 @@ class TestSharder(BaseTestSharder):
             expected_headers = {'X-Backend-Record-Type': 'shard',
                                 'X-Newest': 'true',
                                 'X-Backend-Include-Deleted': 'True',
-                                'X-Backend-Override-Deleted': 'true'}
+                                'X-Backend-Override-Deleted': 'true',
+                                'X-Backend-Record-Shard-Format': 'full'}
             params = {'format': 'json', 'marker': 'a', 'end_marker': 'd',
                       'states': 'auditing'}
             mock_swift.make_request.assert_called_once_with(

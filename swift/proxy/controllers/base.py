@@ -44,8 +44,8 @@ from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
-    document_iters_to_http_response_body, ShardRange, cache_from_env, \
-    CooperativeIterator, NamespaceBoundList
+    document_iters_to_http_response_body, cache_from_env, \
+    CooperativeIterator, NamespaceBoundList, Namespace
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -2459,7 +2459,7 @@ class Controller(object):
         data = self._parse_listing_response(req, response)
         return data, response
 
-    def _parse_shard_ranges(self, req, listing, response):
+    def _parse_namespaces(self, req, listing, response):
         if listing is None:
             return None
 
@@ -2471,10 +2471,15 @@ class Controller(object):
             return None
 
         try:
-            return [ShardRange.from_dict(shard_range)
-                    for shard_range in listing]
+            # Note: a legacy container-server could return a list of
+            # ShardRanges, but that's ok: namespaces just need 'name', 'lower'
+            # and 'upper' keys. If we ever need to know we can look for a
+            # 'x-backend-record-shard-format' header from newer container
+            # servers.
+            return [Namespace(data['name'], data['lower'], data['upper'])
+                    for data in listing]
         except (ValueError, TypeError, KeyError) as err:
             self.logger.error(
-                "Failed to get shard ranges from %s: invalid data: %r",
+                "Failed to get namespaces from %s: invalid data: %r",
                 req.path_qs, err)
             return None

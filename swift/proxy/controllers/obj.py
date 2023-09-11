@@ -48,7 +48,7 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
-    find_namespace, NamespaceBoundList, CooperativeIterator, ShardRange)
+    NamespaceBoundList, CooperativeIterator)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -281,31 +281,32 @@ class BaseObjectController(Controller):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
-    def _get_updating_shard_ranges(
+    def _get_updating_namespaces(
             self, req, account, container, includes=None):
         """
-        Fetch shard ranges in 'updating' states from given `account/container`.
+        Fetch namespaces in 'updating' states from given `account/container`.
         If `includes` is given then the shard range for that object name is
-        requested, otherwise all shard ranges are requested.
+        requested, otherwise all namespaces are requested.
 
         :param req: original Request instance.
-        :param account: account from which shard ranges should be fetched.
-        :param container: container from which shard ranges should be fetched.
-        :param includes: (optional) restricts the list of fetched shard ranges
+        :param account: account from which namespaces should be fetched.
+        :param container: container from which namespaces should be fetched.
+        :param includes: (optional) restricts the list of fetched namespaces
             to those which include the given name.
-        :return: a list of instances of :class:`swift.common.utils.ShardRange`,
-            or None if there was a problem fetching the shard ranges
+        :return: a list of instances of :class:`swift.common.utils.Namespace`,
+            or None if there was a problem fetching the namespaces.
         """
         params = req.params.copy()
         params.pop('limit', None)
         params['format'] = 'json'
         params['states'] = 'updating'
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Backend-Record-Shard-Format': 'namespace'}
         if includes:
             params['includes'] = str_to_wsgi(includes)
-        headers = {'X-Backend-Record-Type': 'shard'}
         listing, response = self._get_container_listing(
             req, account, container, headers=headers, params=params)
-        return self._parse_shard_ranges(req, listing, response), response
+        return self._parse_namespaces(req, listing, response), response
 
     def _get_update_shard_caching_disabled(self, req, account, container, obj):
         """
@@ -316,17 +317,17 @@ class BaseObjectController(Controller):
         :param account: account from which shard ranges should be fetched.
         :param container: container from which shard ranges should be fetched.
         :param obj: object getting updated.
-        :return: an instance of :class:`swift.common.utils.ShardRange`,
+        :return: an instance of :class:`swift.common.utils.Namespace`,
             or None if the update should go back to the root
         """
         # legacy behavior requests container server for includes=obj
-        shard_ranges, response = self._get_updating_shard_ranges(
+        namespaces, response = self._get_updating_namespaces(
             req, account, container, includes=obj)
         record_cache_op_metrics(
             self.logger, self.server_type.lower(), 'shard_updating',
             'disabled', response)
-        # there will be only one shard range in the list if any
-        return shard_ranges[0] if shard_ranges else None
+        # there will be only one Namespace in the list if any
+        return namespaces[0] if namespaces else None
 
     def _get_update_shard(self, req, account, container, obj):
         """
@@ -340,7 +341,7 @@ class BaseObjectController(Controller):
         :param account: account from which shard ranges should be fetched.
         :param container: container from which shard ranges should be fetched.
         :param obj: object getting updated.
-        :return: an instance of :class:`swift.common.utils.ShardRange`,
+        :return: an instance of :class:`swift.common.utils.Namespace`,
             or None if the update should go back to the root
         """
         if not self.app.recheck_updating_shard_ranges:
@@ -354,20 +355,15 @@ class BaseObjectController(Controller):
         skip_chance = self.app.container_updating_shard_ranges_skip_cache
         ns_bound_list, get_cache_state = get_namespaces_from_cache(
             req, cache_key, skip_chance)
-        if ns_bound_list:
-            # found cached namespaces in either infocache or memcache
-            namespace = ns_bound_list.get_namespace(obj)
-            update_shard = ShardRange(
-                name=namespace.name, timestamp=0, lower=namespace.lower,
-                upper=namespace.upper)
-        else:
-            # pull full set of updating shard ranges from backend
-            shard_ranges, response = self._get_updating_shard_ranges(
+        if not ns_bound_list:
+            # namespaces not found in either infocache or memcache so pull full
+            # set of updating shard ranges from backend
+            namespaces, response = self._get_updating_namespaces(
                 req, account, container)
-            if shard_ranges:
+            if namespaces:
                 # only store the list of namespace lower bounds and names into
                 # infocache and memcache.
-                ns_bound_list = NamespaceBoundList.parse(shard_ranges)
+                ns_bound_list = NamespaceBoundList.parse(namespaces)
                 set_cache_state = set_namespaces_in_cache(
                     req, cache_key, ns_bound_list,
                     self.app.recheck_updating_shard_ranges)
@@ -377,23 +373,22 @@ class BaseObjectController(Controller):
                 if set_cache_state == 'set':
                     self.logger.info(
                         'Caching updating shards for %s (%d shards)',
-                        cache_key, len(shard_ranges))
-            update_shard = find_namespace(obj, shard_ranges or [])
+                        cache_key, len(namespaces))
         record_cache_op_metrics(
             self.logger, self.server_type.lower(), 'shard_updating',
             get_cache_state, response)
-        return update_shard
+        return ns_bound_list.get_namespace(obj) if ns_bound_list else None
 
     def _get_update_target(self, req, container_info):
         # find the sharded container to which we'll send the update
         db_state = container_info.get('sharding_state', 'unsharded')
         if db_state in ('sharded', 'sharding'):
-            shard_range = self._get_update_shard(
+            update_shard_ns = self._get_update_shard(
                 req, self.account_name, self.container_name, self.object_name)
-            if shard_range:
+            if update_shard_ns:
                 partition, nodes = self.app.container_ring.get_nodes(
-                    shard_range.account, shard_range.container)
-                return partition, nodes, shard_range.name
+                    update_shard_ns.account, update_shard_ns.container)
+                return partition, nodes, update_shard_ns.name
 
         return container_info['partition'], container_info['nodes'], None
 

@@ -1168,6 +1168,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         params = params or {}
         params.setdefault('format', 'json')
         headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Backend-Record-Shard-Format': 'full',
                    'X-Backend-Override-Deleted': 'true',
                    'X-Backend-Include-Deleted': str(include_deleted)}
         if newest:
