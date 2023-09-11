@@ -54,6 +54,12 @@ def tearDownModule():
 
 class Utils(object):
     @classmethod
+    def encode_if_py2(cls, value):
+        if six.PY2 and isinstance(value, six.text_type):
+            return value.encode('utf8')
+        return value
+
+    @classmethod
     def create_ascii_name(cls, length=None):
         return uuid.uuid4().hex
 
@@ -71,9 +77,7 @@ class Utils(object):
                      u'\u5608\u3706\u1804\u0903\u03A9\u2603'
         ustr = u''.join([random.choice(utf8_chars)
                          for x in range(length)])
-        if six.PY2:
-            return ustr.encode('utf-8')
-        return ustr
+        return cls.encode_if_py2(ustr)
 
     create_name = create_ascii_name
 
