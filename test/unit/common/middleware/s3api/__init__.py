@@ -28,19 +28,16 @@ from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     Grant, User, ACL, PERMISSIONS, AllUsers, AuthenticatedUsers
 
-from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
 
 
-class FakeApp(object):
+class FakeAuthApp(object):
     container_existence_skip_cache = 0.0
     account_existence_skip_cache = 0.0
 
-    def __init__(self):
+    def __init__(self, app):
         self.remote_user = 'authorized'
-        self._pipeline_final_app = self
-        self.swift = FakeSwift()
-        self.logger = debug_logger()
+        self.app = app
 
     def _update_s3_path_info(self, env):
         """
@@ -82,13 +79,16 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         self.handle(env)
-        return self.swift(env, start_response)
+        return self.app(env, start_response)
 
 
 class S3ApiTestCase(unittest.TestCase):
 
     def __init__(self, name):
         unittest.TestCase.__init__(self, name)
+
+    def _wrap_app(self, app):
+        return FakeAuthApp(app)
 
     def setUp(self):
         # setup default config dict
@@ -110,12 +110,13 @@ class S3ApiTestCase(unittest.TestCase):
             'log_level': 'debug'
         }
 
-        self.app = FakeApp()
-        self.swift = self.app.swift
         # note: self.conf has no __file__ key so check_pipeline will be skipped
         # when constructing self.s3api
+        self.swift = FakeSwift()
+        self.app = self._wrap_app(self.swift)
+        self.app._pipeline_final_app = self.swift
         self.s3api = filter_factory({}, **self.conf)(self.app)
-        self.logger = self.s3api.logger = self.swift.logger = debug_logger()
+        self.logger = self.s3api.logger = self.swift.logger
 
         # if you change the registered acl response for /bucket or
         # /bucket/object tearDown will complain at you; you can set this to
@@ -282,11 +283,11 @@ class S3ApiTestCaseAcl(S3ApiTestCase):
             self.swift.register('GET', path, swob.HTTPOk, {}, json.dumps([])),
 
         # setup sticky ACL headers...
-        grants = [_gen_grant(perm) for perm in PERMISSIONS]
+        self.grants = [_gen_grant(perm) for perm in PERMISSIONS]
         self.default_owner = Owner('test:tester', 'test:tester')
-        container_headers = _gen_test_headers(self.default_owner, grants)
+        container_headers = _gen_test_headers(self.default_owner, self.grants)
         object_headers = _gen_test_headers(
-            self.default_owner, grants, 'object')
+            self.default_owner, self.grants, 'object')
         public_headers = _gen_test_headers(
             self.default_owner, [Grant(AllUsers(), 'READ')])
         authenticated_headers = _gen_test_headers(

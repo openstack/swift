@@ -172,6 +172,7 @@ class Config(dict):
         'allow_no_owner': False,
         'allowable_clock_skew': 900,
         'ratelimit_as_client_error': False,
+        'max_upload_part_num': 1000,
     }
 
     def __init__(self, base=None):

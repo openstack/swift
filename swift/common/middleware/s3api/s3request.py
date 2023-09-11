@@ -56,7 +56,8 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     MissingContentLength, InvalidStorageClass, S3NotImplemented, InvalidURI, \
     MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, \
     BadDigest, AuthorizationHeaderMalformed, SlowDown, \
-    AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU
+    AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU, \
+    InvalidPartNumber, InvalidPartArgument
 from swift.common.middleware.s3api.exception import NotS3Request
 from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
@@ -558,6 +559,57 @@ class S3Request(swob.Request):
         # by full URL when absolute path given. See swift.swob for more detail.
         self.environ['swift.leave_relative_location'] = True
 
+    def validate_part_number(self, parts_count=None, check_max=True):
+        """
+        Get the partNumber param, if it exists, and check it is valid.
+
+        To be valid, a partNumber must satisfy two criteria. First, it must be
+        an integer between 1 and the maximum allowed parts, inclusive. The
+        maximum allowed parts is the maximum of the configured
+        ``max_upload_part_num`` and, if given, ``parts_count``. Second, the
+        partNumber must be less than or equal to the ``parts_count``, if it is
+        given.
+
+        :param parts_count: if given, this is the number of parts in an
+            existing object.
+        :raises InvalidPartArgument: if the partNumber param is invalid i.e.
+            less than 1 or greater than the maximum allowed parts.
+        :raises InvalidPartNumber: if the partNumber param is valid but greater
+            than ``num_parts``.
+        :return: an integer part number if the partNumber param exists,
+            otherwise ``None``.
+        """
+        part_number = self.params.get('partNumber')
+        if part_number is None:
+            return None
+
+        if self.range:
+            raise InvalidRequest('Cannot specify both Range header and '
+                                 'partNumber query parameter')
+
+        try:
+            parts_count = int(parts_count)
+        except (TypeError, ValueError):
+            # an invalid/empty param is treated like parts_count=max_parts
+            parts_count = self.conf.max_upload_part_num
+        # max_parts may be raised to the number of existing parts
+        max_parts = max(self.conf.max_upload_part_num, parts_count)
+
+        try:
+            part_number = int(part_number)
+            if part_number < 1:
+                raise ValueError
+        except ValueError:
+            raise InvalidPartArgument(max_parts, part_number)  # 400
+
+        if check_max:
+            if part_number > max_parts:
+                raise InvalidPartArgument(max_parts, part_number)  # 400
+            if part_number > parts_count:
+                raise InvalidPartNumber()  # 416
+
+        return part_number
+
     def check_signature(self, secret):
         secret = utf8encode(secret)
         user_signature = self.signature
@@ -1044,7 +1096,10 @@ class S3Request(swob.Request):
         if 'logging' in self.params:
             return LoggingStatusController
         if 'partNumber' in self.params:
-            return PartController
+            if self.method == 'PUT':
+                return PartController
+            else:
+                return ObjectController
         if 'uploadId' in self.params:
             return UploadController
         if 'uploads' in self.params:
@@ -1315,7 +1370,6 @@ class S3Request(swob.Request):
                 'GET': {
                     HTTP_NOT_FOUND: not_found_handler,
                     HTTP_PRECONDITION_FAILED: PreconditionFailed,
-                    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE: InvalidRange,
                 },
                 'PUT': {
                     HTTP_NOT_FOUND: (NoSuchBucket, container),
@@ -1414,7 +1468,7 @@ class S3Request(swob.Request):
                 raise InvalidArgument('X-Delete-At',
                                       self.headers['X-Delete-At'],
                                       err_str)
-            if 'X-Delete-After' in err_msg.decode('utf8'):
+            if 'X-Delete-After' in err_str:
                 raise InvalidArgument('X-Delete-After',
                                       self.headers['X-Delete-After'],
                                       err_str)
@@ -1425,6 +1479,10 @@ class S3Request(swob.Request):
                 **self.signature_does_not_match_kwargs())
         if status == HTTP_FORBIDDEN:
             raise AccessDenied(reason='forbidden')
+        if status == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE:
+            self.validate_part_number(
+                parts_count=resp.headers.get('x-amz-mp-parts-count'))
+            raise InvalidRange()
         if status == HTTP_SERVICE_UNAVAILABLE:
             raise ServiceUnavailable()
         if status in (HTTP_RATE_LIMITED, HTTP_TOO_MANY_REQUESTS):

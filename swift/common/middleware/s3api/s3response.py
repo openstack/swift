@@ -72,6 +72,8 @@ def translate_swift_to_s3(key, val):
         return key, val
     elif _key == 'x-object-version-id':
         return 'x-amz-version-id', val
+    elif _key == 'x-parts-count':
+        return 'x-amz-mp-parts-count', val
     elif _key == 'x-copied-from-version-id':
         return 'x-amz-copy-source-version-id', val
     elif _key == 'x-backend-content-type' and \
@@ -449,6 +451,17 @@ class InvalidObjectState(ErrorResponse):
     _msg = 'The operation is not valid for the current state of the object.'
 
 
+class InvalidPartArgument(InvalidArgument):
+    _code = 'InvalidArgument'
+
+    def __init__(self, max_parts, value):
+        err_msg = ('Part number must be an integer between '
+                   '1 and %s, inclusive' % max_parts)
+        super(InvalidArgument, self).__init__(err_msg,
+                                              argument_name='partNumber',
+                                              argument_value=value)
+
+
 class InvalidPart(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'One or more of the specified parts could not be found. The part ' \
@@ -476,6 +489,11 @@ class InvalidPolicyDocument(ErrorResponse):
 class InvalidRange(ErrorResponse):
     _status = '416 Requested Range Not Satisfiable'
     _msg = 'The requested range cannot be satisfied.'
+
+
+class InvalidPartNumber(ErrorResponse):
+    _status = '416 Requested Range Not Satisfiable'
+    _msg = 'The requested partnumber is not satisfiable'
 
 
 class InvalidRequest(ErrorResponse):

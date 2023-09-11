@@ -196,15 +196,7 @@ class PartController(Controller):
             raise InvalidArgument('ResourceType', 'partNumber',
                                   'Unexpected query string parameter')
 
-        try:
-            part_number = int(get_param(req, 'partNumber'))
-            if part_number < 1 or self.conf.max_upload_part_num < part_number:
-                raise Exception()
-        except Exception:
-            err_msg = 'Part number must be an integer between 1 and %d,' \
-                      ' inclusive' % self.conf.max_upload_part_num
-            raise InvalidArgument('partNumber', get_param(req, 'partNumber'),
-                                  err_msg)
+        part_number = req.validate_part_number()
 
         upload_id = get_param(req, 'uploadId')
         _get_upload_info(req, self.app, upload_id)
