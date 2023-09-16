@@ -3399,7 +3399,7 @@ def put_recon_cache_entry(cache_entry, key, item):
 
     If ``item`` is an empty dict then any existing ``key`` in ``cache_entry``
     will be deleted. Similarly if ``item`` is a dict and any of its values are
-    empty dicts then the corrsponsing key will be deleted from the nested dict
+    empty dicts then the corresponding key will be deleted from the nested dict
     in ``cache_entry``.
 
     We use nested recon cache entries when the object auditor
