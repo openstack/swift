@@ -2377,6 +2377,28 @@ class TestSloGetOldManifests(SloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(body, b'aaaaa')
 
+    def test_get_invalid_sysmeta_passthrough(self):
+        # in an attempt to workaround lp bug#2035158 s3api used to set some
+        # invalid slo/s3api sysmeta, we will always have some data stored with
+        # empty values for these headers, but they're not SLOs and are missing
+        # the X-Static-Large-Object marker sysmeta (thank goodness!)
+        headers = {
+        }
+        self.app.register(
+            'GET', '/v1/AUTH_test/bucket+segments/obj/uload-id/1',
+            swob.HTTPOk, {
+                'X-Object-Sysmeta-S3Api-Acl': "{'some': 'json'}",
+                'X-Object-Sysmeta-S3Api-Etag': '',
+                'X-Object-Sysmeta-Slo-Etag': '',
+                'X-Object-Sysmeta-Slo-Size': '',
+                'X-Object-Sysmeta-Swift3-Etag': '',
+            }, "any seg created with copy-part")
+        req = Request.blank('/v1/AUTH_test/bucket+segments/obj/uload-id/1')
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(body, b"any seg created with copy-part")
+
     def test_get_manifest(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-bc',

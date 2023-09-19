@@ -16,12 +16,6 @@
 import base64
 import binascii
 import unittest
-import os
-import boto
-
-# For an issue with venv and distutils, disable pylint message here
-# pylint: disable-msg=E0611,F0401
-from distutils.version import StrictVersion
 
 import six
 from six.moves import urllib, zip, zip_longest
@@ -33,7 +27,8 @@ from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, mktime, \
     S3Timestamp
 from swift.common.utils import md5
 
-from test.functional.s3api import S3ApiBase
+from test.functional.s3api import S3ApiBase, SigV4Mixin, \
+    skip_boto2_sort_header_bug
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code, get_error_msg, \
     calculate_md5
@@ -867,9 +862,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
                                    query=query)
         self.assertEqual(status, 200)
 
-    def test_object_multi_upload_part_copy_range(self):
-        bucket = 'bucket'
-        keys = ['obj1']
+    def _initiate_mpu_upload(self, bucket, key):
+        keys = [key]
         uploads = []
 
         results_generator = self._initiate_multi_uploads_result_generator(
@@ -893,10 +887,13 @@ class TestS3ApiMultiUpload(S3ApiBase):
             self.assertTrue((key, upload_id) not in uploads)
             uploads.append((key, upload_id))
 
-        self.assertEqual(len(uploads), len(keys))  # sanity
+        # sanity, there's just one multi-part upload
+        self.assertEqual(1, len(uploads))
+        self.assertEqual(1, len(keys))
+        _, upload_id = uploads[0]
+        return upload_id
 
-        # Upload Part Copy Range
-        key, upload_id = uploads[0]
+    def _copy_part_from_new_src_range(self, bucket, key, upload_id):
         src_bucket = 'bucket2'
         src_obj = 'obj4'
         src_content = b'y' * (self.min_segment_size // 2) + b'z' * \
@@ -923,6 +920,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(headers['content-length'], str(len(body)))
         self.assertTrue('etag' not in headers)
         elem = fromstring(body, 'CopyPartResult')
+        etags = [elem.find('ETag').text]
 
         copy_resp_last_modified = elem.find('LastModified').text
         self.assertIsNotNone(copy_resp_last_modified)
@@ -930,7 +928,6 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(resp_etag, etag)
 
         # Check last-modified timestamp
-        key, upload_id = uploads[0]
         query = 'uploadId=%s' % upload_id
         status, headers, body = \
             self.conn.make_request('GET', bucket, key, query=query)
@@ -942,8 +939,134 @@ class TestS3ApiMultiUpload(S3ApiBase):
         # There should be *exactly* one parts in the result
         self.assertEqual(listing_last_modified, [copy_resp_last_modified])
 
+        # sanity, there's just one etag
+        self.assertEqual(1, len(etags))
+        return etags[0]
+
+    def _complete_mpu_upload(self, bucket, key, upload_id, etags):
+        # Complete Multipart Upload
+        query = 'uploadId=%s' % upload_id
+        xml = self._gen_comp_xml(etags)
+        status, headers, body = \
+            self.conn.make_request('POST', bucket, key, body=xml,
+                                   query=query)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self.assertTrue('content-type' in headers)
+        self.assertEqual(headers['content-type'], 'application/xml')
+        if 'content-length' in headers:
+            self.assertEqual(headers['content-length'], str(len(body)))
+        else:
+            self.assertIn('transfer-encoding', headers)
+            self.assertEqual(headers['transfer-encoding'], 'chunked')
+        lines = body.split(b'\n')
+        self.assertTrue(lines[0].startswith(b'<?xml'), body)
+        self.assertTrue(lines[0].endswith(b'?>'), body)
+        elem = fromstring(body, 'CompleteMultipartUploadResult')
+        self.assertEqual(
+            '%s/%s/%s' %
+            (tf.config['s3_storage_url'].rstrip('/'), bucket, key),
+            elem.find('Location').text)
+        self.assertEqual(elem.find('Bucket').text, bucket)
+        self.assertEqual(elem.find('Key').text, key)
+        concatted_etags = b''.join(
+            etag.strip('"').encode('ascii') for etag in etags)
+        exp_etag = '"%s-%s"' % (
+            md5(binascii.unhexlify(concatted_etags),
+                usedforsecurity=False).hexdigest(), len(etags))
+        etag = elem.find('ETag').text
+        self.assertEqual(etag, exp_etag)
+
+    @skip_boto2_sort_header_bug
+    def test_mpu_copy_part_from_range_then_complete(self):
+        bucket = 'mpu-copy-range'
+        key = 'obj-complete'
+        upload_id = self._initiate_mpu_upload(bucket, key)
+        etag = self._copy_part_from_new_src_range(bucket, key, upload_id)
+        self._complete_mpu_upload(bucket, key, upload_id, [etag])
+
+    @skip_boto2_sort_header_bug
+    def test_mpu_copy_part_from_range_then_abort(self):
+        bucket = 'mpu-copy-range'
+        key = 'obj-abort'
+        upload_id = self._initiate_mpu_upload(bucket, key)
+        self._copy_part_from_new_src_range(bucket, key, upload_id)
+
         # Abort Multipart Upload
-        key, upload_id = uploads[0]
+        query = 'uploadId=%s' % upload_id
+        status, headers, body = \
+            self.conn.make_request('DELETE', bucket, key, query=query)
+
+        # sanity checks
+        self.assertEqual(status, 204)
+        self.assertCommonResponseHeaders(headers)
+        self.assertTrue('content-type' in headers)
+        self.assertEqual(headers['content-type'], 'text/html; charset=UTF-8')
+        self.assertTrue('content-length' in headers)
+        self.assertEqual(headers['content-length'], '0')
+
+    def _copy_part_from_new_mpu_range(self, bucket, key, upload_id):
+        src_bucket = 'bucket2'
+        src_obj = 'mpu2'
+        src_upload_id = self._initiate_mpu_upload(src_bucket, src_obj)
+        # upload parts
+        etags = []
+        for part_num in range(2):
+            # Upload Part
+            content = (chr(97 + part_num) * self.min_segment_size).encode()
+            etag = md5(content, usedforsecurity=False).hexdigest()
+            status, headers, body = \
+                self._upload_part(src_bucket, src_obj, src_upload_id,
+                                  content, part_num=part_num + 1)
+            self.assertEqual(status, 200)
+            self.assertCommonResponseHeaders(headers, etag)
+            self.assertTrue('content-type' in headers)
+            self.assertEqual(headers['content-type'],
+                             'text/html; charset=UTF-8')
+            self.assertTrue('content-length' in headers)
+            self.assertEqual(headers['content-length'], '0')
+            self.assertEqual(headers['etag'], '"%s"' % etag)
+            etags.append(etag)
+        self._complete_mpu_upload(src_bucket, src_obj, src_upload_id, etags)
+
+        # Upload Part Copy -- MPU as source
+        src_range = 'bytes=0-%d' % (self.min_segment_size - 1)
+        status, headers, body, resp_etag = \
+            self._upload_part_copy(src_bucket, src_obj, bucket,
+                                   key, upload_id, part_num=1,
+                                   src_range=src_range)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self.assertIn('content-type', headers)
+        self.assertEqual(headers['content-type'], 'application/xml')
+        self.assertIn('content-length', headers)
+        self.assertEqual(headers['content-length'], str(len(body)))
+        self.assertNotIn('etag', headers)
+        elem = fromstring(body, 'CopyPartResult')
+
+        last_modified = elem.find('LastModified').text
+        self.assertIsNotNone(last_modified)
+        # use copied with src_range from src_obj?part-number=1
+        self.assertEqual(resp_etag, etags[0])
+
+        return resp_etag
+
+    @skip_boto2_sort_header_bug
+    def test_mpu_copy_part_from_mpu_part_number_then_complete(self):
+        bucket = 'mpu-copy-range'
+        key = 'obj-complete'
+        upload_id = self._initiate_mpu_upload(bucket, key)
+        etag = self._copy_part_from_new_mpu_range(bucket, key, upload_id)
+        self._complete_mpu_upload(bucket, key, upload_id, [etag])
+
+    @skip_boto2_sort_header_bug
+    def test_mpu_copy_part_from_mpu_part_number_then_abort(self):
+        bucket = 'mpu-copy-range'
+        key = 'obj-abort'
+        upload_id = self._initiate_mpu_upload(bucket, key)
+        self._copy_part_from_new_mpu_range(bucket, key, upload_id)
+
+        # Abort Multipart Upload
         query = 'uploadId=%s' % upload_id
         status, headers, body = \
             self.conn.make_request('DELETE', bucket, key, query=query)
@@ -1079,28 +1202,6 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '0')
 
-
-class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
-    @classmethod
-    def setUpClass(cls):
-        os.environ['S3_USE_SIGV4'] = "True"
-
-    @classmethod
-    def tearDownClass(cls):
-        del os.environ['S3_USE_SIGV4']
-
-    def setUp(self):
-        super(TestS3ApiMultiUploadSigV4, self).setUp()
-
-    def test_object_multi_upload_part_copy_range(self):
-        if StrictVersion(boto.__version__) < StrictVersion('3.0'):
-            # boto 2 doesn't sort headers properly; see
-            # https://github.com/boto/boto/pull/3032
-            # or https://github.com/boto/boto/pull/3176
-            # or https://github.com/boto/boto/pull/3751
-            # or https://github.com/boto/boto/pull/3824
-            self.skipTest('This stuff got the issue of boto<=2.x')
-
     def test_delete_bucket_multi_upload_object_exisiting(self):
         bucket = 'bucket'
         keys = ['obj1']
@@ -1176,6 +1277,10 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
         status, headers, body = \
             self.conn.make_request('DELETE', bucket)
         self.assertEqual(status, 204)  # sanity
+
+
+class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload, SigV4Mixin):
+    pass
 
 
 if __name__ == '__main__':
