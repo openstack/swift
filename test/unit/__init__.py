@@ -1099,7 +1099,7 @@ def requires_o_tmpfile_support_in_tmp(func):
 class StubResponse(object):
 
     def __init__(self, status, body=b'', headers=None, frag_index=None,
-                 slowdown=None):
+                 slowdown=None, slowdown_after=0):
         self.status = status
         self.body = body
         self.readable = BytesIO(body)
@@ -1107,13 +1107,17 @@ class StubResponse(object):
             self._slowdown = iter(slowdown)
         except TypeError:
             self._slowdown = iter([slowdown])
+        self.slowdown_after = slowdown_after
         self.headers = HeaderKeyDict(headers)
         if frag_index is not None:
             self.headers['X-Object-Sysmeta-Ec-Frag-Index'] = frag_index
         fake_reason = ('Fake', 'This response is a lie.')
         self.reason = swob.RESPONSE_REASONS.get(status, fake_reason)[0]
+        self.bytes_read = 0
 
     def slowdown(self):
+        if self.bytes_read < self.slowdown_after:
+            return
         try:
             wait = next(self._slowdown)
         except StopIteration:
@@ -1135,11 +1139,15 @@ class StubResponse(object):
 
     def read(self, amt=0):
         self.slowdown()
-        return self.readable.read(amt)
+        res = self.readable.read(amt)
+        self.bytes_read += len(res)
+        return res
 
     def readline(self, size=-1):
         self.slowdown()
-        return self.readable.readline(size)
+        res = self.readable.readline(size)
+        self.bytes_read += len(res)
+        return res
 
     def __repr__(self):
         info = ['Status: %s' % self.status]
