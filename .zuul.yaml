@@ -150,7 +150,6 @@
       tox_envlist: py311
       bindep_profile: test py311
       python_version: '3.11'
-    post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
     name: swift-tox-func-py27
