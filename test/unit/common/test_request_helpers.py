@@ -16,13 +16,15 @@
 """Tests for swift.common.request_helpers"""
 
 import unittest
-from swift.common.swob import Request, HTTPException, HeaderKeyDict
+from swift.common.swob import Request, HTTPException, HeaderKeyDict, HTTPOk
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.common import request_helpers as rh
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 
+from test.debug_logger import debug_logger
 from test.unit import patch_policies
 from test.unit.common.test_utils import FakeResponse
+from test.unit.common.middleware.helpers import FakeSwift
 
 
 server_types = ['account', 'container', 'object']
@@ -704,3 +706,60 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
             'X-Object-Meta-Color': 'blue',
         })
         self.assertIsNone(req.range)
+
+
+class TestSegmentedIterable(unittest.TestCase):
+
+    def setUp(self):
+        self.logger = debug_logger()
+        self.app = FakeSwift()
+        self.expected_unread_requests = {}
+
+    def tearDown(self):
+        self.assertFalse(self.app.unclosed_requests)
+        self.assertEqual(self.app.unread_requests,
+                         self.expected_unread_requests)
+
+    def test_simple_segments_app_iter(self):
+        self.app.register('GET', '/a/c/seg1', HTTPOk, {}, 'segment1')
+        self.app.register('GET', '/a/c/seg2', HTTPOk, {}, 'segment2')
+        req = Request.blank('/v1/a/c/mpu')
+        listing_iter = [
+            {'path': '/a/c/seg1', 'first_byte': None, 'last_byte': None},
+            {'path': '/a/c/seg2', 'first_byte': None, 'last_byte': None},
+        ]
+        si = rh.SegmentedIterable(req, self.app, listing_iter, 60, self.logger,
+                                  'test-agent', 'test-source')
+        body = b''.join(si.app_iter)
+        self.assertEqual(b'segment1segment2', body)
+
+    def test_simple_segments_app_iter_ranges(self):
+        self.app.register('GET', '/a/c/seg1', HTTPOk, {}, 'segment1')
+        self.app.register('GET', '/a/c/seg2', HTTPOk, {}, 'segment2')
+        req = Request.blank('/v1/a/c/mpu')
+        listing_iter = [
+            {'path': '/a/c/seg1', 'first_byte': None, 'last_byte': None},
+            {'path': '/a/c/seg2', 'first_byte': None, 'last_byte': None},
+        ]
+        si = rh.SegmentedIterable(req, self.app, listing_iter, 60, self.logger,
+                                  'test-agent', 'test-source')
+        body = b''.join(si.app_iter_ranges(
+            [(0, 8), (8, 16)], b'app/foo', b'bound', 16))
+        expected = b'\r\n'.join([
+            b'--bound',
+            b'Content-Type: app/foo',
+            b'Content-Range: bytes 0-7/16',
+            b'',
+            b'segment1',
+            b'--bound',
+            b'Content-Type: app/foo',
+            b'Content-Range: bytes 8-15/16',
+            b'',
+            b'segment2',
+            b'--bound--',
+        ])
+        self.assertEqual(expected, body)
+        # XXX Spliterator stops SegementedIterable from asking to exhasut the
+        # segment response after it gets the last byte in app_iter_ranges
+        self.expected_unread_requests[
+            ('GET', '/a/c/seg2?multipart-manifest=get')] = 1

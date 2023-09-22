@@ -460,15 +460,17 @@ class SegmentedIterable(object):
     :param app: WSGI application from which segments will come
 
     :param listing_iter: iterable yielding the object segments to fetch,
-        along with the byte subranges to fetch, in the form of a 5-tuple
-        (object-path, object-etag, object-size, first-byte, last-byte).
+        along with the byte sub-ranges to fetch. Each yielded item should be a
+        dict with the following keys: ``path`` or ``raw_data``,
+        ``first-byte``, ``last-byte``, ``hash`` (optional), ``bytes``
+        (optional).
 
-        If object-etag is None, no MD5 verification will be done.
+        If ``hash`` is None, no MD5 verification will be done.
 
-        If object-size is None, no length verification will be done.
+        If ``bytes`` is None, no length verification will be done.
 
-        If first-byte and last-byte are None, then the entire object will be
-        fetched.
+        If ``first-byte`` and ``last-byte`` are None, then the entire object
+        will be fetched.
 
     :param max_get_time: maximum permitted duration of a GET request (seconds)
     :param logger: logger object

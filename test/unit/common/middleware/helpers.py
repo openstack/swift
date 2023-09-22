@@ -63,6 +63,7 @@ def normalize_query_string(qs):
     if not qs:
         return ''
     else:
+        # N.B. sort params so app.call asserts can hard code qs
         return '?%s' % parse.urlencode(sorted(parse.parse_qsl(qs)))
 
 
@@ -149,14 +150,16 @@ class FakeSwift(object):
 
     def _find_response(self, method, path):
         path = normalize_path(path)
-        resp = self._responses[(method, path)]
-        if isinstance(resp, list):
-            try:
-                resp = resp.pop(0)
-            except IndexError:
-                raise IndexError("Didn't find any more %r "
-                                 "in allowed responses" % (
-                                     (method, path),))
+        resp_or_resps = self._responses[(method, path)]
+        if isinstance(resp_or_resps, list):
+            resps = resp_or_resps
+            if len(resps) > 1:
+                resp = resps.pop(0)
+            else:
+                # we'll return the last registered response forever
+                resp = resps[0]
+        else:
+            resp = resp_or_resps
         return resp
 
     def _select_response(self, env, method, path):
@@ -333,11 +336,20 @@ class FakeSwift(object):
 
     def register(self, method, path, response_class, headers, body=b''):
         path = normalize_path(path)
+        # many historical tests assume this is "private" attribute is a simple
+        # map of tuple => tuple that they can go grubbing around in
         self._responses[(method, path)] = (response_class, headers, body)
 
-    def register_responses(self, method, path, responses):
+    def register_next_response(self, method, path,
+                               response_class, headers, body=b''):
         path = normalize_path(path)
-        self._responses[(method, path)] = list(responses)
+        resp_key = (method, path)
+        next_resp = (response_class, headers, body)
+        # setdefault is weird; I hope this makes sense
+        maybe_resp = self._responses.setdefault(resp_key, [])
+        if isinstance(maybe_resp, tuple):
+            self._responses[resp_key] = [maybe_resp]
+        self._responses[resp_key].append(next_resp)
 
 
 class FakeAppThatExcepts(object):
