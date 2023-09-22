@@ -77,4 +77,5 @@ python-keystoneclient===3.22.0
 dnspython===1.16.0
 setuptools===44.1.1
 pycadf===2.10.0
+smmap===3.0.5
 PasteDeploy==2.1.1
