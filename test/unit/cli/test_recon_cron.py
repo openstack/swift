@@ -32,11 +32,8 @@ class TestReconCron(TestCase):
 
     def test_get_async_count(self):
         device_dir = os.path.join(self.temp_dir, 'device')
-        os.makedirs(device_dir)
         device_index = os.path.join(device_dir, '1')
-        os.makedirs(device_index)
         async_dir = os.path.join(device_index, ASYNCDIR_BASE)
-        os.makedirs(async_dir)
         entry1 = os.path.join(async_dir, 'entry1')
         entry2 = os.path.join(async_dir, 'entry2')
         os.makedirs(entry1)

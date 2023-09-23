@@ -50,7 +50,7 @@ def main():
     except Exception:
         print("Usage: %s CONF_FILE" % sys.argv[0].split('/')[-1])
         print("ex: swift-recon-cron /etc/swift/object-server.conf")
-        sys.exit(1)
+        return 1
     conf = readconf(conf_path, 'filter:recon')
     device_dir = conf.get('devices', '/srv/node')
     recon_cache_path = conf.get('recon_cache_path', DEFAULT_RECON_CACHE_PATH)
@@ -70,4 +70,4 @@ def main():
         msg = 'Exception during recon-cron while accessing devices'
         logger.exception(msg)
         print('%s: %s' % (msg, err))
-        sys.exit(1)
+        return 1
