@@ -20,8 +20,6 @@ import logging
 from unittest import SkipTest
 
 import os
-import boto
-from distutils.version import StrictVersion
 
 import test.functional as tf
 from test.functional.s3api.s3_test_client import (
@@ -112,9 +110,8 @@ class S3ApiBaseBoto3(S3ApiBase):
 
 def skip_boto2_sort_header_bug(m):
     def wrapped(self, *args, **kwargs):
-        if (os.environ.get('S3_USE_SIGV4') == "True" and
-                StrictVersion(boto.__version__) < StrictVersion('3.0')):
-            # boto 2 doesn't sort headers properly; see
+        if os.environ.get('S3_USE_SIGV4') == "True":
+            # boto doesn't sort headers for v4 sigs properly; see
             # https://github.com/boto/boto/pull/3032
             # or https://github.com/boto/boto/pull/3176
             # or https://github.com/boto/boto/pull/3751
