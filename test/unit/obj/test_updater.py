@@ -32,7 +32,6 @@ from test.debug_logger import debug_logger
 from test.unit import (
     make_timestamp_iter, patch_policies, mocked_http_conn)
 from time import time
-from distutils.dir_util import mkpath
 
 from eventlet import spawn, Timeout
 
@@ -232,7 +231,7 @@ class TestObjectUpdater(unittest.TestCase):
                 asyncdir = os.path.join(self.sda1, ASYNCDIR_BASE)
 
             prefix_dir = os.path.join(asyncdir, 'abc')
-            mkpath(prefix_dir)
+            mkdirs(prefix_dir)
 
             # A non-directory where directory is expected should just be
             # skipped, but should not stop processing of subsequent
@@ -306,7 +305,7 @@ class TestObjectUpdater(unittest.TestCase):
     def test_sweep_logs(self):
         asyncdir = os.path.join(self.sda1, ASYNCDIR_BASE)
         prefix_dir = os.path.join(asyncdir, 'abc')
-        mkpath(prefix_dir)
+        mkdirs(prefix_dir)
 
         for o, t in [('abc', 123), ('def', 234), ('ghi', 345),
                      ('jkl', 456), ('mno', 567)]:
@@ -378,7 +377,7 @@ class TestObjectUpdater(unittest.TestCase):
         for policy in _mocked_policies:
             asyncdir = os.path.join(self.sda1, get_async_dir(policy.idx))
             prefix_dir = os.path.join(asyncdir, 'abc')
-            mkpath(prefix_dir)
+            mkdirs(prefix_dir)
 
             for o, t in [('abc', 123), ('def', 234), ('ghi', 345)]:
                 ohash = hash_path('account', 'container%d' % policy.idx, o)
