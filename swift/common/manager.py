@@ -24,7 +24,11 @@ import subprocess
 import re
 import six
 import tempfile
-from distutils.spawn import find_executable
+try:
+    from shutil import which
+except ImportError:
+    # py2
+    from distutils.spawn import find_executable as which
 
 from swift.common.utils import search_tree, remove_file, write_file, readconf
 from swift.common.exceptions import InvalidPidFileException
@@ -204,7 +208,7 @@ def verify_server(server):
     if not server:
         return False
     _, cmd = format_server_name(server)
-    if find_executable(cmd) is None:
+    if which(cmd) is None:
         return False
     return True
 

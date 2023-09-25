@@ -308,7 +308,7 @@ class TestManagerModule(unittest.TestCase):
             # pretend that swift-object-server is the only file on path
             return f if f == 'swift-object-server' else None
 
-        with mock.patch('swift.common.manager.find_executable',
+        with mock.patch('swift.common.manager.which',
                         side_effect=mock_find_exe):
             # test valid servers
             self.assertTrue(manager.verify_server('object'))
@@ -1725,7 +1725,7 @@ class TestManager(unittest.TestCase):
             self.assertTrue(server.server in servers[:2])
 
     def test_iter(self):
-        with mock.patch.object(manager, 'find_executable', lambda x: x):
+        with mock.patch.object(manager, 'which', lambda x: x):
             m = manager.Manager(['all'])
             self.assertEqual(len(list(m)), len(manager.ALL_SERVERS))
             for server in m:
@@ -2348,7 +2348,7 @@ class TestManager(unittest.TestCase):
                 actual_servers.update([server.server for server in m.servers])
             self.assertEqual(expected_servers, actual_servers)
 
-        with mock.patch.object(manager, 'find_executable', lambda x: x):
+        with mock.patch.object(manager, 'which', lambda x: x):
             do_test(graceful=True)
             do_test(graceful=False)  # graceful is forced regardless
 
