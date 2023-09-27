@@ -80,19 +80,6 @@ from test.functional.swift_test_client import Account, Connection, Container, \
 
 from swiftclient import get_auth, http_connection
 
-has_insecure = False
-try:
-    from swiftclient import __version__ as client_version
-    # Prevent a ValueError in StrictVersion with '2.0.3.68.ga99c2ff'
-    client_version = '.'.join(client_version.split('.')[:3])
-except ImportError:
-    # Pre-PBR we had version, not __version__. Anyhow...
-    client_version = '1.2'
-from distutils.version import StrictVersion
-if StrictVersion(client_version) >= StrictVersion('2.0'):
-    has_insecure = True
-
-
 config = {}
 web_front_end = None
 normalized_urls = None
@@ -1099,10 +1086,7 @@ def reset_globals():
 
 
 def connection(url):
-    if has_insecure:
-        parsed_url, http_conn = http_connection(url, insecure=insecure)
-    else:
-        parsed_url, http_conn = http_connection(url)
+    parsed_url, http_conn = http_connection(url, insecure=insecure)
 
     orig_request = http_conn.request
 
