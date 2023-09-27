@@ -1793,10 +1793,12 @@ class BaseDiskFileWriter(object):
     :param bytes_per_sync: number bytes written between sync calls
     :param diskfile: the diskfile creating this DiskFileWriter instance
     :param next_part_power: the next partition power to be used
+    :param extension: the file extension to be used; may be used internally
+                      to distinguish between PUT/POST/DELETE operations
     """
 
     def __init__(self, name, datadir, size, bytes_per_sync, diskfile,
-                 next_part_power):
+                 next_part_power, extension='.data'):
         # Parameter tracking
         self._name = name
         self._datadir = datadir
@@ -1807,11 +1809,11 @@ class BaseDiskFileWriter(object):
         self._bytes_per_sync = bytes_per_sync
         self._diskfile = diskfile
         self.next_part_power = next_part_power
+        self._extension = extension
 
         # Internal attributes
         self._upload_size = 0
         self._last_sync = 0
-        self._extension = '.data'
         self._put_succeeded = False
 
     @property
@@ -2982,13 +2984,16 @@ class BaseDiskFile(object):
         self._fp = None
         return dr
 
-    def writer(self, size=None):
+    def _writer(self, size, extension):
         return self.writer_cls(self._name, self._datadir, size,
                                self._bytes_per_sync, self,
-                               self.next_part_power)
+                               self.next_part_power, extension=extension)
+
+    def writer(self, size=None):
+        return self._writer(size, '.data')
 
     @contextmanager
-    def create(self, size=None):
+    def create(self, size=None, extension='.data'):
         """
         Context manager to create a file. We create a temporary file first, and
         then return a DiskFileWriter object to encapsulate the state.
@@ -3001,9 +3006,11 @@ class BaseDiskFile(object):
 
         :param size: optional initial size of file to explicitly allocate on
                      disk
+        :param extension: file extension to use for the newly-created file;
+                          defaults to ``.data`` for the sake of tests
         :raises DiskFileNoSpace: if a size is specified and allocation fails
         """
-        dfw = self.writer(size)
+        dfw = self._writer(size, extension)
         try:
             yield dfw.open()
         finally:
@@ -3019,8 +3026,7 @@ class BaseDiskFile(object):
         :raises DiskFileError: this implementation will raise the same
                             errors as the `create()` method.
         """
-        with self.create() as writer:
-            writer._extension = '.meta'
+        with self.create(extension='.meta') as writer:
             writer.put(metadata)
 
     def delete(self, timestamp):
@@ -3042,8 +3048,7 @@ class BaseDiskFile(object):
         """
         # this is dumb, only tests send in strings
         timestamp = Timestamp(timestamp)
-        with self.create() as deleter:
-            deleter._extension = '.ts'
+        with self.create(extension='.ts') as deleter:
             deleter.put({'X-Timestamp': timestamp.internal})
 
 
