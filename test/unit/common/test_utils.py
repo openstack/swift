@@ -9821,7 +9821,7 @@ class TestCooperativeIterator(unittest.TestCase):
         it.close()
         self.assertTrue(closeable.close.called)
 
-    def test_next(self):
+    def test_sleeps(self):
         def do_test(it, period):
             results = []
             for i in range(period):
@@ -9852,8 +9852,21 @@ class TestCooperativeIterator(unittest.TestCase):
         self.assertEqual(list(range(7)), actual)
         actual = do_test(utils.CooperativeIterator(itertools.count(), 1), 1)
         self.assertEqual(list(range(3)), actual)
-        actual = do_test(utils.CooperativeIterator(itertools.count(), 0), 0)
-        self.assertEqual(list(range(2)), actual)
+
+    def test_no_sleeps(self):
+        def do_test(period):
+            it = utils.CooperativeIterator(itertools.count(), period)
+            results = []
+            with mock.patch('swift.common.utils.sleep') as mock_sleep:
+                for i in range(100):
+                    results.append(next(it))
+                    self.assertFalse(mock_sleep.called, i)
+            self.assertEqual(list(range(100)), results)
+
+        do_test(0)
+        do_test(-1)
+        do_test(-111)
+        do_test(None)
 
 
 class TestContextPool(unittest.TestCase):
