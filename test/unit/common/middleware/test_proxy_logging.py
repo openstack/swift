@@ -118,6 +118,13 @@ def start_response(*args):
 
 @patch_policies([StoragePolicy(0, 'zero', False)])
 class TestProxyLogging(unittest.TestCase):
+    def setUp(self):
+        self.logger = debug_logger()
+        # really, this would come by way of base_prefix/tail_prefix in
+        # get_logger, ultimately tracing back to our hard-coded
+        # statsd_tail_prefix
+        self.logger.logger.statsd_client._prefix = 'proxy-server.'
+
     def _log_parts(self, app, should_be_empty=False):
         info_calls = app.access_logger.log_dict['info']
         if should_be_empty:
@@ -155,6 +162,12 @@ class TestProxyLogging(unittest.TestCase):
                                          for emv in exp_metrics_and_values]
         self.assertEqual(got_metrics_values_and_kwargs,
                          exp_metrics_values_and_kwargs)
+        self.assertIs(self.logger, app.access_logger)
+        for metric, value in exp_metrics_and_values:
+            self.assertIn(
+                (('proxy-server.%s:%s|c' % (metric, value)).encode(),
+                 ('host', 8125)),
+                app.access_logger.statsd_client.sendto_calls)
 
     def test_logger_statsd_prefix(self):
         app = proxy_logging.ProxyLoggingMiddleware(
@@ -177,8 +190,8 @@ class TestProxyLogging(unittest.TestCase):
                          app.access_logger.logger.statsd_client._prefix)
 
     def test_log_request_statsd_invalid_stats_types(self):
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
-        app.access_logger = debug_logger()
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), {}, logger=self.logger)
         for url in ['/', '/foo', '/foo/bar', '/v1']:
             req = Request.blank(url, environ={'REQUEST_METHOD': 'GET'})
             resp = app(req.environ, start_response)
@@ -190,8 +203,8 @@ class TestProxyLogging(unittest.TestCase):
     def test_log_request_stat_type_bad(self):
         for bad_path in ['', '/', '/bad', '/baddy/mc_badderson', '/v1',
                          '/v1/']:
-            app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
-            app.access_logger = debug_logger()
+            app = proxy_logging.ProxyLoggingMiddleware(
+                FakeApp(), {}, logger=self.logger)
             req = Request.blank(bad_path, environ={'REQUEST_METHOD': 'GET'})
             now = 10000.0
             app.log_request(req, 123, 7, 13, now, now + 2.71828182846)
@@ -224,9 +237,11 @@ class TestProxyLogging(unittest.TestCase):
         with mock.patch("time.time", stub_time):
             for path, exp_type in path_types.items():
                 # GET
+                self.logger.clear()
                 app = proxy_logging.ProxyLoggingMiddleware(
-                    FakeApp(body=b'7654321', response_str='321 Fubar'), {})
-                app.access_logger = debug_logger()
+                    FakeApp(body=b'7654321', response_str='321 Fubar'),
+                    {},
+                    logger=self.logger)
                 req = Request.blank(path, environ={
                     'REQUEST_METHOD': 'GET',
                     'wsgi.input': BytesIO(b'4321')})
@@ -259,10 +274,10 @@ class TestProxyLogging(unittest.TestCase):
                 # GET Repeat the test above, but with a non-existent policy
                 # Do this only for object types
                 if exp_type == 'object':
+                    self.logger.clear()
                     app = proxy_logging.ProxyLoggingMiddleware(
                         FakeApp(body=b'7654321', response_str='321 Fubar',
-                                policy_idx='-1'), {})
-                    app.access_logger = debug_logger()
+                                policy_idx='-1'), {}, logger=self.logger)
                     req = Request.blank(path, environ={
                         'REQUEST_METHOD': 'GET',
                         'wsgi.input': BytesIO(b'4321')})
@@ -295,9 +310,10 @@ class TestProxyLogging(unittest.TestCase):
                                  app.access_logger.log_dict['update_stats'])
 
                 # PUT (no first-byte timing!)
+                self.logger.clear()
                 app = proxy_logging.ProxyLoggingMiddleware(
-                    FakeApp(body=b'87654321', response_str='314 PiTown'), {})
-                app.access_logger = debug_logger()
+                    FakeApp(body=b'87654321', response_str='314 PiTown'), {},
+                    logger=self.logger)
                 req = Request.blank(path, environ={
                     'REQUEST_METHOD': 'PUT',
                     'wsgi.input': BytesIO(b'654321')})
@@ -327,10 +343,10 @@ class TestProxyLogging(unittest.TestCase):
                 # PUT Repeat the test above, but with a non-existent policy
                 # Do this only for object types
                 if exp_type == 'object':
+                    self.logger.clear()
                     app = proxy_logging.ProxyLoggingMiddleware(
                         FakeApp(body=b'87654321', response_str='314 PiTown',
-                                policy_idx='-1'), {})
-                    app.access_logger = debug_logger()
+                                policy_idx='-1'), {}, logger=self.logger)
                     req = Request.blank(path, environ={
                         'REQUEST_METHOD': 'PUT',
                         'wsgi.input': BytesIO(b'654321')})
@@ -363,8 +379,9 @@ class TestProxyLogging(unittest.TestCase):
             'OPTIONS': 'OPTIONS',
         }
         for method, exp_method in method_map.items():
-            app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
-            app.access_logger = debug_logger()
+            self.logger.clear()
+            app = proxy_logging.ProxyLoggingMiddleware(
+                FakeApp(), {}, logger=self.logger)
             req = Request.blank('/v1/a/', environ={'REQUEST_METHOD': method})
             now = 10000.0
             app.log_request(req, 299, 11, 3, now, now + 1.17)
@@ -387,10 +404,10 @@ class TestProxyLogging(unittest.TestCase):
         for conf_key in ['access_log_statsd_valid_http_methods',
                          'log_statsd_valid_http_methods']:
             for method, exp_method in method_map.items():
+                self.logger.clear()
                 app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
                     conf_key: 'SPECIAL,  GET,PUT ',  # crazy spaces ok
-                })
-                app.access_logger = debug_logger()
+                }, logger=self.logger)
                 req = Request.blank('/v1/a/c',
                                     environ={'REQUEST_METHOD': method})
                 now = 10000.0
@@ -568,8 +585,8 @@ class TestProxyLogging(unittest.TestCase):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
             'log_msg_template': (
                 '{protocol} {path} {method} '
-                '{account} {container} {object}')})
-        app.access_logger = debug_logger()
+                '{account} {container} {object}')
+        }, logger=self.logger)
         req = Request.blank('/bucket/path/to/key', environ={
             'REQUEST_METHOD': 'GET',
             # This would actually get set in the app, but w/e
@@ -609,8 +626,7 @@ class TestProxyLogging(unittest.TestCase):
 
     def test_multi_segment_resp(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(
-            [b'some', b'chunks', b'of data']), {})
-        app.access_logger = debug_logger()
+            [b'some', b'chunks', b'of data']), {}, logger=self.logger)
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                                           'swift.source': 'SOS'})
         resp = app(req.environ, start_response)
@@ -627,16 +643,17 @@ class TestProxyLogging(unittest.TestCase):
 
     def test_log_headers(self):
         for conf_key in ['access_log_headers', 'log_headers']:
+            self.logger.clear()
             app = proxy_logging.ProxyLoggingMiddleware(FakeApp(),
-                                                       {conf_key: 'yes'})
-            app.access_logger = debug_logger()
+                                                       {conf_key: 'yes'},
+                                                       logger=self.logger)
             req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
             resp = app(req.environ, start_response)
             # exhaust generator
             [x for x in resp]
             log_parts = self._log_parts(app)
             headers = unquote(log_parts[14]).split('\n')
-            self.assertTrue('Host: localhost:80' in headers)
+            self.assertIn('Host: localhost:80', headers)
 
     def test_access_log_headers_only(self):
         app = proxy_logging.ProxyLoggingMiddleware(
@@ -661,8 +678,8 @@ class TestProxyLogging(unittest.TestCase):
     def test_upload_size(self):
         # Using default policy
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(),
-                                                   {'log_headers': 'yes'})
-        app.access_logger = debug_logger()
+                                                   {'log_headers': 'yes'},
+                                                   logger=self.logger)
         req = Request.blank(
             '/v1/a/c/o/foo',
             environ={'REQUEST_METHOD': 'PUT',
@@ -680,9 +697,10 @@ class TestProxyLogging(unittest.TestCase):
                                app)
 
         # Using a non-existent policy
+        self.logger.clear()
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(policy_idx='-1'),
-                                                   {'log_headers': 'yes'})
-        app.access_logger = debug_logger()
+                                                   {'log_headers': 'yes'},
+                                                   logger=self.logger)
         req = Request.blank(
             '/v1/a/c/o/foo',
             environ={'REQUEST_METHOD': 'PUT',
@@ -699,8 +717,8 @@ class TestProxyLogging(unittest.TestCase):
 
     def test_upload_size_no_policy(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(policy_idx=None),
-                                                   {'log_headers': 'yes'})
-        app.access_logger = debug_logger()
+                                                   {'log_headers': 'yes'},
+                                                   logger=self.logger)
         req = Request.blank(
             '/v1/a/c/o/foo',
             environ={'REQUEST_METHOD': 'PUT',
@@ -717,8 +735,8 @@ class TestProxyLogging(unittest.TestCase):
 
     def test_upload_line(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeAppReadline(),
-                                                   {'log_headers': 'yes'})
-        app.access_logger = debug_logger()
+                                                   {'log_headers': 'yes'},
+                                                   logger=self.logger)
         req = Request.blank(
             '/v1/a/c',
             environ={'REQUEST_METHOD': 'POST',
