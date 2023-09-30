@@ -155,7 +155,7 @@ class FakeLogger(logging.Logger, CaptureLog):
 
     def __init__(self, *args, **kwargs):
         self._clear()
-        self.name = 'swift.unit.fake_logger'
+        self.name = kwargs.get('name') or 'swift.unit.fake_logger'
         self.level = logging.NOTSET
         if 'facility' in kwargs:
             self.facility = kwargs['facility']
@@ -270,9 +270,10 @@ class DebugLogAdapter(utils.logs.SwiftLogAdapter):
             return getattr(self.__dict__['logger'], name)
 
 
-def debug_logger(name='test'):
+def debug_logger(name='test', log_route=None):
     """get a named adapted debug logger"""
-    adapted_logger = DebugLogAdapter(DebugLogger(), name)
+    log_route = log_route or name
+    adapted_logger = DebugLogAdapter(DebugLogger(name=log_route), name)
     utils._patch_statsd_methods(adapted_logger, adapted_logger.logger)
     return adapted_logger
 
