@@ -64,7 +64,7 @@ def translate_swift_to_s3(key, val):
 
     if _key.startswith('x-object-meta-'):
         return translate_meta_key(_key), val
-    elif _key in ('content-length', 'content-type',
+    elif _key in ('accept-ranges', 'content-length', 'content-type',
                   'content-range', 'content-encoding',
                   'content-disposition', 'content-language',
                   'etag', 'last-modified', 'x-robots-tag',
