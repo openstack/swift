@@ -567,6 +567,58 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         self.assertEqual(
             ctx.exception.response['Error']['Code'], 'MethodNotAllowed')
 
+    def test_bucket_get_object_lock_configuration(self):
+        bucket = 'bucket'
+
+        # PUT Bucket
+        resp = self.conn.create_bucket(Bucket=bucket)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        headers = resp['ResponseMetadata']['HTTPHeaders']
+        self.assertCommonResponseHeaders(headers)
+
+        # now attempt to get object_lock_configuration from new bucket.
+        with self.assertRaises(botocore.exceptions.ClientError) as ce:
+            self.conn.get_object_lock_configuration(
+                Bucket=bucket)
+        self.assertEqual(
+            ce.exception.response['ResponseMetadata']['HTTPStatusCode'],
+            404)
+        self.assertEqual(
+            ce.exception.response['Error']['Code'],
+            'ObjectLockConfigurationNotFoundError')
+
+        self.assertEqual(
+            str(ce.exception),
+            'An error occurred (ObjectLockConfigurationNotFoundError) when '
+            'calling the GetObjectLockConfiguration operation: Object Lock '
+            'configuration does not exist for this bucket')
+
+    def test_bucket_put_object_lock_configuration(self):
+        bucket = 'bucket'
+
+        # PUT Bucket
+        resp = self.conn.create_bucket(Bucket=bucket)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        headers = resp['ResponseMetadata']['HTTPHeaders']
+        self.assertCommonResponseHeaders(headers)
+
+        # now attempt to get object_lock_configuration from new bucket.
+        with self.assertRaises(botocore.exceptions.ClientError) as ce:
+            self.conn.put_object_lock_configuration(
+                Bucket=bucket, ObjectLockConfiguration={})
+
+        self.assertEqual(
+            ce.exception.response['ResponseMetadata']['HTTPStatusCode'],
+            501)
+        self.assertEqual(
+            ce.exception.response['Error']['Code'],
+            'NotImplemented')
+
+        self.assertEqual(str(ce.exception),
+                         'An error occurred (NotImplemented) when calling '
+                         'the PutObjectLockConfiguration operation: The '
+                         'requested resource is not implemented')
+
 
 class TestS3ApiBucketSigV4(TestS3ApiBucket):
     @classmethod

@@ -150,7 +150,6 @@ ceph_s3:
   s3tests_boto3.functional.test_s3.test_object_lock_delete_object_with_retention: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_get_legal_hold_invalid_bucket: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_get_obj_lock: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_object_lock_get_obj_lock_invalid_bucket: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_get_obj_metadata: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_get_obj_retention: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_get_obj_retention_invalid_bucket: {status: KNOWN}
@@ -159,6 +158,9 @@ ceph_s3:
   s3tests_boto3.functional.test_s3.test_object_lock_put_obj_lock: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_put_obj_lock_invalid_bucket: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_put_obj_lock_invalid_days: {status: KNOWN}
+  s3tests_boto3.functional.test_s3.test_object_lock_put_obj_lock_invalid_status {status: KNOWN}
+  s3tests_boto3.functional.test_s3.test_object_lock_put_obj_lock_invalid_years {status: KNOWN}
+  s3tests_boto3.functional.test_s3.test_object_lock_put_obj_lock_with_days_and_years {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_put_obj_retention: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_put_obj_retention_increase_period: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_lock_put_obj_retention_invalid_bucket: {status: KNOWN}

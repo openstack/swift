@@ -47,7 +47,7 @@ from swift.common.middleware.s3api.controllers import ServiceController, \
     LocationController, LoggingStatusController, PartController, \
     UploadController, UploadsController, VersioningController, \
     UnsupportedController, S3AclController, BucketController, \
-    TaggingController
+    TaggingController, ObjectLockController
 from swift.common.middleware.s3api.s3response import AccessDenied, \
     InvalidArgument, InvalidDigest, BucketAlreadyOwnedByYou, \
     RequestTimeTooSkewed, S3Response, SignatureDoesNotMatch, \
@@ -74,7 +74,8 @@ ALLOWED_SUB_RESOURCES = sorted([
     'versionId', 'versioning', 'versions', 'website',
     'response-cache-control', 'response-content-disposition',
     'response-content-encoding', 'response-content-language',
-    'response-content-type', 'response-expires', 'cors', 'tagging', 'restore'
+    'response-content-type', 'response-expires', 'cors', 'tagging', 'restore',
+    'object-lock'
 ])
 
 
@@ -103,6 +104,7 @@ def _header_acl_property(resource):
     """
     Set and retrieve the acl in self.headers
     """
+
     def getter(self):
         return getattr(self, '_%s' % resource)
 
@@ -121,6 +123,7 @@ class HashingInput(object):
     """
     wsgi.input wrapper to verify the hash of the input as it's read.
     """
+
     def __init__(self, reader, content_length, hasher, expected_hex_hash):
         self._input = reader
         self._to_read = content_length
@@ -1051,6 +1054,8 @@ class S3Request(swob.Request):
             return VersioningController
         if 'tagging' in self.params:
             return TaggingController
+        if 'object-lock' in self.params:
+            return ObjectLockController
 
         unsupported = ('notification', 'policy', 'requestPayment', 'torrent',
                        'website', 'cors', 'restore')
@@ -1536,6 +1541,7 @@ class S3AclRequest(S3Request):
     """
     S3Acl request object.
     """
+
     def __init__(self, env, app=None, conf=None):
         super(S3AclRequest, self).__init__(env, app, conf)
         self.authenticate(app)
