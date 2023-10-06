@@ -1497,3 +1497,35 @@ class FakeSource(object):
     def getheaders(self):
         return [('content-length', self.getheader('content-length'))] + \
                [(k, v) for k, v in self.headers.items()]
+
+
+def get_node_error_stats(proxy_app, ring_node):
+    node_key = proxy_app.error_limiter.node_key(ring_node)
+    return proxy_app.error_limiter.stats.get(node_key) or {}
+
+
+def node_error_count(proxy_app, ring_node):
+    # Reach into the proxy's internals to get the error count for a
+    # particular node
+    return get_node_error_stats(proxy_app, ring_node).get('errors', 0)
+
+
+def node_error_counts(proxy_app, ring_nodes):
+    # Reach into the proxy's internals to get the error counts for a
+    # list of nodes
+    return sorted([get_node_error_stats(proxy_app, node).get('errors', 0)
+                   for node in ring_nodes], reverse=True)
+
+
+def node_last_error(proxy_app, ring_node):
+    # Reach into the proxy's internals to get the last error for a
+    # particular node
+    return get_node_error_stats(proxy_app, ring_node).get('last_error')
+
+
+def set_node_errors(proxy_app, ring_node, value, last_error):
+    # Set the node's error count to value
+    node_key = proxy_app.error_limiter.node_key(ring_node)
+    stats = {'errors': value,
+             'last_error': last_error}
+    proxy_app.error_limiter.stats[node_key] = stats

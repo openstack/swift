@@ -1368,7 +1368,7 @@ class GetOrHeadHandler(GetterBase):
             except ChunkReadTimeout:
                 if not self._replace_source(
                         'Trying to read object during GET (retrying)'):
-                    raise StopIteration()
+                    raise
 
     def _iter_bytes_from_response_part(self, part_file, nbytes):
         # yield chunks of bytes from a single response part; if an error
@@ -1444,10 +1444,6 @@ class GetOrHeadHandler(GetterBase):
                 if part_iter:
                     part_iter.close()
 
-        except ChunkReadTimeout:
-            self.app.exception_occurred(self.source.node, 'Object',
-                                        'Trying to read during GET')
-            raise
         except ChunkWriteTimeout:
             self.logger.info(
                 'Client did not read from proxy within %ss',

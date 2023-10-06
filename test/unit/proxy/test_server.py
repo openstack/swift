@@ -58,7 +58,7 @@ from test.unit import (
     connect_tcp, readuntil2crlfs, fake_http_connect, FakeRing,
     FakeMemcache, patch_policies, write_fake_ring, mocked_http_conn,
     DEFAULT_TEST_EC_TYPE, make_timestamp_iter, skip_if_no_xattrs,
-    FakeHTTPResponse)
+    FakeHTTPResponse, node_error_count, node_last_error, set_node_errors)
 from test.unit.helpers import setup_servers, teardown_servers
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
@@ -152,31 +152,6 @@ def parse_headers_string(headers_str):
             else:
                 headers_dict[header.decode('utf8')] = value.decode('utf8')
     return headers_dict
-
-
-def get_node_error_stats(proxy_app, ring_node):
-    node_key = proxy_app.error_limiter.node_key(ring_node)
-    return proxy_app.error_limiter.stats.get(node_key) or {}
-
-
-def node_error_count(proxy_app, ring_node):
-    # Reach into the proxy's internals to get the error count for a
-    # particular node
-    return get_node_error_stats(proxy_app, ring_node).get('errors', 0)
-
-
-def node_last_error(proxy_app, ring_node):
-    # Reach into the proxy's internals to get the last error for a
-    # particular node
-    return get_node_error_stats(proxy_app, ring_node).get('last_error')
-
-
-def set_node_errors(proxy_app, ring_node, value, last_error):
-    # Set the node's error count to value
-    node_key = proxy_app.error_limiter.node_key(ring_node)
-    stats = {'errors': value,
-             'last_error': last_error}
-    proxy_app.error_limiter.stats[node_key] = stats
 
 
 @contextmanager
