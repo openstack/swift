@@ -1673,24 +1673,35 @@ class TestGetterSource(unittest.TestCase):
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestGetOrHeadHandler(BaseTest):
     def test_init_node_timeout(self):
-        conf = {'node_timeout': 2, 'recoverable_node_timeout': 3}
+        conf = {'node_timeout': 5, 'recoverable_node_timeout': 3}
         app = proxy_server.Application(conf,
                                        logger=self.logger,
                                        account_ring=self.account_ring,
                                        container_ring=self.container_ring)
+        # x-newest set
+        req = Request.blank('/v1/a/c/o', headers={'X-Newest': 'true'})
+        node_iter = Namespace(num_primary_nodes=3)
+        # app.recoverable_node_timeout
+        getter = GetOrHeadHandler(
+            app, req, 'Object', node_iter, None, None, {})
+        self.assertEqual(3, getter.node_timeout)
+
+        # x-newest not set
         req = Request.blank('/v1/a/c/o')
         node_iter = Namespace(num_primary_nodes=3)
         # app.recoverable_node_timeout
         getter = GetOrHeadHandler(
             app, req, 'Object', node_iter, None, None, {})
         self.assertEqual(3, getter.node_timeout)
+
         # app.node_timeout
         getter = GetOrHeadHandler(
             app, req, 'Account', node_iter, None, None, {})
-        self.assertEqual(2, getter.node_timeout)
+        self.assertEqual(5, getter.node_timeout)
+
         getter = GetOrHeadHandler(
             app, req, 'Container', node_iter, None, None, {})
-        self.assertEqual(2, getter.node_timeout)
+        self.assertEqual(5, getter.node_timeout)
 
     def test_disconnected_logging(self):
         req = Request.blank('/v1/a/c/o')
@@ -1710,7 +1721,7 @@ class TestGetOrHeadHandler(BaseTest):
         with mock.patch.object(handler, '_find_source', mock_find_source):
             with mock.patch.object(
                     handler, '_iter_parts_from_response', factory):
-                resp = handler.get_working_response(req)
+                resp = handler.get_working_response()
                 resp.app_iter.close()
         # verify that iter exited
         self.assertEqual({1: ['next', '__del__']}, factory.captured_calls)
@@ -1727,7 +1738,7 @@ class TestGetOrHeadHandler(BaseTest):
         with mock.patch.object(handler, '_find_source', mock_find_source):
             with mock.patch.object(
                     handler, '_iter_parts_from_response', factory):
-                resp = handler.get_working_response(req)
+                resp = handler.get_working_response()
                 next(resp.app_iter)
             resp.app_iter.close()
         self.assertEqual({1: ['next', '__del__']}, factory.captured_calls)

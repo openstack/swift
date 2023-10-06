@@ -2468,9 +2468,10 @@ class ECFragGetter(GetterBase):
                  backend_headers, header_provider, logger_thread_locals,
                  logger):
         super(ECFragGetter, self).__init__(
-            app=app, req=req, node_iter=node_iter,
-            partition=partition, policy=policy, path=path,
-            backend_headers=backend_headers, logger=logger)
+            app=app, req=req, node_iter=node_iter, partition=partition,
+            policy=policy, path=path, backend_headers=backend_headers,
+            node_timeout=app.recoverable_node_timeout,
+            resource_type='EC fragment', logger=logger)
         self.header_provider = header_provider
         self.fragment_size = policy.fragment_size
         self.skip_bytes = 0
@@ -2478,39 +2479,13 @@ class ECFragGetter(GetterBase):
         self.status = self.reason = self.body = self.source_headers = None
         self._source_iter = None
 
-    def _get_next_response_part(self):
-        node_timeout = self.app.recoverable_node_timeout
-
-        while True:
-            # the loop here is to resume if trying to parse
-            # multipart/byteranges response raises a ChunkReadTimeout
-            # and resets the source_parts_iter
-            try:
-                with WatchdogTimeout(self.app.watchdog, node_timeout,
-                                     ChunkReadTimeout):
-                    # If we don't have a multipart/byteranges response,
-                    # but just a 200 or a single-range 206, then this
-                    # performs no IO, and just returns source (or
-                    # raises StopIteration).
-                    # Otherwise, this call to next() performs IO when
-                    # we have a multipart/byteranges response; as it
-                    # will read the MIME boundary and part headers.
-                    start_byte, end_byte, length, headers, part = next(
-                        self.source.parts_iter)
-                return (start_byte, end_byte, length, headers, part)
-            except ChunkReadTimeout:
-                if not self._replace_source(
-                        'Trying to read next part of EC multi-part GET '
-                        '(retrying)'):
-                    raise
-
     def _iter_bytes_from_response_part(self, part_file, nbytes):
         buf = b''
         part_file = ByteCountEnforcer(part_file, nbytes)
         while True:
             try:
                 with WatchdogTimeout(self.app.watchdog,
-                                     self.app.recoverable_node_timeout,
+                                     self.node_timeout,
                                      ChunkReadTimeout):
                     chunk = part_file.read(self.app.object_chunk_size)
                     # NB: this append must be *inside* the context
@@ -2564,7 +2539,7 @@ class ECFragGetter(GetterBase):
                 if not chunk:
                     break
 
-    def _iter_parts_from_response(self, req):
+    def _iter_parts_from_response(self):
         try:
             part_iter = None
             try:
@@ -2575,7 +2550,7 @@ class ECFragGetter(GetterBase):
                     except StopIteration:
                         # it seems this is the only way out of the loop; not
                         # sure why the req.environ update is always needed
-                        req.environ['swift.non_client_disconnect'] = True
+                        self.req.environ['swift.non_client_disconnect'] = True
                         break
                     # skip_bytes compensates for the backend request range
                     # expansion done in _convert_range
@@ -2619,7 +2594,8 @@ class ECFragGetter(GetterBase):
                     if end is not None and begin is not None:
                         if end - begin + 1 == self.bytes_used_from_backend:
                             warn = False
-            if not req.environ.get('swift.non_client_disconnect') and warn:
+            if (warn and
+                    not self.req.environ.get('swift.non_client_disconnect')):
                 self.logger.warning(
                     'Client disconnected on read of EC frag %r', self.path)
             raise
@@ -2640,7 +2616,7 @@ class ECFragGetter(GetterBase):
         else:
             return HeaderKeyDict()
 
-    def _make_node_request(self, node, node_timeout):
+    def _make_node_request(self, node):
         # make a backend request; return a response if it has an acceptable
         # status code, otherwise None
         self.logger.thread_locals = self.logger_thread_locals
@@ -2657,7 +2633,7 @@ class ECFragGetter(GetterBase):
                     query_string=self.req.query_string)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
-            with Timeout(node_timeout):
+            with Timeout(self.node_timeout):
                 possible_source = conn.getresponse()
                 # See NOTE: swift_conn at top of file about this.
                 possible_source.swift_conn = conn
@@ -2713,9 +2689,7 @@ class ECFragGetter(GetterBase):
     def _source_gen(self):
         self.status = self.reason = self.body = self.source_headers = None
         for node in self.node_iter:
-            source = self._make_node_request(
-                node, self.app.recoverable_node_timeout)
-
+            source = self._make_node_request(node)
             if source:
                 yield GetterSource(self.app, source, node)
             else:
@@ -2739,11 +2713,10 @@ class ECFragGetter(GetterBase):
                 return True
         return False
 
-    def response_parts_iter(self, req):
+    def response_parts_iter(self):
         """
         Create an iterator over a single fragment response body.
 
-        :param req: a ``swob.Request``.
         :return: an interator that yields chunks of bytes from a fragment
             response body.
         """
@@ -2755,7 +2728,7 @@ class ECFragGetter(GetterBase):
         else:
             if source:
                 self.source = source
-                it = self._iter_parts_from_response(req)
+                it = self._iter_parts_from_response()
         return it
 
 
@@ -2775,7 +2748,7 @@ class ECObjectController(BaseObjectController):
                               policy, req.swift_entity_path, backend_headers,
                               header_provider, logger_thread_locals,
                               self.logger)
-        return (getter, getter.response_parts_iter(req))
+        return getter, getter.response_parts_iter()
 
     def _convert_range(self, req, policy):
         """

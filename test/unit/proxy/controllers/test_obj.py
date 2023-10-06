@@ -20,6 +20,7 @@ import math
 import random
 import time
 import unittest
+import argparse
 from collections import defaultdict
 from contextlib import contextmanager
 import json
@@ -1799,15 +1800,16 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                          node_error_counts(self.app, self.obj_ring.devs))
         # note: client response uses boundary from first backend response
         self.assertEqual(resp_body1, actual_body)
-        error_lines = self.app.logger.get_lines_for_level('error')
-        self.assertEqual(1, len(error_lines))
-        self.assertIn('Trying to read object during GET ', error_lines[0])
         return req_range_hdrs
 
     def test_GET_with_multirange_slow_body_resumes(self):
         req_range_hdrs = self._do_test_GET_with_multirange_slow_body_resumes(
             slowdown_after=0)
         self.assertEqual(['bytes=0-49,100-104'] * 2, req_range_hdrs)
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('Trying to read next part of object multi-part GET '
+                      '(retrying)', error_lines[0])
 
     def test_GET_with_multirange_slow_body_resumes_before_body_started(self):
         # First response times out while first part boundary/headers are being
@@ -1816,6 +1818,10 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         req_range_hdrs = self._do_test_GET_with_multirange_slow_body_resumes(
             slowdown_after=40, resume_bytes=0)
         self.assertEqual(['bytes=0-49,100-104'] * 2, req_range_hdrs)
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('Trying to read next part of object multi-part GET '
+                      '(retrying)', error_lines[0])
 
     def test_GET_with_multirange_slow_body_resumes_after_body_started(self):
         # First response times out after first part boundary/headers have been
@@ -1829,6 +1835,10 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             slowdown_after=140, resume_bytes=20)
         self.assertEqual(['bytes=0-49,100-104', 'bytes=20-49,100-104'],
                          req_range_hdrs)
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('Trying to read object during GET (retrying) ',
+                      error_lines[0])
 
     def test_GET_with_multirange_slow_body_unable_to_resume(self):
         self.app.recoverable_node_timeout = 0.01
@@ -1882,7 +1892,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         error_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(3, len(error_lines))
         for line in error_lines:
-            self.assertIn('Trying to read object during GET ', line)
+            self.assertIn('Trying to read next part of object multi-part GET '
+                          '(retrying)', line)
 
     def test_GET_unable_to_resume(self):
         self.app.recoverable_node_timeout = 0.01
@@ -4904,7 +4915,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(len(log), self.policy.ec_n_unique_fragments * 2)
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(3, len(log_lines), log_lines)
-        self.assertIn('Trying to read next part of EC multi-part GET',
+        self.assertIn('Trying to read next part of EC fragment multi-part GET',
                       log_lines[0])
         self.assertIn('Trying to read during GET: ChunkReadTimeout',
                       log_lines[1])
@@ -4985,7 +4996,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(len(log), self.policy.ec_n_unique_fragments * 2)
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(2, len(log_lines), log_lines)
-        self.assertIn('Trying to read next part of EC multi-part GET',
+        self.assertIn('Trying to read next part of EC fragment multi-part GET',
                       log_lines[0])
         self.assertIn('Trying to read during GET: ChunkReadTimeout',
                       log_lines[1])
@@ -5061,7 +5072,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 206)
         self.assertEqual(len(log), self.policy.ec_n_unique_fragments * 2)
         log_lines = self.app.logger.get_lines_for_level('error')
-        self.assertIn("Trying to read next part of EC multi-part "
+        self.assertIn("Trying to read next part of EC fragment multi-part "
                       "GET (retrying)", log_lines[0])
         # not the most graceful ending
         self.assertIn("Exception fetching fragments for '/a/c/o'",
@@ -7317,11 +7328,18 @@ class TestNumContainerUpdates(unittest.TestCase):
 class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
     def setUp(self):
         super(TestECFragGetter, self).setUp()
-        req = Request.blank(path='/a/c/o')
+        req = Request.blank(path='/v1/a/c/o')
         self.getter = obj.ECFragGetter(
             self.app, req, None, None, self.policy, 'a/c/o',
             {}, None, self.logger.thread_locals,
             self.logger)
+
+    def test_init_node_timeout(self):
+        app = argparse.Namespace(node_timeout=2, recoverable_node_timeout=3)
+        getter = obj.ECFragGetter(
+            app, None, None, None, self.policy, 'a/c/o',
+            {}, None, None, self.logger)
+        self.assertEqual(3, getter.node_timeout)
 
     def test_iter_bytes_from_response_part(self):
         part = FileLikeIter([b'some', b'thing'])
@@ -7364,15 +7382,13 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
     def test_fragment_size(self):
         source = FakeSource((
             b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))
-        req = Request.blank('/v1/a/c/o')
 
         def mock_source_gen():
             yield GetterSource(self.app, source, {})
 
         self.getter.fragment_size = 8
-        with mock.patch.object(self.getter, '_source_gen',
-                               mock_source_gen):
-            it = self.getter.response_parts_iter(req)
+        with mock.patch.object(self.getter, '_source_gen', mock_source_gen):
+            it = self.getter.response_parts_iter()
             fragments = list(next(it)['part_iter'])
 
         self.assertEqual(fragments, [
@@ -7386,7 +7402,6 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         # incomplete reads of fragment_size will be re-fetched
         source2 = FakeSource([b'efgh', b'5678', b'lots', None])
         source3 = FakeSource([b'lots', b'more', b'data'])
-        req = Request.blank('/v1/a/c/o')
         range_headers = []
         sources = [GetterSource(self.app, src, node)
                    for src in (source1, source2, source3)]
@@ -7399,7 +7414,7 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         self.getter.fragment_size = 8
         with mock.patch.object(self.getter, '_source_gen',
                                mock_source_gen):
-            it = self.getter.response_parts_iter(req)
+            it = self.getter.response_parts_iter()
             fragments = list(next(it)['part_iter'])
 
         self.assertEqual(fragments, [
@@ -7415,7 +7430,6 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         range_headers = []
         sources = [GetterSource(self.app, src, node)
                    for src in (source1, source2)]
-        req = Request.blank('/v1/a/c/o')
 
         def mock_source_gen():
             for source in sources:
@@ -7425,7 +7439,7 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         self.getter.fragment_size = 8
         with mock.patch.object(self.getter, '_source_gen',
                                mock_source_gen):
-            it = self.getter.response_parts_iter(req)
+            it = self.getter.response_parts_iter()
             fragments = list(next(it)['part_iter'])
         self.assertEqual(fragments, [b'abcd1234', b'efgh5678'])
         self.assertEqual(range_headers, [None, 'bytes=8-'])
