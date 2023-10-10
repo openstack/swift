@@ -15,6 +15,7 @@
 # limitations under the License.
 import unittest
 
+from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated
 from swift.common import request_helpers as rh
 from test.unit.common.middleware.helpers import FakeSwift
@@ -508,6 +509,47 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual('bytes=0-2', req.headers.get('Range'))
         self.assertEqual('bytes=0-2',
                          swift.calls_with_headers[-1].headers.get('Range'))
+
+    def test_object_GET_updated_with_storage_policy(self):
+        swift = FakeSwift()
+        swift.register('GET', '/v1/a/c/o', HTTPOk, {}, body=b'stuff')
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        self.assertNotIn('X-Backend-Storage-Policy-Index', req.headers)
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8'},
+                         resp.headers)
+        self.assertEqual(b'stuff', resp.body)
+        self.assertEqual(1, swift.call_count)
+        self.assertEqual(('GET', '/v1/a/c/o'), swift.calls[0])
+        self.assertEqual(('GET', '/v1/a/c/o',
+                          {'Host': 'localhost:80'}),  # from swob
+                         swift.calls_with_headers[0])
+        # default storage policy is applied...
+        self.assertEqual(str(int(POLICIES.default)),
+                         req.headers.get('X-Backend-Storage-Policy-Index'))
+
+        # register a container with storage policy 99...
+        swift.register('HEAD', '/v1/a/c', HTTPOk,
+                       {'X-Backend-Storage-Policy-Index': '99'}, None)
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        self.assertNotIn('X-Backend-Storage-Policy-Index', req.headers)
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8'},
+                         resp.headers)
+        self.assertEqual(b'stuff', resp.body)
+        self.assertEqual(2, swift.call_count)
+        self.assertEqual(('GET', '/v1/a/c/o'), swift.calls[1])
+        self.assertEqual(('GET', '/v1/a/c/o',
+                          {'Host': 'localhost:80'}),  # from swob
+                         swift.calls_with_headers[1])
+        self.assertEqual(
+            '99', req.headers.get('X-Backend-Storage-Policy-Index'))
 
 
 class TestFakeSwiftMultipleResponses(unittest.TestCase):

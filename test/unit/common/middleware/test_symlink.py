@@ -455,7 +455,6 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             'Host': 'localhost:80',
             'X-Backend-Ignore-Range-If-Metadata-Present':
             'x-object-sysmeta-symlink-target',
-            'X-Backend-Storage-Policy-Index': '2',
         })
         self.assertEqual(req_headers, calls[0].headers)
         req_headers['User-Agent'] = 'Swift'
@@ -631,7 +630,6 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             'Host': 'localhost:80',
             'X-Backend-Ignore-Range-If-Metadata-Present':
             'x-object-sysmeta-symlink-target',
-            'X-Backend-Storage-Policy-Index': '2',
         })
         self.assertEqual(req_headers, calls[0].headers)
         req_headers['User-Agent'] = 'Swift'

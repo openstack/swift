@@ -26,9 +26,10 @@ import six
 import json
 
 from swift.common import swob
+from swift.common.storage_policy import StoragePolicy
 from swift.common.swob import Request
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
-from test.unit import mock_timestamp_now
+from test.unit import mock_timestamp_now, patch_policies
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
@@ -77,6 +78,8 @@ class TestS3ApiObj(S3ApiTestCase):
                             None)
 
     def _test_object_GETorHEAD(self, method):
+        bucket_policy_index = 1
+        self._register_bucket_policy_index_head('bucket', bucket_policy_index)
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': method},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -84,7 +87,7 @@ class TestS3ApiObj(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         # we'll want this for logging
-        self.assertEqual(req.headers['X-Backend-Storage-Policy-Index'], '2')
+        self._assert_policy_index(req.headers, headers, bucket_policy_index)
 
         unexpected_headers = []
         for key, val in self.response_headers.items():
@@ -182,18 +185,30 @@ class TestS3ApiObj(S3ApiTestCase):
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
 
-    def test_object_policy_index_logging(self):
+    def _do_test_object_policy_index_logging(self, bucket_policy_index):
+        self.logger.clear()
+        self._register_bucket_policy_index_head('bucket', bucket_policy_index)
         req = Request.blank('/bucket/object',
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         self.s3api = ProxyLoggingMiddleware(self.s3api, {}, logger=self.logger)
         status, headers, body = self.call_s3api(req)
+        self._assert_policy_index(req.headers, headers, bucket_policy_index)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
         access_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(1, len(access_lines))
         parts = access_lines[0].split()
         self.assertEqual(' '.join(parts[3:7]),
                          'GET /bucket/object HTTP/1.0 200')
-        self.assertEqual(parts[-1], '2')
+        self.assertEqual(parts[-1], str(bucket_policy_index))
+
+    @patch_policies([
+        StoragePolicy(0, 'gold', is_default=True),
+        StoragePolicy(1, 'silver')])
+    def test_object_policy_index_logging(self):
+        self._do_test_object_policy_index_logging(0)
+        self._do_test_object_policy_index_logging(1)
 
     def _test_object_HEAD_Range(self, range_value):
         req = Request.blank('/bucket/object',
@@ -847,11 +862,16 @@ class TestS3ApiObj(S3ApiTestCase):
                    return_value=timestamp):
             return self.call_s3api(req)
 
+    @patch_policies([
+        StoragePolicy(0, 'gold', is_default=True),
+        StoragePolicy(1, 'silver')])
     def test_simple_object_copy(self):
+        src_policy_index = 0
+        self._register_bucket_policy_index_head('some', src_policy_index)
+        dst_policy_index = 1
+        self._register_bucket_policy_index_head('bucket', dst_policy_index)
         self.swift.register('HEAD', '/v1/AUTH_test/some/source',
-                            swob.HTTPOk, {
-                                'x-backend-storage-policy-index': '1',
-                            }, None)
+                            swob.HTTPOk, {}, None)
         req = Request.blank(
             '/bucket/object', method='PUT',
             headers={
@@ -865,11 +885,14 @@ class TestS3ApiObj(S3ApiTestCase):
                    return_value=timestamp):
             status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
+        self._assert_policy_index(req.headers, headers, dst_policy_index)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
+
         head_call, put_call = self.swift.calls_with_headers
-        self.assertEqual(
-            head_call.headers['x-backend-storage-policy-index'], '1')
-        self.assertEqual(put_call.headers['x-copy-from'], '/some/source')
+        self.assertNotIn('x-backend-storage-policy-index', head_call.headers)
         self.assertNotIn('x-backend-storage-policy-index', put_call.headers)
+        self.assertEqual(put_call.headers['x-copy-from'], '/some/source')
 
     @s3acl
     def test_object_PUT_copy(self):

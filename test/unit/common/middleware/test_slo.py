@@ -1365,13 +1365,11 @@ class TestSloDeleteManifest(SloTestCase):
               'Range': 'bytes=-1',
               'X-Backend-Ignore-Range-If-Metadata-Present':
               'X-Static-Large-Object',
-              'X-Backend-Storage-Policy-Index': '2',
               'Content-Length': '0'}),
             ('GET',
              '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get',
              {'Host': 'localhost:80',
               'User-Agent': 'Mozzarella Foxfire MultipartDELETE',
-              'X-Backend-Storage-Policy-Index': '2',
               'Content-Length': '0'}),
         ])
         self.assertEqual(set(self.app.calls), set([

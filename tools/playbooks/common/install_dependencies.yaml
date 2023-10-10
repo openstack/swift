@@ -48,6 +48,7 @@
         - pytest
         - pytest-cov
         - python-swiftclient
+        - 'boto3>=1.9'
 
     - name: install PasteDeploy - CentOS 7
       pip: name={{ item }} state=present extra_args='--upgrade'

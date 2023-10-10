@@ -26,7 +26,7 @@ from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
 from swift.common.utils import split_path, json, close_if_possible, md5, \
-    streq_const_time
+    streq_const_time, get_policy_index
 from swift.common.registry import get_swift_info
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
@@ -552,6 +552,7 @@ class S3Request(swob.Request):
         }
         self.account = None
         self.user_id = None
+        self.policy_index = None
 
         # Avoids that swift.swob.Response replaces Location header value
         # by full URL when absolute path given. See swift.swob for more detail.
@@ -922,8 +923,6 @@ class S3Request(swob.Request):
         src_resp = self.get_response(app, 'HEAD', src_bucket,
                                      swob.str_to_wsgi(src_obj),
                                      headers=headers, query=query)
-        # we can't let this HEAD req spoil our COPY
-        self.headers.pop('x-backend-storage-policy-index')
         if src_resp.status_int == 304:  # pylint: disable-msg=E1101
             raise PreconditionFailed()
 
@@ -1370,11 +1369,11 @@ class S3Request(swob.Request):
                                             2, 3, True)
             # Update s3.backend_path from the response environ
             self.environ['s3api.backend_path'] = sw_resp.environ['PATH_INFO']
-            # Propogate backend headers back into our req headers for logging
-            for k, v in sw_req.headers.items():
-                if k.lower().startswith('x-backend-'):
-                    self.headers.setdefault(k, v)
 
+        # keep a record of the backend policy index so that the s3api can add
+        # it to the headers of whatever response it returns, which may not
+        # necessarily be this resp.
+        self.policy_index = get_policy_index(sw_req.headers, sw_resp.headers)
         resp = S3Response.from_swift_resp(sw_resp)
         status = resp.status_int  # pylint: disable-msg=E1101
 

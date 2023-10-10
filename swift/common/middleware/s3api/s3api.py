@@ -366,6 +366,7 @@ class S3ApiMiddleware(object):
 
         if 's3api.backend_path' in env and 'swift.backend_path' not in env:
             env['swift.backend_path'] = env['s3api.backend_path']
+
         return resp(env, start_response)
 
     def handle_request(self, req):
@@ -390,6 +391,9 @@ class S3ApiMiddleware(object):
             raise MethodNotAllowed(req.method,
                                    req.controller.resource_type())
 
+        if req.policy_index is not None:
+            res.headers.setdefault('X-Backend-Storage-Policy-Index',
+                                   req.policy_index)
         return res
 
     def check_pipeline(self, wsgi_conf):

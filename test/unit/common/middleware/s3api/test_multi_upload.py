@@ -36,7 +36,7 @@ from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 from swift.common.middleware.s3api.utils import sysmeta_header, mktime, \
     S3Timestamp
 from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, POLICIES
 from swift.proxy.controllers.base import get_cache_key
 
 XML = '<CompleteMultipartUpload>' \
@@ -150,7 +150,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             swob.HTTPNoContent, {}, None)
 
     @s3acl
-    def test_bucket_upload_part(self):
+    def test_bucket_upload_part_missing_key(self):
         req = Request.blank('/bucket?partNumber=1&uploadId=x',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -158,8 +158,13 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidRequest')
         self.assertEqual([], self.swift.calls)
+        self.assertNotIn('X-Backend-Storage-Policy-Index', headers)
 
-    def test_bucket_upload_part_success(self):
+    def _do_test_bucket_upload_part_success(self, bucket_policy_index,
+                                            segment_bucket_policy_index):
+        self._register_bucket_policy_index_head('bucket', bucket_policy_index)
+        self._register_bucket_policy_index_head('bucket+segments',
+                                                segment_bucket_policy_index)
         req = Request.blank('/bucket/object?partNumber=1&uploadId=X',
                             method='PUT',
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -173,6 +178,16 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
             ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
         ], self.swift.calls)
+        self.assertEqual(req.environ.get('swift.backend_path'),
+                         '/v1/AUTH_test/bucket+segments/object/X/1')
+        self._assert_policy_index(req.headers, headers,
+                                  segment_bucket_policy_index)
+
+    def test_bucket_upload_part_success(self):
+        self._do_test_bucket_upload_part_success(0, 0)
+
+    def test_bucket_upload_part_success_mixed_policy(self):
+        self._do_test_bucket_upload_part_success(0, 1)
 
     def test_bucket_upload_part_v4_bad_hash(self):
         authz_header = 'AWS4-HMAC-SHA256 ' + ', '.join([
@@ -729,11 +744,17 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
     @patch('swift.common.middleware.s3api.controllers.'
            'multi_upload.unique_id', lambda: 'X')
-    def _test_object_multipart_upload_initiate(self, headers, cache=None,
-                                               bucket_exists=True,
-                                               expected_policy=None,
-                                               expected_read_acl=None,
-                                               expected_write_acl=None):
+    def _test_object_multipart_upload_initiate(
+            self, headers, cache=None, bucket_exists=True,
+            bucket_policy_index=int(POLICIES.default),
+            segment_bucket_policy_index=None,
+            expected_read_acl=None,
+            expected_write_acl=None):
+        if segment_bucket_policy_index is None:
+            segment_bucket_policy_index = bucket_policy_index
+        self._register_bucket_policy_index_head('bucket', bucket_policy_index)
+        self._register_bucket_policy_index_head('bucket+segments',
+                                                segment_bucket_policy_index)
         headers.update({
             'Authorization': 'AWS test:tester:hmac',
             'Date': self.get_date_header(),
@@ -747,6 +768,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         fromstring(body, 'InitiateMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
+
+        self.assertEqual(req.environ['swift.backend_path'],
+                         '/v1/AUTH_test/bucket+segments/object/X')
+        self._assert_policy_index(req.headers, headers,
+                                  segment_bucket_policy_index)
 
         _, _, req_headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req_headers.get('X-Object-Meta-Foo'), 'bar')
@@ -762,10 +788,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                 ('PUT', '/v1/AUTH_test/bucket+segments'),
                 ('PUT', '/v1/AUTH_test/bucket+segments/object/X'),
             ], self.swift.calls)
-            if expected_policy:
-                _, _, req_headers = self.swift.calls_with_headers[-2]
-                self.assertEqual(req_headers.get('X-Storage-Policy'),
-                                 expected_policy)
+            expected_policy = POLICIES[bucket_policy_index].name
+            _, _, req_headers = self.swift.calls_with_headers[-2]
+            self.assertEqual(req_headers.get('X-Storage-Policy'),
+                             expected_policy)
 
             if expected_read_acl:
                 _, _, req_headers = self.swift.calls_with_headers[-2]
@@ -794,6 +820,16 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self._test_object_multipart_upload_initiate({
             'Content-MD5': base64.b64encode(b'blahblahblahblah').strip()},
             fake_memcache)
+
+    def test_object_mpu_initiate_with_segment_bucket_mixed_policy(self):
+        fake_memcache = FakeMemcache()
+        fake_memcache.store[get_cache_key(
+            'AUTH_test', 'bucket+segments')] = {'status': 204}
+        fake_memcache.store[get_cache_key(
+            'AUTH_test', 'bucket')] = {'status': 204}
+        self._test_object_multipart_upload_initiate(
+            {}, fake_memcache, bucket_policy_index=0,
+            segment_bucket_policy_index=1)
 
     def test_object_multipart_upload_initiate_without_segment_bucket(self):
         self.swift.register('PUT', '/v1/AUTH_test/bucket+segments',
@@ -829,16 +865,16 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.s3api.conf.derived_container_policy_use_default = False
         self._test_object_multipart_upload_initiate({}, fake_memcache,
                                                     bucket_exists=False,
-                                                    expected_policy='silver')
+                                                    bucket_policy_index=1)
         self._test_object_multipart_upload_initiate({'Etag': 'blahblahblah'},
                                                     fake_memcache,
                                                     bucket_exists=False,
-                                                    expected_policy='silver')
+                                                    bucket_policy_index=1)
         self._test_object_multipart_upload_initiate(
             {'Content-MD5': base64.b64encode(b'blahblahblahblah').strip()},
             fake_memcache,
             bucket_exists=False,
-            expected_policy='silver')
+            bucket_policy_index=1)
 
     def test_object_mpu_initiate_without_segment_bucket_same_acls(self):
         self.swift.register('PUT', '/v1/AUTH_test/bucket+segments',
@@ -892,15 +928,23 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     @patch('swift.common.middleware.s3api.controllers.multi_upload.'
            'unique_id', lambda: 'X')
     def _test_object_multipart_upload_initiate_s3acl(
-            self, cache, existance_cached, should_head, should_put):
+            self, cache, existance_cached, should_head, should_put,
+            bucket_policy_index=int(POLICIES.default),
+            segment_bucket_policy_index=None):
+        if segment_bucket_policy_index is None:
+            segment_bucket_policy_index = bucket_policy_index
         # mostly inlining stuff from @s3acl(s3_acl_only=True)
         self.s3api.conf.s3_acl = True
         self.swift.s3_acl = True
         container_headers = encode_acl('container', ACL(
             Owner('test:tester', 'test:tester'),
             [Grant(User('test:tester'), 'FULL_CONTROL')]))
+        container_headers['X-Backend-Storage-Policy-Index'] = \
+            bucket_policy_index
         self.swift.register('HEAD', '/v1/AUTH_test/bucket',
                             swob.HTTPNoContent, container_headers, None)
+        self._register_bucket_policy_index_head('bucket+segments',
+                                                segment_bucket_policy_index)
         cache.store[get_cache_key('AUTH_test')] = {'status': 204}
 
         req = Request.blank('/bucket/object?uploads',
@@ -915,6 +959,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         fromstring(body, 'InitiateMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
+        self.assertEqual(req.environ['swift.backend_path'],
+                         '/v1/AUTH_test/bucket+segments/object/X')
+        self._assert_policy_index(req.headers, headers,
+                                  segment_bucket_policy_index)
         # This is the get_container_info existance check :'(
         expected = []
         if not existance_cached:
@@ -942,9 +990,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(acl_header.get(sysmeta_header('object', 'acl')),
                          tmpacl_header)
 
-    def test_object_multipart_upload_initiate_s3acl_with_segment_bucket(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments',
-                            swob.HTTPNoContent, {}, None)
+    def test_object_mpu_initiate_s3acl_with_segment_bucket(self):
         kwargs = {
             'existance_cached': False,
             'should_head': True,
@@ -952,6 +998,16 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         }
         self._test_object_multipart_upload_initiate_s3acl(
             FakeMemcache(), **kwargs)
+
+    def test_object_mpu_initiate_s3acl_with_segment_bucket_mixed_policy(self):
+        kwargs = {
+            'existance_cached': False,
+            'should_head': True,
+            'should_put': False,
+        }
+        self._test_object_multipart_upload_initiate_s3acl(
+            FakeMemcache(), bucket_policy_index=0,
+            segment_bucket_policy_index=1, **kwargs)
 
     def test_object_multipart_upload_initiate_s3acl_with_cached_seg_buck(self):
         fake_memcache = FakeMemcache()
@@ -967,7 +1023,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self._test_object_multipart_upload_initiate_s3acl(
             fake_memcache, **kwargs)
 
-    def test_object_multipart_upload_initiate_s3acl_without_segment_bucket(
+    def test_object_mpu_initiate_s3acl_without_segment_bucket(
             self):
         fake_memcache = FakeMemcache()
         fake_memcache.store.update({
@@ -983,6 +1039,24 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         }
         self._test_object_multipart_upload_initiate_s3acl(
             fake_memcache, **kwargs)
+
+    def test_object_mpu_initiate_s3acl_without_segment_bucket_mixed_policy(
+            self):
+        fake_memcache = FakeMemcache()
+        fake_memcache.store.update({
+            get_cache_key('AUTH_test', 'bucket'): {'status': 204},
+            get_cache_key('AUTH_test', 'bucket+segments'): {'status': 404},
+        })
+        self.swift.register('PUT', '/v1/AUTH_test/bucket+segments',
+                            swob.HTTPCreated, {}, None)
+        kwargs = {
+            'existance_cached': True,
+            'should_head': False,
+            'should_put': True,
+        }
+        self._test_object_multipart_upload_initiate_s3acl(
+            fake_memcache, bucket_policy_index=0,
+            segment_bucket_policy_index=0, **kwargs)
 
     @s3acl(s3acl_only=True)
     @patch('swift.common.middleware.s3api.controllers.'
@@ -1050,7 +1124,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'NoSuchBucket')
 
-    def _do_test_object_multipart_upload_complete(self):
+    def _do_test_object_multipart_upload_complete(
+            self, bucket_policy_index=int(POLICIES.default),
+            segment_bucket_policy_index=None):
         content_md5 = base64.b64encode(md5(
             XML.encode('ascii'), usedforsecurity=False).digest())
         req = Request.blank('/bucket/object?uploadId=X',
@@ -1059,6 +1135,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                                      'Date': self.get_date_header(),
                                      'Content-MD5': content_md5, },
                             body=XML)
+        if segment_bucket_policy_index is None:
+            segment_bucket_policy_index = bucket_policy_index
+        self._register_bucket_policy_index_head('bucket', bucket_policy_index)
+        self._register_bucket_policy_index_head('bucket+segments',
+                                                segment_bucket_policy_index)
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         self.assertNotIn('Etag', headers)
@@ -1079,6 +1160,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         ])
         self.assertEqual(req.environ['swift.backend_path'],
                          '/v1/AUTH_test/bucket+segments/object/X')
+        self._assert_policy_index(req.headers, headers,
+                                  segment_bucket_policy_index)
 
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertEqual(headers.get('X-Object-Meta-Foo'), 'bar')
@@ -1089,8 +1172,18 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(headers.get(h), override_etag)
         self.assertEqual(headers.get('X-Object-Sysmeta-S3Api-Upload-Id'), 'X')
 
+        # s3api doesn't set storage policy index on backend requests
+        spi = [hdrs.get('X-Backend-Storage-Policy-Index')
+               for _, _, hdrs in self.swift.calls_with_headers]
+        self.assertEqual(spi, [None] * 5)
+
     def test_object_multipart_upload_complete(self):
         self._do_test_object_multipart_upload_complete()
+
+    def test_object_multipart_upload_complete_mixed_policy(self):
+        self._do_test_object_multipart_upload_complete(
+            bucket_policy_index=0, segment_bucket_policy_index=1
+        )
 
     def test_object_multipart_upload_complete_other_headers(self):
         headers = {'x-object-meta-foo': 'bar',
@@ -1160,7 +1253,14 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
              "etag": "fedcba9876543210fedcba9876543210"},
         ])
 
-    def test_object_multipart_upload_retry_complete(self):
+    def _do_test_object_multipart_upload_retry_complete(
+            self, bucket_policy_index=int(POLICIES.default),
+            segment_bucket_policy_index=None):
+        if segment_bucket_policy_index is None:
+            segment_bucket_policy_index = bucket_policy_index
+        self._register_bucket_policy_index_head('bucket', bucket_policy_index)
+        self._register_bucket_policy_index_head('bucket+segments',
+                                                segment_bucket_policy_index)
         content_md5 = base64.b64encode(md5(
             XML.encode('ascii'), usedforsecurity=False).digest())
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',
@@ -1197,6 +1297,15 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         ])
         self.assertEqual(req.environ['swift.backend_path'],
                          '/v1/AUTH_test/bucket+segments/object/X')
+        self._assert_policy_index(req.headers, headers,
+                                  segment_bucket_policy_index)
+
+    def test_object_multipart_upload_retry_complete(self):
+        self._do_test_object_multipart_upload_retry_complete()
+
+    def test_object_multipart_upload_retry_complete_mixed_policy(self):
+        self._do_test_object_multipart_upload_retry_complete(
+            bucket_policy_index=0, segment_bucket_policy_index=1)
 
     def test_object_multipart_upload_retry_complete_etag_mismatch(self):
         content_md5 = base64.b64encode(md5(

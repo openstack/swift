@@ -397,11 +397,13 @@
       under Python 3.
     timeout: 7200
     vars:
+      s3_acl: no
       bindep_profile: test py36
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
+      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
     run: tools/playbooks/probetests/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
 
@@ -423,10 +425,7 @@
     description: |
       Setup a SAIO dev environment and run Swift's CORS functional tests
     timeout: 1200
-    vars:
-      s3_acl: no
     pre-run:
-      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
       - tools/playbooks/cors/install_selenium.yaml
     run: tools/playbooks/cors/run.yaml
     post-run: tools/playbooks/cors/post.yaml
