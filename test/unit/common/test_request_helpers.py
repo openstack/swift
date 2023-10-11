@@ -759,7 +759,3 @@ class TestSegmentedIterable(unittest.TestCase):
             b'--bound--',
         ])
         self.assertEqual(expected, body)
-        # XXX Spliterator stops SegementedIterable from asking to exhasut the
-        # segment response after it gets the last byte in app_iter_ranges
-        self.expected_unread_requests[
-            ('GET', '/a/c/seg2?multipart-manifest=get')] = 1

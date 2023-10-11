@@ -1623,10 +1623,12 @@ class TestWSGIContext(unittest.TestCase):
         r = Request.blank('/')
         it = wc._app_call(r.environ)
         self.assertEqual(wc._response_status, '200 Ok')
+        self.assertEqual(wc._get_status_int(), 200)
         self.assertEqual(b''.join(it), b'Ok\n')
         r = Request.blank('/')
         it = wc._app_call(r.environ)
         self.assertEqual(wc._response_status, '404 Not Found')
+        self.assertEqual(wc._get_status_int(), 404)
         self.assertEqual(b''.join(it), b'Ok\n')
 
     def test_app_iter_is_closable(self):
@@ -1645,6 +1647,7 @@ class TestWSGIContext(unittest.TestCase):
         r = Request.blank('/')
         iterable = wc._app_call(r.environ)
         self.assertEqual(wc._response_status, '200 OK')
+        self.assertEqual(wc._get_status_int(), 200)
 
         iterator = iter(iterable)
         self.assertEqual(b'aaaaa', next(iterator))
@@ -1665,6 +1668,7 @@ class TestWSGIContext(unittest.TestCase):
         it = wc._app_call(r.environ)
         wc.update_content_length(35)
         self.assertEqual(wc._response_status, '200 Ok')
+        self.assertEqual(wc._get_status_int(), 200)
         self.assertEqual(b''.join(it), b'Ok\n')
         self.assertEqual(wc._response_headers, [('Content-Length', '35')])
 
@@ -1680,6 +1684,7 @@ class TestWSGIContext(unittest.TestCase):
         it = wc._app_call(r.environ)
         wc._response_headers.append(('X-Trans-Id', 'txn'))
         self.assertEqual(wc._response_status, '200 Ok')
+        self.assertEqual(wc._get_status_int(), 200)
         self.assertEqual(b''.join(it), b'Ok\n')
         self.assertEqual(wc._response_headers, [
             ('Content-Length', '3'),
