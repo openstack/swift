@@ -16,7 +16,7 @@
 #
 # This is an audit watcher that manages the dark data in the cluster.
 # Since the API for audit watchers is intended to use external plugins,
-# this code is invoked as if it were external: through pkg_resources.
+# this code is invoked as if it were external: through load_pkg_resources().
 # Our setup.py comes pre-configured for convenience, but the operator has
 # to enable this watcher honestly by additing DarkDataWatcher to watchers=
 # in object-server.conf. The default is off, as if this does not exist.

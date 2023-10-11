@@ -17,7 +17,6 @@ import unittest
 import json
 import mock
 import os
-import pkg_resources
 import signal
 import string
 import sys
@@ -65,13 +64,6 @@ def works_only_once(callable_thing, exception):
             return callable_thing(*a, **kw)
 
     return only_once
-
-
-def no_audit_watchers(group, name=None):
-    if group == 'swift.object_audit_watcher':
-        return iter([])
-    else:
-        return pkg_resources.iter_entry_points(group, name)
 
 
 class FakeRing1(object):
@@ -1595,7 +1587,6 @@ class TestAuditor(TestAuditorBase):
                          .format(outstanding_pids))
 
 
-@mock.patch('pkg_resources.iter_entry_points', no_audit_watchers)
 @patch_policies(_mocked_policies)
 class TestAuditWatchers(TestAuditorBase):
 
