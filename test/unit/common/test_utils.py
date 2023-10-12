@@ -5516,6 +5516,10 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('pfx.some.operation:4900.0|ms|@0.972',
                         self.logger.timing, 'some.operation', 4.9 * 1000,
                         sample_rate=0.972)
+        self.assertStat(
+            'pfx.some.hi-res.operation:3141.5927|ms|@0.367879441171',
+            self.logger.timing, 'some.hi-res.operation',
+            3.141592653589793 * 1000, sample_rate=0.367879441171)
         self.assertStatMatches(r'pfx\.another\.op:\d+\.\d+\|ms|@0.972',
                                self.logger.timing_since, 'another.op',
                                time.time(), sample_rate=0.972)

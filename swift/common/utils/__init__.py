@@ -1499,7 +1499,7 @@ class StatsdClient(object):
 
     def _timing(self, metric, timing_ms, sample_rate):
         # This method was added to disagregate timing metrics when testing
-        return self._send(metric, timing_ms, 'ms', sample_rate)
+        return self._send(metric, round(timing_ms, 4), 'ms', sample_rate)
 
     def timing(self, metric, timing_ms, sample_rate=None):
         return self._timing(metric, timing_ms, sample_rate)
