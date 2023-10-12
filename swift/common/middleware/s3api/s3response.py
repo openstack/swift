@@ -111,6 +111,7 @@ class S3Response(S3ResponseBase, swob.Response):
     headers instead of Swift's HeaderKeyDict.  This also translates Swift
     specific headers to S3 headers.
     """
+
     def __init__(self, *args, **kwargs):
         swob.Response.__init__(self, *args, **kwargs)
 
@@ -239,7 +240,7 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
         self.info = kwargs.copy()
         for reserved_key in ('headers', 'body'):
             if self.info.get(reserved_key):
-                del(self.info[reserved_key])
+                del (self.info[reserved_key])
 
         swob.HTTPException.__init__(
             self, status=kwargs.pop('status', self._status),
@@ -611,6 +612,16 @@ class NoSuchKey(ErrorResponse):
         if not key:
             raise InternalError()
         ErrorResponse.__init__(self, msg, key=key, *args, **kwargs)
+
+
+class ObjectLockConfigurationNotFoundError(ErrorResponse):
+    _status = '404 Not found'
+    _msg = 'Object Lock configuration does not exist for this bucket'
+
+    def __init__(self, bucket, msg=None, *args, **kwargs):
+        if not bucket:
+            raise InternalError()
+        ErrorResponse.__init__(self, msg, bucket_name=bucket, *args, **kwargs)
 
 
 class NoSuchLifecycleConfiguration(ErrorResponse):
