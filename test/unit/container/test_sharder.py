@@ -2774,9 +2774,18 @@ class TestSharder(BaseTestSharder):
             [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
             shard_broker.get_syncs())
         self.assertEqual(objects[5:], shard_broker.get_objects())
+        lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(lines))
+        self.assertIn(
+            'Failed to sufficiently replicate cleaved shard %s'
+            % shard_ranges[1].name, lines[0])
+        self.assertIn('1 successes, 2 required', lines[0])
+        self.assertIn('shard db: %s' % expected_shard_dbs[1], lines[0])
+        self.assertIn('db: %s' % broker.db_file, lines[0])
 
         # repeat - second shard range cleaves fully because its previously
         # cleaved shard db no longer exists
+        self.logger.clear()
         unlink_files(expected_shard_dbs)
         merge_items_calls = []
         with mock.patch('swift.container.backend.ContainerBroker.merge_items',
@@ -2814,6 +2823,7 @@ class TestSharder(BaseTestSharder):
             [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
             shard_broker.get_syncs())
         self.assertEqual(objects[5:], shard_broker.get_objects())
+        self.assertFalse(self.logger.get_lines_for_level('warning'))
 
     def test_shard_replication_quorum_failures(self):
         broker = self._make_broker()
@@ -4234,9 +4244,9 @@ class TestSharder(BaseTestSharder):
         lines = sharder.logger.get_lines_for_level('warning')
         shard_ranges = broker.get_shard_ranges()
         self.assertIn('Refused to remove misplaced objects for dest %s'
-                      % shard_ranges[2], lines[0])
+                      % shard_ranges[2].name, lines[0])
         self.assertIn('Refused to remove misplaced objects for dest %s'
-                      % shard_ranges[3], lines[1])
+                      % shard_ranges[3].name, lines[1])
         self.assertFalse(lines[2:])
 
         # they will be moved again on next cycle
@@ -4319,6 +4329,14 @@ class TestSharder(BaseTestSharder):
         # ... and nothing else moved
         self.assertFalse(os.path.exists(expected_dbs[0]))
         self.assertFalse(os.path.exists(expected_dbs[4]))
+        lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(lines))
+        self.assertIn(
+            'Failed to sufficiently replicate misplaced objects shard %s'
+            % broker.get_shard_ranges()[2].name, lines[0])
+        self.assertIn('1 successes, 2 required', lines[0])
+        self.assertIn('shard db: %s' % expected_dbs[2], lines[0])
+        self.assertIn('db: %s' % broker.db_file, lines[0])
 
     def test_misplaced_objects_insufficient_replication_2_replicas(self):
         broker, objects, expected_dbs = self._setup_misplaced_objects()
@@ -4353,6 +4371,14 @@ class TestSharder(BaseTestSharder):
         # ... and nothing else moved
         self.assertFalse(os.path.exists(expected_dbs[0]))
         self.assertFalse(os.path.exists(expected_dbs[4]))
+        lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(lines))
+        self.assertIn(
+            'Failed to sufficiently replicate misplaced objects shard %s'
+            % broker.get_shard_ranges()[3].name, lines[0])
+        self.assertIn('0 successes, 1 required', lines[0])
+        self.assertIn('shard db: %s' % expected_dbs[3], lines[0])
+        self.assertIn('db: %s' % broker.db_file, lines[0])
 
     def test_misplaced_objects_insufficient_replication_4_replicas(self):
         broker, objects, expected_dbs = self._setup_misplaced_objects()
