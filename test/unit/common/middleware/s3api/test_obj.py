@@ -53,6 +53,7 @@ class TestS3ApiObj(S3ApiTestCase):
 
         self.response_headers = {'Content-Type': 'text/html',
                                  'Content-Length': len(self.object_body),
+                                 'Accept-Ranges': 'bytes',
                                  'Content-Disposition': 'inline',
                                  'Content-Language': 'en',
                                  'x-object-meta-test': 'swift',
@@ -89,7 +90,8 @@ class TestS3ApiObj(S3ApiTestCase):
         for key, val in self.response_headers.items():
             if key in ('Content-Length', 'Content-Type', 'content-encoding',
                        'last-modified', 'cache-control', 'Content-Disposition',
-                       'Content-Language', 'expires', 'x-robots-tag'):
+                       'Content-Language', 'expires', 'x-robots-tag',
+                       'Accept-Ranges'):
                 self.assertIn(key, headers)
                 self.assertEqual(headers[key], str(val))
 
@@ -407,6 +409,8 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertTrue('cache-control' in headers)
         self.assertEqual(headers['cache-control'], 'no-cache')
         self.assertTrue('content-disposition' in headers)
+        self.assertTrue('accept-ranges' in headers)
+        self.assertEqual(headers['accept-ranges'], 'bytes')
         self.assertEqual(headers['content-disposition'],
                          'attachment')
         self.assertTrue('content-encoding' in headers)
@@ -435,6 +439,8 @@ class TestS3ApiObj(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
             self.assertEqual(status.split()[0], '200', body)
             self.assertEqual(body, self.object_body)
+            self.assertTrue('accept-ranges' in headers)
+            self.assertEqual(headers['accept-ranges'], 'bytes')
 
     @s3acl
     def test_object_GET_version_id(self):
@@ -455,6 +461,8 @@ class TestS3ApiObj(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200', body)
         self.assertEqual(body, self.object_body)
+        self.assertTrue('accept-ranges' in headers)
+        self.assertEqual(headers['accept-ranges'], 'bytes')
 
         # GET version in archive
         headers = self.response_headers.copy()

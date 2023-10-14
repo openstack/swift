@@ -133,6 +133,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertTrue(headers['last-modified'] is not None)
         self.assertTrue(headers['content-type'] is not None)
         self.assertEqual(headers['content-length'], str(len(content)))
+        self.assertEqual(headers['accept-ranges'], 'bytes')
 
         # HEAD Object
         status, headers, body = \
@@ -143,6 +144,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertTrue(headers['last-modified'] is not None)
         self.assertTrue('content-type' in headers)
         self.assertEqual(headers['content-length'], str(len(content)))
+        self.assertEqual(headers['accept-ranges'], 'bytes')
 
         # DELETE Object
         status, headers, body = \
@@ -671,6 +673,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
         self.assertEqual(headers['content-type'], 'text/plain')
+        self.assertTrue('accept-ranges' in headers)
 
     def test_get_object_response_content_language(self):
         obj = 'object'
@@ -682,6 +685,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
         self.assertEqual(headers['content-language'], 'en')
+        self.assertTrue('accept-ranges' in headers)
 
     def test_get_object_response_cache_control(self):
         obj = 'object'
@@ -692,6 +696,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('GET', self.bucket, obj, query=query)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
         self.assertEqual(headers['cache-control'], 'private')
 
     def test_get_object_response_content_disposition(self):
@@ -704,6 +709,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
         self.assertEqual(headers['content-disposition'], 'inline')
+        self.assertTrue('accept-ranges' in headers)
 
     def test_get_object_response_content_encoding(self):
         obj = 'object'
@@ -715,6 +721,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
         self.assertEqual(headers['content-encoding'], 'gzip')
+        self.assertTrue('accept-ranges' in headers)
 
     def test_get_object_range(self):
         obj = 'object'
@@ -730,6 +737,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 206)
         self.assertCommonResponseHeaders(headers)
         self.assertTrue('content-length' in headers)
+        self.assertTrue('accept-ranges' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('x-amz-meta-test' in headers)
         self.assertEqual('swift', headers['x-amz-meta-test'])
@@ -742,6 +750,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 206)
         self.assertCommonResponseHeaders(headers)
         self.assertTrue('content-length' in headers)
+        self.assertTrue('accept-ranges' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('x-amz-meta-test' in headers)
         self.assertEqual('swift', headers['x-amz-meta-test'])
@@ -752,6 +761,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 206)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('x-amz-meta-test' in headers)
@@ -765,6 +775,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 206)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
         self.assertIn('content-length', headers)
 
         self.assertIn('content-type', headers)  # sanity
@@ -816,6 +827,7 @@ class TestS3ApiObject(S3ApiBase):
         status, headers, body = \
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
+        self.assertTrue('accept-ranges' in headers)
         self.assertCommonResponseHeaders(headers)
 
     def test_get_object_if_unmodified_since(self):
@@ -831,7 +843,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
-
+        self.assertTrue('accept-ranges' in headers)
         # check we can use the last modified time from the listing...
         status, headers, body = \
             self.conn.make_request('GET', self.bucket)
@@ -847,11 +859,13 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
         headers = {'If-Modified-Since': header_datetime}
         status, headers, body = \
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 304)
+        self.assertTrue('accept-ranges' in headers)
         self.assertCommonResponseHeaders(headers)
 
     def test_get_object_if_match(self):
@@ -867,6 +881,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
     def test_get_object_if_none_match(self):
         obj = 'object'
@@ -876,6 +891,7 @@ class TestS3ApiObject(S3ApiBase):
         status, headers, body = \
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
+        self.assertTrue('accept-ranges' in headers)
         self.assertCommonResponseHeaders(headers)
 
     def test_head_object_range(self):
@@ -888,18 +904,21 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('HEAD', self.bucket, obj, headers=headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
         headers = {'Range': 'bytes=5-'}
         status, headers, body = \
             self.conn.make_request('HEAD', self.bucket, obj, headers=headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
         headers = {'Range': 'bytes=-5'}
         status, headers, body = \
             self.conn.make_request('HEAD', self.bucket, obj, headers=headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
     def test_head_object_if_modified_since(self):
         obj = 'object'
@@ -914,6 +933,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('HEAD', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
     def test_head_object_if_unmodified_since(self):
         obj = 'object'
@@ -928,6 +948,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('HEAD', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
     def test_head_object_if_match(self):
         obj = 'object'
@@ -942,6 +963,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('HEAD', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
     def test_head_object_if_none_match(self):
         obj = 'object'
@@ -952,6 +974,7 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('HEAD', self.bucket, obj, headers=headers)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
+        self.assertTrue('accept-ranges' in headers)
 
 
 class TestS3ApiObjectSigV4(TestS3ApiObject, SigV4Mixin):
