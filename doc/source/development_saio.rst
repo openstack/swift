@@ -287,7 +287,7 @@ Getting the code
 
 #. Check out the python-swiftclient repo::
 
-      cd $HOME; git clone https://github.com/openstack/python-swiftclient.git
+      cd $HOME; git clone https://opendev.org/openstack/python-swiftclient.git
 
 #. Build a development installation of python-swiftclient::
 
