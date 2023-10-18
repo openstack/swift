@@ -517,6 +517,48 @@ class TestSharder(BaseTestSharder):
         do_test('warning')
         do_test('error')
 
+    def test_periodic_warning(self):
+        now = [time.time()]
+
+        def mock_time():
+            return now[0]
+
+        with mock.patch('swift.container.sharder.time.time', mock_time):
+            with self._mock_sharder() as sharder:
+                sharder.periodic_warnings_interval = 5
+                broker1 = self._make_broker(container='c1')
+                broker2 = self._make_broker(container='c2')
+                for i in range(5):
+                    sharder.periodic_warning(broker1, 'periodic warning 1')
+                    sharder.periodic_warning(broker1, 'periodic warning 1a')
+                    sharder.periodic_warning(broker2, 'periodic warning 2')
+                    now[0] += 1
+                sharder.warning(broker1, 'normal warning')
+                sharder.periodic_warning(broker1, 'periodic warning 1')
+                sharder.periodic_warning(broker1, 'periodic warning 1a')
+                sharder.periodic_warning(broker2, 'periodic warning 2')
+                sharder.warning(broker1, 'normal warning')
+                for i in range(10):
+                    sharder.periodic_warning(broker1, 'periodic warning 1')
+                    sharder.periodic_warning(broker1, 'periodic warning 1a')
+                    sharder.periodic_warning(broker2, 'periodic warning 2')
+                    now[0] += 1
+        lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(11, len(lines))
+        self.assertEqual(
+            ['periodic warning 1, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 1a, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 2, path: a/c2, db: %s' % broker2.db_file,
+             'normal warning, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 1, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 1a, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 2, path: a/c2, db: %s' % broker2.db_file,
+             'normal warning, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 1, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 1a, path: a/c1, db: %s' % broker1.db_file,
+             'periodic warning 2, path: a/c2, db: %s' % broker2.db_file],
+            lines)
+
     def _assert_stats(self, expected, sharder, category):
         # assertEqual doesn't work with a stats defaultdict so copy to a dict
         # before comparing
