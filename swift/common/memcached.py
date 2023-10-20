@@ -245,6 +245,13 @@ class MemcacheRing(object):
     def memcache_servers(self):
         return list(self._client_cache.keys())
 
+    def _log_error(self, server, cmd, action, msg):
+        self.logger.error(
+            "Error %(action)s to memcached: %(server)s"
+            ": with key_prefix %(key_prefix)s, method %(method)s: %(msg)s",
+            {'action': action, 'server': server, 'key_prefix': cmd.key_prefix,
+             'method': cmd.method, 'msg': msg})
+
     """
     Handles exceptions.
 
@@ -367,7 +374,8 @@ class MemcacheRing(object):
                 self._exception_occurred(server, e, cmd, pool_start_time,
                                          action='connecting', sock=sock)
         if not any_yielded:
-            self.logger.error('All memcached servers error-limited')
+            self._log_error('ALL', cmd, 'connecting',
+                            'All memcached servers error-limited')
 
     def _return_conn(self, server, fp, sock):
         """Returns a server connection to the pool."""
@@ -404,6 +412,14 @@ class MemcacheRing(object):
         elif not isinstance(value, bytes):
             value = str(value).encode('utf-8')
 
+        if 0 <= self.item_size_warning_threshold <= len(value):
+            self.logger.warning(
+                "Item size larger than warning threshold: "
+                "%d (%s) >= %d (%s)", len(value),
+                human_readable(len(value)),
+                self.item_size_warning_threshold,
+                human_readable(self.item_size_warning_threshold))
+
         for (server, fp, sock) in self._get_conns(cmd):
             conn_start_time = tm.time()
             try:
@@ -414,17 +430,7 @@ class MemcacheRing(object):
                     if msg != b'STORED':
                         if not six.PY2:
                             msg = msg.decode('ascii')
-                        self.logger.error(
-                            "Error setting value in memcached: "
-                            "%(server)s: %(msg)s",
-                            {'server': server, 'msg': msg})
-                    if 0 <= self.item_size_warning_threshold <= len(value):
-                        self.logger.warning(
-                            "Item size larger than warning threshold: "
-                            "%d (%s) >= %d (%s)", len(value),
-                            human_readable(len(value)),
-                            self.item_size_warning_threshold,
-                            human_readable(self.item_size_warning_threshold))
+                        raise MemcacheConnectionError('failed set: %s' % msg)
                     self._return_conn(server, fp, sock)
                     return
             except (Exception, Timeout) as e:
