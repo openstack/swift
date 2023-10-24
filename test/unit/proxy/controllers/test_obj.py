@@ -434,6 +434,67 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 204)
 
+    def test_object_DELETE_backend_update_container_ip_default(self):
+        self.policy.object_ring = FakeRing(separate_replication=True)
+        self.app.container_ring = FakeRing(separate_replication=True)
+        # sanity, devs have different ip & replication_ip
+        for ring in (self.policy.object_ring, self.app.container_ring):
+            for dev in ring.devs:
+                self.assertNotEqual(dev['ip'], dev['replication_ip'])
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        codes = [204] * self.replicas()
+        with mocked_http_conn(*codes) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
+        # sanity, object hosts use node ip/port
+        object_hosts = {'%(ip)s:%(port)s' % req for req in log.requests}
+        object_ring = self.app.get_object_ring(int(self.policy))
+        part, object_nodes = object_ring.get_nodes('a', 'c', 'o')
+        expected_object_hosts = {'%(ip)s:%(port)s' % n for n in object_nodes}
+        self.assertEqual(object_hosts, expected_object_hosts)
+
+        # container hosts use node ip/port
+        container_hosts = {req['headers']['x-container-host']
+                           for req in log.requests}
+        part, container_nodes = self.app.container_ring.get_nodes('a', 'c')
+        expected_container_hosts = {'%(ip)s:%(port)s' % n
+                                    for n in container_nodes}
+        self.assertEqual(container_hosts, expected_container_hosts)
+
+    def test_repl_object_DELETE_backend_update_container_repl_ip(self):
+        self.policy.object_ring = FakeRing(separate_replication=True)
+        self.app.container_ring = FakeRing(separate_replication=True)
+        # sanity, devs have different ip & replication_ip
+        for ring in (self.policy.object_ring, self.app.container_ring):
+            for dev in ring.devs:
+                self.assertNotEqual(dev['ip'], dev['replication_ip'])
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='DELETE', headers={
+                'x-backend-use-replication-network': 'true'})
+        codes = [204] * self.replicas()
+        with mocked_http_conn(*codes) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
+        # sanity, object hosts use node replication ip/port
+        object_hosts = {'%(ip)s:%(port)s' % req for req in log.requests}
+        object_ring = self.app.get_object_ring(int(self.policy))
+        part, object_nodes = object_ring.get_nodes('a', 'c', 'o')
+        expected_object_hosts = {
+            '%(replication_ip)s:%(replication_port)s' % n
+            for n in object_nodes}
+        self.assertEqual(object_hosts, expected_object_hosts)
+
+        # container hosts use node replication ip/port
+        container_hosts = {req['headers']['x-container-host']
+                           for req in log.requests}
+        part, container_nodes = self.app.container_ring.get_nodes('a', 'c')
+        expected_container_hosts = {
+            '%(replication_ip)s:%(replication_port)s' % n
+            for n in container_nodes}
+        self.assertEqual(container_hosts, expected_container_hosts)
+
     def test_DELETE_missing_one(self):
         # Obviously this test doesn't work if we're testing 1 replica.
         # In that case, we don't have any failovers to check.
