@@ -7087,13 +7087,13 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
 
     def test_iter_bytes_from_response_part_read_timeout(self):
         part = FileLikeIter([b'some', b'thing'])
-        self.app.recoverable_node_timeout = 0.05
-        self.app.client_timeout = 0.8
         it = self.getter._iter_bytes_from_response_part(part, nbytes=9)
+        exc = ChunkReadTimeout()
+        # set this after __init__ to keep it off the eventlet scheduler
+        exc.seconds = 9
         with mock.patch.object(self.getter, '_find_source',
                                return_value=False):
-            with mock.patch.object(part, 'read',
-                                   side_effect=[b'some', ChunkReadTimeout(9)]):
+            with mock.patch.object(part, 'read', side_effect=[b'some', exc]):
                 with self.assertRaises(ChunkReadTimeout) as cm:
                     b''.join(it)
         self.assertEqual('9 seconds', str(cm.exception))
