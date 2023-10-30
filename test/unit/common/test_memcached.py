@@ -410,16 +410,50 @@ class TestMemcached(unittest.TestCase):
         self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
 
     def test_set_error(self):
-        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
-                                                 logger=self.logger)
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211'], logger=self.logger,
+            item_size_warning_threshold=1)
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
-        memcache_client.set('too-big', [1, 2, 3])
+        now = time.time()
+        with patch('time.time', return_value=now):
+            memcache_client.set('too-big', [1, 2, 3])
         self.assertEqual(
             self.logger.get_lines_for_level('error'),
-            ['Error setting value in memcached: 1.2.3.4:11211: '
-             'SERVER_ERROR object too large for cache'])
+            ['Error talking to memcached: 1.2.3.4:11211: '
+             'with key_prefix too-big, method set, time_spent 0.0, '
+             'failed set: SERVER_ERROR object too large for cache'])
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warning_lines))
+        self.assertIn('Item size larger than warning threshold',
+                      warning_lines[0])
+        self.assertTrue(mock.close_called)
+
+    def test_set_error_raise_on_error(self):
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211'], logger=self.logger,
+            item_size_warning_threshold=1)
+        mock = MockMemcached()
+        memcache_client._client_cache[
+            '1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
+        now = time.time()
+
+        with self.assertRaises(MemcacheConnectionError) as cm:
+            with patch('time.time', return_value=now):
+                memcache_client.set('too-big', [1, 2, 3], raise_on_error=True)
+        self.assertIn("No memcached connections succeeded", str(cm.exception))
+        self.assertEqual(
+            self.logger.get_lines_for_level('error'),
+            ['Error talking to memcached: 1.2.3.4:11211: '
+             'with key_prefix too-big, method set, time_spent 0.0, '
+             'failed set: SERVER_ERROR object too large for cache'])
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warning_lines))
+        self.assertIn('Item size larger than warning threshold',
+                      warning_lines[0])
+        self.assertTrue(mock.close_called)
 
     def test_get_failed_connection_mid_request(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -620,7 +654,8 @@ class TestMemcached(unittest.TestCase):
             'with key_prefix some_key, method set, time_spent 0.0, '
             '[Errno 32] Broken pipe',
             'Error limiting server 1.2.3.4:11211',
-            'All memcached servers error-limited',
+            'Error connecting to memcached: ALL: with key_prefix some_key, '
+            'method set: All memcached servers error-limited',
         ])
         self.logger.clear()
 
@@ -628,14 +663,16 @@ class TestMemcached(unittest.TestCase):
         for _ in range(12):
             memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(self.logger.get_lines_for_level('error'), [
-            'All memcached servers error-limited',
+            'Error connecting to memcached: ALL: with key_prefix some_key, '
+            'method set: All memcached servers error-limited',
         ] * 12)
         self.logger.clear()
 
         # and get()s are all a "cache miss"
         self.assertIsNone(memcache_client.get('some_key'))
         self.assertEqual(self.logger.get_lines_for_level('error'), [
-            'All memcached servers error-limited',
+            'Error connecting to memcached: ALL: with key_prefix some_key, '
+            'method get: All memcached servers error-limited',
         ])
 
     def test_error_disabled(self):
@@ -752,7 +789,8 @@ class TestMemcached(unittest.TestCase):
             'with key_prefix some_key, method set, time_spent 0.0, '
             '[Errno 32] Broken pipe',
             'Error limiting server 1.2.3.5:11211',
-            'All memcached servers error-limited',
+            'Error connecting to memcached: ALL: with key_prefix some_key, '
+            'method set: All memcached servers error-limited',
         ])
 
         # with default error_limit_time of 60, one call per 6 secs, error limit
@@ -776,8 +814,8 @@ class TestMemcached(unittest.TestCase):
             'with key_prefix some_key, method set, time_spent 0.0, '
             '[Errno 32] Broken pipe',
             'Error limiting server 1.2.3.5:11211',
-            'All memcached servers error-limited',
-        ])
+            'Error connecting to memcached: ALL: with key_prefix some_key, '
+            'method set: All memcached servers error-limited'])
 
         # with error_limit_time of 70, one call per 6 secs, error_limit_count
         # of 11, 13th call triggers error limit
@@ -791,8 +829,8 @@ class TestMemcached(unittest.TestCase):
             'with key_prefix some_key, method set, time_spent 0.0, '
             '[Errno 32] Broken pipe',
             'Error limiting server 1.2.3.5:11211',
-            'All memcached servers error-limited',
-        ])
+            'Error connecting to memcached: ALL: with key_prefix some_key, '
+            'method set: All memcached servers error-limited'])
 
     def test_delete(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],

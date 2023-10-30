@@ -345,6 +345,25 @@ class BaseObjectController(Controller):
         # there will be only one shard range in the list if any
         return shard_ranges[0] if shard_ranges else None
 
+    def _cache_update_namespaces(self, memcache, cache_key, namespaces):
+        if not memcache:
+            return
+
+        self.logger.info(
+            'Caching updating shards for %s (%d shards)',
+            cache_key, len(namespaces.bounds))
+        try:
+            memcache.set(
+                cache_key, namespaces.bounds,
+                time=self.app.recheck_updating_shard_ranges,
+                raise_on_error=True)
+            cache_state = 'set'
+        except MemcacheConnectionError:
+            cache_state = 'set_error'
+        finally:
+            record_cache_op_metrics(self.logger, self.server_type.lower(),
+                                    'shard_updating', cache_state, None)
+
     def _get_update_shard(self, req, account, container, obj):
         """
         Find the appropriate shard range for an object update.
@@ -386,16 +405,9 @@ class BaseObjectController(Controller):
             if shard_ranges:
                 # only store the list of namespace lower bounds and names into
                 # infocache and memcache.
-                cached_namespaces = NamespaceBoundList.parse(
-                    shard_ranges)
-                infocache[cache_key] = cached_namespaces
-                if memcache:
-                    self.logger.info(
-                        'Caching updating shards for %s (%d shards)',
-                        cache_key, len(cached_namespaces.bounds))
-                    memcache.set(
-                        cache_key, cached_namespaces.bounds,
-                        time=self.app.recheck_updating_shard_ranges)
+                namespaces = NamespaceBoundList.parse(shard_ranges)
+                infocache[cache_key] = namespaces
+                self._cache_update_namespaces(memcache, cache_key, namespaces)
             update_shard = find_namespace(obj, shard_ranges or [])
         record_cache_op_metrics(
             self.logger, self.server_type.lower(), 'shard_updating',

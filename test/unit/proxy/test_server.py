@@ -4431,7 +4431,8 @@ class TestReplicatedObjectController(
                               'account.info.infocache.hit': 2,
                               'container.info.cache.miss.200': 1,
                               'container.info.infocache.hit': 1,
-                              'object.shard_updating.cache.miss.200': 1},
+                              'object.shard_updating.cache.miss.200': 1,
+                              'object.shard_updating.cache.set': 1},
                              stats)
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
             info_lines = self.logger.get_lines_for_level('info')
@@ -4795,7 +4796,8 @@ class TestReplicatedObjectController(
                               'object.shard_updating.cache.hit': 1,
                               'container.info.cache.hit': 1,
                               'account.info.cache.hit': 1,
-                              'object.shard_updating.cache.skip.200': 1},
+                              'object.shard_updating.cache.skip.200': 1,
+                              'object.shard_updating.cache.set': 1},
                              stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
@@ -4865,7 +4867,99 @@ class TestReplicatedObjectController(
                 'container.info.infocache.hit': 3,
                 'object.shard_updating.cache.skip.200': 1,
                 'object.shard_updating.cache.hit': 1,
-                'object.shard_updating.cache.error.200': 1})
+                'object.shard_updating.cache.error.200': 1,
+                'object.shard_updating.cache.set': 2
+            })
+
+        do_test('POST', 'sharding')
+        do_test('POST', 'sharded')
+        do_test('DELETE', 'sharding')
+        do_test('DELETE', 'sharded')
+        do_test('PUT', 'sharding')
+        do_test('PUT', 'sharded')
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', object_ring=FakeRing()),
+    ])
+    def test_backend_headers_update_shard_container_cache_set_error(self):
+        # verify that backend container update is directed to the shard
+        # container despite memcache set error
+        # reset the router post patch_policies
+        self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
+        self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+        self.app.recheck_updating_shard_ranges = 3600
+        self.app.container_updating_shard_ranges_skip_cache = 0.001
+
+        def do_test(method, sharding_state):
+            self.app.logger.clear()  # clean capture state
+            # simulate memcache error when setting updating namespaces;
+            # expect 4 memcache sets: account info, container info, container
+            # info again from namespaces GET subrequest, namespaces
+            cache = FakeMemcache(error_on_set=[False, False, False, True])
+            req = Request.blank(
+                '/v1/a/c/o', {'swift.cache': cache},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+            # acct HEAD, cont HEAD, cont shard GET, obj POSTs
+            status_codes = (200, 200, 200, 202, 202, 202)
+            resp_headers = {'X-Backend-Storage-Policy-Index': 1,
+                            'x-backend-sharding-state': sharding_state,
+                            'X-Backend-Record-Type': 'shard'}
+            shard_ranges = [
+                utils.ShardRange(
+                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                utils.ShardRange(
+                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                utils.ShardRange(
+                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+            ]
+            body = json.dumps([
+                dict(shard_range)
+                for shard_range in shard_ranges]).encode('ascii')
+            with mock.patch('random.random', return_value=0), \
+                mocked_http_conn(*status_codes, headers=resp_headers,
+                                 body=body) as fake_conn:
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 202)
+
+            stats = self.app.logger.statsd_client.get_increment_counts()
+            self.assertEqual({'account.info.cache.miss.200': 1,
+                              'account.info.infocache.hit': 2,
+                              'container.info.cache.miss.200': 1,
+                              'container.info.infocache.hit': 1,
+                              'object.shard_updating.cache.skip.200': 1,
+                              'object.shard_updating.cache.set_error': 1},
+                             stats)
+            # verify statsd prefix is not mutated
+            self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+            # sanity check: namespaces not in cache
+            cache_key = 'shard-updating-v2/a/c'
+            self.assertNotIn(cache_key, req.environ['swift.cache'].store)
+
+            # make sure backend requests included expected container headers
+            container_headers = {}
+            for backend_request in fake_conn.requests[3:]:
+                req_headers = backend_request['headers']
+                device = req_headers['x-container-device']
+                container_headers[device] = req_headers['x-container-host']
+                expectations = {
+                    'method': method,
+                    'path': '/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Host': 'localhost:80',
+                        'Referer': '%s http://localhost/v1/a/c/o' % method,
+                        'X-Backend-Storage-Policy-Index': '1',
+                        'X-Backend-Quoted-Container-Path': shard_ranges[1].name
+                    },
+                }
+                self._check_request(backend_request, **expectations)
+
+            expected = {}
+            for i, device in enumerate(['sda', 'sdb', 'sdc']):
+                expected[device] = '10.0.0.%d:100%d' % (i, i)
+            self.assertEqual(container_headers, expected)
 
         do_test('POST', 'sharding')
         do_test('POST', 'sharded')
