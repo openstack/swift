@@ -1306,87 +1306,6 @@ class TestFuncs(BaseTest):
         self.assertEqual(resp.status, '404 Not Found')
         self.assertEqual(resp.body, b'Custom body')
 
-    def test_range_fast_forward(self):
-        req = Request.blank('/')
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {})
-        handler.fast_forward(50)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=50-')
-
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {'Range': 'bytes=23-50'})
-        handler.fast_forward(20)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=43-50')
-        self.assertRaises(HTTPException,
-                          handler.fast_forward, 80)
-        self.assertRaises(exceptions.RangeAlreadyComplete,
-                          handler.fast_forward, 8)
-
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {'Range': 'bytes=23-'})
-        handler.fast_forward(20)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=43-')
-
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {'Range': 'bytes=-100'})
-        handler.fast_forward(20)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=-80')
-        self.assertRaises(HTTPException,
-                          handler.fast_forward, 100)
-        self.assertRaises(exceptions.RangeAlreadyComplete,
-                          handler.fast_forward, 80)
-
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {'Range': 'bytes=0-0'})
-        self.assertRaises(exceptions.RangeAlreadyComplete,
-                          handler.fast_forward, 1)
-
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {'Range': 'bytes=23-',
-             'X-Backend-Ignore-Range-If-Metadata-Present':
-             'X-Static-Large-Object'})
-        handler.fast_forward(20)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=43-')
-        self.assertNotIn('X-Backend-Ignore-Range-If-Metadata-Present',
-                         handler.backend_headers)
-
-    def test_range_fast_forward_after_data_timeout(self):
-        req = Request.blank('/')
-
-        # We get a 200 and learn that it's a 1000-byte object, but receive 0
-        # bytes of data, so then we get a new node, fast_forward(0), and
-        # send out a new request. That new request must be for all 1000
-        # bytes.
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {})
-        handler.learn_size_from_content_range(0, 999, 1000)
-        handler.fast_forward(0)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-999')
-
-        # Same story as above, but a 1-byte object so we can have our byte
-        # indices be 0.
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {})
-        handler.learn_size_from_content_range(0, 0, 1)
-        handler.fast_forward(0)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-0')
-
-        # last 100 bytes
-        handler = GetOrHeadHandler(
-            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
-            {'Range': 'bytes=-100'})
-        handler.learn_size_from_content_range(900, 999, 1000)
-        handler.fast_forward(0)
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=900-999')
-
     def test_transfer_headers_with_sysmeta(self):
         base = Controller(self.app)
         good_hdrs = {'x-base-sysmeta-foo': 'ok',
@@ -1517,41 +1436,6 @@ class TestFuncs(BaseTest):
             self.assertIn(k, dst_headers)
             self.assertEqual(v, dst_headers[k])
         self.assertEqual('', dst_headers['Referer'])
-
-    def test_disconnected_logging(self):
-        self.app.logger = mock.Mock()
-        req = Request.blank('/v1/a/c/o')
-        headers = {'content-type': 'text/plain'}
-        source = FakeSource([], headers=headers, body=b'the cake is a lie')
-
-        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
-        handler = GetOrHeadHandler(
-            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
-            'some-path', {})
-
-        def mock_find_source():
-            handler.source = GetterSource(self.app, source, node)
-            return True
-
-        with mock.patch.object(handler, '_find_source',
-                               mock_find_source):
-            resp = handler.get_working_response(req)
-            resp.app_iter.close()
-        self.app.logger.info.assert_called_once_with(
-            'Client disconnected on read of %r', 'some-path')
-
-        self.app.logger = mock.Mock()
-        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
-        handler = GetOrHeadHandler(
-            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
-            None, {})
-
-        with mock.patch.object(handler, '_find_source',
-                               mock_find_source):
-            resp = handler.get_working_response(req)
-            next(resp.app_iter)
-            resp.app_iter.close()
-        self.app.logger.warning.assert_not_called()
 
     def test_bytes_to_skip(self):
         # if you start at the beginning, skip nothing
@@ -1784,3 +1668,122 @@ class TestGetterSource(unittest.TestCase):
         src.resp.nuke_from_orbit = mock.MagicMock()
         src.close()
         src.resp.nuke_from_orbit.assert_called_once_with()
+
+
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+class TestGetOrHeadHandler(BaseTest):
+    def test_disconnected_logging(self):
+        self.app.logger = mock.Mock()
+        req = Request.blank('/v1/a/c/o')
+        headers = {'content-type': 'text/plain'}
+        source = FakeSource([], headers=headers, body=b'the cake is a lie')
+
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            'some-path', {})
+
+        def mock_find_source():
+            handler.source = GetterSource(self.app, source, node)
+            return True
+
+        with mock.patch.object(handler, '_find_source',
+                               mock_find_source):
+            resp = handler.get_working_response(req)
+            resp.app_iter.close()
+        self.app.logger.info.assert_called_once_with(
+            'Client disconnected on read of %r', 'some-path')
+
+        self.app.logger = mock.Mock()
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            None, {})
+
+        with mock.patch.object(handler, '_find_source',
+                               mock_find_source):
+            resp = handler.get_working_response(req)
+            next(resp.app_iter)
+            resp.app_iter.close()
+        self.app.logger.warning.assert_not_called()
+
+    def test_range_fast_forward(self):
+        req = Request.blank('/')
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {})
+        handler.fast_forward(50)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=50-')
+
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=23-50'})
+        handler.fast_forward(20)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=43-50')
+        self.assertRaises(HTTPException,
+                          handler.fast_forward, 80)
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 8)
+
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=23-'})
+        handler.fast_forward(20)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=43-')
+
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=-100'})
+        handler.fast_forward(20)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=-80')
+        self.assertRaises(HTTPException,
+                          handler.fast_forward, 100)
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 80)
+
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=0-0'})
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 1)
+
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=23-',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+             'X-Static-Large-Object'})
+        handler.fast_forward(20)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=43-')
+        self.assertNotIn('X-Backend-Ignore-Range-If-Metadata-Present',
+                         handler.backend_headers)
+
+    def test_range_fast_forward_after_data_timeout(self):
+        req = Request.blank('/')
+
+        # We get a 200 and learn that it's a 1000-byte object, but receive 0
+        # bytes of data, so then we get a new node, fast_forward(0), and
+        # send out a new request. That new request must be for all 1000
+        # bytes.
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {})
+        handler.learn_size_from_content_range(0, 999, 1000)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-999')
+
+        # Same story as above, but a 1-byte object so we can have our byte
+        # indices be 0.
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {})
+        handler.learn_size_from_content_range(0, 0, 1)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-0')
+
+        # last 100 bytes
+        handler = GetOrHeadHandler(
+            self.app, req, 'test', Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=-100'})
+        handler.learn_size_from_content_range(900, 999, 1000)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=900-999')
