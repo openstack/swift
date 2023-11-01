@@ -28,7 +28,7 @@ class S3ApiHelperTestCase(unittest.TestCase):
         self.path = '/v1/AUTH_test/bucket'
 
     def _check_headers(self, swift, method, path, headers):
-        _, response_headers, _ = swift._responses[(method, path)]
+        _, response_headers, _ = swift._responses[(method, path)][0]
         self.assertEqual(headers, response_headers)
 
     def test_fake_swift_sysmeta(self):

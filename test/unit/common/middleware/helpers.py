@@ -150,17 +150,12 @@ class FakeSwift(object):
 
     def _find_response(self, method, path):
         path = normalize_path(path)
-        resp_or_resps = self._responses[(method, path)]
-        if isinstance(resp_or_resps, list):
-            resps = resp_or_resps
-            if len(resps) > 1:
-                resp = resps.pop(0)
-            else:
-                # we'll return the last registered response forever
-                resp = resps[0]
+        resps = self._responses[(method, path)]
+        if len(resps) == 1:
+            # we'll return the last registered response forever
+            return resps[0]
         else:
-            resp = resp_or_resps
-        return resp
+            return resps.pop(0)
 
     def _select_response(self, env, method, path):
         # in some cases we can borrow different registered response
@@ -336,20 +331,13 @@ class FakeSwift(object):
 
     def register(self, method, path, response_class, headers, body=b''):
         path = normalize_path(path)
-        # many historical tests assume this is "private" attribute is a simple
-        # map of tuple => tuple that they can go grubbing around in
-        self._responses[(method, path)] = (response_class, headers, body)
+        self._responses[(method, path)] = [(response_class, headers, body)]
 
     def register_next_response(self, method, path,
                                response_class, headers, body=b''):
-        path = normalize_path(path)
-        resp_key = (method, path)
+        resp_key = (method, normalize_path(path))
         next_resp = (response_class, headers, body)
-        # setdefault is weird; I hope this makes sense
-        maybe_resp = self._responses.setdefault(resp_key, [])
-        if isinstance(maybe_resp, tuple):
-            self._responses[resp_key] = [maybe_resp]
-        self._responses[resp_key].append(next_resp)
+        self._responses.setdefault(resp_key, []).append(next_resp)
 
 
 class FakeAppThatExcepts(object):

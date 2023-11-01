@@ -73,7 +73,7 @@ class FakeSwift(BaseFakeSwift):
         index = len(list(filter(None, split_path(path, 0, 4, True)[1:]))) - 1
         resource = resource_map[index]
         if (method, path) in self._responses:
-            old_headers = self._responses[(method, path)][1]
+            old_headers = self._responses[(method, path)][0][1]
             headers = headers.copy()
             for key, value in old_headers.items():
                 if is_sys_meta(resource, key) and key not in headers:
@@ -91,7 +91,7 @@ class FakeSwift(BaseFakeSwift):
         # register_unconditionally() keeps nothing.
         if body is not None and not isinstance(body, bytes):
             body = body.encode('utf8')
-        self._responses[(method, path)] = (response_class, headers, body)
+        self._responses[(method, path)] = [(response_class, headers, body)]
 
     def clear_calls(self):
         del self._calls[:]
