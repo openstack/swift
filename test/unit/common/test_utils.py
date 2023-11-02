@@ -7456,6 +7456,23 @@ class TestNamespace(unittest.TestCase):
         self.assertEqual(exp_upper, ns.upper_str)
         self.assertEqual(exp_upper + '\x00', ns.end_marker)
 
+    def test_unicode_name(self):
+        shard_bounds = ('', 'ham', 'pie', u'\N{SNOWMAN}', u'\U0001F334', '')
+        bounds = [(l, u) for l, u in zip(shard_bounds[:-1], shard_bounds[1:])]
+        namespaces = [utils.Namespace('.shards_a/c_%s' % upper, lower, upper)
+                      for lower, upper in bounds]
+        if six.PY2:
+            exp_bounds = [(l.encode('utf8'), u.encode('utf8'))
+                          for l, u in bounds]
+        else:
+            exp_bounds = bounds
+        for i in range(len(exp_bounds)):
+            self.assertEqual(namespaces[i].name,
+                             '.shards_a/c_%s' % exp_bounds[i][1])
+            self.assertEqual(namespaces[i].lower_str, exp_bounds[i][0])
+
+            self.assertEqual(namespaces[i].upper_str, exp_bounds[i][1])
+
     def test_entire_namespace(self):
         # test entire range (no boundaries)
         entire = utils.Namespace('a/test', None, None)
@@ -8026,6 +8043,55 @@ class TestShardRange(unittest.TestCase):
     def test_to_from_dict(self):
         self._check_to_from_dict('l', 'u')
         self._check_to_from_dict('', '')
+
+    def _check_name_account_container(self, sr, exp_name):
+        # check that the name, account, container properties are consistent
+        exp_account, exp_container = exp_name.split('/')
+        if six.PY2:
+            self.assertEqual(exp_name.encode('utf8'), sr.name)
+            self.assertEqual(exp_account.encode('utf8'), sr.account)
+            self.assertEqual(exp_container.encode('utf8'), sr.container)
+        else:
+            self.assertEqual(exp_name, sr.name)
+            self.assertEqual(exp_account, sr.account)
+            self.assertEqual(exp_container, sr.container)
+
+    def test_name(self):
+        # constructor
+        path = 'a/c'
+        sr = utils.ShardRange(path, 0, 'l', 'u')
+        self._check_name_account_container(sr, path)
+        # name setter
+        path = 'a2/c2'
+        sr.name = path
+        self._check_name_account_container(sr, path)
+
+        # constructor
+        path = u'\u1234a/\n{SNOWMAN}'
+        sr = utils.ShardRange(path, 0, 'l', 'u')
+        self._check_name_account_container(sr, path)
+        # name setter
+        path = u'\n{SNOWMAN}/\u1234c'
+        sr.name = path
+        self._check_name_account_container(sr, path)
+
+    def test_account(self):
+        path = 'a/c'
+        sr = utils.ShardRange(path, 0, 'l', 'u')
+        self._check_name_account_container(sr, path)
+        sr.account = 'a2'
+        self._check_name_account_container(sr, 'a2/c')
+        sr.account = u'\n{SNOWMAN}'
+        self._check_name_account_container(sr, u'\n{SNOWMAN}/c')
+
+    def test_container(self):
+        path = 'a/c'
+        sr = utils.ShardRange(path, 0, 'l', 'u')
+        self._check_name_account_container(sr, path)
+        sr.container = 'c2'
+        self._check_name_account_container(sr, 'a/c2')
+        sr.container = u'\n{SNOWMAN}'
+        self._check_name_account_container(sr, u'a/\n{SNOWMAN}')
 
     def test_timestamp_setter(self):
         ts_1 = next(self.ts_iter)

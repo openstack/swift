@@ -4546,7 +4546,7 @@ class Namespace(object):
     :param upper: the upper bound of object names contained in the namespace;
         the upper bound *is* included in the namespace.
     """
-    __slots__ = ('_lower', '_upper', 'name')
+    __slots__ = ('_lower', '_upper', '_name')
 
     @functools.total_ordering
     class MaxBound(NamespaceOuterBound):
@@ -4640,6 +4640,14 @@ class Namespace(object):
                 isinstance(bound, six.binary_type)):
             raise TypeError('must be a string type')
         return self._encode(bound)
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, path):
+        self._name = self._encode(path)
 
     @property
     def lower(self):
@@ -5024,7 +5032,7 @@ class ShardRange(Namespace):
     CLEAVING_STATES = SHRINKING_STATES + SHARDING_STATES
 
     __slots__ = (
-        'account', 'container',
+        '_account', '_container',
         '_timestamp', '_meta_timestamp', '_state_timestamp', '_epoch',
         '_deleted', '_state', '_count', '_bytes',
         '_tombstones', '_reported')
@@ -5034,13 +5042,13 @@ class ShardRange(Namespace):
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=False, state=None, state_timestamp=None, epoch=None,
                  reported=False, tombstones=-1, **kwargs):
+        self._account = self._container = None
         super(ShardRange, self).__init__(name=name, lower=lower, upper=upper)
-        self.account = self.container = self._timestamp = \
-            self._meta_timestamp = self._state_timestamp = self._epoch = None
+        self._timestamp = self._meta_timestamp = self._state_timestamp = \
+            self._epoch = None
         self._deleted = False
         self._state = None
 
-        self.name = name
         self.timestamp = timestamp
         self.deleted = deleted
         self.object_count = object_count
@@ -5198,17 +5206,33 @@ class ShardRange(Namespace):
         return Timestamp(timestamp)
 
     @property
+    def account(self):
+        return self._account
+
+    @account.setter
+    def account(self, value):
+        self._account = self._encode(value)
+
+    @property
+    def container(self):
+        return self._container
+
+    @container.setter
+    def container(self, value):
+        self._container = self._encode(value)
+
+    @property
     def name(self):
         return '%s/%s' % (self.account, self.container)
 
     @name.setter
-    def name(self, path):
-        path = self._encode(path)
-        if not path or len(path.split('/')) != 2 or not all(path.split('/')):
+    def name(self, name):
+        name = self._encode(name)
+        if not name or len(name.split('/')) != 2 or not all(name.split('/')):
             raise ValueError(
                 "Name must be of the form '<account>/<container>', got %r" %
-                path)
-        self.account, self.container = path.split('/')
+                name)
+        self._account, self._container = name.split('/')
 
     @property
     def timestamp(self):
