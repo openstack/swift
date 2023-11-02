@@ -40,7 +40,7 @@ else:
 import swift
 from swift.common import utils, swob, exceptions
 from swift.common.exceptions import ChunkWriteTimeout, ShortReadError, \
-    ChunkReadTimeout
+    ChunkReadTimeout, RangeAlreadyComplete
 from swift.common.utils import Timestamp, list_from_csv, md5, FileLikeIter, \
     ShardRange, Namespace, NamespaceBoundList
 from swift.proxy import server as proxy_server
@@ -1864,6 +1864,73 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.assertEqual(3, len(error_lines))
         for line in error_lines:
             self.assertIn('Trying to read object during GET ', line)
+
+    def test_GET_unable_to_resume(self):
+        self.app.recoverable_node_timeout = 0.01
+        self.app.client_timeout = 0.1
+        self.app.object_chunk_size = 10
+        resp_body = b'length 8'
+        etag = md5(resp_body, usedforsecurity=False).hexdigest()
+        headers = {
+            'Etag': etag,
+            'Content-Type': b'plain/text',
+            'Content-Length': len(resp_body),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+        }
+
+        # make all responses slow...
+        responses = [
+            StubResponse(200, resp_body, headers, slowdown=0.1),
+            StubResponse(200, resp_body, headers, slowdown=0.1),
+            StubResponse(200, resp_body, headers, slowdown=0.1),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(get_response):
+            resp = req.get_response(self.app)
+            with self.assertRaises(ChunkReadTimeout):
+                _ = resp.body
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(etag, resp.headers.get('ETag'))
+
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertEqual(3, len(error_lines))
+        for line in error_lines[:3]:
+            self.assertIn('Trying to read object during GET', line)
+
+    def test_GET_newest_will_not_resume(self):
+        self.app.recoverable_node_timeout = 0.01
+        self.app.client_timeout = 0.1
+        self.app.object_chunk_size = 10
+        resp_body = b'length 8'
+        etag = md5(resp_body, usedforsecurity=False).hexdigest()
+        headers = {
+            'Etag': etag,
+            'Content-Type': b'plain/text',
+            'Content-Length': len(resp_body),
+            'X-Timestamp': Timestamp(self.ts()).normal,
+        }
+
+        # make all responses slow...
+        responses = [
+            StubResponse(200, resp_body, headers, slowdown=0.1),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o', headers={'X-Newest': 'true'})
+        with capture_http_requests(get_response):
+            resp = req.get_response(self.app)
+            with self.assertRaises(ChunkReadTimeout):
+                _ = resp.body
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(etag, resp.headers.get('ETag'))
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertEqual(0, len(error_lines))
 
     def test_GET_resuming_ignores_416(self):
         # verify that a resuming getter will not try to use the content of a
@@ -5511,7 +5578,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
 
-    def test_GET_read_timeout_fails(self):
+    def _do_test_GET_read_timeout_fast_forward_fails(self, error):
         segment_size = self.policy.ec_segment_size
         test_data = (b'test' * segment_size)[:-333]
         etag = md5(test_data).hexdigest()
@@ -5538,10 +5605,18 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                               headers=headers), \
                 mock.patch(
                     'swift.proxy.controllers.obj.ECFragGetter.fast_forward',
-                    side_effect=ValueError()):
+                    side_effect=error):
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 200)
             self.assertNotEqual(md5(resp.body).hexdigest(), etag)
+
+        for line in self.logger.logger.records['ERROR'] + \
+                self.logger.logger.records['WARNING']:
+            self.assertIn(req.headers['x-trans-id'], line)
+
+    def test_GET_read_timeout_fast_forward_fails(self):
+        self._do_test_GET_read_timeout_fast_forward_fails(ValueError())
+
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(2, len(error_lines))
         self.assertIn('Unable to fast forward', error_lines[0])
@@ -5551,9 +5626,21 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertIn(
             'Un-recoverable fragment rebuild. Only received 9/10 fragments',
             warning_lines[0])
-        for line in self.logger.logger.records['ERROR'] + \
-                self.logger.logger.records['WARNING']:
-            self.assertIn(req.headers['x-trans-id'], line)
+
+    def test_GET_read_timeout_fast_forward_range_complete(self):
+        self._do_test_GET_read_timeout_fast_forward_fails(
+            RangeAlreadyComplete())
+
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(0, len(error_lines))
+        # the test is a little bogus - presumably if the range was complete
+        # then the fragment would be ok to rebuild. But the test pretends range
+        # was complete without actually feeding the bytes to the getter...
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warning_lines))
+        self.assertIn(
+            'Un-recoverable fragment rebuild. Only received 9/10 fragments',
+            warning_lines[0])
 
     def test_GET_one_short_fragment_archive(self):
         # verify that a warning is logged when one fragment archive returns

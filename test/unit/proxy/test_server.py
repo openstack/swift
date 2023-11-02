@@ -5425,99 +5425,148 @@ class TestReplicatedObjectController(
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 201)
 
-    def test_node_read_timeout(self):
+    def _do_test_node_read_timeout(self, slow=None, etags=None):
+        # this helper gets as far as making the first backend request,
+        # returning 200, but the response body isn't read - callers read the
+        # body and trigger any resuming GETs.
+        object_ring = self.app.get_object_ring(None)
+        # there are only 3 devices so no handoff requests expected
+        self.assertEqual(3, len(object_ring.devs))
+        self.app.recoverable_node_timeout = 0.2
+
+        self.logger.clear()
+        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        self.app.update_request(req)
+
+        request_log = []
+
+        # we don't use mocked_http_conn because we return before the code_iter
+        # is empty and would get a "left over status" AssertionError
+        def capture_req(ipaddr, port, device, partition, method, path,
+                        headers=None, query_string=None):
+            request_log.append((method, path))
+
+        # account HEAD, container HEAD, obj GET x 3
+        set_http_connect(200, 200, 200, 200, 200, body=b'lalala',
+                         slow=slow, etags=etags, give_connect=capture_req)
+        resp = req.get_response(self.app)
+        self.assertEqual(200, resp.status_int)
+        # at this point we've only made the request to the first object
+        self.assertEqual([
+            ('HEAD', '/a'),
+            ('HEAD', '/a/c'),
+            ('GET', '/a/c/o'),
+        ], request_log)
+        return resp, request_log
+
+    def test_node_read_timeout_retry_three_time_out(self):
         with save_globals():
-            self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            object_ring = self.app.get_object_ring(None)
-            object_ring.get_nodes('account')
-            for dev in object_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-            self.app.update_request(req)
-            set_http_connect(200, 200, 200, slow=0.1)
-            req.sent_size = 0
-            resp = req.get_response(self.app)
-            got_exc = False
-            try:
-                resp.body
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertFalse(got_exc)
-            self.app.recoverable_node_timeout = 0.1
-            set_http_connect(200, 200, 200, slow=1.0)
-            resp = req.get_response(self.app)
+            # all obj nodes time out
+            resp, req_log = self._do_test_node_read_timeout(
+                slow=[0.0, 0.0, 1.0, 1.0, 1.0])
             with self.assertRaises(ChunkReadTimeout):
                 resp.body
+            # two nodes left to attempt resume, both timeout reading body
+            self.assertEqual([
+                ('GET', '/a/c/o'),
+                ('GET', '/a/c/o'),
+            ], req_log[3:])
+            error_lines = self.logger.get_lines_for_level('error')
+            self.assertEqual(3, len(error_lines))
+            for line in error_lines[:3]:
+                self.assertIn('Trying to read object during GET', line)
 
-    def test_node_read_timeout_retry(self):
+    def test_node_read_timeout_retry_only_first_time_out(self):
         with save_globals():
-            self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            object_ring = self.app.get_object_ring(None)
-            object_ring.get_nodes('account')
-            for dev in object_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            req = Request.blank('/v1/a/c/o', environ={
-                'REQUEST_METHOD': 'GET', 'swift.cache': FakeMemcache()})
-            self.app.update_request(req)
+            resp, req_log = self._do_test_node_read_timeout(
+                slow=[0, 0, 1.0])
+            self.assertEqual([], req_log[3:])  # sanity
+            # we get the body
+            self.assertEqual(resp.body, b'lalala')
+            # only one retry
+            self.assertEqual([
+                ('GET', '/a/c/o'),
+            ], req_log[3:])
+            error_lines = self.logger.get_lines_for_level('error')
+            self.assertEqual(1, len(error_lines))
+            self.assertIn('Trying to read object during GET', error_lines[0])
 
-            self.app.recoverable_node_timeout = 0.1
-            set_http_connect(200, 200, 200, slow=[1.0, 1.0, 1.0])
-            resp = req.get_response(self.app)
+    def test_node_read_timeout_retry_two_time_out(self):
+        with save_globals():
+            resp, req_log = self._do_test_node_read_timeout(
+                slow=[0, 0, 1.0, 1.0])
+            self.assertEqual([], req_log[3:])  # sanity
+            # first 2 obj nodes time out
+            self.assertEqual(resp.body, b'lalala')
+            # ... so two retries
+            self.assertEqual([
+                ('GET', '/a/c/o'),
+                ('GET', '/a/c/o'),
+            ], req_log[3:])
+            error_lines = self.logger.get_lines_for_level('error')
+            self.assertEqual(2, len(error_lines))
+            for line in error_lines[:2]:
+                self.assertIn('Trying to read object during GET', line)
+
+    def test_node_read_timeout_retry_first_two_time_out_etags_match(self):
+        with save_globals():
+            resp, req_log = self._do_test_node_read_timeout(
+                slow=[0, 0, 1.0, 1.0],
+                etags=['account', 'container', 'a', 'a', 'a'])
+            self.assertEqual([], req_log[3:])  # sanity
+            # we get the body
+            self.assertEqual(resp.body, b'lalala')
+            # this is the same as above test, but explicit etag match
+            self.assertEqual([
+                ('GET', '/a/c/o'),
+                ('GET', '/a/c/o'),
+            ], req_log[3:])
+            error_lines = self.logger.get_lines_for_level('error')
+            self.assertEqual(2, len(error_lines))
+            for line in error_lines[:2]:
+                self.assertIn('Trying to read object during GET', line)
+
+    def test_node_read_timeout_retry_one_time_out_one_etag_mismatch(self):
+        with save_globals():
+            resp, req_log = self._do_test_node_read_timeout(
+                slow=[0, 0, 1.0],
+                etags=['account', 'container', 'a', 'b', 'a'])
+            self.assertEqual([], req_log[3:])  # sanity
+            self.assertEqual(resp.body, b'lalala')
+            # N.B. even if you break the proxy to return second response, this
+            # header was sent with the original 200 ok
+            self.assertEqual(resp.etag, 'a')
+            # but we can know we got the right response because we had to retry
+            # twice because of etag
+            self.assertEqual([
+                ('GET', '/a/c/o'),
+                ('GET', '/a/c/o'),
+            ], req_log[3:])
+            error_lines = self.logger.get_lines_for_level('error')
+            # only one timeout error for the first source because the second
+            # source with wrong etag is not read
+            self.assertEqual(1, len(error_lines))
+            self.assertIn('Trying to read object during GET', error_lines[0])
+
+    def test_node_read_timeout_retry_one_time_out_two_etag_mismatch(self):
+        with save_globals():
+            resp, req_log = self._do_test_node_read_timeout(
+                slow=[0, 0, 1.0],
+                etags=['account', 'container', 'a', 'b', 'b'])
             with self.assertRaises(ChunkReadTimeout):
                 resp.body
-
-            set_http_connect(200, 200, 200, body=b'lalala',
-                             slow=[1.0, 1.0])
-            resp = req.get_response(self.app)
-            self.assertEqual(resp.body, b'lalala')
-
-            set_http_connect(200, 200, 200, body=b'lalala',
-                             slow=[1.0, 1.0], etags=['a', 'a', 'a'])
-            resp = req.get_response(self.app)
-            self.assertEqual(resp.body, b'lalala')
-
-            set_http_connect(200, 200, 200, body=b'lalala',
-                             slow=[1.0, 1.0], etags=['a', 'b', 'a'])
-            resp = req.get_response(self.app)
-            self.assertEqual(resp.body, b'lalala')
-
-            set_http_connect(200, 200, 200, body=b'lalala',
-                             slow=[1.0, 1.0], etags=['a', 'b', 'b'])
-            resp = req.get_response(self.app)
-            with self.assertRaises(ChunkReadTimeout):
-                resp.body
+            self.assertEqual([
+                ('GET', '/a/c/o'),
+                ('GET', '/a/c/o'),
+            ], req_log[3:])
+            error_lines = self.logger.get_lines_for_level('error')
+            # only one timeout error for the first source because the second
+            # and third sources with wrong etag are not read
+            self.assertEqual(1, len(error_lines))
+            self.assertIn('Trying to read object during GET', error_lines[0])
 
     def test_node_write_timeout(self):
         with save_globals():
-            self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            object_ring = self.app.get_object_ring(None)
-            object_ring.get_nodes('account')
-            for dev in object_ring.devs:
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '4',
@@ -11131,18 +11180,18 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(timestamp, timestamps[0])
             self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
 
-    def test_node_read_timeout_retry_to_container(self):
+    def test_node_read_timeout_no_retry_to_container(self):
         with save_globals():
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
             self.app.node_timeout = 0.1
-            set_http_connect(200, 200, 200, body='abcdef', slow=[1.0, 1.0])
+            # account HEAD, container GET
+            set_http_connect(200, 200, body='abcdef', slow=[0.0, 1.0])
             resp = req.get_response(self.app)
-            got_exc = False
-            try:
+            self.assertEqual(200, resp.status_int)
+            with self.assertRaises(ChunkReadTimeout):
                 resp.body
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertTrue(got_exc)
+            error_lines = self.app.logger.get_lines_for_level('error')
+            self.assertEqual(0, len(error_lines))
 
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
