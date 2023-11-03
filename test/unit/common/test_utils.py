@@ -4052,7 +4052,16 @@ cluster_dfw1 = http://dfw1.host/v1/
             m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
             m_sock.connect.assert_called_once_with('foobar')
             m_sock.sendall.assert_called_once_with(b'READY=1')
-            self.assertNotIn('NOTIFY_SOCKET', os.environ)
+            # Still there, so we can send STOPPING/RELOADING messages
+            self.assertIn('NOTIFY_SOCKET', os.environ)
+
+            m_socket.reset_mock()
+            m_sock.reset_mock()
+            logger = debug_logger()
+            utils.systemd_notify(logger, "RELOADING=1")
+            m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
+            m_sock.connect.assert_called_once_with('foobar')
+            m_sock.sendall.assert_called_once_with(b'RELOADING=1')
 
             # Abstract notification socket
             m_socket.reset_mock()
@@ -4062,7 +4071,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
             m_sock.connect.assert_called_once_with('\0foobar')
             m_sock.sendall.assert_called_once_with(b'READY=1')
-            self.assertNotIn('NOTIFY_SOCKET', os.environ)
+            self.assertIn('NOTIFY_SOCKET', os.environ)
 
         # Test logger with connection error
         m_sock = mock.Mock(connect=mock.Mock(side_effect=EnvironmentError),
@@ -4094,7 +4103,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             msg = sock.recv(512)
             sock.close()
             self.assertEqual(msg, b'READY=1')
-            self.assertNotIn('NOTIFY_SOCKET', os.environ)
+            self.assertIn('NOTIFY_SOCKET', os.environ)
 
         # test file socket address
         socket_path = os.path.join(tempdir, 'foobar')

@@ -976,6 +976,8 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
                 mock.patch.object(wsgi, 'run_server', _run_server), \
+                mock.patch(
+                    'swift.common.wsgi.systemd_notify') as mock_notify, \
                 mock.patch('swift.common.utils.eventlet') as _utils_evt:
             wsgi.run_wsgi('conf_file', 'app_section',
                           global_conf_callback=_global_conf_callback)
@@ -986,6 +988,9 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
                                                            socket=True,
                                                            select=True,
                                                            thread=True)
+        self.assertEqual(mock_notify.mock_calls, [
+            mock.call('logger', "STOPPING=1"),
+        ])
 
     def test_run_server_success(self):
         calls = defaultdict(int)
@@ -1008,6 +1013,8 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
                 mock.patch.object(wsgi, 'run_server'), \
+                mock.patch(
+                    'swift.common.wsgi.systemd_notify') as mock_notify, \
                 mock.patch('swift.common.utils.eventlet') as _utils_evt:
             rc = wsgi.run_wsgi('conf_file', 'app_section')
         self.assertEqual(calls['_initrp'], 1)
@@ -1017,6 +1024,9 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
                                                            socket=True,
                                                            select=True,
                                                            thread=True)
+        self.assertEqual(mock_notify.mock_calls, [
+            mock.call('logger', "STOPPING=1"),
+        ])
         # run_wsgi() no longer calls drop_privileges() in the parent process,
         # just clean_up_daemon_hygene()
         self.assertEqual([], _d_privs.mock_calls)
