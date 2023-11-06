@@ -45,6 +45,7 @@ Overview and Concepts
 
     api/object_api_v1_overview
     overview_architecture
+    overview_wsgi_management
     overview_ring
     overview_policies
     overview_reaper
