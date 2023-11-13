@@ -20,6 +20,7 @@ import json
 import time
 import unittest
 
+import mock
 from mock import patch
 
 import six
@@ -2254,9 +2255,6 @@ class TestSloHeadOldManifest(SloGETorHEADTestCase):
         expected_app_calls = [('HEAD', '/v1/AUTH_test/headtest/man')]
         if not self.modern_manifest_headers:
             expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
-            # XXX slo isn't draining the orig resp_iter after refetch
-            self.expected_unread_requests[
-                ('HEAD', '/v1/AUTH_test/headtest/man')] = 1
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_get_manifest_passthrough(self):
@@ -2301,9 +2299,6 @@ class TestSloHeadOldManifest(SloGETorHEADTestCase):
         if not self.modern_manifest_headers:
             expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
         self.assertEqual(self.app.calls, expected_app_calls)
-        # XXX swob isn't draining the backend resp_iter on conditional error
-        self.expected_unread_requests[
-            ('HEAD', '/v1/AUTH_test/headtest/man')] = 1
 
     def test_if_match_etag_not_matching(self):
         req = Request.blank(
@@ -2323,9 +2318,6 @@ class TestSloHeadOldManifest(SloGETorHEADTestCase):
         if not self.modern_manifest_headers:
             expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
         self.assertEqual(self.app.calls, expected_app_calls)
-        # XXX swob isn't draining the backend resp_iter on conditional error
-        self.expected_unread_requests[
-            ('HEAD', '/v1/AUTH_test/headtest/man')] = 1
 
     def test_if_none_match_etag_matching_with_override(self):
         req = Request.blank(
@@ -2349,9 +2341,6 @@ class TestSloHeadOldManifest(SloGETorHEADTestCase):
         if not self.modern_manifest_headers:
             expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
         self.assertEqual(self.app.calls, expected_app_calls)
-        # XXX swob isn't draining the backend resp_iter on conditional error
-        self.expected_unread_requests[
-            ('HEAD', '/v1/AUTH_test/headtest/man')] = 1
 
     def test_if_match_etag_not_matching_with_override(self):
         req = Request.blank(
@@ -2375,9 +2364,6 @@ class TestSloHeadOldManifest(SloGETorHEADTestCase):
         if not self.modern_manifest_headers:
             expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
         self.assertEqual(self.app.calls, expected_app_calls)
-        # XXX swob isn't draining the backend resp_iter on conditional error
-        self.expected_unread_requests[
-            ('HEAD', '/v1/AUTH_test/headtest/man')] = 1
 
     def test_head_manifest_is_efficient(self):
         req = Request.blank(
@@ -2402,9 +2388,6 @@ class TestSloHeadOldManifest(SloGETorHEADTestCase):
             # might do it anyway.
             expected_calls.append(
                 ('GET', '/v1/AUTH_test/gettest/manifest-abcd'))
-            # XXX slo isn't closing the orig resp_iter on refetch
-            self.expected_unread_requests[
-                ('HEAD', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
         self.assertEqual(self.app.calls, expected_calls)
 
 
@@ -2826,10 +2809,6 @@ class TestSloGetManifests(SloGETorHEADTestCase):
         self.assertIsNone(self.app.swift_sources[0])
         self.assertEqual(self.app.swift_sources[1:],
                          ['SLO'] * (len(self.app.swift_sources) - 1))
-        # XXX SegmntedIterable stops reading after the last byte of the last
-        # segment in app_iter_ranges
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')] = 1
 
     def test_multiple_ranges_including_suffix_get_manifest(self):
         req = Request.blank(
@@ -2890,10 +2869,6 @@ class TestSloGetManifests(SloGETorHEADTestCase):
             None,                          # b_10
             'bytes=0-2,14-',               # c_15
             None])                         # d_20
-        # XXX SegmntedIterable stops reading after the last byte of the last
-        # segment in app_iter_ranges
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')] = 1
 
 
 class TestSloGetOldManifests(TestSloGetManifests):
@@ -3052,9 +3027,6 @@ class TestOldSwiftWithRanges(SloGETorHEADTestCase):
         self.assertEqual('bytes=100000-199999', self.app.headers[0]['Range'])
         self.assertNotIn('Range', self.app.headers[1])
         self.assertEqual('bytes=100000-199999', self.app.headers[2]['Range'])
-        # XXX slo isn't draining the orig resp_iter after refetch
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/big_manifest')] = 1
 
     def test_old_swift_range_get_beyond_manifest_refetch_fails(self):
         # new swift would have ignored the range and got the whole
@@ -3078,10 +3050,6 @@ class TestOldSwiftWithRanges(SloGETorHEADTestCase):
             # retry the first one
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
-        # XXX slo isn't draining the orig resp_iter after refetch, and then
-        # when it sees 404 it closes that one too before returning an error.
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/big_manifest')] = 2
 
     def test_old_swift_range_get_beyond_manifest_refetch_finds_old(self):
         # new swift would have ignored the range and got the whole
@@ -3105,11 +3073,6 @@ class TestOldSwiftWithRanges(SloGETorHEADTestCase):
             # retry the first one
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
-        # XXX slo isn't draining the orig resp_iter after refetch, and then
-        # when it sees older data it closes that one too before returning an
-        # error.
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/big_manifest')] = 2
 
     def test_old_swift_range_get_beyond_manifest_refetch_small_non_slo(self):
         # new swift would have ignored the range and got the whole
@@ -3132,11 +3095,10 @@ class TestOldSwiftWithRanges(SloGETorHEADTestCase):
             # retry the first one
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
-        # XXX slo isn't draining the orig resp_iter after refetch, and then
-        # when it sees older data it closes that one too before returning an
-        # error.
+        # swob is converting the successful non-slo response to conditional
+        # error and closing our unconditionally refetched resp_iter
         self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/big_manifest')] = 2
+            ('GET', '/v1/AUTH_test/gettest/big_manifest')] = 1
 
     def test_old_swift_range_get_beyond_manifest_refetch_big_non_slo(self):
         # new swift would have ignored the range and got the whole
@@ -3162,9 +3124,6 @@ class TestOldSwiftWithRanges(SloGETorHEADTestCase):
             # retry the first one
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
-        # XXX slo isn't draining the orig resp_iter after refetch
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/big_manifest')] = 1
 
     def test_old_swift_range_get_beyond_manifest_refetch_tombstone(self):
         # new swift would have ignored the range and got the whole
@@ -3188,9 +3147,6 @@ class TestOldSwiftWithRanges(SloGETorHEADTestCase):
             # retry the first one
             ('GET', '/v1/AUTH_test/gettest/big_manifest'),
         ])
-        # XXX slo isn't draining the orig resp_iter after refetch
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/big_manifest')] = 1
 
     def test_old_swift_range_get_bogus_content_range(self):
         # Just a little paranoia; Swift currently sends back valid
@@ -3232,9 +3188,6 @@ class TestOldSwiftWithRanges(SloGETorHEADTestCase):
              ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
-        # XXX slo isn't draining the orig resp_iter after refetch
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
 
     def test_old_swift_range_get_includes_whole_range_manifest(self):
         # If the first range GET results in retrieval of the entire manifest
@@ -3387,10 +3340,6 @@ class TestSloRangeRequests(SloGETorHEADTestCase):
             headers={'Range': 'bytes=100-200'})
         status, headers, body = self.call_slo(req)
         self.assertEqual(status, '416 Requested Range Not Satisfiable')
-        # XXX it seems we validate the first segment before handing the
-        # resp_iter to swob; who decides it can't serve the given range.
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get')] = 1
 
     def test_get_segment_with_non_ascii_path(self):
         segment_body = u"a møøse once bit my sister".encode("utf-8")
@@ -4081,14 +4030,20 @@ class TestSloErrors(SloGETorHEADTestCase):
 
         self.assertEqual('200 OK', status)
         self.assertEqual(body, b'aaaaa')
-        if six.PY2:
-            error = "No JSON object could be decoded"
-        else:
-            error = "Expecting value: line 1 column 2 (char 1)"
-        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+        lines = self.slo.logger.get_lines_for_level('error')
+        self.assertEqual(lines, [
+            mock.ANY,
             'while fetching /v1/AUTH_test/gettest/manifest-abcd, '
             'JSON-decoding of submanifest /v1/AUTH_test/gettest/manifest-bc '
-            'failed with %s' % error
+            'failed with 500 Internal Error'
+        ])
+        self.assertIn(lines[0], [
+            # py2
+            'Unable to load SLO manifest: '
+            'No JSON object could be decoded',
+            # py3
+            'Unable to load SLO manifest: '
+            'Expecting value: line 1 column 2 (char 1)',
         ])
 
     def test_mismatched_etag(self):
@@ -4254,9 +4209,6 @@ class TestSloErrors(SloGETorHEADTestCase):
         if not self.modern_manifest_headers:
             expected_calls.append(
                 ('GET', '/v1/AUTH_test/gettest/manifest-badetag'))
-            # XXX slo isn't closing the orig resp_iter on refetch
-            self.expected_unread_requests[
-                ('HEAD', '/v1/AUTH_test/gettest/manifest-badetag')] = 1
         self.assertEqual(self.app.calls, expected_calls)
 
     def test_first_segment_mismatched_size(self):
@@ -4301,9 +4253,6 @@ class TestSloErrors(SloGETorHEADTestCase):
         if not self.modern_manifest_headers:
             expected_calls.append(
                 ('GET', '/v1/AUTH_test/gettest/manifest-badsize'))
-            # XXX slo isn't closing the orig resp_iter on refetch
-            self.expected_unread_requests[
-                ('HEAD', '/v1/AUTH_test/gettest/manifest-badsize')] = 1
         self.assertEqual(self.app.calls, expected_calls)
 
     @patch('swift.common.request_helpers.time')
@@ -4746,16 +4695,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             for headers in self.app.headers[1:]:
                 self.assertNotIn('If-Match', headers)
                 self.assertNotIn('X-Backend-Etag-Is-At', headers)
-        if self.modern_manifest_headers:
-            # XXX swob doesn't drain the resp_iter on conditional error
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
-        else:
-            # XXX it seems we validate the first segment before handing the
-            # resp_iter to swob; who decides it can't serve the given range.
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/gettest/a_5'
-                 '?multipart-manifest=get')] = 1
 
     def test_if_none_match_mismatches(self):
         req = Request.blank(
@@ -4800,9 +4739,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             expected_app_calls.append(
                 ('GET', '/v1/AUTH_test/gettest/manifest-abcd')
             )
-            # XXX slo isn't draining the orig resp_iter after refetch
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
         expected_app_calls.extend([
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
             ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
@@ -4849,9 +4785,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             for headers in self.app.headers[1:]:
                 self.assertNotIn('If-None-Match', headers)
                 self.assertNotIn('X-Backend-Etag-Is-At', headers)
-        # XXX swob doesn't drain the resp_iter on conditional error
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/c/manifest-alt')] = 1
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_if_none_match_matches_no_alternate_etag(self):
@@ -4891,10 +4824,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             self.expected_unread_requests[
                 ('GET', '/v1/AUTH_test/c/alt_00'
                  '?multipart-manifest=get')] = 1
-        else:
-            # XXX swob doesn't drain the resp_iter on conditional error
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/c/manifest-alt')] = 1
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_if_none_match_mismatches_alternate_etag(self):
@@ -4956,10 +4885,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
         self.assertEqual(self.app.calls, expected_app_calls)
         self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
                          'x-object-sysmeta-slo-etag')
-        if not self.modern_manifest_headers:
-            # XXX slo isn't closing the orig resp_iter on refetch
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
 
     def test_if_match_mismatches(self):
         req = Request.blank(
@@ -4997,9 +4922,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             for headers in self.app.headers[1:]:
                 self.assertNotIn('If-Match', headers)
                 self.assertNotIn('X-Backend-Etag-Is-At', headers)
-        # XXX swob doesn't drain the resp_iter on conditional error
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
 
     def test_if_match_mismatches_manifest_json_md5(self):
         req = Request.blank(
@@ -5028,10 +4950,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             # reading the remaining segments
             self.expected_unread_requests[('GET', '/v1/AUTH_test/gettest/a_5'
                                            '?multipart-manifest=get')] = 1
-        else:
-            # XXX swob doesn't drain the resp_iter on conditional error
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_if_match_matches_alternate_etag(self):
@@ -5078,9 +4996,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
         expected_app_calls = [('GET', '/v1/AUTH_test/c/manifest-alt')]
         self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
                          'X-Object-Sysmeta-Alt-Etag,x-object-sysmeta-slo-etag')
-        # XXX swob doesn't drain the resp_iter on conditional error
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/c/manifest-alt')] = 1
         if not self.modern_manifest_headers:
             expected_app_calls.extend([
                 # Needed to re-fetch because if-match can't find slo-etag
@@ -5328,9 +5243,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
         self.assertEqual(self.app.calls, expected_calls)
 
     def test_if_match_matches_alternate_etag_non_slo_after_refetch(self):
-        # XXX 2/250 tests requiring this header sounds like a bug
-        self.app._responses[('GET', '/v1/AUTH_test/c/manifest-alt')][1][
-            'X-Backend-Timestamp'] = '1234'
         self.app.register_next_response(
             'GET', '/v1/AUTH_test/c/manifest-alt',
             swob.HTTPOk, {'Content-Length': '25',
@@ -5351,10 +5263,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
         self.assertEqual('alt-object-etag', self.app.headers[0]['If-Match'])
         self.assertIn('X-Object-Sysmeta-Alt-Etag',
                       self.app.headers[0]['X-Backend-Etag-Is-At'])
-
-        # XXX swob doesn't drain the resp_iter on conditional error
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/c/manifest-alt')] = 1
 
         if self.modern_manifest_headers:
             # and since the response includes modern sysmeta, slo trusts the
@@ -5384,16 +5292,10 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             # wrapping middleware
             self.assertEqual('alt-object-etag',
                              headers['X-Object-Sysmeta-Alt-Etag'])
-            # XXX swob doesn't drain the resp_iter on conditional error
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/c/manifest-alt')] = 1
 
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_if_match_mismatches_alternate_etag_non_slo_after_refetch(self):
-        # XXX 2/~250 tests requiring this header sounds like a bug
-        self.app._responses[('GET', '/v1/AUTH_test/c/manifest-alt')][1][
-            'X-Backend-Timestamp'] = '1234'
         self.app.register_next_response(
             'GET', '/v1/AUTH_test/c/manifest-alt',
             swob.HTTPOk, {'Content-Length': '25',
@@ -5414,10 +5316,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
         self.assertEqual(md5hex('alt_1' * 5), self.app.headers[0]['If-Match'])
         self.assertIn('X-Object-Sysmeta-Alt-Etag',
                       self.app.headers[0]['X-Backend-Etag-Is-At'])
-
-        # XXX swob doesn't drain the resp_iter on conditional error
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/c/manifest-alt')] = 1
 
         if self.modern_manifest_headers:
             # and since the response includes modern sysmeta, slo trusts the
@@ -5450,7 +5348,7 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             # swob is converting the successful non-slo response to conditional
             # error and closing our unconditionally refetched resp_iter
             self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/c/manifest-alt')] += 1
+                ('GET', '/v1/AUTH_test/c/manifest-alt')] = 1
 
         self.assertEqual(self.app.calls, expected_app_calls)
 
@@ -5476,9 +5374,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             expected_app_calls.append(
                 ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
             )
-            # XXX the orig resp_iter doesn't get closed
-            self.expected_unread_requests[
-                ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
         # and then fetch the segments
         expected_app_calls.extend([
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
@@ -5515,9 +5410,6 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
         self.assertEqual(self.app.calls, expected_app_calls)
         self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
                          'x-object-sysmeta-slo-etag')
-        # XXX slo isn't closing the orig resp_iter on refetch
-        self.expected_unread_requests[
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd')] = 1
 
     def test_range_resume_download(self):
         req = Request.blank(
@@ -5592,9 +5484,32 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
                 'If-Modified-Since': 'Mon, 23 Oct 2023 10:05:32 GMT',
             })
         status, headers, body = self.call_slo(req)
-        # XXX see lp bug #2040178
-        self.assertEqual(status, '500 Internal Error')
-        self.assertEqual(b'Unable to load SLO manifest', body)
+        # nope, that was the last time it was changed
+        self.assertEqual(status, '304 Not Modified')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_last_modified_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_last_modified_json_md5)
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual('Mon, 23 Oct 2023 10:05:32 GMT',
+                         headers['Last-Modified'])
+        self.assertEqual(b'', body)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/c/manifest-last-modified'),
+        ]
+        if not self.modern_manifest_headers:
+            # N.B. legacy manifests must refetch for accurate Etag, and then we
+            # validate first segment before lettting swob return the error
+            expected_calls.extend([
+                ('GET', '/v1/AUTH_test/c/manifest-last-modified'),
+                ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ])
+            # we don't drain the segment's resp_iter if validation fails
+            self.expected_unread_requests[
+                ('GET', '/v1/AUTH_test/gettest/a_5'
+                 '?multipart-manifest=get')] = 1
+        self.assertEqual(self.app.calls, expected_calls)
 
     def test_if_modified_since_now(self):
         now = datetime.now()
@@ -5605,9 +5520,32 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
                 'If-Modified-Since': last_modified,
             })
         status, headers, body = self.call_slo(req)
-        # XXX see lp bug #2040178
-        self.assertEqual(status, '500 Internal Error')
-        self.assertEqual(b'Unable to load SLO manifest', body)
+        # nope, that was the last time it was changed
+        self.assertEqual(status, '304 Not Modified')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_last_modified_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_last_modified_json_md5)
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual('Mon, 23 Oct 2023 10:05:32 GMT',
+                         headers['Last-Modified'])
+        self.assertEqual(b'', body)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/c/manifest-last-modified'),
+        ]
+        if not self.modern_manifest_headers:
+            # N.B. legacy manifests must refetch for accurate Etag, and then we
+            # validate first segment before lettting swob return the error
+            expected_calls.extend([
+                ('GET', '/v1/AUTH_test/c/manifest-last-modified'),
+                ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ])
+            # we don't drain the segment's resp_iter if validation fails
+            self.expected_unread_requests[
+                ('GET', '/v1/AUTH_test/gettest/a_5'
+                 '?multipart-manifest=get')] = 1
+        self.assertEqual(self.app.calls, expected_calls)
 
     def test_if_unmodified_since_ancient_date(self):
         req = swob.Request.blank(
@@ -5616,9 +5554,32 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
                 'If-Unmodified-Since': 'Fri, 01 Feb 2012 20:38:36 GMT',
             })
         status, headers, body = self.call_slo(req)
-        # XXX see lp bug #2040178
-        self.assertEqual(status, '500 Internal Error')
-        self.assertEqual(b'Unable to load SLO manifest', body)
+        # oh it's *definately* been modified since then!
+        self.assertEqual(status, '412 Precondition Failed')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_last_modified_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_last_modified_json_md5)
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual('Mon, 23 Oct 2023 10:05:32 GMT',
+                         headers['Last-Modified'])
+        self.assertEqual(b'', body)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/c/manifest-last-modified'),
+        ]
+        if not self.modern_manifest_headers:
+            # N.B. legacy manifests must refetch for accurate Etag, and then we
+            # validate first segment before lettting swob return the error
+            expected_calls.extend([
+                ('GET', '/v1/AUTH_test/c/manifest-last-modified'),
+                ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ])
+            # we don't drain the segment's resp_iter if validation fails
+            self.expected_unread_requests[
+                ('GET', '/v1/AUTH_test/gettest/a_5'
+                 '?multipart-manifest=get')] = 1
+        self.assertEqual(self.app.calls, expected_calls)
 
     def test_if_unmodified_since_last_modified(self):
         req = swob.Request.blank(
@@ -5927,6 +5888,353 @@ class TestNonSloPassthrough(SloGETorHEADTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/rangetest/big'),
         ])
+
+
+class TestRespAttrs(unittest.TestCase):
+    def test_init_calculates_is_legacy(self):
+        attrs = slo.RespAttrs(True, 123456789.12345,
+                              'manifest-etag', 'slo-etag', 999)
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertIsInstance(attrs.timestamp, Timestamp)
+        self.assertEqual('manifest-etag', attrs.json_md5)
+        self.assertEqual('slo-etag', attrs.slo_etag)
+        self.assertEqual(999, attrs.slo_size)
+        # we gave it etag and size!
+        self.assertTrue(attrs._has_size_and_etag())
+        self.assertFalse(attrs.is_legacy)
+
+    def test_init_converts_timestamps_from_strings(self):
+        attrs = slo.RespAttrs(True, '123456789.12345',
+                              'manifest-etag', 'slo-etag', 999)
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertIsInstance(attrs.timestamp, Timestamp)
+        self.assertEqual('manifest-etag', attrs.json_md5)
+        self.assertEqual('slo-etag', attrs.slo_etag)
+        self.assertEqual(999, attrs.slo_size)
+        # we gave it etag and size!
+        self.assertTrue(attrs._has_size_and_etag())
+        self.assertFalse(attrs.is_legacy)
+
+    def test_default_types(self):
+        attrs = slo.RespAttrs(None, None, None, None, None)
+        # types are correct, values are default/place-holders
+        self.assertTrue(attrs.is_slo is False)  # not None!
+        self.assertEqual(0, attrs.timestamp)
+        self.assertIsInstance(attrs.timestamp, Timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        # we didn't provide etag & size
+        self.assertFalse(attrs._has_size_and_etag())
+        self.assertTrue(attrs.is_legacy)
+
+    def test_init_with_no_sysmeta(self):
+        now = Timestamp.now()
+        attrs = slo.RespAttrs(True, now.normal, None, None, None)
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(now, attrs.timestamp)
+        self.assertIsInstance(attrs.timestamp, Timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        # we didn't provide etag & size
+        self.assertFalse(attrs._has_size_and_etag())
+        self.assertTrue(attrs.is_legacy)
+
+    def test_init_with_no_sysmeta_offset(self):
+        now = Timestamp.now(offset=123)
+        attrs = slo.RespAttrs(True, now.internal, None, None, None)
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(now, attrs.timestamp)
+        self.assertIsInstance(attrs.timestamp, Timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        # we didn't provide etag & size
+        self.assertFalse(attrs._has_size_and_etag())
+        self.assertTrue(attrs.is_legacy)
+
+    def test_from_empty_headers(self):
+        attrs = slo.RespAttrs.from_headers([])
+        self.assertFalse(attrs.is_slo)
+        self.assertEqual(0, attrs.timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+    def test_from_only_timestamp(self):
+        now = Timestamp.now(offset=1)
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', now.internal),
+             ('X-Irrelevant', 'ignored')])
+        self.assertFalse(attrs.is_slo)
+        self.assertEqual(now, attrs.timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+    def test_legacy_slo_sysmeta(self):
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('Etag', 'manifest-etag'),
+             ('X-Static-lARGE-Object', 'yes')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('manifest-etag', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+    def test_partial_modern_sysmeta(self):
+        # missing slo etag
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('Etag', 'manifest-etag'),
+             ('X-Static-lARGE-Object', 'yes'),
+             ('x-object-sysmeta-slo-size', '1234')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('manifest-etag', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(1234, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+        # missing slo size
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('Etag', 'manifest-etag'),
+             ('X-Static-lARGE-Object', 'yes'),
+             ('x-object-sysmeta-slo-etag', 'slo-etag')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('manifest-etag', attrs.json_md5)
+        self.assertEqual('slo-etag', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+        # missing manifest etag
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('X-Static-lARGE-Object', 'yes'),
+             ('x-object-sysmeta-slo-size', '1234'),
+             ('x-object-sysmeta-slo-etag', 'slo-etag')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('slo-etag', attrs.slo_etag)
+        self.assertEqual(1234, attrs.slo_size)
+        # missing Etag might be some kind of bug, but it has all sysmeta
+        self.assertFalse(attrs.is_legacy)
+
+    def test_invalid_sysmeta(self):
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('X-Static-lARGE-Object', 'yes'),
+             ('x-object-sysmeta-slo-size', 'huge!')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('X-Static-lARGE-Object', 'yes'),
+             ('e-TAG', 'wrong!'),
+             ('x-object-sysmeta-slo-size', '')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+    def test_from_valid_sysmeta(self):
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('Etag', 'manifest-etag'),
+             ('X-Static-lARGE-Object', 'yes'),
+             ('x-object-sysmeta-slo-etag', 'slo-tag'),
+             ('x-object-sysmeta-slo-size', '1234')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('manifest-etag', attrs.json_md5)
+        self.assertEqual('slo-tag', attrs.slo_etag)
+        self.assertEqual(1234, attrs.slo_size)
+        self.assertFalse(attrs.is_legacy)
+
+    def test_from_regular_object(self):
+        now = Timestamp.now()
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', now.normal),
+             ('Etag', 'object-etag')])
+        self.assertFalse(attrs.is_slo)
+        self.assertEqual(now, attrs.timestamp)
+        # N.B. we only set manifest_etag on slo objects
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+    def test_non_slo_with_sysmeta(self):
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('X-Static-lARGE-Object', 'false')])
+        self.assertFalse(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('Etag', 'segment-etag'),
+             ('x-object-sysmeta-slo-etag', 'tag'),
+             ('x-object-sysmeta-slo-size', '1234')])
+        # this is NOT an SLO
+        self.assertFalse(attrs.is_slo)
+        self.assertEqual('', attrs.json_md5)
+        # ... but we set these based on the sysmeta values
+        self.assertEqual('tag', attrs.slo_etag)
+        self.assertEqual(1234, attrs.slo_size)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        # I hope someday a non-slo with slo sysmeta *will* be just a legacy,
+        # see lp bug #2035158
+        self.assertFalse(attrs.is_legacy)
+
+    def _legacy_from_headers(self):
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('Etag', 'manifest-etag'),
+             ('X-Static-lARGE-Object', 'yes')])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('manifest-etag', attrs.json_md5)
+        self.assertEqual('', attrs.slo_etag)
+        self.assertEqual(-1, attrs.slo_size)
+        self.assertTrue(attrs.is_legacy)
+        return attrs
+
+    def test_update_from_segments(self):
+        attrs = self._legacy_from_headers()
+        segments = [
+            {'hash': 'abc', 'bytes': 2},
+            {'hash': 'def', 'bytes': 3},
+        ]
+        slo._annotate_segments(segments)
+        attrs.update_from_segments(segments)
+
+        exp_etag = md5('abcdef'.encode('ascii'), usedforsecurity=False)
+
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual(exp_etag.hexdigest(), attrs.slo_etag)
+        self.assertEqual(5, attrs.slo_size)
+        # N.B. it's still a legacy manifest
+        self.assertTrue(attrs.is_legacy)
+
+    def test_update_from_segments_with_raw_data(self):
+        attrs = self._legacy_from_headers()
+        raw_data = b'something'
+        segments = [
+            {'hash': 'abc', 'bytes': 2},
+            {'data': base64.b64encode(raw_data)},
+        ]
+        slo._annotate_segments(segments)
+        attrs.update_from_segments(segments)
+
+        raw_data_checksum = md5(raw_data).hexdigest()
+        exp_etag = md5(('abc' + raw_data_checksum).encode('ascii'),
+                       usedforsecurity=False)
+
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual(exp_etag.hexdigest(), attrs.slo_etag)
+        self.assertEqual(11, attrs.slo_size)
+        # N.B. it's still a legacy manifest
+        self.assertTrue(attrs.is_legacy)
+
+    def test_update_from_segments_with_range(self):
+        attrs = self._legacy_from_headers()
+        segments = [
+            {'hash': 'abc', 'bytes': 2},
+            {'hash': 'def', 'range': '1-2'},
+        ]
+        slo._annotate_segments(segments)
+        attrs.update_from_segments(segments)
+
+        exp_etag = md5('abcdef:1-2;'.encode('ascii'), usedforsecurity=False)
+
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual(exp_etag.hexdigest(), attrs.slo_etag)
+        self.assertEqual(4, attrs.slo_size)
+        # N.B. it's still a legacy manifest
+        self.assertTrue(attrs.is_legacy)
+
+    def test_update_from_segments_with_sub_slo(self):
+        attrs = self._legacy_from_headers()
+        content_type = 'application/octet-stream'
+        content_type += ";swift_bytes=%d" % 5
+        segments = [
+            {'hash': 'abc', 'bytes': 2},
+            {'hash': '123', 'sub_slo': True, 'content_type': content_type},
+        ]
+        slo._annotate_segments(segments)
+        attrs.update_from_segments(segments)
+
+        exp_etag = md5('abc123'.encode('ascii'), usedforsecurity=False)
+
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual(exp_etag.hexdigest(), attrs.slo_etag)
+        self.assertEqual(7, attrs.slo_size)
+        # N.B. it's still a legacy manifest
+        self.assertTrue(attrs.is_legacy)
+
+    def test_update_from_segments_with_sub_slo_range(self):
+        attrs = self._legacy_from_headers()
+        content_type = 'application/octet-stream'
+        content_type += ";swift_bytes=%d" % 5
+        segments = [
+            {'hash': 'abc', 'bytes': 2},
+            {'hash': '123', 'sub_slo': True, 'content_type': content_type,
+             'range': '2-4'},
+        ]
+        slo._annotate_segments(segments)
+        attrs.update_from_segments(segments)
+
+        exp_etag = md5('abc123:2-4;'.encode('ascii'), usedforsecurity=False)
+
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual(exp_etag.hexdigest(), attrs.slo_etag)
+        self.assertEqual(5, attrs.slo_size)
+        # N.B. it's still a legacy manifest
+        self.assertTrue(attrs.is_legacy)
+
+    def test_update_from_segments_not_legacy(self):
+        attrs = slo.RespAttrs.from_headers(
+            [('X-Backend-Timestamp', '123456789.12345'),
+             ('X-Static-lARGE-Object', 'yes'),
+             ('x-object-sysmeta-slo-etag', 'tag'),
+             ('x-object-sysmeta-slo-size', '1234')])
+
+        segments = 'not even json; does not matter'
+        attrs.update_from_segments(segments)
+
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(123456789.12345, attrs.timestamp)
+        self.assertEqual('tag', attrs.slo_etag)
+        self.assertEqual(1234, attrs.slo_size)
+        # N.B. it's still a legacy manifest
+        self.assertFalse(attrs.is_legacy)
 
 
 if __name__ == '__main__':

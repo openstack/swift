@@ -22,6 +22,7 @@ import time
 
 from io import BytesIO
 
+import mock
 import six
 from six.moves.urllib.parse import quote
 
@@ -1261,6 +1262,72 @@ class TestResponse(unittest.TestCase):
         self.assertEqual(tracking, {
             'closed': 1,
             'read': 1,
+        })
+
+    def test_swob_drains_small_HEAD_resp_iter(self):
+        tracking = {
+            'closed': 0,
+            'read': 0,
+        }
+
+        def mark_closed(*args):
+            tracking['closed'] += 1
+
+        def mark_read(*args):
+            tracking['read'] += 1
+
+        def test_app(environ, start_response):
+            start_response('200 OK', [])
+            body = [b'hello', b'world']
+            return LeakTrackingIter(body, mark_closed, mark_read, None)
+
+        req = swob.Request.blank('/', method='HEAD')
+        status, headers, app_iter = req.call_application(test_app)
+        resp = swob.Response(status=status, headers=dict(headers),
+                             app_iter=app_iter)
+        # sanity, swob drains small HEAD responses
+        output_iter = resp(req.environ, lambda *_: None)
+        with utils.closing_if_possible(output_iter):
+            # regardless what the app returns swob's HEAD response is empty
+            body = b''.join(output_iter)
+        self.assertEqual(body, b'')
+        self.assertEqual(tracking, {
+            'closed': 1,
+            'read': 1,
+        })
+
+    def test_swob_closes_large_HEAD_resp_iter(self):
+        tracking = {
+            'closed': 0,
+            'read': 0,
+        }
+
+        def mark_closed(*args):
+            tracking['closed'] += 1
+
+        def mark_read(*args):
+            tracking['read'] += 1
+
+        def test_app(environ, start_response):
+            start_response('200 OK', [])
+            body = [b'hello', b'world']
+            return LeakTrackingIter(body, mark_closed, mark_read, None)
+
+        req = swob.Request.blank('/', method='HEAD')
+        status, headers, app_iter = req.call_application(test_app)
+        resp = swob.Response(status=status, headers=dict(headers),
+                             app_iter=app_iter)
+        # N.B. if we call next a third time (i.e. len(helloworld) < read_limit)
+        # then leak tracker will notice StopIteration and count it drained.
+        with mock.patch.object(utils, 'DEFAULT_DRAIN_LIMIT', 10):
+            output_iter = resp(req.environ, lambda *_: None)
+        with utils.closing_if_possible(output_iter):
+            # regardless what the app returns swob's HEAD response is empty
+            body = b''.join(output_iter)
+        self.assertEqual(body, b'')
+        self.assertEqual(tracking, {
+            'closed': 1,
+            'read': 0,
         })
 
     def test_call_preserves_closeability(self):

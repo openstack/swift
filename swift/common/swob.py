@@ -55,7 +55,7 @@ from six.moves import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import UTC, reiterate, split_path, Timestamp, pairs, \
-    close_if_possible, closing_if_possible, config_true_value, drain_and_close
+    close_if_possible, closing_if_possible, config_true_value, friendly_close
 from swift.common.exceptions import InvalidTimestamp
 
 
@@ -1395,12 +1395,15 @@ class Response(object):
             if empty_resp is not None:
                 self.status = empty_resp
                 self.content_length = 0
+                # the existing successful response and it's app_iter have been
+                # determined to not meet the conditions of the reqeust, the
+                # response app_iter should be closed but not drained.
                 close_if_possible(app_iter)
                 return [b'']
 
         if self.request and self.request.method == 'HEAD':
             # We explicitly do NOT want to set self.content_length to 0 here
-            drain_and_close(app_iter)  # be friendly to our app_iter
+            friendly_close(app_iter)  # be friendly to our app_iter
             return [b'']
 
         if self.conditional_response and self.request and \
