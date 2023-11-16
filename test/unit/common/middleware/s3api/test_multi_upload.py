@@ -24,7 +24,7 @@ from six.moves.urllib.parse import parse_qs, quote, quote_plus
 
 from swift.common import swob
 from swift.common.swob import Request
-from swift.common.utils import json, md5
+from swift.common.utils import json, md5, Timestamp
 
 from test.unit import FakeMemcache, patch_policies
 from test.unit.common.middleware.s3api import S3ApiTestCase
@@ -1648,6 +1648,64 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertEqual(headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertEqual(headers.get('Content-Type'), 'baz/quux')
+
+    def _do_test_object_multipart_upload_complete_marker_in_future(
+            self, marker_timestamp, now_timestamp):
+        # verify that clock skew is detected before manifest is created and
+        # results in a 503
+        segment_bucket = '/v1/AUTH_test/bucket+segments'
+        self.swift.register('HEAD', segment_bucket + '/object/X',
+                            swob.HTTPOk,
+                            {'x-object-meta-foo': 'bar',
+                             'content-type': 'application/directory',
+                             'x-object-sysmeta-s3api-has-content-type': 'yes',
+                             'x-object-sysmeta-s3api-content-type':
+                                 'baz/quux',
+                             'X-Backend-Timestamp': marker_timestamp.internal},
+                            None)
+        req = Request.blank('/bucket/object?uploadId=X',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(skew=100), },
+                            body=XML)
+
+        # marker created in the future
+        with patch('swift.common.middleware.s3api.controllers.multi_upload.'
+                   'Timestamp.now', return_value=now_timestamp):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '503')
+        self.assertEqual('ServiceUnavailable', self._get_error_code(body))
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X')])
+
+    def test_object_multipart_upload_complete_marker_ts_now(self):
+        marker_timestamp = now_timestamp = Timestamp.now()
+        self._do_test_object_multipart_upload_complete_marker_in_future(
+            marker_timestamp, now_timestamp)
+
+    def test_object_multipart_upload_complete_marker_ts_in_future(self):
+        marker_timestamp = Timestamp.now()
+        now_timestamp = Timestamp(float(marker_timestamp) - 1)
+        self._do_test_object_multipart_upload_complete_marker_in_future(
+            marker_timestamp, now_timestamp)
+
+    def test_object_multipart_upload_complete_409_on_marker_delete(self):
+        # verify that clock skew preventing an upload marker DELETE results in
+        # a 503 (this would be unexpected because there's a check for clock
+        # skew before the manifest PUT and marker DELETE)
+        segment_bucket = '/v1/AUTH_test/bucket+segments'
+        self.swift.register('DELETE', segment_bucket + '/object/X',
+                            swob.HTTPConflict, {}, None)
+        req = Request.blank('/bucket/object?uploadId=X',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(), },
+                            body=XML)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '503')
+        self.assertEqual('ServiceUnavailable', self._get_error_code(body))
 
     def test_object_multipart_upload_complete_old_content_type(self):
         self.swift.register_unconditionally(

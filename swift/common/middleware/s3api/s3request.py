@@ -1432,8 +1432,10 @@ class S3Request(swob.Request):
                 raise SlowDown(status='429 Slow Down')
             raise SlowDown()
         if resp.status_int == HTTP_CONFLICT:
-            # TODO: validate that this actually came up out of SLO
-            raise BrokenMPU()
+            if self.method == 'GET':
+                raise BrokenMPU()
+            else:
+                raise ServiceUnavailable()
 
         raise InternalError('unexpected status code %d' % status)
 
