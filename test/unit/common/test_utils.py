@@ -7904,6 +7904,15 @@ class TestNamespaceBoundList(unittest.TestCase):
         self.end_ns = utils.Namespace('a/z-', 'z', '')
         self.lowerbounds = [start, atof, ftol, ltor, rtoz, end]
 
+    def test_eq(self):
+        this = utils.NamespaceBoundList(self.lowerbounds)
+        that = utils.NamespaceBoundList(self.lowerbounds)
+        self.assertEqual(this, that)
+        that = utils.NamespaceBoundList(self.lowerbounds[:1])
+        self.assertNotEqual(this, that)
+        self.assertNotEqual(this, None)
+        self.assertNotEqual(this, self.lowerbounds)
+
     def test_get_namespace(self):
         namespace_list = utils.NamespaceBoundList(self.lowerbounds)
         self.assertEqual(namespace_list.bounds, self.lowerbounds)
