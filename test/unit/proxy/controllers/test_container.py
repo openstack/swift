@@ -2758,7 +2758,7 @@ class TestContainerController(TestRingBase):
         self.assertEqual(
             [mock.call.get('container/a/c'),
              mock.call.set(cache_key, self.ns_bound_list.bounds,
-                           time=exp_recheck_listing),
+                           time=exp_recheck_listing, raise_on_error=True),
              mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         self.assertEqual(sharding_state,
@@ -2797,7 +2797,7 @@ class TestContainerController(TestRingBase):
             [mock.call.get('container/a/c'),
              mock.call.get(cache_key, raise_on_error=True),
              mock.call.set(cache_key, self.ns_bound_list.bounds,
-                           time=exp_recheck_listing),
+                           time=exp_recheck_listing, raise_on_error=True),
              # Since there was a backend request, we go ahead and cache
              # container info, too
              mock.call.set('container/a/c', mock.ANY, time=60)],
@@ -2860,7 +2860,7 @@ class TestContainerController(TestRingBase):
         self.assertEqual(
             [mock.call.get('container/a/c'),
              mock.call.set(cache_key, self.ns_bound_list.bounds,
-                           time=exp_recheck_listing),
+                           time=exp_recheck_listing, raise_on_error=True),
              # Since there was a backend request, we go ahead and cache
              # container info, too
              mock.call.set('container/a/c', mock.ANY, time=60)],
@@ -3214,14 +3214,13 @@ class TestContainerController(TestRingBase):
         expected_hdrs.update(resp_hdrs)
         self.assertEqual(
             [mock.call.get('container/a/c'),
-             mock.call.set(
-                 'shard-listing-v2/a/c', self.ns_bound_list.bounds, time=600),
+             mock.call.set('shard-listing-v2/a/c', self.ns_bound_list.bounds,
+                           time=600, raise_on_error=True),
              mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn(
-            'Caching listing shards for shard-listing-v2/a/c (3 shards)',
-            info_lines)
+        self.assertIn('Caching listing namespaces for shard-listing-v2/a/c '
+                      '(3 namespaces)', info_lines)
         # shards were cached
         self.assertEqual('sharded',
                          self.memcache.calls[2][1][1]['sharding_state'])
@@ -3314,8 +3313,8 @@ class TestContainerController(TestRingBase):
         self._check_response(resp, self.ns_dicts, expected_hdrs)
         self.assertEqual(
             [mock.call.get('container/a/c'),
-             mock.call.set(
-                 'shard-listing-v2/a/c', self.ns_bound_list.bounds, time=600),
+             mock.call.set('shard-listing-v2/a/c', self.ns_bound_list.bounds,
+                           time=600, raise_on_error=True),
              mock.call.set('container/a/c', mock.ANY, time=60)],
             self.memcache.calls)
         self.assertEqual('sharded',

@@ -14,12 +14,10 @@
 # limitations under the License.
 
 import json
-import random
 
 import six
 from six.moves.urllib.parse import unquote
 
-from swift.common.memcached import MemcacheConnectionError
 from swift.common.utils import public, private, csv_append, Timestamp, \
     config_true_value, ShardRange, cache_from_env, filter_namespaces, \
     NamespaceBoundList
@@ -30,7 +28,7 @@ from swift.common.request_helpers import get_sys_meta_prefix, get_param, \
 from swift.proxy.controllers.base import Controller, delay_denial, NodeIter, \
     cors_validation, set_info_cache, clear_info_cache, get_container_info, \
     record_cache_op_metrics, get_cache_key, headers_from_container_info, \
-    update_headers
+    update_headers, set_namespaces_in_cache, get_namespaces_from_cache
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPServiceUnavailable, str_to_wsgi, wsgi_to_str, Response
@@ -147,48 +145,14 @@ class ContainerController(Controller):
         :return: a tuple comprising (an instance of ``swob.Response``or
             ``None`` if no namespaces were found in cache, the cache state).
         """
-        infocache = req.environ.setdefault('swift.infocache', {})
-        memcache = cache_from_env(req.environ, True)
-        cache_key = get_cache_key(self.account_name,
-                                  self.container_name,
+        cache_key = get_cache_key(self.account_name, self.container_name,
                                   shard='listing')
-
-        resp_body = None
-        ns_bound_list = infocache.get(cache_key)
+        skip_chance = self.app.container_listing_shard_ranges_skip_cache
+        ns_bound_list, cache_state = get_namespaces_from_cache(
+            req, cache_key, skip_chance)
         if ns_bound_list:
-            cache_state = 'infocache_hit'
-            resp_body = self._make_namespaces_response_body(req, ns_bound_list)
-        elif memcache:
-            skip_chance = \
-                self.app.container_listing_shard_ranges_skip_cache
-            if skip_chance and random.random() < skip_chance:
-                cache_state = 'skip'
-            else:
-                try:
-                    cached_namespaces = memcache.get(
-                        cache_key, raise_on_error=True)
-                    if cached_namespaces:
-                        cache_state = 'hit'
-                        if six.PY2:
-                            # json.loads() in memcache.get will convert json
-                            # 'string' to 'unicode' with python2, here we cast
-                            # 'unicode' back to 'str'
-                            cached_namespaces = [
-                                [lower.encode('utf-8'), name.encode('utf-8')]
-                                for lower, name in cached_namespaces]
-                        ns_bound_list = NamespaceBoundList(cached_namespaces)
-                        resp_body = self._make_namespaces_response_body(
-                            req, ns_bound_list)
-                    else:
-                        cache_state = 'miss'
-                except MemcacheConnectionError:
-                    cache_state = 'error'
-
-        if resp_body is None:
-            resp = None
-        else:
             # shard ranges can be returned from cache
-            infocache[cache_key] = ns_bound_list
+            resp_body = self._make_namespaces_response_body(req, ns_bound_list)
             self.logger.debug('Found %d shards in cache for %s',
                               len(ns_bound_list.bounds), req.path_qs)
             headers.update({'x-backend-record-type': 'shard',
@@ -202,6 +166,8 @@ class ContainerController(Controller):
             resp.environ['swift_x_timestamp'] = headers.get('x-timestamp')
             resp.accept_ranges = 'bytes'
             resp.content_type = 'application/json'
+        else:
+            resp = None
 
         return resp, cache_state
 
@@ -233,17 +199,15 @@ class ContainerController(Controller):
         if resp.headers.get('x-backend-sharding-state') == 'sharded':
             # cache in infocache even if no shard ranges returned; this
             # is unexpected but use that result for this request
-            infocache = req.environ.setdefault('swift.infocache', {})
             cache_key = get_cache_key(
                 self.account_name, self.container_name, shard='listing')
-            infocache[cache_key] = ns_bound_list
-            memcache = cache_from_env(req.environ, True)
-            if memcache and ns_bound_list:
-                # cache in memcache only if shard ranges as expected
-                self.logger.info('Caching listing shards for %s (%d shards)',
-                                 cache_key, len(ns_bound_list.bounds))
-                memcache.set(cache_key, ns_bound_list.bounds,
-                             time=self.app.recheck_listing_shard_ranges)
+            set_cache_state = set_namespaces_in_cache(
+                req, cache_key, ns_bound_list,
+                self.app.recheck_listing_shard_ranges)
+            if set_cache_state == 'set':
+                self.logger.info(
+                    'Caching listing namespaces for %s (%d namespaces)',
+                    cache_key, len(ns_bound_list.bounds))
         return ns_bound_list
 
     def _get_shard_ranges_from_backend(self, req):

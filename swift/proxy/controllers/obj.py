@@ -48,8 +48,7 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
-    ShardRange, find_namespace, cache_from_env, NamespaceBoundList,
-    CooperativeIterator)
+    find_namespace, NamespaceBoundList, CooperativeIterator, ShardRange)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -64,13 +63,13 @@ from swift.common.http import (
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, HTTP_UNPROCESSABLE_ENTITY,
     HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_NOT_FOUND)
-from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
     record_cache_op_metrics, get_cache_key, GetterBase, GetterSource, \
-    is_good_source, NodeIter
+    is_good_source, NodeIter, get_namespaces_from_cache, \
+    set_namespaces_in_cache
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -282,48 +281,6 @@ class BaseObjectController(Controller):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
-    def _get_cached_updating_namespaces(
-            self, infocache, memcache, cache_key):
-        """
-        Fetch cached updating namespaces of updating shard ranges from
-        infocache and memcache.
-
-        :param infocache: the infocache instance.
-        :param memcache: an instance of a memcache client,
-                         :class:`swift.common.memcached.MemcacheRing`.
-        :param cache_key: the cache key for both infocache and memcache.
-        :return: a tuple of (an instance of NamespaceBoundList, cache state)
-        """
-        # try get namespaces from infocache first
-        namespace_list = infocache.get(cache_key)
-        if namespace_list:
-            return namespace_list, 'infocache_hit'
-
-        # then try get them from memcache
-        if not memcache:
-            return None, 'disabled'
-        skip_chance = self.app.container_updating_shard_ranges_skip_cache
-        if skip_chance and random.random() < skip_chance:
-            return None, 'skip'
-        try:
-            namespaces = memcache.get(cache_key, raise_on_error=True)
-            cache_state = 'hit' if namespaces else 'miss'
-        except MemcacheConnectionError:
-            namespaces = None
-            cache_state = 'error'
-
-        if namespaces:
-            if six.PY2:
-                # json.loads() in memcache.get will convert json 'string' to
-                # 'unicode' with python2, here we cast 'unicode' back to 'str'
-                namespaces = [
-                    [lower.encode('utf-8'), name.encode('utf-8')]
-                    for lower, name in namespaces]
-            namespace_list = NamespaceBoundList(namespaces)
-        else:
-            namespace_list = None
-        return namespace_list, cache_state
-
     def _get_update_shard_caching_disabled(self, req, account, container, obj):
         """
         Fetch all updating shard ranges for the given root container when
@@ -344,25 +301,6 @@ class BaseObjectController(Controller):
             'disabled', response)
         # there will be only one shard range in the list if any
         return shard_ranges[0] if shard_ranges else None
-
-    def _cache_update_namespaces(self, memcache, cache_key, namespaces):
-        if not memcache:
-            return
-
-        self.logger.info(
-            'Caching updating shards for %s (%d shards)',
-            cache_key, len(namespaces.bounds))
-        try:
-            memcache.set(
-                cache_key, namespaces.bounds,
-                time=self.app.recheck_updating_shard_ranges,
-                raise_on_error=True)
-            cache_state = 'set'
-        except MemcacheConnectionError:
-            cache_state = 'set_error'
-        finally:
-            record_cache_op_metrics(self.logger, self.server_type.lower(),
-                                    'shard_updating', cache_state, None)
 
     def _get_update_shard(self, req, account, container, obj):
         """
@@ -387,14 +325,12 @@ class BaseObjectController(Controller):
         # caching is enabled, try to get from caches
         response = None
         cache_key = get_cache_key(account, container, shard='updating')
-        infocache = req.environ.setdefault('swift.infocache', {})
-        memcache = cache_from_env(req.environ, True)
-        cached_namespaces, cache_state = self._get_cached_updating_namespaces(
-            infocache, memcache, cache_key)
-        if cached_namespaces:
+        skip_chance = self.app.container_updating_shard_ranges_skip_cache
+        ns_bound_list, get_cache_state = get_namespaces_from_cache(
+            req, cache_key, skip_chance)
+        if ns_bound_list:
             # found cached namespaces in either infocache or memcache
-            infocache[cache_key] = cached_namespaces
-            namespace = cached_namespaces.get_namespace(obj)
+            namespace = ns_bound_list.get_namespace(obj)
             update_shard = ShardRange(
                 name=namespace.name, timestamp=0, lower=namespace.lower,
                 upper=namespace.upper)
@@ -405,13 +341,21 @@ class BaseObjectController(Controller):
             if shard_ranges:
                 # only store the list of namespace lower bounds and names into
                 # infocache and memcache.
-                namespaces = NamespaceBoundList.parse(shard_ranges)
-                infocache[cache_key] = namespaces
-                self._cache_update_namespaces(memcache, cache_key, namespaces)
+                ns_bound_list = NamespaceBoundList.parse(shard_ranges)
+                set_cache_state = set_namespaces_in_cache(
+                    req, cache_key, ns_bound_list,
+                    self.app.recheck_updating_shard_ranges)
+                record_cache_op_metrics(
+                    self.logger, self.server_type.lower(), 'shard_updating',
+                    set_cache_state, None)
+                if set_cache_state == 'set':
+                    self.logger.info(
+                        'Caching updating shards for %s (%d shards)',
+                        cache_key, len(shard_ranges))
             update_shard = find_namespace(obj, shard_ranges or [])
         record_cache_op_metrics(
             self.logger, self.server_type.lower(), 'shard_updating',
-            cache_state, response)
+            get_cache_state, response)
         return update_shard
 
     def _get_update_target(self, req, container_info):

@@ -39,12 +39,13 @@ from sys import exc_info
 from eventlet.timeout import Timeout
 import six
 
+from swift.common.memcached import MemcacheConnectionError
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
     document_iters_to_http_response_body, ShardRange, cache_from_env, \
-    CooperativeIterator
+    CooperativeIterator, NamespaceBoundList
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -887,6 +888,75 @@ def _get_info_from_caches(app, env, account, container=None):
         info, cache_state = _get_info_from_memcache(
             app, env, account, container)
     return info, cache_state
+
+
+def get_namespaces_from_cache(req, cache_key, skip_chance):
+    """
+    Get cached namespaces from infocache or memcache.
+
+    :param req: a :class:`swift.common.swob.Request` object.
+    :param cache_key: the cache key for both infocache and memcache.
+    :param skip_chance: the probability of skipping the memcache look-up.
+    :return: a tuple of
+        (:class:`swift.common.utils.NamespaceBoundList`, cache state)
+    """
+    # try get namespaces from infocache first
+    infocache = req.environ.setdefault('swift.infocache', {})
+    ns_bound_list = infocache.get(cache_key)
+    if ns_bound_list:
+        return ns_bound_list, 'infocache_hit'
+
+    # then try get them from memcache
+    memcache = cache_from_env(req.environ, True)
+    if not memcache:
+        return None, 'disabled'
+    if skip_chance and random.random() < skip_chance:
+        return None, 'skip'
+    try:
+        bounds = memcache.get(cache_key, raise_on_error=True)
+        cache_state = 'hit' if bounds else 'miss'
+    except MemcacheConnectionError:
+        bounds = None
+        cache_state = 'error'
+
+    if bounds:
+        if six.PY2:
+            # json.loads() in memcache.get will convert json 'string' to
+            # 'unicode' with python2, here we cast 'unicode' back to 'str'
+            bounds = [
+                [lower.encode('utf-8'), name.encode('utf-8')]
+                for lower, name in bounds]
+        ns_bound_list = NamespaceBoundList(bounds)
+        infocache[cache_key] = ns_bound_list
+    else:
+        ns_bound_list = None
+    return ns_bound_list, cache_state
+
+
+def set_namespaces_in_cache(req, cache_key, ns_bound_list, time):
+    """
+    Set a list of namespace bounds in infocache and memcache.
+
+    :param req: a :class:`swift.common.swob.Request` object.
+    :param cache_key: the cache key for both infocache and memcache.
+    :param ns_bound_list: a :class:`swift.common.utils.NamespaceBoundList`.
+    :param time: how long the namespaces should remain in memcache.
+    :return: the cache_state.
+    """
+    infocache = req.environ.setdefault('swift.infocache', {})
+    infocache[cache_key] = ns_bound_list
+    memcache = cache_from_env(req.environ, True)
+    if memcache and ns_bound_list:
+        try:
+            memcache.set(cache_key, ns_bound_list.bounds, time=time,
+                         raise_on_error=True)
+        except MemcacheConnectionError:
+            cache_state = 'set_error'
+        else:
+            cache_state = 'set'
+    else:
+        cache_state = 'disabled'
+    return cache_state
 
 
 def _prepare_pre_auth_info_request(env, path, swift_source):
