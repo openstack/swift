@@ -2479,31 +2479,3 @@ class Controller(object):
                 "Failed to get shard ranges from %s: invalid data: %r",
                 req.path_qs, err)
             return None
-
-    def _get_shard_ranges(
-            self, req, account, container, includes=None, states=None):
-        """
-        Fetch shard ranges from given `account/container`. If `includes` is
-        given then the shard range for that object name is requested, otherwise
-        all shard ranges are requested.
-
-        :param req: original Request instance.
-        :param account: account from which shard ranges should be fetched.
-        :param container: container from which shard ranges should be fetched.
-        :param includes: (optional) restricts the list of fetched shard ranges
-            to those which include the given name.
-        :param states: (optional) the states of shard ranges to be fetched.
-        :return: a list of instances of :class:`swift.common.utils.ShardRange`,
-            or None if there was a problem fetching the shard ranges
-        """
-        params = req.params.copy()
-        params.pop('limit', None)
-        params['format'] = 'json'
-        if includes:
-            params['includes'] = str_to_wsgi(includes)
-        if states:
-            params['states'] = states
-        headers = {'X-Backend-Record-Type': 'shard'}
-        listing, response = self._get_container_listing(
-            req, account, container, headers=headers, params=params)
-        return self._parse_shard_ranges(req, listing, response), response

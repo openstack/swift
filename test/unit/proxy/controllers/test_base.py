@@ -32,18 +32,17 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     record_cache_op_metrics, GetterSource, get_namespaces_from_cache, \
     set_namespaces_in_cache
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
-    bytes_to_wsgi, wsgi_to_str
+    bytes_to_wsgi
 from swift.common import exceptions
-from swift.common.utils import split_path, ShardRange, Timestamp, \
+from swift.common.utils import split_path, Timestamp, \
     GreenthreadSafeIterator, GreenAsyncPile, NamespaceBoundList
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
-    fake_http_connect, FakeRing, FakeMemcache, PatchPolicies,
-    make_timestamp_iter, mocked_http_conn, patch_policies, FakeSource,
-    StubResponse)
+    fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, patch_policies,
+    FakeSource, StubResponse)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -1582,198 +1581,6 @@ class TestFuncs(BaseTest):
         # prime numbers
         self.assertEqual(bytes_to_skip(11, 7), 4)
         self.assertEqual(bytes_to_skip(97, 7873823), 55)
-
-    def test_get_shard_ranges_for_container_get(self):
-        ts_iter = make_timestamp_iter()
-        shard_ranges = [dict(ShardRange(
-            '.sharded_a/sr%d' % i, next(ts_iter), '%d_lower' % i,
-            '%d_upper' % i, object_count=i, bytes_used=1024 * i,
-            meta_timestamp=next(ts_iter)))
-            for i in range(3)]
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c', method='GET')
-        resp_headers = {'X-Backend-Record-Type': 'shard'}
-        with mocked_http_conn(
-            200, 200,
-            body_iter=iter([b'', json.dumps(shard_ranges).encode('ascii')]),
-            headers=resp_headers
-        ) as fake_conn:
-            actual, resp = base._get_shard_ranges(req, 'a', 'c')
-        self.assertEqual(200, resp.status_int)
-
-        # account info
-        captured = fake_conn.requests
-        self.assertEqual('HEAD', captured[0]['method'])
-        self.assertEqual('a', captured[0]['path'][7:])
-        # container GET
-        self.assertEqual('GET', captured[1]['method'])
-        self.assertEqual('a/c', captured[1]['path'][7:])
-        self.assertEqual('format=json', captured[1]['qs'])
-        self.assertEqual(
-            'shard', captured[1]['headers'].get('X-Backend-Record-Type'))
-        self.assertEqual(shard_ranges, [dict(pr) for pr in actual])
-        self.assertFalse(self.app.logger.get_lines_for_level('error'))
-
-    def test_get_shard_ranges_for_object_put(self):
-        ts_iter = make_timestamp_iter()
-        shard_ranges = [dict(ShardRange(
-            '.sharded_a/sr%d' % i, next(ts_iter), '%d_lower' % i,
-            '%d_upper' % i, object_count=i, bytes_used=1024 * i,
-            meta_timestamp=next(ts_iter)))
-            for i in range(3)]
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c/o', method='PUT')
-        resp_headers = {'X-Backend-Record-Type': 'shard'}
-        with mocked_http_conn(
-            200, 200,
-            body_iter=iter([b'',
-                            json.dumps(shard_ranges[1:2]).encode('ascii')]),
-            headers=resp_headers
-        ) as fake_conn:
-            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
-        self.assertEqual(200, resp.status_int)
-
-        # account info
-        captured = fake_conn.requests
-        self.assertEqual('HEAD', captured[0]['method'])
-        self.assertEqual('a', captured[0]['path'][7:])
-        # container GET
-        self.assertEqual('GET', captured[1]['method'])
-        self.assertEqual('a/c', captured[1]['path'][7:])
-        params = sorted(captured[1]['qs'].split('&'))
-        self.assertEqual(
-            ['format=json', 'includes=1_test'], params)
-        self.assertEqual(
-            'shard', captured[1]['headers'].get('X-Backend-Record-Type'))
-        self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
-        self.assertFalse(self.app.logger.get_lines_for_level('error'))
-
-    def test_get_shard_ranges_for_utf8_object_put(self):
-        ts_iter = make_timestamp_iter()
-        shard_ranges = [dict(ShardRange(
-            '.sharded_a/sr%d' % i, next(ts_iter), u'\u1234%d_lower' % i,
-            u'\u1234%d_upper' % i, object_count=i, bytes_used=1024 * i,
-            meta_timestamp=next(ts_iter)))
-            for i in range(3)]
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c/o', method='PUT')
-        resp_headers = {'X-Backend-Record-Type': 'shard'}
-        with mocked_http_conn(
-            200, 200,
-            body_iter=iter([b'',
-                            json.dumps(shard_ranges[1:2]).encode('ascii')]),
-            headers=resp_headers
-        ) as fake_conn:
-            actual, resp = base._get_shard_ranges(
-                req, 'a', 'c', wsgi_to_str('\xe1\x88\xb41_test'))
-        self.assertEqual(200, resp.status_int)
-
-        # account info
-        captured = fake_conn.requests
-        self.assertEqual('HEAD', captured[0]['method'])
-        self.assertEqual('a', captured[0]['path'][7:])
-        # container GET
-        self.assertEqual('GET', captured[1]['method'])
-        self.assertEqual('a/c', captured[1]['path'][7:])
-        params = sorted(captured[1]['qs'].split('&'))
-        self.assertEqual(
-            ['format=json', 'includes=%E1%88%B41_test'], params)
-        self.assertEqual(
-            'shard', captured[1]['headers'].get('X-Backend-Record-Type'))
-        self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
-        self.assertFalse(self.app.logger.get_lines_for_level('error'))
-
-    def _check_get_shard_ranges_bad_data(self, body):
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c/o', method='PUT')
-        # empty response
-        headers = {'X-Backend-Record-Type': 'shard'}
-        with mocked_http_conn(200, 200, body_iter=iter([b'', body]),
-                              headers=headers):
-            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
-        self.assertEqual(200, resp.status_int)
-        self.assertIsNone(actual)
-        lines = self.app.logger.get_lines_for_level('error')
-        return lines
-
-    def test_get_shard_ranges_empty_body(self):
-        error_lines = self._check_get_shard_ranges_bad_data(b'')
-        self.assertIn('Problem with listing response', error_lines[0])
-        if six.PY2:
-            self.assertIn('No JSON', error_lines[0])
-        else:
-            self.assertIn('JSONDecodeError', error_lines[0])
-        self.assertFalse(error_lines[1:])
-
-    def test_get_shard_ranges_not_a_list(self):
-        body = json.dumps({}).encode('ascii')
-        error_lines = self._check_get_shard_ranges_bad_data(body)
-        self.assertIn('Problem with listing response', error_lines[0])
-        self.assertIn('not a list', error_lines[0])
-        self.assertFalse(error_lines[1:])
-
-    def test_get_shard_ranges_key_missing(self):
-        body = json.dumps([{}]).encode('ascii')
-        error_lines = self._check_get_shard_ranges_bad_data(body)
-        self.assertIn('Failed to get shard ranges', error_lines[0])
-        self.assertIn('KeyError', error_lines[0])
-        self.assertFalse(error_lines[1:])
-
-    def test_get_shard_ranges_invalid_shard_range(self):
-        sr = ShardRange('a/c', Timestamp.now())
-        bad_sr_data = dict(sr, name='bad_name')
-        body = json.dumps([bad_sr_data]).encode('ascii')
-        error_lines = self._check_get_shard_ranges_bad_data(body)
-        self.assertIn('Failed to get shard ranges', error_lines[0])
-        self.assertIn('ValueError', error_lines[0])
-        self.assertFalse(error_lines[1:])
-
-    def test_get_shard_ranges_missing_record_type(self):
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c/o', method='PUT')
-        sr = ShardRange('a/c', Timestamp.now())
-        body = json.dumps([dict(sr)]).encode('ascii')
-        with mocked_http_conn(
-                200, 200, body_iter=iter([b'', body])):
-            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
-        self.assertEqual(200, resp.status_int)
-        self.assertIsNone(actual)
-        error_lines = self.app.logger.get_lines_for_level('error')
-        self.assertIn('Failed to get shard ranges', error_lines[0])
-        self.assertIn('unexpected record type', error_lines[0])
-        self.assertIn('/a/c', error_lines[0])
-        self.assertFalse(error_lines[1:])
-
-    def test_get_shard_ranges_wrong_record_type(self):
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c/o', method='PUT')
-        sr = ShardRange('a/c', Timestamp.now())
-        body = json.dumps([dict(sr)]).encode('ascii')
-        headers = {'X-Backend-Record-Type': 'object'}
-        with mocked_http_conn(
-                200, 200, body_iter=iter([b'', body]),
-                headers=headers):
-            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
-        self.assertEqual(200, resp.status_int)
-        self.assertIsNone(actual)
-        error_lines = self.app.logger.get_lines_for_level('error')
-        self.assertIn('Failed to get shard ranges', error_lines[0])
-        self.assertIn('unexpected record type', error_lines[0])
-        self.assertIn('/a/c', error_lines[0])
-        self.assertFalse(error_lines[1:])
-
-    def test_get_shard_ranges_request_failed(self):
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c/o', method='PUT')
-        with mocked_http_conn(200, 404, 404, 404):
-            actual, resp = base._get_shard_ranges(req, 'a', 'c', '1_test')
-        self.assertEqual(404, resp.status_int)
-        self.assertIsNone(actual)
-        self.assertFalse(self.app.logger.get_lines_for_level('error'))
-        warning_lines = self.app.logger.get_lines_for_level('warning')
-        self.assertIn('Failed to get container listing', warning_lines[0])
-        self.assertIn('/a/c', warning_lines[0])
-        self.assertFalse(warning_lines[1:])
 
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])

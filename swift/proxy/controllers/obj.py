@@ -75,7 +75,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
     HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError, \
-    normalize_etag
+    normalize_etag, str_to_wsgi
 from swift.common.request_helpers import update_etag_is_at_header, \
     resolve_etag_is_at_header, validate_internal_obj, get_ip_port
 
@@ -281,6 +281,32 @@ class BaseObjectController(Controller):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
+    def _get_updating_shard_ranges(
+            self, req, account, container, includes=None):
+        """
+        Fetch shard ranges in 'updating' states from given `account/container`.
+        If `includes` is given then the shard range for that object name is
+        requested, otherwise all shard ranges are requested.
+
+        :param req: original Request instance.
+        :param account: account from which shard ranges should be fetched.
+        :param container: container from which shard ranges should be fetched.
+        :param includes: (optional) restricts the list of fetched shard ranges
+            to those which include the given name.
+        :return: a list of instances of :class:`swift.common.utils.ShardRange`,
+            or None if there was a problem fetching the shard ranges
+        """
+        params = req.params.copy()
+        params.pop('limit', None)
+        params['format'] = 'json'
+        params['states'] = 'updating'
+        if includes:
+            params['includes'] = str_to_wsgi(includes)
+        headers = {'X-Backend-Record-Type': 'shard'}
+        listing, response = self._get_container_listing(
+            req, account, container, headers=headers, params=params)
+        return self._parse_shard_ranges(req, listing, response), response
+
     def _get_update_shard_caching_disabled(self, req, account, container, obj):
         """
         Fetch all updating shard ranges for the given root container when
@@ -294,8 +320,8 @@ class BaseObjectController(Controller):
             or None if the update should go back to the root
         """
         # legacy behavior requests container server for includes=obj
-        shard_ranges, response = self._get_shard_ranges(
-            req, account, container, states='updating', includes=obj)
+        shard_ranges, response = self._get_updating_shard_ranges(
+            req, account, container, includes=obj)
         record_cache_op_metrics(
             self.logger, self.server_type.lower(), 'shard_updating',
             'disabled', response)
@@ -336,8 +362,8 @@ class BaseObjectController(Controller):
                 upper=namespace.upper)
         else:
             # pull full set of updating shard ranges from backend
-            shard_ranges, response = self._get_shard_ranges(
-                req, account, container, states='updating')
+            shard_ranges, response = self._get_updating_shard_ranges(
+                req, account, container)
             if shard_ranges:
                 # only store the list of namespace lower bounds and names into
                 # infocache and memcache.
