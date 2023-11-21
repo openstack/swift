@@ -85,17 +85,7 @@ class AccountController(BaseStorageServer):
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
                                             self.mount_check,
                                             logger=self.logger)
-        if conf.get('auto_create_account_prefix'):
-            self.logger.warning('Option auto_create_account_prefix is '
-                                'deprecated. Configure '
-                                'auto_create_account_prefix under the '
-                                'swift-constraints section of '
-                                'swift.conf. This option will '
-                                'be ignored in a future release.')
-            self.auto_create_account_prefix = \
-                conf['auto_create_account_prefix']
-        else:
-            self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
+        self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
 
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))

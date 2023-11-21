@@ -71,14 +71,6 @@ class TestAccountController(unittest.TestCase):
         }
         AccountController(conf, logger=self.logger)
         self.assertEqual(self.logger.get_lines_for_level('warning'), [])
-        conf['auto_create_account_prefix'] = '-'
-        AccountController(conf, logger=self.logger)
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Option auto_create_account_prefix is deprecated. '
-            'Configure auto_create_account_prefix under the '
-            'swift-constraints section of swift.conf. This option '
-            'will be ignored in a future release.'
-        ])
 
     def test_OPTIONS(self):
         server_handler = AccountController(

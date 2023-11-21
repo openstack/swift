@@ -852,18 +852,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         ContainerReplicator.__init__(self, conf, logger=logger)
         ContainerSharderConf.__init__(self, conf)
         ContainerSharderConf.validate_conf(self)
-        if conf.get('auto_create_account_prefix'):
-            self.logger.warning('Option auto_create_account_prefix is '
-                                'deprecated. Configure '
-                                'auto_create_account_prefix under the '
-                                'swift-constraints section of '
-                                'swift.conf. This option will '
-                                'be ignored in a future release.')
-            auto_create_account_prefix = \
-                self.conf['auto_create_account_prefix']
-        else:
-            auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
-        self.shards_account_prefix = (auto_create_account_prefix + 'shards_')
+        self.shards_account_prefix = (AUTO_CREATE_ACCOUNT_PREFIX + 'shards_')
         self.sharding_candidates = []
         self.shrinking_candidates = []
         replica_count = self.ring.replica_count

@@ -186,16 +186,6 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(app.auto_create_account_prefix, '.')
         self.assertEqual(self.logger.get_lines_for_level('warning'), [])
 
-        conf['auto_create_account_prefix'] = '-'
-        app = object_server.ObjectController(conf, logger=self.logger)
-        self.assertEqual(app.auto_create_account_prefix, '-')
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Option auto_create_account_prefix is deprecated. '
-            'Configure auto_create_account_prefix under the '
-            'swift-constraints section of swift.conf. This option '
-            'will be ignored in a future release.'
-        ])
-
     def check_all_api_methods(self, obj_name='o', alt_res=None):
         path = '/sda1/p/a/c/%s' % obj_name
         body = b'SPECIAL_STRING'

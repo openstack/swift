@@ -479,8 +479,7 @@ def get_container_info(env, app, swift_source=None, cache_only=False):
         # account is successful whether the account actually has .db files
         # on disk or not.
         is_autocreate_account = account.startswith(
-            getattr(proxy_app, 'auto_create_account_prefix',
-                    constraints.AUTO_CREATE_ACCOUNT_PREFIX))
+            constraints.AUTO_CREATE_ACCOUNT_PREFIX)
         if not is_autocreate_account:
             account_info = get_account_info(env, logged_app, swift_source)
             if not account_info or not is_success(account_info['status']):

@@ -114,19 +114,7 @@ class ObjectExpirer(Daemon):
         self.reclaim_age = int(conf.get('reclaim_age', 604800))
 
     def read_conf_for_queue_access(self, swift):
-        if self.conf.get('auto_create_account_prefix'):
-            self.logger.warning('Option auto_create_account_prefix is '
-                                'deprecated. Configure '
-                                'auto_create_account_prefix under the '
-                                'swift-constraints section of '
-                                'swift.conf. This option will '
-                                'be ignored in a future release.')
-            auto_create_account_prefix = \
-                self.conf['auto_create_account_prefix']
-        else:
-            auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
-
-        self.expiring_objects_account = auto_create_account_prefix + \
+        self.expiring_objects_account = AUTO_CREATE_ACCOUNT_PREFIX + \
             (self.conf.get('expiring_objects_account_name') or
              'expiring_objects')
 

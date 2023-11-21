@@ -178,16 +178,6 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(x.expiring_objects_account, '.expiring_objects')
         self.assertIs(x.swift, self.fake_swift)
 
-        x = expirer.ObjectExpirer({'auto_create_account_prefix': '-'},
-                                  logger=self.logger, swift=self.fake_swift)
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Option auto_create_account_prefix is deprecated. '
-            'Configure auto_create_account_prefix under the '
-            'swift-constraints section of swift.conf. This option '
-            'will be ignored in a future release.'
-        ])
-        self.assertEqual(x.expiring_objects_account, '-expiring_objects')
-
     def test_init_internal_client_log_name(self):
         def _do_test_init_ic_log_name(conf, exp_internal_client_log_name):
             with mock.patch(
