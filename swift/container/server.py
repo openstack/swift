@@ -511,59 +511,42 @@ class ContainerController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if not self.check_free_space(drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        requested_policy_index = self.get_and_validate_policy_index(req)
+
         broker = self._get_container_broker(drive, part, account, container)
-        if obj:     # put container object
-            # obj put expects the policy_index header, default is for
-            # legacy support during upgrade.
-            obj_policy_index = requested_policy_index or 0
-            self._maybe_autocreate(
-                broker, req_timestamp, account, obj_policy_index, req)
-            # redirect if a shard exists for this object name
-            response = self._redirect_to_shard(req, broker, obj)
-            if response:
-                return response
-
-            broker.put_object(obj, req_timestamp.internal,
-                              int(req.headers['x-size']),
-                              wsgi_to_str(req.headers['x-content-type']),
-                              wsgi_to_str(req.headers['x-etag']), 0,
-                              obj_policy_index,
-                              wsgi_to_str(req.headers.get(
-                                  'x-content-type-timestamp')),
-                              wsgi_to_str(req.headers.get('x-meta-timestamp')))
-            return HTTPCreated(request=req)
-
+        if obj:
+            return self.PUT_object(req, broker, account, obj, req_timestamp)
         record_type = req.headers.get('x-backend-record-type', '').lower()
         if record_type == RECORD_TYPE_SHARD:
-            try:
-                # validate incoming data...
-                shard_ranges = [ShardRange.from_dict(sr)
-                                for sr in json.loads(req.body)]
-            except (ValueError, KeyError, TypeError) as err:
-                return HTTPBadRequest('Invalid body: %r' % err)
-            created = self._maybe_autocreate(
-                broker, req_timestamp, account, requested_policy_index, req)
-            self._update_metadata(req, broker, req_timestamp, 'PUT')
-            if shard_ranges:
-                # TODO: consider writing the shard ranges into the pending
-                # file, but if so ensure an all-or-none semantic for the write
-                broker.merge_shard_ranges(shard_ranges)
-        else:   # put container
-            if requested_policy_index is None:
-                # use the default index sent by the proxy if available
-                new_container_policy = req.headers.get(
-                    'X-Backend-Storage-Policy-Default', int(POLICIES.default))
-            else:
-                new_container_policy = requested_policy_index
-            created = self._update_or_create(req, broker,
-                                             req_timestamp.internal,
-                                             new_container_policy,
-                                             requested_policy_index)
-            self._update_metadata(req, broker, req_timestamp, 'PUT')
-            resp = self.account_update(req, account, container, broker)
-            if resp:
-                return resp
+            return self.PUT_shard(req, broker, account, req_timestamp)
+        else:
+            return self.PUT_container(req, broker, account,
+                                      container, req_timestamp)
+
+    @timing_stats()
+    def PUT_object(self, req, broker, account, obj, req_timestamp):
+        """Put object into container."""
+        # obj put expects the policy_index header, default is for
+        # legacy support during upgrade.
+        requested_policy_index = self.get_and_validate_policy_index(req)
+        obj_policy_index = requested_policy_index or 0
+        self._maybe_autocreate(
+            broker, req_timestamp, account, obj_policy_index, req)
+        # redirect if a shard exists for this object name
+        response = self._redirect_to_shard(req, broker, obj)
+        if response:
+            return response
+
+        broker.put_object(obj, req_timestamp.internal,
+                          int(req.headers['x-size']),
+                          wsgi_to_str(req.headers['x-content-type']),
+                          wsgi_to_str(req.headers['x-etag']), 0,
+                          obj_policy_index,
+                          wsgi_to_str(req.headers.get(
+                              'x-content-type-timestamp')),
+                          wsgi_to_str(req.headers.get('x-meta-timestamp')))
+        return HTTPCreated(request=req)
+
+    def _create_ok_resp(self, req, broker, created):
         if created:
             return HTTPCreated(request=req,
                                headers={'x-backend-storage-policy-index':
@@ -572,6 +555,45 @@ class ContainerController(BaseStorageServer):
             return HTTPAccepted(request=req,
                                 headers={'x-backend-storage-policy-index':
                                          broker.storage_policy_index})
+
+    @timing_stats()
+    def PUT_shard(self, req, broker, account, req_timestamp):
+        """Put shards into container."""
+        requested_policy_index = self.get_and_validate_policy_index(req)
+        try:
+            # validate incoming data...
+            shard_ranges = [ShardRange.from_dict(sr)
+                            for sr in json.loads(req.body)]
+        except (ValueError, KeyError, TypeError) as err:
+            return HTTPBadRequest('Invalid body: %r' % err)
+        created = self._maybe_autocreate(
+            broker, req_timestamp, account, requested_policy_index, req)
+        self._update_metadata(req, broker, req_timestamp, 'PUT')
+        if shard_ranges:
+            # TODO: consider writing the shard ranges into the pending
+            # file, but if so ensure an all-or-none semantic for the write
+            broker.merge_shard_ranges(shard_ranges)
+        return self._create_ok_resp(req, broker, created)
+
+    @timing_stats()
+    def PUT_container(self, req, broker, account, container, req_timestamp):
+        """Update or create container."""
+        requested_policy_index = self.get_and_validate_policy_index(req)
+        if requested_policy_index is None:
+            # use the default index sent by the proxy if available
+            new_container_policy = req.headers.get(
+                'X-Backend-Storage-Policy-Default', int(POLICIES.default))
+        else:
+            new_container_policy = requested_policy_index
+        created = self._update_or_create(req, broker,
+                                         req_timestamp.internal,
+                                         new_container_policy,
+                                         requested_policy_index)
+        self._update_metadata(req, broker, req_timestamp, 'PUT')
+        resp = self.account_update(req, account, container, broker)
+        if resp:
+            return resp
+        return self._create_ok_resp(req, broker, created)
 
     @public
     @timing_stats(sample_rate=0.1)
@@ -600,29 +622,39 @@ class ContainerController(BaseStorageServer):
         resp.last_modified = Timestamp(headers['X-PUT-Timestamp']).ceil()
         return resp
 
-    def update_data_record(self, record):
+    def update_shard_record(self, record):
         """
-        Perform any mutations to container listing records that are common to
-        all serialization formats, and returns it as a dict.
+        Return the shard_range database record as a dict, the keys will depend
+        on the database fields provided in the record.
+
+        :param record: shard entry record.
+        :returns: dict suitable for listing responses
+        """
+        response = dict(record)
+        created = record.timestamp
+        response['last_modified'] = Timestamp(created).isoformat
+        return response
+
+    def update_object_record(self, record):
+        """
+        Perform mutation to container listing records that are common to all
+        serialization formats, and returns it as a dict.
 
         Converts created time to iso timestamp.
         Replaces size with 'swift_bytes' content type parameter.
 
-        :params record: object entry record
+        :param record: object entry record
         :returns: modified record
         """
-        if isinstance(record, ShardRange):
-            created = record.timestamp
-            response = dict(record)
-        else:
-            (name, created, size, content_type, etag) = record[:5]
-            name_ = name.decode('utf8') if six.PY2 else name
-            if content_type is None:
-                return {'subdir': name_}
-            response = {
-                'bytes': size, 'hash': etag, 'name': name_,
-                'content_type': content_type}
-            override_bytes_from_content_type(response, logger=self.logger)
+        # record is object info
+        (name, created, size, content_type, etag) = record[:5]
+        name_ = name.decode('utf8') if six.PY2 else name
+        if content_type is None:
+            return {'subdir': name_}
+        response = {
+            'bytes': size, 'hash': etag, 'name': name_,
+            'content_type': content_type}
+        override_bytes_from_content_type(response, logger=self.logger)
         response['last_modified'] = Timestamp(created).isoformat
         return response
 
@@ -709,13 +741,6 @@ class ContainerController(BaseStorageServer):
         """
         drive, part, account, container, obj = get_obj_name_and_placement(req)
         params = validate_container_params(req)
-        path = params.get('path')
-        prefix = params.get('prefix')
-        delimiter = params.get('delimiter')
-        marker = params.get('marker', '')
-        end_marker = params.get('end_marker')
-        limit = params['limit']
-        reverse = config_true_value(params.get('reverse'))
         out_content_type = listing_formats.get_listing_content_type(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -730,70 +755,127 @@ class ContainerController(BaseStorageServer):
         if record_type == 'auto' and db_state in (SHARDING, SHARDED):
             record_type = 'shard'
         if record_type == 'shard':
-            override_deleted = info and config_true_value(
-                req.headers.get('x-backend-override-deleted', False))
-            resp_headers = gen_resp_headers(
-                info, is_deleted=is_deleted and not override_deleted)
-            if is_deleted and not override_deleted:
-                return HTTPNotFound(request=req, headers=resp_headers)
-            resp_headers['X-Backend-Record-Type'] = 'shard'
-            includes = params.get('includes')
-            override_filter_hdr = req.headers.get(
-                'x-backend-override-shard-name-filter', '').lower()
-            if override_filter_hdr == db_state == 'sharded':
-                # respect the request to send back *all* ranges if the db is in
-                # sharded state
-                resp_headers['X-Backend-Override-Shard-Name-Filter'] = 'true'
-                marker = end_marker = includes = None
-                reverse = False
-            states = params.get('states')
-            fill_gaps = include_own = False
-            if states:
-                states = list_from_csv(states)
-                fill_gaps = any(('listing' in states, 'updating' in states))
-                # 'auditing' is used during shard audit; if the shard is
-                # shrinking then it needs to get acceptor shard ranges, which
-                # may be the root container itself, so use include_own
-                include_own = 'auditing' in states
-                try:
-                    states = broker.resolve_shard_range_states(states)
-                except ValueError:
-                    return HTTPBadRequest(request=req, body='Bad state')
-            include_deleted = config_true_value(
-                req.headers.get('x-backend-include-deleted', False))
-            container_list = broker.get_shard_ranges(
-                marker, end_marker, includes, reverse, states=states,
-                include_deleted=include_deleted, fill_gaps=fill_gaps,
-                include_own=include_own)
+            return self.GET_shard(req, broker, container, params, info,
+                                  is_deleted, out_content_type)
         else:
-            requested_policy_index = self.get_and_validate_policy_index(req)
-            resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
-            if is_deleted:
-                return HTTPNotFound(request=req, headers=resp_headers)
-            resp_headers['X-Backend-Record-Type'] = 'object'
-            storage_policy_index = (
-                requested_policy_index if requested_policy_index is not None
-                else info['storage_policy_index'])
-            resp_headers['X-Backend-Record-Storage-Policy-Index'] = \
-                storage_policy_index
-            # Use the retired db while container is in process of sharding,
-            # otherwise use current db
-            src_broker = broker.get_brokers()[0]
-            container_list = src_broker.list_objects_iter(
-                limit, marker, end_marker, prefix, delimiter, path,
-                storage_policy_index=storage_policy_index,
-                reverse=reverse, allow_reserved=req.allow_reserved_names)
-        return self.create_listing(req, out_content_type, info, resp_headers,
-                                   broker.metadata, container_list, container)
+            return self.GET_object(req, broker, container, params, info,
+                                   is_deleted, out_content_type)
 
-    def create_listing(self, req, out_content_type, info, resp_headers,
-                       metadata, container_list, container):
+    @timing_stats()
+    def GET_shard(self, req, broker, container, params, info,
+                  is_deleted, out_content_type):
+        """
+        Returns a list of persisted shard ranges in response.
+
+        :param req: swob.Request object
+        :param broker: container DB broker object
+        :param container: container name
+        :param params: the request params.
+        :param info: the global info for the container
+        :param is_deleted: the is_deleted status for the container.
+        :param out_content_type: content type as a string.
+        :returns: an instance of :class:`swift.common.swob.Response`
+        """
+        marker = params.get('marker', '')
+        end_marker = params.get('end_marker')
+        reverse = config_true_value(params.get('reverse'))
+        states = params.get('states')
+        includes = params.get('includes')
+        include_deleted = config_true_value(
+            req.headers.get('x-backend-include-deleted', False))
+        override_deleted = info and config_true_value(
+            req.headers.get('x-backend-override-deleted', False))
+
+        resp_headers = gen_resp_headers(
+            info, is_deleted=is_deleted and not override_deleted)
+        if is_deleted and not override_deleted:
+            return HTTPNotFound(request=req, headers=resp_headers)
+
+        resp_headers['X-Backend-Record-Type'] = 'shard'
+        override_filter_hdr = req.headers.get(
+            'x-backend-override-shard-name-filter', '').lower()
+        if override_filter_hdr == info.get('db_state') == 'sharded':
+            # respect the request to send back *all* ranges if the db is in
+            # sharded state
+            resp_headers['X-Backend-Override-Shard-Name-Filter'] = 'true'
+            marker = end_marker = includes = None
+            reverse = False
+        fill_gaps = include_own = False
+        if states:
+            states = list_from_csv(states)
+            fill_gaps = any(('listing' in states, 'updating' in states))
+            # The 'auditing' state alias is used by the sharder during
+            # shard audit; if the shard is shrinking then it needs to get
+            # acceptor shard ranges, which may be the root container
+            # itself, so use include_own.
+            include_own = 'auditing' in states
+            try:
+                states = broker.resolve_shard_range_states(states)
+            except ValueError:
+                return HTTPBadRequest(request=req, body='Bad state')
+
+        container_list = broker.get_shard_ranges(
+            marker, end_marker, includes, reverse, states=states,
+            include_deleted=include_deleted, fill_gaps=fill_gaps,
+            include_own=include_own)
+        listing = [self.update_shard_record(record)
+                   for record in container_list]
+        return self._create_GET_response(req, out_content_type, info,
+                                         resp_headers, broker.metadata,
+                                         container, listing)
+
+    @timing_stats()
+    def GET_object(self, req, broker, container, params, info,
+                   is_deleted, out_content_type):
+        """
+        Returns a list of objects in response.
+
+        :param req: swob.Request object
+        :param broker: container DB broker object
+        :param container: container name
+        :param params: the request params.
+        :param info: the global info for the container
+        :param is_deleted: the is_deleted status for the container.
+        :param out_content_type: content type as a string.
+        :returns: an instance of :class:`swift.common.swob.Response`
+        """
+        marker = params.get('marker', '')
+        end_marker = params.get('end_marker')
+        reverse = config_true_value(params.get('reverse'))
+        path = params.get('path')
+        prefix = params.get('prefix')
+        delimiter = params.get('delimiter')
+        limit = params['limit']
+        requested_policy_index = self.get_and_validate_policy_index(req)
+        resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
+        if is_deleted:
+            return HTTPNotFound(request=req, headers=resp_headers)
+        resp_headers['X-Backend-Record-Type'] = 'object'
+        storage_policy_index = (
+            requested_policy_index if requested_policy_index is not None
+            else info['storage_policy_index'])
+        resp_headers['X-Backend-Record-Storage-Policy-Index'] = \
+            storage_policy_index
+        # Use the retired db while container is in process of sharding,
+        # otherwise use current db
+        src_broker = broker.get_brokers()[0]
+        container_list = src_broker.list_objects_iter(
+            limit, marker, end_marker, prefix, delimiter, path,
+            storage_policy_index=storage_policy_index,
+            reverse=reverse, allow_reserved=req.allow_reserved_names)
+        listing = [self.update_object_record(record)
+                   for record in container_list]
+        return self._create_GET_response(req, out_content_type, info,
+                                         resp_headers, broker.metadata,
+                                         container, listing)
+
+    def _create_GET_response(self, req, out_content_type, info, resp_headers,
+                             metadata, container, listing):
         for key, (value, _timestamp) in metadata.items():
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):
                 resp_headers[str_to_wsgi(key)] = str_to_wsgi(value)
-        listing = [self.update_data_record(record)
-                   for record in container_list]
+
         if out_content_type.endswith('/xml'):
             body = listing_formats.container_to_xml(listing, container)
         elif out_content_type.endswith('/json'):

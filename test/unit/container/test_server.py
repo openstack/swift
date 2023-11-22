@@ -2830,6 +2830,12 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(expected, json.loads(resp.body))
             self.assertIn('X-Backend-Record-Type', resp.headers)
             self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+            self.assertEqual(
+                'GET_shard.timing',
+                self.logger.statsd_client.calls['timing_since'][-2][0][0])
+            self.assertEqual(
+                'GET.timing',
+                self.logger.statsd_client.calls['timing_since'][-1][0][0])
 
         def check_shard_GET_override_filter(
                 expected_shard_ranges, path, state, params=''):
@@ -3387,6 +3393,12 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(204, req.get_response(self.controller).status_int)
 
         do_test({'states': 'bad'}, 404)
+        self.assertEqual(
+            'GET_shard.timing',
+            self.logger.statsd_client.calls['timing_since'][-2][0][0])
+        self.assertEqual(
+            'GET.timing',
+            self.logger.statsd_client.calls['timing_since'][-1][0][0])
 
     def test_GET_shard_ranges_auditing(self):
         # verify that states=auditing causes own shard range to be included
@@ -3897,6 +3909,113 @@ class TestContainerController(unittest.TestCase):
     def test_PUT_object_update_redirected_to_shard(self):
         self._check_object_update_redirected_to_shard('PUT')
 
+    def test_PUT_container_timing_metrics(self):
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time.time())))
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': next(ts)})
+        with mock.patch('time.time',) as mock_time:
+            mock_time.return_value = 1000.99
+            resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        stats = self.logger.statsd_client.calls['timing_since']
+        self.assertEqual(2, len(stats))
+        self.assertEqual('PUT_container.timing', stats[-2][0][0])
+        self.assertEqual(stats[-2][0][1], 1000.99)
+        self.assertEqual('PUT.timing', stats[-1][0][0])
+        self.assertEqual(stats[-1][0][1], 1000.99)
+
+    def test_PUT_GET_object_timing_metrics(self):
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time.time())))
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': next(ts)})
+        resp = req.get_response(self.controller)
+        # PUT object.
+        self.logger.clear()
+        req = Request.blank(
+            '/sda1/p/a/c/o', method='PUT', headers={
+                'X-Timestamp': next(ts), 'X-Size': 1,
+                'X-Content-Type': 'text/plain', 'X-Etag': 'x'})
+        self._update_object_put_headers(req)
+        with mock.patch('time.time',) as mock_time:
+            mock_time.return_value = 1000.99
+            resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        stats = self.logger.statsd_client.calls['timing_since']
+        self.assertEqual(2, len(stats))
+        self.assertEqual('PUT_object.timing', stats[-2][0][0])
+        self.assertEqual(stats[-2][0][1], 1000.99)
+        self.assertEqual('PUT.timing', stats[-1][0][0])
+        self.assertEqual(stats[-1][0][1], 1000.99)
+
+        # GET object.
+        self.logger.clear()
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET')
+        with mock.patch('time.time',) as mock_time:
+            mock_time.return_value = 1000.99
+            resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual('object', resp.headers['X-Backend-Record-Type'])
+        stats = self.logger.statsd_client.calls['timing_since']
+        self.assertEqual(2, len(stats))
+        self.assertEqual('GET_object.timing', stats[-2][0][0])
+        self.assertEqual(stats[-2][0][1], 1000.99)
+        self.assertEqual('GET.timing', stats[-1][0][0])
+        self.assertEqual(stats[-1][0][1], 1000.99)
+
+    def test_PUT_GET_shards_timing_metrics(self):
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time.time())))
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': next(ts)})
+        resp = req.get_response(self.controller)
+        # PUT shard ranges.
+        self.logger.clear()
+        shard_bounds = [('', 'ham', ShardRange.ACTIVE),
+                        ('ham', 'salami', ShardRange.ACTIVE),
+                        ('salami', '', ShardRange.CREATED)]
+        shard_ranges = [
+            ShardRange('.shards_a/_%s' % upper, next(ts),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(ts),
+                       state=state, state_timestamp=next(ts))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': next(ts),
+                   'X-Container-Sysmeta-Test': 'set',
+                   'X-Container-Meta-Test': 'persisted'}
+        body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=body)
+        with mock.patch('time.time',) as mock_time:
+            mock_time.return_value = 1000.99
+            resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        stats = self.logger.statsd_client.calls['timing_since']
+        self.assertEqual(2, len(stats))
+        self.assertEqual('PUT_shard.timing', stats[-2][0][0])
+        self.assertEqual(stats[-2][0][1], 1000.99)
+        self.assertEqual('PUT.timing', stats[-1][0][0])
+        self.assertEqual(stats[-1][0][1], 1000.99)
+
+        # GET shard ranges.
+        self.logger.clear()
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        with mock.patch('time.time',) as mock_time:
+            mock_time.return_value = 1000.99
+            resp = req.get_response(self.controller)
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+        stats = self.logger.statsd_client.calls['timing_since']
+        self.assertEqual(2, len(stats))
+        self.assertEqual('GET_shard.timing', stats[-2][0][0])
+        self.assertEqual(stats[-2][0][1], 1000.99)
+        self.assertEqual('GET.timing', stats[-1][0][0])
+        self.assertEqual(stats[-1][0][1], 1000.99)
+
     def test_DELETE_object_update_redirected_to_shard(self):
         self._check_object_update_redirected_to_shard('DELETE')
 
@@ -3952,6 +4071,12 @@ class TestContainerController(unittest.TestCase):
             time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(0)))
         self.assertEqual(json.loads(resp.body), json_body)
         self.assertEqual(resp.charset, 'utf-8')
+        self.assertEqual(
+            'GET_object.timing',
+            self.logger.statsd_client.calls['timing_since'][-2][0][0])
+        self.assertEqual(
+            'GET.timing',
+            self.logger.statsd_client.calls['timing_since'][-1][0][0])
 
         req = Request.blank(
             '/sda1/p/a/jsonc?format=json',
@@ -4064,6 +4189,12 @@ class TestContainerController(unittest.TestCase):
             time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(0)))
         self.assertEqual(resp.body, plain_body)
         self.assertEqual(resp.charset, 'utf-8')
+        self.assertEqual(
+            'GET_object.timing',
+            self.logger.statsd_client.calls['timing_since'][-2][0][0])
+        self.assertEqual(
+            'GET.timing',
+            self.logger.statsd_client.calls['timing_since'][-1][0][0])
 
         req = Request.blank('/sda1/p/a/plainc',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -4500,6 +4631,12 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         result = resp.body.split(b'\n')
         self.assertEqual(result, [b'0', b'1', b''])
+        self.assertEqual(
+            'GET_object.timing',
+            self.logger.statsd_client.calls['timing_since'][-2][0][0])
+        self.assertEqual(
+            'GET.timing',
+            self.logger.statsd_client.calls['timing_since'][-1][0][0])
 
     def test_GET_prefix(self):
         req = Request.blank(
@@ -4522,6 +4659,12 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c?prefix=a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.body.split(b'\n'), [b'a1', b'a2', b'a3', b''])
+        self.assertEqual(
+            'GET_object.timing',
+            self.logger.statsd_client.calls['timing_since'][-2][0][0])
+        self.assertEqual(
+            'GET.timing',
+            self.logger.statsd_client.calls['timing_since'][-1][0][0])
 
     def test_GET_delimiter(self):
         req = Request.blank(
@@ -4547,6 +4690,12 @@ class TestContainerController(unittest.TestCase):
             [{"subdir": "US-OK-"},
              {"subdir": "US-TX-"},
              {"subdir": "US-UT-"}])
+        self.assertEqual(
+            'GET_object.timing',
+            self.logger.statsd_client.calls['timing_since'][-2][0][0])
+        self.assertEqual(
+            'GET.timing',
+            self.logger.statsd_client.calls['timing_since'][-1][0][0])
 
     def test_GET_multichar_delimiter(self):
         self.maxDiff = None
