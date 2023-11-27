@@ -4176,20 +4176,32 @@ class TestReplicatedObjectController(
         StoragePolicy(1, 'one', object_ring=FakeRing()),
     ])
     def test_POST_backend_headers(self):
+        self.app = proxy_server.Application(
+            {},
+            account_ring=FakeRing(separate_replication=True),
+            container_ring=FakeRing(separate_replication=True))
+
+        part = self.app.container_ring.get_part('a', 'c')
+        nodes = self.app.container_ring.get_part_nodes(part)
+        self.assertNotEqual(nodes[0]['ip'], nodes[0]['replication_ip'])
+
         # reset the router post patch_policies
         self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
 
-        def do_test(resp_headers):
+        def do_test(resp_headers, use_replication=False):
             backend_requests = []
 
             def capture_requests(ip, port, method, path, headers, *args,
                                  **kwargs):
                 backend_requests.append((method, path, headers))
 
+            replication_aware = 'true' if use_replication else 'false'
             req = Request.blank('/v1/a/c/o', {}, method='POST',
                                 headers={'X-Object-Meta-Color': 'Blue',
-                                         'Content-Type': 'text/plain'})
+                                         'Content-Type': 'text/plain',
+                                         'x-backend-use-replication-network':
+                                             replication_aware})
 
             # we want the container_info response to says a policy index of 1
             with mocked_http_conn(
@@ -4244,7 +4256,10 @@ class TestReplicatedObjectController(
 
             expected = {}
             for i, device in enumerate(['sda', 'sdb', 'sdc']):
-                expected[device] = '10.0.0.%d:100%d' % (i, i)
+                if use_replication:
+                    expected[device] = '10.0.1.%d:110%d' % (i, i)
+                else:
+                    expected[device] = '10.0.0.%d:100%d' % (i, i)
             self.assertEqual(container_headers, expected)
 
             # and again with policy override
@@ -4277,6 +4292,7 @@ class TestReplicatedObjectController(
         do_test(resp_headers)
         resp_headers['X-Backend-Sharding-State'] = 'unsharded'
         do_test(resp_headers)
+        do_test(resp_headers, use_replication=True)
 
     def _check_request(self, req, method, path, headers=None, params=None):
         self.assertEqual(method, req['method'])

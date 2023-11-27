@@ -448,14 +448,15 @@ class BaseObjectController(Controller):
         headers = [self.generate_request_headers(req, additional=req.headers)
                    for _junk in range(n_outgoing)]
 
-        def set_container_update(index, container):
+        def set_container_update(index, container_node):
+            ip, port = get_ip_port(container_node, headers[index])
             headers[index]['X-Container-Partition'] = container_partition
             headers[index]['X-Container-Host'] = csv_append(
                 headers[index].get('X-Container-Host'),
-                '%(ip)s:%(port)s' % container)
+                '%(ip)s:%(port)s' % {'ip': ip, 'port': port})
             headers[index]['X-Container-Device'] = csv_append(
                 headers[index].get('X-Container-Device'),
-                container['device'])
+                container_node['device'])
             if container_path:
                 headers[index]['X-Backend-Quoted-Container-Path'] = quote(
                     container_path)
@@ -468,11 +469,12 @@ class BaseObjectController(Controller):
                 # will eat the update and move it as a misplaced object.
 
         def set_delete_at_headers(index, delete_at_node):
+            ip, port = get_ip_port(delete_at_node, headers[index])
             headers[index]['X-Delete-At-Container'] = delete_at_container
             headers[index]['X-Delete-At-Partition'] = delete_at_partition
             headers[index]['X-Delete-At-Host'] = csv_append(
                 headers[index].get('X-Delete-At-Host'),
-                '%(ip)s:%(port)s' % delete_at_node)
+                '%(ip)s:%(port)s' % {'ip': ip, 'port': port})
             headers[index]['X-Delete-At-Device'] = csv_append(
                 headers[index].get('X-Delete-At-Device'),
                 delete_at_node['device'])
