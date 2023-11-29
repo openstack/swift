@@ -68,8 +68,9 @@ import time
 import six
 
 from swift.common import constraints
-from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, wsgi_to_str
-from swift.common.utils import json, public, reiterate, md5
+from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
+    wsgi_to_str
+from swift.common.utils import json, public, reiterate, md5, Timestamp
 from swift.common.db import utf8encode
 from swift.common.request_helpers import get_container_update_override_key, \
     get_param
@@ -82,7 +83,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     ErrorResponse, MalformedXML, BadDigest, KeyTooLongError, \
     InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
     InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
-    NoSuchBucket, BucketAlreadyOwnedByYou
+    NoSuchBucket, BucketAlreadyOwnedByYou, ServiceUnavailable
 from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
@@ -96,6 +97,17 @@ MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 
 
 def _get_upload_info(req, app, upload_id):
+    """
+    Make a HEAD request for existing upload object metadata. Tries the upload
+    marker first, and then falls back to the manifest object.
+
+    :param req: an S3Request object.
+    :param app: the wsgi app.
+    :param upload_id: the upload id.
+    :returns: a tuple of (S3Response, boolean) where the boolean is True if the
+        response is from the upload marker and False otherwise.
+    :raises: NoSuchUpload if neither the marker nor the manifest were found.
+    """
 
     container = req.container_name + MULTIUPLOAD_SUFFIX
     obj = '%s/%s' % (req.object_name, upload_id)
@@ -106,7 +118,8 @@ def _get_upload_info(req, app, upload_id):
     # it off for now...
     copy_source = req.headers.pop('X-Amz-Copy-Source', None)
     try:
-        return req.get_response(app, 'HEAD', container=container, obj=obj)
+        resp = req.get_response(app, 'HEAD', container=container, obj=obj)
+        return resp, True
     except NoSuchKey:
         # ensure consistent path and policy are logged despite manifest HEAD
         upload_marker_path = req.environ.get('s3api.backend_path')
@@ -115,7 +128,7 @@ def _get_upload_info(req, app, upload_id):
             resp = req.get_response(app, 'HEAD')
             if resp.sysmeta_headers.get(sysmeta_header(
                     'object', 'upload-id')) == upload_id:
-                return resp
+                return resp, False
         except NoSuchKey:
             pass
         finally:
@@ -655,7 +668,14 @@ class UploadController(Controller):
         Handles Complete Multipart Upload.
         """
         upload_id = get_param(req, 'uploadId')
-        resp = _get_upload_info(req, self.app, upload_id)
+        resp, is_marker = _get_upload_info(req, self.app, upload_id)
+        if (is_marker and
+                resp.sw_headers.get('X-Backend-Timestamp') >= Timestamp.now()):
+            # Somehow the marker was created in the future w.r.t. this thread's
+            # clock. The manifest PUT may succeed but the subsequent marker
+            # DELETE will fail, so don't attempt either.
+            raise ServiceUnavailable
+
         headers = {'Accept': 'application/json',
                    sysmeta_header('object', 'upload-id'): upload_id}
         for key, val in resp.headers.items():
