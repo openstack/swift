@@ -1230,12 +1230,7 @@ class StaticLargeObject(object):
             delete_concurrency=delete_concurrency,
             logger=self.logger)
 
-        # Need to know how to expire things to do async deletes
-        if conf.get('auto_create_account_prefix'):
-            # proxy app will log about how this should get moved to swift.conf
-            prefix = conf['auto_create_account_prefix']
-        else:
-            prefix = AUTO_CREATE_ACCOUNT_PREFIX
+        prefix = AUTO_CREATE_ACCOUNT_PREFIX
         self.expiring_objects_account = prefix + (
             conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = int(

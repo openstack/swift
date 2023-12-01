@@ -173,18 +173,8 @@ class ObjectController(BaseStorageServer):
         for header in extra_allowed_headers:
             if header not in RESERVED_DATAFILE_META:
                 self.allowed_headers.add(header)
-        if conf.get('auto_create_account_prefix'):
-            self.logger.warning('Option auto_create_account_prefix is '
-                                'deprecated. Configure '
-                                'auto_create_account_prefix under the '
-                                'swift-constraints section of '
-                                'swift.conf. This option will '
-                                'be ignored in a future release.')
-            self.auto_create_account_prefix = \
-                conf['auto_create_account_prefix']
-        else:
-            self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
 
+        self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
         self.expiring_objects_account = self.auto_create_account_prefix + \
             (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \

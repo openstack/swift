@@ -593,15 +593,6 @@ class TestProxyServerConfiguration(unittest.TestCase):
         self.assertEqual(app.auto_create_account_prefix, '.')
         self.assertEqual(self.logger.get_lines_for_level('warning'), [])
 
-        app = self._make_app({'auto_create_account_prefix': '-'})
-        self.assertEqual(app.auto_create_account_prefix, '-')
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Option auto_create_account_prefix is deprecated. '
-            'Configure auto_create_account_prefix under the '
-            'swift-constraints section of swift.conf. This option '
-            'will be ignored in a future release.'
-        ])
-
     def test_node_timeout(self):
         # later config should be extended to assert more config options
         app = self._make_app({'node_timeout': '3.5',

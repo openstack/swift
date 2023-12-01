@@ -31,7 +31,5 @@ extra_header_count          0           By default the maximum number of allowed
                                         If for some reason this is not enough (custom
                                         middleware for example) it can be increased
                                         with the extra_header_count constraint.
-auto_create_account_prefix  .           Prefix used when automatically creating
-                                        accounts.
 ==========================  ==========  =============================================
 

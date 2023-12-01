@@ -220,8 +220,6 @@ On PUTs, sync data every n MB. The default is 512.
 Comma separated list of headers that can be set in metadata on an object.
 This list is in addition to X-Object-Meta-* headers and cannot include Content-Type, etag, Content-Length, or deleted.
 The default is 'Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object, Cache-Control, Content-Language, Expires, X-Robots-Tag'.
-.IP "\fBauto_create_account_prefix [deprecated]\fR"
-The default is '.'. Should be configured in swift.conf instead.
 .IP "\fBreplication_server\fR"
 Configure parameter for creating specific server
 To handle all verbs, including replication verbs, do not specify
