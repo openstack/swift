@@ -40,7 +40,7 @@ from keystoneauth1.access import AccessInfoV2
 
 from test.debug_logger import debug_logger, FakeStatsdClient
 from test.unit.common.middleware.s3api import S3ApiTestCase
-from test.unit.common.middleware.s3api.helpers import FakeSwift
+from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.common.middleware.s3api.test_s3token import \
     GOOD_RESPONSE_V2, GOOD_RESPONSE_V3
 from swift.common.middleware.s3api.s3request import SigV4Request, S3Request
@@ -1440,7 +1440,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.s3api.logger.logger.statsd_client.get_increment_counts())
 
     def test_s3api_with_only_s3_token(self):
-        self.swift = FakeSwift()
+        self.swift = FakeSwift(allowed_methods=['TEST'])
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(
@@ -1470,7 +1470,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                              req.environ['swift.backend_path'])
 
     def test_s3api_with_only_s3_token_v3(self):
-        self.swift = FakeSwift()
+        self.swift = FakeSwift(allowed_methods=['TEST'])
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(
@@ -1500,7 +1500,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                              req.environ['swift.backend_path'])
 
     def test_s3api_with_s3_token_and_auth_token(self):
-        self.swift = FakeSwift()
+        self.swift = FakeSwift(allowed_methods=['TEST'])
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.auth_token = AuthProtocol(
@@ -1555,7 +1555,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     statsd_client.get_increment_counts())
 
     def test_s3api_with_only_s3_token_in_s3acl(self):
-        self.swift = FakeSwift()
+        self.swift = FakeSwift(allowed_methods=['TEST'])
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(

@@ -14,92 +14,15 @@
 # limitations under the License.
 
 import unittest
-import functools
-import sys
-import traceback
-from mock import patch, MagicMock
 
-from swift.common import swob
 from swift.common.swob import Request
-from swift.common.utils import json
-
 from swift.common.middleware.s3api.etree import tostring, Element, SubElement
 from swift.common.middleware.s3api.subresource import ACL, ACLPrivate, User, \
-    encode_acl, AuthenticatedUsers, AllUsers, Owner, Grant, PERMISSIONS
-from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
-from test.unit.common.middleware.s3api.exceptions import NotMethodException
-from test.unit.common.middleware.s3api import FakeSwift
+    Owner, Grant
+from test.unit.common.middleware.s3api import S3ApiTestCaseAcl
 
 
 XMLNS_XSI = 'http://www.w3.org/2001/XMLSchema-instance'
-
-
-def s3acl(func=None, s3acl_only=False, versioning_enabled=True):
-    """
-    NOTE: s3acl decorator needs an instance of s3api testing framework.
-          (i.e. An instance for first argument is necessary)
-    """
-    if func is None:
-        return functools.partial(
-            s3acl,
-            s3acl_only=s3acl_only,
-            versioning_enabled=versioning_enabled)
-
-    @functools.wraps(func)
-    def s3acl_decorator(*args, **kwargs):
-        if not args and not kwargs:
-            raise NotMethodException('Use s3acl decorator for a method')
-
-        def call_func(failing_point=''):
-            try:
-                # For maintainability, we patch 204 status for every
-                # get_container_info. if you want, we can rewrite the
-                # statement easily with nested decorator like as:
-                #
-                #  @s3acl
-                #  @patch(xxx)
-                #  def test_xxxx(self)
-
-                fake_info = {'status': 204}
-                if versioning_enabled:
-                    fake_info['sysmeta'] = {
-                        'versions-container': '\x00versions\x00bucket',
-                    }
-
-                with patch('swift.common.middleware.s3api.s3request.'
-                           'get_container_info', return_value=fake_info):
-                    func(*args, **kwargs)
-            except AssertionError:
-                # Make traceback message to clarify the assertion
-                exc_type, exc_instance, exc_traceback = sys.exc_info()
-                formatted_traceback = ''.join(traceback.format_tb(
-                    exc_traceback))
-                message = '\n%s\n%s' % (formatted_traceback,
-                                        exc_type.__name__)
-                if exc_instance.args:
-                    message += ':\n%s' % (exc_instance.args[0],)
-                message += failing_point
-                raise exc_type(message)
-
-        instance = args[0]
-
-        if not s3acl_only:
-            call_func()
-            instance.swift._calls = []
-
-        instance.s3api.conf.s3_acl = True
-        instance.swift.s3_acl = True
-        owner = Owner('test:tester', 'test:tester')
-        generate_s3acl_environ('test', instance.swift, owner)
-        call_func(' (fail at s3_acl)')
-
-    return s3acl_decorator
-
-
-def _gen_test_headers(owner, grants=[], resource='container'):
-    if not grants:
-        grants = [Grant(User('test:tester'), 'FULL_CONTROL')]
-    return encode_acl(resource, ACL(owner, grants))
 
 
 def _make_xml(grantee):
@@ -116,69 +39,7 @@ def _make_xml(grantee):
     return tostring(elem)
 
 
-def generate_s3acl_environ(account, swift, owner):
-
-    def gen_grant(permission):
-        # generate Grant with a grantee named by "permission"
-        account_name = '%s:%s' % (account, permission.lower())
-        return Grant(User(account_name), permission)
-
-    grants = [gen_grant(perm) for perm in PERMISSIONS]
-    container_headers = _gen_test_headers(owner, grants)
-    object_headers = _gen_test_headers(owner, grants, 'object')
-    object_body = 'hello'
-    object_headers['Content-Length'] = len(object_body)
-
-    # TEST method is used to resolve a tenant name
-    swift.register('TEST', '/v1/AUTH_test', swob.HTTPMethodNotAllowed,
-                   {}, None)
-    swift.register('TEST', '/v1/AUTH_X', swob.HTTPMethodNotAllowed,
-                   {}, None)
-
-    # for bucket
-    swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-                   container_headers, None)
-    swift.register('HEAD', '/v1/AUTH_test/bucket+segments', swob.HTTPNoContent,
-                   container_headers, None)
-    swift.register('PUT', '/v1/AUTH_test/bucket',
-                   swob.HTTPCreated, {}, None)
-    swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-                   container_headers, json.dumps([]))
-    swift.register('POST', '/v1/AUTH_test/bucket',
-                   swob.HTTPNoContent, {}, None)
-    swift.register('DELETE', '/v1/AUTH_test/bucket',
-                   swob.HTTPNoContent, {}, None)
-
-    # necessary for canned-acl tests
-    public_headers = _gen_test_headers(owner, [Grant(AllUsers(), 'READ')])
-    swift.register('GET', '/v1/AUTH_test/public', swob.HTTPNoContent,
-                   public_headers, json.dumps([]))
-    authenticated_headers = _gen_test_headers(
-        owner, [Grant(AuthenticatedUsers(), 'READ')], 'bucket')
-    swift.register('GET', '/v1/AUTH_test/authenticated',
-                   swob.HTTPNoContent, authenticated_headers,
-                   json.dumps([]))
-
-    # for object
-    swift.register('HEAD', '/v1/AUTH_test/bucket/object', swob.HTTPOk,
-                   object_headers, None)
-
-
-class TestS3ApiS3Acl(S3ApiTestCase):
-
-    def setUp(self):
-        super(TestS3ApiS3Acl, self).setUp()
-
-        self.s3api.conf.s3_acl = True
-        self.swift.s3_acl = True
-
-        account = 'test'
-        owner_name = '%s:tester' % account
-        self.default_owner = Owner(owner_name, owner_name)
-        generate_s3acl_environ(account, self.swift, self.default_owner)
-
-    def tearDown(self):
-        self.s3api.conf.s3_acl = False
+class TestS3ApiS3Acl(S3ApiTestCaseAcl):
 
     def test_bucket_acl_PUT_with_other_owner(self):
         req = Request.blank('/bucket?acl',
@@ -520,42 +381,6 @@ class TestS3ApiS3Acl(S3ApiTestCase):
     def test_object_acl_PUT_with_owner_permission(self):
         status, headers, body = self._test_object_acl_PUT('test:tester')
         self.assertEqual(status.split()[0], '200')
-
-    def test_s3acl_decorator(self):
-        @s3acl
-        def non_class_s3acl_error():
-            raise TypeError()
-
-        class FakeClass(object):
-            def __init__(self):
-                self.s3api = MagicMock()
-                self.swift = FakeSwift()
-
-            @s3acl
-            def s3acl_error(self):
-                raise TypeError()
-
-            @s3acl
-            def s3acl_assert_fail(self):
-                assert False
-
-            @s3acl(s3acl_only=True)
-            def s3acl_s3only_error(self):
-                if self.s3api.conf.s3_acl:
-                    raise TypeError()
-
-            @s3acl(s3acl_only=True)
-            def s3acl_s3only_no_error(self):
-                if not self.s3api.conf.s3_acl:
-                    raise TypeError()
-
-        fake_class = FakeClass()
-
-        self.assertRaises(NotMethodException, non_class_s3acl_error)
-        self.assertRaises(TypeError, fake_class.s3acl_error)
-        self.assertRaises(AssertionError, fake_class.s3acl_assert_fail)
-        self.assertRaises(TypeError, fake_class.s3acl_s3only_error)
-        self.assertIsNone(fake_class.s3acl_s3only_no_error())
 
 
 if __name__ == '__main__':

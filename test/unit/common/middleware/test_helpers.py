@@ -16,12 +16,40 @@
 import unittest
 
 from swift.common.storage_policy import POLICIES
-from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated
+from swift.common.swob import Request, HTTPOk, HTTPNotFound, \
+    HTTPCreated, HeaderKeyDict, HTTPException
 from swift.common import request_helpers as rh
+from swift.common.middleware.s3api.utils import sysmeta_header
 from test.unit.common.middleware.helpers import FakeSwift
 
 
 class TestFakeSwift(unittest.TestCase):
+    def test_allowed_methods(self):
+
+        def assert_allowed(swift, method):
+            path = '/v1/a/c/o'
+            swift.register(method, path, HTTPOk, {}, None)
+            req = Request.blank(path)
+            req.method = method
+            self.assertEqual(200, req.get_response(swift).status_int)
+
+        def assert_disallowed(swift, method):
+            path = '/v1/a/c/o'
+            swift.register(method, path, HTTPOk, {}, None)
+            req = Request.blank(path)
+            req.method = method
+            with self.assertRaises(HTTPException) as cm:
+                req.get_response(swift)
+                self.assertEqual(501, cm.exception.status_int)
+
+        for method in ('PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS',
+                       'REPLICATE', 'SSYNC', 'UPDATE'):
+            assert_allowed(FakeSwift(), method)
+            assert_allowed(FakeSwift(allowed_methods=['TEST']), 'TEST')
+
+        assert_disallowed(FakeSwift(), 'TEST')
+        assert_allowed(FakeSwift(allowed_methods=['TEST']), 'TEST')
+
     def test_not_registered(self):
         swift = FakeSwift()
 
@@ -692,3 +720,114 @@ class TestFakeSwiftMultipleResponses(unittest.TestCase):
             resp = req.get_response(swift)
             self.assertEqual(200, resp.status_int)
             self.assertEqual('Baz', resp.headers['X-Foo'])
+
+
+class TestFakeSwiftStickyHeaders(unittest.TestCase):
+    def setUp(self):
+        self.swift = FakeSwift()
+        self.path = '/v1/AUTH_test/bucket'
+
+    def _check_headers(self, method, path, exp_headers):
+        captured_headers = {}
+
+        def start_response(status, resp_headers):
+            self.assertEqual(status, '200 OK')
+            captured_headers.update(resp_headers)
+
+        env = {'REQUEST_METHOD': method, 'PATH_INFO': path}
+        body_iter = self.swift(env, start_response)
+        b''.join(body_iter)
+        captured_headers.pop('Content-Type')
+        self.assertEqual(exp_headers, captured_headers)
+
+    def test_sticky_headers(self):
+        sticky_headers = HeaderKeyDict({
+            sysmeta_header('container', 'acl'): 'test',
+            'x-container-meta-foo': 'bar',
+        })
+        self.swift.update_sticky_response_headers(self.path, sticky_headers)
+        # register a response for this path with no headers
+        self.swift.register('GET', self.path, HTTPOk, {}, None)
+        self._check_headers('HEAD', self.path, sticky_headers)
+        self._check_headers('GET', self.path, sticky_headers)
+
+        # sticky headers are not applied to PUT, POST, DELETE
+        self.swift.register('PUT', self.path, HTTPOk, {}, None)
+        self._check_headers('PUT', self.path, {})
+        self.swift.register('POST', self.path, HTTPOk, {}, None)
+        self._check_headers('POST', self.path, {})
+        self.swift.register('DELETE', self.path, HTTPOk, {}, None)
+        self._check_headers('DELETE', self.path, {})
+
+    def test_sticky_headers_match_path(self):
+        other_path = self.path + '-other'
+        sticky_headers = HeaderKeyDict({
+            sysmeta_header('container', 'acl'): 'test',
+            'x-container-meta-foo': 'bar',
+        })
+        sticky_headers_other = HeaderKeyDict({
+            'x-container-meta-foo': 'other',
+        })
+        self.swift.update_sticky_response_headers(self.path, sticky_headers)
+        self.swift.update_sticky_response_headers(other_path,
+                                                  sticky_headers_other)
+        self.swift.register('GET', self.path, HTTPOk, {}, None)
+        self.swift.register('GET', other_path, HTTPOk, {}, None)
+        self._check_headers('HEAD', self.path, sticky_headers)
+        self._check_headers('GET', other_path, sticky_headers_other)
+
+    def test_sticky_headers_update(self):
+        sticky_headers = HeaderKeyDict({
+            sysmeta_header('container', 'acl'): 'test',
+            'x-container-meta-foo': 'bar'
+        })
+        exp_headers = sticky_headers.copy()
+        self.swift.update_sticky_response_headers(self.path, sticky_headers)
+        self.swift.register('HEAD', self.path, HTTPOk, {}, None)
+        self._check_headers('HEAD', self.path, exp_headers)
+
+        # check that FakeSwift made a *copy*
+        sticky_headers['x-container-meta-foo'] = 'changed'
+        self._check_headers('HEAD', self.path, exp_headers)
+
+        # check existing are updated not replaced
+        sticky_headers = HeaderKeyDict({
+            sysmeta_header('container', 'acl'): 'test-modified',
+            'x-container-meta-bar': 'foo'
+        })
+        exp_headers.update(sticky_headers)
+        self.swift.update_sticky_response_headers(self.path, sticky_headers)
+        self._check_headers('HEAD', self.path, exp_headers)
+
+    def test_sticky_headers_add_to_response_headers(self):
+        sticky_headers = HeaderKeyDict({
+            'x-container-meta-foo': 'bar',
+        })
+        self.swift.update_sticky_response_headers(self.path, sticky_headers)
+        # register a response with another header
+        self.swift.register('HEAD', self.path, HTTPOk, {
+            'x-backend-storage-policy-index': '1',
+        }, None)
+        self._check_headers('HEAD', self.path, HeaderKeyDict({
+            'x-container-meta-foo': 'bar',
+            'x-backend-storage-policy-index': '1',
+        }))
+
+    def test_sticky_headers_overwritten_by_response_header(self):
+        sticky_headers = HeaderKeyDict({
+            'x-container-meta-foo': 'bar',
+            'x-backend-storage-policy-index': '0',
+        })
+        self.swift.update_sticky_response_headers(self.path, sticky_headers)
+        # register a response with a different value for a sticky header
+        self.swift.register('HEAD', self.path, HTTPOk, {
+            'x-container-meta-foo': 'different',
+        }, None)
+        self._check_headers('HEAD', self.path, HeaderKeyDict({
+            'x-container-meta-foo': 'different',
+            'x-backend-storage-policy-index': '0',
+        }))
+
+
+if __name__ == '__main__':
+    unittest.main()

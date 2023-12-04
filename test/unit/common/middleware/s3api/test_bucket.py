@@ -33,15 +33,14 @@ from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
 from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
 
 from test.unit.common.middleware.helpers import normalize_path
-from test.unit.common.middleware.s3api import S3ApiTestCase
-from test.unit.common.middleware.s3api.test_s3_acl import s3acl
+from test.unit.common.middleware.s3api import S3ApiTestCase, S3ApiTestCaseAcl
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 
 # Example etag from ProxyFS; note that it is already quote-wrapped
 PFS_ETAG = '"pfsv2/AUTH_test/01234567/89abcdef-32"'
 
 
-class TestS3ApiBucket(S3ApiTestCase):
+class BaseS3ApiBucket(object):
     def setup_objects(self):
         self.objects = (('lily', '2011-01-05T02:19:14.275290', '0', '3909'),
                         (u'lily-\u062a', '2011-01-05T02:19:14.275290', 0, 390),
@@ -127,8 +126,326 @@ class TestS3ApiBucket(S3ApiTestCase):
             ]))
 
     def setUp(self):
-        super(TestS3ApiBucket, self).setUp()
+        super(BaseS3ApiBucket, self).setUp()
         self.setup_objects()
+
+    def _add_versions_request(self, orig_objects=None, versioned_objects=None,
+                              bucket='junk'):
+        if orig_objects is None:
+            orig_objects = self.objects_list
+        if versioned_objects is None:
+            versioned_objects = self.versioned_objects
+        all_versions = versioned_objects + [
+            dict(i, version_id='null', is_latest=True)
+            for i in orig_objects]
+        all_versions.sort(key=lambda o: (
+            o['name'], '' if o['version_id'] == 'null' else o['version_id']))
+        self.swift.register(
+            'GET', '/v1/AUTH_test/%s' % bucket, swob.HTTPOk,
+            {'Content-Type': 'application/json'}, json.dumps(all_versions))
+
+    def _assert_delete_markers(self, elem):
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(len(delete_markers), 1)
+        self.assertEqual(delete_markers[0].find('./IsLatest').text, 'false')
+        self.assertEqual(delete_markers[0].find('./VersionId').text, '2')
+        self.assertEqual(delete_markers[0].find('./Key').text, 'rose')
+
+    def _test_bucket_PUT_with_location(self, root_element):
+        elem = Element(root_element)
+        SubElement(elem, 'LocationConstraint').text = 'us-east-1'
+        xml = tostring(elem)
+
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()},
+                            body=xml)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+    def _test_method_error_delete(self, path, sw_resp):
+        self.swift.register('HEAD', '/v1/AUTH_test' + path, sw_resp, {}, None)
+        return self._test_method_error('DELETE', path, sw_resp)
+
+    def test_bucket_GET_error(self):
+        code = self._test_method_error('GET', '/bucket', swob.HTTPUnauthorized)
+        self.assertEqual(code, 'SignatureDoesNotMatch')
+        code = self._test_method_error('GET', '/bucket', swob.HTTPForbidden)
+        self.assertEqual(code, 'AccessDenied')
+        code = self._test_method_error('GET', '/bucket', swob.HTTPNotFound)
+        self.assertEqual(code, 'NoSuchBucket')
+        code = self._test_method_error('GET', '/bucket',
+                                       swob.HTTPServiceUnavailable)
+        self.assertEqual(code, 'ServiceUnavailable')
+        code = self._test_method_error('GET', '/bucket', swob.HTTPServerError)
+        self.assertEqual(code, 'InternalError')
+
+    def test_bucket_GET_non_json(self):
+        # Suppose some middleware accidentally makes it return txt instead
+        resp_body = b'\n'.join([b'obj%d' % i for i in range(100)])
+        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
+                            resp_body)
+        # When we do our GET...
+        req = Request.blank('/bucket',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        # ...there isn't much choice but to error...
+        self.assertEqual(self._get_error_code(body), 'InternalError')
+        # ... but we should at least log the body to aid in debugging
+        self.assertIn(
+            'Got non-JSON response trying to list /bucket: %r'
+            % (resp_body[:60] + b'...'),
+            self.s3api.logger.get_lines_for_level('error'))
+
+    def test_bucket_PUT_error(self):
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPCreated,
+                                       headers={'Content-Length': 'a'})
+        self.assertEqual(code, 'InvalidArgument')
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPCreated,
+                                       headers={'Content-Length': '-1'})
+        self.assertEqual(code, 'InvalidArgument')
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPUnauthorized)
+        self.assertEqual(code, 'SignatureDoesNotMatch')
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPForbidden)
+        self.assertEqual(code, 'AccessDenied')
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted)
+        self.assertEqual(code, 'BucketAlreadyOwnedByYou')
+        with mock.patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                return_value={'sysmeta': {'s3api-acl': '{"Owner": "nope"}'}}):
+            code = self._test_method_error(
+                'PUT', '/bucket', swob.HTTPAccepted)
+        self.assertEqual(code, 'BucketAlreadyExists')
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPServerError)
+        self.assertEqual(code, 'InternalError')
+        code = self._test_method_error(
+            'PUT', '/bucket', swob.HTTPServiceUnavailable)
+        self.assertEqual(code, 'ServiceUnavailable')
+        code = self._test_method_error(
+            'PUT', '/bucket+bucket', swob.HTTPCreated)
+        self.assertEqual(code, 'InvalidBucketName')
+        code = self._test_method_error(
+            'PUT', '/192.168.11.1', swob.HTTPCreated)
+        self.assertEqual(code, 'InvalidBucketName')
+        code = self._test_method_error(
+            'PUT', '/bucket.-bucket', swob.HTTPCreated)
+        self.assertEqual(code, 'InvalidBucketName')
+        code = self._test_method_error(
+            'PUT', '/bucket-.bucket', swob.HTTPCreated)
+        self.assertEqual(code, 'InvalidBucketName')
+        code = self._test_method_error('PUT', '/bucket*', swob.HTTPCreated)
+        self.assertEqual(code, 'InvalidBucketName')
+        code = self._test_method_error('PUT', '/b', swob.HTTPCreated)
+        self.assertEqual(code, 'InvalidBucketName')
+        code = self._test_method_error(
+            'PUT', '/%s' % ''.join(['b' for x in range(64)]),
+            swob.HTTPCreated)
+        self.assertEqual(code, 'InvalidBucketName')
+
+    def test_bucket_PUT_bucket_already_owned_by_you(self):
+        self.swift.register(
+            'PUT', '/v1/AUTH_test/bucket', swob.HTTPAccepted,
+            {'X-Container-Object-Count': 0}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertIn(b'BucketAlreadyOwnedByYou', body)
+
+    def test_bucket_PUT_first_put_fail(self):
+        self.swift.register(
+            'PUT', '/v1/AUTH_test/bucket',
+            swob.HTTPServiceUnavailable,
+            {'X-Container-Object-Count': 0}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '503 Service Unavailable')
+        # The last call was PUT not POST for acl set
+        self.assertEqual(self.swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket'),
+        ])
+
+    def test_bucket_PUT(self):
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(body, b'')
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(headers['Location'], '/bucket')
+
+        # Apparently some clients will include a chunked transfer-encoding
+        # even with no body
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Transfer-Encoding': 'chunked'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(body, b'')
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(headers['Location'], '/bucket')
+
+        with UnreadableInput(self) as fake_input:
+            req = Request.blank(
+                '/bucket',
+                environ={'REQUEST_METHOD': 'PUT',
+                         'wsgi.input': fake_input},
+                headers={'Authorization': 'AWS test:tester:hmac',
+                         'Date': self.get_date_header()})
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(body, b'')
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(headers['Location'], '/bucket')
+
+    def test_bucket_PUT_with_location(self):
+        self._test_bucket_PUT_with_location('CreateBucketConfiguration')
+
+    def test_bucket_PUT_with_ami_location(self):
+        # ec2-ami-tools apparently uses CreateBucketConstraint instead?
+        self._test_bucket_PUT_with_location('CreateBucketConstraint')
+
+    def test_bucket_PUT_with_strange_location(self):
+        # Even crazier: it doesn't seem to matter
+        self._test_bucket_PUT_with_location('foo')
+
+    def test_bucket_PUT_with_location_error(self):
+        elem = Element('CreateBucketConfiguration')
+        SubElement(elem, 'LocationConstraint').text = 'XXX'
+        xml = tostring(elem)
+
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()},
+                            body=xml)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(self._get_error_code(body),
+                         'InvalidLocationConstraint')
+
+    def test_bucket_PUT_with_location_invalid_xml(self):
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()},
+                            body='invalid_xml')
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(self._get_error_code(body), 'MalformedXML')
+
+    def test_bucket_DELETE_error(self):
+        code = self._test_method_error_delete('/bucket', swob.HTTPUnauthorized)
+        self.assertEqual(code, 'SignatureDoesNotMatch')
+        code = self._test_method_error_delete('/bucket', swob.HTTPForbidden)
+        self.assertEqual(code, 'AccessDenied')
+        code = self._test_method_error_delete('/bucket', swob.HTTPNotFound)
+        self.assertEqual(code, 'NoSuchBucket')
+        code = self._test_method_error_delete('/bucket', swob.HTTPServerError)
+        self.assertEqual(code, 'InternalError')
+
+        # bucket not empty is now validated at s3api
+        self.swift._responses.get(('HEAD', '/v1/AUTH_test/bucket'))
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+                            {'X-Container-Object-Count': '1'}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('409 Conflict', status)
+        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
+        self.assertNotIn('You must delete all versions in the bucket',
+                         self._get_error_message(body))
+
+    def test_bucket_DELETE_error_with_enabled_versioning(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+                            {'X-Container-Object-Count': '1',
+                             'X-Container-Sysmeta-Versions-Enabled': 'True'},
+                            None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('409 Conflict', status)
+        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
+        self.assertIn('You must delete all versions in the bucket',
+                      self._get_error_message(body))
+
+    def test_bucket_DELETE_error_with_suspended_versioning(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+                            {'X-Container-Object-Count': '1',
+                             'X-Container-Sysmeta-Versions-Enabled': 'False'},
+                            None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('409 Conflict', status)
+        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
+        self.assertIn('You must delete all versions in the bucket',
+                      self._get_error_message(body))
+
+    def test_bucket_DELETE(self):
+        # overwrite default HEAD to return x-container-object-count
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+            {'X-Container-Object-Count': 0}, None)
+
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204')
+
+    def test_bucket_DELETE_with_empty_versioning(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket+versioning',
+                            swob.HTTPNoContent, {}, None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket+versioning',
+                            swob.HTTPNoContent, {}, None)
+        # overwrite default HEAD to return x-container-object-count
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+            {'X-Container-Object-Count': 0}, None)
+
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204')
+
+    def test_bucket_DELETE_error_while_segment_bucket_delete(self):
+        # An error occurred while deleting segment objects
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments/lily',
+                            swob.HTTPServiceUnavailable, {}, json.dumps([]))
+        # overwrite default HEAD to return x-container-object-count
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+            {'X-Container-Object-Count': 0}, None)
+
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '503')
+        called = [(method, path) for method, path, _ in
+                  self.swift.calls_with_headers]
+        # Don't delete original bucket when error occurred in segment container
+        self.assertNotIn(('DELETE', '/v1/AUTH_test/bucket'), called)
+
+
+class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
 
     def test_bucket_HEAD(self):
         req = Request.blank('/junk',
@@ -193,39 +510,6 @@ class TestS3ApiBucket(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '404')
-
-    @s3acl
-    def test_bucket_GET_error(self):
-        code = self._test_method_error('GET', '/bucket', swob.HTTPUnauthorized)
-        self.assertEqual(code, 'SignatureDoesNotMatch')
-        code = self._test_method_error('GET', '/bucket', swob.HTTPForbidden)
-        self.assertEqual(code, 'AccessDenied')
-        code = self._test_method_error('GET', '/bucket', swob.HTTPNotFound)
-        self.assertEqual(code, 'NoSuchBucket')
-        code = self._test_method_error('GET', '/bucket',
-                                       swob.HTTPServiceUnavailable)
-        self.assertEqual(code, 'ServiceUnavailable')
-        code = self._test_method_error('GET', '/bucket', swob.HTTPServerError)
-        self.assertEqual(code, 'InternalError')
-
-    @s3acl
-    def test_bucket_GET_non_json(self):
-        # Suppose some middleware accidentally makes it return txt instead
-        resp_body = b'\n'.join([b'obj%d' % i for i in range(100)])
-        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
-                            resp_body)
-        # When we do our GET...
-        req = Request.blank('/bucket',
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        # ...there isn't much choice but to error...
-        self.assertEqual(self._get_error_code(body), 'InternalError')
-        # ... but we should at least log the body to aid in debugging
-        self.assertIn(
-            'Got non-JSON response trying to list /bucket: %r'
-            % (resp_body[:60] + b'...'),
-            self.s3api.logger.get_lines_for_level('error'))
 
     def test_bucket_GET(self):
         bucket_name = 'junk'
@@ -765,28 +1049,6 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual([v.find('./StorageClass').text for v in versions],
                          ['STANDARD' for v in objects])
 
-    def _add_versions_request(self, orig_objects=None, versioned_objects=None,
-                              bucket='junk'):
-        if orig_objects is None:
-            orig_objects = self.objects_list
-        if versioned_objects is None:
-            versioned_objects = self.versioned_objects
-        all_versions = versioned_objects + [
-            dict(i, version_id='null', is_latest=True)
-            for i in orig_objects]
-        all_versions.sort(key=lambda o: (
-            o['name'], '' if o['version_id'] == 'null' else o['version_id']))
-        self.swift.register(
-            'GET', '/v1/AUTH_test/%s' % bucket, swob.HTTPOk,
-            {'Content-Type': 'application/json'}, json.dumps(all_versions))
-
-    def _assert_delete_markers(self, elem):
-        delete_markers = elem.findall('./DeleteMarker')
-        self.assertEqual(len(delete_markers), 1)
-        self.assertEqual(delete_markers[0].find('./IsLatest').text, 'false')
-        self.assertEqual(delete_markers[0].find('./VersionId').text, '2')
-        self.assertEqual(delete_markers[0].find('./Key').text, 'rose')
-
     def test_bucket_GET_with_versions(self):
         self._add_versions_request()
         req = Request.blank('/junk?versions',
@@ -1205,150 +1467,6 @@ class TestS3ApiBucket(S3ApiTestCase):
              '?limit=1001&prefix=subdir/&versions=')),
         ])
 
-    @s3acl
-    def test_bucket_PUT_error(self):
-        code = self._test_method_error('PUT', '/bucket', swob.HTTPCreated,
-                                       headers={'Content-Length': 'a'})
-        self.assertEqual(code, 'InvalidArgument')
-        code = self._test_method_error('PUT', '/bucket', swob.HTTPCreated,
-                                       headers={'Content-Length': '-1'})
-        self.assertEqual(code, 'InvalidArgument')
-        code = self._test_method_error('PUT', '/bucket', swob.HTTPUnauthorized)
-        self.assertEqual(code, 'SignatureDoesNotMatch')
-        code = self._test_method_error('PUT', '/bucket', swob.HTTPForbidden)
-        self.assertEqual(code, 'AccessDenied')
-        code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted)
-        self.assertEqual(code, 'BucketAlreadyOwnedByYou')
-        with mock.patch(
-                'swift.common.middleware.s3api.s3request.get_container_info',
-                return_value={'sysmeta': {'s3api-acl': '{"Owner": "nope"}'}}):
-            code = self._test_method_error(
-                'PUT', '/bucket', swob.HTTPAccepted)
-        self.assertEqual(code, 'BucketAlreadyExists')
-        code = self._test_method_error('PUT', '/bucket', swob.HTTPServerError)
-        self.assertEqual(code, 'InternalError')
-        code = self._test_method_error(
-            'PUT', '/bucket', swob.HTTPServiceUnavailable)
-        self.assertEqual(code, 'ServiceUnavailable')
-        code = self._test_method_error(
-            'PUT', '/bucket+bucket', swob.HTTPCreated)
-        self.assertEqual(code, 'InvalidBucketName')
-        code = self._test_method_error(
-            'PUT', '/192.168.11.1', swob.HTTPCreated)
-        self.assertEqual(code, 'InvalidBucketName')
-        code = self._test_method_error(
-            'PUT', '/bucket.-bucket', swob.HTTPCreated)
-        self.assertEqual(code, 'InvalidBucketName')
-        code = self._test_method_error(
-            'PUT', '/bucket-.bucket', swob.HTTPCreated)
-        self.assertEqual(code, 'InvalidBucketName')
-        code = self._test_method_error('PUT', '/bucket*', swob.HTTPCreated)
-        self.assertEqual(code, 'InvalidBucketName')
-        code = self._test_method_error('PUT', '/b', swob.HTTPCreated)
-        self.assertEqual(code, 'InvalidBucketName')
-        code = self._test_method_error(
-            'PUT', '/%s' % ''.join(['b' for x in range(64)]),
-            swob.HTTPCreated)
-        self.assertEqual(code, 'InvalidBucketName')
-
-    @s3acl(s3acl_only=True)
-    def test_bucket_PUT_error_non_swift_owner(self):
-        code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted,
-                                       env={'swift_owner': False})
-        self.assertEqual(code, 'AccessDenied')
-
-    @s3acl
-    def test_bucket_PUT_bucket_already_owned_by_you(self):
-        self.swift.register(
-            'PUT', '/v1/AUTH_test/bucket', swob.HTTPAccepted,
-            {'X-Container-Object-Count': 0}, None)
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status, '409 Conflict')
-        self.assertIn(b'BucketAlreadyOwnedByYou', body)
-
-    @s3acl
-    def test_bucket_PUT_first_put_fail(self):
-        self.swift.register(
-            'PUT', '/v1/AUTH_test/bucket',
-            swob.HTTPServiceUnavailable,
-            {'X-Container-Object-Count': 0}, None)
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status, '503 Service Unavailable')
-        # The last call was PUT not POST for acl set
-        self.assertEqual(self.swift.calls, [
-            ('PUT', '/v1/AUTH_test/bucket'),
-        ])
-
-    @s3acl
-    def test_bucket_PUT(self):
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(body, b'')
-        self.assertEqual(status.split()[0], '200')
-        self.assertEqual(headers['Location'], '/bucket')
-
-        # Apparently some clients will include a chunked transfer-encoding
-        # even with no body
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header(),
-                                     'Transfer-Encoding': 'chunked'})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(body, b'')
-        self.assertEqual(status.split()[0], '200')
-        self.assertEqual(headers['Location'], '/bucket')
-
-        with UnreadableInput(self) as fake_input:
-            req = Request.blank(
-                '/bucket',
-                environ={'REQUEST_METHOD': 'PUT',
-                         'wsgi.input': fake_input},
-                headers={'Authorization': 'AWS test:tester:hmac',
-                         'Date': self.get_date_header()})
-            status, headers, body = self.call_s3api(req)
-        self.assertEqual(body, b'')
-        self.assertEqual(status.split()[0], '200')
-        self.assertEqual(headers['Location'], '/bucket')
-
-    def _test_bucket_PUT_with_location(self, root_element):
-        elem = Element(root_element)
-        SubElement(elem, 'LocationConstraint').text = 'us-east-1'
-        xml = tostring(elem)
-
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()},
-                            body=xml)
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '200')
-
-    @s3acl
-    def test_bucket_PUT_with_location(self):
-        self._test_bucket_PUT_with_location('CreateBucketConfiguration')
-
-    @s3acl
-    def test_bucket_PUT_with_ami_location(self):
-        # ec2-ami-tools apparently uses CreateBucketConstraint instead?
-        self._test_bucket_PUT_with_location('CreateBucketConstraint')
-
-    @s3acl
-    def test_bucket_PUT_with_strange_location(self):
-        # Even crazier: it doesn't seem to matter
-        self._test_bucket_PUT_with_location('foo')
-
     def test_bucket_PUT_with_mixed_case_location(self):
         self.s3api.conf.location = 'RegionOne'
         elem = Element('CreateBucketConfiguration')
@@ -1385,7 +1503,8 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(headers.get('X-Container-Read'), '.r:*,.rlistings')
         self.assertNotIn('X-Container-Sysmeta-S3api-Acl', headers)
 
-    @s3acl(s3acl_only=True)
+
+class TestS3ApiBucketAcl(BaseS3ApiBucket, S3ApiTestCaseAcl):
     def test_bucket_PUT_with_canned_s3acl(self):
         account = 'test:tester'
         acl = \
@@ -1403,144 +1522,10 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(headers.get('X-Container-Sysmeta-S3api-Acl'),
                          acl['x-container-sysmeta-s3api-acl'])
 
-    @s3acl
-    def test_bucket_PUT_with_location_error(self):
-        elem = Element('CreateBucketConfiguration')
-        SubElement(elem, 'LocationConstraint').text = 'XXX'
-        xml = tostring(elem)
-
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()},
-                            body=xml)
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(self._get_error_code(body),
-                         'InvalidLocationConstraint')
-
-    @s3acl
-    def test_bucket_PUT_with_location_invalid_xml(self):
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()},
-                            body='invalid_xml')
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(self._get_error_code(body), 'MalformedXML')
-
-    def _test_method_error_delete(self, path, sw_resp):
-        self.swift.register('HEAD', '/v1/AUTH_test' + path, sw_resp, {}, None)
-        return self._test_method_error('DELETE', path, sw_resp)
-
-    @s3acl
-    def test_bucket_DELETE_error(self):
-        code = self._test_method_error_delete('/bucket', swob.HTTPUnauthorized)
-        self.assertEqual(code, 'SignatureDoesNotMatch')
-        code = self._test_method_error_delete('/bucket', swob.HTTPForbidden)
+    def test_bucket_PUT_error_non_swift_owner(self):
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted,
+                                       env={'swift_owner': False})
         self.assertEqual(code, 'AccessDenied')
-        code = self._test_method_error_delete('/bucket', swob.HTTPNotFound)
-        self.assertEqual(code, 'NoSuchBucket')
-        code = self._test_method_error_delete('/bucket', swob.HTTPServerError)
-        self.assertEqual(code, 'InternalError')
-
-        # bucket not empty is now validated at s3api
-        self.swift._responses.get(('HEAD', '/v1/AUTH_test/bucket'))
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-                            {'X-Container-Object-Count': '1'}, None)
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, _headers, body = self.call_s3api(req)
-        self.assertEqual('409 Conflict', status)
-        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
-        self.assertNotIn('You must delete all versions in the bucket',
-                         self._get_error_message(body))
-
-    @s3acl
-    def test_bucket_DELETE_error_with_enabled_versioning(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-                            {'X-Container-Object-Count': '1',
-                             'X-Container-Sysmeta-Versions-Enabled': 'True'},
-                            None)
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, _headers, body = self.call_s3api(req)
-        self.assertEqual('409 Conflict', status)
-        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
-        self.assertIn('You must delete all versions in the bucket',
-                      self._get_error_message(body))
-
-    @s3acl
-    def test_bucket_DELETE_error_with_suspended_versioning(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-                            {'X-Container-Object-Count': '1',
-                             'X-Container-Sysmeta-Versions-Enabled': 'False'},
-                            None)
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, _headers, body = self.call_s3api(req)
-        self.assertEqual('409 Conflict', status)
-        self.assertEqual('BucketNotEmpty', self._get_error_code(body))
-        self.assertIn('You must delete all versions in the bucket',
-                      self._get_error_message(body))
-
-    @s3acl
-    def test_bucket_DELETE(self):
-        # overwrite default HEAD to return x-container-object-count
-        self.swift.register(
-            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-            {'X-Container-Object-Count': 0}, None)
-
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '204')
-
-    @s3acl
-    def test_bucket_DELETE_with_empty_versioning(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket+versioning',
-                            swob.HTTPNoContent, {}, None)
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket+versioning',
-                            swob.HTTPNoContent, {}, None)
-        # overwrite default HEAD to return x-container-object-count
-        self.swift.register(
-            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-            {'X-Container-Object-Count': 0}, None)
-
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '204')
-
-    @s3acl
-    def test_bucket_DELETE_error_while_segment_bucket_delete(self):
-        # An error occurred while deleting segment objects
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments/lily',
-                            swob.HTTPServiceUnavailable, {}, json.dumps([]))
-        # overwrite default HEAD to return x-container-object-count
-        self.swift.register(
-            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
-            {'X-Container-Object-Count': 0}, None)
-
-        req = Request.blank('/bucket',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '503')
-        called = [(method, path) for method, path, _ in
-                  self.swift.calls_with_headers]
-        # Don't delete original bucket when error occurred in segment container
-        self.assertNotIn(('DELETE', '/v1/AUTH_test/bucket'), called)
 
     def _test_bucket_for_s3acl(self, method, account):
         req = Request.blank('/bucket',
@@ -1550,25 +1535,21 @@ class TestS3ApiBucket(S3ApiTestCase):
 
         return self.call_s3api(req)
 
-    @s3acl(s3acl_only=True)
     def test_bucket_GET_without_permission(self):
         status, headers, body = self._test_bucket_for_s3acl('GET',
                                                             'test:other')
         self.assertEqual(self._get_error_code(body), 'AccessDenied')
 
-    @s3acl(s3acl_only=True)
     def test_bucket_GET_with_read_permission(self):
         status, headers, body = self._test_bucket_for_s3acl('GET',
                                                             'test:read')
         self.assertEqual(status.split()[0], '200')
 
-    @s3acl(s3acl_only=True)
     def test_bucket_GET_with_fullcontrol_permission(self):
         status, headers, body = \
             self._test_bucket_for_s3acl('GET', 'test:full_control')
         self.assertEqual(status.split()[0], '200')
 
-    @s3acl(s3acl_only=True)
     def test_bucket_GET_with_owner_permission(self):
         status, headers, body = self._test_bucket_for_s3acl('GET',
                                                             'test:tester')
@@ -1582,18 +1563,15 @@ class TestS3ApiBucket(S3ApiTestCase):
 
         return self.call_s3api(req)
 
-    @s3acl(s3acl_only=True)
     def test_bucket_GET_authenticated_users(self):
         status, headers, body = \
             self._test_bucket_GET_canned_acl('authenticated')
         self.assertEqual(status.split()[0], '200')
 
-    @s3acl(s3acl_only=True)
     def test_bucket_GET_all_users(self):
         status, headers, body = self._test_bucket_GET_canned_acl('public')
         self.assertEqual(status.split()[0], '200')
 
-    @s3acl(s3acl_only=True)
     def test_bucket_DELETE_without_permission(self):
         status, headers, body = self._test_bucket_for_s3acl('DELETE',
                                                             'test:other')
@@ -1602,7 +1580,6 @@ class TestS3ApiBucket(S3ApiTestCase):
         called = [method for method, _, _ in self.swift.calls_with_headers]
         self.assertNotIn('DELETE', called)
 
-    @s3acl(s3acl_only=True)
     def test_bucket_DELETE_with_write_permission(self):
         status, headers, body = self._test_bucket_for_s3acl('DELETE',
                                                             'test:write')
@@ -1611,7 +1588,6 @@ class TestS3ApiBucket(S3ApiTestCase):
         called = [method for method, _, _ in self.swift.calls_with_headers]
         self.assertNotIn('DELETE', called)
 
-    @s3acl(s3acl_only=True)
     def test_bucket_DELETE_with_fullcontrol_permission(self):
         status, headers, body = \
             self._test_bucket_for_s3acl('DELETE', 'test:full_control')

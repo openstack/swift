@@ -119,13 +119,16 @@ class FakeSwift(object):
       * received ``POST /v1/a/c/o?x=y``, if it matches a registered ``POST``,
         will update uploaded ``/v1/a/c/o``
     """
-    ALLOWED_METHODS = [
+    DEFAULT_ALLOWED_METHODS = [
         'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE',
         'SSYNC', 'UPDATE']
     container_existence_skip_cache = 0.0
     account_existence_skip_cache = 0.0
 
-    def __init__(self):
+    def __init__(self, allowed_methods=None):
+        self.allowed_methods = set(self.DEFAULT_ALLOWED_METHODS)
+        if allowed_methods:
+            self.allowed_methods.update(allowed_methods)
         self._calls = []
         self.req_bodies = []
         self._unclosed_req_keys = defaultdict(int)
@@ -136,6 +139,7 @@ class FakeSwift(object):
         self.uploaded = {}
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
+        self._sticky_headers = {}
         self.logger = debug_logger('fake-swift')
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
@@ -192,7 +196,21 @@ class FakeSwift(object):
             # HEAD resp never has body
             body = None
 
-        return resp_class, HeaderKeyDict(headers), body
+        try:
+            is_success = resp_class().is_success
+        except Exception:
+            # test_reconciler passes in an exploding response
+            is_success = False
+        if is_success and method in ('GET', 'HEAD'):
+            # update sticky resp headers with headers from registered resp
+            sticky_headers = self._sticky_headers.get(env['PATH_INFO'], {})
+            resp_headers = HeaderKeyDict(sticky_headers)
+            resp_headers.update(headers)
+        else:
+            # error responses don't get sticky resp headers
+            resp_headers = HeaderKeyDict(headers)
+
+        return resp_class, resp_headers, body
 
     def _get_policy_index(self, acc, cont):
         path = '/v1/%s/%s' % (acc, cont)
@@ -219,7 +237,7 @@ class FakeSwift(object):
 
     def __call__(self, env, start_response):
         method = env['REQUEST_METHOD']
-        if method not in self.ALLOWED_METHODS:
+        if method not in self.allowed_methods:
             raise HTTPNotImplemented()
 
         path, acc, cont, obj = self._parse_path(env)
@@ -315,6 +333,9 @@ class FakeSwift(object):
         return LeakTrackingIter(wsgi_iter, self.mark_closed,
                                 self.mark_read, (method, path))
 
+    def clear_calls(self):
+        del self._calls[:]
+
     def mark_opened(self, key):
         self._unclosed_req_keys[key] += 1
         self._unread_req_paths[key] += 1
@@ -352,6 +373,14 @@ class FakeSwift(object):
     @property
     def call_count(self):
         return len(self._calls)
+
+    def update_sticky_response_headers(self, path, headers):
+        """
+        Tests setUp can use this to ensure any successful GET/HEAD response for
+        a given path will include these headers.
+        """
+        sticky_headers = self._sticky_headers.setdefault(path, {})
+        sticky_headers.update(headers)
 
     def register(self, method, path, response_class, headers, body=b''):
         path = normalize_path(path)

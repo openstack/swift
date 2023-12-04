@@ -19,8 +19,7 @@ from swift.common import swob
 from swift.common.swob import Request
 from swift.common.utils import json
 
-from test.unit.common.middleware.s3api.test_s3_acl import s3acl
-from test.unit.common.middleware.s3api import S3ApiTestCase
+from test.unit.common.middleware.s3api import S3ApiTestCase, S3ApiTestCaseAcl
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.subresource import ACL, Owner, encode_acl
 
@@ -36,7 +35,7 @@ def create_bucket_list_json(buckets):
     return json.dumps(bucket_list)
 
 
-class TestS3ApiService(S3ApiTestCase):
+class BaseS3ApiService(object):
     def setup_buckets(self):
         self.buckets = (('apple', 1, 200), ('orange', 3, 430))
         bucket_list = create_bucket_list_json(self.buckets)
@@ -44,22 +43,10 @@ class TestS3ApiService(S3ApiTestCase):
                             bucket_list)
 
     def setUp(self):
-        super(TestS3ApiService, self).setUp()
+        super(BaseS3ApiService, self).setUp()
 
         self.setup_buckets()
 
-    def test_service_GET_error(self):
-        code = self._test_method_error(
-            'GET', '', swob.HTTPUnauthorized, expected_xml_tags=(
-                'Code', 'Message', 'AWSAccessKeyId', 'StringToSign',
-                'StringToSignBytes', 'SignatureProvided'))
-        self.assertEqual(code, 'SignatureDoesNotMatch')
-        code = self._test_method_error('GET', '', swob.HTTPForbidden)
-        self.assertEqual(code, 'AccessDenied')
-        code = self._test_method_error('GET', '', swob.HTTPServerError)
-        self.assertEqual(code, 'InternalError')
-
-    @s3acl
     def test_service_GET(self):
         req = Request.blank('/',
                             environ={'REQUEST_METHOD': 'GET'},
@@ -83,7 +70,6 @@ class TestS3ApiService(S3ApiTestCase):
         for i in self.buckets:
             self.assertTrue(i[0] in names)
 
-    @s3acl
     def test_service_GET_subresource(self):
         req = Request.blank('/?acl',
                             environ={'REQUEST_METHOD': 'GET'},
@@ -106,6 +92,20 @@ class TestS3ApiService(S3ApiTestCase):
         self.assertEqual(len(names), len(self.buckets))
         for i in self.buckets:
             self.assertTrue(i[0] in names)
+
+
+class TestS3ApiServiceNoAcl(BaseS3ApiService, S3ApiTestCase):
+
+    def test_service_GET_error(self):
+        code = self._test_method_error(
+            'GET', '', swob.HTTPUnauthorized, expected_xml_tags=(
+                'Code', 'Message', 'AWSAccessKeyId', 'StringToSign',
+                'StringToSignBytes', 'SignatureProvided'))
+        self.assertEqual(code, 'SignatureDoesNotMatch')
+        code = self._test_method_error('GET', '', swob.HTTPForbidden)
+        self.assertEqual(code, 'AccessDenied')
+        code = self._test_method_error('GET', '', swob.HTTPServerError)
+        self.assertEqual(code, 'InternalError')
 
     def test_service_GET_with_blind_resource(self):
         buckets = (('apple', 1, 200), ('orange', 3, 430),
@@ -137,6 +137,9 @@ class TestS3ApiService(S3ApiTestCase):
         for i in expected:
             self.assertIn(i[0], names)
 
+
+class TestS3ApiServiceAcl(BaseS3ApiService, S3ApiTestCaseAcl):
+
     def _test_service_GET_for_check_bucket_owner(self, buckets):
         self.s3api.conf.check_bucket_owner = True
         bucket_list = create_bucket_list_json(buckets)
@@ -149,7 +152,6 @@ class TestS3ApiService(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         return self.call_s3api(req)
 
-    @s3acl(s3acl_only=True)
     def test_service_GET_without_bucket(self):
         bucket_list = []
         for var in range(0, 10):
@@ -168,7 +170,6 @@ class TestS3ApiService(S3ApiTestCase):
         buckets = resp_buckets.iterchildren('Bucket')
         self.assertEqual(len(list(buckets)), 0)
 
-    @s3acl(s3acl_only=True)
     def test_service_GET_without_owner_bucket(self):
         bucket_list = []
         for var in range(0, 10):
@@ -190,7 +191,6 @@ class TestS3ApiService(S3ApiTestCase):
         buckets = resp_buckets.iterchildren('Bucket')
         self.assertEqual(len(list(buckets)), 0)
 
-    @s3acl(s3acl_only=True)
     def test_service_GET_bucket_list(self):
         bucket_list = []
         for var in range(0, 10):

@@ -95,7 +95,6 @@ class TestRequest(S3ApiTestCase):
     def setUp(self):
         super(TestRequest, self).setUp()
         self.s3api.conf.s3_acl = True
-        self.swift.s3_acl = True
 
     @patch('swift.common.middleware.s3api.acl_handlers.ACL_MAP', Fake_ACL_MAP)
     @patch('swift.common.middleware.s3api.s3request.S3AclRequest.authenticate',
@@ -122,7 +121,6 @@ class TestRequest(S3ApiTestCase):
 
     def test_get_response_without_s3_acl(self):
         self.s3api.conf.s3_acl = False
-        self.swift.s3_acl = False
         mock_get_resp, m_check_permission, s3_resp = \
             self._test_get_response('HEAD')
         self.assertFalse(hasattr(s3_resp, 'bucket_acl'))
@@ -1005,7 +1003,6 @@ class TestSigV4Request(S3ApiTestCase):
     def setUp(self):
         super(TestSigV4Request, self).setUp()
         self.s3api.conf.s3_acl = True
-        self.swift.s3_acl = True
 
     def test_init_header_authorization(self):
         environ = {
