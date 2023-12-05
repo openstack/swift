@@ -24,11 +24,12 @@ import six
 from six.moves.urllib.parse import quote
 
 from swift.common import direct_client, utils
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.internal_client import UnexpectedResponse
 from swift.common.manager import Manager
 from swift.common.memcached import MemcacheRing
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
-    quorum_size, config_true_value, Timestamp, md5
+    quorum_size, config_true_value, Timestamp, md5, Namespace
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED
 from swift.container.sharder import CleavingContext, ContainerSharder
@@ -173,16 +174,35 @@ class BaseTestContainerSharding(ReplProbeTest):
             else:
                 conn.delete_object(self.container_name, obj)
 
-    def get_container_shard_ranges(self, account=None, container=None,
-                                   include_deleted=False):
+    def get_container_listing(self, account=None, container=None,
+                              headers=None, params=None):
         account = account if account else self.account
         container = container if container else self.container_to_shard
         path = self.internal_client.make_path(account, container)
-        headers = {'X-Backend-Record-Type': 'shard'}
-        if include_deleted:
-            headers['X-Backend-Include-Deleted'] = 'true'
-        resp = self.internal_client.make_request(
-            'GET', path + '?format=json', headers, [200])
+        headers = headers or {}
+        return self.internal_client.make_request(
+            'GET', path + '?format=json', headers, [200], params=params)
+
+    def get_container_objects(self, account=None, container=None,
+                              headers=None, params=None):
+        headers = HeaderKeyDict(headers) if headers else {}
+        resp = self.get_container_listing(account, container, headers,
+                                          params=params)
+        req_record_type = headers.get('X-Backend-Record-Type')
+        resp_record_type = resp.headers.get('X-Backend-Record-Type')
+        if req_record_type and req_record_type.lower() == 'object':
+            self.assertEqual('object', resp_record_type)
+        else:
+            self.assertIsNone(resp_record_type)
+        return json.loads(resp.body)
+
+    def get_container_shard_ranges(self, account=None, container=None,
+                                   headers=None, params=None):
+        headers = dict(headers) if headers else {}
+        headers.update({'X-Backend-Record-Type': 'shard'})
+        resp = self.get_container_listing(account, container, headers,
+                                          params=params)
+        self.assertEqual('shard', resp.headers.get('X-Backend-Record-Type'))
         return [ShardRange.from_dict(sr) for sr in json.loads(resp.body)]
 
     def direct_get_container_shard_ranges(self, account=None, container=None,
@@ -386,6 +406,10 @@ class BaseTestContainerSharding(ReplProbeTest):
             expected_state, headers['X-Backend-Sharding-State'])
         return [ShardRange.from_dict(sr) for sr in shard_ranges]
 
+    def assert_container_states(self, expected_state, num_shard_ranges):
+        for node in self.brain.nodes:
+            self.assert_container_state(node, expected_state, num_shard_ranges)
+
     def assert_subprocess_success(self, cmd_args):
         try:
             return subprocess.check_output(cmd_args, stderr=subprocess.STDOUT)
@@ -433,6 +457,15 @@ class BaseTestContainerSharding(ReplProbeTest):
     def run_custom_sharder(self, conf_index, custom_conf, **kwargs):
         return self.run_custom_daemon(ContainerSharder, 'container-sharder',
                                       conf_index, custom_conf, **kwargs)
+
+    def sharders_once_non_auto(self, **kwargs):
+        # inhibit auto_sharding regardless of the config setting
+        additional_args = kwargs.get('additional_args', [])
+        if not isinstance(additional_args, list):
+            additional_args = [additional_args]
+        additional_args.append('--no-auto-shard')
+        kwargs['additional_args'] = additional_args
+        self.sharders.once(**kwargs)
 
 
 class BaseAutoContainerSharding(BaseTestContainerSharding):
@@ -553,8 +586,7 @@ class TestContainerShardingNonUTF8(BaseAutoContainerSharding):
                 number=n, additional_args='--partitions=%s' % self.brain.part)
 
         # sanity check shard range states
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharding', 4)
+        self.assert_container_states('sharding', 4)
         shard_ranges = self.get_container_shard_ranges()
         self.assertLengthEqual(shard_ranges, 4)
         self.assert_shard_range_state(ShardRange.CLEAVED, shard_ranges[:2])
@@ -584,8 +616,7 @@ class TestContainerShardingNonUTF8(BaseAutoContainerSharding):
 
         # run all the sharders again and the last two shard ranges get cleaved
         self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 4)
+        self.assert_container_states('sharded', 4)
         shard_ranges = self.get_container_shard_ranges()
         self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
 
@@ -839,8 +870,7 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
                 number=n, additional_args='--partitions=%s' % self.brain.part)
 
         # sanity check shard range states
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharding', 4)
+        self.assert_container_states('sharding', 4)
         shard_ranges = self.get_container_shard_ranges()
         self.assertLengthEqual(shard_ranges, 4)
         self.assert_shard_range_state(ShardRange.CLEAVED, shard_ranges[:2])
@@ -869,8 +899,7 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
 
         # run all the sharders again and the last two shard ranges get cleaved
         self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 4)
+        self.assert_container_states('sharded', 4)
         shard_ranges = self.get_container_shard_ranges()
         self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
 
@@ -1918,8 +1947,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.sharders.once(
                 number=n, additional_args='--partitions=%s' % self.brain.part)
         # sanity checks
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_states('sharded', 2)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -2255,8 +2283,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.sharders.once(
                 number=n, additional_args='--partitions=%s' % self.brain.part)
         # sanity checks
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_states('sharded', 2)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -2373,8 +2400,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.sharders.once(
                 number=n, additional_args='--partitions=%s' % self.brain.part)
         # sanity checks
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_states('sharded', 2)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -2506,8 +2532,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.sharders.once(
                 number=n, additional_args='--partitions=%s' % self.brain.part)
         # sanity checks
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_states('sharded', 2)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -2620,8 +2645,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.sharders.once(
                 number=n, additional_args='--partitions=%s' % self.brain.part)
         # sanity checks
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_states('sharded', 2)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -2860,8 +2884,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         for node in self.brain.nodes[1:]:
             self.assert_container_state(node, 'sharding', 3)
         self.sharders.once()
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 3)
+        self.assert_container_states('sharded', 3)
 
         self.assert_container_listing(obj_names)
 
@@ -2900,6 +2923,137 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertEqual(0, int(metadata.get('x-account-bytes-used')))
 
 
+class TestShardedAPI(BaseTestContainerSharding):
+    def _assert_namespace_equivalence(
+            self, namespaces_list, other_namespaces_list):
+        # verify given lists are equivalent when cast to Namespaces
+        self.assertEqual(len(namespaces_list), len(other_namespaces_list))
+        self.assertEqual(
+            [Namespace(sr.name, sr.lower, sr.upper)
+             for sr in namespaces_list],
+            [Namespace(sr.name, sr.lower, sr.upper)
+             for sr in other_namespaces_list])
+
+    def test_GET(self):
+        all_obj_names = self._make_object_names(10)
+        self.put_objects(all_obj_names)
+
+        # unsharded container
+        objs = self.get_container_objects()
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        objs = self.get_container_objects(
+            headers={'X-Backend-Record-Type': 'auto'})
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        objs = self.get_container_objects(
+            headers={'X-Backend-Record-Type': 'object'})
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        objs = self.get_container_objects(
+            headers={'X-Backend-Record-Type': 'banana'})
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        shard_ranges = self.get_container_shard_ranges()
+        self.assertFalse(shard_ranges)
+
+        # Shard the container
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        self.assert_subprocess_success([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '5', '--enable', '--minimum-shard-size', '5'])
+        self.replicators.once()
+        # "Run container-sharder on all nodes to shard the container."
+        # first pass cleaves 2 shards
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+        # sanity check
+        self.assert_container_states('sharded', 2)
+
+        orig_shard_ranges = self.get_container_shard_ranges()
+        self.assertEqual(2, len(orig_shard_ranges))
+
+        # the container is sharded so *all* shard ranges should satisfy
+        # updating and listing state aliases
+        shard_ranges = self.get_container_shard_ranges(
+            params={'states': 'updating'})
+        self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+
+        # XXX the states=listing param provokes the proxy to cache the backend
+        # values and then respond to the client with the cached *namespaces* !!
+        # shard_ranges = self.get_container_shard_ranges(
+        #     params={'states': 'listing'})
+        # self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+
+        # XXX ditto...
+        # shard_ranges = self.get_container_shard_ranges(
+        #     headers={'X-Newest': 'true'},
+        #     params={'states': 'listing'})
+        # self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+
+        # this is what the sharder requests...
+        shard_ranges = self.get_container_shard_ranges(
+            headers={'X-Newest': 'true'},
+            params={'states': 'auditing'})
+        own_ns = Namespace('%s/%s' % (self.account, self.container_name),
+                           lower='', upper='')
+        self._assert_namespace_equivalence(orig_shard_ranges + [own_ns],
+                                           shard_ranges)
+
+        shard_ranges = self.get_container_shard_ranges(
+            params={'includes': all_obj_names[1]})
+        self._assert_namespace_equivalence(orig_shard_ranges[:1], shard_ranges)
+
+        shard_ranges = self.get_container_shard_ranges(
+            # override 'includes'
+            headers={'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+            params={'includes': all_obj_names[1]})
+        self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+
+        shard_ranges = self.get_container_shard_ranges(
+            params={'end_marker': all_obj_names[1]})
+        self._assert_namespace_equivalence(orig_shard_ranges[:1], shard_ranges)
+
+        shard_ranges = self.get_container_shard_ranges(
+            # override 'end_marker'
+            headers={'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+            params={'end_marker': all_obj_names[1]})
+        self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+
+        shard_ranges = self.get_container_shard_ranges(
+            params={'reverse': 'true'})
+        self._assert_namespace_equivalence(list(reversed(orig_shard_ranges)),
+                                           shard_ranges)
+
+        shard_ranges = self.get_container_shard_ranges(
+            # override 'reverse'
+            headers={'X-Backend-Override-Shard-Name-Filter': 'sharded'},
+            params={'reverse': 'true'})
+        self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+
+        objs = self.get_container_objects()
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        objs = self.get_container_objects(
+            headers={'X-Newest': 'true'})
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        objs = self.get_container_objects(
+            headers={'X-Backend-Record-Type': 'auto'})
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        objs = self.get_container_objects(
+            headers={'X-Backend-Record-Type': 'banana'})
+        self.assertEqual(all_obj_names, [obj['name'] for obj in objs])
+
+        # note: explicitly asking for the root object rows, but it has None
+        objs = self.get_container_objects(
+            headers={'X-Backend-Record-Type': 'object'})
+        self.assertEqual([], objs)
+
+
 class TestContainerShardingMoreUTF8(TestContainerSharding):
     def _make_object_names(self, number):
         # override default with names that include non-ascii chars
@@ -2925,16 +3079,7 @@ class TestContainerShardingMoreUTF8(TestContainerSharding):
 
 
 class TestManagedContainerSharding(BaseTestContainerSharding):
-    '''Test sharding using swift-manage-shard-ranges'''
-
-    def sharders_once(self, **kwargs):
-        # inhibit auto_sharding regardless of the config setting
-        additional_args = kwargs.get('additional_args', [])
-        if not isinstance(additional_args, list):
-            additional_args = [additional_args]
-        additional_args.append('--no-auto-shard')
-        kwargs['additional_args'] = additional_args
-        self.sharders.once(**kwargs)
+    """Test sharding using swift-manage-shard-ranges"""
 
     def test_manage_shard_ranges(self):
         obj_names = self._make_object_names(10)
@@ -2948,8 +3093,9 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # sanity check: we don't have nearly enough objects for this to shard
         # automatically
-        self.sharders_once(number=self.brain.node_numbers[0],
-                           additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            number=self.brain.node_numbers[0],
+            additional_args='--partitions=%s' % self.brain.part)
         self.assert_container_state(self.brain.nodes[0], 'unsharded', 0)
 
         self.assert_subprocess_success([
@@ -2962,7 +3108,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.replicators.once()
         # "Run container-sharder on all nodes to shard the container."
         # first pass cleaves 2 shards
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
         self.assert_container_state(self.brain.nodes[0], 'sharding', 3)
         self.assert_container_state(self.brain.nodes[1], 'sharding', 3)
         shard_ranges = self.assert_container_state(
@@ -2972,7 +3119,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # make the un-cleaved shard update the root container...
         self.assertEqual([3, 3, 4], [sr.object_count for sr in shard_ranges])
         shard_part, nodes = self.get_part_and_node_numbers(shard_ranges[2])
-        self.sharders_once(additional_args='--partitions=%s' % shard_part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % shard_part)
         shard_ranges = self.assert_container_state(
             self.brain.nodes[2], 'sharding', 3)
         # ...it does not report zero-stats despite being empty, because it has
@@ -2980,7 +3128,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assertEqual([3, 3, 4], [sr.object_count for sr in shard_ranges])
 
         # second pass cleaves final shard
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
 
         # Everybody's settled
         self.assert_container_state(self.brain.nodes[0], 'sharded', 3)
@@ -3006,11 +3155,11 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assert_container_state(self.brain.nodes[0], 'unsharded', 4)
         self.replicators.once()
         # run sharders twice to cleave all 4 shard ranges
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
-        self.assert_container_state(self.brain.nodes[0], 'sharded', 4)
-        self.assert_container_state(self.brain.nodes[1], 'sharded', 4)
-        self.assert_container_state(self.brain.nodes[2], 'sharded', 4)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_states('sharded', 4)
         self.assert_container_listing(obj_names)
 
         # now compact some ranges; use --max-shrinking to allow 2 shrinking
@@ -3025,7 +3174,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assertEqual([ShardRange.SHRINKING] * 2 + [ShardRange.ACTIVE] * 2,
                          [sr.state for sr in shard_ranges])
         self.replicators.once()
-        self.sharders_once()
+        self.sharders_once_non_auto()
         # check there's now just 2 remaining shard ranges
         shard_ranges = self.assert_container_state(
             self.brain.nodes[0], 'sharded', 2)
@@ -3051,7 +3200,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assertEqual([ShardRange.SHRINKING] * 2,
                          [sr.state for sr in shard_ranges])
         self.replicators.once()
-        self.sharders_once()
+        self.sharders_once_non_auto()
         self.assert_container_state(self.brain.nodes[0], 'collapsed', 0)
         self.assert_container_listing(obj_names, req_hdrs={'X-Newest': 'True'})
 
@@ -3100,8 +3249,9 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # proceeds to cleave shard 0.0, but after 0.0 cleaving stalls because
         # next in iteration is shard range 1.0 in FOUND state from the other
         # replica that it cannot yet cleave.
-        self.sharders_once(number=self.brain.node_numbers[0],
-                           additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            number=self.brain.node_numbers[0],
+            additional_args='--partitions=%s' % self.brain.part)
 
         # On first pass the second replica passes audit (it has its own found
         # ranges and the first replica's created shard ranges but none in the
@@ -3109,8 +3259,9 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # with the other replicas. All of the 7 shard ranges on this replica
         # are now in CREATED state so it proceeds to cleave the first two shard
         # ranges, 0.1 and 1.0.
-        self.sharders_once(number=self.brain.node_numbers[1],
-                           additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            number=self.brain.node_numbers[1],
+            additional_args='--partitions=%s' % self.brain.part)
         self.replicators.once()
 
         # Uh-oh
@@ -3119,9 +3270,11 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # There's a race: the third replica may be sharding, may be unsharded
 
         # Try it again a few times
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
         self.replicators.once()
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
 
         # It's not really fixing itself... the sharder audit will detect
         # overlapping ranges which prevents cleaving proceeding; expect the
@@ -3182,8 +3335,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # and the third replica may have cleaved no shards. We therefore need
         # two more passes of the sharder to get to a predictable state where
         # all replicas have cleaved all three 0.* shards.
-        self.sharders_once()
-        self.sharders_once()
+        self.sharders_once_non_auto()
+        self.sharders_once_non_auto()
 
         # now we expect all replicas to have just the three 1.* shards, with
         # the 0.* shards all deleted
@@ -3230,7 +3383,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # because of the older epoch_0 in its db filename will now start to
         # shard again with a newer epoch_1 db, and will start to re-cleave the
         # 3 active shards, albeit with zero objects to cleave.
-        self.sharders_once()
+        self.sharders_once_non_auto()
         for node in (0, 1, 2):
             with annotate_failure('node %s' % node):
                 broker = self.get_broker(self.brain.part,
@@ -3274,7 +3427,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # to exist on the same node as the root because the roots cleaving
         # process doesn't think that it created the shard db and will therefore
         # replicate it as per a normal cleave.
-        self.sharders_once()
+        self.sharders_once_non_auto()
         for node in (0, 1, 2):
             with annotate_failure('node %s' % node):
                 broker = self.get_broker(self.brain.part,
@@ -3311,11 +3464,13 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             'find_and_replace', '4', '--enable'])
         self.replicators.once()
         # cleave first two shards
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
         # cleave third shard
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
         # ensure all shards learn their ACTIVE state from root
-        self.sharders_once()
+        self.sharders_once_non_auto()
         for node in (0, 1, 2):
             with annotate_failure('node %d' % node):
                 shard_ranges = self.assert_container_state(
@@ -3368,9 +3523,12 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.replicators.once()
 
         # try hard to shard the shard...
-        self.sharders_once(additional_args='--partitions=%s' % shard_1_part)
-        self.sharders_once(additional_args='--partitions=%s' % shard_1_part)
-        self.sharders_once(additional_args='--partitions=%s' % shard_1_part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % shard_1_part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % shard_1_part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % shard_1_part)
         # sharding hasn't completed and there's overlaps in the shard and root:
         # the sub-shards will have been cleaved in the order listed above, but
         # sub-shards (10 -12) and one of (12 - 14) will be overlooked because
@@ -3403,8 +3561,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             ['swift-manage-shard-ranges', db_file, 'repair', '--yes',
              '--min-shard-age', '0'])
         self.replicators.once()
-        self.sharders_once()
-        self.sharders_once()
+        self.sharders_once_non_auto()
+        self.sharders_once_non_auto()
 
         # check root now has just 5 shard ranges
         root_shard_ranges = self.get_container_shard_ranges()
@@ -3416,7 +3574,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # because the sub-shards report their state to the root; we cannot make
         # assertions about shrunk states in shard_1's shard range table)
         root_shard_ranges = self.get_container_shard_ranges(
-            include_deleted=True)
+            headers={'X-Backend-Include-Deleted': 'true'})
         self.assertEqual(10, len(root_shard_ranges), root_shard_ranges)
         shrunk_shard_ranges = [sr for sr in root_shard_ranges
                                if sr.state == ShardRange.SHRUNK]
@@ -3452,13 +3610,12 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             'find_and_replace', '2', '--enable'])
         self.container_replicators.once(
             additional_args='--partitions=%s' % self.brain.part)
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'unsharded', 2)
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_states('unsharded', 2)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
         # get shards to update state from parent...
-        self.sharders_once()
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 2)
+        self.sharders_once_non_auto()
+        self.assert_container_states('sharded', 2)
 
         # sanity check, all is well
         msg = self.assert_subprocess_success([
@@ -3483,9 +3640,10 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             self.assert_container_state(
                 node, 'unsharded', 2, account=shard_ranges[0].account,
                 container=shard_ranges[0].container, part=shard_part)
-        self.sharders_once(additional_args='--partitions=%s' % shard_part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % shard_part)
         # get shards to update state from parent...
-        self.sharders_once()
+        self.sharders_once_non_auto()
         for node in exclude_nodes(shard_nodes, self.brain.nodes[0]):
             self.assert_container_state(
                 node, 'sharded', 2, account=shard_ranges[0].account,
@@ -3528,7 +3686,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # TODO: how can we work around this?
         self.assertNotEqual(sub_shard_part, shard_part,
                             'You were unlucky, try again')
-        self.sharders_once(additional_args='--partitions=%s' % sub_shard_part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % sub_shard_part)
 
         # now root node 0 has the original shards plus one of the sub-shards
         # but all are active :(
@@ -3558,8 +3717,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
              for sr in root_brokers[0].get_shard_ranges(include_deleted=True)])
 
         # the transient overlap is 'fixed' in subsequent sharder cycles...
-        self.sharders_once()
-        self.sharders_once()
+        self.sharders_once_non_auto()
+        self.sharders_once_non_auto()
         self.container_replicators.once()
 
         for broker in root_brokers:
@@ -3593,13 +3752,12 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             'find_and_replace', '2', '--enable'])
         self.container_replicators.once(
             additional_args='--partitions=%s' % self.brain.part)
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'unsharded', 4)
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_states('unsharded', 4)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
         # get shards to update state from parent...
-        self.sharders_once()
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 4)
+        self.sharders_once_non_auto()
+        self.assert_container_states('sharded', 4)
 
         # sanity check, all is well
         msg = self.assert_subprocess_success([
@@ -3635,8 +3793,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             '--yes'])
         self.assertIn(b'Repairs necessary to fill gaps.', msg)
 
-        self.sharders_once()
-        self.sharders_once()
+        self.sharders_once_non_auto()
+        self.sharders_once_non_auto()
         self.container_replicators.once()
 
         # yay! we fixed the gap (without creating an overlap)
@@ -3662,7 +3820,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         new_objs = [obj_names[4] + 'a']
         self.put_objects(new_objs)
         # get root stats up to date
-        self.sharders_once()
+        self.sharders_once_non_auto()
         # new object is in listing but old objects in the gap have been lost -
         # don't delete shard ranges!
         self.assert_container_listing(obj_names[:4] + new_objs + obj_names[6:])
@@ -3702,7 +3860,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # Run container-sharder to shard the 2 primary replicas that did
         # receive the object PUTs
         for num in self.brain.primary_numbers:
-            self.sharders_once(
+            self.sharders_once_non_auto(
                 number=num,
                 additional_args='--partitions=%s' % self.brain.part)
 
@@ -3711,7 +3869,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.delete_objects(obj_names)
         # deal with DELETE's being misplaced in root db's...
         for num in self.brain.primary_numbers:
-            self.sharders_once(
+            self.sharders_once_non_auto(
                 number=num,
                 additional_args='--partitions=%s' % self.brain.part)
 
@@ -3738,7 +3896,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # now shard the final DB
         for num in self.brain.handoff_numbers:
-            self.sharders_once(
+            self.sharders_once_non_auto(
                 number=num,
                 additional_args='--partitions=%s' % self.brain.part)
 
@@ -3806,7 +3964,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # Run container-sharder to shard the 2 primary replicas that did
         # receive the object PUTs
         for num in self.brain.primary_numbers:
-            self.sharders_once(
+            self.sharders_once_non_auto(
                 number=num,
                 additional_args='--partitions=%s' % self.brain.part)
 
@@ -3828,7 +3986,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # now shard the final DB
         for num in self.brain.handoff_numbers:
-            self.sharders_once(
+            self.sharders_once_non_auto(
                 number=num,
                 additional_args='--partitions=%s' % self.brain.part)
         shard_ranges = self.assert_container_state(
@@ -3876,14 +4034,13 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # Run container-replicator to replicate them to other nodes.
         self.container_replicators.once(
             additional_args='--partitions=%s' % self.brain.part)
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'unsharded', 2)
+        self.assert_container_states('unsharded', 2)
         # Run container-sharder on all nodes to shard the container.
-        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once_non_auto(
+            additional_args='--partitions=%s' % self.brain.part)
         # get shards to update state from parent...
-        self.sharders_once()
-        for node in self.brain.nodes:
-            self.assert_container_state(node, 'sharded', 2)
+        self.sharders_once_non_auto()
+        self.assert_container_states('sharded', 2)
 
         # shard first child shard into 2 grand-child-shards.
         c_shard_ranges = self.get_container_shard_ranges()
@@ -3912,14 +4069,14 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         c_shard_dir = os.path.dirname(c_shard_brokers[2].db_file)
         c_shard_tmp_dir = c_shard_dir + ".tmp"
         os.rename(c_shard_dir, c_shard_tmp_dir)
-        self.sharders_once(additional_args='--partitions=%s' %
-                           child_shard_part)
+        self.sharders_once_non_auto(additional_args='--partitions=%s' %
+                                                    child_shard_part)
         for node in c_shard_nodes[:2]:
             self.assert_container_state(
                 node, 'sharded', 2, account=c_shard_ranges[0].account,
                 container=c_shard_ranges[0].container, part=child_shard_part)
         # get updates done...
-        self.sharders_once()
+        self.sharders_once_non_auto()
 
         # shard first grand-child shard into 2 grand-grand-child-shards.
         gc_shard_ranges = self.get_container_shard_ranges(
@@ -3936,12 +4093,12 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             gc_shard_ranges[0].account, gc_shard_ranges[0].container)
         self.container_replicators.once(
             additional_args='--partitions=%s' % grandchild_shard_part)
-        self.sharders_once(additional_args='--partitions=%s' %
-                           grandchild_shard_part)
+        self.sharders_once_non_auto(additional_args='--partitions=%s' %
+                                                    grandchild_shard_part)
 
         # get shards to update state from parent...
-        self.sharders_once()
-        self.sharders_once()
+        self.sharders_once_non_auto()
+        self.sharders_once_non_auto()
         self.container_replicators.once(
             additional_args='--partitions=%s' % child_shard_part)
 
@@ -3966,13 +4123,13 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # now, finally, run the sharder on the child that is still waiting to
         # shard. It will get 2 great-grandchild ranges from root to replace
         # deleted grandchild.
-        self.sharders_once(
+        self.sharders_once_non_auto(
             additional_args=['--partitions=%s' %
                              child_shard_part, '--devices=%s' %
                              c_shard_nodes[2]['device']])
         # batch size is 2 but this replicas has 3 shard ranges so we need two
         # runs of the sharder
-        self.sharders_once(
+        self.sharders_once_non_auto(
             additional_args=['--partitions=%s' %
                              child_shard_part, '--devices=%s' %
                              c_shard_nodes[2]['device']])
