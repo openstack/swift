@@ -4562,7 +4562,8 @@ class Namespace(object):
     A Namespace encapsulates parameters that define a range of the object
     namespace.
 
-    :param name: the name of the ``Namespace``.
+    :param name: the name of the ``Namespace``; this SHOULD take the form of a
+        path to a container i.e. <account_name>/<container_name>.
     :param lower: the lower bound of object names contained in the namespace;
         the lower bound *is not* included in the namespace.
     :param upper: the upper bound of object names contained in the namespace;
@@ -4588,9 +4589,14 @@ class Namespace(object):
     def __init__(self, name, lower, upper):
         self._lower = Namespace.MIN
         self._upper = Namespace.MAX
+        # We deliberately do not validate that the name has the form 'a/c'
+        # because we want Namespace instantiation to be fast. Namespaces are
+        # typically created using state that has previously been serialized
+        # from a ShardRange instance, and the ShardRange will have validated
+        # the name format.
+        self._name = self._encode(name)
         self.lower = lower
         self.upper = upper
-        self.name = name
 
     def __iter__(self):
         yield 'name', str(self.name)
@@ -4618,7 +4624,7 @@ class Namespace(object):
     def __gt__(self, other):
         # a Namespace is greater than other if its entire namespace is greater
         # than other; if other is another Namespace that implies that this
-        # Namespace's lower must be less greater than or equal to the other
+        # Namespace's lower must be greater than or equal to the other
         # Namespace's upper
         if self.lower == Namespace.MIN:
             return False
@@ -4664,12 +4670,19 @@ class Namespace(object):
         return self._encode(bound)
 
     @property
+    def account(self):
+        return self._name.split('/')[0]
+
+    @property
+    def container(self):
+        # note: this may raise an IndexError if name does not have the expected
+        # form 'a/c'; that is a deliberate trade-off against the overhead of
+        # validating the name every time a Namespace is instantiated.
+        return self._name.split('/')[1]
+
+    @property
     def name(self):
         return self._name
-
-    @name.setter
-    def name(self, path):
-        self._name = self._encode(path)
 
     @property
     def lower(self):
@@ -4996,7 +5009,7 @@ class ShardRange(Namespace):
     range record and the most recent version of an attribute should be
     persisted.
 
-    :param name: the name of the shard range; this should take the form of a
+    :param name: the name of the shard range; this MUST take the form of a
         path to a container i.e. <account_name>/<container_name>.
     :param timestamp: a timestamp that represents the time at which the
         shard range's ``lower``, ``upper`` or ``deleted`` attributes were
@@ -5054,7 +5067,6 @@ class ShardRange(Namespace):
     CLEAVING_STATES = SHRINKING_STATES + SHARDING_STATES
 
     __slots__ = (
-        '_account', '_container',
         '_timestamp', '_meta_timestamp', '_state_timestamp', '_epoch',
         '_deleted', '_state', '_count', '_bytes',
         '_tombstones', '_reported')
@@ -5064,8 +5076,8 @@ class ShardRange(Namespace):
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=False, state=None, state_timestamp=None, epoch=None,
                  reported=False, tombstones=-1, **kwargs):
-        self._account = self._container = None
         super(ShardRange, self).__init__(name=name, lower=lower, upper=upper)
+        self._validate_name(self.name)
         self._timestamp = self._meta_timestamp = self._state_timestamp = \
             self._epoch = None
         self._deleted = False
@@ -5228,33 +5240,25 @@ class ShardRange(Namespace):
         return Timestamp(timestamp)
 
     @property
-    def account(self):
-        return self._account
-
-    @account.setter
-    def account(self, value):
-        self._account = self._encode(value)
-
-    @property
-    def container(self):
-        return self._container
-
-    @container.setter
-    def container(self, value):
-        self._container = self._encode(value)
-
-    @property
     def name(self):
-        return '%s/%s' % (self.account, self.container)
+        return self._name
 
-    @name.setter
-    def name(self, name):
-        name = self._encode(name)
+    @staticmethod
+    def _validate_name(name):
+        # Validate the name format is 'a/c'. The ShardRange class is typically
+        # used when shard state is created (e.g. by the sharder or
+        # swift-manage-shard-ranges), but it is not typically used in
+        # performance sensitive paths (e.g. listing namespaces), so we can
+        # afford the overhead of being more defensive here.
         if not name or len(name.split('/')) != 2 or not all(name.split('/')):
             raise ValueError(
                 "Name must be of the form '<account>/<container>', got %r" %
                 name)
-        self._account, self._container = name.split('/')
+        return name
+
+    @name.setter
+    def name(self, name):
+        self._name = self._validate_name(self._encode(name))
 
     @property
     def timestamp(self):
