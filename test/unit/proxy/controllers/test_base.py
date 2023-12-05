@@ -1673,7 +1673,6 @@ class TestGetterSource(unittest.TestCase):
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestGetOrHeadHandler(BaseTest):
     def test_disconnected_logging(self):
-        self.app.logger = mock.Mock()
         req = Request.blank('/v1/a/c/o')
         headers = {'content-type': 'text/plain'}
         source = FakeSource([], headers=headers, body=b'the cake is a lie')
@@ -1691,10 +1690,10 @@ class TestGetOrHeadHandler(BaseTest):
                                mock_find_source):
             resp = handler.get_working_response(req)
             resp.app_iter.close()
-        self.app.logger.info.assert_called_once_with(
-            'Client disconnected on read of %r', 'some-path')
+        self.assertEqual(["Client disconnected on read of 'some-path'"],
+                         self.logger.get_lines_for_level('info'))
 
-        self.app.logger = mock.Mock()
+        self.logger.clear()
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
         handler = GetOrHeadHandler(
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
@@ -1705,7 +1704,7 @@ class TestGetOrHeadHandler(BaseTest):
             resp = handler.get_working_response(req)
             next(resp.app_iter)
             resp.app_iter.close()
-        self.app.logger.warning.assert_not_called()
+        self.assertEqual([], self.logger.get_lines_for_level('warning'))
 
     def test_range_fast_forward(self):
         req = Request.blank('/')
