@@ -7428,7 +7428,23 @@ class TestShardName(unittest.TestCase):
             utils.ShardName.create('a', 'root', None, '1235678', 'bad')
 
 
-class TestNamespace(unittest.TestCase):
+class BaseNamespaceShardRange(object):
+
+    def _check_name_account_container(self, nsr, exp_name):
+        # check that the name, account, container properties are consistent
+        exp_account, exp_container = exp_name.split('/')
+        if six.PY2:
+            self.assertEqual(exp_name.encode('utf8'), nsr.name)
+            self.assertEqual(exp_account.encode('utf8'), nsr.account)
+            self.assertEqual(exp_container.encode('utf8'), nsr.container)
+        else:
+            self.assertEqual(exp_name, nsr.name)
+            self.assertEqual(exp_account, nsr.account)
+            self.assertEqual(exp_container, nsr.container)
+
+
+class TestNamespace(unittest.TestCase, BaseNamespaceShardRange):
+
     def test_lower_setter(self):
         ns = utils.Namespace('a/c', 'b', '')
         # sanity checks
@@ -7559,18 +7575,6 @@ class TestNamespace(unittest.TestCase):
         self.assertEqual(exp_upper, ns.upper)
         self.assertEqual(exp_upper, ns.upper_str)
         self.assertEqual(exp_upper + '\x00', ns.end_marker)
-
-    def _check_name_account_container(self, ns, exp_name):
-        # check that the name, account, container properties are consistent
-        exp_account, exp_container = exp_name.split('/')
-        if six.PY2:
-            self.assertEqual(exp_name.encode('utf8'), ns.name)
-            self.assertEqual(exp_account.encode('utf8'), ns.account)
-            self.assertEqual(exp_container.encode('utf8'), ns.container)
-        else:
-            self.assertEqual(exp_name, ns.name)
-            self.assertEqual(exp_account, ns.account)
-            self.assertEqual(exp_container, ns.container)
 
     def test_name(self):
         # constructor
@@ -7942,7 +7946,7 @@ class TestNamespaceBoundList(unittest.TestCase):
         self.assertEqual(namespace_list.bounds, self.lowerbounds)
 
 
-class TestShardRange(unittest.TestCase):
+class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
     def setUp(self):
         self.ts_iter = make_timestamp_iter()
 
@@ -8180,18 +8184,6 @@ class TestShardRange(unittest.TestCase):
     def test_to_from_dict(self):
         self._check_to_from_dict('l', 'u')
         self._check_to_from_dict('', '')
-
-    def _check_name_account_container(self, sr, exp_name):
-        # check that the name, account, container properties are consistent
-        exp_account, exp_container = exp_name.split('/')
-        if six.PY2:
-            self.assertEqual(exp_name.encode('utf8'), sr.name)
-            self.assertEqual(exp_account.encode('utf8'), sr.account)
-            self.assertEqual(exp_container.encode('utf8'), sr.container)
-        else:
-            self.assertEqual(exp_name, sr.name)
-            self.assertEqual(exp_account, sr.account)
-            self.assertEqual(exp_container, sr.container)
 
     def test_name(self):
         # constructor
