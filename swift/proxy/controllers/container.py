@@ -342,10 +342,15 @@ class ContainerController(Controller):
         # the setter must be called for new params to update the query string.
         params = req.params
         params['format'] = 'json'
-        # x-backend-record-type may be sent via internal client e.g. from
-        # the sharder or in probe tests
-        record_type = req.headers.get('X-Backend-Record-Type', '').lower()
-        if not record_type:
+        # x-backend-record-type may be sent via internal client e.g. from the
+        # sharder, or by the proxy itself when making a recursive request, or
+        # in probe tests. If the header is present then the only values that
+        # the proxy respects are 'object' or 'shard'. However, the proxy may
+        # use the value 'auto' when making requests to container server.
+        orig_record_type = req.headers.get('X-Backend-Record-Type', '').lower()
+        if orig_record_type in ('object', 'shard'):
+            record_type = orig_record_type
+        else:
             record_type = 'auto'
             req.headers['X-Backend-Record-Type'] = 'auto'
             params['states'] = 'listing'
@@ -390,6 +395,9 @@ class ContainerController(Controller):
         if all((req.method == "GET", record_type == 'auto',
                resp_record_type.lower() == 'shard')):
             resp = self._get_from_shards(req, resp)
+
+        if orig_record_type not in ('object', 'shard'):
+            resp.headers.pop('X-Backend-Record-Type', None)
 
         if not config_true_value(
                 resp.headers.get('X-Backend-Cached-Results')):

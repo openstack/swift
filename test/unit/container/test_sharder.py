@@ -14,7 +14,7 @@
 # limitations under the License.
 import json
 import random
-from argparse import Namespace
+import argparse
 
 import eventlet
 import os
@@ -47,7 +47,7 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     update_own_shard_range_stats
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5, \
-    ShardName
+    ShardName, Namespace
 from test import annotate_failure
 
 from test.debug_logger import debug_logger
@@ -1261,6 +1261,10 @@ class TestSharder(BaseTestSharder):
         do_test('')
         do_test(json.dumps({}))
         do_test(json.dumps([{'account': 'a', 'container': 'c'}]))
+        do_test(json.dumps([dict(Namespace('a/c', 'l', 'u'))]))
+        sr_dict = dict(ShardRange('a/c', next(self.ts_iter), 'l', 'u'))
+        sr_dict.pop('object_count')
+        do_test(json.dumps([sr_dict]))
 
     def test_fetch_shard_ranges_ok(self):
         def do_test(mock_resp_body, params):
@@ -9696,11 +9700,11 @@ class TestContainerSharderConf(unittest.TestCase):
         # given namespace
         def assert_bad(conf):
             with self.assertRaises(ValueError):
-                ContainerSharderConf.validate_conf(Namespace(**conf))
+                ContainerSharderConf.validate_conf(argparse.Namespace(**conf))
 
         def assert_ok(conf):
             try:
-                ContainerSharderConf.validate_conf(Namespace(**conf))
+                ContainerSharderConf.validate_conf(argparse.Namespace(**conf))
             except ValueError as err:
                 self.fail('Unexpected ValueError: %s' % err)
 
