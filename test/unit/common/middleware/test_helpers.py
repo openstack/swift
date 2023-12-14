@@ -17,7 +17,7 @@ import unittest
 
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, \
-    HTTPCreated, HeaderKeyDict, HTTPException
+    HTTPCreated, HeaderKeyDict
 from swift.common import request_helpers as rh
 from swift.common.middleware.s3api.utils import sysmeta_header
 from test.unit.common.middleware.helpers import FakeSwift
@@ -26,29 +26,19 @@ from test.unit.common.middleware.helpers import FakeSwift
 class TestFakeSwift(unittest.TestCase):
     def test_allowed_methods(self):
 
-        def assert_allowed(swift, method):
+        def do_test(swift, method, exp_status):
             path = '/v1/a/c/o'
             swift.register(method, path, HTTPOk, {}, None)
             req = Request.blank(path)
             req.method = method
-            self.assertEqual(200, req.get_response(swift).status_int)
-
-        def assert_disallowed(swift, method):
-            path = '/v1/a/c/o'
-            swift.register(method, path, HTTPOk, {}, None)
-            req = Request.blank(path)
-            req.method = method
-            with self.assertRaises(HTTPException) as cm:
-                req.get_response(swift)
-                self.assertEqual(501, cm.exception.status_int)
+            self.assertEqual(exp_status, req.get_response(swift).status_int)
 
         for method in ('PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS',
                        'REPLICATE', 'SSYNC', 'UPDATE'):
-            assert_allowed(FakeSwift(), method)
-            assert_allowed(FakeSwift(allowed_methods=['TEST']), 'TEST')
+            do_test(FakeSwift(), method, 200)
 
-        assert_disallowed(FakeSwift(), 'TEST')
-        assert_allowed(FakeSwift(allowed_methods=['TEST']), 'TEST')
+        do_test(FakeSwift(), 'TEST', 405)
+        do_test(FakeSwift(), 'get', 405)
 
     def test_not_registered(self):
         swift = FakeSwift()

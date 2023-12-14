@@ -1440,7 +1440,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.s3api.logger.logger.statsd_client.get_increment_counts())
 
     def test_s3api_with_only_s3_token(self):
-        self.swift = FakeSwift(allowed_methods=['TEST'])
+        self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(
@@ -1470,7 +1470,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                              req.environ['swift.backend_path'])
 
     def test_s3api_with_only_s3_token_v3(self):
-        self.swift = FakeSwift(allowed_methods=['TEST'])
+        self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(
@@ -1500,7 +1500,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                              req.environ['swift.backend_path'])
 
     def test_s3api_with_s3_token_and_auth_token(self):
-        self.swift = FakeSwift(allowed_methods=['TEST'])
+        self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.auth_token = AuthProtocol(
@@ -1555,7 +1555,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     statsd_client.get_increment_counts())
 
     def test_s3api_with_only_s3_token_in_s3acl(self):
-        self.swift = FakeSwift(allowed_methods=['TEST'])
+        self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(
@@ -1575,8 +1575,6 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # after PUT container so we need to register the resposne here
         self.swift.register('POST', '/v1/AUTH_TENANT_ID/bucket',
                             swob.HTTPNoContent, {}, None)
-        self.swift.register('TEST', '/v1/AUTH_TENANT_ID',
-                            swob.HTTPMethodNotAllowed, {}, None)
         with patch.object(self.s3_token, '_json_request') as mock_req:
             mock_resp = requests.Response()
             mock_resp._content = json.dumps(GOOD_RESPONSE_V2).encode('ascii')

@@ -23,7 +23,7 @@ from swift.common.request_helpers import is_user_meta, \
     is_object_transient_sysmeta, resolve_etag_is_at_header, \
     resolve_ignore_range_header
 from swift.common.storage_policy import POLICIES
-from swift.common.swob import HTTPNotImplemented
+from swift.common.swob import HTTPMethodNotAllowed
 from swift.common.utils import split_path, md5
 
 from test.debug_logger import debug_logger
@@ -119,16 +119,13 @@ class FakeSwift(object):
       * received ``POST /v1/a/c/o?x=y``, if it matches a registered ``POST``,
         will update uploaded ``/v1/a/c/o``
     """
-    DEFAULT_ALLOWED_METHODS = [
+    ALLOWED_METHODS = [
         'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE',
         'SSYNC', 'UPDATE']
     container_existence_skip_cache = 0.0
     account_existence_skip_cache = 0.0
 
-    def __init__(self, allowed_methods=None):
-        self.allowed_methods = set(self.DEFAULT_ALLOWED_METHODS)
-        if allowed_methods:
-            self.allowed_methods.update(allowed_methods)
+    def __init__(self):
         self._calls = []
         self.req_bodies = []
         self._unclosed_req_keys = defaultdict(int)
@@ -237,8 +234,8 @@ class FakeSwift(object):
 
     def __call__(self, env, start_response):
         method = env['REQUEST_METHOD']
-        if method not in self.allowed_methods:
-            raise HTTPNotImplemented()
+        if method not in self.ALLOWED_METHODS:
+            return HTTPMethodNotAllowed()(env, start_response)
 
         path, acc, cont, obj = self._parse_path(env)
 

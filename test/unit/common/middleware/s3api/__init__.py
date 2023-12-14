@@ -39,7 +39,7 @@ class FakeApp(object):
     def __init__(self):
         self.remote_user = 'authorized'
         self._pipeline_final_app = self
-        self.swift = FakeSwift(allowed_methods=['TEST'])
+        self.swift = FakeSwift()
         self.logger = debug_logger()
 
     def _update_s3_path_info(self, env):
@@ -280,10 +280,6 @@ class S3ApiTestCaseAcl(S3ApiTestCase):
             path = '/v1/AUTH_test/' + bucket
             self.swift.register('HEAD', path, swob.HTTPNoContent, {}, None),
             self.swift.register('GET', path, swob.HTTPOk, {}, json.dumps([])),
-
-        for account in ('AUTH_test', 'AUTH_X'):
-            self.swift.register('TEST', '/v1/' + account,
-                                swob.HTTPMethodNotAllowed, {}, None)
 
         # setup sticky ACL headers...
         grants = [_gen_grant(perm) for perm in PERMISSIONS]
