@@ -2126,47 +2126,6 @@ class SloGETorHEADTestCase(SloTestCase):
                 'Content-Type': 'application/json',
             }, container='gettest')
 
-    def _setup_manifest_raw(self):
-        """
-        This is similar to manifest_abcd; some segments are regular objects and
-        one segment is a sub-slo.  It's named "raw" because of the test it's
-        used in; not very descriptive.
-        """
-        _raw_manifest = [
-            {'name': '/gettest/b_10', 'hash': md5hex('b' * 10), 'bytes': '10',
-             'content_type': 'text/plain',
-             'last_modified': '1970-01-01T00:00:00.000000'},
-            {'name': '/gettest/c_15', 'hash': md5hex('c' * 15), 'bytes': '15',
-             'content_type': 'text/plain',
-             'last_modified': '1970-01-01T00:00:00.000000'},
-            {'name': '/gettest/d_10',
-             'hash': md5hex(md5hex("e" * 5) + md5hex("f" * 5)), 'bytes': '10',
-             'content_type': 'application/json',
-             'sub_slo': True,
-             'last_modified': '1970-01-01T00:00:00.000000'}
-        ]
-        self._setup_manifest('raw', _raw_manifest, extra_headers={
-            'Content-Type': 'text/plain',
-        }, container='gettest')
-
-    def _setup_manifest_raw_ranges(self):
-        """
-        This is similar to manifest-bc-ranges; the segments are range-segments
-        into regular objects.
-        """
-        _raw_ranges_manifest = [
-            {'name': '/gettest/b_10', 'hash': md5hex('b' * 10), 'bytes': '10',
-             'last_modified': '1970-01-01T00:00:00.000000',
-             'content_type': 'text/plain', 'range': '1-99'},
-            {'name': '/gettest/c_15', 'hash': md5hex('c' * 15), 'bytes': '15',
-             'last_modified': '1970-01-01T00:00:00.000000',
-             'content_type': 'text/plain', 'range': '100-200'},
-        ]
-        self._setup_manifest(
-            'raw-ranges', _raw_ranges_manifest, extra_headers={
-                'Content-Type': 'text/plain',
-            }, container='gettest')
-
     def _setup_manifest_headtest(self):
         """
         This is a unqiue manifest, un-related to the linage of gettest with
@@ -2406,6 +2365,46 @@ class TestSloGetRawManifest(SloGETorHEADTestCase):
         self._setup_manifest_raw()
         self._setup_manifest_raw_ranges()
 
+    def _setup_manifest_raw(self):
+        """
+        This is only used by TestSloGetRawManifest; some segments are
+        regular objects and one segment is a sub-slo.
+        """
+        _raw_manifest = [
+            {'name': '/gettest/does_not_exist', 'hash': md5hex('foo'),
+             'bytes': '100', 'content_type': 'text/plain',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': '/gettest/not_checked', 'hash': md5hex('bar'),
+             'bytes': '303', 'content_type': 'text/plain',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': '/gettest/made_up',
+             'hash': md5hex(md5hex("fizz") + md5hex("buzz")), 'bytes': '2099',
+             'content_type': 'application/json',
+             'sub_slo': True,
+             'last_modified': '1970-01-01T00:00:00.000000'}
+        ]
+        self._setup_manifest('raw', _raw_manifest, extra_headers={
+            'Content-Type': 'text/plain',
+        }, container='gettest')
+
+    def _setup_manifest_raw_ranges(self):
+        """
+        This is only used by TestSloGetRawManifest; the segments are
+        range-segments into regular objects.
+        """
+        _raw_ranges_manifest = [
+            {'name': '/gettest/does_not_exist', 'hash': md5hex('foo'),
+             'bytes': '100', 'last_modified': '1970-01-01T00:00:00.000000',
+             'content_type': 'text/plain', 'range': '1-99'},
+            {'name': '/gettest/not_checked', 'hash': md5hex('bar'),
+             'bytes': '303', 'last_modified': '1970-01-01T00:00:00.000000',
+             'content_type': 'text/plain', 'range': '100-200'},
+        ]
+        self._setup_manifest(
+            'raw-ranges', _raw_ranges_manifest, extra_headers={
+                'Content-Type': 'text/plain',
+            }, container='gettest')
+
     def test_get_raw_manifest(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-raw'
@@ -2415,13 +2414,13 @@ class TestSloGetRawManifest(SloGETorHEADTestCase):
         status, headers, body = self.call_slo(req)
 
         expected_body = json.dumps([
-            {'etag': md5hex('b' * 10), 'size_bytes': '10',
-             'path': '/gettest/b_10'},
-            {'etag': md5hex('c' * 15), 'size_bytes': '15',
-             'path': '/gettest/c_15'},
-            {'etag': md5hex(md5hex("e" * 5) + md5hex("f" * 5)),
-             'size_bytes': '10',
-             'path': '/gettest/d_10'}], sort_keys=True)
+            {'etag': md5hex('foo'), 'size_bytes': '100',
+             'path': '/gettest/does_not_exist'},
+            {'etag': md5hex('bar'), 'size_bytes': '303',
+             'path': '/gettest/not_checked'},
+            {'etag': md5hex(md5hex("fizz") + md5hex("buzz")),
+             'size_bytes': '2099',
+             'path': '/gettest/made_up'}], sort_keys=True)
         expected_etag = md5hex(expected_body)
         if six.PY3:
             expected_body = expected_body.encode('utf-8')
@@ -2467,10 +2466,10 @@ class TestSloGetRawManifest(SloGETorHEADTestCase):
 
         self.assertEqual(
             resp_data,
-            [{'etag': md5hex('b' * 10), 'size_bytes': '10',
-              'path': '/gettest/b_10', 'range': '1-99'},
-             {'etag': md5hex('c' * 15), 'size_bytes': '15',
-              'path': '/gettest/c_15', 'range': '100-200'}],
+            [{'etag': md5hex('foo'), 'size_bytes': '100',
+              'path': '/gettest/does_not_exist', 'range': '1-99'},
+             {'etag': md5hex('bar'), 'size_bytes': '303',
+              'path': '/gettest/not_checked', 'range': '100-200'}],
             body)
 
         self.assertEqual(self.app.calls, [
