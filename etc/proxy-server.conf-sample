@@ -945,6 +945,9 @@ use = egg:swift#tempurl
 # Note: Put formpost just before your auth filter(s) in the pipeline
 [filter:formpost]
 use = egg:swift#formpost
+# The digest algorithm(s) supported for generating signatures;
+# whitespace-delimited.
+# allowed_digests = sha1 sha256 sha512
 
 # Note: Just needs to be placed before the proxy-server in the pipeline.
 [filter:name_check]
