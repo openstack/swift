@@ -1091,6 +1091,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         ]
         with mock.patch.object(wsgi, '_initrp', return_value=stub__initrp), \
                 mock.patch.object(wsgi, 'loadapp'), \
+                mock.patch('swift.common.utils.monkey_patch'), \
                 mock.patch.object(wsgi, 'capture_stdio'):
             for server_type in ('account-server', 'container-server',
                                 'object-server'):
