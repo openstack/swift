@@ -300,9 +300,9 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
     if not port:
         port = 443 if ssl else 80
     if ssl:
-        conn = HTTPSConnection('%s:%s' % (ipaddr, port))
+        conn = HTTPSConnection(f'{ipaddr}:{port}')
     else:
-        conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
+        conn = BufferedHTTPConnection(f'{ipaddr}:{port}')
     if query_string:
         # Round trip to ensure proper quoting
         if six.PY2:
