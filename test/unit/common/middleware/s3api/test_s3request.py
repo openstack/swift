@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 import hashlib
 from mock import patch, MagicMock
 import unittest
@@ -470,12 +470,12 @@ class TestRequest(S3ApiTestCase):
 
         # near-past X-Amz-Date headers
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
-            datetime.utcnow() - timedelta(minutes=10)
+            timedelta(minutes=-10)
         )}
         self._test_request_timestamp_sigv4(date_header)
 
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
-            datetime.utcnow() - timedelta(minutes=10)
+            timedelta(minutes=-10)
         )}
         with self.assertRaises(RequestTimeTooSkewed) as cm, \
                 patch.object(self.s3api.conf, 'allowable_clock_skew', 300):
@@ -483,19 +483,19 @@ class TestRequest(S3ApiTestCase):
 
         # near-future X-Amz-Date headers
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
-            datetime.utcnow() + timedelta(minutes=10)
+            timedelta(minutes=10)
         )}
         self._test_request_timestamp_sigv4(date_header)
 
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
-            datetime.utcnow() + timedelta(minutes=10)
+            timedelta(minutes=10)
         )}
         with self.assertRaises(RequestTimeTooSkewed) as cm, \
                 patch.object(self.s3api.conf, 'allowable_clock_skew', 300):
             self._test_request_timestamp_sigv4(date_header)
 
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
-            datetime.utcnow() + timedelta(days=1)
+            timedelta(days=1)
         )}
         with self.assertRaises(RequestTimeTooSkewed) as cm:
             self._test_request_timestamp_sigv4(date_header)
