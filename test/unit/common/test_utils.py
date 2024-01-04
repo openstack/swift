@@ -6861,20 +6861,34 @@ class FakeResponse(object):
 
 class TestDocumentItersToHTTPResponseBody(unittest.TestCase):
     def test_no_parts(self):
+        logger = debug_logger()
         body = utils.document_iters_to_http_response_body(
-            iter([]), 'dontcare',
-            multipart=False, logger=debug_logger())
+            iter([]), 'dontcare', multipart=False, logger=logger)
         self.assertEqual(body, '')
+        self.assertFalse(logger.all_log_lines())
 
     def test_single_part(self):
         body = b"time flies like an arrow; fruit flies like a banana"
         doc_iters = [{'part_iter': iter(BytesIO(body).read, b'')}]
+        logger = debug_logger()
 
         resp_body = b''.join(
             utils.document_iters_to_http_response_body(
-                iter(doc_iters), b'dontcare',
-                multipart=False, logger=debug_logger()))
+                iter(doc_iters), b'dontcare', multipart=False, logger=logger))
         self.assertEqual(resp_body, body)
+        self.assertFalse(logger.all_log_lines())
+
+    def test_single_part_unexpected_ranges(self):
+        body = b"time flies like an arrow; fruit flies like a banana"
+        doc_iters = [{'part_iter': iter(BytesIO(body).read, b'')}, 'junk']
+        logger = debug_logger()
+
+        resp_body = b''.join(
+            utils.document_iters_to_http_response_body(
+                iter(doc_iters), b'dontcare', multipart=False, logger=logger))
+        self.assertEqual(resp_body, body)
+        self.assertEqual(['More than one part in a single-part response?'],
+                         logger.get_lines_for_level('warning'))
 
     def test_multiple_parts(self):
         part1 = b"two peanuts were walking down a railroad track"
@@ -6915,7 +6929,6 @@ class TestDocumentItersToHTTPResponseBody(unittest.TestCase):
             b"--boundaryboundary--"))
 
     def test_closed_part_iterator(self):
-        print('test')
         useful_iter_mock = mock.MagicMock()
         useful_iter_mock.__iter__.return_value = ['']
         body_iter = utils.document_iters_to_http_response_body(
@@ -9563,6 +9576,138 @@ class TestReiterate(unittest.TestCase):
         self.assertIs(test_tuple, reiterated)
 
 
+class TestClosingIterator(unittest.TestCase):
+    def _make_gen(self, items, captured_exit):
+        def gen():
+            try:
+                for it in items:
+                    if isinstance(it, Exception):
+                        raise it
+                    yield it
+            except GeneratorExit as e:
+                captured_exit.append(e)
+                raise
+        return gen()
+
+    def test_close(self):
+        wrapped = FakeIterable([1, 2, 3])
+        # note: iter(FakeIterable) is the same object
+        self.assertIs(wrapped, iter(wrapped))
+        it = utils.ClosingIterator(wrapped)
+        actual = [x for x in it]
+        self.assertEqual([1, 2, 3], actual)
+        self.assertEqual(1, wrapped.close_call_count)
+        it.close()
+        self.assertEqual(1, wrapped.close_call_count)
+
+    def test_close_others(self):
+        wrapped = FakeIterable([1, 2, 3])
+        others = [FakeIterable([4, 5, 6]), FakeIterable([])]
+        self.assertIs(wrapped, iter(wrapped))
+        it = utils.ClosingIterator(wrapped, others)
+        actual = [x for x in it]
+        self.assertEqual([1, 2, 3], actual)
+        self.assertEqual([1, 1, 1],
+                         [i.close_call_count for i in others + [wrapped]])
+        it.close()
+        self.assertEqual([1, 1, 1],
+                         [i.close_call_count for i in others + [wrapped]])
+
+    def test_close_gen(self):
+        # explicitly check generator closing
+        captured_exit = []
+        gen = self._make_gen([1, 2], captured_exit)
+        it = utils.ClosingIterator(gen)
+        self.assertFalse(captured_exit)
+        it.close()
+        self.assertFalse(captured_exit)  # the generator didn't start
+
+        captured_exit = []
+        gen = self._make_gen([1, 2], captured_exit)
+        it = utils.ClosingIterator(gen)
+        self.assertFalse(captured_exit)
+        self.assertEqual(1, next(it))  # start the generator
+        it.close()
+        self.assertEqual(1, len(captured_exit))
+
+    def test_close_wrapped_is_not_same_as_iter(self):
+        class AltFakeIterable(FakeIterable):
+            def __iter__(self):
+                return (x for x in self.values)
+
+        wrapped = AltFakeIterable([1, 2, 3])
+        # note: iter(AltFakeIterable) is a generator, not the same object
+        self.assertIsNot(wrapped, iter(wrapped))
+        it = utils.ClosingIterator(wrapped)
+        actual = [x for x in it]
+        self.assertEqual([1, 2, 3], actual)
+        self.assertEqual(1, wrapped.close_call_count)
+        it.close()
+        self.assertEqual(1, wrapped.close_call_count)
+
+    def test_init_with_iterable(self):
+        wrapped = [1, 2, 3]  # list is iterable but not an iterator
+        it = utils.ClosingIterator(wrapped)
+        actual = [x for x in it]
+        self.assertEqual([1, 2, 3], actual)
+        it.close()  # safe to call even though list has no close
+
+    def test_nested_iters(self):
+        wrapped = FakeIterable([1, 2, 3])
+        it = utils.ClosingIterator(utils.ClosingIterator(wrapped))
+        actual = [x for x in it]
+        self.assertEqual([1, 2, 3], actual)
+        self.assertEqual(1, wrapped.close_call_count)
+        it.close()
+        self.assertEqual(1, wrapped.close_call_count)
+
+    def test_close_on_stop_iteration(self):
+        wrapped = FakeIterable([1, 2, 3])
+        others = [FakeIterable([4, 5, 6]), FakeIterable([])]
+        self.assertIs(wrapped, iter(wrapped))
+        it = utils.ClosingIterator(wrapped, others)
+        actual = [x for x in it]
+        self.assertEqual([1, 2, 3], actual)
+        self.assertEqual([1, 1, 1],
+                         [i.close_call_count for i in others + [wrapped]])
+        it.close()
+        self.assertEqual([1, 1, 1],
+                         [i.close_call_count for i in others + [wrapped]])
+
+    def test_close_on_exception(self):
+        # sanity check: generator exits on raising exception without executing
+        # GeneratorExit
+        captured_exit = []
+        gen = self._make_gen([1, ValueError(), 2], captured_exit)
+        self.assertEqual(1, next(gen))
+        with self.assertRaises(ValueError):
+            next(gen)
+        self.assertFalse(captured_exit)
+        gen.close()
+        self.assertFalse(captured_exit)  # gen already exited
+
+        captured_exit = []
+        gen = self._make_gen([1, ValueError(), 2], captured_exit)
+        self.assertEqual(1, next(gen))
+        with self.assertRaises(ValueError):
+            next(gen)
+        self.assertFalse(captured_exit)
+        with self.assertRaises(StopIteration):
+            next(gen)  # gen already exited
+
+        # wrapped gen does the same...
+        captured_exit = []
+        gen = self._make_gen([1, ValueError(), 2], captured_exit)
+        others = [FakeIterable([4, 5, 6]), FakeIterable([])]
+        it = utils.ClosingIterator(gen, others)
+        self.assertEqual(1, next(it))
+        with self.assertRaises(ValueError):
+            next(it)
+        self.assertFalse(captured_exit)
+        # but other iters are closed :)
+        self.assertEqual([1, 1], [i.close_call_count for i in others])
+
+
 class TestCloseableChain(unittest.TestCase):
     def test_closeable_chain_iterates(self):
         test_iter1 = FakeIterable([1])
@@ -9617,6 +9762,39 @@ class TestCloseableChain(unittest.TestCase):
         chain.close()
         self.assertEqual(1, test_iter1.close_call_count)
         self.assertTrue(generator_closed[0])
+
+
+class TestStringAlong(unittest.TestCase):
+    def test_happy(self):
+        logger = debug_logger()
+        it = FakeIterable([1, 2, 3])
+        other_it = FakeIterable([])
+        string_along = utils.StringAlong(
+            it, other_it, lambda: logger.warning('boom'))
+        for i, x in enumerate(string_along):
+            self.assertEqual(i + 1, x)
+            self.assertEqual(0, other_it.next_call_count, x)
+            self.assertEqual(0, other_it.close_call_count, x)
+        self.assertEqual(1, other_it.next_call_count, x)
+        self.assertEqual(1, other_it.close_call_count, x)
+        lines = logger.get_lines_for_level('warning')
+        self.assertFalse(lines)
+
+    def test_unhappy(self):
+        logger = debug_logger()
+        it = FakeIterable([1, 2, 3])
+        other_it = FakeIterable([1])
+        string_along = utils.StringAlong(
+            it, other_it, lambda: logger.warning('boom'))
+        for i, x in enumerate(string_along):
+            self.assertEqual(i + 1, x)
+            self.assertEqual(0, other_it.next_call_count, x)
+            self.assertEqual(0, other_it.close_call_count, x)
+        self.assertEqual(1, other_it.next_call_count, x)
+        self.assertEqual(1, other_it.close_call_count, x)
+        lines = logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(lines))
+        self.assertIn('boom', lines[0])
 
 
 class TestCooperativeIterator(unittest.TestCase):
