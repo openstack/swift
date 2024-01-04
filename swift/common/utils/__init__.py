@@ -114,6 +114,7 @@ from swift.common.utils.timestamp import (  # noqa
     EPOCH,
     last_modified_date_to_timestamp,
     normalize_delete_at_timestamp,
+    UTC,
 )
 from swift.common.utils.ipaddrs import (  # noqa
     is_valid_ip,
@@ -519,22 +520,6 @@ def get_policy_index(req_headers, res_headers):
     if isinstance(policy_index, six.binary_type) and not six.PY2:
         policy_index = policy_index.decode('ascii')
     return str(policy_index) if policy_index is not None else None
-
-
-class _UTC(datetime.tzinfo):
-    """
-    A tzinfo class for datetime objects that returns a 0 timedelta (UTC time)
-    """
-
-    def dst(self, dt):
-        return datetime.timedelta(0)
-    utcoffset = dst
-
-    def tzname(self, dt):
-        return 'UTC'
-
-
-UTC = _UTC()
 
 
 class LogStringFormatter(string.Formatter):

@@ -39,7 +39,8 @@ from swift.container.server import gen_resp_headers, ContainerController
 from swift.common.direct_client import ClientException
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import split_path, Timestamp, encode_timestamps, mkdirs
+from swift.common.utils import split_path, Timestamp, encode_timestamps, \
+    mkdirs, UTC
 
 from test.debug_logger import debug_logger
 from test.unit import FakeRing, fake_http_connect, patch_policies, \
@@ -48,8 +49,8 @@ from test.unit.common.middleware import helpers
 
 
 def timestamp_to_last_modified(timestamp):
-    return datetime.utcfromtimestamp(
-        float(Timestamp(timestamp))).strftime('%Y-%m-%dT%H:%M:%S.%f')
+    dt = datetime.fromtimestamp(float(Timestamp(timestamp)), UTC)
+    return dt.strftime('%Y-%m-%dT%H:%M:%S.%f')
 
 
 def container_resp_headers(**kwargs):
