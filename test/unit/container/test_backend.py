@@ -4289,12 +4289,17 @@ class TestContainerBroker(test_db.TestDbBase):
                          [dict(sr) for sr in actual])
 
         actual = broker.get_shard_ranges(marker='c', end_marker='e',
-                                         states=ShardRange.ACTIVE)
+                                         states=[ShardRange.ACTIVE])
         self.assertEqual([dict(sr) for sr in shard_ranges[2:3]],
                          [dict(sr) for sr in actual])
 
         actual = broker.get_shard_ranges(marker='e', end_marker='e')
         self.assertFalse([dict(sr) for sr in actual])
+
+        # check state filtering...
+        actual = broker.get_shard_ranges(states=[ShardRange.FOUND])
+        self.assertEqual([dict(sr) for sr in shard_ranges[:2]],
+                         [dict(sr) for sr in actual])
 
         # includes overrides include_own
         actual = broker.get_shard_ranges(includes='b', include_own=True)
