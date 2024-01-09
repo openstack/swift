@@ -1709,8 +1709,8 @@ class ContainerBroker(DatabaseBroker):
             ``marker`` and ``end_marker`` are ignored, but other constraints
             are applied (e.g. ``exclude_others`` and ``include_deleted``).
         :param include_deleted: include rows marked as deleted.
-        :param states: include only rows matching the given state(s); can be an
-            int or a list of ints.
+        :param states: include only rows matching the given states; should be
+            a list of ints.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
             True, that row is included unless it is excluded by other
@@ -1734,11 +1734,7 @@ class ContainerBroker(DatabaseBroker):
         if exclude_others and not include_own:
             return []
 
-        included_states = set()
-        if isinstance(states, (list, tuple, set)):
-            included_states.update(states)
-        elif states is not None:
-            included_states.add(states)
+        included_states = set(states) if states else None
 
         # defaults to be used when legacy db's are missing columns
         default_values = {'reported': 0,
@@ -1868,8 +1864,7 @@ class ContainerBroker(DatabaseBroker):
         :param reverse: reverse the result order.
         :param include_deleted: include items that have the delete marker set.
         :param states: if specified, restricts the returned list to shard
-            ranges that have the given state(s); can be a list of ints or a
-            single int.
+            ranges that have one of the given states; should be a list of ints.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
             True, that row is included unless it is excluded by other

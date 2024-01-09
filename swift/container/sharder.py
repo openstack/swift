@@ -1308,7 +1308,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 # Shrinking is how we resolve overlaps; we've got to
                 # allow multiple shards in that state
                 continue
-            shard_ranges = broker.get_shard_ranges(states=state)
+            shard_ranges = broker.get_shard_ranges(states=[state])
             # Transient overlaps can occur during the period immediately after
             # sharding if a root learns about new child shards before it learns
             # that the parent has sharded. These overlaps are normally
@@ -1935,7 +1935,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         # Create shard containers that are ready to receive redirected object
         # updates. Do this now, so that redirection can begin immediately
         # without waiting for cleaving to complete.
-        found_ranges = broker.get_shard_ranges(states=ShardRange.FOUND)
+        found_ranges = broker.get_shard_ranges(states=[ShardRange.FOUND])
         created_ranges = []
         for shard_range in found_ranges:
             self._increment_stat('created', 'attempted')
@@ -2233,7 +2233,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             else:
                 own_shard_range.update_state(ShardRange.SHARDED)
                 modified_shard_ranges = broker.get_shard_ranges(
-                    states=ShardRange.CLEAVED)
+                    states=[ShardRange.CLEAVED])
                 for sr in modified_shard_ranges:
                     sr.update_state(ShardRange.ACTIVE)
             if (not broker.is_root_container() and not
