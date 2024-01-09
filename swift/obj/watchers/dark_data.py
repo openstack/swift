@@ -42,6 +42,10 @@ servers agree, it will silently fail to detect anything if even one
 of container servers in the ring is down or unreacheable. This is
 done in the interest of operators who run with action=delete.
 
+If a container is sharded, there is a small edgecase where an object row could
+be misplaced. So it is recommended to always start with action=log, before
+your confident to run action=delete.
+
 Finally, keep in mind that Dark Data watcher needs the container
 ring to operate, but runs on an object node. This can come up if
 cluster has nodes separated by function.
@@ -57,7 +61,7 @@ from eventlet import Timeout
 from swift.common.direct_client import direct_get_container
 from swift.common.exceptions import ClientException, QuarantineRequest
 from swift.common.ring import Ring
-from swift.common.utils import split_path, Timestamp
+from swift.common.utils import split_path, Namespace, Timestamp
 
 
 class ContainerError(Exception):
@@ -114,7 +118,7 @@ class DarkDataWatcher(object):
 
         obj_path = object_metadata['name']
         try:
-            obj_info = get_info_1(self.container_ring, obj_path, self.logger)
+            obj_info = get_info_1(self.container_ring, obj_path)
         except ContainerError:
             self.tot_unknown += 1
             return
@@ -137,39 +141,73 @@ class DarkDataWatcher(object):
 #
 # Get the information for 1 object from container server
 #
-def get_info_1(container_ring, obj_path, logger):
+def get_info_1(container_ring, obj_path):
 
     path_comps = split_path(obj_path, 1, 3, True)
     account_name = path_comps[0]
     container_name = path_comps[1]
     obj_name = path_comps[2]
+    visited = set()
 
-    container_part, container_nodes = \
-        container_ring.get_nodes(account_name, container_name)
+    def check_container(account_name, container_name):
+        record_type = 'auto'
+        if (account_name, container_name) in visited:
+            # Already queried; So we have a last ditch effort and specifically
+            # ask for object data as this could be pointing back to the root
+            # If the container doesn't have objects then this will return
+            # no objects and break the loop.
+            record_type = 'object'
+        else:
+            visited.add((account_name, container_name))
 
-    if not container_nodes:
-        raise ContainerError()
+        container_part, container_nodes = \
+            container_ring.get_nodes(account_name, container_name)
+        if not container_nodes:
+            raise ContainerError()
 
-    # Perhaps we should do something about the way we select the container
-    # nodes. For now we just shuffle. It spreads the load, but it does not
-    # improve upon the the case when some nodes are down, so auditor slows
-    # to a crawl (if this plugin is enabled).
-    random.shuffle(container_nodes)
+        # Perhaps we should do something about the way we select the container
+        # nodes. For now we just shuffle. It spreads the load, but it does not
+        # improve upon the the case when some nodes are down, so auditor slows
+        # to a crawl (if this plugin is enabled).
+        random.shuffle(container_nodes)
 
-    err_flag = 0
-    for node in container_nodes:
-        try:
-            headers, objs = direct_get_container(
-                node, container_part, account_name, container_name,
-                prefix=obj_name, limit=1)
-        except (ClientException, Timeout):
-            # Something is wrong with that server, treat as an error.
-            err_flag += 1
-            continue
-        if objs and objs[0]['name'] == obj_name:
-            return objs[0]
+        err_flag = 0
+        shards = set()
+        for node in container_nodes:
+            try:
+                # The prefix+limit trick is used when a traditional listing
+                # is returned, while includes is there for shards.
+                # See the how GET routes it in swift/container/server.py.
+                headers, objs_or_shards = direct_get_container(
+                    node, container_part, account_name, container_name,
+                    prefix=obj_name, limit=1,
+                    extra_params={'includes': obj_name, 'states': 'listing'},
+                    headers={'X-Backend-Record-Type': record_type})
+            except (ClientException, Timeout):
+                # Something is wrong with that server, treat as an error.
+                err_flag += 1
+                continue
+            if headers.get('X-Backend-Record-Type') == 'shard':
+                # When using includes=obj_name, we don't need to anything
+                # like find_shard_range(obj_name, ... objs_or_shards).
+                if len(objs_or_shards) != 0:
+                    namespace = Namespace(objs_or_shards[0]['name'],
+                                          objs_or_shards[0]['lower'],
+                                          objs_or_shards[0]['upper'])
+                    shards.add((namespace.account, namespace.container))
+                continue
+            if objs_or_shards and objs_or_shards[0]['name'] == obj_name:
+                return objs_or_shards[0]
 
-    # We only report the object as dark if all known servers agree that it is.
-    if err_flag:
-        raise ContainerError()
-    return None
+        # If we got back some shards, recurse
+        for account_name, container_name in shards:
+            res = check_container(account_name, container_name)
+            if res:
+                return res
+
+        # We only report the object as dark if all known servers agree to it.
+        if err_flag:
+            raise ContainerError()
+        return None
+
+    return check_container(account_name, container_name)
