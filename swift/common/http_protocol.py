@@ -30,6 +30,7 @@ else:
 
 class SwiftHttpProtocol(wsgi.HttpProtocol):
     default_request_version = "HTTP/1.0"
+    reject_bad_requests = False
 
     def __init__(self, *args, **kwargs):
         # See https://github.com/eventlet/eventlet/pull/590

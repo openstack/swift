@@ -49,7 +49,7 @@ from test.unit import mocked_http_conn, \
 from swift.obj import server as object_server
 from swift.obj import updater
 from swift.obj import diskfile
-from swift.common import utils, bufferedhttp
+from swift.common import utils, bufferedhttp, http_protocol
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication, encode_timestamps, \
@@ -5302,7 +5302,7 @@ class TestObjectController(BaseTestCase):
         listener = listen_zero()
         port = listener.getsockname()[1]
         killer = spawn(wsgi.server, listener, self.object_controller,
-                       NullLogger())
+                       NullLogger(), protocol=http_protocol.SwiftHttpProtocol)
         sock = connect_tcp(('localhost', port))
         fd = sock.makefile('rwb')
         s = 'PUT /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n' \
