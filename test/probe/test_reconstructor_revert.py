@@ -340,7 +340,7 @@ class TestReconstructorRevert(ECProbeTest):
         # PUT object at t1
         contents = Body(total=3.5 * 2 ** 20)
         headers = {'x-object-meta-foo': 'meta-foo'}
-        headers_post = {'x-object-meta-bar': 'meta-bar'}
+        headers_post = {'content-type': 'meta/bar'}
         client.put_object(self.url, self.token, self.container_name,
                           self.object_name, contents=contents,
                           headers=headers)
@@ -362,7 +362,7 @@ class TestReconstructorRevert(ECProbeTest):
         # make sure we can GET the object; there's 5 primaries and 1 handoff
         headers, older_obj_etag = self.proxy_get()
         self.assertEqual(contents.etag, older_obj_etag)
-        self.assertEqual('meta-bar', headers.get('x-object-meta-bar'))
+        self.assertEqual('meta/bar', headers.get('content-type'))
 
         # PUT object at t2; make all frags non-durable so that the previous
         # durable frags at t1 remain on object server; use InternalClient so
@@ -371,7 +371,7 @@ class TestReconstructorRevert(ECProbeTest):
         contents2 = Body(total=2.5 * 2 ** 20)  # different content
         self.assertNotEqual(contents2.etag, older_obj_etag)  # sanity check
         headers = {'x-backend-no-commit': 'True',
-                   'x-object-meta-bar': 'meta-bar-new'}
+                   'content-type': 'meta/bar-new'}
         internal_client.upload_object(contents2, self.account,
                                       self.container_name.decode('utf8'),
                                       self.object_name.decode('utf8'),
@@ -379,7 +379,7 @@ class TestReconstructorRevert(ECProbeTest):
         # GET should still return the older durable object
         headers, obj_etag = self.proxy_get()
         self.assertEqual(older_obj_etag, obj_etag)
-        self.assertEqual('meta-bar', headers.get('x-object-meta-bar'))
+        self.assertEqual('meta/bar', headers.get('content-type'))
         # on handoff we have older durable and newer non-durable
         _hdrs, frag_etag = self.assert_direct_get_succeeds(hnodes[0], opart)
         self.assertEqual(older_frag_etag, frag_etag)
@@ -393,7 +393,7 @@ class TestReconstructorRevert(ECProbeTest):
         headers, newer_obj_etag = self.proxy_get()
         self.assertEqual(contents2.etag, newer_obj_etag)
         self.assertNotEqual(older_obj_etag, newer_obj_etag)
-        self.assertEqual('meta-bar-new', headers.get('x-object-meta-bar'))
+        self.assertEqual('meta/bar-new', headers.get('content-type'))
 
         # fix the 507'ing primary
         self.revive_drive(pdevs[0])
@@ -417,7 +417,7 @@ class TestReconstructorRevert(ECProbeTest):
         headers, frag_etag = self.assert_direct_get_succeeds(
             hnodes[0], opart, require_durable=False)
         self.assertEqual(older_frag_etag, frag_etag)
-        self.assertEqual('meta-bar', headers.get('x-object-meta-bar'))
+        self.assertEqual('meta/bar', headers.get('content-type'))
 
         # fire up reconstructor on handoff node only, again
         self.reconstructor.once(number=hnode_id)
@@ -425,11 +425,11 @@ class TestReconstructorRevert(ECProbeTest):
         # primary now has the newer non-durable frag and the older durable frag
         headers, frag_etag = self.assert_direct_get_succeeds(onodes[0], opart)
         self.assertEqual(older_frag_etag, frag_etag)
-        self.assertEqual('meta-bar', headers.get('x-object-meta-bar'))
+        self.assertEqual('meta/bar', headers.get('content-type'))
         headers, frag_etag = self.assert_direct_get_succeeds(
             onodes[0], opart, require_durable=False)
         self.assertEqual(newer_frag_etag, frag_etag)
-        self.assertEqual('meta-bar-new', headers.get('x-object-meta-bar'))
+        self.assertEqual('meta/bar-new', headers.get('content-type'))
 
         # handoff has nothing
         self.assert_direct_get_fails(hnodes[0], opart, 404,
@@ -447,7 +447,7 @@ class TestReconstructorRevert(ECProbeTest):
         # sync the non-durable!
         headers, frag_etag = self.assert_direct_get_succeeds(onodes[0], opart)
         self.assertEqual(newer_frag_etag, frag_etag)
-        self.assertEqual('meta-bar-new', headers.get('x-object-meta-bar'))
+        self.assertEqual('meta/bar-new', headers.get('content-type'))
 
         # revive primaries (in case we want to debug)
         for pdev in pdevs[2:]:
