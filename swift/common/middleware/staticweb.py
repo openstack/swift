@@ -240,8 +240,7 @@ class _StaticWebContext(WSGIContext):
                                      '/'.join(groups[4:]))
 
         if not config_true_value(self._listings):
-            body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 ' \
-                'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
+            body = '<!DOCTYPE html>\n' \
                 '<html>\n' \
                 '<head>\n' \
                 '<title>Listing of %s</title>\n' % html_escape(label)
@@ -286,8 +285,7 @@ class _StaticWebContext(WSGIContext):
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
         headers = {'Content-Type': 'text/html; charset=UTF-8'}
-        body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 ' \
-               'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
+        body = '<!DOCTYPE html>\n' \
                '<html>\n' \
                ' <head>\n' \
                '  <title>Listing of %s</title>\n' % \
