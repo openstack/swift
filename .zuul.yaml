@@ -802,6 +802,8 @@
             irrelevant-files: *tempest-irrelevant-files
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
+        - grenade-skip-level:
+            irrelevant-files: *tempest-irrelevant-files
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -844,6 +846,8 @@
         - openstacksdk-functional-devstack:
             irrelevant-files: *tempest-irrelevant-files
         - grenade:
+            irrelevant-files: *tempest-irrelevant-files
+        - grenade-skip-level:
             irrelevant-files: *tempest-irrelevant-files
     experimental:
       jobs:
