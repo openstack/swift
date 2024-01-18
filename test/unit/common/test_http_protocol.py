@@ -297,6 +297,28 @@ class TestSwiftHttpProtocolSomeMore(ProtocolTest):
         lines = [l for l in bytes_out.split(b"\r\n") if l]
         self.assertEqual(lines[-1], b'///some-leading-slashes')
 
+    def test_chunked_with_content_length(self):
+        def reflecting_app(env, start_response):
+            start_response('200 OK', [])
+            return [env['wsgi.input'].read()]
+
+        # This is more of a test of eventlet, but we've seen issues with it
+        # before that were only caught in unit tests that require an XFS
+        # tempdir, and so were skipped on the requirements job
+        bytes_out = self._run_bytes_through_protocol((
+            b"PUT /path HTTP/1.0\r\n"
+            b"Content-Length: 10\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"a\r\n"
+            b"some text\n"
+            b"\r\n"
+            b"0\r\n"
+            b"\r\n"
+        ), app=reflecting_app)
+        body = bytes_out.partition(b"\r\n\r\n")[2]
+        self.assertEqual(body, b'some text\n')
+
     def test_request_lines(self):
         def app(env, start_response):
             start_response("200 OK", [])
