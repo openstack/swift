@@ -724,22 +724,26 @@ class DatabaseBroker(object):
                 return -1
             return row['sync_point']
 
-    def get_syncs(self, incoming=True):
+    def get_syncs(self, incoming=True, include_timestamp=False):
         """
         Get a serialized copy of the sync table.
 
         :param incoming: if True, get the last incoming sync, otherwise get
                          the last outgoing sync
-        :returns: list of {'remote_id', 'sync_point'}
+        :param include_timestamp: If True include the updated_at timestamp
+        :returns: list of {'remote_id', 'sync_point'} or
+                 {'remote_id', 'sync_point', 'updated_at'}
+                 if include_timestamp is True.
         """
         with self.get() as conn:
+            columns = 'remote_id, sync_point'
+            if include_timestamp:
+                columns += ', updated_at'
             curs = conn.execute('''
-                SELECT remote_id, sync_point FROM %s_sync
-            ''' % ('incoming' if incoming else 'outgoing'))
-            result = []
-            for row in curs:
-                result.append({'remote_id': row[0], 'sync_point': row[1]})
-            return result
+                SELECT %s FROM %s_sync
+            ''' % (columns, 'incoming' if incoming else 'outgoing'))
+            curs.row_factory = dict_factory
+            return [r for r in curs]
 
     def get_max_row(self, table=None):
         if not table:

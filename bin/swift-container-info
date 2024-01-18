@@ -47,6 +47,9 @@ if __name__ == '__main__':
         '-v', '--verbose', default=False, action="store_true",
         help="Show all shard ranges. By default, only the number of shard "
              "ranges is displayed if there are many shards.")
+    parser.add_option(
+        '--sync', '-s', default=False, action="store_true",
+        help="Output the contents of the incoming/outging sync tables")
 
     options, args = parser.parse_args()
 
