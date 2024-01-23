@@ -24,6 +24,7 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py27
+      bindep_profile: test py27
       python_version: 2.7
     post-run: tools/playbooks/common/cover-post.yaml
 

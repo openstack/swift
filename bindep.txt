@@ -17,8 +17,8 @@ libxslt-devel [platform:rpm]
 libxslt1-dev [platform:dpkg]
 libxslt-dev [platform:apk]
 memcached
-python-dev [platform:dpkg platform:apk !platform:ubuntu-jammy]
-python-devel [platform:rpm !py36]
+python-dev [py27 platform:dpkg platform:apk !platform:ubuntu-jammy]
+python-devel [py27 platform:rpm]
 python3-dev [platform:dpkg platform:apk test]
 python3-devel [platform:rpm !py27 test]
 # python3-devel does not pull in the python3 package on openSUSE so
