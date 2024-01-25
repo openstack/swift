@@ -27,19 +27,28 @@ The logging format implemented below is as follows::
         start_time end_time policy_index
 
 These values are space-separated, and each is url-encoded, so that they can
-be separated with a simple .split()
+be separated with a simple ``.split()``.
 
-* remote_addr is the contents of the REMOTE_ADDR environment variable, while
-  client_ip is swift's best guess at the end-user IP, extracted variously
-  from the X-Forwarded-For header, X-Cluster-Ip header, or the REMOTE_ADDR
-  environment variable.
+* ``remote_addr`` is the contents of the REMOTE_ADDR environment variable,
+  while ``client_ip`` is swift's best guess at the end-user IP, extracted
+  variously from the X-Forwarded-For header, X-Cluster-Ip header, or the
+  REMOTE_ADDR environment variable.
 
-* source (swift.source in the WSGI environment) indicates the code
+* ``status_int`` is the integer part of the ``status`` string passed to this
+  middleware's start_response function, unless the WSGI environment has an item
+  with key ``swift.proxy_logging_status``, in which case the value of that item
+  is used. Other middleware's may set ``swift.proxy_logging_status`` to
+  override the logging of ``status_int``. In either case, the logged
+  ``status_int`` value is forced to 499 if a client disconnect is detected
+  while this middleware is handling a request, or 500 if an exception is caught
+  while handling a request.
+
+* ``source`` (``swift.source`` in the WSGI environment) indicates the code
   that generated the request, such as most middleware. (See below for
   more detail.)
 
-* log_info (swift.log_info in the WSGI environment) is for additional
-  information that could prove quite useful, such as any x-delete-at
+* ``log_info`` (``swift.log_info`` in the WSGI environment) is for additional
+  information that could prove quite useful, such as any ``x-delete-at``
   value or other "behind the scenes" activity that might not
   otherwise be detectable from the plain log information. Code that
   wishes to add additional log information should use code like
@@ -62,18 +71,18 @@ For example, with staticweb, the middleware might intercept a request to
 /v1/AUTH_acc/cont/, make a subrequest to the proxy to retrieve
 /v1/AUTH_acc/cont/index.html and, in effect, respond to the client's original
 request using the 2nd request's body. In this instance the subrequest will be
-logged by the rightmost middleware (with a swift.source set) and the outgoing
-request (with body overridden) will be logged by leftmost middleware.
+logged by the rightmost middleware (with a ``swift.source`` set) and the
+outgoing request (with body overridden) will be logged by leftmost middleware.
 
 Requests that follow the normal pipeline (use the same wsgi environment
 throughout) will not be double logged because an environment variable
-(swift.proxy_access_log_made) is checked/set when a log is made.
+(``swift.proxy_access_log_made``) is checked/set when a log is made.
 
-All middleware making subrequests should take care to set swift.source when
+All middleware making subrequests should take care to set ``swift.source`` when
 needed. With the doubled proxy logs, any consumer/processor of swift's proxy
-logs should look at the swift.source field, the rightmost log value, to decide
-if this is a middleware subrequest or not. A log processor calculating
-bandwidth usage will want to only sum up logs with no swift.source.
+logs should look at the ``swift.source`` field, the rightmost log value, to
+decide if this is a middleware subrequest or not. A log processor calculating
+bandwidth usage will want to only sum up logs with no ``swift.source``.
 """
 
 import os
@@ -389,11 +398,11 @@ class ProxyLoggingMiddleware(object):
         def my_start_response(status, headers, exc_info=None):
             start_response_args[0] = (status, list(headers), exc_info)
 
-        def status_int_for_logging(start_status, client_disconnect=False):
+        def status_int_for_logging():
             # log disconnected clients as '499' status code
-            if client_disconnect or input_proxy.client_disconnect:
+            if input_proxy.client_disconnect:
                 return 499
-            return start_status
+            return env.get('swift.proxy_logging_status')
 
         def iter_response(iterable):
             iterator = reiterate(iterable)
@@ -438,21 +447,19 @@ class ProxyLoggingMiddleware(object):
                         metric_name_policy + '.first-byte.timing', ttfb * 1000)
 
             bytes_sent = 0
-            client_disconnect = False
-            start_status = wire_status_int
             try:
                 for chunk in iterator:
                     bytes_sent += len(chunk)
                     yield chunk
             except GeneratorExit:  # generator was closed before we finished
-                client_disconnect = True
+                env['swift.proxy_logging_status'] = 499
                 raise
             except Exception:
-                start_status = 500
+                env['swift.proxy_logging_status'] = 500
                 raise
             finally:
-                status_int = status_int_for_logging(
-                    start_status, client_disconnect)
+                env.setdefault('swift.proxy_logging_status', wire_status_int)
+                status_int = status_int_for_logging()
                 self.log_request(
                     req, status_int, input_proxy.bytes_received, bytes_sent,
                     start_time, time.time(), resp_headers=resp_headers,
@@ -463,7 +470,8 @@ class ProxyLoggingMiddleware(object):
             iterable = self.app(env, my_start_response)
         except Exception:
             req = Request(env)
-            status_int = status_int_for_logging(500)
+            env['swift.proxy_logging_status'] = 500
+            status_int = status_int_for_logging()
             self.log_request(
                 req, status_int, input_proxy.bytes_received, 0, start_time,
                 time.time())

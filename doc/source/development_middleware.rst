@@ -198,6 +198,13 @@ filter factory::
         return webhook_filter
 
 
+Middlewares can override the status integer that is logged by proxy_logging
+middleware by setting ``swift.proxy_logging_status`` in the request WSGI
+environment. The value should be an integer. The value will replace the default
+status integer in the log message, unless the proxy_logging middleware detects
+a client disconnect or exception while handling the request, in which case
+``swift.proxy_logging_status`` is overridden by a 499 or 500 respectively.
+
 --------------
 Swift Metadata
 --------------
