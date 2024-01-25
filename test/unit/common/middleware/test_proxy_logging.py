@@ -66,10 +66,11 @@ class FakeApp(object):
         if is_container_or_object_req and self.policy_idx is not None:
             headers.append(('X-Backend-Storage-Policy-Index',
                            str(self.policy_idx)))
-        env.update(self.environ_updates)
         start_response(self.response_str, headers)
         while env['wsgi.input'].read(5):
             pass
+        # N.B. mw can set this anytime before the resp is finished
+        env.update(self.environ_updates)
         return self.body
 
 
@@ -831,9 +832,66 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(do_test(environ_updates),
                          ['GET', '/v1/a/c', '-', '503'])
 
+        # middleware should use an int like the docs tell them too, but we
+        # won't like ... "blow up" or anything
         environ_updates = {'swift.proxy_logging_status': ''}
         self.assertEqual(do_test(environ_updates),
                          ['GET', '/v1/a/c', '-', '503'])
+
+        environ_updates = {'swift.proxy_logging_status': True}
+        self.assertEqual(do_test(environ_updates),
+                         ['GET', '/v1/a/c', 'True', '503'])
+
+        environ_updates = {'swift.proxy_logging_status': False}
+        self.assertEqual(do_test(environ_updates),
+                         ['GET', '/v1/a/c', '-', '503'])
+
+        environ_updates = {'swift.proxy_logging_status': 'parsing ok'}
+        self.assertEqual(do_test(environ_updates),
+                         ['GET', '/v1/a/c', 'parsing%20ok', '503'])
+
+    def test_body_iter_updates_environ_proxy_logging_status(self):
+        conf = {'log_msg_template':
+                '{method} {path} {status_int} {wire_status_int}'}
+
+        def do_test(req, body_iter, updated_status):
+            fake_app = FakeApp(body=body_iter,
+                               response_str='205 Weird')
+            app = proxy_logging.ProxyLoggingMiddleware(fake_app, conf)
+            app.access_logger = debug_logger()
+            captured_start_resp = mock.MagicMock()
+            try:
+                resp = app(req.environ, captured_start_resp)
+                b''.join(resp)  # read body
+            except IOError:
+                pass
+            captured_start_resp.assert_called_once_with(
+                '205 Weird', mock.ANY, None)
+            self.assertEqual(self._log_parts(app),
+                             ['GET', '/v1/a/c', updated_status, '205'])
+
+        # sanity
+        req = Request.blank('/v1/a/c')
+        do_test(req, [b'normal', b'chunks'], '205')
+
+        def update_in_middle_chunk_gen():
+            yield b'foo'
+            yield b'bar'
+            req.environ['swift.proxy_logging_status'] = 209
+            yield b'baz'
+
+        req = Request.blank('/v1/a/c')
+        do_test(req, update_in_middle_chunk_gen(), '209')
+
+        def update_in_finally_chunk_gen():
+            try:
+                for i in range(3):
+                    yield ('foo%s' % i).encode()
+            finally:
+                req.environ['swift.proxy_logging_status'] = 210
+
+        req = Request.blank('/v1/a/c')
+        do_test(req, update_in_finally_chunk_gen(), '210')
 
     def test_environ_has_proxy_logging_status_unread_body(self):
         conf = {'log_msg_template':
