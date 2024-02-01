@@ -2998,17 +2998,14 @@ class TestShardedAPI(BaseTestContainerSharding):
             params={'states': 'updating'})
         self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
 
-        # XXX the states=listing param provokes the proxy to cache the backend
-        # values and then respond to the client with the cached *namespaces* !!
-        # shard_ranges = self.get_container_shard_ranges(
-        #     params={'states': 'listing'})
-        # self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+        shard_ranges = self.get_container_shard_ranges(
+            params={'states': 'listing'})
+        self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
 
-        # XXX ditto...
-        # shard_ranges = self.get_container_shard_ranges(
-        #     headers={'X-Newest': 'true'},
-        #     params={'states': 'listing'})
-        # self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
+        shard_ranges = self.get_container_shard_ranges(
+            headers={'X-Newest': 'true'},
+            params={'states': 'listing'})
+        self._assert_namespace_equivalence(orig_shard_ranges, shard_ranges)
 
         # this is what the sharder requests...
         shard_ranges = self.get_container_shard_ranges(

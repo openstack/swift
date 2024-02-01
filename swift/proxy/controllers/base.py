@@ -896,8 +896,10 @@ def get_namespaces_from_cache(req, cache_key, skip_chance):
     :param req: a :class:`swift.common.swob.Request` object.
     :param cache_key: the cache key for both infocache and memcache.
     :param skip_chance: the probability of skipping the memcache look-up.
-    :return: a tuple of
-        (:class:`swift.common.utils.NamespaceBoundList`, cache state)
+    :return: a tuple of (value, cache state). Value is an instance of
+        :class:`swift.common.utils.NamespaceBoundList` if a non-empty list is
+        found in memcache. Otherwise value is ``None``, for example if memcache
+        look-up was skipped, or no value was found, or an empty list was found.
     """
     # try get namespaces from infocache first
     infocache = req.environ.setdefault('swift.infocache', {})
