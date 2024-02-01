@@ -2,7 +2,7 @@
 # of appearance. Changing the order has an impact on the overall integration
 # process, which may cause wedges in the gate later.
 
-eventlet>=0.25.0                        # MIT
+eventlet>=0.25.0,!=0.34.3               # MIT
 greenlet>=0.3.2
 PasteDeploy>=2.0.0
 lxml>=3.4.1
