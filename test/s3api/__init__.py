@@ -18,6 +18,7 @@ import os
 import unittest
 import uuid
 import time
+from datetime import datetime
 
 import boto3
 from botocore.exceptions import ClientError
@@ -80,6 +81,11 @@ def get_opt(option, default=None):
         return get_opt_or_error(option)
     except ConfigError:
         return default
+
+
+def date_to_datetime(resp):
+    date_str = resp['ResponseMetadata']['HTTPHeaders']['date']
+    return datetime.strptime(date_str, '%a, %d %b %Y %H:%M:%S %Z')
 
 
 def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):

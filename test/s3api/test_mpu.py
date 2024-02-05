@@ -12,13 +12,25 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import time
 
-from test.s3api import BaseS3TestCase
+from test.s3api import BaseS3TestCase, date_to_datetime
 from botocore.exceptions import ClientError
 
 
-class BaseMultiPartUploadTestCase(BaseS3TestCase):
+def etag_from_resp(response):
+    return response['ETag']
 
+
+def code_from_error(error):
+    return error.response['Error']['Code']
+
+
+def status_from_error(error):
+    return error.response['ResponseMetadata']['HTTPStatusCode']
+
+
+class BaseMultiPartUploadTestCase(BaseS3TestCase):
     maxDiff = None
 
     def setUp(self):
@@ -178,6 +190,93 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertIn(preamble, err_msg)
         return int(err_msg[len(preamble):].split(',')[0])
 
+    def create_mpu(self, key_name):
+        create_mpu_resp = self.client.create_multipart_upload(
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(200, create_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        return create_mpu_resp['UploadId']
+
+    def list_mpus(self):
+        list_mpu_resp = self.client.list_multipart_uploads(
+            Bucket=self.bucket_name)
+        self.assertEqual(200, list_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        mpus = list_mpu_resp.get('Uploads', [])
+        return [mpu['UploadId'] for mpu in mpus]
+
+    def list_parts(self, key_name, upload_id):
+        list_parts_resp = self.client.list_parts(
+            Bucket=self.bucket_name, Key=key_name,
+            UploadId=upload_id,
+        )
+        self.assertEqual(200, list_parts_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        return [{k: p[k] for k in ('ETag', 'PartNumber')}
+                for p in list_parts_resp.get('Parts', [])]
+
+    def upload_part_indexes(self, key_name, upload_id, part_indexes):
+        parts = []
+        for i in part_indexes:
+            body = ('%d' % i) * 5 * (2 ** 20)
+            part_resp = self.client.upload_part(
+                Body=body, Bucket=self.bucket_name, Key=key_name,
+                PartNumber=i, UploadId=upload_id)
+            self.assertEqual(200, part_resp[
+                'ResponseMetadata']['HTTPStatusCode'])
+            parts.append({
+                'ETag': part_resp['ETag'],
+                'PartNumber': i,
+            })
+        self.assertEqual(parts, self.list_parts(key_name, upload_id))
+        return parts
+
+    def upload_parts(self, key_name, upload_id, num_parts):
+        return self.upload_part_indexes(key_name, upload_id,
+                                        range(1, num_parts + 1))
+
+    def complete_mpu(self, key_name, upload_id, parts):
+        complete_mpu_resp = self.client.complete_multipart_upload(
+            Bucket=self.bucket_name, Key=key_name,
+            MultipartUpload={
+                'Parts': parts,
+            },
+            UploadId=upload_id,
+        )
+        self.assertEqual(200, complete_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        return complete_mpu_resp
+
+    def abort_mpu(self, key_name, upload_id):
+        abort_resp = self.client.abort_multipart_upload(
+            Bucket=self.bucket_name,
+            Key=key_name,
+            UploadId=upload_id,
+        )
+        self.assertEqual(204, abort_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        return abort_resp
+
+    def head_part(self, key_name, part_number):
+        resp = self.client.head_object(Bucket=self.bucket_name, Key=key_name,
+                                       PartNumber=part_number)
+        self.assertEqual(206, resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        return resp
+
+    def delete_object(self, key_name):
+        delete_resp = self.client.delete_object(
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(204, delete_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+
+    def assert_object_not_found(self, key_name):
+        with self.assertRaises(ClientError) as cm:
+            self.client.head_object(
+                Bucket=self.bucket_name, Key=key_name,
+            )
+        self.assertEqual('404', cm.exception.response['Error']['Code'])
+
     def test_basic_upload(self):
         key_name = self.create_name('key')
         create_mpu_resp = self.client.create_multipart_upload(
@@ -185,6 +284,16 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertEqual(200, create_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
         upload_id = create_mpu_resp['UploadId']
+
+        list_mpu_resp = self.client.list_multipart_uploads(
+            Bucket=self.bucket_name)
+        self.assertEqual(200, list_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        found_uploads = list_mpu_resp.get('Uploads', [])
+        self.assertEqual(1, len(found_uploads), found_uploads)
+        self.assertEqual(upload_id, found_uploads[0]['UploadId'])
+        create_time = found_uploads[0]['Initiated']
+
         parts = []
         for i in range(1, 3):
             body = ('%d' % i) * 5 * (2 ** 20)
@@ -205,6 +314,9 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual(parts, [{k: p[k] for k in ('ETag', 'PartNumber')}
                                  for p in list_parts_resp['Parts']])
+
+        # ensure complete is at least 1 second after create
+        time.sleep(max(0.0, create_time.timestamp() + 1.0 - time.time()))
         complete_mpu_resp = self.client.complete_multipart_upload(
             Bucket=self.bucket_name, Key=key_name,
             MultipartUpload={
@@ -214,6 +326,17 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         )
         self.assertEqual(200, complete_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
+        complete_time = date_to_datetime(complete_mpu_resp)
+
+        # head the object
+        head_resp = self.client.head_object(
+            Bucket=self.bucket_name, Key=key_name,)
+        self.assertEqual(200, head_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        obj_time = head_resp['LastModified']
+        # object time is the time MPU was created, not when it was completed
+        self.assertEqual(create_time.timestamp(), obj_time.timestamp())
+        self.assertLess(create_time.timestamp(), complete_time.timestamp())
 
     def test_zero_byte_segment_upload(self):
         key_name = self.create_name('key')
@@ -577,6 +700,221 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertEqual(200, list_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual([], list_mpu_resp.get('Uploads', []))
+
+    def test_create_delete_upload_complete(self):
+        # verify that delete after create trumps later uploads and complete
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        self.delete_object(key_name)
+        self.assert_object_not_found(key_name)
+        parts = self.upload_parts(key_name, upload_id, 2)
+        self.complete_mpu(key_name, upload_id, parts)
+        self.assert_object_not_found(key_name)
+
+    def test_create_upload_delete_complete(self):
+        # verify that delete after create and uploads trumps later complete
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 2)
+        self.delete_object(key_name)
+        self.assert_object_not_found(key_name)
+        self.complete_mpu(key_name, upload_id, parts)
+        self.assert_object_not_found(key_name)
+
+    def test_complete_newer_then_complete_older(self):
+        # verify that the newer create time trumps later completion time
+        key_name = self.create_name('key')
+
+        upload_id1 = self.create_mpu(key_name)
+        parts1 = self.upload_parts(key_name, upload_id1, 2)
+
+        upload_id2 = self.create_mpu(key_name)
+        parts2 = self.upload_parts(key_name, upload_id2, 3)
+        self.complete_mpu(key_name, upload_id2, parts2)
+
+        head_resp = self.client.head_object(
+            Bucket=self.bucket_name, Key=key_name, PartNumber=3,
+        )
+        self.assertEqual(206, head_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        last_modified = head_resp['LastModified']
+
+        self.complete_mpu(key_name, upload_id1, parts1)
+
+        head_resp = self.client.head_object(
+            Bucket=self.bucket_name, Key=key_name, PartNumber=3,
+        )
+        self.assertEqual(206, head_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(last_modified.timestamp(),
+                         head_resp['LastModified'].timestamp())
+
+    def test_create_upload_complete_complete(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 2)
+        self.complete_mpu(key_name, upload_id, parts)
+        # repeat complete gets 200
+        self.complete_mpu(key_name, upload_id, parts)
+
+    def test_create_upload_complete_delete_complete(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 2)
+        self.complete_mpu(key_name, upload_id, parts)
+        self.delete_object(key_name)
+        self.assert_object_not_found(key_name)
+        # repeat complete gets 404
+        with self.assertRaises(ClientError) as cm:
+            self.complete_mpu(key_name, upload_id, parts)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+
+    def test_create_upload_complete_abort(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 2)
+        self.complete_mpu(key_name, upload_id, parts)
+        # abort gets 204
+        self.abort_mpu(key_name, upload_id)
+
+    def test_create_upload_complete_delete_abort(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 2)
+        self.complete_mpu(key_name, upload_id, parts)
+        self.delete_object(key_name)
+        self.assert_object_not_found(key_name)
+        # abort gets 204
+        self.abort_mpu(key_name, upload_id)
+
+    def test_create_upload_abort_complete(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 1)
+        self.abort_mpu(key_name, upload_id)
+        with self.assertRaises(ClientError) as cm:
+            self.complete_mpu(key_name, upload_id, parts)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+
+    def test_abort_bogus_id(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        with self.assertRaises(ClientError) as cm:
+            self.abort_mpu(key_name, upload_id + 'x')
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+
+    def test_create_upload_abort_abort(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        self.upload_parts(key_name, upload_id, 1)
+        self.abort_mpu(key_name, upload_id)
+        # repeated abort gets 204
+        self.abort_mpu(key_name, upload_id)
+
+    def test_create_upload_abort_list_parts(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        self.upload_parts(key_name, upload_id, 1)
+        self.abort_mpu(key_name, upload_id)
+        with self.assertRaises(ClientError) as cm:
+            self.list_parts(key_name, upload_id)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+
+    def test_create_upload_abort_upload(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        self.upload_parts(key_name, upload_id, 1)
+        self.abort_mpu(key_name, upload_id)
+        with self.assertRaises(ClientError) as cm:
+            self.upload_parts(key_name, upload_id, 1)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+
+    def test_create_upload_complete_subset_of_parts_list(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 3)
+        subset_parts = parts[:2]
+        self.complete_mpu(key_name, upload_id, subset_parts)
+        with self.assertRaises(ClientError) as cm:
+            self.list_parts(key_name, upload_id)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        response = self.head_part(key_name, 1)
+        self.assertTrue(etag_from_resp(response).endswith('-2"'))
+        self.head_part(key_name, 2)
+        with self.assertRaises(ClientError) as cm:
+            self.head_part(key_name, 3)
+        self.assertEqual(416, status_from_error(cm.exception))
+
+    def test_create_upload_complete_subset_of_parts_list_with_gaps(self):
+        # only a subset of uploaded parts are referenced in complete
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 3)
+        subset_parts = [parts[0], parts[2]]
+        self.complete_mpu(key_name, upload_id, subset_parts)
+        with self.assertRaises(ClientError) as cm:
+            self.list_parts(key_name, upload_id)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        # GET partNumbers are not same as uploaded part numbers!
+        self.head_part(key_name, 1)
+        response = self.head_part(key_name, 1)
+        self.assertTrue(etag_from_resp(response).endswith('-2"'))
+        self.head_part(key_name, 2)
+        with self.assertRaises(ClientError) as cm:
+            self.head_part(key_name, 3)
+        self.assertEqual(416, status_from_error(cm.exception))
+
+    def test_create_upload_complete_parts_list_with_gaps(self):
+        # only a subset of part indexes are uploaded
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_part_indexes(key_name, upload_id, [1, 1000])
+        actual_parts = self.list_parts(key_name, upload_id)
+        self.assertEqual([1, 1000], [p['PartNumber'] for p in actual_parts])
+        self.complete_mpu(key_name, upload_id, parts)
+        with self.assertRaises(ClientError) as cm:
+            self.list_parts(key_name, upload_id)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        # GET partNumbers are not same as uploaded part numbers!
+        self.head_part(key_name, 1)
+        response = self.head_part(key_name, 1)
+        self.assertTrue(etag_from_resp(response).endswith('-2"'))
+        self.head_part(key_name, 2)
+        with self.assertRaises(ClientError) as cm:
+            self.head_part(key_name, 3)
+        self.assertEqual(416, status_from_error(cm.exception))
+
+    def test_create_upload_complete_misordered_parts(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 3)
+        with self.assertRaises(ClientError) as cm:
+            self.complete_mpu(key_name, upload_id, list(reversed(parts)))
+        self.assertEqual(400, status_from_error(cm.exception))
+        self.assertEqual('InvalidPartOrder', code_from_error(cm.exception))
+
+    def test_create_list_mpus_abort_list_mpus(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        # our upload is in progress
+        found_uploads = self.list_mpus()
+        self.assertEqual([upload_id], found_uploads)
+        self.assertEqual([], self.list_parts(key_name, upload_id))
+        self.abort_mpu(key_name, upload_id)
+        # no more inprogress uploads
+        self.assertEqual([], self.list_mpus())
+        with self.assertRaises(ClientError) as cm:
+            self.list_parts(key_name, upload_id)
+        self.assertEqual(404, status_from_error(cm.exception))
+        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
 
     def test_complete_multipart_upload_malformed_request(self):
         key_name = self.create_name('key')
