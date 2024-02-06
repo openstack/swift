@@ -429,19 +429,23 @@ def consolidate_hashes(partition_dir):
     with lock_path(partition_dir):
         hashes = read_hashes(partition_dir)
 
-        found_invalidation_entry = False
+        found_invalidation_entry = hashes_updated = False
         try:
             with open(invalidations_file, 'r') as inv_fh:
                 for line in inv_fh:
                     found_invalidation_entry = True
                     suffix = line.strip()
+                    if not valid_suffix(suffix):
+                        continue
+                    hashes_updated = True
                     hashes[suffix] = None
         except (IOError, OSError) as e:
             if e.errno != errno.ENOENT:
                 raise
 
-        if found_invalidation_entry:
+        if hashes_updated:
             write_hashes(partition_dir, hashes)
+        if found_invalidation_entry:
             # Now that all the invalidations are reflected in hashes.pkl, it's
             # safe to clear out the invalidations file.
             with open(invalidations_file, 'wb') as inv_fh:
