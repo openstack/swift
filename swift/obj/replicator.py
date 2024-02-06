@@ -493,7 +493,7 @@ class ObjectReplicator(Daemon):
                 return False
         return True
 
-    def update_deleted(self, job):
+    def revert(self, job):
         """
         High-level method that replicates a single partition that doesn't
         belong on this node.
@@ -993,7 +993,7 @@ class ObjectReplicator(Daemon):
                 except OSError:
                     continue
                 if job['delete']:
-                    self.run_pool.spawn(self.update_deleted, job)
+                    self.run_pool.spawn(self.revert, job)
                 else:
                     self.run_pool.spawn(self.update, job)
             current_nodes = None
