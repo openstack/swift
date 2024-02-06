@@ -3297,11 +3297,15 @@ class TestGetRequiredOverload(unittest.TestCase):
                          {tier: weighted
                           for (tier, weighted) in weighted_replicas.items()
                           if len(tier) == 2})
+        # starting in py312, "sum() now uses Neumaier summation to improve
+        # accuracy and commutativity", hence the tiny delta
+        w = (0.6666666666666666 if sys.version_info >= (3, 12) else
+             0.6666666666666667)
         expected = {
             (0, 0): 1.0,
-            (0, 1): 0.6666666666666667,
-            (0, 2): 0.6666666666666667,
-            (0, 3): 0.6666666666666667,
+            (0, 1): w,
+            (0, 2): w,
+            (0, 3): w,
         }
         wanted_replicas = rb._build_wanted_replicas_by_tier()
         self.assertEqual(expected,
@@ -3323,11 +3327,14 @@ class TestGetRequiredOverload(unittest.TestCase):
         # but if you only give it out half of that
         rb.set_overload(expected_overload / 2.0)
         # ... you can expect it's not going to full disperse
+        # (but see above about sum() accuracy)
+        w = (0.6547619047619048 if sys.version_info >= (3, 12) else
+             0.6547619047619049)
         expected = {
             (0, 0): 1.0357142857142856,
-            (0, 1): 0.6547619047619049,
-            (0, 2): 0.6547619047619049,
-            (0, 3): 0.6547619047619049,
+            (0, 1): w,
+            (0, 2): w,
+            (0, 3): w,
         }
         target_replicas = rb._build_target_replicas_by_tier()
         self.assertEqual(expected,
@@ -4365,20 +4372,22 @@ class TestGetRequiredOverload(unittest.TestCase):
             self.assertEqual(expected, {t: r['max'] for (t, r) in
                                         wr.items() if len(t) == tier_len})
 
-        # even thought a naive ceil of weights is surprisingly wrong
-        expectations = {
-            # tier_len => expected replicas
-            1: {
-                (0,): 3.0,
-                (1,): 3.0,
-            },
-            2: {
-                (0, 0): 2.0,
-                (0, 1): 2.0,
-                (1, 0): 2.0,
-                (1, 1): 2.0,
+        if sys.version_info < (3, 12):
+            # even though a naive ceil of weights is surprisingly wrong
+            # (on old python)
+            expectations = {
+                # tier_len => expected replicas
+                1: {
+                    (0,): 3.0,
+                    (1,): 3.0,
+                },
+                2: {
+                    (0, 0): 2.0,
+                    (0, 1): 2.0,
+                    (1, 0): 2.0,
+                    (1, 1): 2.0,
+                }
             }
-        }
         wr = rb._build_weighted_replicas_by_tier()
         for tier_len, expected in expectations.items():
             self.assertEqual(expected, {t: ceil(r) for (t, r) in
