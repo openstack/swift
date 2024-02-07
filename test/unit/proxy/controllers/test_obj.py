@@ -1934,7 +1934,11 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertIn('Trying to read object during GET', line)
 
     def test_GET_newest_will_not_resume(self):
-        self.app.recoverable_node_timeout = 0.01
+        # verify that request with x-newest use node_timeout and don't resume
+        self.app.node_timeout = 0.01
+        # set recoverable_node_timeout crazy high to verify that this is not
+        # the timeout value that is used
+        self.app.recoverable_node_timeout = 1000
         self.app.client_timeout = 0.1
         self.app.object_chunk_size = 10
         resp_body = b'length 8'

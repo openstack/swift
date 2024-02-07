@@ -1681,10 +1681,10 @@ class TestGetOrHeadHandler(BaseTest):
         # x-newest set
         req = Request.blank('/v1/a/c/o', headers={'X-Newest': 'true'})
         node_iter = Namespace(num_primary_nodes=3)
-        # app.recoverable_node_timeout
+        # app.node_timeout
         getter = GetOrHeadHandler(
             app, req, 'Object', node_iter, None, None, {})
-        self.assertEqual(3, getter.node_timeout)
+        self.assertEqual(5, getter.node_timeout)
 
         # x-newest not set
         req = Request.blank('/v1/a/c/o')

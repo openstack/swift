@@ -1385,7 +1385,8 @@ class GetOrHeadHandler(GetterBase):
     """
     def __init__(self, app, req, server_type, node_iter, partition, path,
                  backend_headers, concurrency=1, policy=None, logger=None):
-        if server_type == 'Object':
+        newest = config_true_value(req.headers.get('x-newest', 'f'))
+        if server_type == 'Object' and not newest:
             node_timeout = app.recoverable_node_timeout
         else:
             node_timeout = app.node_timeout
@@ -1394,6 +1395,7 @@ class GetOrHeadHandler(GetterBase):
             policy=policy, path=path, backend_headers=backend_headers,
             node_timeout=node_timeout, resource_type=server_type.lower(),
             logger=logger)
+        self.newest = newest
         self.server_type = server_type
         self.used_nodes = []
         self.used_source_etag = None
@@ -1403,7 +1405,6 @@ class GetOrHeadHandler(GetterBase):
         self.rebalance_missing_suppression_count = min(
             policy_options.rebalance_missing_suppression_count,
             node_iter.num_primary_nodes - 1)
-        self.newest = config_true_value(req.headers.get('x-newest', 'f'))
 
         # populated when finding source
         self.statuses = []
@@ -1530,7 +1531,7 @@ class GetOrHeadHandler(GetterBase):
         else:
             return None
 
-    def _make_node_request(self, node, node_timeout, logger_thread_locals):
+    def _make_node_request(self, node, logger_thread_locals):
         # make a backend request; return True if the response is deemed good
         # (has an acceptable status code), useful (matches any previously
         # discovered etag) and sufficient (a single good response is
@@ -1538,6 +1539,7 @@ class GetOrHeadHandler(GetterBase):
         self.logger.thread_locals = logger_thread_locals
         if node in self.used_nodes:
             return False
+
         req_headers = dict(self.backend_headers)
         ip, port = get_ip_port(node, req_headers)
         start_node_timing = time.time()
@@ -1550,7 +1552,7 @@ class GetOrHeadHandler(GetterBase):
                     query_string=self.req.query_string)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
-            with Timeout(node_timeout):
+            with Timeout(self.node_timeout):
                 possible_source = conn.getresponse()
                 # See NOTE: swift_conn at top of file about this.
                 possible_source.swift_conn = conn
@@ -1642,14 +1644,10 @@ class GetOrHeadHandler(GetterBase):
 
         nodes = GreenthreadSafeIterator(self.node_iter)
 
-        node_timeout = self.app.node_timeout
-        if self.server_type == 'Object' and not self.newest:
-            node_timeout = self.app.recoverable_node_timeout
-
         pile = GreenAsyncPile(self.concurrency)
 
         for node in nodes:
-            pile.spawn(self._make_node_request, node, node_timeout,
+            pile.spawn(self._make_node_request, node,
                        self.logger.thread_locals)
             _timeout = self.app.get_policy_options(
                 self.policy).concurrency_timeout \
