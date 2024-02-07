@@ -46,7 +46,7 @@ class TestCacheMiddleware(unittest.TestCase):
         req = Request.blank('/something', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertTrue('swift.cache' in resp)
-        self.assertTrue(isinstance(resp['swift.cache'], MemcacheRing))
+        self.assertIsInstance(resp['swift.cache'], MemcacheRing)
 
     def test_filter_factory(self):
         factory = memcache.filter_factory({'max_connections': '3'},

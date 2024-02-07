@@ -134,7 +134,7 @@ class TestContainerSync(unittest.TestCase):
         self.assertTrue(cs.container_ring is cring)
         self.assertTrue(mock_ic.called)
         conf_path, name, retry = mock_ic.call_args[0]
-        self.assertTrue(isinstance(conf_path, ConfigString))
+        self.assertIsInstance(conf_path, ConfigString)
         self.assertEqual(conf_path.contents.getvalue(),
                          dedent(sync.ic_conf_body))
         self.assertLogMessage('warning', 'internal_client_conf_path')

@@ -835,7 +835,7 @@ class TestRequest(unittest.TestCase):
         req = swob.Request.blank('/hi/there', body='hi')
 
         req.if_unmodified_since = 0
-        self.assertTrue(isinstance(req.if_unmodified_since, datetime.datetime))
+        self.assertIsInstance(req.if_unmodified_since, datetime.datetime)
         if_unmodified_since = req.if_unmodified_since
         req.if_unmodified_since = if_unmodified_since
         self.assertEqual(if_unmodified_since, req.if_unmodified_since)

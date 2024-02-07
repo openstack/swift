@@ -27,7 +27,7 @@ class TestExceptions(unittest.TestCase):
 
     def test_replication_lock_timeout(self):
         with exceptions.ReplicationLockTimeout(15, 'test') as exc:
-            self.assertTrue(isinstance(exc, exceptions.MessageTimeout))
+            self.assertIsInstance(exc, exceptions.MessageTimeout)
 
     def test_client_exception(self):
         strerror = 'test: HTTP://random:888/randompath?foo=1 666 reason: ' \

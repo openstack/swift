@@ -2024,10 +2024,8 @@ log_name = %(yarr)s'''
             utils.capture_stdio(logger)
             self.assertTrue(utils.sys.excepthook is not None)
             self.assertEqual(utils.os.closed_fds, utils.sys.stdio_fds)
-            self.assertTrue(
-                isinstance(utils.sys.stdout, utils.LoggerFileObject))
-            self.assertTrue(
-                isinstance(utils.sys.stderr, utils.LoggerFileObject))
+            self.assertIsInstance(utils.sys.stdout, utils.LoggerFileObject)
+            self.assertIsInstance(utils.sys.stderr, utils.LoggerFileObject)
 
             # reset; test same args, but exc when trying to close stdio
             utils.os = MockOs(raise_funcs=('dup2',))
@@ -2037,10 +2035,8 @@ log_name = %(yarr)s'''
             utils.capture_stdio(logger)
             self.assertTrue(utils.sys.excepthook is not None)
             self.assertEqual(utils.os.closed_fds, [])
-            self.assertTrue(
-                isinstance(utils.sys.stdout, utils.LoggerFileObject))
-            self.assertTrue(
-                isinstance(utils.sys.stderr, utils.LoggerFileObject))
+            self.assertIsInstance(utils.sys.stdout, utils.LoggerFileObject)
+            self.assertIsInstance(utils.sys.stderr, utils.LoggerFileObject)
 
             # reset; test some other args
             utils.os = MockOs()
@@ -3480,7 +3476,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                     utils.fsync_dir(tempdir)
             self.assertTrue(_mock_fsync.called)
             self.assertTrue(_mock_close.called)
-            self.assertTrue(isinstance(_mock_fsync.call_args[0][0], int))
+            self.assertIsInstance(_mock_fsync.call_args[0][0], int)
             self.assertEqual(_mock_fsync.call_args[0][0],
                              _mock_close.call_args[0][0])
 
@@ -4728,8 +4724,7 @@ class TestStatsdLogging(unittest.TestCase):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
                                   'some-name', log_route='some-route')
         # white-box construction validation
-        self.assertTrue(isinstance(logger.logger.statsd_client,
-                                   utils.StatsdClient))
+        self.assertIsInstance(logger.logger.statsd_client, utils.StatsdClient)
         self.assertEqual(logger.logger.statsd_client._host, 'some.host.com')
         self.assertEqual(logger.logger.statsd_client._port, 8125)
         self.assertEqual(logger.logger.statsd_client._prefix, 'some-name.')

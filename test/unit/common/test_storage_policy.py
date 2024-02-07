@@ -1140,7 +1140,7 @@ class TestStoragePolicies(unittest.TestCase):
                 ring = policies.get_object_ring(int(policy), '/path/not/used')
                 self.assertEqual(ring.ring_name, policy.ring_name)
                 self.assertTrue(policy.object_ring)
-                self.assertTrue(isinstance(policy.object_ring, NamedFakeRing))
+                self.assertIsInstance(policy.object_ring, NamedFakeRing)
 
         def blow_up(*args, **kwargs):
             raise Exception('kaboom!')

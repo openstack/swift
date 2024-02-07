@@ -1660,7 +1660,7 @@ class TestManager(unittest.TestCase):
         m = manager.Manager(['test'])
         self.assertEqual(len(m.servers), 1)
         server = m.servers.pop()
-        self.assertTrue(isinstance(server, manager.Server))
+        self.assertIsInstance(server, manager.Server)
         self.assertEqual(server.server, 'test-server')
         # test multi-server and simple dedupe
         servers = ['object-replicator', 'object-auditor',

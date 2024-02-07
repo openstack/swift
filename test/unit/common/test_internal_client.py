@@ -2036,7 +2036,7 @@ class TestSimpleClient(unittest.TestCase):
                 self.assertEqual(1, len(args))
                 self.assertEqual(1, len(kwargs))
                 self.assertEqual(0.1, kwargs['timeout'])
-                self.assertTrue(isinstance(args[0], urllib2.Request))
+                self.assertIsInstance(args[0], urllib2.Request)
                 self.assertEqual(proxy_host, args[0].host)
                 if six.PY2:
                     self.assertEqual(scheme, args[0].type)
@@ -2061,7 +2061,7 @@ class TestSimpleClient(unittest.TestCase):
                 self.assertEqual(1, len(args))
                 self.assertEqual(1, len(kwargs))
                 self.assertEqual(0.1, kwargs['timeout'])
-                self.assertTrue(isinstance(args[0], urllib2.Request))
+                self.assertIsInstance(args[0], urllib2.Request)
                 self.assertEqual(proxy_host, args[0].host)
                 if six.PY2:
                     self.assertEqual(scheme, args[0].type)

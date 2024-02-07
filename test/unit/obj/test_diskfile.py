@@ -1167,9 +1167,9 @@ class TestDiskFileRouter(unittest.TestCase):
         logger = debug_logger('test-' + self.__class__.__name__)
         df_router = diskfile.DiskFileRouter(conf, logger)
         manager_0 = df_router[POLICIES[0]]
-        self.assertTrue(isinstance(manager_0, diskfile.DiskFileManager))
+        self.assertIsInstance(manager_0, diskfile.DiskFileManager)
         manager_1 = df_router[POLICIES[1]]
-        self.assertTrue(isinstance(manager_1, diskfile.ECDiskFileManager))
+        self.assertIsInstance(manager_1, diskfile.ECDiskFileManager)
 
         # The DiskFileRouter should not have to load the policy again
         with mock.patch('swift.common.storage_policy.BaseStoragePolicy.' +
@@ -1177,7 +1177,7 @@ class TestDiskFileRouter(unittest.TestCase):
             manager_3 = df_router[POLICIES[0]]
             mock_load.assert_not_called()
             self.assertIs(manager_3, manager_0)
-            self.assertTrue(isinstance(manager_3, diskfile.DiskFileManager))
+            self.assertIsInstance(manager_3, diskfile.DiskFileManager)
 
     def test_invalid_policy_config(self):
         # verify that invalid policy diskfile configs are detected when the
