@@ -168,7 +168,7 @@ class BaseAclHandler(object):
                 elem = fromstring(body, ACL.root_tag)
                 acl = ACL.from_elem(
                     elem, True, self.req.conf.allow_no_owner)
-            except(XMLSyntaxError, DocumentInvalid):
+            except (XMLSyntaxError, DocumentInvalid):
                 raise MalformedACLError()
             except Exception as e:
                 self.logger.error(e)

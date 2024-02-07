@@ -1381,7 +1381,7 @@ class TestManageShardRanges(unittest.TestCase):
         def do_compact(user_input, options, exp_changes, exit_code):
             out = StringIO()
             err = StringIO()
-            with mock.patch('sys.stdout', out),\
+            with mock.patch('sys.stdout', out), \
                     mock.patch('sys.stderr', err), \
                     mock.patch('swift.cli.manage_shard_ranges.input',
                                side_effect=[user_input]):

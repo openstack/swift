@@ -24,7 +24,7 @@ from contextlib import closing
 from eventlet import Timeout
 
 from swift.obj import diskfile, replicator
-from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist,\
+from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileDeleted, DiskFileExpired, QuarantineRequest
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES

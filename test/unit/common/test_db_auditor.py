@@ -129,7 +129,7 @@ class TestAuditor(unittest.TestCase):
 
         # force code coverage for logging path
         with mock.patch('swift.common.db_auditor.audit_location_generator',
-                        fake_audit_location_generator),\
+                        fake_audit_location_generator), \
                 mock.patch('time.time',
                            return_value=(test_auditor.logging_interval * 2)):
             test_auditor._one_audit_pass(0)

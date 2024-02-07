@@ -1602,7 +1602,7 @@ class StaticLargeObject(object):
         vrs, account, _junk = req.split_path(2, 3, True)
         new_env = req.environ.copy()
         new_env['REQUEST_METHOD'] = 'GET'
-        del(new_env['wsgi.input'])
+        del new_env['wsgi.input']
         new_env['QUERY_STRING'] = 'multipart-manifest=get'
         if 'version-id' in req.params:
             new_env['QUERY_STRING'] += \
