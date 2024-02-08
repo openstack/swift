@@ -7944,6 +7944,34 @@ class TestSuffixHashes(unittest.TestCase):
             # consolidate hashes
             assert_consolidation([suffix, suffix2])
 
+            # Might get some garbage in your invalidations file
+            part_dir = os.path.dirname(suffix_dir)
+            bad_suffix = "~" + suffix
+            df_mgr.invalidate_hash(os.path.join(part_dir, bad_suffix))
+            # Sure enough, it's in there
+            with open(invalidations_file, 'r') as f:
+                self.assertEqual(bad_suffix + "\n", f.read())
+            # ... but it won't taint your pickle
+            hashes = df_mgr.consolidate_hashes(part_path)
+            self.assertNotIn(bad_suffix, hashes)
+            with open(invalidations_file, 'r') as f:
+                self.assertEqual("", f.read())
+
+            # Old code doesn't have that protection
+            df_mgr.invalidate_hash(os.path.join(part_dir, bad_suffix))
+            with open(invalidations_file, 'r') as f:
+                self.assertEqual(bad_suffix + "\n", f.read())
+            with mock.patch.object(diskfile, 'valid_suffix', lambda s: True):
+                # ... so it would propogate to the pickle when we consolidate,
+                # and we ought to be able to deal with that
+                hashes = assert_consolidation([bad_suffix])
+            self.assertIn(bad_suffix, hashes)
+            self.assertIsNone(hashes[bad_suffix])
+            # When we go to really get hashes, we see the bad,
+            # throw out the existing pickle, and rehash everything
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertNotIn(bad_suffix, hashes)
+
     def test_get_hashes_consolidates_suffix_rehash_once(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
