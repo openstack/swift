@@ -1139,7 +1139,7 @@ class TestObjectController(BaseTestCase):
                         'X-Backend-Redirect-Timestamp': next(self.ts).internal}
 
         with mocked_http_conn(301, headers=[resp_headers]) as conn, \
-                mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''),\
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''), \
                 fake_spawn():
             resp = req.get_response(self.object_controller)
 

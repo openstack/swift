@@ -9447,7 +9447,7 @@ class TestWatchdog(unittest.TestCase):
 
         now = time.time()
         timeout_value = 1.0
-        with patch('eventlet.greenthread.getcurrent', return_value=gth),\
+        with patch('eventlet.greenthread.getcurrent', return_value=gth), \
                 patch('time.time', return_value=now):
             # On first call, _next_expiration is None, it should unblock
             # greenthread that is blocked for ever

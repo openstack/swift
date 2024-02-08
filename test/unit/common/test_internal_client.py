@@ -375,8 +375,8 @@ class TestInternalClient(unittest.TestCase):
         user_agent = 'some_user_agent'
         request_tries = 123
 
-        with mock.patch.object(
-                internal_client, 'loadapp', return_value=app) as mock_loadapp,\
+        with mock.patch.object(internal_client, 'loadapp',
+                               return_value=app) as mock_loadapp, \
                 self.assertRaises(ValueError):
             # First try with a bad arg
             internal_client.InternalClient(
@@ -432,8 +432,8 @@ class TestInternalClient(unittest.TestCase):
         app = FakeSwift()
         user_agent = 'some_user_agent'
 
-        with mock.patch.object(
-                internal_client, 'loadapp', return_value=app) as mock_loadapp,\
+        with mock.patch.object(internal_client, 'loadapp',
+                               return_value=app) as mock_loadapp, \
                 self.assertRaises(ValueError) as cm:
             internal_client.InternalClient(
                 conf_path, user_agent, 1, allow_modify_pipeline=True)
@@ -775,7 +775,8 @@ class TestInternalClient(unittest.TestCase):
             client = internal_client.InternalClient(
                 None, "some_agent", 3, use_replication_network=False,
                 app=fake_app)
-            with self.assertRaises(internal_client.UnexpectedResponse) as ctx,\
+            expected_error = internal_client.UnexpectedResponse
+            with self.assertRaises(expected_error) as ctx, \
                     mock.patch('swift.common.internal_client.sleep'):
                 # This is obvious strange tests to expect only 400 Bad Request
                 # but this test intended to avoid extra body drain if it's

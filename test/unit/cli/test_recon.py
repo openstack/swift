@@ -643,7 +643,7 @@ aliases = %s
         stdout = StringIO()
         with mock.patch.object(sys, 'argv', [
                 "prog", "object", "--swiftdir=%s" % self.swift_dir,
-                "--validate-servers", '--policy=invalid']),\
+                "--validate-servers", '--policy=invalid']), \
                 mock.patch('sys.stdout', stdout):
             self.assertRaises(SystemExit, recon.main)
             self.assertIn('Invalid Storage Policy', stdout.getvalue())

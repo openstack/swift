@@ -1987,7 +1987,7 @@ class TestRingBuilder(unittest.TestCase):
             # test old devs but no meta
             no_meta_builder = rb
             for dev in no_meta_builder.devs:
-                del(dev['meta'])
+                del dev['meta']
             fake_pickle.return_value = no_meta_builder
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)

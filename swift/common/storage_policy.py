@@ -160,7 +160,7 @@ class BaseStoragePolicy(object):
                  object_ring=None, aliases='',
                  diskfile_module='egg:swift#replication.fs'):
         # do not allow BaseStoragePolicy class to be instantiated directly
-        if type(self) == BaseStoragePolicy:
+        if type(self) is BaseStoragePolicy:
             raise TypeError("Can't instantiate BaseStoragePolicy directly")
         # policy parameter validation
         try:

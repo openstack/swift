@@ -267,7 +267,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
                                                         {'X-Timestamp': ts,
                                                          'x-trans-id': 'test'})
         resp = conn.getresponse()
-        assert(resp.status == 201)
+        assert resp.status == 201
     # Create another account
     # used for account-to-account tests
     ts = normalize_timestamp(time.time())
@@ -281,7 +281,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
                                                         {'X-Timestamp': ts,
                                                          'x-trans-id': 'test'})
         resp = conn.getresponse()
-        assert(resp.status == 201)
+        assert resp.status == 201
     # Create containers, 1 per test policy
     sock = connect_tcp(('localhost', prolis.getsockname()[1]))
     fd = sock.makefile('rwb')

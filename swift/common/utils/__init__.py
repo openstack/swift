@@ -5568,7 +5568,7 @@ class ShardRangeList(UserList):
     def __getitem__(self, index):
         # workaround for py3 - not needed for py2.7,py3.8
         result = self.data[index]
-        return ShardRangeList(result) if type(result) == list else result
+        return ShardRangeList(result) if type(result) is list else result
 
     @property
     def lower(self):
@@ -6365,7 +6365,7 @@ class Watchdog(object):
         :param key: timeout id, as returned by start()
         """
         try:
-            del(self._timeouts[key])
+            del self._timeouts[key]
         except KeyError:
             pass
 

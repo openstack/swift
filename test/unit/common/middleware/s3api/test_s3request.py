@@ -116,7 +116,7 @@ class TestRequest(S3ApiTestCase):
                       'check_permission') as m_check_permission:
             mock_get_resp.return_value = fake_swift_resp \
                 or FakeResponse(self.s3api.conf.s3_acl)
-            return mock_get_resp, m_check_permission,\
+            return mock_get_resp, m_check_permission, \
                 s3_req.get_response(self.s3api)
 
     def test_get_response_without_s3_acl(self):
