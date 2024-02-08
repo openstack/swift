@@ -58,7 +58,7 @@ class TestS3ApiEtree(unittest.TestCase):
         elem = etree.Element('Test')
         sub = etree.SubElement(elem, 'FOO')
         sub.text = '\xef\xbc\xa1'
-        self.assertTrue(isinstance(sub.text, str))
+        self.assertIsInstance(sub.text, str)
         xml_string = etree.tostring(elem)
         self.assertIsInstance(xml_string, bytes)
 

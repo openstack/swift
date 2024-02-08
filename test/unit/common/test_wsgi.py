@@ -147,7 +147,6 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
             f.write(contents)
         app = wsgi.loadapp(conf_path)
         self.assertIsInstance(app, obj_server.ObjectController)
-        self.assertTrue(isinstance(app, obj_server.ObjectController))
         # N.B. paste config loading from *file* is already case-sensitive,
         # so, CLIENT_TIMEOUT/client_timeout are unique options
         self.assertEqual(1, app.client_timeout)
@@ -239,7 +238,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         client_timeout = 2
         """
         app = wsgi.loadapp(wsgi.ConfigString(conf_body))
-        self.assertTrue(isinstance(app, obj_server.ObjectController))
+        self.assertIsInstance(app, obj_server.ObjectController)
         self.assertEqual(1, app.client_timeout)
         self.assertEqual(5, app.conn_timeout)
 
@@ -433,8 +432,8 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
                     conf_dir, 'proxy-server')
         # verify pipeline is catch_errors -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
-        self.assertTrue(isinstance(app, expected))
-        self.assertTrue(isinstance(app.app, swift.proxy.server.Application))
+        self.assertIsInstance(app, expected)
+        self.assertIsInstance(app.app, swift.proxy.server.Application)
         # config settings applied to app instance
         self.assertEqual(0.2, app.app.conn_timeout)
         # appconfig returns values from 'proxy-server' section
@@ -496,7 +495,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
             # test
             sock = wsgi.get_socket(conf)
             # assert
-            self.assertTrue(isinstance(sock, MockSocket))
+            self.assertIsInstance(sock, MockSocket)
             expected_socket_opts = {
                 socket.SOL_SOCKET: {
                     socket.SO_KEEPALIVE: 1,
@@ -634,9 +633,9 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEqual(sock, server_sock)
-        self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
+        self.assertIsInstance(server_app, swift.proxy.server.Application)
         self.assertEqual(20, server_app.client_timeout)
-        self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
+        self.assertIsInstance(server_logger, wsgi.NullLogger)
         self.assertTrue('custom_pool' in kwargs)
         self.assertEqual(1000, kwargs['custom_pool'].size)
         self.assertEqual(30, kwargs['socket_timeout'])
@@ -685,9 +684,9 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEqual(sock, server_sock)
-        self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
+        self.assertIsInstance(server_app, swift.proxy.server.Application)
         self.assertEqual(2.5, server_app.client_timeout)
-        self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
+        self.assertIsInstance(server_logger, wsgi.NullLogger)
         self.assertTrue('custom_pool' in kwargs)
         self.assertEqual(10, kwargs['custom_pool'].size)
         self.assertEqual(2.5, kwargs['socket_timeout'])
@@ -773,8 +772,8 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEqual(sock, server_sock)
-        self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
-        self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
+        self.assertIsInstance(server_app, swift.proxy.server.Application)
+        self.assertIsInstance(server_logger, wsgi.NullLogger)
         self.assertTrue('custom_pool' in kwargs)
         self.assertEqual(30, kwargs['socket_timeout'])
         self.assertTrue('protocol' in kwargs)
@@ -823,7 +822,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         args, kwargs = mock_server.call_args
         server_sock, server_app, server_logger = args
         self.assertEqual(sock, server_sock)
-        self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
+        self.assertIsInstance(server_app, swift.proxy.server.Application)
         self.assertEqual(20, server_app.client_timeout)
         self.assertIsNone(server_logger)
         self.assertTrue('custom_pool' in kwargs)
@@ -1829,11 +1828,11 @@ class TestPipelineModification(unittest.TestCase):
                     modify_func):
                 app = wsgi.loadapp(conf_file, global_conf={})
             exp = swift.common.middleware.catch_errors.CatchErrorMiddleware
-            self.assertTrue(isinstance(app, exp), app)
+            self.assertIsInstance(app, exp)
             exp = swift.common.middleware.healthcheck.HealthCheckMiddleware
-            self.assertTrue(isinstance(app.app, exp), app.app)
+            self.assertIsInstance(app.app, exp)
             exp = swift.proxy.server.Application
-            self.assertTrue(isinstance(app.app.app, exp), app.app.app)
+            self.assertIsInstance(app.app.app, exp)
             # Everybody gets a reference to the final app, too
             self.assertIs(app.app.app, app._pipeline_final_app)
             self.assertIs(app.app.app, app._pipeline_request_logging_app)
@@ -1859,9 +1858,9 @@ class TestPipelineModification(unittest.TestCase):
 
             # the pipeline was untouched
             exp = swift.common.middleware.healthcheck.HealthCheckMiddleware
-            self.assertTrue(isinstance(app, exp), app)
+            self.assertIsInstance(app, exp)
             exp = swift.proxy.server.Application
-            self.assertTrue(isinstance(app.app, exp), app.app)
+            self.assertIsInstance(app.app, exp)
 
     def test_load_app_request_logging_app(self):
         config = """
@@ -2398,7 +2397,7 @@ class TestPipelineModification(unittest.TestCase):
             with open(conf_path, 'w') as f:
                 f.write(dedent(conf_body))
             app = wsgi.loadapp(conf_path)
-            self.assertTrue(isinstance(app, controller))
+            self.assertIsInstance(app, controller)
 
 
 if __name__ == '__main__':

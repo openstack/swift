@@ -1391,7 +1391,7 @@ class TestSender(BaseTest):
         args, _kwargs = self.sender.send_put.call_args
         connection, path, df = args
         self.assertEqual(path, '/a/c/o')
-        self.assertTrue(isinstance(df, diskfile.DiskFile))
+        self.assertIsInstance(df, diskfile.DiskFile)
         self.assertEqual(expected, df.get_metadata())
         # note that the put line isn't actually sent since we mock send_put;
         # send_put is tested separately.
@@ -1525,7 +1525,7 @@ class TestSender(BaseTest):
         args, _kwargs = self.sender.send_put.call_args
         connection, path, df = args
         self.assertEqual(path, '/a/c/o')
-        self.assertTrue(isinstance(df, diskfile.DiskFile))
+        self.assertIsInstance(df, diskfile.DiskFile)
         self.assertEqual(expected, df.get_metadata())
         self.assertEqual(os.path.join(self.tx_testdir, 'dev/objects/9/',
                                       object_hash[-3:], object_hash),

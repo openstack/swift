@@ -228,7 +228,7 @@ class TestS3ApiSubresource(unittest.TestCase):
                    json.dumps(access_control_policy)}
         acl = decode_acl('container', headers, self.allow_no_owner)
 
-        self.assertEqual(type(acl), ACL)
+        self.assertIsInstance(acl, ACL)
         self.assertEqual(acl.owner.id, 'test:tester')
         self.assertEqual(len(acl.grants), 1)
         self.assertEqual(str(acl.grants[0].grantee), 'test:tester')
@@ -243,7 +243,7 @@ class TestS3ApiSubresource(unittest.TestCase):
                    json.dumps(access_control_policy)}
         acl = decode_acl('object', headers, self.allow_no_owner)
 
-        self.assertEqual(type(acl), ACL)
+        self.assertIsInstance(acl, ACL)
         self.assertEqual(acl.owner.id, 'test:tester')
         self.assertEqual(len(acl.grants), 1)
         self.assertEqual(str(acl.grants[0].grantee), 'test:tester')
@@ -253,14 +253,14 @@ class TestS3ApiSubresource(unittest.TestCase):
         headers = {}
         acl = decode_acl('container', headers, self.allow_no_owner)
 
-        self.assertEqual(type(acl), ACL)
+        self.assertIsInstance(acl, ACL)
         self.assertIsNone(acl.owner.id)
         self.assertEqual(len(acl.grants), 0)
 
     def test_decode_acl_empty_list(self):
         headers = {sysmeta_header('container', 'acl'): '[]'}
         acl = decode_acl('container', headers, self.allow_no_owner)
-        self.assertEqual(type(acl), ACL)
+        self.assertIsInstance(acl, ACL)
         self.assertIsNone(acl.owner.id)
         self.assertEqual(len(acl.grants), 0)
 
@@ -333,8 +333,7 @@ class TestS3ApiSubresource(unittest.TestCase):
             for (expected_permission, expected_grantee), \
                     (permission, grantee) in assertions:
                 self.assertEqual(expected_permission, permission)
-                self.assertTrue(
-                    isinstance(grantee, expected_grantee.__class__))
+                self.assertIsInstance(grantee, expected_grantee.__class__)
                 if isinstance(grantee, User):
                     self.assertEqual(expected_grantee.id, grantee.id)
                     self.assertEqual(expected_grantee.display_name,

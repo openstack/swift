@@ -40,7 +40,7 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         self.assertEqual(len(resp_objects), len(req_objects))
         for i, obj in enumerate(resp_objects):
             self.assertEqual(obj['Key'], req_objects[i])
-            self.assertEqual(type(obj['LastModified']), datetime.datetime)
+            self.assertIsInstance(obj['LastModified'], datetime.datetime)
             self.assertIn('ETag', obj)
             self.assertIn('Size', obj)
             self.assertEqual(obj['StorageClass'], 'STANDARD')

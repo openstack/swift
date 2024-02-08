@@ -1514,11 +1514,11 @@ class TestDBReplicator(unittest.TestCase):
                                           mount_check=False)
         with unit.mock_check_drive(isdir=True):
             resp = rpc.complete_rsync(drive, db_file, args)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual(404, resp.status_int)
         with unit.mock_check_drive(isdir=True):
             resp = rpc.complete_rsync(drive, 'new_db_file', args)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual(404, resp.status_int)
 
     def test_complete_rsync(self):
