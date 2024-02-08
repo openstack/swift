@@ -32,6 +32,7 @@ from swift.container.reconciler import (
 from swift.common.utils import Timestamp, encode_timestamps, ShardRange, \
     get_db_files, make_db_file_path
 from swift.common.storage_policy import POLICIES
+from test import annotate_failure
 
 from test.debug_logger import debug_logger
 from test.unit.common import test_db_replicator
@@ -1431,6 +1432,130 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(['Successfully deleted db %s' % broker.db_file],
                          daemon.logger.get_lines_for_level('debug'))
         daemon.logger.clear()
+
+    def test_sync_shard_ranges_merge_remote_osr(self):
+        def do_test(local_osr, remote_osr, exp_merge, exp_warning,
+                    exp_rpc_warning):
+            put_timestamp = Timestamp.now().internal
+            # create "local" broker
+            broker = self._get_broker('a', 'c', node_index=0)
+            broker.initialize(put_timestamp, POLICIES.default.idx)
+            # create "remote" broker
+            remote_broker = self._get_broker('a', 'c', node_index=1)
+            remote_broker.initialize(put_timestamp, POLICIES.default.idx)
+
+            bounds = (('', 'g'), ('g', 'r'), ('r', ''))
+            shard_ranges = [
+                ShardRange('.shards_a/sr-%s' % upper, Timestamp.now(), lower,
+                           upper, i + 1, 10 * (i + 1))
+                for i, (lower, upper) in enumerate(bounds)
+            ]
+
+            for db in (broker, remote_broker):
+                db.merge_shard_ranges(shard_ranges)
+
+            if local_osr:
+                broker.merge_shard_ranges(ShardRange(**dict(local_osr)))
+            if remote_osr:
+                remote_broker.merge_shard_ranges(
+                    ShardRange(**dict(remote_osr)))
+
+            daemon = replicator.ContainerReplicator({}, logger=debug_logger())
+            part, remote_node = self._get_broker_part_node(remote_broker)
+            part, local_node = self._get_broker_part_node(broker)
+            info = broker.get_replication_info()
+            success = daemon._repl_to_node(remote_node, broker, part, info)
+            self.assertTrue(success)
+            local_info = self._get_broker(
+                'a', 'c', node_index=0).get_info()
+            remote_info = self._get_broker(
+                'a', 'c', node_index=1).get_info()
+            for k, v in local_info.items():
+                if k == 'id':
+                    continue
+                self.assertEqual(remote_info[k], v,
+                                 "mismatch remote %s %r != %r" % (
+                                     k, remote_info[k], v))
+            actual_osr = broker.get_own_shard_range(no_default=True)
+            actual_osr = dict(actual_osr) if actual_osr else actual_osr
+            if exp_merge:
+                exp_osr = (dict(remote_osr, meta_timestamp=mock.ANY)
+                           if remote_osr else remote_osr)
+            else:
+                exp_osr = (dict(local_osr, meta_timestamp=mock.ANY)
+                           if local_osr else local_osr)
+            self.assertEqual(exp_osr, actual_osr)
+            lines = daemon.logger.get_lines_for_level('warning')
+            if exp_warning:
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn("Ignoring remote osr w/o epoch", lines[0])
+                self.assertIn("own_sr: ", lines[0])
+                self.assertIn("'epoch': '%s'" % local_osr.epoch.normal,
+                              lines[0])
+                self.assertIn("remote_sr: ", lines[0])
+                self.assertIn("'epoch': None", lines[0])
+                hash_ = os.path.splitext(os.path.basename(broker.db_file))[0]
+                url = "%s/%s/%s/%s" % (
+                    remote_node['ip'], remote_node['device'], part, hash_)
+                self.assertIn("source: %s" % url, lines[0])
+            else:
+                self.assertFalse(lines)
+            lines = self.rpc.logger.get_lines_for_level('warning')
+            if exp_rpc_warning:
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn("Ignoring remote osr w/o epoch", lines[0])
+                self.assertIn("source: repl_req", lines[0])
+            else:
+                self.assertFalse(lines)
+
+            os.remove(broker.db_file)
+            os.remove(remote_broker.db_file)
+            return daemon
+
+        # we'll use other broker as a template to use the "default" osrs
+        other_broker = self._get_broker('a', 'c', node_index=2)
+        other_broker.initialize(Timestamp.now().internal, POLICIES.default.idx)
+        default_osr = other_broker.get_own_shard_range()
+        self.assertIsNone(default_osr.epoch)
+        osr_with_epoch = other_broker.get_own_shard_range()
+        osr_with_epoch.epoch = Timestamp.now()
+        osr_with_different_epoch = other_broker.get_own_shard_range()
+        osr_with_different_epoch.epoch = Timestamp.now()
+        default_osr_newer = ShardRange(**dict(default_osr))
+        default_osr_newer.timestamp = Timestamp.now()
+
+        # local_osr, remote_osr, exp_merge, exp_warning, exp_rpc_warning
+        tests = (
+            # First the None case, ie no osrs
+            (None, None, False, False, False),
+            # Default and not the other
+            (None, default_osr, True, False, False),
+            (default_osr, None, False, False, False),
+            (default_osr, default_osr, True, False, False),
+            (default_osr, None, False, False, False),
+            # With an epoch and no OSR is also fine
+            (None, osr_with_epoch, True, False, False),
+            (osr_with_epoch, None, False, False, False),
+            # even with the same or different epochs
+            (osr_with_epoch, osr_with_epoch, True, False, False),
+            (osr_with_epoch, osr_with_different_epoch, True, False, False),
+            # But if local does have an epoch but the remote doesn't: false
+            # positive, nothing will merge anyway, no warning.
+            (osr_with_epoch, default_osr, False, False, False),
+            # It's also OK if the remote has an epoch but not the local,
+            # this also works on the RPC side because merge_shards happen on
+            # to local then sends updated shards to the remote. So if the
+            # OSR on the remote is newer then the default the RPC side will
+            # actually get a merged OSR, ie get the remote one back.
+            (default_osr, osr_with_epoch, True, False, False),
+            # But if the local default is newer then the epoched remote side
+            # we'd get an error logged on the RPC side and the local is newer
+            # so wil fail to merge
+            (default_osr_newer, osr_with_epoch, False, False, True),
+        )
+        for i, params in enumerate(tests):
+            with annotate_failure((i, params)):
+                do_test(*params)
 
     def test_sync_shard_ranges(self):
         put_timestamp = Timestamp.now().internal
