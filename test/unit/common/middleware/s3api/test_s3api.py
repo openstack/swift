@@ -33,7 +33,7 @@ from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.keystoneauth import KeystoneAuth
 from swift.common import swob, registry
 from swift.common.swob import Request
-from swift.common.utils import md5, get_logger
+from swift.common.utils import md5, get_logger, UTC
 
 from keystonemiddleware.auth_token import AuthProtocol
 from keystoneauth1.access import AccessInfoV2
@@ -403,7 +403,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                             'AWSAccessKeyId=test:tester' % expire,
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Date': self.get_date_header()})
-        req.headers['Date'] = datetime.utcnow()
+        req.headers['Date'] = datetime.now(UTC)
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'AccessDenied')
@@ -415,7 +415,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # Set expire to last 32b timestamp value
         # This number can't be higher, because it breaks tests on 32b systems
         expire = '2147483647'  # 19 Jan 2038 03:14:07
-        utc_date = datetime.utcnow()
+        utc_date = datetime.now(UTC)
         req = Request.blank('/bucket/object?Signature=X&Expires=%s&'
                             'AWSAccessKeyId=test:tester&Timestamp=%s' %
                             (expire, utc_date.isoformat().rsplit('.')[0]),
@@ -452,7 +452,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                             'AWSAccessKeyId=test:tester' % expire,
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Date': self.get_date_header()})
-        req.headers['Date'] = datetime.utcnow()
+        req.headers['Date'] = datetime.now(UTC)
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'AccessDenied')
@@ -466,7 +466,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                             'AWSAccessKeyId=test:tester' % expire,
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Date': self.get_date_header()})
-        req.headers['Date'] = datetime.utcnow()
+        req.headers['Date'] = datetime.now(UTC)
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'AccessDenied')
@@ -479,7 +479,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req = Request.blank('/bucket/object?Expires=%s&'
                             'AWSAccessKeyId=' % expire,
                             environ={'REQUEST_METHOD': 'GET'})
-        req.headers['Date'] = datetime.utcnow()
+        req.headers['Date'] = datetime.now(UTC)
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'AccessDenied')

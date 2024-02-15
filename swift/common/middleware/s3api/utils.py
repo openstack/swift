@@ -113,7 +113,7 @@ class S3Timestamp(utils.Timestamp):
 
     @property
     def s3xmlformat(self):
-        dt = datetime.datetime.utcfromtimestamp(self.ceil())
+        dt = datetime.datetime.fromtimestamp(self.ceil(), utils.UTC)
         return dt.strftime(self.S3_XML_FORMAT)
 
     @classmethod
