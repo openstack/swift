@@ -41,7 +41,7 @@ from swift.common.constraints import check_object_creation, \
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
-    ChunkReadError, DiskFileXattrNotSupported
+    ChunkReadError, DiskFileXattrNotSupported, DiskFileStateChanged
 from swift.common.request_helpers import resolve_ignore_range_header, \
     OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.obj import ssync_receiver, expirer
@@ -59,7 +59,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
-    HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, normalize_etag
+    HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, \
+    normalize_etag, HTTPServiceUnavailable
 from swift.common.wsgi import run_wsgi
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj, embed_expirer_bytes_in_ctype, \
@@ -682,6 +683,8 @@ class ObjectController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
             return HTTPNotFound(request=request)
+        except DiskFileStateChanged:
+            return HTTPServiceUnavailable(request=request)
         orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
         orig_ctype_timestamp = disk_file.content_type_timestamp
         req_ctype_time = '0'
@@ -837,7 +840,8 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeleted as e:
             orig_metadata = {}
             orig_timestamp = e.timestamp
-        except (DiskFileNotExist, DiskFileQuarantined):
+        except (DiskFileNotExist, DiskFileQuarantined,
+                DiskFileStateChanged):
             orig_metadata = {}
             orig_timestamp = Timestamp(0)
         # Checks for If-None-Match
@@ -1174,6 +1178,8 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             resp = HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
+        except DiskFileStateChanged:
+            resp = HTTPServiceUnavailable(request=request)
         return resp
 
     @public
@@ -1204,6 +1210,8 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             return HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
+        except DiskFileStateChanged:
+            return HTTPServiceUnavailable(request=request)
         conditional_etag = resolve_etag_is_at_header(request, metadata)
         response = Response(request=request, conditional_response=True,
                             conditional_etag=conditional_etag)
@@ -1264,6 +1272,12 @@ class ObjectController(BaseStorageServer):
             orig_timestamp = 0
             orig_metadata = {}
             response_class = HTTPNotFound
+        except DiskFileStateChanged:
+            # Bail out early because unread metadata may have an X-Delete-At.
+            # This condition can occur when a concurrent request has replaced
+            # the data or meta file that this thread was trying to open. Force
+            # client to retry, hoping the on-disk files have settled.
+            return HTTPServiceUnavailable(request=request)
         else:
             orig_timestamp = disk_file.data_timestamp
             if orig_timestamp < req_timestamp:

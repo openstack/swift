@@ -731,6 +731,113 @@ class TestObjectController(BaseTestCase):
         meta_file = os.path.join(obj_dir, t_post1 + '.meta')
         self.assertFalse(os.path.isfile(meta_file))
 
+    def _do_test_diskfile_metadata_unavailable(self, test_req):
+        # a concurrent request may cause ondisk files to be removed between the
+        # time they were listed and the time they were opened; verify that
+        # appropriate response is returned to the client
+        t_put = next(self.ts).internal
+        t_post = next(self.ts).internal
+
+        # PUT
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # POST
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t_post,
+                                     'X-Object-Meta-Test': 'test'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        other_reqs = [Request.blank('/sda1/p/a/c/o',
+                                    environ={'REQUEST_METHOD': 'POST'},
+                                    headers={
+                                        'X-Timestamp': next(self.ts).internal,
+                                        'X-Object-Meta-Test': 'other'})]
+        test_req.headers['X-Timestamp'] = next(self.ts).internal
+
+        # test requests concurrent with an on-disk file being unlinked...
+        orig_read_metadata = diskfile._read_file_metadata
+        concurrent_resp = []
+
+        def fake_read_metadata(fd, *args, **kwargs):
+            metadata = orig_read_metadata(fd, *args, **kwargs)
+            if other_reqs:
+                timestamps.append(metadata['X-Timestamp'])
+                if timestamps[-1] == t_post:
+                    other_req = other_reqs.pop()
+                    if other_req:
+                        # this POST will remove the meta file that the test_req
+                        # has in its dir listing
+                        resp = other_req.get_response(self.object_controller)
+                        concurrent_resp.append(resp.status_int)
+            return orig_read_metadata(fd, *args, **kwargs)
+
+        # meta file listed but not found in _read_file_metadata
+        timestamps = []
+        with mock.patch('swift.obj.diskfile._read_file_metadata',
+                        fake_read_metadata):
+            resp = test_req.get_response(self.object_controller)
+        self.assertEqual([t_put, t_post], timestamps)
+        self.assertEqual([202], concurrent_resp)
+
+        # HEAD
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'X-Timestamp': next(self.ts).internal})
+        head_resp = req.get_response(self.object_controller)
+        return resp, head_resp
+
+    def test_PUT_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            headers={'Content-Length': '0',
+                                     'Content-Type': 'plain/text'},
+                            environ={'REQUEST_METHOD': 'PUT'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual(req.headers['X-Timestamp'],
+                         head_resp.headers['X-Timestamp'])
+        self.assertNotIn('X-Object-Meta-Test', head_resp.headers)
+
+    def test_POST_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
+
+    def test_GET_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
+
+    def test_HEAD_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
+
+    def test_DELETE_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
+
     def test_POST_not_exist(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/fail',
@@ -9396,6 +9503,56 @@ class TestObjectController(BaseTestCase):
                 headers={'X-Timestamp': delete_timestamp})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 404)
+
+        qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
+        self.assertFalse(os.path.exists(qdir))
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'X-Timestamp': head_timestamp})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['X-Timestamp'], put_timestamp)
+
+    def test_race_with_PUT_POST_PUT(self):
+        existing_timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time() + 1)
+        put_timestamp = normalize_timestamp(time() + 2)
+        head_timestamp = normalize_timestamp(time() + 3)
+
+        # make a .data
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': existing_timestamp,
+                     'Content-Type': 'application/octet-stream'},
+            body=b'orig data')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # force a PUT between the listdir and read_metadata of a PUT
+        put_once = [False]
+        orig_listdir = os.listdir
+
+        def mock_listdir(path):
+            listing = orig_listdir(path)
+            if not put_once[0]:
+                put_once[0] = True
+                req = Request.blank(
+                    '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                    headers={'X-Timestamp': put_timestamp,
+                             'Content-Type': 'application/octet-stream'},
+                    body=b'some data')
+                resp = req.get_response(self.object_controller)
+                self.assertEqual(resp.status_int, 201)
+            return listing
+
+        with mock.patch('os.listdir', mock_listdir):
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+                headers={'X-Timestamp': post_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertNotIn('X-Backend-Timestamp', resp.headers)
+            self.assertEqual(resp.status_int, 503)
 
         qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
         self.assertFalse(os.path.exists(qdir))

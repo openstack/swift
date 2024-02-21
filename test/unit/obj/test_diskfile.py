@@ -56,7 +56,7 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace, \
-    DiskFileXattrNotSupported, PartitionLockTimeout
+    DiskFileXattrNotSupported, PartitionLockTimeout, DiskFileStateChanged
 from swift.common.storage_policy import (
     POLICIES, get_policy_string, StoragePolicy, ECStoragePolicy, REPL_POLICY,
     EC_POLICY, PolicyError)
@@ -850,6 +850,27 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         with open(path, 'wb') as fd:
             diskfile.write_metadata(fd, metadata)
         check_metadata(as_native, str)
+
+    def test_read_file_metadata(self):
+        path = os.path.join(self.testdir, str(uuid.uuid4()))
+        metadata = {'name': '/a/c/o'}
+        with open(path, 'wb') as fd:
+            diskfile.write_metadata(fd, metadata)
+
+        actual = diskfile._read_file_metadata(path)
+        self.assertEqual(metadata, actual)
+        with open(path, 'rb') as fd:
+            os.unlink(path)
+            actual = diskfile._read_file_metadata(fd)
+        self.assertEqual(metadata, actual)
+
+    def test_read_file_metadata_nonexistent_file(self):
+        with self.assertRaises(DiskFileStateChanged):
+            diskfile._read_file_metadata('nonexistent')
+
+    def test_read_metadata_nonexistent_file(self):
+        with self.assertRaises(DiskFileNotExist):
+            diskfile.read_metadata('nonexistent')
 
 
 @patch_policies
@@ -3142,7 +3163,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, BaseTestCase):
         with create_files(class_under_test, good_files), \
                 mock.patch('swift.obj.diskfile.os.listdir',
                            side_effect=deleting_listdir), \
-                self.assertRaises(DiskFileNotExist):
+                self.assertRaises(DiskFileStateChanged):
             class_under_test.open()
 
     def test_verify_ondisk_files(self):
@@ -5455,6 +5476,66 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile()
         self.assertRaises(DiskFileNotExist, df.open)
         self.assertFalse(os.path.exists(ts_fullpath))
+
+    def test_open_data_file_concurrently_unlinked(self):
+        # if a .data file is cleaned up while diskfile is being opened then
+        # DiskFileStateChanged can be raised
+        ts_data = self.ts()
+        ts_meta1 = self.ts()
+        self._create_test_file(b'1234567890', timestamp=ts_data)
+        df = self._simple_get_diskfile()
+        df.write_metadata({'X-Timestamp': ts_meta1.internal, 'test': 'me'})
+        with df.open():
+            self.assertEqual(ts_data, df.data_timestamp)
+            self.assertEqual(ts_meta1, df.timestamp)
+
+        df = self._simple_get_diskfile()
+        orig_get_ondisk_files = df._get_ondisk_files
+
+        def fake_get_ondisk_files(files, policy):
+            # once the datadir has been listed for the open(), unlink the .data
+            # file
+            file_info = orig_get_ondisk_files(files, policy)
+            os.unlink(file_info['data_file'])
+            return file_info
+
+        with mock.patch.object(df, '_get_ondisk_files', fake_get_ondisk_files):
+            with self.assertRaises(DiskFileStateChanged):
+                df.open()
+
+    def test_open_meta_file_concurrently_unlinked(self):
+        # if a .meta file is cleaned up while diskfile is being opened then
+        # DiskFileStateChanged can be raised
+        ts_data = self.ts()
+        ts_meta1 = self.ts()
+        ts_meta2 = self.ts()
+        self._create_test_file(b'1234567890', timestamp=ts_data)
+        df = self._simple_get_diskfile()
+        df.write_metadata({'X-Timestamp': ts_meta1.internal, 'test': 'me'})
+        with df.open():
+            self.assertEqual(ts_data, df.data_timestamp)
+            self.assertEqual(ts_meta1, df.timestamp)
+
+        df = self._simple_get_diskfile()
+        orig_get_ondisk_files = df._get_ondisk_files
+
+        def fake_get_ondisk_files(files, policy):
+            # once the datadir has been listed for the open(), replace the meta
+            # file with a newer one
+            file_info = orig_get_ondisk_files(files, policy)
+            os.unlink(file_info['meta_file'])
+            df.write_metadata(
+                {'X-Timestamp': ts_meta2.internal, 'test': 'me'})
+            return file_info
+
+        with mock.patch.object(df, '_get_ondisk_files', fake_get_ondisk_files):
+            with self.assertRaises(DiskFileStateChanged):
+                df.open()
+
+        df = self._simple_get_diskfile()
+        with df.open():
+            self.assertEqual(ts_data, df.data_timestamp)
+            self.assertEqual(ts_meta2, df.timestamp)
 
     def test_from_audit_location(self):
         df, df_data = self._create_test_file(

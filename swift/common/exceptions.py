@@ -81,6 +81,14 @@ class DiskFileNotExist(DiskFileError):
     pass
 
 
+class DiskFileStateChanged(DiskFileError):
+    """
+    Raised when state of a DiskFile changes while it is being opened (e.g. the
+    list of on-disk files changes). Retrying the DiskFile interface may
+    succeed.
+    """
+
+
 class DiskFileDeleted(DiskFileNotExist):
 
     def __init__(self, metadata=None):
