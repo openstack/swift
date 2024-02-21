@@ -3672,27 +3672,66 @@ def csv_append(csv_string, item):
         return item
 
 
-class CloseableChain(object):
+class ClosingIterator(object):
+    """
+    Wrap another iterator and close it, if possible, on completion/exception.
+
+    If other closeable objects are given then they will also be closed when
+    this iterator is closed.
+
+    This is particularly useful for ensuring a generator properly closes its
+    resources, even if the generator was never started.
+
+    This class may be subclassed to override the behavior of
+    ``_get_next_item``.
+
+    :param iterable: iterator to wrap.
+    :param other_closeables: other resources to attempt to close.
+    """
+    __slots__ = ('closeables', 'wrapped_iter', 'closed')
+
+    def __init__(self, iterable, other_closeables=None):
+        self.closeables = [iterable]
+        if other_closeables:
+            self.closeables.extend(other_closeables)
+        # this is usually, but not necessarily, the same object
+        self.wrapped_iter = iter(iterable)
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def _get_next_item(self):
+        return next(self.wrapped_iter)
+
+    def __next__(self):
+        try:
+            return self._get_next_item()
+        except Exception:
+            # note: if wrapped_iter is a generator then the exception
+            # already caused it to exit (without raising a GeneratorExit)
+            # but we still need to close any other closeables.
+            self.close()
+            raise
+
+    next = __next__  # py2
+
+    def close(self):
+        if not self.closed:
+            for wrapped in self.closeables:
+                close_if_possible(wrapped)
+            self.closed = True
+
+
+class CloseableChain(ClosingIterator):
     """
     Like itertools.chain, but with a close method that will attempt to invoke
     its sub-iterators' close methods, if any.
     """
 
     def __init__(self, *iterables):
-        self.iterables = iterables
-        self.chained_iter = itertools.chain(*self.iterables)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return next(self.chained_iter)
-
-    next = __next__  # py2
-
-    def close(self):
-        for it in self.iterables:
-            close_if_possible(it)
+        chained_iter = itertools.chain(*iterables)
+        super(CloseableChain, self).__init__(chained_iter, iterables)
 
 
 def reiterate(iterable):
@@ -4381,6 +4420,47 @@ def document_iters_to_multipart_byteranges(ranges_iter, boundary):
     yield terminator
 
 
+class StringAlong(ClosingIterator):
+    """
+    This iterator wraps and iterates over a first iterator until it stops, and
+    then iterates a second iterator, expecting it to stop immediately. This
+    "stringing along" of the second iterator is useful when the exit of the
+    second iterator must be delayed until the first iterator has stopped. For
+    example, when the second iterator has already yielded its item(s) but
+    has resources that mustn't be garbage collected until the first iterator
+    has stopped.
+
+    The second iterator is expected to have no more items and raise
+    StopIteration when called. If this is not the case then
+    ``unexpected_items_func`` is called.
+
+    :param iterable: a first iterator that is wrapped and iterated.
+    :param other_iter: a second iterator that is stopped once the first
+        iterator has stopped.
+    :param unexpected_items_func: a no-arg function that will be called if the
+        second iterator is found to have remaining items.
+    """
+    __slots__ = ('other_iter', 'unexpected_items_func')
+
+    def __init__(self, iterable, other_iter, unexpected_items_func):
+        super(StringAlong, self).__init__(iterable, [other_iter])
+        self.other_iter = other_iter
+        self.unexpected_items_func = unexpected_items_func
+
+    def _get_next_item(self):
+        try:
+            return super(StringAlong, self)._get_next_item()
+        except StopIteration:
+            try:
+                next(self.other_iter)
+            except StopIteration:
+                pass
+            else:
+                self.unexpected_items_func()
+            finally:
+                raise
+
+
 def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
                                          logger):
     """
@@ -4430,20 +4510,11 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
         # ranges_iter has a finally block that calls close_swift_conn, and
         # so if that finally block fires before we read response_body_iter,
         # there's nothing there.
-        def string_along(useful_iter, useless_iter_iter, logger):
-            with closing_if_possible(useful_iter):
-                for x in useful_iter:
-                    yield x
-
-            try:
-                next(useless_iter_iter)
-            except StopIteration:
-                pass
-            else:
-                logger.warning(
-                    "More than one part in a single-part response?")
-
-        return string_along(response_body_iter, ranges_iter, logger)
+        result = StringAlong(
+            response_body_iter, ranges_iter,
+            lambda: logger.warning(
+                "More than one part in a single-part response?"))
+        return result
 
 
 def multipart_byteranges_to_document_iters(input_file, boundary,
@@ -6415,7 +6486,7 @@ class WatchdogTimeout(object):
         self.watchdog.stop(self.key)
 
 
-class CooperativeIterator(object):
+class CooperativeIterator(ClosingIterator):
     """
     Wrapper to make a deliberate periodic call to ``sleep()`` while iterating
     over wrapped iterator, providing an opportunity to switch greenthreads.
@@ -6437,24 +6508,16 @@ class CooperativeIterator(object):
     :param period: number of items yielded from this iterator between calls to
         ``sleep()``.
     """
-    __slots__ = ('period', 'count', 'wrapped_iter')
+    __slots__ = ('period', 'count')
 
     def __init__(self, iterable, period=5):
-        self.wrapped_iter = iterable
+        super(CooperativeIterator, self).__init__(iterable)
         self.count = 0
         self.period = period
 
-    def __iter__(self):
-        return self
-
-    def next(self):
+    def _get_next_item(self):
         if self.count >= self.period:
             self.count = 0
             sleep()
         self.count += 1
-        return next(self.wrapped_iter)
-
-    __next__ = next
-
-    def close(self):
-        close_if_possible(self.wrapped_iter)
+        return super(CooperativeIterator, self)._get_next_item()

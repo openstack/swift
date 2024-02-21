@@ -53,7 +53,7 @@ from swift.common import storage_policy, swob, utils, exceptions
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
-from swift.common.utils import Timestamp, md5
+from swift.common.utils import Timestamp, md5, close_if_possible
 from test import get_config
 from test.debug_logger import FakeLogger
 from swift.common.header_key_dict import HeaderKeyDict
@@ -1497,6 +1497,70 @@ class FakeSource(object):
     def getheaders(self):
         return [('content-length', self.getheader('content-length'))] + \
                [(k, v) for k, v in self.headers.items()]
+
+
+class CaptureIterator(object):
+    """
+    Wraps an iterable, forwarding all calls to the wrapped iterable but
+    capturing the calls via a callback.
+
+    This class may be used to observe garbage collection, so tests should not
+    have to hold a reference to instances of this class because that would
+    prevent them being garbage collected. Calls are therefore captured via a
+    callback rather than being stashed locally.
+
+    :param wrapped: an iterable to wrap.
+    :param call_capture_callback: a function that will be called to capture
+        calls to this iterator.
+    """
+    def __init__(self, wrapped, call_capture_callback):
+        self.call_capture_callback = call_capture_callback
+        self.wrapped_iter = wrapped
+
+    def _capture_call(self):
+        # call home to capture the call
+        self.call_capture_callback(inspect.stack()[1][3])
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        self._capture_call()
+        return next(self.wrapped_iter)
+
+    __next__ = next
+
+    def __del__(self):
+        self._capture_call()
+
+    def close(self):
+        self._capture_call()
+        close_if_possible(self.wrapped_iter)
+
+
+class CaptureIteratorFactory(object):
+    """
+    Create instances of ``CaptureIterator`` to wrap a given iterable, and
+    provides a callback function for the ``CaptureIterator`` to capture its
+    calls.
+
+    :param wrapped: an iterable to wrap.
+    """
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
+        self.instance_count = 0
+        self.captured_calls = defaultdict(list)
+
+    def log_call(self, instance_number, call):
+        self.captured_calls[instance_number].append(call)
+
+    def __call__(self, *args, **kwargs):
+        # note: do not keep a reference to the CaptureIterator because that
+        # would prevent it being garbage collected
+        self.instance_count += 1
+        return CaptureIterator(
+            self.wrapped(*args, **kwargs),
+            functools.partial(self.log_call, self.instance_count))
 
 
 def get_node_error_stats(proxy_app, ring_node):

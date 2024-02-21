@@ -42,7 +42,7 @@ from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, patch_policies,
-    FakeSource, StubResponse)
+    FakeSource, StubResponse, CaptureIteratorFactory)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -1706,10 +1706,14 @@ class TestGetOrHeadHandler(BaseTest):
             handler.source = GetterSource(self.app, source, node)
             return True
 
-        with mock.patch.object(handler, '_find_source',
-                               mock_find_source):
-            resp = handler.get_working_response(req)
-            resp.app_iter.close()
+        factory = CaptureIteratorFactory(handler._iter_parts_from_response)
+        with mock.patch.object(handler, '_find_source', mock_find_source):
+            with mock.patch.object(
+                    handler, '_iter_parts_from_response', factory):
+                resp = handler.get_working_response(req)
+                resp.app_iter.close()
+        # verify that iter exited
+        self.assertEqual({1: ['next', '__del__']}, factory.captured_calls)
         self.assertEqual(["Client disconnected on read of 'some-path'"],
                          self.logger.get_lines_for_level('info'))
 
@@ -1719,12 +1723,16 @@ class TestGetOrHeadHandler(BaseTest):
             self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
             None, {})
 
-        with mock.patch.object(handler, '_find_source',
-                               mock_find_source):
-            resp = handler.get_working_response(req)
-            next(resp.app_iter)
+        factory = CaptureIteratorFactory(handler._iter_parts_from_response)
+        with mock.patch.object(handler, '_find_source', mock_find_source):
+            with mock.patch.object(
+                    handler, '_iter_parts_from_response', factory):
+                resp = handler.get_working_response(req)
+                next(resp.app_iter)
             resp.app_iter.close()
+        self.assertEqual({1: ['next', '__del__']}, factory.captured_calls)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
+        self.assertEqual([], self.logger.get_lines_for_level('info'))
 
     def test_range_fast_forward(self):
         req = Request.blank('/')
