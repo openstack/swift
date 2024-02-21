@@ -212,6 +212,21 @@ class BaseObjectControllerMixin(object):
 
 class CommonObjectControllerMixin(BaseObjectControllerMixin):
     # defines tests that are common to all storage policy types
+
+    def test_GET_all_primaries_error_limited(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        obj_ring = self.app.get_object_ring(int(self.policy))
+        _part, primary_nodes = obj_ring.get_nodes('a', 'c', 'o')
+        for dev in primary_nodes:
+            self.app.error_limiter.limit(dev)
+
+        num_handoff = (
+            2 * self.policy.object_ring.replica_count) - len(primary_nodes)
+        codes = [404] * num_handoff
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
     def test_iter_nodes_local_first_noops_when_no_affinity(self):
         # this test needs a stable node order - most don't
         self.app.sort_nodes = lambda l, *args, **kwargs: l
