@@ -4893,8 +4893,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             with self.assertRaises(DiskFileQuarantined) as err:
                 df.open()
             self.assertEqual(
-                'Failed to open %s: [Errno 61] -ENODATA fool!' % df._data_file,
-                str(err.exception))
+                'Failed to open %s: [Errno %d] -ENODATA fool!'
+                % (df._data_file, errno.ENODATA), str(err.exception))
 
     def test_quarantine_hashdir_not_a_directory(self):
         df, df_data = self._create_test_file(b'1234567890', account="abc",
