@@ -66,7 +66,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
     O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory, \
     md5, is_file_older, non_negative_float, config_fallocate_value, \
-    fs_has_free_space
+    fs_has_free_space, CooperativeIterator
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -2110,11 +2110,13 @@ class BaseDiskFileReader(object):
     :param pipe_size: size of pipe buffer used in zero-copy operations
     :param diskfile: the diskfile creating this DiskFileReader instance
     :param keep_cache: should resulting reads be kept in the buffer cache
+    :param cooperative_period: the period parameter when does cooperative
+                               yielding during file read
     """
     def __init__(self, fp, data_file, obj_size, etag,
                  disk_chunk_size, keep_cache_size, device_path, logger,
                  quarantine_hook, use_splice, pipe_size, diskfile,
-                 keep_cache=False):
+                 keep_cache=False, cooperative_period=0):
         # Parameter tracking
         self._fp = fp
         self._data_file = data_file
@@ -2133,6 +2135,7 @@ class BaseDiskFileReader(object):
             self._keep_cache = obj_size < keep_cache_size
         else:
             self._keep_cache = False
+        self._cooperative_period = cooperative_period
 
         # Internal Attributes
         self._iter_etag = None
@@ -2157,6 +2160,10 @@ class BaseDiskFileReader(object):
             self._iter_etag.update(chunk)
 
     def __iter__(self):
+        return CooperativeIterator(
+            self._inner_iter(), period=self._cooperative_period)
+
+    def _inner_iter(self):
         """Returns an iterator over the data file."""
         try:
             dropped_cache = 0
@@ -2975,7 +2982,7 @@ class BaseDiskFile(object):
         with self.open(current_time=current_time):
             return self.get_metadata()
 
-    def reader(self, keep_cache=False,
+    def reader(self, keep_cache=False, cooperative_period=0,
                _quarantine_hook=lambda m: None):
         """
         Return a :class:`swift.common.swob.Response` class compatible
@@ -2987,6 +2994,8 @@ class BaseDiskFile(object):
 
         :param keep_cache: caller's preference for keeping data read in the
                            OS buffer cache
+        :param cooperative_period: the period parameter for cooperative
+                                   yielding during file read
         :param _quarantine_hook: 1-arg callable called when obj quarantined;
                                  the arg is the reason for quarantine.
                                  Default is to ignore it.
@@ -2998,7 +3007,8 @@ class BaseDiskFile(object):
             self._metadata['ETag'], self._disk_chunk_size,
             self._manager.keep_cache_size, self._device_path, self._logger,
             use_splice=self._use_splice, quarantine_hook=_quarantine_hook,
-            pipe_size=self._pipe_size, diskfile=self, keep_cache=keep_cache)
+            pipe_size=self._pipe_size, diskfile=self, keep_cache=keep_cache,
+            cooperative_period=cooperative_period)
         # At this point the reader object is now responsible for closing
         # the file pointer.
         self._fp = None
@@ -3161,11 +3171,12 @@ class ECDiskFileReader(BaseDiskFileReader):
     def __init__(self, fp, data_file, obj_size, etag,
                  disk_chunk_size, keep_cache_size, device_path, logger,
                  quarantine_hook, use_splice, pipe_size, diskfile,
-                 keep_cache=False):
+                 keep_cache=False, cooperative_period=0):
         super(ECDiskFileReader, self).__init__(
             fp, data_file, obj_size, etag,
             disk_chunk_size, keep_cache_size, device_path, logger,
-            quarantine_hook, use_splice, pipe_size, diskfile, keep_cache)
+            quarantine_hook, use_splice, pipe_size, diskfile, keep_cache,
+            cooperative_period)
         self.frag_buf = None
         self.frag_offset = 0
         self.frag_size = self._diskfile.policy.fragment_size

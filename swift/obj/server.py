@@ -152,6 +152,7 @@ class ObjectController(BaseStorageServer):
             config_true_value(conf.get('keep_cache_private', 'false'))
         self.keep_cache_slo_manifest = \
             config_true_value(conf.get('keep_cache_slo_manifest', 'false'))
+        self.cooperative_period = int(conf.get("cooperative_period", 0))
 
         default_allowed_headers = '''
             content-disposition,
@@ -1097,10 +1098,15 @@ class ObjectController(BaseStorageServer):
                     )
                 )
                 conditional_etag = resolve_etag_is_at_header(request, metadata)
+                app_iter = disk_file.reader(
+                    keep_cache=keep_cache,
+                    cooperative_period=self.cooperative_period,
+                )
                 response = Response(
-                    app_iter=disk_file.reader(keep_cache=keep_cache),
-                    request=request, conditional_response=True,
-                    conditional_etag=conditional_etag)
+                    app_iter=app_iter, request=request,
+                    conditional_response=True,
+                    conditional_etag=conditional_etag,
+                )
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.items():

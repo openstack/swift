@@ -6506,18 +6506,20 @@ class CooperativeIterator(ClosingIterator):
 
     :param iterable: iterator to wrap.
     :param period: number of items yielded from this iterator between calls to
-        ``sleep()``.
+        ``sleep()``; a negative value or 0 mean that cooperative sleep will be
+        disabled.
     """
     __slots__ = ('period', 'count')
 
     def __init__(self, iterable, period=5):
         super(CooperativeIterator, self).__init__(iterable)
         self.count = 0
-        self.period = period
+        self.period = max(0, period or 0)
 
     def _get_next_item(self):
-        if self.count >= self.period:
-            self.count = 0
-            sleep()
-        self.count += 1
+        if self.period:
+            if self.count >= self.period:
+                self.count = 0
+                sleep()
+            self.count += 1
         return super(CooperativeIterator, self)._get_next_item()
