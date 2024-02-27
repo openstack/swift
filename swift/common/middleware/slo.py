@@ -595,7 +595,7 @@ class RespAttrs(object):
         self.is_legacy = not self._has_size_and_etag()
 
     def _has_size_and_etag(self):
-        return self.slo_size > 0 and self.slo_etag
+        return self.slo_size >= 0 and self.slo_etag
 
     @classmethod
     def from_headers(cls, response_headers):
