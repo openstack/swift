@@ -2238,6 +2238,30 @@ class TestSloHeadOldManifest(SloGETorHEADTestCase):
         # *add* it on SLO requests, not a multipart-manifest=get request
         self.assertNotIn('X-Backend-Etag-Is-At', self.app.headers[0])
 
+    def test_zero_byte_manifest(self):
+        _single_segment_manifest = [
+            {'name': '/c/zero', 'hash': md5hex(''), 'bytes': '0',
+             'content_type': 'text/plain'},
+        ]
+        self._setup_manifest('zero-byte', _single_segment_manifest)
+        req = Request.blank('/v1/AUTH_test/c/manifest-zero-byte',
+                            method='HEAD')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_zero_byte_slo_etag)
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_zero_byte_json_md5)
+        self.assertEqual(body, b'')  # it's a HEAD request, after all
+
+        expected_app_calls = [('HEAD', '/v1/AUTH_test/c/manifest-zero-byte')]
+        if not self.modern_manifest_headers:
+            expected_app_calls.append((
+                'GET', '/v1/AUTH_test/c/manifest-zero-byte'))
+        self.assertEqual(self.app.calls, expected_app_calls)
+
     def test_if_none_match_etag_matching(self):
         req = Request.blank(
             '/v1/AUTH_test/headtest/man',
@@ -6103,6 +6127,29 @@ class TestRespAttrs(unittest.TestCase):
         self.assertEqual(123456789.12345, attrs.timestamp)
         # I hope someday a non-slo with slo sysmeta *will* be just a legacy,
         # see lp bug #2035158
+        self.assertFalse(attrs.is_legacy)
+
+    def test_from_zero_byte_sysmeta(self):
+        attrs = slo.RespAttrs.from_headers([
+            ('X-Backend-Timestamp', '1709069771.34178'),
+            ('X-Object-Sysmeta-Container-Update-Override-Etag',
+             'a1eadf0ca181e87fcbdba2074ce0fd90; '
+             's3_etag=59adb24ef3cdbe0297f05b395827453f-1; '
+             'slo_etag=74be16979710d4c4e7c6647856088456'),
+            ('X-Object-Sysmeta-S3Api-Etag',
+             '59adb24ef3cdbe0297f05b395827453f-1'),
+            ('X-Object-Sysmeta-S3Api-Upload-Id',
+             'NDZlMDBhN2MtNzVmZS00ZTljLTkzN2EtODcwNGQ5OTg4NmQ2'),
+            ('X-Object-Sysmeta-Slo-Etag', '74be16979710d4c4e7c6647856088456'),
+            ('X-Object-Sysmeta-Slo-Size', '0'),
+            ('ETag', 'a1eadf0ca181e87fcbdba2074ce0fd90'),
+            ('X-Static-Large-Object', 'True'),
+        ])
+        self.assertTrue(attrs.is_slo)
+        self.assertEqual(1709069771.34178, attrs.timestamp)
+        self.assertEqual('a1eadf0ca181e87fcbdba2074ce0fd90', attrs.json_md5)
+        self.assertEqual('74be16979710d4c4e7c6647856088456', attrs.slo_etag)
+        self.assertEqual(0, attrs.slo_size)
         self.assertFalse(attrs.is_legacy)
 
     def _legacy_from_headers(self):
