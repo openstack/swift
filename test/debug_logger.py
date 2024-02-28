@@ -249,6 +249,9 @@ class DebugLogger(FakeLogger):
 
 
 class DebugLogAdapter(utils.LogAdapter):
+    def __init__(self, *args, **kwargs):
+        super(DebugLogAdapter, self).__init__(*args, **kwargs)
+        self.txn_id = None
 
     def __getattribute__(self, name):
         try:
