@@ -34,6 +34,19 @@ from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 
 
+def tempurl_parms(method, expires, path, key, digest=None):
+    path = urllib.parse.unquote(path)
+    if not six.PY2:
+        method = method.encode('utf8')
+        path = path.encode('utf8')
+        key = key.encode('utf8')
+    sig = hmac.new(
+        key,
+        b'%s\n%d\n%s' % (method, expires, path),
+        digest or hashlib.sha256).hexdigest()
+    return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
+
+
 def setUpModule():
     tf.setup_package()
 
@@ -119,16 +132,7 @@ class TestTempurl(Base):
             self.env.tempurl_key)
 
     def tempurl_parms(self, method, expires, path, key):
-        path = urllib.parse.unquote(path)
-        if not six.PY2:
-            method = method.encode('utf8')
-            path = path.encode('utf8')
-            key = key.encode('utf8')
-        sig = hmac.new(
-            key,
-            b'%s\n%d\n%s' % (method, expires, path),
-            self.digest).hexdigest()
-        return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
+        return tempurl_parms(method, expires, path, key, self.digest)
 
     def test_GET(self):
         for e in (str(self.expires), self.expires_8601):
@@ -350,17 +354,12 @@ class TestTempurlPrefix(TestTempurl):
             else:
                 prefix = path_parts[4][:4]
         prefix_to_hash = '/'.join(path_parts[0:4]) + '/' + prefix
-        if not six.PY2:
-            method = method.encode('utf8')
-            prefix_to_hash = prefix_to_hash.encode('utf8')
-            key = key.encode('utf8')
-        sig = hmac.new(
-            key,
-            b'%s\n%d\nprefix:%s' % (method, expires, prefix_to_hash),
-            self.digest).hexdigest()
-        return {
-            'temp_url_sig': sig, 'temp_url_expires': str(expires),
-            'temp_url_prefix': prefix}
+        parms = tempurl_parms(
+            method, expires,
+            'prefix:' + prefix_to_hash,
+            key, self.digest)
+        parms['temp_url_prefix'] = prefix
+        return parms
 
     def test_empty_prefix(self):
         parms = self.tempurl_parms(

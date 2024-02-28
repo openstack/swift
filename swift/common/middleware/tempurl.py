@@ -309,13 +309,15 @@ from six.moves.urllib.parse import urlencode
 
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.http import is_success
 from swift.common.digest import get_allowed_digests, \
     extract_digest_and_algorithm, DEFAULT_ALLOWED_DIGESTS, get_hmac
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
     HTTPBadRequest, wsgi_to_str
 from swift.common.utils import split_path, get_valid_utf8_str, \
-    streq_const_time, quote, get_logger
+    streq_const_time, quote, get_logger, close_if_possible
 from swift.common.registry import register_swift_info, register_sensitive_param
+from swift.common.wsgi import WSGIContext
 
 
 DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
@@ -362,6 +364,55 @@ def get_tempurl_keys_from_metadata(meta):
     return [(get_valid_utf8_str(value) if six.PY2 else value)
             for key, value in meta.items()
             if key.lower() in ('temp-url-key', 'temp-url-key-2')]
+
+
+def normalize_temp_url_expires(value):
+    """
+    Returns the normalized expiration value as an int
+
+    If not None, the value is converted to an int if possible or 0
+    if not, and checked for expiration (returns 0 if expired).
+    """
+    if value is None:
+        return value
+    try:
+        temp_url_expires = int(value)
+    except ValueError:
+        try:
+            temp_url_expires = timegm(strptime(
+                value, EXPIRES_ISO8601_FORMAT))
+        except ValueError:
+            temp_url_expires = 0
+    if temp_url_expires < time():
+        temp_url_expires = 0
+    return temp_url_expires
+
+
+def get_temp_url_info(env):
+    """
+    Returns the provided temporary URL parameters (sig, expires, prefix,
+    temp_url_ip_range), if given and syntactically valid.
+    Either sig, expires or prefix could be None if not provided.
+
+    :param env: The WSGI environment for the request.
+    :returns: (sig, expires, prefix, filename, inline,
+        temp_url_ip_range) as described above.
+    """
+    sig = expires = prefix = ip_range = filename = inline = None
+    qs = parse_qs(env.get('QUERY_STRING', ''), keep_blank_values=True)
+    if 'temp_url_ip_range' in qs:
+        ip_range = qs['temp_url_ip_range'][0]
+    if 'temp_url_sig' in qs:
+        sig = qs['temp_url_sig'][0]
+    if 'temp_url_expires' in qs:
+        expires = qs['temp_url_expires'][0]
+    if 'temp_url_prefix' in qs:
+        prefix = qs['temp_url_prefix'][0]
+    if 'filename' in qs:
+        filename = qs['filename'][0]
+    if 'inline' in qs:
+        inline = True
+    return (sig, expires, prefix, filename, inline, ip_range)
 
 
 def disposition_format(disposition_type, filename):
@@ -495,9 +546,10 @@ class TempURL(object):
         """
         if env['REQUEST_METHOD'] == 'OPTIONS':
             return self.app(env, start_response)
-        info = self._get_temp_url_info(env)
-        temp_url_sig, temp_url_expires, temp_url_prefix, filename, \
+        info = get_temp_url_info(env)
+        temp_url_sig, client_temp_url_expires, temp_url_prefix, filename, \
             inline_disposition, temp_url_ip_range = info
+        temp_url_expires = normalize_temp_url_expires(client_temp_url_expires)
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
@@ -511,7 +563,10 @@ class TempURL(object):
         if hash_algorithm not in self.allowed_digests:
             return self._invalid(env, start_response)
 
-        account, container, obj = self._get_path_parts(env)
+        account, container, obj = self._get_path_parts(
+            env, allow_container_root=(
+                env['REQUEST_METHOD'] in ('GET', 'HEAD') and
+                temp_url_prefix == ""))
         if not account:
             return self._invalid(env, start_response)
 
@@ -577,115 +632,101 @@ class TempURL(object):
         env['swift.authorize_override'] = True
         env['REMOTE_USER'] = '.wsgi.tempurl'
         qs = {'temp_url_sig': temp_url_sig,
-              'temp_url_expires': temp_url_expires}
+              'temp_url_expires': client_temp_url_expires}
         if temp_url_prefix is not None:
             qs['temp_url_prefix'] = temp_url_prefix
         if filename:
             qs['filename'] = filename
         env['QUERY_STRING'] = urlencode(qs)
 
-        def _start_response(status, headers, exc_info=None):
-            headers = self._clean_outgoing_headers(headers)
-            if env['REQUEST_METHOD'] in ('GET', 'HEAD') and status[0] == '2':
-                # figure out the right value for content-disposition
-                # 1) use the value from the query string
-                # 2) use the value from the object metadata
-                # 3) use the object name (default)
-                out_headers = []
-                existing_disposition = None
-                for h, v in headers:
-                    if h.lower() != 'content-disposition':
-                        out_headers.append((h, v))
-                    else:
-                        existing_disposition = v
-                if inline_disposition:
-                    if filename:
-                        disposition_value = disposition_format('inline',
-                                                               filename)
-                    else:
-                        disposition_value = 'inline'
-                elif filename:
-                    disposition_value = disposition_format('attachment',
-                                                           filename)
-                elif existing_disposition:
-                    disposition_value = existing_disposition
+        ctx = WSGIContext(self.app)
+        app_iter = ctx._app_call(env)
+        ctx._response_headers = self._clean_outgoing_headers(
+            ctx._response_headers)
+        if env['REQUEST_METHOD'] in ('GET', 'HEAD') and \
+                is_success(ctx._get_status_int()):
+            # figure out the right value for content-disposition
+            # 1) use the value from the query string
+            # 2) use the value from the object metadata
+            # 3) use the object name (default)
+            out_headers = []
+            existing_disposition = None
+            content_generator = None
+            for h, v in ctx._response_headers:
+                if h.lower() == 'x-backend-content-generator':
+                    content_generator = v
+
+                if h.lower() != 'content-disposition':
+                    out_headers.append((h, v))
                 else:
-                    name = basename(wsgi_to_str(env['PATH_INFO']).rstrip('/'))
-                    disposition_value = disposition_format('attachment',
-                                                           name)
-                # this is probably just paranoia, I couldn't actually get a
-                # newline into existing_disposition
-                value = disposition_value.replace('\n', '%0A')
-                out_headers.append(('Content-Disposition', value))
+                    existing_disposition = v
+            if content_generator == 'staticweb':
+                inline_disposition = True
+            elif obj == "":
+                # Generally, tempurl requires an object. We carved out an
+                # exception to allow GETs at the container root for the sake
+                # of staticweb, but we can't tell whether we'll have a
+                # staticweb response or not until after we call the app
+                close_if_possible(app_iter)
+                return self._invalid(env, start_response)
 
-                # include Expires header for better cache-control
-                out_headers.append(('Expires', strftime(
-                    "%a, %d %b %Y %H:%M:%S GMT",
-                    gmtime(temp_url_expires))))
-                headers = out_headers
-            return start_response(status, headers, exc_info)
+            if inline_disposition:
+                if filename:
+                    disposition_value = disposition_format('inline',
+                                                           filename)
+                else:
+                    disposition_value = 'inline'
+            elif filename:
+                disposition_value = disposition_format('attachment',
+                                                       filename)
+            elif existing_disposition:
+                disposition_value = existing_disposition
+            else:
+                name = basename(wsgi_to_str(env['PATH_INFO']).rstrip('/'))
+                disposition_value = disposition_format('attachment',
+                                                       name)
+            # this is probably just paranoia, I couldn't actually get a
+            # newline into existing_disposition
+            value = disposition_value.replace('\n', '%0A')
+            out_headers.append(('Content-Disposition', value))
 
-        return self.app(env, _start_response)
+            # include Expires header for better cache-control
+            out_headers.append(('Expires', strftime(
+                "%a, %d %b %Y %H:%M:%S GMT",
+                gmtime(temp_url_expires))))
+            ctx._response_headers = out_headers
+        start_response(
+            ctx._response_status,
+            ctx._response_headers,
+            ctx._response_exc_info)
+        return app_iter
 
-    def _get_path_parts(self, env):
+    def _get_path_parts(self, env, allow_container_root=False):
         """
         Return the account, container and object name for the request,
         if it's an object request and one of the configured methods;
         otherwise, None is returned.
 
+        If it's a container request and allow_root_container is true,
+        the object name returned will be the empty string.
+
         :param env: The WSGI environment for the request.
+        :param allow_container_root: Whether requests to the root of a
+            container should be allowed.
         :returns: (Account str, container str, object str) or
             (None, None, None).
         """
         if env['REQUEST_METHOD'] in self.conf['methods']:
             try:
-                ver, acc, cont, obj = split_path(env['PATH_INFO'], 4, 4, True)
+                ver, acc, cont, obj = split_path(
+                    env['PATH_INFO'], 3 if allow_container_root else 4,
+                    4, True)
             except ValueError:
                 return (None, None, None)
-            if ver == 'v1' and obj.strip('/'):
-                return (wsgi_to_str(acc), wsgi_to_str(cont), wsgi_to_str(obj))
+            if ver == 'v1' and (allow_container_root or obj.strip('/')):
+                return (wsgi_to_str(acc), wsgi_to_str(cont),
+                        wsgi_to_str(obj) if obj else '')
         return (None, None, None)
-
-    def _get_temp_url_info(self, env):
-        """
-        Returns the provided temporary URL parameters (sig, expires, prefix,
-        temp_url_ip_range), if given and syntactically valid.
-        Either sig, expires or prefix could be None if not provided.
-        If provided, expires is also converted to an int if possible or 0
-        if not, and checked for expiration (returns 0 if expired).
-
-        :param env: The WSGI environment for the request.
-        :returns: (sig, expires, prefix, filename, inline,
-            temp_url_ip_range) as described above.
-        """
-        temp_url_sig = temp_url_expires = temp_url_prefix = filename =\
-            inline = None
-        temp_url_ip_range = None
-        qs = parse_qs(env.get('QUERY_STRING', ''), keep_blank_values=True)
-        if 'temp_url_ip_range' in qs:
-            temp_url_ip_range = qs['temp_url_ip_range'][0]
-        if 'temp_url_sig' in qs:
-            temp_url_sig = qs['temp_url_sig'][0]
-        if 'temp_url_expires' in qs:
-            try:
-                temp_url_expires = int(qs['temp_url_expires'][0])
-            except ValueError:
-                try:
-                    temp_url_expires = timegm(strptime(
-                        qs['temp_url_expires'][0],
-                        EXPIRES_ISO8601_FORMAT))
-                except ValueError:
-                    temp_url_expires = 0
-            if temp_url_expires < time():
-                temp_url_expires = 0
-        if 'temp_url_prefix' in qs:
-            temp_url_prefix = qs['temp_url_prefix'][0]
-        if 'filename' in qs:
-            filename = qs['filename'][0]
-        if 'inline' in qs:
-            inline = True
-        return (temp_url_sig, temp_url_expires, temp_url_prefix, filename,
-                inline, temp_url_ip_range)
 
     def _get_keys(self, env):
         """
