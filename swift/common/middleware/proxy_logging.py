@@ -98,6 +98,7 @@ from swift.common.utils import (get_logger, get_remote_client,
                                 InputProxy, list_from_csv, get_policy_index,
                                 split_path, StrAnonymizer, StrFormatTime,
                                 LogStringFormatter)
+from swift.common.statsd_client import get_labeled_statsd_client
 
 from swift.common.storage_policy import POLICIES
 from swift.common.registry import get_sensitive_headers, \
@@ -140,6 +141,10 @@ class ProxyLoggingMiddleware(object):
                      'GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS,UPDATE'))
         self.valid_methods = [m.strip().upper() for m in
                               self.valid_methods.split(',') if m.strip()]
+
+        # Copy supported access_log_* options to the corresponding log_*
+        # option, possibly overriding the log_* option. Note that this includes
+        # some statsd options that have access_log_* or log_* prefixes.
         access_log_conf = {}
         for key in ('log_facility', 'log_name', 'log_level', 'log_udp_host',
                     'log_udp_port', 'log_statsd_host', 'log_statsd_port',
@@ -149,10 +154,15 @@ class ProxyLoggingMiddleware(object):
             value = conf.get('access_' + key, conf.get(key, None))
             if value:
                 access_log_conf[key] = value
+        for key, value in conf.items():
+            if key.startswith('statsd_'):
+                access_log_conf[key] = value
         self.access_logger = logger or get_logger(
             access_log_conf,
             log_route=conf.get('access_log_route', 'proxy-access'),
             statsd_tail_prefix='proxy-server')
+        self.statsd = get_labeled_statsd_client(
+            access_log_conf, self.access_logger.logger)
         self.reveal_sensitive_prefix = int(
             conf.get('reveal_sensitive_prefix', 16))
         self.check_log_msg_template_validity()
@@ -329,10 +339,11 @@ class ProxyLoggingMiddleware(object):
                                       **replacements))
 
         # Log timing and bytes-transferred data to StatsD
-        metric_name = self.statsd_metric_name(req, status_int, method)
-        metric_name_policy = self.statsd_metric_name_policy(req, status_int,
-                                                            method,
-                                                            policy_index)
+        metric_method = self.statsd_metric_method(method)
+        metric_name = self.statsd_metric_name(req, status_int, metric_method)
+        metric_name_policy = self.statsd_metric_name_policy(
+            req, status_int, metric_method, policy_index)
+
         self.access_logger.timing(metric_name + '.timing',
                                   (end_time - start_time) * 1000)
         self.access_logger.update_stats(metric_name + '.xfer',
@@ -342,6 +353,25 @@ class ProxyLoggingMiddleware(object):
                                       (end_time - start_time) * 1000)
             self.access_logger.update_stats(metric_name_policy + '.xfer',
                                             bytes_received + bytes_sent)
+
+        labels = self.statsd_metric_labels(
+            req, status_int, metric_method,
+            acc=acc, cont=cont, policy_index=policy_index)
+        self.statsd.timing(
+            'swift_proxy_server_request_timing',
+            (end_time - start_time) * 1000,
+            labels=labels,
+        )
+        self.statsd.update_stats(
+            'swift_proxy_server_request_body_bytes',
+            bytes_received,
+            labels=labels,
+        )
+        self.statsd.update_stats(
+            'swift_proxy_server_response_body_bytes',
+            bytes_sent,
+            labels=labels,
+        )
 
     def get_aco_from_path(self, swift_path):
         try:
@@ -363,28 +393,47 @@ class ProxyLoggingMiddleware(object):
             return 'account'
         return req.environ.get('swift.source') or 'UNKNOWN'
 
-    def statsd_metric_name(self, req, status_int, method):
-        stat_type = self.get_metric_name_type(req)
-        stat_method = method if method in self.valid_methods \
-            else 'BAD_METHOD'
-        return '.'.join((stat_type, stat_method, str(status_int)))
+    def statsd_metric_method(self, method):
+        return method if method in self.valid_methods else 'BAD_METHOD'
 
-    def statsd_metric_name_policy(self, req, status_int, method, policy_index):
+    def statsd_metric_name(self, req, status_int, metric_method):
+        stat_type = self.get_metric_name_type(req)
+        return '.'.join((stat_type, metric_method, str(status_int)))
+
+    def statsd_metric_name_policy(self, req, status_int, metric_method,
+                                  policy_index):
         if policy_index is None:
             return None
         stat_type = self.get_metric_name_type(req)
         if stat_type == 'object':
-            stat_method = method if method in self.valid_methods \
-                else 'BAD_METHOD'
             # The policy may not exist
             policy = POLICIES.get_by_index(policy_index)
             if policy:
                 return '.'.join((stat_type, 'policy', str(policy_index),
-                                 stat_method, str(status_int)))
+                                 metric_method, str(status_int)))
             else:
                 return None
         else:
             return None
+
+    def statsd_metric_labels(self, req, status_int, metric_method, acc=None,
+                             cont=None, policy_index=None):
+        resource_type = self.get_metric_name_type(req)
+
+        labels = {
+            'resource': resource_type,
+            'method': metric_method,
+            'status': status_int,
+        }
+        if acc:
+            labels['account'] = acc
+        if cont:
+            labels['container'] = cont
+        if resource_type == 'object' and \
+                policy_index is not None and \
+                POLICIES.get_by_index(policy_index) is not None:
+            labels['policy'] = policy_index
+        return labels
 
     def __call__(self, env, start_response):
         if self.req_already_logged(env):
@@ -436,10 +485,16 @@ class ProxyLoggingMiddleware(object):
             ttfb = 0.0
             if method == 'GET':
                 policy_index = get_policy_index(req.headers, resp_headers)
+                swift_path = req.environ.get('swift.backend_path', req.path)
+                acc, cont, _ = self.get_aco_from_path(swift_path)
+                labels = self.statsd_metric_labels(
+                    req, wire_status_int, method,
+                    acc=acc, cont=cont, policy_index=policy_index)
                 metric_name = self.statsd_metric_name(
                     req, wire_status_int, method)
                 metric_name_policy = self.statsd_metric_name_policy(
                     req, wire_status_int, method, policy_index)
+
                 ttfb = time.time() - start_time
                 if metric_name:
                     self.access_logger.timing(
@@ -447,6 +502,12 @@ class ProxyLoggingMiddleware(object):
                 if metric_name_policy:
                     self.access_logger.timing(
                         metric_name_policy + '.first-byte.timing', ttfb * 1000)
+
+                self.statsd.timing(
+                    'swift_proxy_server_request_ttfb',
+                    ttfb * 1000,
+                    labels=labels,
+                )
 
             bytes_sent = 0
             try:
