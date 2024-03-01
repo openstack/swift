@@ -28,14 +28,6 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-py27-centos-7
-    parent: openstack-tox-py27
-    nodeset: centos-7
-    vars:
-      tox_environment:
-        TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
-
-- job:
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -235,12 +227,6 @@
       tox_envlist: func-ec-py3
 
 - job:
-    name: swift-tox-func-py27-centos-7
-    parent: swift-tox-py27-centos-7
-    vars:
-      tox_envlist: func
-
-- job:
     name: swift-tox-func-encryption-py27
     parent: swift-tox-func-py27
     description: |
@@ -253,12 +239,6 @@
       tox_envlist: func-encryption
 
 - job:
-    name: swift-tox-func-encryption-py27-centos-7
-    parent: swift-tox-func-py27-centos-7
-    vars:
-      tox_envlist: func-encryption
-
-- job:
     name: swift-tox-func-ec-py27
     parent: swift-tox-func-py27
     description: |
@@ -267,12 +247,6 @@
       Uses tox with the ``func-ec`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    vars:
-      tox_envlist: func-ec
-
-- job:
-    name: swift-tox-func-ec-py27-centos-7
-    parent: swift-tox-func-py27-centos-7
     vars:
       tox_envlist: func-ec
 
@@ -356,22 +330,6 @@
     run: tools/playbooks/s3api-tests/run.yaml
     post-run:
       - tools/playbooks/probetests/post.yaml
-
-- job:
-    name: swift-probetests-centos-7
-    parent: swift-probetests-centos-8-stream
-    nodeset: centos-7
-    description: |
-      Setup a SAIO dev environment and run Swift's probe tests
-      under Python 2.
-    vars:
-      bindep_profile: test py27
-      ensure_pip_from_packages: False
-      ensure_pip_from_packages_with_python2: False
-      ensure_pip_from_upstream: True
-      ensure_pip_from_upstream_interpreters:
-        - python2
-      ensure_pip_from_upstream_url: "https://bootstrap.pypa.io/pip/2.7/get-pip.py"
 
 - job:
     name: swift-probetests-centos-8-stream
@@ -740,15 +698,13 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(cors|unit|functional|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-7:
+        - swift-probetests-centos-8-stream:
             irrelevant-files: &probetest-irrelevant-files
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(cors|unit|functional|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-8-stream:
-            irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
         - swift-dsvm-functional-ipv6:
@@ -796,8 +752,6 @@
         - swift-tox-func-ec-py38
         - swift-func-cors
         - swift-tox-func-s3api-tests-tempauth
-        - swift-probetests-centos-7:
-            irrelevant-files: *probetest-irrelevant-files
         - swift-probetests-centos-8-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
@@ -820,10 +774,6 @@
       jobs:
         - swift-tox-py37
         - swift-tox-py38
-        - swift-tox-py27-centos-7
-        - swift-tox-func-py27-centos-7
-        - swift-tox-func-encryption-py27-centos-7
-        - swift-tox-func-ec-py27-centos-7
         - swift-tox-py36-centos-8-stream
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
