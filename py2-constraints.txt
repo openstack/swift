@@ -68,6 +68,10 @@ gitdb===0.6.4
 gitdb2===2.0.6
 pathlib2==2.3.6
 
+# python-dateutil seems likely to bring back support, but 2.9.0 is known-broken
+# see https://github.com/dateutil/dateutil/issues/1344
+python-dateutil===2.8.2
+
 # Projects that are known to have had a final py2-supporting release
 bandit===1.6.2
 python-keystoneclient===3.22.0
