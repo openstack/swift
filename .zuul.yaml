@@ -491,18 +491,6 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-multinode-rolling-upgrade-train
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/train
-
-- job:
-    name: swift-multinode-rolling-upgrade-ussuri
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/ussuri
-
-- job:
     name: swift-multinode-rolling-upgrade-victoria
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -524,7 +512,7 @@
     name: swift-multinode-rolling-upgrade-yoga
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/yoga
+      previous_swift_version: origin/unmaintained/yoga
 
 - job:
     name: swift-multinode-rolling-upgrade-zed
