@@ -17,11 +17,9 @@
   roles:
     - ensure-pip
   tasks:
-    - name: upgrade pip, but not too far
+    - name: upgrade pip
       pip:
-        # 20.* works on both py2 and py3, and the pip for centos7 in EPEL
-        # isn't smart enough to prevent us upgrading to 21+
-        name: pip<21
+        name: pip
         extra_args: --upgrade
 
     - name: install rsync-daemon - CentOS 8
@@ -35,27 +33,11 @@
     - name: install python modules with pip
       pip: name={{ item }} state=present extra_args='--upgrade'
       with_items:
-        # For some reason, pip on py2 isn't smart enough to prevent us
-        # trying to install a too-new mock or attrs??
-        - 'mock<4'
-        - 'attrs<22.1.0'
-        # crudini pulls in iniparse which can conflict with distro-installed
-        # packages on centos7
-        - 'crudini<0.9.4'
-        # Order matters; install constrained versions *first*, then unconstrained
+        - mock
+        - crudini
         - eventlet
         - pyeclib
         - pytest
         - pytest-cov
         - python-swiftclient
         - 'boto3>=1.9'
-
-    - name: install PasteDeploy - CentOS 7
-      pip: name={{ item }} state=present extra_args='--upgrade'
-      with_items:
-        # py2_constraints won't be obeyed by pip install swift
-        - 'PasteDeploy==2.1.1'
-        - 'python-dateutil==2.8.2'
-      when:
-        - ansible_facts['distribution'] == "CentOS"
-        - ansible_facts['distribution_major_version'] == "7"
