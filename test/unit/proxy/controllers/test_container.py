@@ -105,12 +105,13 @@ class BaseTestContainerController(TestRingBase):
                 cache = FakeMemcache()
                 cache.set(get_cache_key('a'), {'status': 204})
                 req = Request.blank('/v1/a/c', environ={'swift.cache': cache})
+                req.method = method
                 resp = getattr(controller, method)(req)
 
-            self.assertEqual(expected,
-                             resp.status_int,
-                             'Expected %s but got %s. Failed case: %s' %
-                             (expected, resp.status_int, str(responses)))
+            self.assertEqual(
+                expected, resp.status_int,
+                'Expected %s but got %s. Failed case: %s %s' %
+                (expected, resp.status_int, method, str(responses)))
 
 
 class TestContainerController(BaseTestContainerController):
@@ -469,6 +470,32 @@ class TestContainerController(BaseTestContainerController):
             ((503, 503, 503), 503)
         ]
         self._assert_responses('POST', POST_TEST_CASES)
+
+    def test_no_quorum_responses_error_log(self):
+        # TODO: similar test for GET/HEAD
+        def do_test(method, case):
+            backend_resp_codes, exp_resp_code = case
+            self.app.logger.clear()
+            self._assert_responses(
+                method, [(backend_resp_codes, exp_resp_code)])
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertTrue(log_lines, (method, case))
+            backend_resp_codes.extend(
+                [503] * (self.CONTAINER_REPLICAS - len(backend_resp_codes)))
+            self.assertEqual(
+                'Container %s returning %d for %s'
+                % (method, exp_resp_code, backend_resp_codes),
+                log_lines[-1], (method, case))
+
+        test_cases = [
+            ([204, 404, 503], 503),
+            ([204, 503, 503], 503),
+            ([404, 503, 503], 503),
+            ([503, 503, 503], 503)
+        ]
+        for method in ('PUT', 'POST', 'DELETE'):
+            for case in test_cases:
+                do_test(method, case)
 
     def test_GET_bad_requests(self):
         # verify that the proxy controller enforces checks on request params

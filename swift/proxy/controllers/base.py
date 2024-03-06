@@ -1182,6 +1182,49 @@ class GetterSource(object):
         close_swift_conn(self.resp)
 
 
+class ResponseData(object):
+    """
+    Encapsulate response data.
+    """
+    def __init__(self, status, reason='', headers=None, body=None):
+        self.status = status
+        self.reason = reason
+        self.headers = HeaderKeyDict(headers)
+        self.body = body or b''
+
+    @classmethod
+    def from_http_response(cls, http_response, body=None):
+        return cls(http_response.status, http_response.reason,
+                   http_response.getheaders(), body)
+
+
+class ResponseCollection(list):
+    """
+    Provides helper methods for convenient access to lists of ResponseData
+    attributes.
+    """
+    @property
+    def statuses(self):
+        return [resp.status for resp in self]
+
+    @property
+    def reasons(self):
+        return [resp.reason for resp in self]
+
+    @property
+    def headers(self):
+        return [resp.headers for resp in self]
+
+    @property
+    def bodies(self):
+        return [resp.body for resp in self]
+
+    @property
+    def etags(self):
+        return [normalize_etag(resp.headers.get('etag'))
+                for resp in self if is_success(resp.status)]
+
+
 class GetterBase(object):
     """
     This base class provides helper methods for handling GET requests to
@@ -1407,10 +1450,7 @@ class GetOrHeadHandler(GetterBase):
             node_iter.num_primary_nodes - 1)
 
         # populated when finding source
-        self.statuses = []
-        self.reasons = []
-        self.bodies = []
-        self.source_headers = []
+        self.responses = ResponseCollection()
         self.sources = []
 
         # populated from response headers
@@ -1519,15 +1559,15 @@ class GetOrHeadHandler(GetterBase):
 
     @property
     def last_status(self):
-        if self.statuses:
-            return self.statuses[-1]
+        if self.responses:
+            return self.responses[-1].status
         else:
             return None
 
     @property
-    def last_headers(self):
-        if self.source_headers:
-            return HeaderKeyDict(self.source_headers[-1])
+    def headers(self):
+        if self.responses:
+            return self.responses[-1].headers
         else:
             return None
 
@@ -1569,19 +1609,13 @@ class GetOrHeadHandler(GetterBase):
         if is_good_source(possible_source.status, self.server_type):
             # 404 if we know we don't have a synced copy
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
-                self.statuses.append(HTTP_NOT_FOUND)
-                self.reasons.append('')
-                self.bodies.append('')
-                self.source_headers.append([])
+                self.responses.append(ResponseData(HTTP_NOT_FOUND))
                 close_swift_conn(possible_source)
             else:
                 if self.used_source_etag and \
                         self.used_source_etag != normalize_etag(
                             src_headers.get('etag', '')):
-                    self.statuses.append(HTTP_NOT_FOUND)
-                    self.reasons.append('')
-                    self.bodies.append('')
-                    self.source_headers.append([])
+                    self.responses.append(ResponseData(HTTP_NOT_FOUND))
                     return False
 
                 # a possible source should only be added as a valid source
@@ -1592,10 +1626,8 @@ class GetOrHeadHandler(GetterBase):
                     src_headers.get('x-put-timestamp') or
                     src_headers.get('x-timestamp') or 0)
                 if ps_timestamp >= self.latest_404_timestamp:
-                    self.statuses.append(possible_source.status)
-                    self.reasons.append(possible_source.reason)
-                    self.bodies.append(None)
-                    self.source_headers.append(possible_source.getheaders())
+                    self.responses.append(
+                        ResponseData.from_http_response(possible_source))
                     self.sources.append(
                         GetterSource(self.app, possible_source, node))
                     if not self.newest:  # one good source is enough
@@ -1615,10 +1647,9 @@ class GetOrHeadHandler(GetterBase):
                 self.rebalance_missing_suppression_count -= 1
                 return False
 
-            self.statuses.append(possible_source.status)
-            self.reasons.append(possible_source.reason)
-            self.bodies.append(possible_source.read())
-            self.source_headers.append(possible_source.getheaders())
+            self.responses.append(
+                ResponseData.from_http_response(possible_source,
+                                                possible_source.read()))
 
             # if 404, record the timestamp. If a good source shows up, its
             # timestamp will be compared to the latest 404.
@@ -1632,14 +1663,11 @@ class GetOrHeadHandler(GetterBase):
                     self.latest_404_timestamp = ts
             self.app.check_response(node, self.server_type, possible_source,
                                     self.req.method, self.path,
-                                    self.bodies[-1])
+                                    self.responses[-1].body)
         return False
 
     def _find_source(self):
-        self.statuses = []
-        self.reasons = []
-        self.bodies = []
-        self.source_headers = []
+        self.responses = ResponseCollection()
         self.sources = []
 
         nodes = GreenthreadSafeIterator(self.node_iter)
@@ -2088,8 +2116,8 @@ class Controller(object):
                     if (self.app.check_response(node, self.server_type, resp,
                                                 method, path)
                             and not is_informational(resp.status)):
-                        return resp.status, resp.reason, resp.getheaders(), \
-                            resp.read()
+                        return ResponseData.from_http_response(
+                            resp, resp.read())
 
             except (Exception, Timeout):
                 self.app.exception_occurred(
@@ -2128,28 +2156,24 @@ class Controller(object):
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
                        head, query_string, body, self.logger.thread_locals)
-        response = []
-        statuses = []
+        responses = ResponseCollection()
         for resp in pile:
             if not resp:
                 continue
-            response.append(resp)
-            statuses.append(resp[0])
-            if self.have_quorum(statuses, node_number):
+            responses.append(resp)
+            if self.have_quorum(responses.statuses, node_number):
                 break
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
         for resp in finished_quickly:
             if not resp:
                 continue
-            response.append(resp)
-            statuses.append(resp[0])
-        while len(response) < node_number:
-            response.append((HTTP_SERVICE_UNAVAILABLE, '', '', b''))
-        statuses, reasons, resp_headers, bodies = zip(*response)
-        return self.best_response(req, statuses, reasons, bodies,
-                                  '%s %s' % (self.server_type, req.method),
-                                  overrides=overrides, headers=resp_headers)
+            responses.append(resp)
+        while len(responses) < node_number:
+            responses.append(ResponseData(HTTP_SERVICE_UNAVAILABLE))
+
+        return self.best_response(req, responses, overrides=overrides,
+                                  headers=True)
 
     def _quorum_size(self, n):
         """
@@ -2178,60 +2202,57 @@ class Controller(object):
                     return True
         return False
 
-    def best_response(self, req, statuses, reasons, bodies, server_type,
-                      etag=None, headers=None, overrides=None,
-                      quorum_size=None):
+    def best_response(self, req, responses, etag=None, headers=False,
+                      overrides=None, quorum_size=None):
         """
         Given a list of responses from several servers, choose the best to
         return to the API.
 
         :param req: swob.Request object
-        :param statuses: list of statuses returned
-        :param reasons: list of reasons for each status
-        :param bodies: bodies of each response
-        :param server_type: type of server the responses came from
+        :param responses: list of backend responses
         :param etag: etag
-        :param headers: headers of each response
+        :param headers: if True then the backend headers are copied to the
+            returned response.
         :param overrides: overrides to apply when lacking quorum
         :param quorum_size: quorum size to use
         :returns: swob.Response object with the correct status, body, etc. set
         """
         if quorum_size is None:
-            quorum_size = self._quorum_size(len(statuses))
+            quorum_size = self._quorum_size(len(responses))
 
         resp = self._compute_quorum_response(
-            req, statuses, reasons, bodies, etag, headers,
+            req, responses, etag, headers,
             quorum_size=quorum_size)
         if overrides and not resp:
             faked_up_status_indices = set()
-            transformed = []
-            for (i, (status, reason, hdrs, body)) in enumerate(zip(
-                    statuses, reasons, headers, bodies)):
-                if status in overrides:
+            transformed = ResponseCollection()
+            for (i, resp) in enumerate(responses):
+                if resp.status in overrides:
                     faked_up_status_indices.add(i)
-                    transformed.append((overrides[status], '', '', ''))
+                    transformed.append(ResponseData(overrides[resp.status]))
                 else:
-                    transformed.append((status, reason, hdrs, body))
-            statuses, reasons, headers, bodies = zip(*transformed)
+                    transformed.append(resp)
             resp = self._compute_quorum_response(
-                req, statuses, reasons, bodies, etag, headers,
+                req, transformed, etag, headers,
                 indices_to_avoid=faked_up_status_indices,
                 quorum_size=quorum_size)
 
         if not resp:
             resp = HTTPServiceUnavailable(request=req)
-            self.logger.error('%(type)s returning 503 for %(statuses)s',
-                              {'type': server_type, 'statuses': statuses})
-
+            self.logger.error(
+                '%(type)s %(method)s returning 503 for %(statuses)s',
+                {'type': self.server_type, 'method': req.method,
+                 'statuses': responses.statuses})
+        resp.environ['swift.backend_responses'] = responses
         return resp
 
-    def _compute_quorum_response(self, req, statuses, reasons, bodies, etag,
+    def _compute_quorum_response(self, req, responses, etag,
                                  headers, quorum_size, indices_to_avoid=()):
-        if not statuses:
+        if not responses:
             return None
         for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
             hstatuses = \
-                [(i, s) for i, s in enumerate(statuses)
+                [(i, s) for i, s in enumerate(responses.statuses)
                  if hundred <= s < hundred + 100]
             if len(hstatuses) >= quorum_size:
                 try:
@@ -2242,11 +2263,12 @@ class Controller(object):
                 except ValueError:
                     # All statuses were indices to avoid
                     continue
+                backend_resp = responses[status_index]
                 resp = status_map[status](request=req)
-                resp.status = '%s %s' % (status, reasons[status_index])
-                resp.body = bodies[status_index]
+                resp.status = '%s %s' % (status, backend_resp.reason)
+                resp.body = backend_resp.body
                 if headers:
-                    update_headers(resp, headers[status_index])
+                    update_headers(resp, backend_resp.headers)
                 if etag:
                     resp.headers['etag'] = normalize_etag(etag)
                 return resp
@@ -2325,10 +2347,7 @@ class Controller(object):
         res = handler.get_working_response()
 
         if not res:
-            res = self.best_response(
-                req, handler.statuses, handler.reasons, handler.bodies,
-                '%s %s' % (server_type, req.method),
-                headers=handler.source_headers)
+            res = self.best_response(req, handler.responses, headers=True)
 
         # if a backend policy index is present in resp headers, translate it
         # here with the friendly policy name

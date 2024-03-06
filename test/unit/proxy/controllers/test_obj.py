@@ -3120,6 +3120,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         with set_http_connect():
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
+        lines = self.logger.get_lines_for_level('error')
+        self.assertIn('Object GET returning 503 for []', lines[-1])
 
     def test_feed_remaining_primaries(self):
         controller = self.controller_cls(
@@ -4559,7 +4561,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(log_lines,
                          ['Problem with fragment response: ETag mismatch'] * 7
-                         + ['Object returning 503 for []'])
+                         + ['Object GET returning 503 for []'])
         # Note the empty list above -- that log line comes out of
         # best_response but we've already thrown out the "good" responses :-/
 
@@ -6031,7 +6033,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         bucket = obj.ECGetResponseBucket(self.policy, ts)
         self.assertEqual(bucket.shortfall, self.policy.ec_ndata)
         for i in range(1, self.policy.ec_ndata - self.policy.ec_nparity + 1):
-            stub_getter = mock.MagicMock(last_status=200, last_headers={
+            stub_getter = mock.MagicMock(last_status=200, headers={
                 'X-Backend-Timestamp': ts.internal,
                 'X-Object-Sysmeta-Ec-Etag': 'the-etag',
                 'X-Object-Sysmeta-Ec-Frag-Index': str(i),
@@ -6053,7 +6055,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         for i, expected in zip(range(
                 self.policy.ec_ndata - self.policy.ec_nparity + 1,
                 self.policy.object_ring.replica_count + 1), expectations):
-            stub_getter = mock.MagicMock(last_status=200, last_headers={
+            stub_getter = mock.MagicMock(last_status=200, headers={
                 'X-Backend-Timestamp': ts.internal,
                 'X-Object-Sysmeta-Ec-Etag': 'the-etag',
                 'X-Object-Sysmeta-Ec-Frag-Index': str(i),
@@ -6654,7 +6656,7 @@ class TestECDuplicationObjController(
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(log_lines,
                          ['Problem with fragment response: ETag mismatch'] * 7
-                         + ['Object returning 503 for []'])
+                         + ['Object GET returning 503 for []'])
 
     def _test_determine_chunk_destinations_prioritize(
             self, missing_two, missing_one):

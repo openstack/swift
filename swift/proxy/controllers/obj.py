@@ -69,7 +69,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
     record_cache_op_metrics, get_cache_key, GetterBase, GetterSource, \
     is_good_source, NodeIter, get_namespaces_from_cache, \
-    set_namespaces_in_cache
+    set_namespaces_in_cache, ResponseCollection, ResponseData
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -565,10 +565,7 @@ class BaseObjectController(Controller):
                  The list of bodies and etags is only populated for the final
                  phase of a PUT transaction.
         """
-        statuses = []
-        reasons = []
-        bodies = []
-        etags = set()
+        responses = ResponseCollection()
 
         pile = GreenAsyncPile(len(putters))
         for putter in putters:
@@ -578,24 +575,20 @@ class BaseObjectController(Controller):
                        self.logger.thread_locals, final_phase=final_phase)
 
         def _handle_response(putter, response):
-            statuses.append(response.status)
-            reasons.append(response.reason)
             if final_phase:
                 body = response.read()
             else:
                 body = b''
-            bodies.append(body)
+            responses.append(ResponseData.from_http_response(response, body))
             if not self.app.check_response(putter.node, 'Object', response,
                                            req.method, req.path, body):
                 putter.failed = True
-            elif is_success(response.status):
-                etags.add(normalize_etag(response.getheader('etag')))
 
         for (putter, response) in pile:
             if response:
                 _handle_response(putter, response)
                 if self._have_adequate_put_responses(
-                        statuses, num_nodes, min_responses):
+                        responses.statuses, num_nodes, min_responses):
                     break
             else:
                 putter.failed = True
@@ -607,12 +600,9 @@ class BaseObjectController(Controller):
                 _handle_response(putter, response)
 
         if final_phase:
-            while len(statuses) < num_nodes:
-                statuses.append(HTTP_SERVICE_UNAVAILABLE)
-                reasons.append('')
-                bodies.append(b'')
-
-        return statuses, reasons, bodies, etags
+            while len(responses) < num_nodes:
+                responses.append(ResponseData(HTTP_SERVICE_UNAVAILABLE))
+        return responses
 
     def _config_obj_expiration(self, req):
         delete_at_container = None
@@ -1094,21 +1084,21 @@ class ReplicatedObjectController(BaseObjectController):
             self._transfer_data(req, data_source, putters, nodes)
 
             # get responses
-            statuses, reasons, bodies, etags = \
-                self._get_put_responses(req, putters, len(nodes))
+            responses = self._get_put_responses(req, putters, len(nodes))
         except HTTPException as resp:
             return resp
         finally:
             for putter in putters:
                 putter.close()
 
+        etags = set(responses.etags)
         if len(etags) > 1:
             self.logger.error(
                 'Object servers returned %s mismatched etags', len(etags))
             return HTTPServerError(request=req)
+
         etag = etags.pop() if len(etags) else None
-        resp = self.best_response(req, statuses, reasons, bodies,
-                                  'Object PUT', etag=etag)
+        resp = self.best_response(req, responses, etag=etag)
         resp.last_modified = Timestamp(req.headers['X-Timestamp']).ceil()
         return resp
 
@@ -2133,7 +2123,7 @@ class ECGetResponseBucket(object):
         Add another response to this bucket.  Response buckets can be for
         fragments with the same timestamp, or for errors with the same status.
         """
-        headers = getter.last_headers
+        headers = getter.headers
         timestamp_str = headers.get('X-Backend-Timestamp',
                                     headers.get('X-Timestamp'))
         if timestamp_str and self.update_timestamp:
@@ -2285,7 +2275,7 @@ class ECGetResponseCollection(object):
         bad_bucket.add_response(get, parts_iter)
 
     def add_good_response(self, get, parts_iter):
-        headers = get.last_headers
+        headers = get.headers
         # Add the response to the appropriate bucket keyed by data file
         # timestamp. Fall back to using X-Backend-Timestamp as key for object
         # servers that have not been upgraded.
@@ -2610,7 +2600,7 @@ class ECFragGetter(GetterBase):
         return self.status or HTTP_INTERNAL_SERVER_ERROR
 
     @property
-    def last_headers(self):
+    def headers(self):
         if self.source_headers:
             return HeaderKeyDict(self.source_headers)
         else:
@@ -2698,7 +2688,7 @@ class ECFragGetter(GetterBase):
 
     def _find_source(self):
         # capture last used etag before continuation
-        used_etag = self.last_headers.get('X-Object-Sysmeta-EC-ETag')
+        used_etag = self.headers.get('X-Object-Sysmeta-EC-ETag')
         for source in self.source_iter:
             if not source:
                 # _make_node_request only returns good sources
@@ -2939,18 +2929,15 @@ class ECObjectController(BaseObjectController):
             # here with less than ec_ndata 416's and may then return a 416
             # which is also questionable because a non-range get for same
             # object would return 404 or 503.
-            statuses = []
-            reasons = []
-            bodies = []
-            headers = []
             best_bucket.close_conns()
             rebalance_missing_suppression_count = min(
                 policy_options.rebalance_missing_suppression_count,
                 node_iter.num_primary_nodes - 1)
+            getters = ResponseCollection()
             for status, bad_bucket in buckets.bad_buckets.items():
                 for getter, _parts_iter in bad_bucket.get_responses():
                     if best_bucket.durable:
-                        bad_resp_headers = getter.last_headers
+                        bad_resp_headers = getter.headers
                         t_data_file = bad_resp_headers.get(
                             'X-Backend-Data-Timestamp')
                         t_obj = bad_resp_headers.get(
@@ -2962,30 +2949,22 @@ class ECObjectController(BaseObjectController):
                             # out there, it's just currently unavailable
                             continue
                     if getter.status:
-                        timestamp = Timestamp(getter.last_headers.get(
+                        timestamp = Timestamp(getter.headers.get(
                             'X-Backend-Timestamp',
-                            getter.last_headers.get('X-Timestamp', 0)))
+                            getter.headers.get('X-Timestamp', 0)))
                         if (rebalance_missing_suppression_count > 0 and
                                 getter.status == HTTP_NOT_FOUND and
                                 not timestamp):
                             rebalance_missing_suppression_count -= 1
                             continue
-                        statuses.append(getter.status)
-                        reasons.append(getter.reason)
-                        bodies.append(getter.body)
-                        headers.append(getter.source_headers)
+                        getters.append(getter)
 
-            if not statuses and is_success(best_bucket.status) and \
+            if not getters and is_success(best_bucket.status) and \
                     not best_bucket.durable:
                 # pretend that non-durable bucket was 404s
-                statuses.append(404)
-                reasons.append('404 Not Found')
-                bodies.append(b'')
-                headers.append({})
+                getters.append(ResponseData(404, '404 Not Found'))
 
-            resp = self.best_response(
-                req, statuses, reasons, bodies, 'Object',
-                headers=headers)
+            resp = self.best_response(req, getters, headers=True)
         self._fix_response(req, resp)
 
         # For sure put this back before actually returning the response
@@ -3217,10 +3196,10 @@ class ECObjectController(BaseObjectController):
             # object data and metadata commit and is a necessary
             # condition to be met before starting 2nd PUT phase
             final_phase = False
-            statuses, reasons, bodies, _junk = \
-                self._get_put_responses(
-                    req, putters, len(nodes), final_phase=final_phase,
-                    min_responses=min_conns)
+            responses = self._get_put_responses(
+                req, putters, len(nodes), final_phase=final_phase,
+                min_responses=min_conns)
+            statuses = responses.statuses
             if not self.have_quorum(
                     statuses, len(nodes), quorum=min_conns):
                 self.logger.error(
@@ -3228,10 +3207,8 @@ class ECObjectController(BaseObjectController):
                     statuses.count(HTTP_CONTINUE))
                 raise HTTPServiceUnavailable(request=req)
 
-            elif not self._have_adequate_informational(
-                    statuses, min_conns):
-                resp = self.best_response(req, statuses, reasons, bodies,
-                                          'Object PUT',
+            elif not self._have_adequate_informational(statuses, min_conns):
+                resp = self.best_response(req, responses,
                                           quorum_size=min_conns)
                 if is_client_error(resp.status_int):
                     # if 4xx occurred in this state it is absolutely
@@ -3376,10 +3353,9 @@ class ECObjectController(BaseObjectController):
             # future able to serve their non-durable fragment archives we may
             # be able to reduce this quorum count if needed.
             # ignore response etags
-            statuses, reasons, bodies, _etags = \
-                self._get_put_responses(req, putters, len(nodes),
-                                        final_phase=True,
-                                        min_responses=min_conns)
+            responses = self._get_put_responses(req, putters, len(nodes),
+                                                final_phase=True,
+                                                min_responses=min_conns)
         except HTTPException as resp:
             return resp
         finally:
@@ -3387,8 +3363,7 @@ class ECObjectController(BaseObjectController):
                 putter.close()
 
         etag = etag_hasher.hexdigest()
-        resp = self.best_response(req, statuses, reasons, bodies,
-                                  'Object PUT', etag=etag,
+        resp = self.best_response(req, responses, etag=etag,
                                   quorum_size=min_conns)
         resp.last_modified = Timestamp(req.headers['X-Timestamp']).ceil()
         return resp

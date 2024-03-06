@@ -30,7 +30,7 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, GetOrHeadHandler, bytes_to_skip, clear_info_cache, \
     set_info_cache, NodeIter, headers_from_container_info, \
     record_cache_op_metrics, GetterSource, get_namespaces_from_cache, \
-    set_namespaces_in_cache
+    set_namespaces_in_cache, ResponseData, ResponseCollection
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
@@ -1282,27 +1282,27 @@ class TestFuncs(BaseTest):
 
     def test_best_response_overrides(self):
         base = Controller(self.app)
-        responses = [
-            (302, 'Found', '', b'The resource has moved temporarily.'),
-            (100, 'Continue', '', b''),
-            (404, 'Not Found', '', b'Custom body'),
-        ]
+        responses = ResponseCollection([
+            ResponseData(302, 'Found', '',
+                         b'The resource has moved temporarily.'),
+            ResponseData(100, 'Continue', '', b''),
+            ResponseData(404, 'Not Found', '', b'Custom body'),
+        ])
         server_type = "Base DELETE"
         req = Request.blank('/v1/a/c/o', method='DELETE')
-        statuses, reasons, headers, bodies = zip(*responses)
 
         # First test that you can't make a quorum with only overridden
         # responses
         overrides = {302: 204, 100: 204}
-        resp = base.best_response(req, statuses, reasons, bodies, server_type,
-                                  headers=headers, overrides=overrides)
+        resp = base.best_response(req, responses, server_type,
+                                  headers=True, overrides=overrides)
         self.assertEqual(resp.status, '503 Service Unavailable')
 
         # next make a 404 quorum and make sure the last delete (real) 404
         # status is the one returned.
         overrides = {100: 404}
-        resp = base.best_response(req, statuses, reasons, bodies, server_type,
-                                  headers=headers, overrides=overrides)
+        resp = base.best_response(req, responses, server_type,
+                                  headers=True, overrides=overrides)
         self.assertEqual(resp.status, '404 Not Found')
         self.assertEqual(resp.body, b'Custom body')
 

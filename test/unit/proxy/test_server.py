@@ -78,7 +78,7 @@ from swift.common.wsgi import loadapp, ConfigString
 from swift.common.http_protocol import SwiftHttpProtocol
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_cache_key, cors_validation, \
-    get_account_info, get_container_info
+    get_account_info, get_container_info, ResponseData, ResponseCollection
 import swift.proxy.controllers
 import swift.proxy.controllers.obj
 from swift.common.header_key_dict import HeaderKeyDict
@@ -5851,23 +5851,27 @@ class TestReplicatedObjectController(
         controller = ReplicatedObjectController(
             self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
-                                        'Object', headers=[{'X-Test': '1'},
-                                                           {'X-Test': '2'},
-                                                           {'X-Test': '3'}])
-        self.assertEqual(resp.headers['X-Test'], '1')
+        responses = ResponseCollection(
+            [ResponseData(200, 'OK', headers={'X-Test': str(i)})
+             for i in range(3)]
+        )
+        resp = controller.best_response(req, responses, headers=False)
+        self.assertNotIn('X-Test', resp.headers)
+        resp = controller.best_response(req, responses, headers=True)
+        self.assertEqual(resp.headers['X-Test'], '0')
 
     def test_best_response_sets_etag(self):
         controller = ReplicatedObjectController(
             self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
-                                        'Object')
+        responses = ResponseCollection(
+            [ResponseData(200, 'OK', headers={'X-Test': str(i)})
+             for i in range(3)]
+        )
+        resp = controller.best_response(req, responses)
         self.assertIsNone(resp.etag)
-        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
-                                        'Object',
-                                        etag='68b329da9893e34099c7d8ad5cb9c940'
-                                        )
+        resp = controller.best_response(
+            req, responses, etag='68b329da9893e34099c7d8ad5cb9c940')
         self.assertEqual(resp.etag, '68b329da9893e34099c7d8ad5cb9c940')
 
     def test_proxy_passes_content_type(self):
