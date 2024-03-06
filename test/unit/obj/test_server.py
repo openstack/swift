@@ -362,6 +362,8 @@ class TestObjectController(BaseTestCase):
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
             'Etag': etag,
+            # previously existing sysmeta is returned
+            'X-Object-Sysmeta-Color': 'blue',
         })
 
         req = Request.blank('/sda1/p/a/c/o')
