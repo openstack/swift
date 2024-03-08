@@ -504,7 +504,6 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
     def setUp(self):
         self.headers = []
         self.app = FakeSwift()
-        self.app.register('HEAD', '/v1/a', HTTPOk, self.headers)
         self.app.register('HEAD', '/v1/a/c', HTTPOk, {
             'x-backend-storage-policy-index': '1'})
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk, {
@@ -513,8 +512,9 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
         self.copy_filter = copy.filter_factory({})(self.aq_filter)
 
     def test_exceed_bytes_quota_copy_from(self):
-        self.headers[:] = [('x-account-bytes-used', '500'),
-                           ('x-account-meta-quota-bytes', '1000')]
+        self.app.register('HEAD', '/v1/a', HTTPOk,
+                          [('x-account-bytes-used', '500'),
+                           ('x-account-meta-quota-bytes', '1000')])
         cache = FakeCache(None)
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT',
@@ -525,8 +525,9 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
         self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_exceed_bytes_quota_copy_verb(self):
-        self.headers[:] = [('x-account-bytes-used', '500'),
-                           ('x-account-meta-quota-bytes', '1000')]
+        self.app.register('HEAD', '/v1/a', HTTPOk,
+                          [('x-account-bytes-used', '500'),
+                           ('x-account-meta-quota-bytes', '1000')])
         cache = FakeCache(None)
         req = Request.blank('/v1/a/c2/o2',
                             environ={'REQUEST_METHOD': 'COPY',
@@ -538,8 +539,9 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
 
     def test_not_exceed_bytes_quota_copy_from(self):
         self.app.register('PUT', '/v1/a/c/o', HTTPOk, {})
-        self.headers[:] = [('x-account-bytes-used', '0'),
-                           ('x-account-meta-quota-bytes', '1000')]
+        self.app.register('HEAD', '/v1/a', HTTPOk,
+                          [('x-account-bytes-used', '0'),
+                           ('x-account-meta-quota-bytes', '1000')])
         cache = FakeCache(None)
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT',
@@ -550,8 +552,9 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
 
     def test_not_exceed_bytes_quota_copy_verb(self):
         self.app.register('PUT', '/v1/a/c/o', HTTPOk, {})
-        self.headers[:] = [('x-account-bytes-used', '0'),
-                           ('x-account-meta-quota-bytes', '1000')]
+        self.app.register('HEAD', '/v1/a', HTTPOk,
+                          [('x-account-bytes-used', '0'),
+                           ('x-account-meta-quota-bytes', '1000')])
         cache = FakeCache(None)
         req = Request.blank('/v1/a/c2/o2',
                             environ={'REQUEST_METHOD': 'COPY',
@@ -561,8 +564,9 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
         self.assertEqual(res.status_int, 200)
 
     def test_quota_copy_from_bad_src(self):
-        self.headers[:] = [('x-account-bytes-used', '0'),
-                           ('x-account-meta-quota-bytes', '1000')]
+        self.app.register('HEAD', '/v1/a', HTTPOk,
+                          [('x-account-bytes-used', '0'),
+                           ('x-account-meta-quota-bytes', '1000')])
         cache = FakeCache(None)
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT',

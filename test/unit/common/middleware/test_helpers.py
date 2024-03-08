@@ -569,6 +569,21 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(
             '99', req.headers.get('X-Backend-Storage-Policy-Index'))
 
+    def test_environ_updates(self):
+        swift = FakeSwift()
+        env_updates = {'swift.backend_responses': ['x', 'y', 'z']}
+        swift.register('PUT', '/v1/a/c/o', HTTPCreated, {}, None,
+                       env_updates=env_updates)
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'PUT'
+        exp_env = dict(req.environ)
+        resp = req.get_response(swift)
+        self.assertEqual(201, resp.status_int)
+        exp_env['HTTP_X_BACKEND_STORAGE_POLICY_INDEX'] = '0'
+        exp_env.update(env_updates)
+        self.assertEqual(exp_env, req.environ)
+        self.assertEqual(exp_env, resp.environ)
+
 
 class TestFakeSwiftMultipleResponses(unittest.TestCase):
 

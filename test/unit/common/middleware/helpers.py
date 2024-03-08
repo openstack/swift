@@ -73,6 +73,49 @@ def normalize_path(path):
     return parsed.path + normalize_query_string(parsed.query)
 
 
+class ResponseSpec(object):
+    def __init__(self, response_class, headers, body=b'',
+                 env_updates=None):
+        self.response_class = response_class
+        self.headers = HeaderKeyDict(headers)
+        self.body = body
+        self.env_updates = env_updates
+
+    def clone(self):
+        return ResponseSpec(self.response_class, self.headers,
+                            self.body, self.env_updates)
+
+    @property
+    def is_success(self):
+        try:
+            return self.response_class().is_success
+        except Exception:
+            # test_reconciler passes in an exploding response
+            return False
+
+    def apply_sticky_headers(self, sticky_headers):
+        resp_headers = HeaderKeyDict(sticky_headers)
+        resp_headers.update(self.headers)
+        self.headers = resp_headers
+
+    def make_iter(self, req, start_response, conditional_etag):
+        kwargs = {'req': req,
+                  'headers': self.headers,
+                  'conditional_response': req.method in ('GET', 'HEAD'),
+                  'conditional_etag': conditional_etag}
+        if isinstance(self.body, list):
+            kwargs['app_iter'] = self.body
+        else:
+            kwargs['body'] = self.body
+        resp = self.response_class(**kwargs)
+        wsgi_iter = resp(req.environ, start_response)
+        return wsgi_iter
+
+    def update_environ(self, environ):
+        if self.env_updates:
+            environ.update(self.env_updates)
+
+
 class FakeSwift(object):
     """
     A good-enough fake Swift proxy server to use in testing middleware.
@@ -155,9 +198,9 @@ class FakeSwift(object):
         resps = self._responses[(method, path)]
         if len(resps) == 1:
             # we'll return the last registered response forever
-            return resps[0]
+            return resps[0].clone()
         else:
-            return resps.pop(0)
+            return resps.pop(0).clone()
 
     def _select_response(self, env):
         # in some cases we can borrow different registered response
@@ -174,7 +217,7 @@ class FakeSwift(object):
             preferences.extend(('GET', p) for _, p in list(preferences))
         for m, p in preferences:
             try:
-                resp_class, headers, body = self._find_response(m, p)
+                resp_spec = self._find_response(m, p)
             except KeyError:
                 pass
             else:
@@ -183,39 +226,32 @@ class FakeSwift(object):
             # special case for re-reading an uploaded file
             # ... uploaded is only objects and always raw path
             if method in ('GET', 'HEAD') and env['PATH_INFO'] in self.uploaded:
-                resp_class = swob.HTTPOk
-                headers, body = self.uploaded[env['PATH_INFO']]
+                resp_spec = ResponseSpec(swob.HTTPOk,
+                                         *self.uploaded[env['PATH_INFO']])
             else:
                 raise KeyError("Didn't find %r in allowed responses" % (
                     (method, path),))
 
         if method == 'HEAD':
             # HEAD resp never has body
-            body = None
+            resp_spec.body = None
 
-        try:
-            is_success = resp_class().is_success
-        except Exception:
-            # test_reconciler passes in an exploding response
-            is_success = False
-        if is_success and method in ('GET', 'HEAD'):
+        if resp_spec.is_success and method in ('GET', 'HEAD'):
             # update sticky resp headers with headers from registered resp
-            sticky_headers = self._sticky_headers.get(env['PATH_INFO'], {})
-            resp_headers = HeaderKeyDict(sticky_headers)
-            resp_headers.update(headers)
-        else:
-            # error responses don't get sticky resp headers
-            resp_headers = HeaderKeyDict(headers)
+            resp_spec.apply_sticky_headers(
+                self._sticky_headers.get(env['PATH_INFO'], {}))
+        # else:  error responses don't get sticky resp headers
 
-        return resp_class, resp_headers, body
+        return resp_spec
 
     def _get_policy_index(self, acc, cont):
         path = '/v1/%s/%s' % (acc, cont)
         env = {'PATH_INFO': path,
                'REQUEST_METHOD': 'HEAD'}
         try:
-            resp_class, headers, _ = self._select_response(env)
-            policy_index = headers.get('X-Backend-Storage-Policy-Index')
+            resp_spec = self._select_response(env)
+            policy_index = resp_spec.headers.get(
+                'X-Backend-Storage-Policy-Index')
         except KeyError:
             policy_index = None
         if policy_index is None:
@@ -248,7 +284,7 @@ class FakeSwift(object):
         self.swift_sources.append(env.get('swift.source'))
         self.txn_ids.append(env.get('swift.trans_id'))
 
-        resp_class, headers, body = self._select_response(env)
+        resp_spec = self._select_response(env)
 
         # Capture the request before reading the body, in case the iter raises
         # an exception.
@@ -271,8 +307,8 @@ class FakeSwift(object):
                 req.headers.update(footers)
                 req_headers_copy.update(footers)
             etag = md5(req_body, usedforsecurity=False).hexdigest()
-            headers.setdefault('Etag', etag)
-            headers.setdefault('Content-Length', len(req_body))
+            resp_spec.headers.setdefault('Etag', etag)
+            resp_spec.headers.setdefault('Content-Length', len(req_body))
 
             # keep it for subsequent GET requests later
             resp_headers = dict(req.headers)
@@ -307,25 +343,17 @@ class FakeSwift(object):
                                    self._get_policy_index(acc, cont))
 
         # Apply conditional etag overrides
-        conditional_etag = resolve_etag_is_at_header(req, headers)
+        conditional_etag = resolve_etag_is_at_header(req, resp_spec.headers)
 
         if self.can_ignore_range:
             # avoid popping range from original environ
             req = swob.Request(dict(req.environ))
-            resolve_ignore_range_header(req, headers)
+            resolve_ignore_range_header(req, resp_spec.headers)
 
         # range requests ought to work, hence conditional_response=True
-        if isinstance(body, list):
-            resp = resp_class(
-                req=req, headers=headers, app_iter=body,
-                conditional_response=req.method in ('GET', 'HEAD'),
-                conditional_etag=conditional_etag)
-        else:
-            resp = resp_class(
-                req=req, headers=headers, body=body,
-                conditional_response=req.method in ('GET', 'HEAD'),
-                conditional_etag=conditional_etag)
-        wsgi_iter = resp(req.environ, start_response)
+        wsgi_iter = resp_spec.make_iter(req, start_response, conditional_etag)
+        # update the env passed by caller
+        resp_spec.update_environ(env)
         self.mark_opened((method, path))
         return LeakTrackingIter(wsgi_iter, self.mark_closed,
                                 self.mark_read, (method, path))
@@ -379,14 +407,17 @@ class FakeSwift(object):
         sticky_headers = self._sticky_headers.setdefault(path, {})
         sticky_headers.update(headers)
 
-    def register(self, method, path, response_class, headers, body=b''):
-        path = normalize_path(path)
-        self._responses[(method, path)] = [(response_class, headers, body)]
-
-    def register_next_response(self, method, path,
-                               response_class, headers, body=b''):
+    def register(self, method, path, response_class, headers, body=b'',
+                 env_updates=None):
         resp_key = (method, normalize_path(path))
-        next_resp = (response_class, headers, body)
+        self._responses[resp_key] = []
+        self.register_next_response(
+            method, path, response_class, headers, body, env_updates)
+
+    def register_next_response(self, method, path, response_class, headers,
+                               body=b'', env_updates=None):
+        resp_key = (method, normalize_path(path))
+        next_resp = ResponseSpec(response_class, headers, body, env_updates)
         self._responses.setdefault(resp_key, []).append(next_resp)
 
 
