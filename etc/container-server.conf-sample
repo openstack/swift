@@ -513,6 +513,12 @@ use = egg:swift#xprofile
 # The default is 48 hours (48 x 60 x 60)
 # container_sharding_timeout = 172800
 #
+# Some sharder states lead to repeated messages of 'Reclaimable db stuck
+# waiting for shrinking' on every sharder cycle. To reduce noise in logs,
+# this message will be suppressed for some time after its last emission.
+# Default is 24 hours.
+# periodic_warnings_interval = 86400
+#
 # Large databases tend to take a while to work with, but we want to make sure
 # we write down our progress. Use a larger-than-normal broker timeout to make
 # us less likely to bomb out on a LockTimeout.
