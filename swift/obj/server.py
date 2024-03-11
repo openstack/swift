@@ -59,7 +59,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
     HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, normalize_etag
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
-from swift.obj.expirer import build_task_obj
+from swift.obj.expirer import build_task_obj, embed_expirer_bytes_in_ctype, \
+    X_DELETE_TYPE
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -437,7 +438,7 @@ class ObjectController(BaseStorageServer):
                 self.container_update_timeout, updates)
 
     def delete_at_update(self, op, delete_at, account, container, obj,
-                         request, objdevice, policy):
+                         request, objdevice, policy, extra_headers=None):
         """
         Update the expiring objects container when objects are updated.
 
@@ -449,6 +450,7 @@ class ObjectController(BaseStorageServer):
         :param request: the original request driving the update
         :param objdevice: device name that the object is in
         :param policy: the BaseStoragePolicy instance (used for tmp dir)
+        :param extra_headers: dict of additional headers for the update
         """
         if config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
@@ -494,8 +496,10 @@ class ObjectController(BaseStorageServer):
             if not updates:
                 updates = [(None, None)]
             headers_out['x-size'] = '0'
-            headers_out['x-content-type'] = 'text/plain'
+            headers_out['x-content-type'] = X_DELETE_TYPE
             headers_out['x-etag'] = 'd41d8cd98f00b204e9800998ecf8427e'
+            if extra_headers:
+                headers_out.update(extra_headers)
         else:
             if not config_true_value(
                 request.headers.get(
@@ -620,6 +624,24 @@ class ObjectController(BaseStorageServer):
                     override = key.lower().replace(override_prefix, 'x-')
                     update_headers[override] = val
 
+    def _conditional_delete_at_update(self, request, device, account,
+                                      container, obj, policy, metadata,
+                                      orig_delete_at, new_delete_at):
+        if new_delete_at:
+            extra_headers = {
+                'x-content-type': embed_expirer_bytes_in_ctype(
+                    X_DELETE_TYPE, metadata),
+                'x-content-type-timestamp':
+                metadata.get('X-Timestamp'),
+            }
+            self.delete_at_update(
+                'PUT', new_delete_at, account, container, obj, request,
+                device, policy, extra_headers)
+        if orig_delete_at and orig_delete_at != new_delete_at:
+            self.delete_at_update(
+                'DELETE', orig_delete_at, account, container, obj,
+                request, device, policy)
+
     @public
     @timing_stats()
     def POST(self, request):
@@ -675,15 +697,11 @@ class ObjectController(BaseStorageServer):
                         wsgi_to_bytes(header_key).title())
                     metadata[header_caps] = request.headers[header_key]
             orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
-            if orig_delete_at != new_delete_at:
-                if new_delete_at:
-                    self.delete_at_update(
-                        'PUT', new_delete_at, account, container, obj, request,
-                        device, policy)
-                if orig_delete_at:
-                    self.delete_at_update('DELETE', orig_delete_at, account,
-                                          container, obj, request, device,
-                                          policy)
+            disk_file_metadata = disk_file.get_datafile_metadata()
+            self._conditional_delete_at_update(
+                request, device, account, container, obj, policy,
+                disk_file_metadata, orig_delete_at, new_delete_at
+            )
         else:
             # preserve existing metadata, only content-type may be updated
             metadata = dict(disk_file.get_metafile_metadata())
@@ -993,15 +1011,10 @@ class ObjectController(BaseStorageServer):
                              orig_metadata, footers_metadata, metadata):
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
-        if orig_delete_at != new_delete_at:
-            if new_delete_at:
-                self.delete_at_update(
-                    'PUT', new_delete_at, account, container, obj, request,
-                    device, policy)
-            if orig_delete_at:
-                self.delete_at_update(
-                    'DELETE', orig_delete_at, account, container, obj,
-                    request, device, policy)
+
+        self._conditional_delete_at_update(request, device, account, container,
+                                           obj, policy, metadata,
+                                           orig_delete_at, new_delete_at)
 
         update_headers = HeaderKeyDict({
             'x-size': metadata['Content-Length'],
@@ -1262,10 +1275,10 @@ class ObjectController(BaseStorageServer):
             else:
                 # differentiate success from no object at all
                 response_class = HTTPNoContent
-        if orig_delete_at:
-            self.delete_at_update('DELETE', orig_delete_at, account,
-                                  container, obj, request, device,
-                                  policy)
+        self._conditional_delete_at_update(
+            request, device, account, container, obj, policy, {},
+            orig_delete_at, 0
+        )
         if orig_timestamp < req_timestamp:
             try:
                 disk_file.delete(req_timestamp)

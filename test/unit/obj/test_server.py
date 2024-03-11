@@ -133,6 +133,15 @@ class TestTpoolSize(unittest.TestCase):
         self.assertEqual([], mock_snt.mock_calls)
 
 
+class SameReqEnv(object):
+
+    def __init__(self, req):
+        self.environ = req.environ
+
+    def __eq__(self, other):
+        return self.environ == other.environ
+
+
 @patch_policies(test_policies)
 class TestObjectController(BaseTestCase):
     """Test swift.obj.server.ObjectController"""
@@ -5704,7 +5713,8 @@ class TestObjectController(BaseTestCase):
              'method': 'PUT',
              'ssl': False,
              'headers': HeaderKeyDict({
-                 'x-content-type': 'text/plain',
+                 'x-content-type': 'text/plain;swift_expirer_bytes=0',
+                 'x-content-type-timestamp': utils.Timestamp('12345').internal,
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
@@ -5724,7 +5734,8 @@ class TestObjectController(BaseTestCase):
              'method': 'PUT',
              'ssl': False,
              'headers': HeaderKeyDict({
-                 'x-content-type': 'text/plain',
+                 'x-content-type': 'text/plain;swift_expirer_bytes=0',
+                 'x-content-type-timestamp': utils.Timestamp('12345').internal,
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
@@ -6867,9 +6878,10 @@ class TestObjectController(BaseTestCase):
 
         self.object_controller.delete_at_update = fake_delete_at_update
 
+        timestamp0 = normalize_timestamp(time())
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': timestamp0,
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream',
                      'X-Backend-Storage-Policy-Index': int(policy),
@@ -6905,7 +6917,10 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-                given_args[5], 'sda1', policy])
+                given_args[5], 'sda1', policy, {
+                    'x-content-type': 'text/plain;swift_expirer_bytes=4',
+                    'x-content-type-timestamp': timestamp0
+                }])
 
         while given_args:
             given_args.pop()
@@ -6925,7 +6940,10 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-                given_args[5], 'sda1', policy,
+                given_args[5], 'sda1', policy, {
+                    'x-content-type': 'text/plain;swift_expirer_bytes=4',
+                    'x-content-type-timestamp': timestamp0
+                },
                 'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
                 given_args[5], 'sda1', policy])
 
@@ -6967,7 +6985,10 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-                given_args[5], 'sda1', policy])
+                given_args[5], 'sda1', policy, {
+                    'x-content-type': 'text/plain;swift_expirer_bytes=4',
+                    'x-content-type-timestamp': timestamp1
+                }])
 
         while given_args:
             given_args.pop()
@@ -6987,10 +7008,14 @@ class TestObjectController(BaseTestCase):
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
+        self.maxDiff = None
         self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-                given_args[5], 'sda1', policy,
+                given_args[5], 'sda1', policy, {
+                    'x-content-type': 'text/plain;swift_expirer_bytes=4',
+                    'x-content-type-timestamp': timestamp2
+                },
                 'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
                 given_args[5], 'sda1', policy])
 
@@ -7590,6 +7615,345 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
 
+    def test_extra_headers_contain_object_bytes(self):
+        timestamp1 = next(self.ts).normal
+        delete_at_timestamp1 = int(time() + 1000)
+        delete_at_container1 = str(
+            delete_at_timestamp1 /
+            self.object_controller.expiring_objects_container_divisor *
+            self.object_controller.expiring_objects_container_divisor)
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Length': '4096',
+                     'Content-Type': 'application/octet-stream',
+                     'X-Delete-At': str(delete_at_timestamp1),
+                     'X-Delete-At-Container': delete_at_container1})
+        req.body = '\x00' * 4096
+        with mock.patch.object(self.object_controller, 'delete_at_update') \
+                as fake_delete_at_update:
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(fake_delete_at_update.call_args_list, [mock.call(
+            'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
+            SameReqEnv(req), 'sda1', POLICIES[0], {
+                'x-content-type': 'text/plain;swift_expirer_bytes=4096',
+                'x-content-type-timestamp': timestamp1
+            })])
+
+        timestamp2 = next(self.ts).normal
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp2,
+                     'Content-Length': '5120',
+                     'Content-Type': 'application/octet-stream',
+                     'X-Delete-At': str(delete_at_timestamp1),
+                     'X-Delete-At-Container': delete_at_container1})
+        req.body = '\x00' * 5120
+        with mock.patch.object(self.object_controller, 'delete_at_update') \
+                as fake_delete_at_update:
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(fake_delete_at_update.call_args_list, [mock.call(
+            'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
+            SameReqEnv(req), 'sda1', POLICIES[0], {
+                'x-content-type': 'text/plain;swift_expirer_bytes=5120',
+                'x-content-type-timestamp': timestamp2
+            }
+        )])
+
+        timestamp3 = next(self.ts).normal
+        delete_at_timestamp2 = str(int(next(self.ts)) + 2000)
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp3,
+                     'X-Delete-At': delete_at_timestamp2})
+        with mock.patch.object(self.object_controller, 'delete_at_update') \
+                as fake_delete_at_update:
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(fake_delete_at_update.call_args_list, [mock.call(
+            'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
+            SameReqEnv(req), 'sda1', POLICIES[0], {
+                'x-content-type': 'text/plain;swift_expirer_bytes=5120',
+                'x-content-type-timestamp': timestamp2
+            },
+        ), mock.call(
+            'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
+            SameReqEnv(req), 'sda1', POLICIES[0]
+        )])
+
+        timestamp4 = next(self.ts).normal
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': timestamp4,
+                     'Content-Type': 'application/octet-stream'})
+        with mock.patch.object(self.object_controller, 'delete_at_update') \
+                as fake_delete_at_update:
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(fake_delete_at_update.call_args_list, [mock.call(
+            'DELETE', int(delete_at_timestamp2), 'a', 'c', 'o',
+            SameReqEnv(req), 'sda1', POLICIES[0]
+        )])
+
+    def test_delete_at_overwrite_same_expiration_different_bytes(self):
+        container_updates = []
+
+        def capture_updates(ip, port, method, path, headers, *args, **kwargs):
+            container_updates.append((ip, port, method, path, headers))
+
+        policy = random.choice(list(POLICIES))
+        delete_at = int(next(self.ts)) + 30
+        delete_at_container = utils.get_expirer_container(delete_at, 86400,
+                                                          'a', 'c', 'o')
+        base_headers = {
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'Content-Type': 'application/octet-stream',
+            # we exclude the user container listing updates for brevity
+            # 'X-Container-Partition': '20',
+            # 'X-Container-Host': '1.2.3.4:5105',
+            # 'X-Container-Device': 'sdb1',
+            'X-Delete-At': str(delete_at),
+            'X-Delete-At-Container': delete_at_container,
+            'X-Delete-At-Host': "10.1.1.1:6201",
+            'X-Delete-At-Partition': '6237',
+            'X-Delete-At-Device': 'sdp',
+        }
+        if policy.policy_type == EC_POLICY:
+            base_headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
+
+        put1_ts = next(self.ts)
+        put1_size = 4042
+        req1 = Request.blank(
+            '/sda1/p/a/c/o', method='PUT', body='\x01' * put1_size,
+            headers=dict(base_headers, **{
+                'X-Timestamp': put1_ts.normal,
+                'Content-Length': str(put1_size),
+                'X-Trans-Id': 'txn1',
+            }))
+        put2_ts = next(self.ts)
+        put2_size = 2044
+        req2 = Request.blank(
+            '/sda1/p/a/c/o', method='PUT', body='\x02' * put2_size,
+            headers=dict(base_headers, **{
+                'X-Timestamp': put2_ts.normal,
+                'Content-Length': str(put2_size),
+                'X-Trans-Id': 'txn2',
+            }))
+        with fake_spawn(), mocked_http_conn(
+                200, 200, give_connect=capture_updates):
+            resp1 = req1.get_response(self.object_controller)
+            resp2 = req2.get_response(self.object_controller)
+        self.assertEqual(resp1.status_int, 201)
+        self.assertEqual(resp2.status_int, 201)
+
+        self.assertEqual([(
+            '10.1.1.1', '6201', 'PUT',
+            '/sdp/6237/.expiring_objects/%s/%s-a/c/o' % (
+                delete_at_container, delete_at
+            ), {
+                'X-Backend-Storage-Policy-Index': '0',
+                'X-Timestamp': put1_ts.normal,
+                'X-Trans-Id': 'txn1',
+                'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+                'X-Size': '0',
+                'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                'X-Content-Type':
+                'text/plain;swift_expirer_bytes=%s' % put1_size,
+                'X-Content-Type-Timestamp': put1_ts.normal,
+                'User-Agent': 'object-server %s' % os.getpid(),
+            }
+        ), (
+            '10.1.1.1', '6201', 'PUT',
+            '/sdp/6237/.expiring_objects/%s/%s-a/c/o' % (
+                delete_at_container, delete_at
+            ), {
+                'X-Backend-Storage-Policy-Index': '0',
+                'X-Timestamp': put2_ts.normal,
+                'X-Trans-Id': 'txn2',
+                'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+                'X-Size': '0',
+                'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                'X-Content-Type':
+                'text/plain;swift_expirer_bytes=%s' % put2_size,
+                'X-Content-Type-Timestamp': put2_ts.normal,
+                'User-Agent': 'object-server %s' % os.getpid(),
+            }
+        )], container_updates)
+
+        async_pendings = []
+        async_pending_dir = os.path.join(
+            self.testdir, 'sda1', diskfile.get_async_dir(policy))
+        for dirpath, _, filenames in os.walk(async_pending_dir):
+            for filename in filenames:
+                async_pendings.append(os.path.join(dirpath, filename))
+
+        self.assertEqual(len(async_pendings), 0)
+
+    def test_delete_at_POST_update_same_expiration(self):
+        container_updates = []
+
+        def capture_updates(ip, port, method, path, headers, *args, **kwargs):
+            container_updates.append((ip, port, method, path, headers))
+
+        policy = random.choice(list(POLICIES))
+        put_ts = next(self.ts)
+        put_size = 1548
+        put_delete_at = int(next(self.ts)) + 30
+        put_delete_at_container = utils.get_expirer_container(
+            put_delete_at, 86400, 'a', 'c', 'o')
+        put_req = Request.blank(
+            '/sda1/p/a/c/o', method='PUT', body='\x01' * put_size,
+            headers={
+                'X-Backend-Storage-Policy-Index': int(policy),
+                'X-Timestamp': put_ts.normal,
+                'Content-Length': str(put_size),
+                'X-Trans-Id': 'txn1',
+                'Content-Type': 'application/octet-stream',
+                # we exclude the user container listing updates for brevity
+                # 'X-Container-Partition': '20',
+                # 'X-Container-Host': '1.2.3.4:5105',
+                # 'X-Container-Device': 'sdb1',
+                'X-Delete-At': str(put_delete_at),
+                'X-Delete-At-Container': put_delete_at_container,
+                'X-Delete-At-Host': "10.1.1.1:6201",
+                'X-Delete-At-Partition': '6237',
+                'X-Delete-At-Device': 'sdp',
+            })
+        if policy.policy_type == EC_POLICY:
+            put_req.headers['X-Object-Sysmeta-Ec-Frag-Index'] = '3'
+
+        with fake_spawn(), mocked_http_conn(
+                200, give_connect=capture_updates):
+            put_resp = put_req.get_response(self.object_controller)
+        self.assertEqual(put_resp.status_int, 201)
+
+        self.assertEqual([(
+            '10.1.1.1', '6201', 'PUT',
+            '/sdp/6237/.expiring_objects/%s/%s-a/c/o' % (
+                put_delete_at_container, put_delete_at
+            ), {
+                'X-Backend-Storage-Policy-Index': '0',
+                'X-Timestamp': put_ts.normal,
+                'X-Trans-Id': 'txn1',
+                'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+                'X-Size': '0',
+                'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                'X-Content-Type':
+                'text/plain;swift_expirer_bytes=%s' % put_size,
+                'X-Content-Type-Timestamp': put_ts.normal,
+                'User-Agent': 'object-server %s' % os.getpid(),
+            }
+        )], container_updates)
+
+        # reset container updates
+        container_updates = []
+
+        delete_at = int(next(self.ts)) + 100
+        self.assertNotEqual(delete_at, put_delete_at)  # sanity
+        delete_at_container = utils.get_expirer_container(
+            delete_at, 86400, 'a', 'c', 'o')
+
+        base_headers = {
+            'X-Backend-Storage-Policy-Index': int(policy),
+            # we exclude the user container listing updates for brevity
+            # 'X-Container-Partition': '20',
+            # 'X-Container-Host': '1.2.3.4:5105',
+            # 'X-Container-Device': 'sdb1',
+            'X-Delete-At': str(delete_at),
+            'X-Delete-At-Container': delete_at_container,
+            'X-Delete-At-Host': "10.2.2.2:6202",
+            'X-Delete-At-Partition': '592',
+            'X-Delete-At-Device': 'sdm',
+        }
+
+        post1_ts = next(self.ts)
+        req1 = Request.blank(
+            '/sda1/p/a/c/o', method='POST', headers=dict(base_headers, **{
+                'X-Timestamp': post1_ts.normal,
+                'X-Trans-Id': 'txn2',
+            }))
+        post2_ts = next(self.ts)
+        req2 = Request.blank(
+            '/sda1/p/a/c/o', method='POST', headers=dict(base_headers, **{
+                'X-Timestamp': post2_ts.normal,
+                'X-Trans-Id': 'txn3',
+            }))
+
+        with fake_spawn(), mocked_http_conn(
+                200, 200, give_connect=capture_updates):
+            resp1 = req1.get_response(self.object_controller)
+            resp2 = req2.get_response(self.object_controller)
+        self.assertEqual(resp1.status_int, 202)
+        self.assertEqual(resp2.status_int, 202)
+
+        self.assertEqual([(
+            '10.2.2.2', '6202', 'PUT',
+            '/sdm/592/.expiring_objects/%s/%s-a/c/o' % (
+                delete_at_container, delete_at
+            ), {
+                'X-Backend-Storage-Policy-Index': '0',
+                # this the PUT from the POST-1
+                'X-Timestamp': post1_ts.normal,
+                'X-Trans-Id': 'txn2',
+                'Referer': 'POST http://localhost/sda1/p/a/c/o',
+                'X-Size': '0',
+                'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                'X-Content-Type':
+                'text/plain;swift_expirer_bytes=%s' % put_size,
+                'X-Content-Type-Timestamp': put_ts.normal,
+                'User-Agent': 'object-server %s' % os.getpid(),
+            }
+        ), (
+            '10.2.2.2', '6202', 'PUT',
+            '/sdm/592/.expiring_objects/%s/%s-a/c/o' % (
+                delete_at_container, delete_at
+            ), {
+                'X-Backend-Storage-Policy-Index': '0',
+                # this the PUT from POST-2
+                'X-Timestamp': post2_ts.normal,
+                'X-Trans-Id': 'txn3',
+                'Referer': 'POST http://localhost/sda1/p/a/c/o',
+                'X-Size': '0',
+                'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                'X-Content-Type':
+                'text/plain;swift_expirer_bytes=%s' % put_size,
+                'X-Content-Type-Timestamp': put_ts.normal,
+                'User-Agent': 'object-server %s' % os.getpid(),
+            }
+        )], container_updates)
+
+        async_pendings = []
+        async_pending_dir = os.path.join(
+            self.testdir, 'sda1', diskfile.get_async_dir(policy))
+        for dirpath, _, filenames in os.walk(async_pending_dir):
+            for filename in filenames:
+                async_pendings.append(os.path.join(dirpath, filename))
+
+        self.assertEqual(len(async_pendings), 1)
+
+        async_updates = []
+        for pending_file in async_pendings:
+            with open(pending_file, 'rb') as fh:
+                async_pending = pickle.load(fh)
+                async_updates.append(async_pending)
+        self.assertEqual([{
+            'op': 'DELETE',
+            'account': '.expiring_objects',
+            'container': delete_at_container,
+            'obj': '%s-a/c/o' % put_delete_at,
+            'headers': {
+                'X-Backend-Storage-Policy-Index': '0',
+                # only POST-1 has to clear the orig PUT delete-at
+                'X-Timestamp': post1_ts.normal,
+                'X-Trans-Id': 'txn2',
+                'Referer': 'POST http://localhost/sda1/p/a/c/o',
+                'User-Agent': 'object-server %s' % os.getpid(),
+            },
+        }], async_updates)
+
     def test_DELETE_calls_delete_at(self):
         given_args = []
 
@@ -7615,7 +7979,10 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(given_args, [
             'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-            given_args[5], 'sda1', POLICIES[0]])
+            given_args[5], 'sda1', POLICIES[0], {
+                'x-content-type': 'text/plain;swift_expirer_bytes=4',
+                'x-content-type-timestamp': timestamp1
+            }])
 
         while given_args:
             given_args.pop()
