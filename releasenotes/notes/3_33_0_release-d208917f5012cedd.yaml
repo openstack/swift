@@ -1,0 +1,129 @@
+---
+features:
+  - |
+    Prefix-based tempurls may now be used to explore staticweb
+    listings within that prefix. Note that this opens a new ability
+    to list containers from tempurls, but only if staticweb's
+    ``X-Container-Meta-Web-Listings`` is enabled.
+
+  - |
+    When generating index pages from listings, staticweb now sends an HTML5
+    doctype. This makes them `PEP 503 <https://peps.python.org/pep-0503/>`__
+    compliant, allowing their `continued
+    use <https://github.com/pypa/pip/issues/10825>`__ for simple Python
+    package repositories.
+
+  - |
+    Add basic read support for S3 object locking. This improves
+    compatibility with an Ansible S3 module. Write support is not
+    yet implemented, so get-object-lock-configuration will always 404.
+
+  - |
+    Added a ``swift-reload`` command to assist with safely reloading WSGI
+    servers.
+
+  - |
+    Daemons now send ``STOPPING`` and ``RELOADING`` systemd notifications
+    when the service is configured with ``Type=notify``.
+
+  - |
+    Added more metrics to the container-server, allowing GET and PUT timings
+    to be broken out for listings, shard range operations, and container
+    creation.
+
+  - |
+    Added a counter metric to the proxy server when caching shard ranges.
+
+
+  - |
+    ``swift-account-info`` and ``swift-container-info`` now accept a ``--sync``
+    flag to show information from the incoming/outgoing sync tables.
+
+  - |
+    Several fixes to prepare for Python 3.12 support. While not yet tested
+    in the gate, initial manual testing looks promising.
+
+  - |
+    Added support for recent versions of eventlet.
+
+fixes:
+  - |
+    S3 API fixes:
+
+    * When the ``+segments`` container's storage policy differs from that of
+      the primary container, completed manifests are now written with the
+      correct policy in the primary container.
+
+    * If there's a conflict deleting the in-progress-upload marker when
+      completing a multipart-upload, a 503 is now returned to the client,
+      prompting it to retry.
+
+    * Added ``Accept-Ranges: bytes`` to object responses. Range requests
+      have always been supported; now, that support is properly advertised.
+
+  - |
+    Static large object fixes:
+
+    * Fixed a server error when handling conditional GET requests.
+
+    * Return an error if the SLO manifest could not be parsed. Previously,
+      a zero-byte response was returned.
+
+  - |
+    Proxy server fixes:
+
+    * Added a new ``swift.proxy_logging_status`` request environment key that
+      middlewares may use to override the logged status for a request.
+
+    * Transaction IDs are included in more error responses.
+
+    * The ``recoverable_node_timeout`` option no longer applies to
+      ``X-Newest`` GET requests.
+
+    * Improved error-handling in multi-part range responses.
+
+  - |
+    Sharding fixes:
+
+    * Prevent resets of a shard range's epoch.
+
+    * Cleaned up ``X-Backend-*`` headers in listing responses.
+
+    * Reduced the frequency of ``Reclaimable db stuck waiting for shrinking``
+      messages when a root DB has been deleted but its shards have not been
+      shrunk away.
+
+    * The more-efficient shard range structure from the last release is now
+      used when fetching ranges from the backend.
+
+    * Include more information in shard-replication warnings.
+
+  - |
+    Object server fixes:
+
+    * Object POSTs and chunked PUTs are no longer accepted when the target
+      drive is already past its ``fallocate_reserve``. DELETEs are still
+      allowed.
+
+    * Added the ability to configure cooperative yielding when servicing
+      GET responses, via the ``cooperative_period`` option. See the example
+      config for more information.
+
+    * Invalid ``hashes.invalid`` entries are now ignored, rather than
+      causing a complete partition rehash.
+
+  - |
+    Per-service ``auto_create_account_prefix`` configuration options have
+    been removed. These options were deprecated in favor of ``swift.conf``
+    configuration in Swift 2.24.0, part of the OpenStack Ussuri release.
+
+  - |
+    Daemons send object updates via the replication network in more cases.
+
+  - |
+    The dark-data object audit watcher now works with sharded containers.
+    Previously, it would think that all data files were absent from
+    listings.
+
+  - |
+    Various other minor bug fixes and improvements.
