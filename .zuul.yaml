@@ -452,19 +452,19 @@
     name: swift-multinode-rolling-upgrade-victoria
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/victoria
+      previous_swift_version: origin/unmaintained/victoria
 
 - job:
     name: swift-multinode-rolling-upgrade-wallaby
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/wallaby
+      previous_swift_version: origin/unmaintained/wallaby
 
 - job:
     name: swift-multinode-rolling-upgrade-xena
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/xena
+      previous_swift_version: origin/unmaintained/xena
 
 - job:
     name: swift-multinode-rolling-upgrade-yoga
