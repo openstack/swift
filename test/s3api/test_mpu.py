@@ -215,6 +215,40 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertEqual(200, complete_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
 
+    def test_zero_byte_segment_upload(self):
+        key_name = self.create_name('key')
+        create_mpu_resp = self.client.create_multipart_upload(
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(200, create_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        upload_id = create_mpu_resp['UploadId']
+        part_resp = self.client.upload_part(
+            Body='', Bucket=self.bucket_name, Key=key_name,
+            PartNumber=1, UploadId=upload_id)
+        self.assertEqual(200, part_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        parts = [{
+            'ETag': part_resp['ETag'],
+            'PartNumber': 1,
+        }]
+        list_parts_resp = self.client.list_parts(
+            Bucket=self.bucket_name, Key=key_name,
+            UploadId=upload_id,
+        )
+        self.assertEqual(200, list_parts_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(parts, [{k: p[k] for k in ('ETag', 'PartNumber')}
+                                 for p in list_parts_resp['Parts']])
+        complete_mpu_resp = self.client.complete_multipart_upload(
+            Bucket=self.bucket_name, Key=key_name,
+            MultipartUpload={
+                'Parts': parts,
+            },
+            UploadId=upload_id,
+        )
+        self.assertEqual(200, complete_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+
     def _check_part_num_invalid_exc(self, exc, val, max_part_num,
                                     is_head=False):
         err_resp = exc.response
