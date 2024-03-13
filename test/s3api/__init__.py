@@ -151,12 +151,10 @@ class BaseS3TestCase(unittest.TestCase):
     # Default to v4 signatures (as aws-cli does), but subclasses can override
     signature_version = 's3v4'
 
-    @classmethod
-    def get_s3_client(cls, user):
-        return get_s3_client(user, cls.signature_version)
+    def get_s3_client(self, user):
+        return get_s3_client(user, self.signature_version)
 
-    @classmethod
-    def _remove_all_object_versions_from_bucket(cls, client, bucket_name):
+    def _remove_all_object_versions_from_bucket(self, client, bucket_name):
         resp = client.list_object_versions(Bucket=bucket_name)
         objs_to_delete = (resp.get('Versions', []) +
                           resp.get('DeleteMarkers', []))
@@ -182,11 +180,10 @@ class BaseS3TestCase(unittest.TestCase):
             objs_to_delete = (resp.get('Versions', []) +
                               resp.get('DeleteMarkers', []))
 
-    @classmethod
-    def clear_bucket(cls, client, bucket_name):
+    def clear_bucket(self, client, bucket_name):
         timeout = time.time() + 10
         backoff = 0.1
-        cls._remove_all_object_versions_from_bucket(client, bucket_name)
+        self._remove_all_object_versions_from_bucket(client, bucket_name)
         try:
             client.delete_bucket(Bucket=bucket_name)
         except ClientError as e:
@@ -199,7 +196,7 @@ class BaseS3TestCase(unittest.TestCase):
                 Bucket=bucket_name,
                 VersioningConfiguration={'Status': 'Suspended'})
             while True:
-                cls._remove_all_object_versions_from_bucket(
+                self._remove_all_object_versions_from_bucket(
                     client, bucket_name)
                 # also try some version-unaware operations...
                 for key in client.list_objects(Bucket=bucket_name).get(
@@ -224,13 +221,12 @@ class BaseS3TestCase(unittest.TestCase):
     def create_name(self, slug):
         return '%s%s-%s' % (TEST_PREFIX, slug, uuid.uuid4().hex)
 
-    @classmethod
-    def clear_account(cls, client):
+    def clear_account(self, client):
         for bucket in client.list_buckets()['Buckets']:
             if not bucket['Name'].startswith(TEST_PREFIX):
                 # these tests run against real s3 accounts
                 continue
-            cls.clear_bucket(client, bucket['Name'])
+            self.clear_bucket(client, bucket['Name'])
 
     def tearDown(self):
         client = self.get_s3_client(1)

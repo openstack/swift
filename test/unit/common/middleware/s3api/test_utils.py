@@ -181,6 +181,7 @@ class TestConfig(unittest.TestCase):
         del conf.allow_no_owner
         del conf.allowable_clock_skew
         del conf.ratelimit_as_client_error
+        del conf.max_upload_part_num
         self.assertEqual({}, conf)
 
     def test_update(self):

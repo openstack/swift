@@ -90,8 +90,14 @@ class ObjectController(Controller):
         if version_id not in ('null', None) and \
                 'object_versioning' not in get_swift_info():
             raise S3NotImplemented()
+        part_number = req.validate_part_number(check_max=False)
 
-        query = {} if version_id is None else {'version-id': version_id}
+        query = {}
+        if version_id is not None:
+            query['version-id'] = version_id
+        if part_number is not None:
+            query['part-number'] = part_number
+
         if version_id not in ('null', None):
             container_info = req.get_container_info(self.app)
             if not container_info.get(
@@ -100,6 +106,19 @@ class ObjectController(Controller):
                 raise NoSuchVersion(object_name, version_id)
 
         resp = req.get_response(self.app, query=query)
+
+        if not resp.is_slo:
+            # SLO ignores part_number for non-slo objects, but s3api only
+            # allows the query param for non-MPU if it's exactly 1.
+            part_number = req.validate_part_number(parts_count=1)
+            if part_number == 1:
+                # When the query param *is* exactly 1 the response status code
+                # and headers are updated.
+                resp.status = HTTP_PARTIAL_CONTENT
+                resp.headers['Content-Range'] = \
+                    'bytes 0-%d/%s' % (int(resp.headers['Content-Length']) - 1,
+                                       resp.headers['Content-Length'])
+            # else: part_number is None
 
         if req.method == 'HEAD':
             resp.app_iter = None
