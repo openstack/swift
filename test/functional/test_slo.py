@@ -293,6 +293,163 @@ class TestSlo(Base):
             (b'e', 1),
         ], group_file_contents(file_contents))
 
+    def test_slo_multipart_delete_part_number_ignored(self):
+        # create a container just for this test because we're going to delete
+        # objects that we create
+        container = self.env.account.container(Utils.create_name())
+        self.assertTrue(container.create())
+        # create segments in same container
+        seg_info = self.env.create_segments(container)
+        file_item = container.file("manifest-abcde")
+        self.assertTrue(file_item.write(
+            json.dumps([seg_info['seg_a'], seg_info['seg_b'],
+                        seg_info['seg_c'], seg_info['seg_d'],
+                        seg_info['seg_e']]).encode('ascii'),
+            parms={'multipart-manifest': 'put'}))
+        # sanity check, we have SLO...
+        file_item.initialize(parms={'part-number': '5'})
+        self.assertEqual(
+            file_item.conn.response.getheader('X-Static-Large-Object'), 'True')
+        self.assertEqual(
+            file_item.conn.response.getheader('X-Parts-Count'), '5')
+        self.assertEqual(6, len(container.files()))
+
+        # part-number should be ignored
+        status = file_item.conn.make_request(
+            'DELETE', file_item.path,
+            parms={'multipart-manifest': 'delete',
+                   'part-number': '2'})
+        self.assertEqual(200, status)
+        # everything is gone
+        self.assertFalse(container.files())
+
+    def test_get_head_part_number_invalid(self):
+        file_item = self.env.container.file('manifest-abcde')
+        file_item.initialize()
+        ok_resp = file_item.conn.response
+        self.assertEqual(ok_resp.getheader('X-Static-Large-Object'), 'True')
+        self.assertEqual(ok_resp.getheader('Etag'), file_item.etag)
+        self.assertEqual(ok_resp.getheader('Content-Length'),
+                         str(file_item.size))
+
+        # part-number is 1-indexed
+        self.assertRaises(ResponseError, file_item.read,
+                          parms={'part-number': '0'})
+        resp_body = file_item.conn.response.read()
+        self.assertEqual(400, file_item.conn.response.status, resp_body)
+        self.assertEqual(b'Part number must be an integer greater than 0',
+                         resp_body)
+
+        self.assertRaises(ResponseError, file_item.initialize,
+                          parms={'part-number': '0'})
+        resp_body = file_item.conn.response.read()
+        self.assertEqual(400, file_item.conn.response.status)
+        self.assertEqual(b'', resp_body)
+
+    def test_get_head_part_number_out_of_range(self):
+        file_item = self.env.container.file('manifest-abcde')
+        file_item.initialize()
+        ok_resp = file_item.conn.response
+        self.assertEqual(ok_resp.getheader('X-Static-Large-Object'), 'True')
+        self.assertEqual(ok_resp.getheader('Etag'), file_item.etag)
+        self.assertEqual(ok_resp.getheader('Content-Length'),
+                         str(file_item.size))
+        manifest_etag = ok_resp.getheader('Manifest-Etag')
+
+        def check_headers(resp):
+            self.assertEqual(resp.getheader('X-Static-Large-Object'), 'True')
+            self.assertEqual(resp.getheader('Etag'), file_item.etag)
+            self.assertEqual(resp.getheader('Manifest-Etag'), manifest_etag)
+            self.assertEqual(resp.getheader('X-Parts-Count'), '5')
+            self.assertEqual(resp.getheader('Content-Range'),
+                             'bytes */%s' % file_item.size)
+
+        self.assertRaises(ResponseError, file_item.read,
+                          parms={'part-number': '10001'})
+        resp_body = file_item.conn.response.read()
+        self.assertEqual(416, file_item.conn.response.status, resp_body)
+        self.assertEqual(b'The requested part number is not satisfiable',
+                         resp_body)
+        check_headers(file_item.conn.response)
+        self.assertEqual(file_item.conn.response.getheader('Content-Length'),
+                         str(len(resp_body)))
+
+        self.assertRaises(ResponseError, file_item.info,
+                          parms={'part-number': '10001'})
+        resp_body = file_item.conn.response.read()
+        self.assertEqual(416, file_item.conn.response.status)
+        self.assertEqual(b'', resp_body)
+        check_headers(file_item.conn.response)
+        self.assertEqual(file_item.conn.response.getheader('Content-Length'),
+                         '0')
+
+    def test_get_part_number_simple_manifest(self):
+        file_item = self.env.container.file('manifest-abcde')
+        seg_info_list = [
+            self.env.seg_info["seg_%s" % letter]
+            for letter in ['a', 'b', 'c', 'd', 'e']
+        ]
+        checksum = md5(usedforsecurity=False)
+        total_size = 0
+        for seg_info in seg_info_list:
+            checksum.update(seg_info['etag'].encode('ascii'))
+            total_size += seg_info['size_bytes']
+        slo_etag = checksum.hexdigest()
+        start = 0
+        manifest_etag = None
+        for i, seg_info in enumerate(seg_info_list, start=1):
+            part_contents = file_item.read(parms={'part-number': i})
+            self.assertEqual(len(part_contents), seg_info['size_bytes'])
+            headers = dict(
+                (h.lower(), v)
+                for h, v in file_item.conn.response.getheaders())
+            self.assertEqual(headers['content-length'],
+                             str(seg_info['size_bytes']))
+            self.assertEqual(headers['etag'], '"%s"' % slo_etag)
+            if not manifest_etag:
+                manifest_etag = headers['x-manifest-etag']
+            else:
+                self.assertEqual(headers['x-manifest-etag'], manifest_etag)
+            end = start + seg_info['size_bytes'] - 1
+            self.assertEqual(headers['content-range'],
+                             'bytes %d-%d/%d' % (start, end, total_size), i)
+            self.assertEqual(headers['x-parts-count'], '5')
+            start = end + 1
+
+    def test_head_part_number_simple_manifest(self):
+        file_item = self.env.container.file('manifest-abcde')
+        seg_info_list = [
+            self.env.seg_info["seg_%s" % letter]
+            for letter in ['a', 'b', 'c', 'd', 'e']
+        ]
+        checksum = md5(usedforsecurity=False)
+        total_size = 0
+        for seg_info in seg_info_list:
+            checksum.update(seg_info['etag'].encode('ascii'))
+            total_size += seg_info['size_bytes']
+        slo_etag = checksum.hexdigest()
+        start = 0
+        manifest_etag = None
+        for i, seg_info in enumerate(seg_info_list, start=1):
+            part_info = file_item.info(parms={'part-number': i},
+                                       exp_status=206)
+            headers = dict(
+                (h.lower(), v)
+                for h, v in file_item.conn.response.getheaders())
+            self.assertEqual(headers['content-length'],
+                             str(seg_info['size_bytes']))
+            self.assertEqual(headers['etag'], '"%s"' % slo_etag)
+            self.assertEqual(headers['etag'], part_info['etag'])
+            if not manifest_etag:
+                manifest_etag = headers['x-manifest-etag']
+            else:
+                self.assertEqual(headers['x-manifest-etag'], manifest_etag)
+            end = start + seg_info['size_bytes'] - 1
+            self.assertEqual(headers['content-range'],
+                             'bytes %d-%d/%d' % (start, end, total_size), i)
+            self.assertEqual(headers['x-parts-count'], '5')
+            start = end + 1
+
     def test_slo_container_listing(self):
         # the listing object size should equal the sum of the size of the
         # segments, not the size of the manifest body

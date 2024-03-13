@@ -2311,11 +2311,12 @@ class TestSloWithVersioning(TestObjectVersioningBase):
                 '/', 1)[-1]
         return self._account_name
 
-    def _create_manifest(self, seg_name):
+    def _create_manifest(self, seg_names):
         # create a manifest in the versioning container
         file_item = self.container.file("my-slo-manifest")
+        manifest = [self.seg_info[seg_name] for seg_name in seg_names]
         resp = file_item.write(
-            json.dumps([self.seg_info[seg_name]]).encode('ascii'),
+            json.dumps(manifest).encode('ascii'),
             parms={'multipart-manifest': 'put'},
             return_resp=True)
         version_id = resp.getheader('x-object-version-id')
@@ -2340,9 +2341,10 @@ class TestSloWithVersioning(TestObjectVersioningBase):
 
         self.assertEqual(1, len(manifest))
         key_map = {'etag': 'hash', 'size_bytes': 'bytes', 'path': 'name'}
+
         for k_client, k_slo in key_map.items():
             self.assertEqual(self.seg_info[seg_name][k_client],
-                             manifest[0][k_slo])
+                             Utils.encode_if_py2(manifest[0][k_slo]))
 
     def _assert_is_object(self, file_item, seg_data, version_id=None):
         if version_id:
@@ -2357,13 +2359,13 @@ class TestSloWithVersioning(TestObjectVersioningBase):
         self._tear_down_files(self.container)
 
     def test_slo_manifest_version(self):
-        file_item, v1_version_id = self._create_manifest('a')
+        file_item, v1_version_id = self._create_manifest(['a'])
         # sanity check: read the manifest, then the large object
         self._assert_is_manifest(file_item, 'a')
         self._assert_is_object(file_item, b'a')
 
         # upload new manifest
-        file_item, v2_version_id = self._create_manifest('b')
+        file_item, v2_version_id = self._create_manifest(['b'])
         # sanity check: read the manifest, then the large object
         self._assert_is_manifest(file_item, 'b')
         self._assert_is_object(file_item, b'b')
@@ -2445,7 +2447,7 @@ class TestSloWithVersioning(TestObjectVersioningBase):
         self.assertEqual(409, caught.exception.status)
 
     def test_links_to_slo(self):
-        file_item, v1_version_id = self._create_manifest('a')
+        file_item, v1_version_id = self._create_manifest(['a'])
         slo_info = file_item.info()
 
         symlink_name = Utils.create_name()
@@ -2462,6 +2464,123 @@ class TestSloWithVersioning(TestObjectVersioningBase):
         sym_headers['X-Symlink-Target-Etag'] = slo_info['x_manifest_etag']
         symlink.write(b'', hdrs=sym_headers)
         self.assertEqual(slo_info, symlink.info())
+
+    def test_slo_HEAD_part_number_with_version(self):
+        file_item, version_id = self._create_manifest(['a', 'b'])
+        file_item.info(parms={'part-number': '1',
+                              'version-id': version_id},
+                       exp_status=206)
+        sizes = [seg['size_bytes']
+                 for seg in (self.seg_info['a'], self.seg_info['b'])]
+        total_size = sum(sizes)
+        resp = file_item.conn.response
+        self.assertEqual(version_id, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('2', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes 0-%s/%s' % (sizes[0] - 1, total_size),
+                         resp.getheader('Content-Range'))
+
+        file_item.info(parms={'part-number': '2',
+                              'version-id': version_id},
+                       exp_status=206)
+        resp = file_item.conn.response
+        self.assertEqual(version_id, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('2', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes %s-%s/%s'
+                         % (sizes[1], total_size - 1, total_size),
+                         resp.getheader('Content-Range'))
+
+        file_item.info(parms={'part-number': '3',
+                              'version-id': version_id},
+                       exp_status=416)
+        resp = file_item.conn.response
+        self.assertEqual(version_id, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('2', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes */%s' % total_size,
+                         resp.getheader('Content-Range'))
+
+    def test_slo_GET_part_number_with_version(self):
+        file_item, version_id = self._create_manifest(['a', 'b'])
+        body = file_item.read(parms={'part-number': '1',
+                                     'version-id': version_id})
+        sizes = [seg['size_bytes']
+                 for seg in (self.seg_info['a'], self.seg_info['b'])]
+        total_size = sum(sizes)
+        resp = file_item.conn.response
+        self.assertEqual(version_id, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('2', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes 0-%s/%s' % (sizes[0] - 1, total_size),
+                         resp.getheader('Content-Range'))
+        self.assertEqual(('a' * sizes[0]).encode('ascii'), body)
+
+        body = file_item.read(parms={'part-number': '2',
+                                     'version-id': version_id})
+        resp = file_item.conn.response
+        self.assertEqual(version_id, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('2', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes %s-%s/%s'
+                         % (sizes[1], total_size - 1, total_size),
+                         resp.getheader('Content-Range'))
+        self.assertEqual(('b' * sizes[0]).encode('ascii'), body)
+
+        with self.assertRaises(ResponseError):
+            file_item.read(parms={'part-number': '3',
+                                  'version-id': version_id})
+        self.assertEqual(416, file_item.conn.response.status)
+        resp = file_item.conn.response
+        self.assertEqual(version_id, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('2', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes */%s' % total_size,
+                         resp.getheader('Content-Range'))
+
+    def test_slo_HEAD_part_number_multiple_versions(self):
+        file_item, version_id_1 = self._create_manifest(['a', 'b'])
+        file_item, version_id_2 = self._create_manifest(['a'])
+        # older version has 2 parts
+        file_item.info(parms={'part-number': '2',
+                              'version-id': version_id_1},
+                       exp_status=206)
+        sizes = [seg['size_bytes']
+                 for seg in (self.seg_info['a'], self.seg_info['b'])]
+        total_size = sum(sizes)
+        resp = file_item.conn.response
+        self.assertEqual(version_id_1, resp.getheader('x-object-version-id'))
+        self.assertEqual('2', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes %s-%s/%s'
+                         % (sizes[1], total_size - 1, total_size),
+                         resp.getheader('Content-Range'))
+
+        # newer version has only 1 part
+        file_item.info(parms={'part-number': '1',
+                              'version-id': version_id_2},
+                       exp_status=206)
+        resp = file_item.conn.response
+        self.assertEqual(version_id_2, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('1', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes %s-%s/%s'
+                         % (0, sizes[0] - 1, sizes[0]),
+                         resp.getheader('Content-Range'))
+
+        file_item.info(parms={'part-number': '2',
+                              'version-id': version_id_2},
+                       exp_status=416)
+        resp = file_item.conn.response
+        self.assertEqual(version_id_2, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('1', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes */%s' % sizes[0],
+                         resp.getheader('Content-Range'))
+
+        # current version == newer version has only 1 part
+        file_item.info(parms={'part-number': '2'},
+                       exp_status=416)
+        resp = file_item.conn.response
+        self.assertEqual(version_id_2, resp.getheader('X-Object-Version-Id'))
+        self.assertEqual('1', resp.getheader('X-Parts-Count'))
+        self.assertEqual('bytes */%s' % sizes[0],
+                         resp.getheader('Content-Range'))
+
+
+class TestSloWithVersioningUTF8(Base2, TestSloWithVersioning):
+    pass
 
 
 class TestVersionsLocationWithVersioning(TestObjectVersioningBase):

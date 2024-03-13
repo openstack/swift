@@ -938,7 +938,7 @@ class File(Base):
 
         return True
 
-    def info(self, hdrs=None, parms=None, cfg=None):
+    def info(self, hdrs=None, parms=None, cfg=None, exp_status=200):
         if hdrs is None:
             hdrs = {}
         if parms is None:
@@ -946,7 +946,7 @@ class File(Base):
         if cfg is None:
             cfg = {}
         if self.conn.make_request('HEAD', self.path, hdrs=hdrs,
-                                  parms=parms, cfg=cfg) != 200:
+                                  parms=parms, cfg=cfg) != exp_status:
 
             raise ResponseError(self.conn.response, 'HEAD',
                                 self.conn.make_path(self.path))

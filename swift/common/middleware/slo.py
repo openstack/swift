@@ -270,11 +270,27 @@ A GET request with the query parameters::
 will return the contents of the original manifest as it was sent by the client.
 The main purpose for both calls is solely debugging.
 
-When the manifest object is uploaded you are more or less guaranteed that
-every segment in the manifest exists and matched the specifications.
-However, there is nothing that prevents the user from breaking the
-SLO download by deleting/replacing a segment referenced in the manifest. It is
-left to the user to use caution in handling the segments.
+A GET request to a manifest object with the query parameter::
+
+    ?part-number=<n>
+
+will return the contents of the ``nth`` segment. Segments are indexed from 1,
+so ``n`` must be an integer between 1 and the total number of segments in the
+manifest. The response status will be ``206 Partial Content`` and its headers
+will include: an ``X-Parts-Count`` header equal to the total number of
+segments; a ``Content-Length`` header equal to the length of the specified
+segment; a ``Content-Range`` header describing the byte range of the specified
+part within the SLO. A HEAD request with a ``part-number`` parameter will also
+return a response with status ``206 Partial Content`` and the same headers.
+
+.. note::
+
+    When the manifest object is uploaded you are more or less guaranteed that
+    every segment in the manifest exists and matched the specifications.
+    However, there is nothing that prevents the user from breaking the SLO
+    download by deleting/replacing a segment referenced in the manifest. It is
+    left to the user to use caution in handling the segments.
+
 
 -----------------------
 Deleting a Large Object
@@ -353,7 +369,7 @@ from swift.common.registry import register_swift_info
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
     get_container_update_override_key, update_ignore_range_header, \
-    get_param
+    get_param, get_valid_part_num
 from swift.common.constraints import check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
 from swift.common.wsgi import WSGIContext, make_subrequest, make_env, \
@@ -564,6 +580,60 @@ def _annotate_segments(segments, logger=None):
         seg_dict['segment_length'] = segment_length
 
 
+def calculate_byterange_for_part_num(req, segments, part_num):
+    """
+    Helper function to calculate the byterange for a part_num response.
+
+    N.B. as a side-effect of calculating the single tuple representing the
+    byterange required for a part_num response this function will also mutate
+    the request's Range header so that swob knows to return 206.
+
+    :param req: the request object
+    :param segments: the list of seg_dicts
+    :param part_num: the part number of the object to return
+
+    :returns: a tuple representing the byterange
+    """
+    start = 0
+    for seg in segments[:part_num - 1]:
+        start += seg['segment_length']
+    last = start + segments[part_num - 1]['segment_length']
+    # We need to mutate the request's Range header so that swob knows to
+    # handle these partial content requests correctly.
+    req.range = "bytes=%d-%d" % (start, last - 1)
+    return start, last - 1
+
+
+def calculate_byteranges(req, segments, resp_attrs, part_num):
+    """
+    Calculate the byteranges based on the request, segments, and part number.
+
+    N.B. as a side-effect of calculating the single tuple representing the
+    byterange required for a part_num response this function will also mutate
+    the request's Range header so that swob knows to return 206.
+
+    :param req: the request object
+    :param segments: the list of seg_dicts
+    :param resp_attrs: the slo response attributes
+    :param part_num: the part number of the object to return
+
+    :returns: a list of tuples representing byteranges
+    """
+    if req.range:
+        byteranges = [
+            # For some reason, swob.Range.ranges_for_length adds 1 to the
+            # last byte's position.
+            (start, end - 1) for start, end
+            in req.range.ranges_for_length(resp_attrs.slo_size)]
+    elif part_num:
+        byteranges = [
+            calculate_byterange_for_part_num(req, segments, part_num)]
+    else:
+        byteranges = [(0, resp_attrs.slo_size - 1)]
+
+    return byteranges
+
+
 class RespAttrs(object):
     """
     Encapsulate properties of a GET or HEAD response that are pertinent to
@@ -684,6 +754,9 @@ class SloGetContext(WSGIContext):
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},
             agent='%(orig)s SLO MultipartGET', swift_source='SLO')
+        params_copy = dict(req.params)
+        params_copy.pop('part-number', None)
+        sub_req.params = params_copy
         sub_resp = sub_req.get_response(self.slo.app)
 
         if not sub_resp.is_success:
@@ -847,8 +920,7 @@ class SloGetContext(WSGIContext):
         # we can avoid re-fetching the object.
         return first_byte == 0 and last_byte == length - 1
 
-    def _is_manifest_and_need_to_refetch(self, req, resp_attrs,
-                                         is_manifest_get):
+    def _need_to_refetch_manifest(self, req, resp_attrs, is_part_num_request):
         """
         Check if the segments will be needed to service the request and update
         the segment_listing_needed attribute.
@@ -856,19 +928,11 @@ class SloGetContext(WSGIContext):
         :return: boolean indicating if we need to refetch, only if the segments
                  ARE needed we MAY need to refetch them!
         """
-        if not resp_attrs.is_slo:
-            # Not a static large object manifest, maybe an error, regardless
-            # no refetch needed
-            return False
-
-        if is_manifest_get:
-            # Any manifest json object response will do
-            return False
-
         if req.method == 'HEAD':
             # There may be some cases in the future where a HEAD resp on even a
             # modern manifest should refetch, e.g. lp bug #2029174
-            self.segment_listing_needed = resp_attrs.is_legacy
+            self.segment_listing_needed = (resp_attrs.is_legacy or
+                                           is_part_num_request)
             # it will always be the case that a HEAD must re-fetch iff
             # segment_listing_needed
             return self.segment_listing_needed
@@ -965,22 +1029,56 @@ class SloGetContext(WSGIContext):
                                      replace_headers)
 
     def _return_slo_response(self, req, start_response, resp_iter, resp_attrs):
+        headers = {
+            'Etag': '"%s"' % resp_attrs.slo_etag,
+            'X-Manifest-Etag': resp_attrs.json_md5,
+            # swob will fix this for a GET with Range
+            'Content-Length': str(resp_attrs.slo_size),
+            # ignore bogus content-range, make swob figure it out
+            'Content-Range': None,
+        }
         if self.segment_listing_needed:
             # consume existing resp_iter; we'll create a new one
             segments = self._parse_segments(resp_iter)
             resp_attrs.update_from_segments(segments)
-            if req.method == 'HEAD':
+            headers['Etag'] = '"%s"' % resp_attrs.slo_etag
+            headers['Content-Length'] = str(resp_attrs.slo_size)
+            part_num = get_valid_part_num(req)
+            if part_num:
+                headers['X-Parts-Count'] = len(segments)
+
+            if part_num and part_num > len(segments):
+                if req.method == 'HEAD':
+                    resp_iter = []
+                    headers['Content-Length'] = '0'
+                else:
+                    body = b'The requested part number is not satisfiable'
+                    resp_iter = [body]
+                    headers['Content-Length'] = len(body)
+                headers['Content-Range'] = 'bytes */%d' % resp_attrs.slo_size
+                self._response_status = '416 Requested Range Not Satisfiable'
+            elif part_num and req.method == 'HEAD':
+                resp_iter = []
+                headers['Content-Length'] = \
+                    segments[part_num - 1].get('segment_length')
+                start, end = calculate_byterange_for_part_num(
+                    req, segments, part_num)
+                headers['Content-Range'] = \
+                    'bytes {}-{}/{}'.format(start, end,
+                                            resp_attrs.slo_size)
+                # The RFC specifies 206 in the context of Range requests, and
+                # Range headers MUST be ignored for HEADs [1], so a HEAD will
+                # not normally return a 206. However, a part-number HEAD
+                # returns Content-Length equal to the part size, rather than
+                # the whole object size, so in this case we do return 206.
+                # [1] https://www.rfc-editor.org/rfc/rfc9110#name-range
+                self._response_status = '206 Partial Content'
+            elif req.method == 'HEAD':
                 resp_iter = []
             else:
-                resp_iter = self._build_resp_iter(req, segments, resp_attrs)
-        headers = {
-            'Etag': '"%s"' % resp_attrs.slo_etag,
-            'X-Manifest-Etag': resp_attrs.json_md5,
-            # This isn't correct for range requests, but swob will fix it?
-            'Content-Length': str(resp_attrs.slo_size),
-            # ignore bogus content-range, make swob figure it out
-            'Content-Range': None
-        }
+                byteranges = calculate_byteranges(
+                    req, segments, resp_attrs, part_num)
+                resp_iter = self._build_resp_iter(req, segments, byteranges)
         return self._return_response(req, start_response, resp_iter,
                                      replace_headers=headers)
 
@@ -1046,21 +1144,32 @@ class SloGetContext(WSGIContext):
             update_ignore_range_header(req, 'X-Static-Large-Object')
 
         # process original request
+        orig_path_info = req.path_info
         resp_iter = self._app_call(req.environ)
         resp_attrs = RespAttrs.from_headers(self._response_headers)
-        # the next two calls hide a couple side-effects, sorry:
-        #
-        # 1) regardless of the return value the "need_to_refetch" check *may*
-        #    also set self.segment_listing_needed = True (it's commented to
-        #    help you wrap your head around that one, good luck)
-        # 2) if we refetch, we overwrite the current resp_iter and resp_attrs
-        #    variables, partly because we *might* get back a NOT
-        #    resp_attrs.is_slo response (even if we had one to start), but
-        #    hopefully they're just the manifest resp we needed to refetch!
-        if self._is_manifest_and_need_to_refetch(req, resp_attrs,
-                                                 is_manifest_get):
-            resp_attrs, resp_iter = self._refetch_manifest(
-                req, resp_iter, resp_attrs)
+        if resp_attrs.is_slo and not is_manifest_get:
+            try:
+                # only validate part-number if the request is to an SLO
+                part_num = get_valid_part_num(req)
+            except HTTPException:
+                friendly_close(resp_iter)
+                raise
+            # the next two calls hide a couple side effects, sorry:
+            #
+            # 1) regardless of the return value the "need_to_refetch" check
+            #    *may* also set self.segment_listing_needed = True (it's
+            #    commented to help you wrap your head around that one,
+            #    good luck)
+            # 2) if we refetch, we overwrite the current resp_iter and
+            #    resp_attrs variables, partly because we *might* get back a NOT
+            #    resp_attrs.is_slo response (even if we had one to start), but
+            #    hopefully they're just the manifest resp we needed to refetch!
+            if self._need_to_refetch_manifest(req, resp_attrs, part_num):
+                # reset path in case it was modified during original request
+                # (e.g. object versioning might re-write the path)
+                req.path_info = orig_path_info
+                resp_attrs, resp_iter = self._refetch_manifest(
+                    req, resp_iter, resp_attrs)
 
         if not resp_attrs.is_slo:
             # even if the original resp_attrs may have been SLO we may have
@@ -1115,24 +1224,16 @@ class SloGetContext(WSGIContext):
             raise HTTPServerError(msg)
         return segments
 
-    def _build_resp_iter(self, req, segments, resp_attrs):
+    def _build_resp_iter(self, req, segments, byteranges):
         """
         Build a response iterable for a GET request.
 
         :param req: the request object
-        :param resp_attrs: the slo attributes
+        :param segments: the list of seg_dicts
+        :param byteranges: a list of tuples representing byteranges
 
         :returns: a segmented iterable
         """
-        if req.range:
-            byteranges = [
-                # For some reason, swob.Range.ranges_for_length adds 1 to the
-                # last byte's position.
-                (start, end - 1) for start, end
-                in req.range.ranges_for_length(resp_attrs.slo_size)]
-        else:
-            byteranges = [(0, resp_attrs.slo_size - 1)]
-
         ver, account, _junk = req.split_path(3, 3, rest_with_last=True)
         account = wsgi_to_str(account)
         plain_listing_iter = self._segment_listing_iterator(
