@@ -75,6 +75,7 @@ Contributor Documentation
 
     contributor/contributing
     contributor/review_guidelines
+    contributor/working_with_feature_branch
 
 Developer Documentation
 =======================
