@@ -95,6 +95,39 @@ def get_param(req, name, default=None):
     return value
 
 
+def get_valid_part_num(req):
+    """
+    Any non-range GET or HEAD request for a SLO object may include a
+    part-number parameter in query string.  If the passed in request
+    includes a part-number parameter it will be parsed into a valid integer
+    and returned.  If the passed in request does not include a part-number
+    param we will return None.  If the part-number parameter is invalid for
+    the given request we will raise the appropriate HTTP exception
+
+    :param req: the request object
+
+    :returns: validated part-number value or None
+    :raises HTTPBadRequest: if request or part-number param is not valid
+    """
+    part_number_param = get_param(req, 'part-number')
+    if part_number_param is None:
+        return None
+    try:
+        part_number = int(part_number_param)
+        if part_number <= 0:
+            raise ValueError
+    except ValueError:
+        raise HTTPBadRequest('Part number must be an integer greater '
+                             'than 0')
+
+    if req.range:
+        raise HTTPBadRequest(req=req,
+                             body='Range requests are not supported '
+                                  'with part number queries')
+
+    return part_number
+
+
 def validate_params(req, names):
     """
     Get list of parameters from an HTTP request, validating the encoding of

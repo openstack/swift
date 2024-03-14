@@ -133,6 +133,15 @@ class BaseAclHandler(object):
                 query = {}
             else:
                 query = {'version-id': version_id}
+            if self.req.method == 'HEAD':
+                # This HEAD for ACL is going to also be the definitive response
+                # to the client so we need to include client params. We don't
+                # do this for other client request methods because they may
+                # have invalid combinations of params and headers for a swift
+                # HEAD request.
+                part_number = self.req.params.get('partNumber')
+                if part_number is not None:
+                    query['part-number'] = part_number
             resp = self.req.get_acl_response(app, 'HEAD',
                                              container, obj,
                                              headers, query=query)

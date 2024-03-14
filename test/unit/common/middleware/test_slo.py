@@ -19,6 +19,7 @@ from datetime import datetime
 import json
 import time
 import unittest
+import string
 
 import mock
 from mock import patch
@@ -1905,7 +1906,10 @@ class SloGETorHEADTestCase(SloTestCase):
         They're nothing special, just small regular objects with names that
         describe their content and size.
         """
-        for letter, size in zip(letters, range(5, 5 * len(letters) + 1, 5)):
+        for i, letter in enumerate(string.ascii_lowercase):
+            if letter not in letters:
+                continue
+            size = (i + 1) * 5
             body = letter * size
             path = '/v1/AUTH_test/%s/%s_%s' % (container, letter, size)
             self.app.register('GET', path, swob.HTTPOk, {
@@ -1949,7 +1953,7 @@ class SloGETorHEADTestCase(SloTestCase):
             # has *no* content-type, both empty or missing Content-Type header
             # on ?multipart-manifest=put result in a default
             # "application/octet-stream" value being stored in the manifest
-            # metadata; sitll I wouldn't assert on this value in these tests or
+            # metadata; still I wouldn't assert on this value in these tests,
             # you may not be testing what you think you are - N.B. some tests
             # will override this value with the "extra_headers" param.
             'Content-Type': 'application/octet-stream',
@@ -1963,6 +1967,34 @@ class SloGETorHEADTestCase(SloTestCase):
         self.app.register(
             'GET', '/v1/AUTH_test/%s/%s' % (container, obj_key),
             swob.HTTPOk, manifest_headers, manifest_json.encode('ascii'))
+
+    def _setup_manifest_single_segment(self):
+        """
+        This manifest's segments are all regular objects.
+        """
+        _single_segment_manifest = [
+            {'name': '/gettest/b_50', 'hash': md5hex('b' * 50), 'bytes': '50',
+             'content_type': 'text/plain'},
+        ]
+        self._setup_manifest(
+            'single-segment', _single_segment_manifest,
+            extra_headers={'X-Object-Meta-Nature': 'Regular'},
+            container='gettest')
+
+    def _setup_manifest_data(self):
+        _data_manifest = [
+            {
+                'data': base64.b64encode(b'123456').decode('ascii')
+            }, {
+                'name': '/gettest/a_5',
+                'hash': md5hex('a' * 5),
+                'content_type': 'text/plain',
+                'bytes': '5',
+            }, {
+                'data': base64.b64encode(b'ABCDEF').decode('ascii')
+            },
+        ]
+        self._setup_manifest('data', _data_manifest)
 
     def _setup_manifest_bc(self):
         """
@@ -5654,6 +5686,701 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
 class TestSloConditionalGetNewManifest(TestSloConditionalGetOldManifest):
 
     modern_manifest_headers = True
+
+
+class TestPartNumber(SloGETorHEADTestCase):
+
+    modern_manifest_headers = True
+
+    def setUp(self):
+        super(TestPartNumber, self).setUp()
+        self._setup_alphabet_objects('bcdj')
+        self._setup_manifest_bc()
+        self._setup_manifest_abcd()
+        self._setup_manifest_abcdefghijkl()
+        self._setup_manifest_bc_ranges()
+        self._setup_manifest_abcd_ranges()
+        self._setup_manifest_abcd_subranges()
+        self._setup_manifest_aabbccdd()
+        self._setup_manifest_single_segment()
+
+        # this b_50 object doesn't follow the alphabet convention
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/b_50',
+            swob.HTTPPartialContent, {'Content-Length': '50',
+                                      'Etag': md5hex('b' * 50)},
+            'b' * 50)
+
+        self._setup_manifest_data()
+
+    def test_head_part_number(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=1',
+            environ={'REQUEST_METHOD': 'HEAD'})
+        status, headers, body = self.call_slo(req)
+        expected_calls = [
+            ('HEAD', '/v1/AUTH_test/gettest/manifest-bc?part-number=1'),
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=1')
+        ]
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_bc_slo_etag)
+        self.assertEqual(headers['Content-Length'], '10')
+        self.assertEqual(headers['Content-Range'], 'bytes 0-9/25')
+        self.assertEqual(headers['X-Manifest-Etag'], self.manifest_bc_json_md5)
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '2')
+        self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+        self.assertEqual(body, b'')  # it's a HEAD request, after all
+        self.assertEqual(headers['X-Object-Meta-Plant'], 'Ficus')
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_head_part_number_refetch_path(self):
+        # verify that any modification of the request path by a downstream
+        # middleware is ignored when refetching
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/mani?part-number=1',
+            environ={'REQUEST_METHOD': 'HEAD'})
+        captured_calls = []
+        orig_call = FakeSwift.__call__
+
+        def pseudo_middleware(app, env, start_response):
+            captured_calls.append((env['REQUEST_METHOD'], env['PATH_INFO']))
+            # pretend another middleware modified the path
+            # note: for convenience, the path "modification" actually results
+            # in one of the pre-registered paths
+            env['PATH_INFO'] += 'fest-bc'
+            return orig_call(app, env, start_response)
+
+        with patch.object(FakeSwift, '__call__', pseudo_middleware):
+            status, headers, body = self.call_slo(req)
+
+        # pseudo-middleware gets the original path for the refetch
+        self.assertEqual([('HEAD', '/v1/AUTH_test/gettest/mani'),
+                          ('GET', '/v1/AUTH_test/gettest/mani')],
+                         captured_calls)
+        self.assertEqual(status, '206 Partial Content')
+        expected_calls = [
+            # original path is modified...
+            ('HEAD', '/v1/AUTH_test/gettest/manifest-bc?part-number=1'),
+            # refetch: the *original* path is modified...
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=1')
+        ]
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_get_part_number(self):
+        # part number 1 is b_10
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=1')
+        status, headers, body = self.call_slo(req)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=1'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get')
+        ]
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_bc_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'], self.manifest_bc_json_md5)
+        self.assertEqual(headers['Content-Length'], '10')
+        self.assertEqual(headers['Content-Range'], 'bytes 0-9/25')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '2')
+        self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+        self.assertEqual(body, b'b' * 10)
+        self.assertEqual(headers['X-Object-Meta-Plant'], 'Ficus')
+        self.assertEqual(self.app.calls, expected_calls)
+
+        # part number 2 is c_15
+        self.app.clear_calls()
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=2'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')
+        ]
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=2')
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_bc_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'], self.manifest_bc_json_md5)
+        self.assertEqual(headers['Content-Length'], '15')
+        self.assertEqual(headers['Content-Range'], 'bytes 10-24/25')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '2')
+        self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+        self.assertEqual(body, b'c' * 15)
+        self.assertEqual(headers['X-Object-Meta-Plant'], 'Ficus')
+        self.assertEqual(self.app.calls, expected_calls)
+
+        # we now test it with single segment slo
+        self.app.clear_calls()
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-segment?part-number=1')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' %
+                         self.manifest_single_segment_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_single_segment_json_md5)
+        self.assertEqual(headers['Content-Length'], '50')
+        self.assertEqual(headers['Content-Range'], 'bytes 0-49/50')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Object-Meta-Nature'], 'Regular')
+        self.assertEqual(headers['X-Parts-Count'], '1')
+        self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-single-segment?'
+                    'part-number=1'),
+            ('GET', '/v1/AUTH_test/gettest/b_50?multipart-manifest=get')
+        ]
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_get_part_number_sub_slo(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd?part-number=3')
+        status, headers, body = self.call_slo(req)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd?part-number=3'),
+            ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')
+        ]
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_abcd_json_md5)
+        self.assertEqual(headers['Content-Length'], '20')
+        self.assertEqual(headers['Content-Range'], 'bytes 30-49/50')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '3')
+        self.assertEqual(headers['Content-Type'], 'application/json')
+        self.assertEqual(body, b'd' * 20)
+        self.assertEqual(self.app.calls, expected_calls)
+
+        self.app.clear_calls()
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd?part-number=2')
+        status, headers, body = self.call_slo(req)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd?part-number=2'),
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')
+        ]
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_abcd_json_md5)
+        self.assertEqual(headers['Content-Length'], '25')
+        self.assertEqual(headers['Content-Range'], 'bytes 5-29/50')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '3')
+        self.assertEqual(headers['Content-Type'], 'application/json')
+        self.assertEqual(body, b'b' * 10 + b'c' * 15)
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_get_part_number_large_manifest(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcdefghijkl?part-number=10')
+        status, headers, body = self.call_slo(req)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcdefghijkl?'
+                    'part-number=10'),
+            ('GET', '/v1/AUTH_test/gettest/j_50?multipart-manifest=get')
+        ]
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' %
+                         self.manifest_abcdefghijkl_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_abcdefghijkl_json_md5)
+        self.assertEqual(headers['Content-Length'], '50')
+        self.assertEqual(headers['Content-Range'], 'bytes 225-274/390')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '12')
+        self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+        self.assertEqual(body, b'j' * 50)
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_part_number_with_range_segments(self):
+        req = Request.blank('/v1/AUTH_test/gettest/manifest-bc-ranges',
+                            params={'part-number': 1})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' %
+                         self.manifest_bc_ranges_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_bc_ranges_json_md5)
+        self.assertEqual(headers['Content-Length'], '4')
+        self.assertEqual(headers['Content-Range'],
+                         'bytes 0-3/%s' % self.manifest_bc_ranges_slo_size)
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '4')
+        self.assertEqual(body, b'b' * 4)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc-ranges?part-number=1'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get')
+        ]
+        self.assertEqual(self.app.calls, expected_calls)
+        # since the our requested part-number is range-segment we expect Range
+        # header on b_10 segment subrequest
+        self.assertEqual('bytes=4-7',
+                         self.app.calls_with_headers[1].headers['Range'])
+
+    def test_part_number_sub_ranges_manifest(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd-subranges?part-number=3')
+
+        status, headers, body = self.call_slo(req)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd-subranges?'
+                    'part-number=3'),
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd-ranges'),
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc-ranges'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get')
+        ]
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' %
+                         self.manifest_abcd_subranges_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_abcd_subranges_json_md5)
+        self.assertEqual(headers['Content-Length'], '5')
+        self.assertEqual(headers['Content-Range'], 'bytes 6-10/17')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '5')
+        self.assertEqual(headers['Content-Type'], 'application/json')
+        self.assertEqual(body, b'c' * 2 + b'b' * 3)
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_get_part_num_with_repeated_segments(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-aabbccdd?part-number=3',
+            environ={'REQUEST_METHOD': 'GET'})
+
+        status, headers, body = self.call_slo(req)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-aabbccdd?part-number=3'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get')
+        ]
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' %
+                         self.manifest_aabbccdd_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_aabbccdd_json_md5)
+        self.assertEqual(headers['Content-Length'], '10')
+        self.assertEqual(headers['Content-Range'], 'bytes 10-19/100')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '8')
+        self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+        self.assertEqual(body, b'b' * 10)
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_part_number_zero_invalid(self):
+        # part-number query param is 1-indexed, part-number=0 is no joy
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=0')
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body,
+                         b'Part number must be an integer greater than 0')
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=0')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+        self.app.clear_calls()
+        self.slo.max_manifest_segments = 3999
+        req = Request.blank('/v1/AUTH_test/gettest/manifest-bc',
+                            params={'part-number': 0})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body,
+                         b'Part number must be an integer greater than 0')
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_head_part_number_zero_invalid(self):
+        # you can HEAD part-number=0 either
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc', method='HEAD',
+            params={'part-number': 0})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body, b'')  # HEAD response, makes sense
+        expected_calls = [
+            ('HEAD', '/v1/AUTH_test/gettest/manifest-bc?part-number=0')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_part_number_zero_invalid_on_subrange(self):
+        # either manifest, doesn't matter, part-number=0 is always invalid
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd-subranges?part-number=0')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body,
+                         b'Part number must be an integer greater than 0')
+        expected_calls = [
+            ('GET',
+             '/v1/AUTH_test/gettest/manifest-abcd-subranges?part-number=0')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_negative_part_number_invalid(self):
+        # negative numbers are never any good
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=-1')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body,
+                         b'Part number must be an integer greater than 0')
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=-1')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_head_negative_part_number_invalid_on_subrange(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd-subranges', method='HEAD',
+            params={'part-number': '-1'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body, b'')
+        expected_calls = [
+            ('HEAD',
+             '/v1/AUTH_test/gettest/manifest-abcd-subranges?part-number=-1')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_head_non_integer_part_number_invalid(self):
+        # some kind of string is bad too
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc', method='HEAD',
+            params={'part-number': 'foo'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertEqual(body, b'')
+        expected_calls = [
+            ('HEAD', '/v1/AUTH_test/gettest/manifest-bc?part-number=foo')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_get_non_integer_part_number_invalid(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc', params={'part-number': 'foo'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body, b'Part number must be an integer greater'
+                               b' than 0')
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=foo')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_get_out_of_range_part_number(self):
+        # you can't go past the actual number of parts either
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=4')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '416 Requested Range Not Satisfiable')
+        self.assertEqual(headers['Content-Range'],
+                         'bytes */%d' % self.manifest_bc_slo_size)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_bc_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'], self.manifest_bc_json_md5)
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '2')
+        self.assertEqual(int(headers['Content-Length']), len(body))
+        self.assertEqual(body, b'The requested part number is not '
+                               b'satisfiable')
+        self.assertEqual(headers['X-Object-Meta-Plant'], 'Ficus')
+        expected_app_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=4'),
+        ]
+        self.assertEqual(self.app.calls, expected_app_calls)
+
+        self.app.clear_calls()
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-segment?part-number=2')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '416 Requested Range Not Satisfiable')
+        self.assertEqual(headers['Content-Range'],
+                         'bytes */%d' % self.manifest_single_segment_slo_size)
+        self.assertEqual(int(headers['Content-Length']), len(body))
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_single_segment_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_single_segment_json_md5)
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '1')
+        self.assertEqual(body, b'The requested part number is not '
+                               b'satisfiable')
+        self.assertEqual(headers['X-Object-Meta-Nature'], 'Regular')
+        expected_app_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-single-segment?'
+                    'part-number=2'),
+        ]
+        self.assertEqual(self.app.calls, expected_app_calls)
+
+    def test_head_out_of_range_part_number(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=4')
+        req.method = 'HEAD'
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '416 Requested Range Not Satisfiable')
+        self.assertEqual(headers['Content-Range'],
+                         'bytes */%d' % self.manifest_bc_slo_size)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_bc_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'], self.manifest_bc_json_md5)
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '2')
+        self.assertEqual(int(headers['Content-Length']), len(body))
+        self.assertEqual(body, b'')
+        self.assertEqual(headers['X-Object-Meta-Plant'], 'Ficus')
+        expected_app_calls = [
+            ('HEAD', '/v1/AUTH_test/gettest/manifest-bc?part-number=4'),
+            # segments needed
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=4')
+        ]
+        self.assertEqual(self.app.calls, expected_app_calls)
+
+    def test_part_number_exceeds_max_manifest_segments_is_ok(self):
+        # verify that an existing part can be fetched regardless of the current
+        # max_manifest_segments
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc?part-number=2')
+        self.slo.max_manifest_segments = 1
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_bc_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'], self.manifest_bc_json_md5)
+        self.assertEqual(headers['Content-Length'], '15')
+        self.assertEqual(headers['Content-Range'], 'bytes 10-24/25')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '2')
+        self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+        self.assertEqual(body, b'c' * 15)
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=2'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')
+        ]
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_part_number_ignored_for_non_slo_object(self):
+        # verify that a part-number param is ignored for a non-slo object
+        def do_test(query_string):
+            self.app.clear_calls()
+            req = Request.blank(
+                '/v1/AUTH_test/gettest/c_15?%s' % query_string)
+            self.slo.max_manifest_segments = 1
+            status, headers, body = self.call_slo(req)
+            self.assertEqual(status, '200 OK')
+            self.assertEqual(headers['Etag'], '%s' % md5hex('c' * 15))
+            self.assertEqual(headers['Content-Length'], '15')
+            self.assertEqual(body, b'c' * 15)
+            self.assertEqual(1, self.app.call_count)
+            method, path = self.app.calls[0]
+            actual_req = Request.blank(path, method=method)
+            self.assertEqual(req.path, actual_req.path)
+            self.assertEqual(req.params, actual_req.params)
+
+        do_test('part-number=-1')
+        do_test('part-number=0')
+        do_test('part-number=1')
+        do_test('part-number=2')
+        do_test('part-number=foo')
+        do_test('part-number=foo&multipart-manifest=get')
+
+    def test_part_number_ignored_for_non_slo_object_with_range(self):
+        # verify that a part-number param is ignored for a non-slo object
+        def do_test(query_string):
+            self.app.clear_calls()
+            req = Request.blank(
+                '/v1/AUTH_test/gettest/c_15?%s' % query_string,
+                headers={'Range': 'bytes=1-2'})
+            self.slo.max_manifest_segments = 1
+            status, headers, body = self.call_slo(req)
+            self.assertEqual(status, '206 Partial Content')
+            self.assertEqual(headers['Etag'], '%s' % md5hex('c' * 15))
+            self.assertEqual(headers['Content-Length'], '2')
+            self.assertEqual(headers['Content-Range'], 'bytes 1-2/15')
+            self.assertEqual(body, b'c' * 2)
+            self.assertEqual(1, self.app.call_count)
+            method, path = self.app.calls[0]
+            actual_req = Request.blank(path, method=method)
+            self.assertEqual(req.path, actual_req.path)
+            self.assertEqual(req.params, actual_req.params)
+
+        do_test('part-number=-1')
+        do_test('part-number=0')
+        do_test('part-number=1')
+        do_test('part-number=2')
+        do_test('part-number=foo')
+        do_test('part-number=foo&multipart-manifest=get')
+
+    def test_part_number_ignored_for_manifest_get(self):
+        def do_test(query_string):
+            self.app.clear_calls()
+            req = Request.blank(
+                '/v1/AUTH_test/gettest/manifest-bc?%s' % query_string)
+            self.slo.max_manifest_segments = 1
+            status, headers, body = self.call_slo(req)
+            self.assertEqual(status, '200 OK')
+            self.assertEqual(headers['Etag'], self.manifest_bc_json_md5)
+            self.assertEqual(headers['Content-Length'],
+                             str(self.manifest_bc_json_size))
+            self.assertEqual(headers['X-Static-Large-Object'], 'true')
+            self.assertEqual(headers['Content-Type'],
+                             'application/json; charset=utf-8')
+            self.assertEqual(headers['X-Object-Meta-Plant'], 'Ficus')
+            self.assertEqual(1, self.app.call_count)
+            method, path = self.app.calls[0]
+            actual_req = Request.blank(path, method=method)
+            self.assertEqual(req.path, actual_req.path)
+            self.assertEqual(req.params, actual_req.params)
+
+        do_test('part-number=-1&multipart-manifest=get')
+        do_test('part-number=0&multipart-manifest=get')
+        do_test('part-number=1&multipart-manifest=get')
+        do_test('part-number=2&multipart-manifest=get')
+        do_test('part-number=foo&multipart-manifest=get')
+
+    def test_head_out_of_range_part_number_on_subrange(self):
+        # you can't go past the actual number of parts either
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd-subranges',
+            method='HEAD',
+            params={'part-number': 6})
+        expected_calls = [
+            ('HEAD', '/v1/AUTH_test/gettest/manifest-abcd-subranges?'
+                     'part-number=6'),
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd-subranges?'
+                    'part-number=6')]
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '416 Requested Range Not Satisfiable')
+        self.assertEqual(headers['Content-Range'],
+                         'bytes */%d' % self.manifest_abcd_subranges_slo_size)
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_abcd_subranges_slo_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_abcd_subranges_json_md5)
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '5')
+        self.assertEqual(int(headers['Content-Length']), len(body))
+        self.assertEqual(body, b'')
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_range_with_part_number_is_error(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd-subranges?part-number=2',
+            headers={'Range': 'bytes=4-12'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertNotIn('Content-Range', headers)
+        self.assertNotIn('Etag', headers)
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertNotIn('X-Parts-Count', headers)
+        self.assertEqual(body, b'Range requests are not supported with '
+                               b'part number queries')
+        expected_calls = [
+            ('GET',
+             '/v1/AUTH_test/gettest/manifest-abcd-subranges?part-number=2')
+        ]
+        self.assertEqual(expected_calls, self.app.calls)
+
+    def test_head_part_number_subrange(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd-subranges',
+            method='HEAD', params={'part-number': 2})
+        status, headers, body = self.call_slo(req)
+
+        # Range header can be ignored in a HEAD request
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_abcd_subranges_slo_etag)
+        self.assertEqual(headers['Content-Length'], '1')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['Content-Type'], 'application/json')
+        self.assertEqual(headers['X-Parts-Count'], '5')
+        self.assertEqual(body, b'')  # it's a HEAD request, after all
+        expected_calls = [
+            ('HEAD', '/v1/AUTH_test/gettest/manifest-abcd-subranges'
+             '?part-number=2'),
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd-subranges'
+             '?part-number=2'),
+        ]
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_head_part_number_data_manifest(self):
+        req = Request.blank(
+            '/v1/AUTH_test/c/manifest-data',
+            method='HEAD', params={'part-number': 1})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_data_slo_etag)
+        self.assertEqual(headers['Content-Length'], '6')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '3')
+        self.assertEqual(body, b'')  # it's a HEAD request, after all
+        expected_calls = [
+            ('HEAD', '/v1/AUTH_test/c/manifest-data?part-number=1'),
+            ('GET', '/v1/AUTH_test/c/manifest-data?part-number=1'),
+        ]
+        self.assertEqual(self.app.calls, expected_calls)
+
+    def test_get_part_number_data_manifest(self):
+        req = Request.blank(
+            '/v1/AUTH_test/c/manifest-data',
+            params={'part-number': 3})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_data_slo_etag)
+        self.assertEqual(headers['Content-Length'], '6')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Parts-Count'], '3')
+        self.assertEqual(body, b'ABCDEF')
+        expected_calls = [
+            ('GET', '/v1/AUTH_test/c/manifest-data?part-number=3'),
+        ]
+        self.assertEqual(self.app.calls, expected_calls)
+
+
+class TestPartNumberLegacyManifest(TestPartNumber):
+
+    modern_manifest_headers = False
 
 
 class TestSloBulkDeleter(unittest.TestCase):

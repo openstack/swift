@@ -452,19 +452,19 @@
     name: swift-multinode-rolling-upgrade-victoria
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/victoria
+      previous_swift_version: origin/unmaintained/victoria
 
 - job:
     name: swift-multinode-rolling-upgrade-wallaby
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/wallaby
+      previous_swift_version: origin/unmaintained/wallaby
 
 - job:
     name: swift-multinode-rolling-upgrade-xena
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/xena
+      previous_swift_version: origin/unmaintained/xena
 
 - job:
     name: swift-multinode-rolling-upgrade-yoga
@@ -669,9 +669,7 @@
               - ^test/(cors|functional|probe|s3api)/.*$
         - swift-tox-py36:
             irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py39:
-            irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py310:
+        - swift-tox-py38:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py311:
             irrelevant-files: *unittest-irrelevant-files
@@ -761,8 +759,7 @@
             irrelevant-files: *docker-irrelevant-files
         - swift-tox-py27
         - swift-tox-py36
-        - swift-tox-py39
-        - swift-tox-py310
+        - swift-tox-py38
         - swift-tox-py311
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
@@ -795,7 +792,8 @@
     experimental:
       jobs:
         - swift-tox-py37
-        - swift-tox-py38
+        - swift-tox-py39
+        - swift-tox-py310
         - swift-tox-py36-centos-8-stream
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream

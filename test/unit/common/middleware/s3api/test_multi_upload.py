@@ -685,6 +685,9 @@ class BaseS3ApiMultiUpload(object):
                             body='part object')
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
+        self.assertEqual(self._get_error_message(body),
+                         'Part number must be an integer between 1 and 10000, '
+                         'inclusive')
 
         # part number must be > 0
         req = Request.blank('/bucket/object?partNumber=0&uploadId=X',
@@ -694,6 +697,9 @@ class BaseS3ApiMultiUpload(object):
                             body='part object')
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
+        self.assertEqual(self._get_error_message(body),
+                         'Part number must be an integer between 1 and 10000, '
+                         'inclusive')
 
         # part number must be < 10001
         req = Request.blank('/bucket/object?partNumber=10001&uploadId=X',
@@ -703,6 +709,23 @@ class BaseS3ApiMultiUpload(object):
                             body='part object')
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
+        self.assertEqual(self._get_error_message(body),
+                         'Part number must be an integer between 1 and 10000, '
+                         'inclusive')
+
+        with patch.object(self.s3api.conf, 'max_upload_part_num', 1000):
+            # part number must be < 1001
+            req = Request.blank(
+                '/bucket/object?partNumber=1001&uploadId=X',
+                environ={'REQUEST_METHOD': 'PUT'},
+                headers={'Authorization': 'AWS test:tester:hmac',
+                         'Date': self.get_date_header()},
+                body='part object')
+            status, headers, body = self.call_s3api(req)
+            self.assertEqual(self._get_error_code(body), 'InvalidArgument')
+            self.assertEqual(self._get_error_message(body),
+                             'Part number must be an integer between 1 and '
+                             '1000, inclusive')
 
         # without target bucket
         req = Request.blank('/nobucket/object?partNumber=1&uploadId=X',

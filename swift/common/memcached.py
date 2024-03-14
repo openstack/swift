@@ -375,7 +375,7 @@ class MemcacheRing(object):
                                          action='connecting', sock=sock)
         if not any_yielded:
             self._log_error('ALL', cmd, 'connecting',
-                            'All memcached servers error-limited')
+                            'No more memcached servers to try')
 
     def _return_conn(self, server, fp, sock):
         """Returns a server connection to the pool."""
