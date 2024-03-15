@@ -83,6 +83,9 @@ TIMING_SAMPLE_RATE_HIGH = 0.1
 TIMING_SAMPLE_RATE_MEDIUM = 0.01
 TIMING_SAMPLE_RATE_LOW = 0.001
 
+# The max value of a delta expiration time.
+EXPTIME_MAXDELTA = 30 * 24 * 60 * 60
+
 
 def md5hash(key):
     if not isinstance(key, bytes):
@@ -100,7 +103,7 @@ def sanitize_timeout(timeout):
     translates negative values to mean a delta of 30 days in seconds (and 1
     additional second), client beware.
     """
-    if timeout > (30 * 24 * 60 * 60):
+    if timeout > EXPTIME_MAXDELTA:
         timeout += tm.time()
     return int(timeout)
 

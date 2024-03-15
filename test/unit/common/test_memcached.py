@@ -35,7 +35,7 @@ from eventlet.green import ssl
 
 from swift.common import memcached
 from swift.common.memcached import MemcacheConnectionError, md5hash, \
-    MemcacheCommand
+    MemcacheCommand, EXPTIME_MAXDELTA
 from swift.common.utils import md5, human_readable
 from mock import patch, MagicMock
 from test.debug_logger import debug_logger
@@ -87,12 +87,25 @@ class MockMemcached(object):
     def __init__(self):
         self.inbuf = b''
         self.outbuf = b''
+        # Structure: key -> (flags, absolute exptime, value)
         self.cache = {}
         self.down = False
         self.exc_on_delete = False
         self.read_return_none = False
         self.read_return_empty_str = False
         self.close_called = False
+
+    def _get_absolute_exptime(self, exptime):
+        exptime = int(exptime)
+        if exptime == 0:
+            # '0' means this cache item doesn't expire.
+            return 0
+        elif exptime <= EXPTIME_MAXDELTA:
+            # Expiration time client passes in is delta from current unix time.
+            return exptime + time.time()
+        else:
+            # Already a absolute time.
+            return exptime
 
     def sendall(self, string):
         if self.down:
@@ -109,7 +122,11 @@ class MockMemcached(object):
                 raise ValueError('Unhandled command: %s' % parts[0])
 
     def handle_set(self, key, flags, exptime, num_bytes, noreply=b''):
-        self.cache[key] = flags, exptime, self.inbuf[:int(num_bytes)]
+        self.cache[key] = (
+            flags,
+            self._get_absolute_exptime(exptime),
+            self.inbuf[:int(num_bytes)]
+        )
         self.inbuf = self.inbuf[int(num_bytes) + 2:]
         if noreply != b'noreply':
             if key == TOO_BIG_KEY:
@@ -124,14 +141,22 @@ class MockMemcached(object):
             if noreply != b'noreply':
                 self.outbuf += b'NOT_STORED\r\n'
         else:
-            self.cache[key] = flags, exptime, value
+            self.cache[key] = flags, self._get_absolute_exptime(exptime), value
             if noreply != b'noreply':
                 self.outbuf += b'STORED\r\n'
+
+    def _is_expired(self, key):
+        _, exptime, _ = self.cache[key]
+        if exptime != 0 and time.time() > exptime:
+            self.cache.pop(key)
+            return True
+        else:
+            return False
 
     def handle_delete(self, key, noreply=b''):
         if self.exc_on_delete:
             raise Exception('mock is has exc_on_delete set')
-        if key in self.cache:
+        if key in self.cache and not self._is_expired(key):
             del self.cache[key]
             if noreply != b'noreply':
                 self.outbuf += b'DELETED\r\n'
@@ -140,7 +165,7 @@ class MockMemcached(object):
 
     def handle_get(self, *keys):
         for key in keys:
-            if key in self.cache:
+            if key in self.cache and not self._is_expired(key):
                 val = self.cache[key]
                 self.outbuf += b' '.join([
                     b'VALUE',
@@ -152,7 +177,7 @@ class MockMemcached(object):
         self.outbuf += b'END\r\n'
 
     def handle_incr(self, key, value, noreply=b''):
-        if key in self.cache:
+        if key in self.cache and not self._is_expired(key):
             current = self.cache[key][2]
             new_val = str(int(current) + int(value)).encode('ascii')
             self.cache[key] = self.cache[key][:2] + (new_val, )
@@ -161,7 +186,7 @@ class MockMemcached(object):
             self.outbuf += b'NOT_FOUND\r\n'
 
     def handle_decr(self, key, value, noreply=b''):
-        if key in self.cache:
+        if key in self.cache and not self._is_expired(key):
             current = self.cache[key][2]
             new_val = str(int(current) - int(value)).encode('ascii')
             if new_val[:1] == b'-':  # ie, val is negative
@@ -386,11 +411,11 @@ class TestMemcached(unittest.TestCase):
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         # See JSON_FLAG
-        self.assertEqual(mock.cache, {cache_key: (b'2', b'0', b'[1, 2, 3]')})
+        self.assertEqual(mock.cache, {cache_key: (b'2', 0, b'[1, 2, 3]')})
 
         memcache_client.set('some_key', [4, 5, 6])
         self.assertEqual(memcache_client.get('some_key'), [4, 5, 6])
-        self.assertEqual(mock.cache, {cache_key: (b'2', b'0', b'[4, 5, 6]')})
+        self.assertEqual(mock.cache, {cache_key: (b'2', 0, b'[4, 5, 6]')})
 
         memcache_client.set('some_key', ['simple str', 'utf8 str éà'])
         # As per http://wiki.openstack.org/encoding,
@@ -398,10 +423,13 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(
             memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
         self.assertEqual(mock.cache, {cache_key: (
-            b'2', b'0', b'["simple str", "utf8 str \\u00e9\\u00e0"]')})
+            b'2', 0, b'["simple str", "utf8 str \\u00e9\\u00e0"]')})
 
-        memcache_client.set('some_key', [1, 2, 3], time=20)
-        self.assertEqual(mock.cache, {cache_key: (b'2', b'20', b'[1, 2, 3]')})
+        now = time.time()
+        with patch('time.time', return_value=now):
+            memcache_client.set('some_key', [1, 2, 3], time=20)
+        self.assertEqual(
+            mock.cache, {cache_key: (b'2', now + 20, b'[1, 2, 3]')})
 
         sixtydays = 60 * 24 * 60 * 60
         esttimeout = time.time() + sixtydays
@@ -464,7 +492,7 @@ class TestMemcached(unittest.TestCase):
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         self.assertEqual(list(mock.cache.values()),
-                         [(b'2', b'0', b'[1, 2, 3]')])
+                         [(b'2', 0, b'[1, 2, 3]')])
 
         # Now lets return an empty string, and make sure we aren't logging
         # the error.
@@ -536,9 +564,11 @@ class TestMemcached(unittest.TestCase):
         cache_key = md5(b'some_key',
                         usedforsecurity=False).hexdigest().encode('ascii')
 
-        memcache_client.incr('some_key', delta=5, time=55)
+        now = time.time()
+        with patch('time.time', return_value=now):
+            memcache_client.incr('some_key', delta=5, time=55)
         self.assertEqual(memcache_client.get('some_key'), b'5')
-        self.assertEqual(mock.cache, {cache_key: (b'0', b'55', b'5')})
+        self.assertEqual(mock.cache, {cache_key: (b'0', now + 55, b'5')})
 
         memcache_client.delete('some_key')
         self.assertIsNone(memcache_client.get('some_key'))
@@ -555,11 +585,73 @@ class TestMemcached(unittest.TestCase):
 
         memcache_client.incr('some_key', delta=5)
         self.assertEqual(memcache_client.get('some_key'), b'5')
-        self.assertEqual(mock.cache, {cache_key: (b'0', b'0', b'5')})
+        self.assertEqual(mock.cache, {cache_key: (b'0', 0, b'5')})
 
         memcache_client.incr('some_key', delta=5, time=55)
         self.assertEqual(memcache_client.get('some_key'), b'10')
-        self.assertEqual(mock.cache, {cache_key: (b'0', b'0', b'10')})
+        self.assertEqual(mock.cache, {cache_key: (b'0', 0, b'10')})
+
+    def test_incr_expiration_time(self):
+        # Test increment with different expiration times
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211'], logger=self.logger)
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
+
+        now = time.time()
+        # Test expiration time < 'EXPTIME_MAXDELTA'
+        with patch('time.time', return_value=now):
+            memcache_client.incr('expiring_key', delta=5, time=1)
+            self.assertEqual(memcache_client.get('expiring_key'), b'5')
+        with patch('time.time', return_value=now + 2):
+            self.assertIsNone(memcache_client.get('expiring_key'))
+        # Test expiration time is 0
+        with patch('time.time', return_value=now):
+            memcache_client.incr('expiring_key', delta=5, time=0)
+            self.assertEqual(memcache_client.get('expiring_key'), b'5')
+        with patch('time.time', return_value=now + 100):
+            self.assertEqual(memcache_client.get('expiring_key'), b'5')
+        memcache_client.delete('expiring_key')
+        # Test expiration time > 'EXPTIME_MAXDELTA'
+        with patch('time.time', return_value=now):
+            memcache_client.incr(
+                'expiring_key', delta=5, time=(EXPTIME_MAXDELTA + 10))
+        with patch('time.time', return_value=(now + EXPTIME_MAXDELTA + 2)):
+            self.assertEqual(memcache_client.get('expiring_key'), b'5')
+        with patch('time.time', return_value=(now + EXPTIME_MAXDELTA + 11)):
+            self.assertIsNone(memcache_client.get('expiring_key'))
+
+    def test_set_expiration_time(self):
+        # Test set with different expiration times
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211'], logger=self.logger)
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
+
+        now = time.time()
+        # Test expiration time < 'EXPTIME_MAXDELTA'
+        with patch('time.time', return_value=now):
+            memcache_client.set('expiring_key', value=5, time=1)
+            self.assertEqual(memcache_client.get('expiring_key'), 5)
+        with patch('time.time', return_value=now + 2):
+            self.assertIsNone(memcache_client.get('expiring_key'))
+        # Test expiration time is 0
+        with patch('time.time', return_value=now):
+            memcache_client.set('expiring_key', value=5, time=0)
+            self.assertEqual(memcache_client.get('expiring_key'), 5)
+        with patch('time.time', return_value=now + 100):
+            self.assertEqual(memcache_client.get('expiring_key'), 5)
+        memcache_client.delete('expiring_key')
+        # Test expiration time > 'EXPTIME_MAXDELTA'
+        with patch('time.time', return_value=now):
+            memcache_client.set(
+                'expiring_key', value=5, time=(EXPTIME_MAXDELTA + 10))
+        with patch('time.time', return_value=(now + EXPTIME_MAXDELTA + 2)):
+            self.assertEqual(memcache_client.get('expiring_key'), 5)
+        with patch('time.time', return_value=(now + EXPTIME_MAXDELTA + 11)):
+            self.assertIsNone(memcache_client.get('expiring_key'))
 
     def test_decr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -859,15 +951,17 @@ class TestMemcached(unittest.TestCase):
             key = md5(key, usedforsecurity=False).hexdigest().encode('ascii')
             self.assertIn(key, mock.cache)
             _junk, cache_timeout, _junk = mock.cache[key]
-            self.assertEqual(cache_timeout, b'0')
+            self.assertEqual(cache_timeout, 0)
 
-        memcache_client.set_multi(
-            {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
-            time=20)
+        now = time.time()
+        with patch('time.time', return_value=now):
+            memcache_client.set_multi(
+                {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
+                time=20)
         for key in (b'some_key1', b'some_key2'):
             key = md5(key, usedforsecurity=False).hexdigest().encode('ascii')
             _junk, cache_timeout, _junk = mock.cache[key]
-            self.assertEqual(cache_timeout, b'20')
+            self.assertEqual(cache_timeout, now + 20)
 
         fortydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fortydays
@@ -915,7 +1009,7 @@ class TestMemcached(unittest.TestCase):
             key = md5(key, usedforsecurity=False).hexdigest().encode('ascii')
             self.assertIn(key, mock1.cache)
             _junk, cache_timeout, _junk = mock1.cache[key]
-            self.assertEqual(cache_timeout, b'0')
+            self.assertEqual(cache_timeout, 0)
 
         memcache_client.set('some_key0', [7, 8, 9])
         self.assertEqual(memcache_client.get('some_key0'), [7, 8, 9])
