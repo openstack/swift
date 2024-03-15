@@ -194,8 +194,12 @@ def run(args, url):
         try:
             browser = driver(**kwargs)
         except Exception as e:
-            if not ('needs to be in PATH' in str(e) or
-                    'SafariDriver was not found' in str(e)):
+            if not any(x in str(e) for x in (
+                'needs to be in PATH',
+                'SafariDriver was not found',
+                'OSError: [Errno 8] Exec format error',
+                'safaridriver not available for download',
+            )):
                 traceback.print_exc()
             results.append(('SKIP', browser_name, str(e).strip()))
             continue
