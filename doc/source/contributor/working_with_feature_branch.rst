@@ -18,10 +18,11 @@ Merging master to the feature branch
 ------------------------------------
 
 From time to time it is necessary to merge from master to the feature branch.
-First, get master up-to-date::
+Consider doing this at least weekly.
 
-      git checkout master
-      git pull --ff-only origin master
+First, get everything up-to-date::
+
+      git fetch --all
 
 Then create a local branch off the feature branch into which you will merge
 the master branch, e.g.::
@@ -43,3 +44,7 @@ taken care of them, add all the affected files and then commit the merge::
 Push the merged branch to gerrit for review, using the ``-R`` option::
 
       git review -R
+
+.. note::
+      This differs from pushing a typical patchset to gerrit: the additional
+      ``-R`` option is significant.
