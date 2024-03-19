@@ -184,9 +184,11 @@ import base64
 from eventlet import Timeout
 import six
 from swift.common.memcached import MemcacheConnectionError
-from swift.common.swob import Response, Request, wsgi_to_str
-from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
-    HTTPUnauthorized, HTTPMethodNotAllowed, HTTPServiceUnavailable
+from swift.common.swob import (
+    Response, Request, wsgi_to_str, str_to_wsgi, wsgi_unquote,
+    HTTPBadRequest, HTTPForbidden, HTTPNotFound,
+    HTTPUnauthorized, HTTPMethodNotAllowed, HTTPServiceUnavailable,
+)
 
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.middleware.acl import (
@@ -469,7 +471,7 @@ class TempAuth(object):
             if not s3_auth_details['check_signature'](user['key']):
                 return None
             env['PATH_INFO'] = env['PATH_INFO'].replace(
-                account_user, account_id, 1)
+                str_to_wsgi(account_user), wsgi_unquote(account_id), 1)
             groups = self._get_user_groups(account, account_user, account_id)
 
         return groups

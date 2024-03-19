@@ -46,10 +46,12 @@ class FakeAuthApp(object):
         E.g. '/v1/test:tester/bucket/object' will become
         '/v1/AUTH_test/bucket/object'. This method emulates the behavior.
         """
-        tenant_user = env['s3api.auth_details']['access_key']
+        tenant_user = swob.str_to_wsgi(env['s3api.auth_details']['access_key'])
         tenant, user = tenant_user.rsplit(':', 1)
 
         path = env['PATH_INFO']
+        # Make sure it's valid WSGI
+        swob.wsgi_to_str(path)
         env['PATH_INFO'] = path.replace(tenant_user, 'AUTH_' + tenant)
 
     @staticmethod
