@@ -41,6 +41,7 @@ from io import BytesIO
 from uuid import uuid4
 from http.client import HTTPException
 
+from swift.common import memcached
 from swift.common import storage_policy, swob, utils, exceptions
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -48,6 +49,8 @@ from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
 from swift.common.utils import Timestamp, md5, close_if_possible, checksum
 from test import get_config
 from test.debug_logger import FakeLogger
+from test.unit.common.test_memcached import MockedMemcachePool, \
+    MockMemcached
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.ring import Ring, RingData, RingBuilder
 from swift.obj import server
@@ -395,6 +398,14 @@ def track(f):
 
 
 class FakeMemcache(object):
+    """
+    Simple in-memory test helper for basic memcache GET/SET operations.
+
+    This class provides a lightweight mock that stores data in a Python dict.
+    It does not implement TTL expiration or the full memcache protocol, and
+    bypasses MemcacheRing's internal handling (e.g., atomic incr operations).
+    Use this for simple tests that only need basic key-value storage.
+    """
 
     def __init__(self, error_on_set=None, error_on_get=None):
         self.store = {}
@@ -466,6 +477,65 @@ class FakeMemcache(object):
 # This decorator only makes sense in the context of FakeMemcache;
 # may as well clean it up now
 del track
+
+
+class TestableMemcacheRing(memcached.MemcacheRing):
+    """
+    Real MemcacheRing with injectable errors for testing concurrent scenarios.
+
+    This class wraps the actual MemcacheRing implementation while allowing
+    controlled injection of connection errors. It preserves MemcacheRing's
+    internal behavior including atomic operations and protocol compliance.
+    Use this for testing components that rely on memcache features like
+    atomic incr/decr or when testing concurrent access patterns.
+    """
+
+    def __init__(self, servers, inject_incr_error=None, inject_set_error=None,
+                 inject_get_error=None, inject_del_error=None, **kwargs):
+        self.inject_incr_error = inject_incr_error
+        self.inject_set_error = inject_set_error
+        self.inject_get_error = inject_get_error
+        self.inject_del_error = inject_del_error
+        super().__init__(servers, **kwargs)
+        mock_cache = MockMemcached()
+        self._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock_cache, mock_cache)] * 2)
+        self.set_calls = []
+        self.incr_calls = []
+        self.get_calls = []
+        self.del_calls = []
+
+    def incr(self, key, delta=1, time=0):
+        self.incr_calls.append((key, delta, time))
+        if self.inject_incr_error:
+            raise MemcacheConnectionError
+        return super().incr(key, delta, time)
+
+    def set(self, key, value, serialize=True, time=0,
+            min_compress_len=0, raise_on_error=False):
+        self.set_calls.append((key, value, time))
+        if self.inject_set_error:
+            if raise_on_error:
+                raise MemcacheConnectionError
+            else:
+                return None
+        super().set(
+            key, value, serialize, time, min_compress_len, raise_on_error)
+
+    def get(self, key, raise_on_error=False):
+        self.get_calls.append(key)
+        if self.inject_get_error:
+            if raise_on_error:
+                raise MemcacheConnectionError
+            else:
+                return None
+        return super().get(key, raise_on_error)
+
+    def delete(self, key, server_key=None):
+        self.del_calls.append(key)
+        if self.inject_del_error:
+            raise MemcacheConnectionError
+        super().delete(key, server_key)
 
 
 class FakeIterable(object):
