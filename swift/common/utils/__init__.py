@@ -505,6 +505,13 @@ def generate_trans_id(trans_id_suffix):
         uuid.uuid4().hex[:21], int(time.time()), quote(trans_id_suffix))
 
 
+def generate_unique_id():
+    result = base64.urlsafe_b64encode(str(uuid.uuid4()).encode('ascii'))
+    if six.PY2:
+        return result
+    return result.decode('ascii')
+
+
 def get_policy_index(req_headers, res_headers):
     """
     Returns the appropriate index of the storage policy for the request from

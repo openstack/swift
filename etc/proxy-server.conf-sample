@@ -112,12 +112,12 @@ bind_port = 8080
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
 # testing. See below for a pipeline using keystone.
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes symlink proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas mpu slo dlo versioned_writes symlink proxy-logging proxy-server
 
 # The following pipeline shows keystone integration. Comment out the one
 # above and uncomment this one. Additional steps for integrating keystone are
 # covered further below in the filter sections for authtoken and keystoneauth.
-#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas slo dlo versioned_writes symlink proxy-logging proxy-server
+#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas mpu slo dlo versioned_writes symlink proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -1060,6 +1060,11 @@ use = egg:swift#bulk
 # parallel. Avoid setting this too high, as it gives clients a force multiplier
 # which may be used in DoS attacks. The suggested range is between 2 and 10.
 # delete_concurrency = 2
+
+# Note: put before slo in the pipeline
+# TODO: the dependence on SLO is likely to go in future
+[filter:mpu]
+use = egg:swift#mpu
 
 # Note: Put after auth and staticweb in the pipeline.
 [filter:slo]

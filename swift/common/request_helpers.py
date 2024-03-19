@@ -407,13 +407,17 @@ def get_container_update_override_key(key):
     return header.title()
 
 
+def is_reserved_name(*parts):
+    return any(RESERVED in p for p in parts if p)
+
+
 def get_reserved_name(*parts):
     """
     Generate a valid reserved name that joins the component parts.
 
     :returns: a string
     """
-    if any(RESERVED in p for p in parts):
+    if is_reserved_name(*parts):
         raise ValueError('Invalid reserved part in components')
     return RESERVED + RESERVED.join(parts)
 
@@ -518,7 +522,8 @@ class SegmentedIterable(object):
 
     def __init__(self, req, app, listing_iter, max_get_time,
                  logger, ua_suffix, swift_source,
-                 name='<not specified>', response_body_length=None):
+                 name='<not specified>', response_body_length=None,
+                 allow_reserved_names=False):
         self.req = req
         self.app = app
         self.listing_iter = listing_iter
@@ -532,6 +537,7 @@ class SegmentedIterable(object):
         self.app_iter = self._internal_iter()
         self.validated_first_segment = False
         self.current_resp = None
+        self.allow_reserved_names = allow_reserved_names
 
     def _coalesce_requests(self):
         pending_req = pending_etag = pending_size = None
@@ -561,10 +567,12 @@ class SegmentedIterable(object):
                 # object; therefore, its etag is its MD5sum and hence we can
                 # check it.
                 path = quote(seg_path) + '?multipart-manifest=get'
+                headers = {'x-auth-token':
+                           self.req.headers.get('x-auth-token')}
+                if self.allow_reserved_names:
+                    headers['x-backend-allow-reserved-names'] = 'true'
                 seg_req = make_subrequest(
-                    self.req.environ, path=path, method='GET',
-                    headers={'x-auth-token': self.req.headers.get(
-                        'x-auth-token')},
+                    self.req.environ, path=path, method='GET', headers=headers,
                     agent=('%(orig)s ' + self.ua_suffix),
                     swift_source=self.swift_source)
 
