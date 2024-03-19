@@ -74,6 +74,7 @@ bandwidth usage will want to only sum up logs with no swift.source.
 import os
 import time
 
+from urllib.parse import unquote
 from swift.common.middleware.catch_errors import enforce_byte_count
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
@@ -252,7 +253,7 @@ class ProxyLoggingMiddleware(object):
         policy_index = get_policy_index(req.headers, resp_headers)
 
         acc, cont, obj = None, None, None
-        swift_path = req.environ.get('swift.backend_path', req.path)
+        swift_path = req.environ.get('swift.backend_path', unquote(req.path))
         if swift_path.startswith('/v1/'):
             _, acc, cont, obj = split_path(swift_path, 1, 4, True)
 
