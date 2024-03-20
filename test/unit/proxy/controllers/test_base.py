@@ -200,12 +200,6 @@ class BaseTest(unittest.TestCase):
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestFuncs(BaseTest):
 
-    def test_get_namespaces_from_cache_disabled(self):
-        cache_key = 'shard-updating-v2/a/c/'
-        req = Request.blank('a/c')
-        actual = get_namespaces_from_cache(req, cache_key, 0)
-        self.assertEqual((None, 'disabled'), actual)
-
     def test_get_namespaces_from_cache_miss(self):
         cache_key = 'shard-updating-v2/a/c/'
         req = Request.blank('a/c')
@@ -273,7 +267,7 @@ class TestFuncs(BaseTest):
         self.assertEqual((None, 'error'), actual)
 
     def test_set_namespaces_in_cache_disabled(self):
-        cache_key = 'shard-updating-v2/a/c/'
+        cache_key = 'shard-testing-v2/a/c/'
         ns_bound_list = NamespaceBoundList([['', 'sr1'], ['k', 'sr2']])
         req = Request.blank('a/c')
         actual = set_namespaces_in_cache(req, cache_key, ns_bound_list, 123)
@@ -282,7 +276,7 @@ class TestFuncs(BaseTest):
                          req.environ['swift.infocache'])
 
     def test_set_namespaces_in_cache_ok(self):
-        cache_key = 'shard-updating-v2/a/c/'
+        cache_key = 'shard-testing-v2/a/c/'
         ns_bound_list = NamespaceBoundList([['', 'sr1'], ['k', 'sr2']])
         req = Request.blank('a/c')
         req.environ['swift.cache'] = self.cache
@@ -294,7 +288,7 @@ class TestFuncs(BaseTest):
         self.assertEqual(123, self.cache.times.get(cache_key))
 
     def test_set_namespaces_in_cache_infocache_exists(self):
-        cache_key = 'shard-updating-v2/a/c/'
+        cache_key = 'shard-testing-v2/a/c/'
         ns_bound_list = NamespaceBoundList([['', 'sr1'], ['k', 'sr2']])
         req = Request.blank('a/c')
         req.environ['swift.infocache'] = {'already': 'exists'}
@@ -304,7 +298,7 @@ class TestFuncs(BaseTest):
                          req.environ['swift.infocache'])
 
     def test_set_namespaces_in_cache_error(self):
-        cache_key = 'shard-updating-v2/a/c/'
+        cache_key = 'shard-testing-v2/a/c/'
         ns_bound_list = NamespaceBoundList([['', 'sr1'], ['k', 'sr2']])
         req = Request.blank('a/c')
         req.environ['swift.cache'] = self.cache
@@ -313,6 +307,16 @@ class TestFuncs(BaseTest):
         self.assertEqual('set_error', actual)
         self.assertEqual(ns_bound_list,
                          req.environ['swift.infocache'].get(cache_key))
+
+    def test_set_namespaces_in_cache_raises_exception(self):
+        cache_key = 'shard-updating-v2/a/c/'
+        ns_bound_list = NamespaceBoundList([['', 'sr1'], ['k', 'sr2']])
+        req = Request.blank('a/c')
+        with self.assertRaises(ValueError) as cm:
+            set_namespaces_in_cache(req, cache_key, ns_bound_list, 123)
+        self.assertIn('shard-updating cache should use '
+                      'CooperativeNamespaceCachePopulator',
+                      str(cm.exception))
 
     def test_get_info_zero_recheck(self):
         mock_cache = mock.Mock()

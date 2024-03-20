@@ -207,6 +207,19 @@ use = egg:swift#proxy
 # container_listing_shard_ranges_skip_cache_pct = 0.0
 # account_existence_skip_cache_pct = 0.0
 #
+# Use cooperative token on updating namespace cache to coalesce the requests
+# which fetch updating namespaces from the backend and set them in memcached.
+# Number of cooperative tokens per each token session, 0 means to disable the
+# usage of cooperative token and directly talk to the backend and memcache.
+# namespace_cache_tokens_per_session = 3
+#
+# The average time spent on getting updating namespaces from the container
+# servers, this will be used as basic unit for cooperative token to figure out
+# intervals for the retries when requests didn't acquire a token and are
+# waiting for other requests to fill in the cache; and a cooperative token
+# session (`token_ttl`) will be 10 times of this value.
+# namespace_avg_backend_fetch_time = 0.3
+#
 # object_chunk_size = 65536
 # client_chunk_size = 65536
 #
