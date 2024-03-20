@@ -17,11 +17,13 @@ import json
 import unittest
 import mock
 
+from swift.common import swob
 from swift.common.middleware.mpu import MPUMiddleware
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted
 from swift.common.utils import md5, quote, Timestamp
 from test.debug_logger import debug_logger
+from swift.proxy.controllers.base import ResponseCollection, ResponseData
 from test.unit import make_timestamp_iter
 from test.unit.common.middleware.helpers import FakeSwift
 
@@ -302,3 +304,49 @@ class TestMPUMiddleware(unittest.TestCase):
              'X-Symlink-Target': '\x00mpu_manifests\x00c/\x00o/test-id',
              'X-Timestamp': ts_session.internal},
             mpu_hdrs)
+
+    def test_mpu_async_cleanup_DELETE(self):
+        backend_responses = ResponseCollection([ResponseData(
+            204, headers={'x-object-sysmeta-mpu-upload-id': 'test-id'})
+        ])
+        env_updates = {'swift.backend_responses': backend_responses}
+        self.app.register('DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None,
+                          env_updates=env_updates)
+        self.app.register(
+            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted',
+            HTTPAccepted, {})
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'DELETE'
+        mw = MPUMiddleware(self.app, {})
+        resp = req.get_response(mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(204, resp.status_int)
+        self.assertEqual(b'', resp_body)
+        exp_calls = [
+            ('DELETE', '/v1/a/c/o'),
+            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted'),
+        ]
+        self.assertEqual(exp_calls, self.app.calls)
+
+    def test_mpu_async_cleanup_PUT(self):
+        backend_responses = ResponseCollection([ResponseData(
+            201, headers={'x-object-sysmeta-mpu-upload-id': 'test-id'})
+        ])
+        env_updates = {'swift.backend_responses': backend_responses}
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None,
+                          env_updates=env_updates)
+        self.app.register(
+            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted',
+            HTTPAccepted, {})
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'PUT'
+        mw = MPUMiddleware(self.app, {})
+        resp = req.get_response(mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(201, resp.status_int)
+        self.assertEqual(b'', resp_body)
+        exp_calls = [
+            ('PUT', '/v1/a/c/o'),
+            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted'),
+        ]
+        self.assertEqual(exp_calls, self.app.calls)

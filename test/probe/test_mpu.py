@@ -21,6 +21,7 @@ import shutil
 import random
 from hashlib import md5
 
+from swift.common.manager import Manager
 from swift.common.swob import normalize_etag
 from swift.common.utils import quote
 from swiftclient import client as swiftclient, ClientException
@@ -83,13 +84,19 @@ class BaseTestS3MPU(BaseTestMPU):
         self.maxDiff = None
 
 
-class TestMixedPolicyS3MPU(BaseTestS3MPU):
+class TestS3MPU(BaseTestS3MPU):
 
     @unittest.skipIf(len(ENABLED_POLICIES) < 2, "Need more than one policy")
     def setUp(self):
-        super(TestMixedPolicyS3MPU, self).setUp()
+        super(TestS3MPU, self).setUp()
         self.other_policy = random.choice([p for p in ENABLED_POLICIES
                                            if p != self.policy])
+        # I think boto has a minimum chunksize that matches AWS, when I do this
+        # too small I get less chunks in the SLO than I expect
+        self.chunksize = 5 * 2 ** 20
+        self.transfer_config = TransferConfig(
+            multipart_threshold=self.chunksize,
+            multipart_chunksize=self.chunksize)
 
     def _assert_container_storage_policy(self, container_name,
                                          expected_policy):
@@ -111,18 +118,13 @@ class TestMixedPolicyS3MPU(BaseTestS3MPU):
         self.segments_brain.put_container(policy_index=int(self.other_policy))
         self._assert_container_storage_policy(self.segment_bucket_name,
                                               self.other_policy)
-        # I think boto has a minimum chunksize that matches AWS, when I do this
-        # too small I get less chunks in the SLO than I expect
-        chunksize = 5 * 2 ** 20
-        config = TransferConfig(multipart_threshold=chunksize,
-                                multipart_chunksize=chunksize)
         num_chunks = 3
-        data_filename, md5_hash, slo_etag = self.make_file(chunksize,
+        data_filename, md5_hash, slo_etag = self.make_file(self.chunksize,
                                                            num_chunks)
-        expected_size = chunksize * num_chunks
+        expected_size = self.chunksize * num_chunks
 
         self.s3.upload_file(data_filename, self.bucket_name, self.mpu_name,
-                            Config=config)
+                            Config=self.transfer_config)
         # s3 mpu request succeeds
         s3_head_resp = self.s3.head_object(Bucket=self.bucket_name,
                                            Key=self.mpu_name)
@@ -173,6 +175,93 @@ class TestMixedPolicyS3MPU(BaseTestS3MPU):
         self.assertEqual(stat['x-storage-policy'], self.other_policy.name)
         self.assertEqual([item['name'].split('/')[0] for item in listing],
                          [self.mpu_name] * 3)
+
+    def _create_slo_mpu(self, num_parts):
+        self.s3.create_bucket(Bucket=self.bucket_name)
+        data_filename, md5_hash, slo_etag = self.make_file(self.chunksize,
+                                                           num_parts)
+        expected_size = self.chunksize * num_parts
+
+        # upload an mpu
+        self.s3.upload_file(data_filename, self.bucket_name, self.mpu_name,
+                            Config=self.transfer_config)
+        # check the mpu
+        s3_head_resp = self.s3.head_object(Bucket=self.bucket_name,
+                                           Key=self.mpu_name)
+        self.assertEqual(expected_size, int(s3_head_resp['ContentLength']))
+        self.assertEqual(num_parts, int(
+            s3_head_resp['ETag'].strip('"').rsplit('-')[-1]))
+
+        # check the parts are in the segments bucket
+        stat, listing = swiftclient.get_container(
+            self.url, self.token, self.segment_bucket_name)
+        part_names = [item['name'] for item in listing]
+        split_part_names = [name.split('/') for name in part_names]
+        # we don't know the upload ID...
+        self.assertEqual(
+            [[self.mpu_name, mock.ANY, str(i + 1)] for i in range(num_parts)],
+            split_part_names)
+        # ...but we can assert it is same for all parts
+        self.assertEqual(1, len(set([s[1] for s in split_part_names])))
+
+    def test_mpu_overwrite_async_cleanup(self):
+        num_parts = 2
+        self._create_slo_mpu(num_parts)
+        # overwrite the mpu with a tiny file
+        data_filename, md5_hash, slo_etag = self.make_file(1, 1)
+        self.s3.upload_file(data_filename, self.bucket_name,
+                            self.mpu_name, Config=self.transfer_config)
+        # check the tiny file
+        s3_head_resp = self.s3.head_object(Bucket=self.bucket_name,
+                                           Key=self.mpu_name)
+        self.assertEqual(1, int(s3_head_resp['ContentLength']))
+        self.assertNotIn('-', s3_head_resp['ETag'])
+
+        # the parts still exist in the segments bucket, plus a marker
+        stat, listing = swiftclient.get_container(
+            self.url, self.token, self.segment_bucket_name)
+        part_names = [item['name'] for item in listing]
+        split_part_names = [name.split('/') for name in part_names]
+        self.assertEqual(
+            [[self.mpu_name, mock.ANY, str(i + 1)] for i in range(num_parts)]
+            + [[self.mpu_name, mock.ANY, 'deleted']],
+            split_part_names)
+        self.assertEqual(1, len(set([s[1] for s in split_part_names])))
+
+        # run the auditor
+        Manager(['container-auditor']).once()
+
+        # parts have been deleted
+        stat, listing = swiftclient.get_container(
+            self.url, self.token, self.segment_bucket_name)
+        part_names = [item['name'] for item in listing]
+        self.assertFalse(part_names, part_names)
+
+    def test_mpu_delete_async_cleanup(self):
+        num_parts = 2
+        self._create_slo_mpu(num_parts)
+        # delete the mpu
+        self.s3.delete_object(Bucket=self.bucket_name, Key=self.mpu_name)
+
+        # the parts still exist in the segments bucket, plus a marker
+        stat, listing = swiftclient.get_container(
+            self.url, self.token, self.segment_bucket_name)
+        part_names = [item['name'] for item in listing]
+        split_part_names = [name.split('/') for name in part_names]
+        self.assertEqual(
+            [[self.mpu_name, mock.ANY, str(i + 1)] for i in range(num_parts)]
+            + [[self.mpu_name, mock.ANY, 'deleted']],
+            split_part_names)
+        self.assertEqual(1, len(set([s[1] for s in split_part_names])))
+
+        # run the auditor
+        Manager(['container-auditor']).once()
+
+        # parts have been deleted
+        stat, listing = swiftclient.get_container(
+            self.url, self.token, self.segment_bucket_name)
+        part_names = [item['name'] for item in listing]
+        self.assertFalse(part_names, part_names)
 
 
 class TestNativeMPU(BaseTestMPU):
@@ -302,6 +391,14 @@ class TestNativeMPU(BaseTestMPU):
             self.url, self.token, self.bucket_name, self.mpu_name)
         self.assertEqual(str(part_size), headers.get('content-length'))
         self.assertEqual(hash_hash, normalize_etag(headers.get('etag')))
+        user_objs = self.internal_client.iter_objects(
+            self.account, self.bucket_name)
+        self.assertEqual([self.mpu_name], [o['name'] for o in user_objs])
+        mpu_meta = self.internal_client.get_object_metadata(
+            self.account, self.bucket_name, self.mpu_name)
+        self.assertEqual(upload_id,
+                         mpu_meta.get('x-object-sysmeta-mpu-upload-id'),
+                         mpu_meta)
 
         # download mpu
         headers, body = swiftclient.get_object(
@@ -327,3 +424,36 @@ class TestNativeMPU(BaseTestMPU):
         resp_hdrs, listing = swiftclient.get_container(
             self.url, self.token, self.bucket_name, query_string='uploads')
         self.assertFalse(listing)
+
+        # delete the mpu
+        swiftclient.delete_object(self.url, self.token, self.bucket_name,
+                                  self.mpu_name)
+        # check the mpu cannot be downloaded
+        with self.assertRaises(ClientException) as cm:
+            swiftclient.get_object(
+                self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual(404, cm.exception.http_status)
+
+        # check we still have manifest, and also an audit marker for it
+        manifests = self.internal_client.iter_objects(
+            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
+        self.assertEqual(['\x00%s/%s' % (self.mpu_name, upload_id),
+                          '\x00%s/%s/deleted' % (self.mpu_name, upload_id)],
+                         [o['name'] for o in manifests])
+        # check we still have the parts
+        parts = self.internal_client.iter_objects(
+            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+        self.assertEqual(['\x00%s/%s/1' % (self.mpu_name, upload_id)],
+                         [o['name'] for o in parts])
+
+        # async cleanup
+        Manager(['container-auditor']).once()
+
+        # manifest and parts have gone :)
+        manifests = self.internal_client.iter_objects(
+            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
+        self.assertEqual([], [o['name'] for o in manifests])
+
+        parts = self.internal_client.iter_objects(
+            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+        self.assertEqual([], [o['name'] for o in parts])

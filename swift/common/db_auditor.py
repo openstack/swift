@@ -47,8 +47,8 @@ class DatabaseAuditor(Daemon):
 
     def __init__(self, conf, logger=None):
         self.conf = conf
-        self.logger = logger or get_logger(conf, log_route='{}-auditor'.format(
-            self.server_type))
+        self.log_route = '{}-auditor'.format(self.server_type)
+        self.logger = logger or get_logger(conf, log_route=self.log_route)
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.interval = float(conf.get('interval', 1800))

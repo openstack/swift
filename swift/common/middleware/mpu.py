@@ -532,6 +532,54 @@ class MPUSessionHandler(BaseMPUHandler):
         return resp
 
 
+class MPUObjHandler(BaseMPUHandler):
+    def _cleanup_mpu(self, upload_id):
+        # TODO: check that backend_resp has x-symlink-target and cross check
+        #   its value with expected manifest path
+        marker_path = self.make_path(
+            self.manifests_container, self.reserved_obj, upload_id, 'deleted')
+        marker_req = self.make_subrequest(
+            'PUT', path=marker_path,
+            headers={'Content-Type': MPU_DELETED_CONTENT_TYPE,
+                     'Content-Length': '0'})
+        # TODO: check status, log a warning???
+        marker_resp = marker_req.get_response(self.app)
+        drain_and_close(marker_resp)
+
+    def _maybe_cleanup_mpu(self, resp):
+        # NB: do this even for non-success responses in case any of the
+        # backend responses may have succeeded
+        if 'x-object-version-id' in resp.headers:
+            # TODO: unit test early return
+            # existing object became a version -> no cleanup
+            return
+
+        self.logger.debug('MPU resp headers %s', dict(resp.headers))
+        upload_id_key = get_mpu_sysmeta_key('upload-id')
+        deleted_upload_ids = {}
+        for backend_resp in self.req.environ.get('swift.backend_responses',
+                                                 []):
+            if not is_success(backend_resp.status):
+                continue
+
+            upload_id = backend_resp.headers.get(upload_id_key)
+            if upload_id:
+                deleted_upload_ids[upload_id] = backend_resp
+        for upload_id, backend_resp in deleted_upload_ids.items():
+            # TODO: unit test multiple upload cleanup
+            self._cleanup_mpu(upload_id)
+
+    def handle_request(self):
+        if self.req.method not in ('PUT', 'DELETE'):
+            return None
+
+        # TODO: write down a general maybe-deleted marker in manifests
+        #  container *before* forwarding request
+        resp = self.req.get_response(self.app)
+        self._maybe_cleanup_mpu(resp)
+        return resp
+
+
 class MPUMiddleware(object):
     def __init__(self, app, conf, logger=None):
         self.conf = conf
@@ -556,6 +604,8 @@ class MPUMiddleware(object):
             handler = MPUSessionHandler(self, req, upload_id)
         elif container and 'uploads' in req.params:
             handler = MPUHandler(self, req)
+        elif obj:
+            handler = MPUObjHandler(self, req)
         else:
             handler = None
 

@@ -1607,6 +1607,9 @@ class FakeInternalClient(internal_client.InternalClient):
         self.resp_iter = iter(responses)
         self.calls = []
 
+    def clear_calls(self):
+        del self.calls[:]
+
     def make_request(self, method, path, headers, acceptable_statuses,
                      body_file=None, params=None):
         if body_file is None:

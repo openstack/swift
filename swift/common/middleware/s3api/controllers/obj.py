@@ -16,7 +16,8 @@
 import json
 
 from swift.common import constraints
-from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT
+from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT, \
+    is_success
 from swift.common.request_helpers import update_etag_is_at_header
 from swift.common.swob import Range, content_range_header_value, \
     normalize_etag
@@ -29,7 +30,8 @@ from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \
-    PreconditionFailed, KeyTooLongError
+    PreconditionFailed, KeyTooLongError, ErrorResponse
+from swift.container.mpu_auditor import MPU_DELETED_CONTENT_TYPE
 
 
 class ObjectController(Controller):
@@ -175,6 +177,8 @@ class ObjectController(Controller):
             req.headers['Content-Type'] = 'binary/octet-stream'
         resp = req.get_response(self.app)
 
+        self._maybe_cleanup_mpu(req, resp)
+
         if 'X-Amz-Copy-Source' in req.headers:
             resp.append_copy_resp_body(req.controller_name,
                                        req_timestamp.s3xmlformat)
@@ -214,6 +218,82 @@ class ObjectController(Controller):
             break
         return resp
 
+    def put_mpu_audit_marker(self, req, parts_container, upload_id):
+        # TODO: doesn't seem right to be constructing a sw_req here, but we
+        #   have to NOT send the actual PUT etag when we put the audit marker
+        obj = '%s/%s/deleted' % (req.object_name, upload_id)
+        sw_req = req.to_swift_req(
+            'PUT', container=parts_container, obj=obj,
+            headers={'Content-Type': MPU_DELETED_CONTENT_TYPE,
+                     'Content-Length': '0'})
+        # TODO: pop *all* the irrelevant headers
+        sw_req.headers.pop('Etag', None)
+        sw_req.headers.pop('Content-Md5', None)
+        # TODO: handle errors
+        sw_req.get_response(self.app)
+
+    def delete_mpu_audit_marker(self, req, parts_container, upload_id):
+        obj = '%s/%s/deleted' % (req.object_name, upload_id)
+        # TODO: handle errors
+        req.get_response(self.app, 'DELETE',
+                         container=parts_container, obj=obj)
+
+    def _cleanup_mpu_sync(self, req, upload_id, backend_resp):
+        parts_container = req.container_name + '+segments'
+        etag_key = sysmeta_header('object', 'etag')
+        etag = backend_resp.headers.get(etag_key)
+        try:
+            num_parts = int(etag.rsplit('-', 1)[1])
+        except (ValueError, AttributeError):
+            self.logger.exception(
+                'Failed to extract MPU part count from etag %s', etag)
+            return
+
+        deleted_parts = 0
+        for part_num in range(num_parts):
+            part_name = '%s/%s/%s' % (req.object_name, upload_id, part_num + 1)
+            try:
+                req.get_response(
+                    self.app, 'DELETE', container=parts_container,
+                    obj=part_name)
+            except ErrorResponse as err:
+                self.logger.warning(err)
+            else:
+                deleted_parts += 1
+        if deleted_parts == num_parts:
+            self.delete_mpu_audit_marker(req, parts_container, upload_id)
+        else:
+            self.logger.warning('Failed to delete all MPU parts (%s/%s)',
+                                deleted_parts, num_parts)
+
+    def _cleanup_mpu(self, req, upload_id):
+        parts_container = req.container_name + '+segments'
+        self.put_mpu_audit_marker(req, parts_container, upload_id)
+
+    def _maybe_cleanup_mpu(self, req, resp, sync=False):
+        if 'x-object-version-id' in resp.sw_headers:
+            # TODO: unit test early return
+            # existing object became a version -> no cleanup
+            return
+
+        upload_id_key = sysmeta_header('object', 'upload-id')
+        deleted_upload_ids = {}
+        for backend_resp in resp.environ.get('swift.backend_responses', []):
+            if not is_success(backend_resp.status):
+                continue
+            try:
+                upload_id = backend_resp.headers[upload_id_key]
+            except KeyError:
+                pass
+            else:
+                deleted_upload_ids[upload_id] = backend_resp
+        for upload_id, backend_resp in deleted_upload_ids.items():
+            # TODO: unit test multiple upload cleanup
+            self._cleanup_mpu(req, upload_id)
+            if sync:
+                # TODO: not necessary?
+                self._cleanup_mpu_sync(req, upload_id, backend_resp)
+
     @public
     def DELETE(self, req):
         """
@@ -233,24 +313,16 @@ class ObjectController(Controller):
                 return HTTPNoContent(headers={'x-amz-version-id': version_id})
 
         try:
-            try:
-                query = req.gen_multipart_manifest_delete_query(
-                    self.app, version=version_id)
-            except NoSuchKey:
-                query = {}
-
             req.headers['Content-Type'] = None  # Ignore client content-type
-
+            query = {}
             if version_id is not None:
                 query['version-id'] = version_id
                 query['symlink'] = 'get'
 
             resp = req.get_response(self.app, query=query)
-            if query.get('multipart-manifest') and resp.status_int == HTTP_OK:
-                for chunk in resp.app_iter:
-                    pass  # drain the bulk-deleter response
-                resp.status = HTTP_NO_CONTENT
-                resp.body = b''
+
+            self._maybe_cleanup_mpu(req, resp)
+
             if resp.sw_headers.get('X-Object-Current-Version-Id') == 'null':
                 new_resp = self._restore_on_delete(req)
                 if new_resp:

@@ -48,8 +48,11 @@ class TestAuditorMigrations(unittest.TestCase):
                           'was already migrated')
 
         conf = {'devices': tempdir, 'mount_check': False}
-        test_auditor = auditor.ContainerAuditor(conf, logger=debug_logger())
-        test_auditor.run_once()
+        with mock.patch(
+                'swift.container.auditor.MpuAuditor') as mock_mpu_auditor:
+            test_auditor = auditor.ContainerAuditor(
+                conf, logger=debug_logger())
+            test_auditor.run_once()
 
         broker = auditor.ContainerBroker(db_path, account='a', container='c')
         info = broker.get_info()
@@ -62,6 +65,7 @@ class TestAuditorMigrations(unittest.TestCase):
         }
         for k, v in expected.items():
             self.assertEqual(info[k], v)
+        mock_mpu_auditor.assert_called_once_with(conf, test_auditor.logger)
 
 
 if __name__ == '__main__':

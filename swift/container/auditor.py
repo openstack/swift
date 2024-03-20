@@ -12,10 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
 from swift.container.backend import ContainerBroker
 from swift.common.db_auditor import DatabaseAuditor
+from swift.container.mpu_auditor import MpuAuditor
 
 
 class ContainerAuditor(DatabaseAuditor):
@@ -24,5 +23,10 @@ class ContainerAuditor(DatabaseAuditor):
     server_type = "container"
     broker_class = ContainerBroker
 
+    def __init__(self, conf, logger=None):
+        super(ContainerAuditor, self).__init__(conf, logger)
+        self.mpu_auditor = MpuAuditor(conf, self.logger)
+
     def _audit(self, job, broker):
+        self.mpu_auditor.audit(broker)
         return None
