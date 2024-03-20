@@ -16,6 +16,7 @@
 import tempfile
 import shutil
 import os
+import mock
 
 from unittest import TestCase
 from swift.cli.recon_cron import get_async_count
@@ -48,3 +49,32 @@ class TestReconCron(TestCase):
 
         count = get_async_count(device_dir)
         self.assertEqual(count, 3)
+
+    def test_get_async_count_deleted(self):
+        device_dir = os.path.join(self.temp_dir, 'device')
+        device_index = os.path.join(device_dir, '1')
+        async_dir = os.path.join(device_index, ASYNCDIR_BASE)
+        entry1 = os.path.join(async_dir, 'entry1')
+        entry2 = os.path.join(async_dir, 'entry2')
+        os.makedirs(entry1)
+        os.makedirs(entry2)
+
+        pending_file1 = os.path.join(entry1, 'pending_file1')
+        pending_file2 = os.path.join(entry1, 'pending_file2')
+        pending_file3 = os.path.join(entry2, 'pending_file3')
+        open(pending_file1, 'w').close()
+        open(pending_file2, 'w').close()
+        open(pending_file3, 'w').close()
+
+        orig_isdir = os.path.isdir
+
+        def racy_isdir(d):
+            result = orig_isdir(d)
+            if d == entry1:
+                # clean it up before caller has a chance to descend
+                shutil.rmtree(entry1)
+            return result
+
+        with mock.patch('os.path.isdir', racy_isdir):
+            count = get_async_count(device_dir)
+        self.assertEqual(count, 1)

@@ -18,18 +18,18 @@ import time
 from eventlet import Timeout
 
 from swift.common.utils import get_logger, dump_recon_cache, readconf, \
-    lock_path
+    lock_path, listdir
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.obj.diskfile import ASYNCDIR_BASE
 
 
 def get_async_count(device_dir):
     async_count = 0
-    for i in os.listdir(device_dir):
+    for i in listdir(device_dir):
         device = os.path.join(device_dir, i)
         if not os.path.isdir(device):
             continue
-        for asyncdir in os.listdir(device):
+        for asyncdir in listdir(device):
             # skip stuff like "accounts", "containers", etc.
             if not (asyncdir == ASYNCDIR_BASE or
                     asyncdir.startswith(ASYNCDIR_BASE + '-')):
@@ -37,10 +37,10 @@ def get_async_count(device_dir):
             async_pending = os.path.join(device, asyncdir)
 
             if os.path.isdir(async_pending):
-                for entry in os.listdir(async_pending):
+                for entry in listdir(async_pending):
                     if os.path.isdir(os.path.join(async_pending, entry)):
                         async_hdir = os.path.join(async_pending, entry)
-                        async_count += len(os.listdir(async_hdir))
+                        async_count += len(listdir(async_hdir))
     return async_count
 
 
