@@ -39,6 +39,16 @@ Static Large Objects
     :members:
     :show-inheritance:
 
+.. _multi-part-uploads:
+
+------------------
+Multi-Part-Uploads
+------------------
+
+.. automodule:: swift.common.middleware.mpu
+    :members:
+    :show-inheritance:
+
 ----------
 Direct API
 ----------

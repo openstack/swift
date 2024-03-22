@@ -911,7 +911,7 @@ use = egg:swift#staticweb
 #                                (schema unchanged)
 # url_base =
 
-# Note: Put tempurl before dlo, slo and your auth filter(s) in the pipeline
+# Note: Put tempurl before dlo, slo, mpu and your auth filter(s) in the pipeline
 [filter:tempurl]
 use = egg:swift#tempurl
 # The methods allowed with Temp URLs.
@@ -1065,6 +1065,7 @@ use = egg:swift#bulk
 # TODO: the dependence on SLO is likely to go in future
 [filter:mpu]
 use = egg:swift#mpu
+# min_part_size = 5242880
 
 # Note: Put after auth and staticweb in the pipeline.
 [filter:slo]

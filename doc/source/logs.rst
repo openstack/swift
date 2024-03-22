@@ -130,6 +130,7 @@ source value indicating they came from the bulk functionality.
 ----------------------- -----------------------------
 FP                      :ref:`formpost`
 SLO                     :ref:`static-large-objects`
+MPU                     :ref:`multi-part-uploads`
 SW                      :ref:`staticweb`
 TU                      :ref:`tempurl`
 BD                      :ref:`bulk` (delete)
