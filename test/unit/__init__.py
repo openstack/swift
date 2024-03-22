@@ -16,6 +16,8 @@
 """ Swift tests """
 
 from __future__ import print_function
+
+import collections
 import os
 import copy
 import logging
@@ -49,7 +51,8 @@ import six.moves.cPickle as pickle
 from six.moves import range
 from six.moves.http_client import HTTPException
 
-from swift.common import storage_policy, swob, utils, exceptions
+from swift.common import storage_policy, swob, utils, exceptions, \
+    internal_client
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
@@ -1593,3 +1596,34 @@ def set_node_errors(proxy_app, ring_node, value, last_error):
     stats = {'errors': value,
              'last_error': last_error}
     proxy_app.error_limiter.stats[node_key] = stats
+
+
+AppCall = collections.namedtuple('AppCall', [
+    'method', 'path', 'query', 'headers', 'body'])
+
+
+class FakeInternalClient(internal_client.InternalClient):
+    def __init__(self, responses):
+        self.resp_iter = iter(responses)
+        self.calls = []
+
+    def make_request(self, method, path, headers, acceptable_statuses,
+                     body_file=None, params=None):
+        if body_file is None:
+            body = None
+        else:
+            body = body_file.read()
+        path, _, query = path.partition('?')
+        self.calls.append(AppCall(method, path, query, headers, body))
+        resp = next(self.resp_iter)
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        unused_responses = [r for r in self.resp_iter]
+        if unused_responses:
+            raise Exception('Unused responses: %r' % unused_responses)

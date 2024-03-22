@@ -10,7 +10,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import collections
 import itertools
 import json
 import mock
@@ -18,39 +17,9 @@ import six
 import unittest
 
 from swift.cli import container_deleter
-from swift.common import internal_client
 from swift.common import swob
 from swift.common import utils
-
-AppCall = collections.namedtuple('AppCall', [
-    'method', 'path', 'query', 'headers', 'body'])
-
-
-class FakeInternalClient(internal_client.InternalClient):
-    def __init__(self, responses):
-        self.resp_iter = iter(responses)
-        self.calls = []
-
-    def make_request(self, method, path, headers, acceptable_statuses,
-                     body_file=None, params=None):
-        if body_file is None:
-            body = None
-        else:
-            body = body_file.read()
-        path, _, query = path.partition('?')
-        self.calls.append(AppCall(method, path, query, headers, body))
-        resp = next(self.resp_iter)
-        if isinstance(resp, Exception):
-            raise resp
-        return resp
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        unused_responses = [r for r in self.resp_iter]
-        if unused_responses:
-            raise Exception('Unused responses: %r' % unused_responses)
+from test.unit import FakeInternalClient
 
 
 class TestContainerDeleter(unittest.TestCase):
