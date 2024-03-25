@@ -308,6 +308,29 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(req.environ['swift.authorize'],
                          local_auth.authorize)
 
+    def test_auth_with_s3api_unicode_authorization_good(self):
+        local_app = FakeApp()
+        conf = {u'user_t\u00e9st_t\u00e9ster': u'p\u00e1ss .admin'}
+        access_key = u't\u00e9st:t\u00e9ster'
+        if six.PY2:
+            conf = {k.encode('utf8'): v.encode('utf8')
+                    for k, v in conf.items()}
+            access_key = access_key.encode('utf8')
+        local_auth = auth.filter_factory(conf)(local_app)
+        req = self._make_request('/v1/t\xc3\xa9st:t\xc3\xa9ster', environ={
+            's3api.auth_details': {
+                'access_key': access_key,
+                'signature': b64encode('sig'),
+                'string_to_sign': 't',
+                'check_signature': lambda secret: True}})
+        resp = req.get_response(local_auth)
+
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_t\xc3\xa9st')
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.authorize)
+
     def test_auth_with_swift3_authorization_invalid(self):
         local_app = FakeApp()
         local_auth = auth.filter_factory(

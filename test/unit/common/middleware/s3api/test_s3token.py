@@ -199,7 +199,8 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         self.middleware(req.environ, self.start_fake_response)
         self.assertEqual(self.response_status, 200)
 
-    def _assert_authorized(self, req, account_path='/v1/AUTH_TENANT_ID/'):
+    def _assert_authorized(self, req, account_path='/v1/AUTH_TENANT_ID/',
+                           access_key='access'):
         self.assertTrue(
             req.path.startswith(account_path),
             '%r does not start with %r' % (req.path, account_path))
@@ -224,7 +225,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         self.assertEqual(1, self.requests_mock.call_count)
         request_call = self.requests_mock.request_history[0]
         self.assertEqual(json.loads(request_call.body), {'credentials': {
-            'access': 'access',
+            'access': access_key,
             'signature': 'signature',
             'token': base64.urlsafe_b64encode(b'token').decode('ascii')}})
 
@@ -499,6 +500,18 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         }
         req.get_response(self.middleware)
         self._assert_authorized(req, account_path='/v1/')
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_TENANT_ID/c/o')
+
+    def test_authorize_with_unicode_access_key(self):
+        req = Request.blank('/v1/acc\xc3\xa9sskey/c/o')
+        req.environ['s3api.auth_details'] = {
+            'access_key': u'acc\u00e9ss',
+            'signature': u'signature',
+            'string_to_sign': u'token',
+        }
+        req.get_response(self.middleware)
+        self._assert_authorized(req, account_path='/v1/',
+                                access_key=u'acc\u00e9ss')
         self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_TENANT_ID/c/o')
 
     def test_authorize_with_access_key_and_unquote_chars(self):
