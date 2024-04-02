@@ -19,7 +19,7 @@ import sys
 
 from collections import defaultdict
 
-from swift.common import utils
+from swift.common import utils, statsd_client
 from swift.common.utils import NOTICE
 
 
@@ -29,7 +29,7 @@ class WARN_DEPRECATED(Exception):
         print(self.msg)
 
 
-class FakeStatsdClient(utils.StatsdClient):
+class FakeStatsdClient(statsd_client.StatsdClient):
     def __init__(self, host, port, base_prefix='', tail_prefix='',
                  default_sample_rate=1, sample_rate_factor=1, logger=None):
         super(FakeStatsdClient, self).__init__(
@@ -313,8 +313,8 @@ def capture_logger(conf, *args, **kwargs):
     accessor methods (e.g. get_lines_for_level) directly on the logger
     instance.
     """
-    with mock.patch('swift.common.utils.LogAdapter', CaptureLogAdapter):
-        log_adapter = utils.get_logger(conf, *args, **kwargs)
+    with mock.patch('swift.common.utils.logs.LogAdapter', CaptureLogAdapter):
+        log_adapter = utils.logs.get_logger(conf, *args, **kwargs)
     log_adapter.start_capture()
     try:
         yield log_adapter

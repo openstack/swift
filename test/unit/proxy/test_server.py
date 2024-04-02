@@ -60,6 +60,7 @@ from test.unit import (
     DEFAULT_TEST_EC_TYPE, make_timestamp_iter, skip_if_no_xattrs,
     FakeHTTPResponse, node_error_count, node_last_error, set_node_errors)
 from test.unit.helpers import setup_servers, teardown_servers
+from swift.common.statsd_client import StatsdClient
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.obj import server as object_server
@@ -71,9 +72,8 @@ from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
     APIVersionError, ChunkReadError
 from swift.common import utils, constraints, registry
 from swift.common.utils import hash_path, storage_directory, \
-    parse_content_type, parse_mime_headers, StatsdClient, \
-    iter_multipart_mime_documents, public, mkdirs, NullLogger, md5, \
-    node_to_string, NamespaceBoundList
+    parse_content_type, parse_mime_headers, iter_multipart_mime_documents, \
+    public, mkdirs, NullLogger, md5, node_to_string, NamespaceBoundList
 from swift.common.wsgi import loadapp, ConfigString
 from swift.common.http_protocol import SwiftHttpProtocol
 from swift.proxy.controllers import base as proxy_base
@@ -2293,7 +2293,8 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """ % self.tempdir
         conf_path = self._write_conf(dedent(conf_sections))
 
-        with mock.patch('swift.common.utils.StatsdClient') as mock_statsd:
+        with mock.patch('swift.common.statsd_client.StatsdClient')\
+                as mock_statsd:
             app = loadapp(conf_path, allow_modify_pipeline=False)
         # logger name is hard-wired 'proxy-server'
         self.assertEqual('proxy-server', app.logger.name)
@@ -2316,7 +2317,8 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """ % self.tempdir
         conf_path = self._write_conf(dedent(conf_sections))
 
-        with mock.patch('swift.common.utils.StatsdClient') as mock_statsd:
+        with mock.patch('swift.common.statsd_client.StatsdClient') \
+                as mock_statsd:
             app = loadapp(conf_path, allow_modify_pipeline=False)
         # logger name is hard-wired 'proxy-server'
         self.assertEqual('proxy-server', app.logger.name)
