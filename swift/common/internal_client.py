@@ -199,8 +199,10 @@ class InternalClient(object):
         :param acceptable_statuses: List of acceptable statuses for request.
         :param body_file: Body file to be passed along with request,
                           defaults to None.
-        :param params: A dict of params to be set in request query string,
-                       defaults to None.
+        :param params: A dict of params to be set in request query string. If
+                       the ``path`` argument includes a query string, that
+                       query string will be replaced by any params set by the
+                       ``params`` argument. Defaults to None.
 
         :returns: Response object on success.
 

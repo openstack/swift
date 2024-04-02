@@ -720,6 +720,25 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(client.app._pipeline_final_app.backend_user_agent,
                          'some_agent')
 
+    def test_make_request_query_string(self):
+        fake_swift = FakeSwift()
+        fake_swift.register('PUT', '/path', swob.HTTPOk, {})
+        client = internal_client.InternalClient(
+            None, 'some_agent', 3, use_replication_network=False,
+            app=fake_swift)
+
+        client.make_request('PUT', '/path?query=string', {}, (200,))
+        self.assertEqual([('PUT', '/path?query=string')], fake_swift.calls)
+
+        fake_swift.clear_calls()
+        client.make_request('PUT', '/path?query=string', {}, (200,), params={})
+        self.assertEqual([('PUT', '/path?query=string')], fake_swift.calls)
+
+        fake_swift.clear_calls()
+        client.make_request('PUT', '/path?query=string', {}, (200,),
+                            params={'param1': 'one'})
+        self.assertEqual([('PUT', '/path?param1=one')], fake_swift.calls)
+
     def test_make_request_error_case(self):
         class FakeApp(FakeSwift):
             def __call__(self, env, start_response):

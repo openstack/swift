@@ -610,6 +610,12 @@ class TestRequest(unittest.TestCase):
         req.params = new_params
         self.assertDictEqual(dict(new_params), req.params)
 
+        req = swob.Request.blank('/?a=b&c=d', params={'x': 'y'})
+        self.assertEqual(req.params, {'x': 'y'})
+
+        req = swob.Request.blank('/?a=b&c=d', params={})
+        self.assertFalse(req.params)
+
     def test_unicode_params(self):
         # NB: all of these strings are WSGI strings
         req = swob.Request.blank(
