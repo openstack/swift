@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import mock
+import time
 import unittest
 from io import BytesIO
 from logging.handlers import SysLogHandler
@@ -25,12 +26,12 @@ from swift.common.utils import get_logger, split_path, StatsdClient
 from swift.common.middleware import proxy_logging
 from swift.common.registry import register_sensitive_header, \
     register_sensitive_param, get_sensitive_headers
-from swift.common.swob import Request, Response
+from swift.common.swob import Request, Response, HTTPServiceUnavailable
 from swift.common import constraints, registry
 from swift.common.storage_policy import StoragePolicy
 from test.debug_logger import debug_logger
 from test.unit import patch_policies
-from test.unit.common.middleware.helpers import FakeAppThatExcepts
+from test.unit.common.middleware.helpers import FakeAppThatExcepts, FakeSwift
 
 
 class FakeApp(object):
@@ -406,6 +407,104 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[6], '200')
         self.assertEqual(resp_body, b'FAKE APP')
         self.assertEqual(log_parts[11], str(len(resp_body)))
+
+    def test_object_error(self):
+        swift = FakeSwift()
+        self.logger = debug_logger()
+        app = proxy_logging.ProxyLoggingMiddleware(swift, {},
+                                                   logger=self.logger)
+        swift.register('GET', '/v1/a/c/o', HTTPServiceUnavailable, {}, None)
+        req = Request.blank('/v1/a/c/o')
+        start = time.time()
+        ttfb = start + 0.2
+        end = ttfb + 0.5
+        with mock.patch("swift.common.middleware.proxy_logging.time.time",
+                        side_effect=[start, ttfb, end]):
+            resp = req.get_response(app)
+            self.assertEqual(503, resp.status_int)
+            # we have to consume the resp body to trigger logging
+            self.assertIn(b'Service Unavailable', resp.body)
+            log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[3], 'GET')
+        self.assertEqual(log_parts[4], '/v1/a/c/o')
+        self.assertEqual(log_parts[5], 'HTTP/1.0')
+        self.assertEqual(log_parts[6], '503')
+        # we can also expect error metrics
+        self.assertTiming('object.GET.503.timing', app,
+                          exp_timing=700.0)
+
+    def test_basic_error(self):
+        swift = FakeSwift()
+        self.logger = debug_logger()
+        app = proxy_logging.ProxyLoggingMiddleware(swift, {},
+                                                   logger=self.logger)
+        swift.register('GET', '/path', HTTPServiceUnavailable, {}, None)
+        req = Request.blank('/path')
+        start = time.time()
+        ttfb = start + 0.2
+        end = ttfb + 0.5
+        with mock.patch("swift.common.middleware.proxy_logging.time.time",
+                        side_effect=[start, ttfb, end]):
+            resp = req.get_response(app)
+            self.assertEqual(503, resp.status_int)
+            # we have to consume the resp body to trigger logging
+            self.assertIn(b'Service Unavailable', resp.body)
+            log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[3], 'GET')
+        self.assertEqual(log_parts[4], '/path')
+        self.assertEqual(log_parts[5], 'HTTP/1.0')
+        self.assertEqual(log_parts[6], '503')
+        # but we don't get metrics!?
+        self.assertFalse(app.access_logger.statsd_client.calls)
+
+    def test_middleware_exception(self):
+        self.logger = debug_logger()
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeAppThatExcepts(), {}, logger=self.logger)
+        req = Request.blank('/path')
+        start = time.time()
+        ttfb = start + 0.2
+        with mock.patch("swift.common.middleware.proxy_logging.time.time",
+                        side_effect=[start, ttfb]), \
+                self.assertRaises(Exception):
+            req.get_response(app)
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[3], 'GET')
+        self.assertEqual(log_parts[4], '/path')
+        self.assertEqual(log_parts[5], 'HTTP/1.0')
+        self.assertEqual(log_parts[6], '500')
+        # but we don't get metrics!?
+        self.assertFalse(app.access_logger.statsd_client.calls)
+
+    def test_middleware_error(self):
+        class ErrorFakeApp(object):
+
+            def __call__(self, env, start_response):
+                env['swift.source'] = 'FA'
+                resp = HTTPServiceUnavailable()
+                return resp(env, start_response)
+
+        self.logger = debug_logger()
+        app = proxy_logging.ProxyLoggingMiddleware(ErrorFakeApp(), {},
+                                                   logger=self.logger)
+        req = Request.blank('/path')
+        start = time.time()
+        ttfb = start + 0.2
+        end = ttfb + 0.5
+        with mock.patch("swift.common.middleware.proxy_logging.time.time",
+                        side_effect=[start, ttfb, end]):
+            resp = req.get_response(app)
+            self.assertEqual(503, resp.status_int)
+            # we have to consume the resp body to trigger logging
+            self.assertIn(b'Service Unavailable', resp.body)
+            log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[3], 'GET')
+        self.assertEqual(log_parts[4], '/path')
+        self.assertEqual(log_parts[5], 'HTTP/1.0')
+        self.assertEqual(log_parts[6], '503')
+        # we can also expect error metrics
+        self.assertTiming('FA.GET.503.timing', app,
+                          exp_timing=700.0)
 
     def test_basic_req_second_time(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
