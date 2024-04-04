@@ -36,7 +36,7 @@ keystonemiddleware==4.17.0
 linecache2==1.0.0
 lxml==3.4.1
 MarkupSafe==1.0
-mock==2.0
+mock==3.0
 monotonic==1.4
 msgpack==0.5.6
 netaddr==0.7.19
