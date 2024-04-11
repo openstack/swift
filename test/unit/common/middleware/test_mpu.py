@@ -20,7 +20,7 @@ import mock
 from swift.common import swob
 from swift.common.middleware.mpu import MPUMiddleware
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
-    HTTPAccepted
+    HTTPAccepted, HTTPNoContent
 from swift.common.utils import md5, quote, Timestamp
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
@@ -305,6 +305,162 @@ class TestMPUMiddleware(unittest.TestCase):
              'X-Timestamp': ts_session.internal},
             mpu_hdrs)
 
+    def test_complete_mpu_session_aborted(self):
+        ts_session = next(self.ts_iter)
+        ts_aborted = next(self.ts_iter)
+        ts_complete = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk,
+             {'X-Timestamp': ts_aborted.internal,
+              'Content-Type': 'application/x-mpu-aborted',
+              'X-Backend-Data-Timestamp': ts_session.internal,
+              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
+              }),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps([
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ])
+        mw = MPUMiddleware(self.app, {})
+        resp = req.get_response(mw)
+        b''.join(resp.app_iter)
+        self.assertEqual(409, resp.status_int)
+        expected = [call[:2] for call in registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+    def test_complete_mpu_session_deleted(self):
+        ts_complete = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
+             HTTPNotFound, {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps([
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ])
+        mw = MPUMiddleware(self.app, {})
+        resp = req.get_response(mw)
+        b''.join(resp.app_iter)
+        self.assertEqual(404, resp.status_int)
+        expected = [call[:2] for call in registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+    def _do_test_abort_mpu(self, extra_session_resp_headers):
+        ts_session = next(self.ts_iter)
+        ts_other = next(self.ts_iter)
+        ts_abort = next(self.ts_iter)
+        session_resp_headers = {
+            'X-Timestamp': ts_other.internal,
+            'Content-Type': 'application/mpu',
+            'X-Backend-Data-Timestamp': ts_session.internal,
+            'X-Object-Transient-Sysmeta-Mpu-State': 'created',
+            'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
+            'X-Object-Sysmeta-Mpu-Has-Content-Type': 'yes',
+            'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
+        }
+        if extra_session_resp_headers:
+            session_resp_headers.update(extra_session_resp_headers)
+        registered_calls = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk,
+             session_resp_headers),
+            ('HEAD', '/v1/a/c/o', HTTPOk, session_resp_headers),
+            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk, {}),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-aborted',
+             HTTPCreated, {}),
+            ('DELETE', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
+             HTTPNoContent, {})
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_abort.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req.method = 'DELETE'
+        mw = MPUMiddleware(self.app, {})
+        resp = req.get_response(mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(204, resp.status_int)
+        self.assertEqual(b'', resp_body)
+        expected = [call[:2] for call in registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+        session_hdrs = self.app.headers[2]
+        return session_hdrs, ts_abort
+
+    def test_abort_mpu(self):
+        extra_hdrs = {'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+        session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
+        self.assertEqual(
+            {'Content-Type': 'application/x-mpu-aborted',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Timestamp': ts_abort.internal,
+             'X-Object-Transient-Sysmeta-Mpu-State': 'created'},
+            session_post_hdrs)
+
+    def test_abort_mpu_session_completing(self):
+        # verify that state is copied across to new POST
+        extra_hdrs = {'X-Object-Transient-Sysmeta-Mpu-State': 'completing'}
+        session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
+        self.assertEqual(
+            {'Content-Type': 'application/x-mpu-aborted',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Timestamp': ts_abort.internal,
+             'X-Object-Transient-Sysmeta-Mpu-State': 'completing'},
+            session_post_hdrs)
+
+    def test_abort_mpu_session_aborted(self):
+        # verify it's ok to abort an already aborted session
+        extra_hdrs = {'Content-Type': 'application/x-mpu-aborted'}
+        session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
+        self.assertEqual(
+            {'Content-Type': 'application/x-mpu-aborted',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Timestamp': ts_abort.internal,
+             'X-Object-Transient-Sysmeta-Mpu-State': 'created'},
+            session_post_hdrs)
+
+    def test_abort_mpu_session_deleted(self):
+        ts_abort = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
+             HTTPNotFound, {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_abort.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps([
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ])
+        mw = MPUMiddleware(self.app, {})
+        resp = req.get_response(mw)
+        b''.join(resp.app_iter)
+        self.assertEqual(404, resp.status_int)
+        expected = [call[:2] for call in registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
     def test_mpu_async_cleanup_DELETE(self):
         backend_responses = ResponseCollection([ResponseData(
             204, headers={'x-object-sysmeta-mpu-upload-id': 'test-id'})
@@ -313,7 +469,7 @@ class TestMPUMiddleware(unittest.TestCase):
         self.app.register('DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None,
                           env_updates=env_updates)
         self.app.register(
-            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted',
+            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted',
             HTTPAccepted, {})
         req = Request.blank('/v1/a/c/o')
         req.method = 'DELETE'
@@ -324,7 +480,8 @@ class TestMPUMiddleware(unittest.TestCase):
         self.assertEqual(b'', resp_body)
         exp_calls = [
             ('DELETE', '/v1/a/c/o'),
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted'),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted'),
         ]
         self.assertEqual(exp_calls, self.app.calls)
 
@@ -336,7 +493,7 @@ class TestMPUMiddleware(unittest.TestCase):
         self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None,
                           env_updates=env_updates)
         self.app.register(
-            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted',
+            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted',
             HTTPAccepted, {})
         req = Request.blank('/v1/a/c/o')
         req.method = 'PUT'
@@ -347,6 +504,7 @@ class TestMPUMiddleware(unittest.TestCase):
         self.assertEqual(b'', resp_body)
         exp_calls = [
             ('PUT', '/v1/a/c/o'),
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/deleted'),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted'),
         ]
         self.assertEqual(exp_calls, self.app.calls)

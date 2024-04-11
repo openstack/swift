@@ -725,7 +725,8 @@ class BaseS3ApiObj(object):
                             swob.HTTPCreated, {}, None,
                             env_updates=env_updates)
         self.swift.register(
-            'PUT', '/v1/AUTH_test/bucket+segments/object/mpu-id/deleted',
+            'PUT',
+            '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted',
             swob.HTTPCreated, {}, None)
         etag = self.response_headers['etag']
         content_md5 = binascii.b2a_base64(binascii.a2b_hex(etag)).strip()
@@ -749,7 +750,8 @@ class BaseS3ApiObj(object):
 
         exp_calls = [
             ('PUT', '/v1/AUTH_test/bucket/object'),
-            ('PUT', '/v1/AUTH_test/bucket+segments/object/mpu-id/deleted'),
+            ('PUT',
+             '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted'),
         ]
         if self.s3api.conf.s3_acl:
             exp_calls.insert(0, ('HEAD', '/v1/AUTH_test/bucket'))
@@ -1211,7 +1213,8 @@ class BaseS3ApiObj(object):
             'HEAD', '/v1/AUTH_test/bucket+segments',
             swob.HTTPNoContent, {}, None)
         self.swift.register(
-            'PUT', '/v1/AUTH_test/bucket+segments/object/mpu-id/deleted',
+            'PUT',
+            '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted',
             swob.HTTPCreated, {}, None)
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'DELETE'},
@@ -1224,12 +1227,14 @@ class BaseS3ApiObj(object):
             exp_calls = [
                 ('HEAD', '/v1/AUTH_test/bucket'),
                 ('DELETE', '/v1/AUTH_test/bucket/object'),
-                ('PUT', '/v1/AUTH_test/bucket+segments/object/mpu-id/deleted'),
+                ('PUT',
+                 '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted'),
             ]
         else:
             exp_calls = [
                 ('DELETE', '/v1/AUTH_test/bucket/object'),
-                ('PUT', '/v1/AUTH_test/bucket+segments/object/mpu-id/deleted'),
+                ('PUT',
+                 '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted'),
             ]
         self.assertEqual(exp_calls, self.swift.calls)
 

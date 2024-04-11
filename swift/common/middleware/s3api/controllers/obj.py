@@ -31,7 +31,7 @@ from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \
     PreconditionFailed, KeyTooLongError, ErrorResponse
-from swift.container.mpu_auditor import MPU_DELETED_CONTENT_TYPE
+from swift.container.mpu_auditor import MPU_DELETED_MARKER_SUFFIX
 
 
 class ObjectController(Controller):
@@ -221,10 +221,10 @@ class ObjectController(Controller):
     def put_mpu_audit_marker(self, req, parts_container, upload_id):
         # TODO: doesn't seem right to be constructing a sw_req here, but we
         #   have to NOT send the actual PUT etag when we put the audit marker
-        obj = '%s/%s/deleted' % (req.object_name, upload_id)
+        obj = '/'.join([req.object_name, upload_id, MPU_DELETED_MARKER_SUFFIX])
         sw_req = req.to_swift_req(
             'PUT', container=parts_container, obj=obj,
-            headers={'Content-Type': MPU_DELETED_CONTENT_TYPE,
+            headers={'Content-Type': MPU_DELETED_MARKER_SUFFIX,
                      'Content-Length': '0'})
         # TODO: pop *all* the irrelevant headers
         sw_req.headers.pop('Etag', None)
@@ -233,7 +233,7 @@ class ObjectController(Controller):
         sw_req.get_response(self.app)
 
     def delete_mpu_audit_marker(self, req, parts_container, upload_id):
-        obj = '%s/%s/deleted' % (req.object_name, upload_id)
+        obj = '/'.join([req.object_name, upload_id, MPU_DELETED_MARKER_SUFFIX])
         # TODO: handle errors
         req.get_response(self.app, 'DELETE',
                          container=parts_container, obj=obj)
@@ -284,8 +284,8 @@ class ObjectController(Controller):
             try:
                 upload_id = backend_resp.headers[upload_id_key]
             except KeyError:
-                pass
-            else:
+                upload_id = None
+            if upload_id:
                 deleted_upload_ids[upload_id] = backend_resp
         for upload_id, backend_resp in deleted_upload_ids.items():
             # TODO: unit test multiple upload cleanup

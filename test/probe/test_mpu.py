@@ -22,6 +22,7 @@ import random
 from hashlib import md5
 
 from swift.common.manager import Manager
+from swift.common.middleware.mpu import MPU_MARKER_CONTENT_TYPE
 from swift.common.swob import normalize_etag
 from swift.common.utils import quote
 from swiftclient import client as swiftclient, ClientException
@@ -224,7 +225,7 @@ class TestS3MPU(BaseTestS3MPU):
         split_part_names = [name.split('/') for name in part_names]
         self.assertEqual(
             [[self.mpu_name, mock.ANY, str(i + 1)] for i in range(num_parts)]
-            + [[self.mpu_name, mock.ANY, 'deleted']],
+            + [[self.mpu_name, mock.ANY, 'marker-deleted']],
             split_part_names)
         self.assertEqual(1, len(set([s[1] for s in split_part_names])))
 
@@ -250,7 +251,7 @@ class TestS3MPU(BaseTestS3MPU):
         split_part_names = [name.split('/') for name in part_names]
         self.assertEqual(
             [[self.mpu_name, mock.ANY, str(i + 1)] for i in range(num_parts)]
-            + [[self.mpu_name, mock.ANY, 'deleted']],
+            + [[self.mpu_name, mock.ANY, 'marker-deleted']],
             split_part_names)
         self.assertEqual(1, len(set([s[1] for s in split_part_names])))
 
@@ -437,16 +438,83 @@ class TestNativeMPU(BaseTestMPU):
         # check we still have manifest, and also an audit marker for it
         manifests = self.internal_client.iter_objects(
             self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
-        self.assertEqual(['\x00%s/%s' % (self.mpu_name, upload_id),
-                          '\x00%s/%s/deleted' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in manifests])
+        self.assertEqual(
+            ['\x00%s/%s' % (self.mpu_name, upload_id),
+             '\x00%s/%s/marker-deleted' % (self.mpu_name, upload_id)],
+            [o['name'] for o in manifests])
         # check we still have the parts
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
         self.assertEqual(['\x00%s/%s/1' % (self.mpu_name, upload_id)],
                          [o['name'] for o in parts])
 
-        # async cleanup
+        # async cleanup: once to process manifest markers...
+        Manager(['container-auditor']).once()
+        # ...once more to process any parts markers generated in first cycle
+        Manager(['container-auditor']).once()
+
+        # manifest and parts have gone :)
+        manifests = self.internal_client.iter_objects(
+            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
+        self.assertEqual([], [o['name'] for o in manifests])
+
+        parts = self.internal_client.iter_objects(
+            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+        self.assertEqual([], [o['name'] for o in parts])
+
+    def test_native_mpu_abort(self):
+        # create
+        swiftclient.put_container(self.url, self.token, self.bucket_name)
+        resp, body = self.post_object(self.bucket_name, self.mpu_name,
+                                      query_string='uploads=true')
+        upload_id = resp.headers.get('X-Upload-Id')
+        # list mpus
+        resp_hdrs, listing = swiftclient.get_container(
+            self.url, self.token, self.bucket_name, query_string='uploads')
+        self.assertEqual(['%s/%s' % (self.mpu_name, upload_id)],
+                         [o['name'] for o in listing])
+        # upload part
+        part_size = 5 * 2 ** 20
+        part_file, hash_, hash_hash = self.make_file(part_size, 1)
+        with open(part_file, 'rb') as fd:
+            swiftclient.put_object(
+                self.url, self.token, self.bucket_name, self.mpu_name,
+                contents=fd,
+                query_string='upload-id=%s&part-number=1' % upload_id)
+        self.assertEqual(200, resp.status)
+        # list parts
+        resp_hdrs, resp_body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='upload-id=%s' % upload_id)
+        self.assertEqual(['%s/%s/1' % (self.mpu_name, upload_id)],
+                         [o['name'] for o in json.loads(resp_body)])
+        # abort upload
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='upload-id=%s' % upload_id)
+
+        # list mpus - empty list
+        resp_hdrs, listing = swiftclient.get_container(
+            self.url, self.token, self.bucket_name, query_string='uploads')
+        self.assertFalse(listing)
+
+        # check we have an audit marker
+        manifests = [o for o in self.internal_client.iter_objects(
+            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)]
+        self.assertEqual(
+            ['\x00%s/%s/marker-aborted' % (self.mpu_name, upload_id)],
+            [o['name'] for o in manifests])
+        self.assertEqual(MPU_MARKER_CONTENT_TYPE,
+                         manifests[0]['content_type'])
+        # check we still have the parts
+        parts = self.internal_client.iter_objects(
+            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+        self.assertEqual(['\x00%s/%s/1' % (self.mpu_name, upload_id)],
+                         [o['name'] for o in parts])
+
+        # async cleanup, once to process the manifests container markers...
+        Manager(['container-auditor']).once()
+        # ...and again to ensure generated parts markers are processed
         Manager(['container-auditor']).once()
 
         # manifest and parts have gone :)

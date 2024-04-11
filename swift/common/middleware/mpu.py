@@ -23,8 +23,7 @@ from swift.common.utils import generate_unique_id, drain_and_close, \
     config_positive_int_value, reiterate
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
-    HTTPConflict, HTTPBadRequest, HTTPNotImplemented, HTTPException, \
-    HTTPNotFound
+    HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent
 from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
@@ -41,7 +40,11 @@ MPU_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
 MPU_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-mpu-'
 # TODO: application/directory is used in s3api but why?
 MPU_CONTENT_TYPE = 'application/x-mpu'
-MPU_DELETED_CONTENT_TYPE = 'application/x-mpu-deleted'
+MPU_ABORTED_CONTENT_TYPE = 'application/x-mpu-aborted'
+MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
+MPU_GENERIC_MARKER_SUFFIX = 'marker'
+MPU_DELETED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-deleted'
+MPU_ABORTED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-aborted'
 
 
 def get_mpu_sysmeta_key(key):
@@ -85,6 +88,12 @@ class MPUSession(object):
         self._state = session_headers.get(self.STATE_KEY, self.CREATED_STATE)
         self.content_type = session_headers.get('content-type',
                                                 MPU_CONTENT_TYPE)
+
+    def is_aborted(self):
+        return self.content_type == MPU_ABORTED_MARKER_SUFFIX
+
+    def abort(self):
+        self.content_type = MPU_ABORTED_MARKER_SUFFIX
 
     @property
     def state(self):
@@ -169,8 +178,8 @@ class BaseMPUHandler(object):
         sub_req.params = params or {}
         return sub_req
 
-    def _put_delete_marker(self, marker_path, content_type):
-        headers = {'Content-Type': content_type,
+    def _put_delete_marker(self, marker_path):
+        headers = {'Content-Type': MPU_MARKER_CONTENT_TYPE,
                    'Content-Length': '0'}
         marker_req = self.make_subrequest(
             'PUT', path=marker_path, headers=headers)
@@ -181,15 +190,17 @@ class BaseMPUHandler(object):
         else:
             return marker_resp
 
-    def _put_manifest_delete_marker(self, upload_id, content_type):
+    def _put_manifest_delete_marker(self, upload_id, marker_type):
         marker_path = self.make_path(
-            self.manifests_container, self.reserved_obj, upload_id, 'deleted')
-        self._put_delete_marker(marker_path, content_type)
+            self.manifests_container, self.reserved_obj, upload_id,
+            marker_type)
+        self._put_delete_marker(marker_path)
 
-    def _put_parts_delete_marker(self, upload_id, content_type):
+    def _put_parts_delete_marker(self, upload_id):
         marker_path = self.make_path(
-            self.parts_container, self.reserved_obj, upload_id, 'deleted')
-        self._put_delete_marker(marker_path, content_type)
+            self.parts_container, self.reserved_obj, upload_id,
+            MPU_DELETED_MARKER_SUFFIX)
+        self._put_delete_marker(marker_path)
 
 
 class MPUHandler(BaseMPUHandler):
@@ -323,6 +334,14 @@ class MPUSessionHandler(BaseMPUHandler):
         session_resp = session_req.get_response(self.app)
         drain_and_close(session_resp)
 
+    def _get_user_object_metadata(self):
+        req = self.make_subrequest(method='HEAD', path=self.req.path)
+        resp = req.get_response(self.app)
+        if resp.is_success:
+            return resp.headers
+        else:
+            return {}
+
     def handle_request(self):
         self.session = self._load_session()
         self.req.headers.setdefault('X-Timestamp', Timestamp.now().internal)
@@ -370,8 +389,31 @@ class MPUSessionHandler(BaseMPUHandler):
         """
         Handles Abort Multipart Upload.
         """
-        # TODO
-        raise HTTPNotImplemented()
+        if self.req.timestamp < self.session.created_timestamp:
+            return HTTPConflict()
+
+        user_obj_metadata = self._get_user_object_metadata()
+        if user_obj_metadata.get(TGT_OBJ_SYMLINK_HDR) == \
+                self.manifest_relative_path:
+            return HTTPConflict()
+
+        # Update the session to be marked as aborted. This will prevent any
+        # subsequent complete operation from proceeding.
+        self.session.timestamp = self.req.timestamp
+        self.session.content_type = MPU_ABORTED_CONTENT_TYPE
+        session_req = self.make_subrequest(
+            'POST', path=self.session_path,
+            headers=self.session.get_post_headers())
+        # TODO: check response
+        session_req.get_response(self.app)
+        # Write down an audit-marker in the manifests container that will cause
+        # the auditor to check the status of the mpu and possibly cleanup the
+        # manifest and parts.
+        self._put_manifest_delete_marker(self.upload_id,
+                                         MPU_ABORTED_MARKER_SUFFIX)
+        # delete the session
+        self._delete_session()
+        return HTTPNoContent()
 
     def _parse_part_number(self, part_dict, previous_part):
         try:
@@ -450,6 +492,8 @@ class MPUSessionHandler(BaseMPUHandler):
                 # TODO: translate problem segments to client resp
                 # body = json.loads(b''.join(body))
 
+                # TODO: repeat check that session has not been aborted
+
                 # create symlink to manifest
                 # TODO: check mpu_resp
                 mpu_resp = mpu_req.get_response(self.app)
@@ -482,6 +526,13 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles Complete Multipart Upload.
         """
         if self.req.timestamp < self.session.created_timestamp:
+            return HTTPConflict()
+
+        if self.session.content_type == MPU_ABORTED_CONTENT_TYPE:
+            # The session has been previously aborted but not yet successfully
+            # deleted. Refuse to complete. The abort may be concurrent or may
+            # have failed to delete the session. Either way, we refuse to
+            # complete the upload.
             return HTTPConflict()
 
         self.session.timestamp = self.req.timestamp
@@ -533,19 +584,6 @@ class MPUSessionHandler(BaseMPUHandler):
 
 
 class MPUObjHandler(BaseMPUHandler):
-    def _cleanup_mpu(self, upload_id):
-        # TODO: check that backend_resp has x-symlink-target and cross check
-        #   its value with expected manifest path
-        marker_path = self.make_path(
-            self.manifests_container, self.reserved_obj, upload_id, 'deleted')
-        marker_req = self.make_subrequest(
-            'PUT', path=marker_path,
-            headers={'Content-Type': MPU_DELETED_CONTENT_TYPE,
-                     'Content-Length': '0'})
-        # TODO: check status, log a warning???
-        marker_resp = marker_req.get_response(self.app)
-        drain_and_close(marker_resp)
-
     def _maybe_cleanup_mpu(self, resp):
         # NB: do this even for non-success responses in case any of the
         # backend responses may have succeeded
@@ -561,13 +599,16 @@ class MPUObjHandler(BaseMPUHandler):
                                                  []):
             if not is_success(backend_resp.status):
                 continue
+            # TODO: check that backend_resp has x-symlink-target and cross
+            #   check its value with expected manifest path
 
             upload_id = backend_resp.headers.get(upload_id_key)
             if upload_id:
                 deleted_upload_ids[upload_id] = backend_resp
         for upload_id, backend_resp in deleted_upload_ids.items():
             # TODO: unit test multiple upload cleanup
-            self._cleanup_mpu(upload_id)
+            self._put_manifest_delete_marker(upload_id,
+                                             MPU_DELETED_MARKER_SUFFIX)
 
     def handle_request(self):
         if self.req.method not in ('PUT', 'DELETE'):
