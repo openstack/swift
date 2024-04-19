@@ -235,11 +235,16 @@ class TestProxyLogging(unittest.TestCase):
                 self.assertEqual(b'7654321', b''.join(iter_response))
                 self.assertTiming('%s.GET.321.timing' % exp_type, app,
                                   exp_timing=2.71828182846 * 1000)
+                self.assertTiming('%s.GET.321.first-byte.timing'
+                                  % exp_type, app, exp_timing=0.5 * 1000)
                 if exp_type == 'object':
                     # Object operations also return stats by policy
                     # In this case, the value needs to match the timing for GET
                     self.assertTiming('%s.policy.0.GET.321.timing' % exp_type,
                                       app, exp_timing=2.71828182846 * 1000)
+                    self.assertTiming(
+                        '%s.policy.0.GET.321.first-byte.timing'
+                        % exp_type, app, exp_timing=0.5 * 1000)
                     self.assertUpdateStats([('%s.GET.321.xfer' % exp_type,
                                              4 + 7),
                                             ('object.policy.0.GET.321.xfer',
@@ -432,6 +437,8 @@ class TestProxyLogging(unittest.TestCase):
         # we can also expect error metrics
         self.assertTiming('object.GET.503.timing', app,
                           exp_timing=700.0)
+        self.assertTiming('object.GET.503.first-byte.timing', app,
+                          exp_timing=200.0)
 
     def test_basic_error(self):
         swift = FakeSwift()
@@ -457,6 +464,8 @@ class TestProxyLogging(unittest.TestCase):
         # we can also expect error metrics
         self.assertTiming('UNKNOWN.GET.503.timing', app,
                           exp_timing=700.0)
+        self.assertTiming('UNKNOWN.GET.503.first-byte.timing', app,
+                          exp_timing=200.0)
 
     def test_middleware_exception(self):
         self.logger = debug_logger()
@@ -507,6 +516,8 @@ class TestProxyLogging(unittest.TestCase):
         # we can also expect error metrics
         self.assertTiming('FA.GET.503.timing', app,
                           exp_timing=700.0)
+        self.assertTiming('FA.GET.503.first-byte.timing', app,
+                          exp_timing=200.0)
 
     def test_basic_req_second_time(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
