@@ -65,7 +65,7 @@ import six
 from six.moves import urllib
 
 from swift.common.swob import Request, HTTPBadRequest, HTTPUnauthorized, \
-    HTTPException
+    HTTPException, str_to_wsgi
 from swift.common.utils import config_true_value, split_path, get_logger, \
     cache_from_env, append_underscore
 from swift.common.wsgi import ConfigFileError
@@ -404,7 +404,7 @@ class S3Token(object):
         self._logger.debug('Connecting with tenant: %s', tenant_to_connect)
         new_tenant_name = '%s%s' % (self._reseller_prefix, tenant_to_connect)
         environ['PATH_INFO'] = environ['PATH_INFO'].replace(
-            account, new_tenant_name, 1)
+            str_to_wsgi(account), str_to_wsgi(new_tenant_name), 1)
         return self._app(environ, start_response)
 
 
