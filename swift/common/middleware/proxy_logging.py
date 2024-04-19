@@ -356,7 +356,7 @@ class ProxyLoggingMiddleware(object):
             except IndexError:
                 stat_type = 'object'
         else:
-            stat_type = req.environ.get('swift.source')
+            stat_type = req.environ.get('swift.source') or 'UNKNOWN'
         return stat_type
 
     def statsd_metric_name(self, req, status_int, method):

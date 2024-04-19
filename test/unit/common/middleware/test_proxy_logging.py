@@ -454,8 +454,9 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[4], '/path')
         self.assertEqual(log_parts[5], 'HTTP/1.0')
         self.assertEqual(log_parts[6], '503')
-        # but we don't get metrics!?
-        self.assertFalse(app.access_logger.statsd_client.calls)
+        # we can also expect error metrics
+        self.assertTiming('UNKNOWN.GET.503.timing', app,
+                          exp_timing=700.0)
 
     def test_middleware_exception(self):
         self.logger = debug_logger()
@@ -473,8 +474,9 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[4], '/path')
         self.assertEqual(log_parts[5], 'HTTP/1.0')
         self.assertEqual(log_parts[6], '500')
-        # but we don't get metrics!?
-        self.assertFalse(app.access_logger.statsd_client.calls)
+        # we can also expect error metrics
+        self.assertTiming('UNKNOWN.GET.500.timing', app,
+                          exp_timing=200.0)
 
     def test_middleware_error(self):
         class ErrorFakeApp(object):
