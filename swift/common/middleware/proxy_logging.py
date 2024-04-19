@@ -247,6 +247,7 @@ class ProxyLoggingMiddleware(object):
         :param start_time: timestamp request started
         :param end_time: timestamp request completed
         :param resp_headers: dict of the response headers
+        :param ttfb: time to first byte
         :param wire_status_int: the on the wire status int
         """
         self.obscure_req(req)
