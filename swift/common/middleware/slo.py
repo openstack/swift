@@ -980,9 +980,11 @@ class SloGetContext(WSGIContext):
         friendly_close(resp_iter)
         del req.environ['swift.non_client_disconnect']
 
+        headers_subset = ['x-auth-token', 'x-open-expired']
         get_req = make_subrequest(
             req.environ, method='GET',
-            headers={'x-auth-token': req.headers.get('x-auth-token')},
+            headers={k: req.headers.get(k)
+                     for k in headers_subset if k in req.headers},
             agent='%(orig)s SLO MultipartGET', swift_source='SLO')
         resp_iter = self._app_call(get_req.environ)
         new_resp_attrs = RespAttrs.from_headers(self._response_headers)

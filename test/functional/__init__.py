@@ -579,6 +579,7 @@ def in_process_setup(the_object_server=object_server):
         'container_update_timeout': '3',
         'allow_account_management': 'true',
         'account_autocreate': 'true',
+        'allow_open_expired': 'true',
         'allow_versions': 'True',
         'allow_versioned_writes': 'True',
         # Below are values used by the functional test framework, as well as

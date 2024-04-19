@@ -563,8 +563,8 @@ class SegmentedIterable(object):
                 path = quote(seg_path) + '?multipart-manifest=get'
                 seg_req = make_subrequest(
                     self.req.environ, path=path, method='GET',
-                    headers={'x-auth-token': self.req.headers.get(
-                        'x-auth-token')},
+                    headers={h: self.req.headers.get(h)
+                             for h in ('x-auth-token', 'x-open-expired')},
                     agent=('%(orig)s ' + self.ua_suffix),
                     swift_source=self.swift_source)
 

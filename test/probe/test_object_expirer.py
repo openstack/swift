@@ -410,6 +410,129 @@ class TestObjectExpirer(ReplProbeTest):
                                headers={'X-Open-Expired': True})
         self.assertEqual(e.exception.http_status, 404)
 
+    def _setup_test_slo_object(self):
+        segment_container = self.container_name + '_segments'
+        client.put_container(self.url, self.token, self.container_name, {})
+        client.put_container(self.url, self.token, segment_container, {})
+        client.put_object(self.url, self.token,
+                          segment_container, 'segment_1', b'12')
+        client.put_object(self.url, self.token,
+                          segment_container, 'segment_2', b'5678')
+        client.put_object(
+            self.url, self.token, self.container_name, 'slo', json.dumps([
+                {'path': segment_container + '/segment_1'},
+                {'data': 'Cg=='},
+                {'path': segment_container + '/segment_2'},
+            ]), query_string='multipart-manifest=put')
+        _, body = client.get_object(self.url, self.token,
+                                    self.container_name, 'slo')
+        self.assertEqual(body, b'12\n5678')
+
+        return segment_container, self.container_name
+
+    def test_open_expired_enabled_with_part_num(self):
+        allow_open_expired = config_true_value(
+            self.cluster_info['swift'].get('allow_open_expired')
+        )
+
+        if not allow_open_expired:
+            raise unittest.SkipTest(
+                "allow_open_expired is disabled in this swift cluster"
+            )
+
+        seg_container, container_name = self._setup_test_slo_object()
+        now = time.time()
+        delete_at = int(now + 1)
+
+        client.post_object(
+            self.url, self.token, container_name, 'slo',
+            headers={
+                'X-Delete-At': str(delete_at),
+                'X-Object-Meta-Test': 'foo'
+            }
+        )
+
+        # make sure auto-created containers get in the account listing
+        Manager(['container-updater']).once()
+
+        # sleep until after expired but not reaped
+        while time.time() <= delete_at:
+            time.sleep(0.1)
+
+        # should get a 404, object is expired
+        while True:
+            try:
+                client.head_object(self.url, self.token, container_name, 'slo')
+                time.sleep(1)  # Wait for a short period before trying again
+            except ClientException as e:
+                # check if the object is expired
+                if e.http_status == 404:
+                    break  # The object is expired, so we can exit the loop
+
+        resp_headers = client.head_object(
+            self.url, self.token, container_name, 'slo',
+            headers={'X-Open-Expired': True},
+            query_string='part-number=1'
+        )
+
+        self.assertEqual(resp_headers.get('x-object-meta-test'), 'foo')
+        self.assertEqual(resp_headers.get('content-range'), 'bytes 0-1/7')
+        self.assertEqual(resp_headers.get('content-length'), '2')
+        self.assertEqual(resp_headers.get('x-parts-count'), '3')
+        self.assertEqual(resp_headers.get('x-static-large-object'), 'True')
+        self.assertEqual(resp_headers.get('accept-ranges'), 'bytes')
+
+        with self.assertRaises(ClientException) as e:
+            client.head_object(self.url, self.token, container_name, 'slo')
+        self.assertEqual(e.exception.http_status, 404)
+
+        now = time.time()
+        delete_at = int(now + 2)
+        for seg_obj_name in ['segment_1', 'segment_2']:
+            client.post_object(
+                self.url, self.token, seg_container, seg_obj_name,
+                headers={
+                    'X-Open-Expired': True,
+                    'X-Segment-Meta-Test': 'segment-foo',
+                    'X-Delete-At': str(delete_at)
+                }
+            )
+
+        # make sure auto-created containers get in the account listing
+        Manager(['container-updater']).once()
+        while time.time() <= delete_at:
+            time.sleep(0.1)
+
+        # should get a 404, segment object is expired
+        with self.assertRaises(ClientException) as e:
+            client.head_object(self.url, self.token, seg_container,
+                               'segment_2')
+        self.assertEqual(e.exception.http_status, 404)
+
+        # magic of x-open-expired
+        resp_headers = client.head_object(
+            self.url, self.token, seg_container, 'segment_2',
+            headers={'X-Open-Expired': True},
+            query_string='part-number=1'
+        )
+
+        # keep in mind that the segment object is expired
+        self.assertEqual(resp_headers.get('content-length'), '4')
+        self.assertTrue(time.time() > delete_at)
+
+        # expirer runs to reap the whichever object was set for expiry
+        self.expirer.once()
+
+        for seg_obj_name in ['segment_1', 'segment_2']:
+            # should get a 404 even with x-open-expired since object is reaped
+            with self.assertRaises(ClientException) as e:
+                client.head_object(
+                    self.url, self.token, seg_container, seg_obj_name,
+                    headers={'X-Open-Expired': True},
+                    query_string='part-number=1'
+                )
+            self.assertEqual(e.exception.http_status, 404)
+
     def test_open_expired_disabled(self):
 
         # When the global configuration option allow_open_expired is set to
@@ -681,22 +804,7 @@ class TestObjectExpirer(ReplProbeTest):
         if not self.cluster_info.get('slo', {}).get('allow_async_delete'):
             raise unittest.SkipTest('allow_async_delete not enabled')
 
-        segment_container = self.container_name + '_segments'
-        client.put_container(self.url, self.token, self.container_name, {})
-        client.put_container(self.url, self.token, segment_container, {})
-        client.put_object(self.url, self.token,
-                          segment_container, 'segment_1', b'1234')
-        client.put_object(self.url, self.token,
-                          segment_container, 'segment_2', b'5678')
-        client.put_object(
-            self.url, self.token, self.container_name, 'slo', json.dumps([
-                {'path': segment_container + '/segment_1'},
-                {'data': 'Cg=='},
-                {'path': segment_container + '/segment_2'},
-            ]), query_string='multipart-manifest=put')
-        _, body = client.get_object(self.url, self.token,
-                                    self.container_name, 'slo')
-        self.assertEqual(body, b'1234\n5678')
+        segment_container, _ = self._setup_test_slo_object()
 
         client.delete_object(
             self.url, self.token, self.container_name, 'slo',
@@ -717,7 +825,7 @@ class TestObjectExpirer(ReplProbeTest):
                          ['segment_1', 'segment_2'])
         _, body = client.get_object(self.url, self.token,
                                     segment_container, 'segment_1')
-        self.assertEqual(body, b'1234')
+        self.assertEqual(body, b'12')
         _, body = client.get_object(self.url, self.token,
                                     segment_container, 'segment_2')
         self.assertEqual(body, b'5678')

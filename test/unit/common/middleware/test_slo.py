@@ -1981,6 +1981,18 @@ class SloGETorHEADTestCase(SloTestCase):
             extra_headers={'X-Object-Meta-Nature': 'Regular'},
             container='gettest')
 
+    def _setup_manifest_zero_byte(self):
+        """
+        This is a zero-byte manifest.
+        """
+        _single_segment_manifest = [
+            {'name': '/gettest/zero', 'hash': md5hex(''), 'bytes': '0',
+             'content_type': 'text/plain'},
+        ]
+        self._setup_manifest(
+            'zero-byte', _single_segment_manifest,
+            container='gettest')
+
     def _setup_manifest_data(self):
         _data_manifest = [
             {
@@ -2010,6 +2022,21 @@ class SloGETorHEADTestCase(SloTestCase):
             # maybe manifest-bc is about some botony research!?
             'X-Object-Meta-Plant': 'Ficus',
         }, container='gettest')
+
+    def _setup_manifest_bc_expires(self):
+        """
+        This manifest's segments are all regular objects due to expire.
+        """
+        _bc_expires_manifest = [
+            {'name': '/gettest/b_5', 'hash': md5hex('b' * 5), 'bytes': '5',
+             'content_type': 'text/plain'},
+            {'name': '/gettest/c_10', 'hash': md5hex('c' * 10), 'bytes': '10',
+             'content_type': 'text/plain'}
+        ]
+        self._setup_manifest('bc-expires', _bc_expires_manifest,
+                             extra_headers={'X-Object-Meta-Plant':
+                                            'Ficus-Expires'},
+                             container='gettest')
 
     def _setup_manifest_abcd(self):
         """
@@ -5703,6 +5730,8 @@ class TestPartNumber(SloGETorHEADTestCase):
         self._setup_manifest_abcd_subranges()
         self._setup_manifest_aabbccdd()
         self._setup_manifest_single_segment()
+        self._setup_manifest_zero_byte()
+        self._setup_manifest_bc_expires()
 
         # this b_50 object doesn't follow the alphabet convention
         self.app.register(
@@ -5710,6 +5739,11 @@ class TestPartNumber(SloGETorHEADTestCase):
             swob.HTTPPartialContent, {'Content-Length': '50',
                                       'Etag': md5hex('b' * 50)},
             'b' * 50)
+
+        # Setup POST req separately for expiring manifest
+        self.app.register('POST',
+                          '/v1/AUTH_test/gettest/manifest-bc-expires',
+                          swob.HTTPAccepted, {})
 
         self._setup_manifest_data()
 
@@ -5767,6 +5801,58 @@ class TestPartNumber(SloGETorHEADTestCase):
             ('GET', '/v1/AUTH_test/gettest/manifest-bc?part-number=1')
         ]
         self.assertEqual(self.app.calls, expected_calls)
+
+    def test_get_manifest_with_x_open_expired_part_num(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc-expires'
+            '?multipart-manifest=get',
+            environ={'REQUEST_METHOD': 'GET'})
+
+        captured_calls = []
+        orig_call = FakeSwift.__call__
+
+        def pseudo_middleware(app, env, start_response):
+            captured_calls.append((env['REQUEST_METHOD'], env['PATH_INFO']))
+            # pretend another middleware modified the path
+            # note: for convenience, the path "modification" actually results
+            # in one of the pre-registered paths
+            env['PATH_INFO'] += ''
+            return orig_call(app, env, start_response)
+
+        with patch.object(FakeSwift, '__call__', pseudo_middleware):
+            status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual([('GET',
+                           '/v1/AUTH_test/gettest/manifest-bc-expires')],
+                         captured_calls)
+
+        t = str(int(time.time()))
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc-expires',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Delete-At': t}
+        )
+
+        with patch.object(FakeSwift, '__call__', pseudo_middleware):
+            status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '202 Accepted')
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc-expires?part-number=1',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'x-open-expired': 'true'})
+
+        with patch.object(FakeSwift, '__call__', pseudo_middleware):
+            status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['Etag'], '"%s"' %
+                         self.manifest_bc_expires_slo_etag)
+        self.assertEqual(self.app.call_count, 4)
+        self.assertTrue(self.app.calls_with_headers[2][2]['X-Open-Expired'])
 
     def test_get_part_number(self):
         # part number 1 is b_10
@@ -6027,6 +6113,32 @@ class TestPartNumber(SloGETorHEADTestCase):
             ('HEAD', '/v1/AUTH_test/gettest/manifest-bc?part-number=0')
         ]
         self.assertEqual(expected_calls, self.app.calls)
+
+    def test_part_number_zero_byte_manifest(self):
+        part_num = 1
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-zero-byte?'
+            'partNumber=%s' % part_num,
+            method='HEAD')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Etag'],
+                         '"%s"' % self.manifest_zero_byte_slo_etag)
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(headers['X-Static-Large-Object'], 'true')
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.manifest_zero_byte_json_md5)
+        self.assertEqual(body, b'')  # it's a HEAD request, after all
+
+        expected_app_calls = [('HEAD',
+                               '/v1/AUTH_test/gettest/manifest-zero-byte?'
+                               'partNumber=%s' % part_num)]
+        if not self.modern_manifest_headers:
+            expected_app_calls.append((
+                'GET',
+                '/v1/AUTH_test/gettest/manifest-zero-byte?'
+                'partNumber=%s' % part_num))
+        self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_part_number_zero_invalid_on_subrange(self):
         # either manifest, doesn't matter, part-number=0 is always invalid
