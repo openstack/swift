@@ -34,6 +34,19 @@ def safe_split_reserved_name(reserved_name):
         return None, reserved_name
 
 
+def yield_item_batches(broker, start_row, max_batches, batch_size):
+    remaining = max_batches * batch_size
+    while remaining > 0:
+        batch_limit = min(batch_size, remaining)
+        items = broker.get_items_since(start_row, batch_limit)
+        if items:
+            remaining -= len(items)
+            start_row = items[-1]['ROWID']
+            yield items
+        else:
+            remaining = 0
+
+
 class Item(object):
     def __init__(self, name, created_at, size=0, content_type='',
                  etag='', deleted=0, **kwargs):
@@ -121,6 +134,7 @@ class MpuAuditorContext(object):
 
 class BaseMpuBrokerAuditor(object):
     ROWS_PER_BATCH = 1000
+    MAX_BATCHES_PER_CYCLE = 10
 
     def __init__(self, client, logger, broker):
         self.client = client
@@ -136,6 +150,10 @@ class BaseMpuBrokerAuditor(object):
             'path': self.broker.path,
         }
         log_func('mpu_auditor ' + json.dumps(data))
+
+    def warning(self, fmt, *args):
+        msg = fmt % args
+        self.log(self.logger.warning, msg)
 
     def debug(self, fmt, *args):
         msg = fmt % args
@@ -219,38 +237,37 @@ class BaseMpuBrokerAuditor(object):
                 self._process_marker(marker_item, upload)
 
     def _audit_item(self, item):
-        try:
-            upload = extract_upload_prefix(item.name)
-        except ValueError as err:
-            self.log(self.log.warning, 'mpu_audit %s' % err)
-            return
-
+        self.debug('item %s %s', item.name, item.deleted)
+        upload = extract_upload_prefix(item.name)
         if upload in self.uploads_already_checked:
             return
-
         self._process_item(item, upload)
         self.uploads_already_checked[upload] = True
 
     def audit(self):
         self.broker.get_info()
         self.debug('mpu_audit visiting %s', self.broker.path)
-
         context = MpuAuditorContext.load(self.broker)
         self.debug('auditing from row %s' % context.last_audit_row)
-        items = [
-            (it['ROWID'], Item(**it))
-            for it in self.broker.get_items_since(
-                context.last_audit_row, self.ROWS_PER_BATCH)
-        ]
-        audited_rows = 0
-        for row_id, item in items:
-            self.debug('item %s %s', item.name, item.deleted)
-            context.last_audit_row = row_id
-            if not item.deleted:
-                audited_rows += 1
-                self._audit_item(item)
+        num_audited = num_processed = num_errors = 0
+        for batch in yield_item_batches(self.broker,
+                                        context.last_audit_row,
+                                        self.MAX_BATCHES_PER_CYCLE,
+                                        self.ROWS_PER_BATCH):
+            for item_dict in batch:
+                try:
+                    item = Item(**item_dict)
+                    if not item.deleted:
+                        self._audit_item(item)
+                        num_audited += 1
+                except Exception as err:  # noqa
+                    self.warning('%s: %s', item_dict['name'], str(err))
+                    num_errors += 1
+                num_processed += 1
+                context.last_audit_row = item_dict['ROWID']
         context.store(self.broker)
-        self.debug('processed_rows %d (%d audited)', len(items), audited_rows)
+        self.debug('processed: %d, audited: %d, errors: %d)',
+                   num_processed, num_audited, num_errors)
         return None
 
 

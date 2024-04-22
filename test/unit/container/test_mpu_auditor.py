@@ -30,21 +30,12 @@ from swift.common.swob import Request, HTTPOk, HTTPNoContent, HTTPCreated, \
     HTTPNotFound
 from swift.common.utils import md5
 from swift.container.backend import ContainerBroker
-from swift.container.mpu_auditor import MpuAuditor, extract_upload_prefix
+from swift.container.mpu_auditor import MpuAuditor, extract_upload_prefix, \
+    yield_item_batches
 from swift.container.server import ContainerController
 from test.debug_logger import debug_logger
 from test.unit import make_timestamp_iter, EMPTY_ETAG
 from test.unit.common.middleware.helpers import FakeSwift
-
-
-class TestModuleFunctions(unittest.TestCase):
-    def test_extract_upload_prefix(self):
-        self.assertEqual('obj/upload-id',
-                         extract_upload_prefix('obj/upload-id'))
-        self.assertEqual('obj/upload-id',
-                         extract_upload_prefix('obj/upload-id/manifest'))
-        self.assertEqual('obj/upload-id',
-                         extract_upload_prefix('obj/upload-id/marker-deleted'))
 
 
 class BaseTestMpuAuditor(unittest.TestCase):
@@ -77,9 +68,11 @@ class BaseTestMpuAuditor(unittest.TestCase):
                                return_value=self.broker):
             return req.get_response(self.server)
 
-    def put_objects(self, objects):
+    def put_objects(self, objects, shuffle_order=True):
         # PUT object updates to container in random order
-        random.shuffle(objects)
+        if shuffle_order:
+            # don't mutate the passed-in list!
+            objects = random.sample(objects, k=len(objects))
         for obj in objects:
             headers = {'name': obj['name'],
                        'x-timestamp': obj['created_at'],
@@ -91,6 +84,10 @@ class BaseTestMpuAuditor(unittest.TestCase):
                 method='PUT', headers=headers)
             resp = self.make_request(req)
             self.assertEqual(201, resp.status_int, resp.body)
+            # On py2 the broker has a nasty habit of re-ordering batches of
+            # pending updates before merging; to make tests more deterministic,
+            # use get_info() to flush the pending file after every PUT
+            self.broker.get_info()
 
     def delete_objects(self, objects):
         ts = next(self.ts_iter)
@@ -102,6 +99,17 @@ class BaseTestMpuAuditor(unittest.TestCase):
                 method='DELETE', headers=headers)
             resp = self.make_request(req)
             self.assertEqual(204, resp.status_int)
+
+    def _create_manifest_spec(self):
+        upload_id = unique_id()
+        manifest_name = '/'.join([get_reserved_name(self.obj_name), upload_id])
+        manifest_spec = {'name': manifest_name,
+                         'created_at': next(self.ts_iter).normal,
+                         'content_type': 'text/plain',
+                         'etag': 'etag_1',
+                         'size': 1024,
+                         }
+        return upload_id, manifest_spec
 
     def _create_marker_spec(self, upload, timestamp,
                             marker_type=MPU_DELETED_MARKER_SUFFIX):
@@ -120,21 +128,6 @@ class BaseTestMpuAuditor(unittest.TestCase):
         for k, v in exp.items():
             self.assertEqual(v, ctxt_value[k])
 
-
-class TestMpuAuditorMPU(BaseTestMpuAuditor):
-    parts_container = get_reserved_name('mpu_parts', 'c')
-
-    def _create_manifest_spec(self):
-        upload_id = unique_id()
-        manifest_name = '/'.join([get_reserved_name(self.obj_name), upload_id])
-        manifest_spec = {'name': manifest_name,
-                         'created_at': next(self.ts_iter).normal,
-                         'content_type': 'text/plain',
-                         'etag': 'etag_1',
-                         'size': 1024,
-                         }
-        return upload_id, manifest_spec
-
     def _check_broker_rows(self, expected_items):
         rows = self.broker.get_objects(include_deleted=False)
         self.assertEqual(sorted([o['name'] for o in expected_items]),
@@ -144,6 +137,53 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
         rows = self.broker.get_objects(include_deleted=True)
         self.assertEqual(sorted([o['name'] for o in expected_items]),
                          sorted([row['name'] for row in rows]))
+
+
+class TestModuleFunctions(BaseTestMpuAuditor):
+    def test_extract_upload_prefix(self):
+        self.assertEqual('obj/upload-id',
+                         extract_upload_prefix('obj/upload-id'))
+        self.assertEqual('obj/upload-id',
+                         extract_upload_prefix('obj/upload-id/manifest'))
+        self.assertEqual('obj/upload-id',
+                         extract_upload_prefix('obj/upload-id/marker-deleted'))
+
+    def test_yield_item_batches(self):
+        items = [self._create_manifest_spec()[1] for i in range(123)]
+        self.put_objects(items, shuffle_order=False)
+        self._check_broker_rows(items)
+
+        # stop at max batches
+        actual = [b for b in yield_item_batches(self.broker, 0, 2, 50)]
+        self.assertEqual(2, len(actual))
+        self.assertEqual([it['name'] for it in items[:50]],
+                         [a['name'] for a in actual[0]])
+        self.assertEqual([it['name'] for it in items[50:100]],
+                         [a['name'] for a in actual[1]])
+        self.assertEqual(1, actual[0][0]['ROWID'])
+        self.assertEqual(100, actual[-1][-1]['ROWID'])
+
+        # stop at end
+        actual = [b for b in yield_item_batches(self.broker, 0, 1000, 100)]
+        self.assertEqual(2, len(actual))
+        self.assertEqual([it['name'] for it in items[:100]],
+                         [a['name'] for a in actual[0]])
+        self.assertEqual([it['name'] for it in items[100:]],
+                         [a['name'] for a in actual[1]])
+        self.assertEqual(1, actual[0][0]['ROWID'])
+        self.assertEqual(123, actual[-1][-1]['ROWID'])
+
+        # start at start_row
+        actual = [b for b in yield_item_batches(self.broker, 114, 100, 10)]
+        self.assertEqual(1, len(actual))
+        self.assertEqual([it['name'] for it in items[114:]],
+                         [a['name'] for a in actual[0]])
+        self.assertEqual(115, actual[0][0]['ROWID'])
+        self.assertEqual(123, actual[-1][-1]['ROWID'])
+
+
+class TestMpuAuditorMPU(BaseTestMpuAuditor):
+    parts_container = get_reserved_name('mpu_parts', 'c')
 
     @contextlib.contextmanager
     def _mock_internal_client(self, registered_calls):
@@ -155,6 +195,30 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
         with mock.patch('swift.container.mpu_auditor.InternalClient',
                         return_value=fake_ic):
             yield fake_swift
+
+    def test_audit_cycle_continues_past_error(self):
+        upload_1, manifest_1 = self._create_manifest_spec()
+        upload_2, manifest_2 = self._create_manifest_spec()
+        calls = []
+
+        def mock_audit_item(auditor, item):
+            calls.append(item)
+            if len(calls) == 1:
+                raise Exception('boom')
+
+        self.put_objects([manifest_1, manifest_2], shuffle_order=False)
+        with self._mock_internal_client([]):
+            auditor = MpuAuditor({}, debug_logger('test'))
+        with mock.patch(
+                'swift.container.mpu_auditor.BaseMpuBrokerAuditor._audit_item',
+                mock_audit_item):
+            auditor.audit(self.broker)
+        self.assertEqual(2, len(calls))
+        self.assertEqual([manifest_1['name'], manifest_2['name']],
+                         [item.name for item in calls])
+        warning_lines = auditor.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warning_lines))
+        self.assertIn('boom', warning_lines[0])
 
     def test_audit_delete_marker(self):
         upload_1, manifest_1 = self._create_manifest_spec()
