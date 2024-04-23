@@ -15,7 +15,7 @@
 import binascii
 import json
 
-from swift.common.http import HTTP_CONFLICT, is_success
+from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES
 from swift.common.storage_policy import POLICIES
@@ -23,7 +23,8 @@ from swift.common.utils import generate_unique_id, drain_and_close, \
     config_positive_int_value, reiterate
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
-    HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent
+    HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
+    HTTPServiceUnavailable
 from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
@@ -164,6 +165,16 @@ class BaseMPUHandler(object):
                                                      self.container)
         self.parts_container = get_reserved_name('mpu_parts', self.container)
 
+    def _check_user_container_exists(self):
+        info = get_container_info(self.req.environ, self.app,
+                                  swift_source=MPU_SWIFT_SOURCE)
+        if is_success(info['status']):
+            return info
+        elif info['status'] == HTTP_NOT_FOUND:
+            raise HTTPNotFound()
+        else:
+            raise HTTPServiceUnavailable()
+
     def make_path(self, *parts):
         return '/'.join(['', 'v1', self.account] + [p for p in parts])
 
@@ -210,19 +221,9 @@ class MPUHandler(BaseMPUHandler):
     * List Multipart Uploads
     * Initiate Multipart Upload
     """
-    def handle_request(self):
-        if self.req.method == 'GET':
-            resp = self.list_uploads()
-        elif self.req.method == 'POST' and self.obj:
-            resp = self.create_upload()
-        else:
-            # TODO: should we return 405 for any unsupported container?uploads
-            #     method? Swift typically ignores unrecognised headers and
-            #     params, but there is a risk that the user thinks that, for
-            #     example, DELETE container?uploads will just abort all the MPU
-            #     sessions (whereas it might delete the container).
-            resp = None
-        return resp
+    def __init__(self, mw, req):
+        super(MPUHandler, self).__init__(mw, req)
+        self.user_container_info = self._check_user_container_exists()
 
     @public
     def list_uploads(self):
@@ -241,9 +242,7 @@ class MPUHandler(BaseMPUHandler):
 
     def _ensure_container_exists(self, container):
         # TODO: make storage policy specific parts bucket
-        info = get_container_info(self.req.environ, self.app,
-                                  swift_source=MPU_SWIFT_SOURCE)
-        policy_name = POLICIES[info['storage_policy']].name
+        policy_name = POLICIES[self.user_container_info['storage_policy']].name
 
         # container_name = wsgi_unquote(wsgi_quote(container_name))
         path = self.make_path(container)
@@ -305,13 +304,15 @@ class MPUSessionHandler(BaseMPUHandler):
     * Complete Multipart Upload
     * Upload Part and Upload Part Copy.
     """
-    def __init__(self, mw, req, upload_id):
+    def __init__(self, mw, req):
         super(MPUSessionHandler, self).__init__(mw, req)
-        self.upload_id = upload_id
-        self.session_name = '/'.join([self.reserved_obj, upload_id])
+        self.user_container_info = self._check_user_container_exists()
+        self.upload_id = get_upload_id(req)
+        self.session_name = '/'.join([self.reserved_obj, self.upload_id])
         self.session_path = self.make_path(self.sessions_container,
                                            self.session_name)
-        self.session = None
+        self.session = self._load_session()
+        self.req.headers.setdefault('X-Timestamp', Timestamp.now().internal)
         self.manifest_relative_path = '/'.join(
             [self.manifests_container, self.reserved_obj, self.upload_id])
         self.manifest_path = self.make_path(self.manifest_relative_path)
@@ -341,24 +342,6 @@ class MPUSessionHandler(BaseMPUHandler):
             return resp.headers
         else:
             return {}
-
-    def handle_request(self):
-        self.session = self._load_session()
-        self.req.headers.setdefault('X-Timestamp', Timestamp.now().internal)
-        part_number = get_valid_part_num(self.req)
-        if self.req.method == 'PUT' and part_number > 0:
-            resp = self.upload_part(part_number)
-        elif self.req.method == 'GET':
-            resp = self.list_parts()
-        # TODO: support HEAD? return basic metadata about the upload (not
-        #   required for s3api)
-        elif self.req.method == 'POST':
-            resp = self.complete_upload()
-        elif self.req.method == 'DELETE':
-            resp = self.abort_upload()
-        else:
-            resp = None
-        return resp
 
     def upload_part(self, part_number):
         part_path = self.make_path(self.parts_container, self.reserved_obj,
@@ -630,6 +613,39 @@ class MPUMiddleware(object):
         self.min_part_size = config_positive_int_value(
             conf.get('min_part_size', 5242880))
 
+    def handle_request(self, req, container, obj):
+        # this defines the MPU API
+        upload_id = get_upload_id(req)
+        part_number = get_valid_part_num(req)
+        if obj and upload_id:
+            if req.method == 'PUT' and part_number is not None:
+                resp = MPUSessionHandler(self, req).upload_part(part_number)
+            elif req.method == 'GET':
+                resp = MPUSessionHandler(self, req).list_parts()
+            elif req.method == 'POST':
+                resp = MPUSessionHandler(self, req).complete_upload()
+            elif req.method == 'DELETE':
+                resp = MPUSessionHandler(self, req).abort_upload()
+            else:
+                resp = None
+        elif container and 'uploads' in req.params:
+            if req.method == 'GET':
+                resp = MPUHandler(self, req).list_uploads()
+            elif obj and req.method == 'POST':
+                resp = MPUHandler(self, req).create_upload()
+            else:
+                resp = None
+        elif obj:
+            resp = MPUObjHandler(self, req).handle_request()
+        else:
+            resp = None
+        # TODO: should we return 405 for any unsupported container?uploads
+        #     method? Swift typically ignores unrecognised headers and
+        #     params, but there is a risk that the user thinks that, for
+        #     example, DELETE container?uploads will just abort all the MPU
+        #     sessions (whereas it might delete the container).
+        return resp
+
     def __call__(self, env, start_response):
         req = Request(env)
         try:
@@ -640,23 +656,10 @@ class MPUMiddleware(object):
         if is_reserved_name(account, container, obj):
             return self.app(env, start_response)
 
-        upload_id = get_upload_id(req)
-        if obj and upload_id:
-            handler = MPUSessionHandler(self, req, upload_id)
-        elif container and 'uploads' in req.params:
-            handler = MPUHandler(self, req)
-        elif obj:
-            handler = MPUObjHandler(self, req)
-        else:
-            handler = None
-
-        if handler:
-            try:
-                resp = handler.handle_request()
-            except HTTPException as err:
-                resp = err
-        else:
-            resp = None
+        try:
+            resp = self.handle_request(req, container, obj)
+        except HTTPException as err:
+            resp = err
 
         resp = resp or self.app
         return resp(env, start_response)
