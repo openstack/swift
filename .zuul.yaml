@@ -28,11 +28,6 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-py27-centos-7
-    parent: swift-tox-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -224,11 +219,6 @@
       tox_envlist: func-ec-py3
 
 - job:
-    name: swift-tox-func-py27-centos-7
-    parent: swift-tox-func-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-func-encryption-py27
     parent: swift-tox-base
     description: |
@@ -241,11 +231,6 @@
       tox_envlist: func-encryption
 
 - job:
-    name: swift-tox-func-encryption-py27-centos-7
-    parent: swift-tox-func-encryption-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-func-ec-py27
     parent: swift-tox-base
     description: |
@@ -256,11 +241,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: func-ec
-
-- job:
-    name: swift-tox-func-ec-py27-centos-7
-    parent: swift-tox-func-ec-py27
-    nodeset: centos-7
 
 - job:
     name: swift-dsvm-functional
@@ -342,22 +322,6 @@
     run: tools/playbooks/s3api-tests/run.yaml
     post-run:
       - tools/playbooks/probetests/post.yaml
-
-- job:
-    name: swift-probetests-centos-7
-    parent: swift-probetests-centos-8-stream
-    nodeset: centos-7
-    description: |
-      Setup a SAIO dev environment and run Swift's probe tests
-      under Python 2.
-    vars:
-      bindep_profile: test py27
-      ensure_pip_from_packages: False
-      ensure_pip_from_packages_with_python2: False
-      ensure_pip_from_upstream: True
-      ensure_pip_from_upstream_interpreters:
-        - python2
-      ensure_pip_from_upstream_url: "https://bootstrap.pypa.io/pip/2.7/get-pip.py"
 
 - job:
     name: swift-probetests-centos-8-stream
@@ -462,34 +426,22 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-multinode-rolling-upgrade-train
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/train
-
-- job:
-    name: swift-multinode-rolling-upgrade-ussuri
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/ussuri
-
-- job:
     name: swift-multinode-rolling-upgrade-victoria
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/victoria
+      previous_swift_version: origin/unmaintained/victoria
 
 - job:
     name: swift-multinode-rolling-upgrade-wallaby
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/wallaby
+      previous_swift_version: origin/unmaintained/wallaby
 
 - job:
     name: swift-multinode-rolling-upgrade-xena
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/xena
+      previous_swift_version: origin/unmaintained/xena
 
 - job:
     name: swift-multinode-rolling-upgrade-master
@@ -643,7 +595,6 @@
       - periodic-stable-jobs
       - check-requirements
       - release-notes-jobs-python3
-      - integrated-gate-object-storage
       - swift-jobs-arm64
     check:
       jobs:
@@ -712,15 +663,13 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(cors|unit|functional|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-7:
+        - swift-probetests-centos-8-stream:
             irrelevant-files: &probetest-irrelevant-files
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(cors|unit|functional|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-8-stream:
-            irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
         - swift-dsvm-functional-ipv6:
@@ -744,6 +693,8 @@
             irrelevant-files: *tempest-irrelevant-files
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
+            voting: false
+        - openstacksdk-functional-devstack
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -765,8 +716,6 @@
         - swift-tox-func-ec-py38
         - swift-func-cors
         - swift-tox-func-s3api-tests-tempauth
-        - swift-probetests-centos-7:
-            irrelevant-files: *probetest-irrelevant-files
         - swift-probetests-centos-8-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
@@ -779,26 +728,17 @@
             irrelevant-files: *pep8-irrelevant-files
         - tempest-integrated-object-storage:
             irrelevant-files: *tempest-irrelevant-files
+        - openstacksdk-functional-devstack
         - tempest-ipv6-only:
-            irrelevant-files: *tempest-irrelevant-files
-        - grenade:
             irrelevant-files: *tempest-irrelevant-files
     experimental:
       jobs:
         - swift-tox-py37
         - swift-tox-py38
-        - swift-tox-py27-centos-7
-        - swift-tox-func-py27-centos-7
-        - swift-tox-func-encryption-py27-centos-7
-        - swift-tox-func-ec-py27-centos-7
         - swift-tox-py36-centos-8-stream
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
         - swift-tox-func-ec-py39-centos-9-stream
-        - swift-multinode-rolling-upgrade-rocky
-        - swift-multinode-rolling-upgrade-stein
-        - swift-multinode-rolling-upgrade-train
-        - swift-multinode-rolling-upgrade-ussuri
         - swift-multinode-rolling-upgrade-victoria
         - swift-multinode-rolling-upgrade-wallaby
         - swift-multinode-rolling-upgrade-xena
