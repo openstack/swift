@@ -529,6 +529,47 @@ class TestRequestHelpers(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', headers={})
         self.assertFalse(rh.is_backend_open_expired(req))
 
+    def test_update_etag_override_header(self):
+        headers = {}
+        rh.update_etag_override_header(headers)
+        self.assertEqual({}, headers)
+
+        headers = {}
+        rh.update_etag_override_header(headers, 'my-etag')
+        self.assertEqual(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag': 'my-etag'},
+            headers)
+
+        headers = {}
+        rh.update_etag_override_header(headers, 'my-etag', [('x', None)])
+        self.assertEqual(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'my-etag; x=None'},
+            headers)
+
+        headers = {}
+        rh.update_etag_override_header(headers, 'my-etag', [('x', 123)])
+        self.assertEqual(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'my-etag; x=123'},
+            headers)
+
+        headers = {}
+        rh.update_etag_override_header(headers, 'my-etag',
+                                       [('x', 123), ('y', 'foo')])
+        self.assertEqual(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'my-etag; x=123; y=foo'},
+            headers)
+
+        headers = {}
+        rh.update_etag_override_header(headers, None,
+                                       [('x', 123), ('y', 'foo')])
+        self.assertEqual(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             '; x=123; y=foo'},
+            headers)
+
 
 class TestHTTPResponseToDocumentIters(unittest.TestCase):
     def test_200(self):

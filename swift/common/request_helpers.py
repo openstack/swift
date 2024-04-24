@@ -406,6 +406,18 @@ def get_container_update_override_key(key):
     return header.title()
 
 
+def update_etag_override_header(headers, default_etag='', params=None):
+    default_etag = default_etag or ''
+    if not (default_etag or params):
+        return
+
+    override_header = get_container_update_override_key('etag')
+    override_header_parts = [headers.get(override_header, default_etag)]
+    for k, v in params or []:
+        override_header_parts.append('%s=%s' % (k, v))
+    headers[override_header] = '; '.join(override_header_parts)
+
+
 def is_reserved_name(*parts):
     return any(RESERVED in p for p in parts if p)
 

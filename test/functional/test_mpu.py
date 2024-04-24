@@ -18,6 +18,7 @@ from unittest import SkipTest
 from uuid import uuid4
 
 import test.functional as tf
+from swift.common.utils import md5
 from test.functional import ResponseError
 
 
@@ -29,7 +30,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestMPU(unittest.TestCase):
+class BaseTestMPU(unittest.TestCase):
     user_cont = uuid4().hex
 
     def _make_request(self, env, token, parsed, conn, method,
@@ -55,7 +56,7 @@ class TestMPU(unittest.TestCase):
             raise ResponseError(resp)
 
     def setUp(self):
-        super(TestMPU, self).setUp()
+        super(BaseTestMPU, self).setUp()
         if tf.skip or tf.skip2:
             raise SkipTest
         if 'mpu' not in tf.cluster_info:
@@ -64,8 +65,8 @@ class TestMPU(unittest.TestCase):
             self._create_container(self.user_cont)  # use_account=1
         except ResponseError as err:
             self.fail('Creating container: %s' % err)
-        self.user_obj = uuid4().hex
         self._post_acl()  # always clear acls
+        self.part_size = 5 * 1024 * 1024
 
     def _post_acl(self, read_acl='', write_acl=''):
         resp = tf.retry(self._make_request, method='POST',
@@ -92,14 +93,15 @@ class TestMPU(unittest.TestCase):
 
     def _upload_parts(self, upload_id, num_parts,
                       use_account=1, url_account=1):
-        part_size = 5 * 1024 * 1024
         responses = []
+        part_bodies = []
         for part_index in range(num_parts):
-            part_body = b'a' * part_size
+            part_body = b'a' * self.part_size
             resp = self._upload_part(upload_id, part_index + 1, part_body,
                                      use_account, url_account)
             responses.append(resp)
-        return responses
+            part_bodies.append(part_body)
+        return responses, part_bodies
 
     def _complete_mpu(self, upload_id, etags,
                       use_account=1, url_account=1):
@@ -111,6 +113,13 @@ class TestMPU(unittest.TestCase):
                         query_string='upload-id=%s' % upload_id,
                         body=json.dumps(manifest).encode('ascii'),
                         use_account=use_account, url_account=url_account)
+
+
+class TestMpu(BaseTestMPU):
+    # tests in this class create MPUs
+    def setUp(self):
+        super(TestMpu, self).setUp()
+        self.user_obj = uuid4().hex
 
     def test_create_upload_complete_read_mpu(self):
         part_size = 5 * 1024 * 1024
@@ -148,6 +157,9 @@ class TestMPU(unittest.TestCase):
         # complete mpu
         resp = self._complete_mpu(upload_id, etags)
         self.assertEqual(200, resp.status, resp.content)
+        body = json.loads(resp.content)
+        self.assertEqual('201 Created', body['Response Status'], body)
+        self.assertEqual([], body['Errors'], body)
 
         # GET the user object
         resp = tf.retry(self._make_request, method='GET',
@@ -185,20 +197,20 @@ class TestMPU(unittest.TestCase):
         self.assertIsNotNone(upload_id)
 
         # other account cannot upload part without acl
-        responses = self._upload_parts(upload_id, num_parts=1,
-                                       use_account=2, url_account=1)
+        responses, _ = self._upload_parts(upload_id, num_parts=1,
+                                          use_account=2, url_account=1)
         self.assertEqual([403], [resp.status for resp in responses])
 
         # other account cannot upload part with read acl
         self._post_acl(read_acl=tf.swift_test_perm[1])  # acl for account '2'
-        responses = self._upload_parts(upload_id, num_parts=1,
-                                       use_account=2, url_account=1)
+        responses, _ = self._upload_parts(upload_id, num_parts=1,
+                                          use_account=2, url_account=1)
         self.assertEqual([403], [resp.status for resp in responses])
 
         # other account can upload part with write acl
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
-        responses = self._upload_parts(upload_id, num_parts=1,
-                                       use_account=2, url_account=1)
+        responses, _ = self._upload_parts(upload_id, num_parts=1,
+                                          use_account=2, url_account=1)
         self.assertEqual([200], [resp.status for resp in responses])
 
     def test_complete_mpu_via_container_acl(self):
@@ -207,7 +219,7 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(200, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
-        responses = self._upload_parts(upload_id, num_parts=1)
+        responses, _ = self._upload_parts(upload_id, num_parts=1)
         self.assertEqual([200], [resp.status for resp in responses])
         etags = [resp.headers['Etag'] for resp in responses]
 
@@ -233,37 +245,108 @@ class TestMPU(unittest.TestCase):
                         container=self.user_cont, obj=self.user_obj)
         self.assertEqual(200, resp.status)
 
-    def test_read_mpu_via_container_acl(self):
+
+class TestExistingMPU(BaseTestMPU):
+    # all tests in this class use the same pre-existing MPU, created once
+    # during a call to setUp()
+    user_cont = uuid4().hex
+    user_obj = user_obj_etag = None
+
+    def setUp(self):
+        super(TestExistingMPU, self).setUp()
+        # ...but only create an mpu once
+        if not TestExistingMPU.user_obj:
+            TestExistingMPU.user_obj = uuid4().hex
+            TestExistingMPU.user_obj_etag = self._make_mpu()
+
+    def _make_mpu(self):
         # create an mpu
         resp = self._create_mpu()
         self.assertEqual(200, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
-        responses = self._upload_parts(upload_id, num_parts=1)
-        self.assertEqual([200], [resp.status for resp in responses])
+        responses, part_bodies = self._upload_parts(upload_id, num_parts=2)
+        self.assertEqual([200, 200], [resp.status for resp in responses])
         etags = [resp.headers['Etag'] for resp in responses]
+        part_hashes = [
+            md5(part_body, usedforsecurity=False).hexdigest().encode('ascii')
+            for part_body in part_bodies]
+        hasher = md5(usedforsecurity=False)
+        for part_hash in part_hashes:
+            hasher.update(part_hash)
+        self.expected_etag = hasher.hexdigest()
         resp = self._complete_mpu(upload_id, etags)
         self.assertEqual(200, resp.status)
+        resp_dict = json.loads(resp.content)
+        self.assertIn('Etag', resp_dict)
+        return resp_dict['Etag']
 
-        # same account can read it without acl
+    def _verify_listing(self, resp):
+        self.assertEqual('1', resp.headers['X-Container-Object-Count'])
+        # TODO: fix bytes-used
+        # self.assertEqual('0',
+        #                  resp.headers['X-Container-Bytes-Used'])
+
+        listing = json.loads(resp.content)
+        self.assertEqual(1, len(listing))
+        self.assertEqual(self.user_obj, listing[0].get('name'))
+        # TODO: fix listing entry etag and bytes
+        # self.assertEqual(2 * self.part_size, listing[0]['bytes'])
+        self.assertEqual('application/test', listing[0].get('content_type'))
+
+    def test_container_listing_with_mpu(self):
+        # GET the user container
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont,
+                        query_string='format=json')
+        self.assertEqual(200, resp.status)
+        self._verify_listing(resp)
+
+    def test_container_listing_with_mpu_via_container_acl(self):
+        # other account cannot get listing without acl
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont,
+                        query_string='format=json',
+                        use_account=2, url_account=1)
+        self.assertEqual(403, resp.status)
+
+        # other account cannot get listing with write acl
+        self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont,
+                        query_string='format=json',
+                        use_account=2, url_account=1)
+        self.assertEqual(403, resp.status)
+
+        # other account can get listing with read acl
+        self._post_acl(read_acl=tf.swift_test_perm[1])  # acl for account '2'
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont,
+                        query_string='format=json',
+                        use_account=2, url_account=1)
+        self.assertEqual(200, resp.status)
+        self._verify_listing(resp)
+
+    def test_read_mpu_via_container_acl(self):
+        # same account can read mpu without acl
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.user_obj)
         self.assertEqual(200, resp.status)
 
-        # other account cannot read it without acl
+        # other account cannot read mpu without acl
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.user_obj,
                         use_account=2, url_account=1)
         self.assertEqual(403, resp.status)
 
-        # other account cannot read it with write acl
+        # other account cannot read mpu with write acl
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.user_obj,
                         use_account=2, url_account=1)
         self.assertEqual(403, resp.status)
 
-        # other account can read it with read acl
+        # other account can read mpu with read acl
         self._post_acl(read_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.user_obj,

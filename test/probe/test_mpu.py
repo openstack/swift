@@ -363,7 +363,8 @@ class TestNativeMPU(BaseTestMPU):
                                           'ascii'))
         self.assertEqual(200, resp.status)
         self.assertNotIn('X-Static-Large-Object', resp.headers)
-        self.assertEqual(b' ', body)
+        body_dict = json.loads(body)
+        self.assertEqual('201 Created', body_dict['Response Status'])
 
         # check manifest exists
         manifests = self.internal_client.iter_objects(

@@ -324,6 +324,8 @@ class MpuManifestAuditor(BaseMpuBrokerAuditor):
         )
 
     def _delete_resources(self, marker, upload):
+        # TODO: add a time delay before processing an abort to allow for
+        # concurrent complete
         # TODO: handle failed requests
         if (marker.name.endswith(MPU_ABORTED_MARKER_SUFFIX) and
                 self._is_manifest_linked(marker, upload)):
