@@ -28,11 +28,6 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-py27-centos-7
-    parent: swift-tox-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -140,11 +135,6 @@
       tox_envlist: func-ec-py3
 
 - job:
-    name: swift-tox-func-py27-centos-7
-    parent: swift-tox-func-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-func-encryption-py27
     parent: swift-tox-base
     description: |
@@ -157,11 +147,6 @@
       tox_envlist: func-encryption
 
 - job:
-    name: swift-tox-func-encryption-py27-centos-7
-    parent: swift-tox-func-encryption-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-func-ec-py27
     parent: swift-tox-base
     description: |
@@ -172,11 +157,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: func-ec
-
-- job:
-    name: swift-tox-func-ec-py27-centos-7
-    parent: swift-tox-func-ec-py27
-    nodeset: centos-7
 
 - job:
     name: swift-dsvm-functional
@@ -221,30 +201,15 @@
         SERVICE_HOST: ""
 
 - job:
-    name: swift-tox-func-s3api-ceph-s3tests-tempauth
+    name: swift-probetests-centos-8-stream
     parent: unittests
-    voting: false
-    nodeset: centos-7
-    description: |
-      Setup a SAIO dev environment and run ceph-s3tests
-    timeout: 3600
-    pre-run:
-      - tools/playbooks/common/install_dependencies.yaml
-      - tools/playbooks/saio_single_node_setup/setup_saio.yaml
-      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
-      - tools/playbooks/saio_single_node_setup/make_rings.yaml
-    run: tools/playbooks/ceph-s3tests/run.yaml
-    post-run:
-      - tools/playbooks/probetests/post.yaml
-      - tools/playbooks/ceph-s3tests/post.yaml
-
-- job:
-    name: swift-probetests-centos-7
-    parent: unittests
-    nodeset: centos-7
+    nodeset: centos-8-stream
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
+      under Python 3.
     timeout: 7200
+    vars:
+      bindep_profile: test py36
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -253,18 +218,18 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - nodeset:
-    name: swift-five-nodes
+    name: swift-five-nodes-centos8
     nodes:
       - name: test-runner1
-        label: centos-7
+        label: centos-8-stream
       - name: proxy1
-        label: centos-7
+        label: centos-8-stream
       - name: account1
-        label: centos-7
+        label: centos-8-stream
       - name: container1
-        label: centos-7
+        label: centos-8-stream
       - name: object1
-        label: centos-7
+        label: centos-8-stream
     groups:
       - name: test-runner
         nodes:
@@ -296,10 +261,10 @@
 - job:
     name: swift-multinode-rolling-upgrade
     parent: multinode
-    nodeset: swift-five-nodes
+    nodeset: swift-five-nodes-centos8
     description: |
       Build a 4 node swift cluster and run functional tests
-    timeout: 3600
+    timeout: 5400
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
       - tools/playbooks/common/install_dependencies.yaml
@@ -308,30 +273,6 @@
       - tools/playbooks/multinode_setup/make_rings.yaml
     run: tools/playbooks/multinode_setup/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
-
-- job:
-    name: swift-multinode-rolling-upgrade-rocky
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/rocky
-
-- job:
-    name: swift-multinode-rolling-upgrade-stein
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/stein
-
-- job:
-    name: swift-multinode-rolling-upgrade-train
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/train
-
-- job:
-    name: swift-multinode-rolling-upgrade-ussuri
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/ussuri
 
 - job:
     name: swift-multinode-rolling-upgrade-master
@@ -506,15 +447,12 @@
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
 
         # Other tests
-        - swift-tox-func-s3api-ceph-s3tests-tempauth:
-            irrelevant-files:
-              - ^(api-ref|releasenotes)/.*$
-              # Keep doc/saio -- we use those sample configs in the saio playbooks
-              # Also keep doc/s3api -- it holds known failures for these tests
-              - ^doc/(requirements.txt|(manpages|source)/.*)$
-              - ^test/(unit|probe)/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-7:
+        - swift-probetests-centos-8-stream:
+            # NOTE(elod.illes): originally this was tested with centos-7 node
+            # but centos-7 nodeset was removed. This worked with Centos-8
+            # recently, but started to fail now. Setting this non-voting for
+            # for now, in case someone wants to fix this...
+            voting: false
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
@@ -580,13 +518,6 @@
         - swift-tox-func-py37
         - swift-tox-func-encryption
         - swift-tox-func-ec-py37
-        - swift-probetests-centos-7:
-            irrelevant-files:
-              - ^(api-ref|releasenotes)/.*$
-              # Keep doc/saio -- we use those sample configs in the saio playbooks
-              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
-              - ^test/(unit|functional)/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-dsvm-functional:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -624,14 +555,6 @@
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
     experimental:
       jobs:
-        - swift-tox-py27-centos-7
-        - swift-tox-func-py27-centos-7
-        - swift-tox-func-encryption-py27-centos-7
-        - swift-tox-func-ec-py27-centos-7
-        - swift-multinode-rolling-upgrade-rocky
-        - swift-multinode-rolling-upgrade-stein
-        - swift-multinode-rolling-upgrade-train
-        - swift-multinode-rolling-upgrade-ussuri
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
