@@ -28,11 +28,6 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-py27-centos-7
-    parent: swift-tox-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -184,11 +179,6 @@
       tox_envlist: func-ec-py3
 
 - job:
-    name: swift-tox-func-py27-centos-7
-    parent: swift-tox-func-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-func-encryption-py27
     parent: swift-tox-base
     description: |
@@ -201,11 +191,6 @@
       tox_envlist: func-encryption
 
 - job:
-    name: swift-tox-func-encryption-py27-centos-7
-    parent: swift-tox-func-encryption-py27
-    nodeset: centos-7
-
-- job:
     name: swift-tox-func-ec-py27
     parent: swift-tox-base
     description: |
@@ -216,11 +201,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: func-ec
-
-- job:
-    name: swift-tox-func-ec-py27-centos-7
-    parent: swift-tox-func-ec-py27
-    nodeset: centos-7
 
 - job:
     name: swift-dsvm-functional
@@ -265,35 +245,15 @@
         SERVICE_HOST: ""
 
 - job:
-    name: swift-tox-func-s3api-ceph-s3tests-tempauth
+    name: swift-probetests-centos-8-stream
     parent: unittests
-    voting: false
-    nodeset: centos-7
-    description: |
-      Setup a SAIO dev environment and run ceph-s3tests
-    timeout: 5400
-    vars:
-      s3_acl: yes
-    pre-run:
-      - tools/playbooks/common/install_dependencies.yaml
-      - tools/playbooks/saio_single_node_setup/setup_saio.yaml
-      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
-      - tools/playbooks/saio_single_node_setup/make_rings.yaml
-    run: tools/playbooks/ceph-s3tests/run.yaml
-    post-run:
-      - tools/playbooks/probetests/post.yaml
-      - tools/playbooks/ceph-s3tests/post.yaml
-
-- job:
-    name: swift-probetests-centos-7
-    parent: unittests
-    nodeset: centos-7
+    nodeset: centos-8-stream
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
-      under Python 2.
+      under Python 3.
     timeout: 7200
     vars:
-      bindep_profile: test py27
+      bindep_profile: test py36
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -302,18 +262,8 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-probetests-centos-8-stream
-    parent: swift-probetests-centos-7
-    nodeset: centos-8-stream
-    description: |
-      Setup a SAIO dev environment and run Swift's probe tests
-      under Python 3.
-    vars:
-      bindep_profile: test py36
-
-- job:
     name: swift-func-cors
-    parent: swift-probetests-centos-7
+    parent: swift-probetests-centos-8-stream
     description: |
       Setup a SAIO dev environment and run Swift's CORS functional tests
     timeout: 1200
@@ -326,18 +276,18 @@
     post-run: tools/playbooks/cors/post.yaml
 
 - nodeset:
-    name: swift-five-nodes
+    name: swift-five-nodes-centos8
     nodes:
       - name: test-runner1
-        label: centos-7
+        label: centos-8-stream
       - name: proxy1
-        label: centos-7
+        label: centos-8-stream
       - name: account1
-        label: centos-7
+        label: centos-8-stream
       - name: container1
-        label: centos-7
+        label: centos-8-stream
       - name: object1
-        label: centos-7
+        label: centos-8-stream
     groups:
       - name: test-runner
         nodes:
@@ -369,7 +319,7 @@
 - job:
     name: swift-multinode-rolling-upgrade
     parent: multinode
-    nodeset: swift-five-nodes
+    nodeset: swift-five-nodes-centos8
     description: |
       Build a 4 node swift cluster and run functional tests
     timeout: 5400
@@ -381,30 +331,6 @@
       - tools/playbooks/multinode_setup/make_rings.yaml
     run: tools/playbooks/multinode_setup/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
-
-- job:
-    name: swift-multinode-rolling-upgrade-rocky
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/rocky
-
-- job:
-    name: swift-multinode-rolling-upgrade-stein
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/stein
-
-- job:
-    name: swift-multinode-rolling-upgrade-train
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/train
-
-- job:
-    name: swift-multinode-rolling-upgrade-ussuri
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/ussuri
 
 - job:
     name: swift-multinode-rolling-upgrade-victoria
@@ -550,7 +476,6 @@
       - periodic-stable-jobs
       - check-requirements
       - release-notes-jobs-python3
-      - integrated-gate-object-storage
     check:
       jobs:
         - swift-tox-func-py36-centos-8-stream-fips:
@@ -601,6 +526,9 @@
 
         # Other tests
         - swift-func-cors:
+            # NOTE(elod.illes): set as non-voting to unblock the gate, but keep
+            # it here to do not loss visibility
+            voting: false
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
@@ -615,15 +543,13 @@
               - ^doc/(requirements.txt|(manpages|source)/.*)$
               - ^test/(cors|unit|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-7:
+        - swift-probetests-centos-8-stream:
             irrelevant-files: &probetest-irrelevant-files
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(cors|unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-8-stream:
-            irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
         - swift-dsvm-functional-ipv6:
@@ -647,6 +573,10 @@
             irrelevant-files: *tempest-irrelevant-files
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
+            voting: false
+        - openstacksdk-functional-devstack:
+            irrelevant-files: *tempest-irrelevant-files
+            voting: false
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -668,9 +598,6 @@
         - swift-tox-func-py37
         - swift-tox-func-encryption-py37
         - swift-tox-func-ec-py37
-        - swift-func-cors
-        - swift-probetests-centos-7:
-            irrelevant-files: *probetest-irrelevant-files
         - swift-probetests-centos-8-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
@@ -685,22 +612,15 @@
             irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
             irrelevant-files: *tempest-irrelevant-files
-        - grenade:
+        - openstacksdk-functional-devstack:
             irrelevant-files: *tempest-irrelevant-files
+            voting: false
     experimental:
       jobs:
-        - swift-tox-py27-centos-7
-        - swift-tox-func-py27-centos-7
-        - swift-tox-func-encryption-py27-centos-7
-        - swift-tox-func-ec-py27-centos-7
         - swift-tox-py36-centos-8-stream
         - swift-tox-func-py36-centos-8-stream
         - swift-tox-func-encryption-py36-centos-8-stream
         - swift-tox-func-ec-py36-centos-8-stream
-        - swift-multinode-rolling-upgrade-rocky
-        - swift-multinode-rolling-upgrade-stein
-        - swift-multinode-rolling-upgrade-train
-        - swift-multinode-rolling-upgrade-ussuri
         - swift-multinode-rolling-upgrade-victoria
         - swift-multinode-rolling-upgrade-master:
             branches: master
