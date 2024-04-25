@@ -175,6 +175,22 @@ class BaseMPUHandler(object):
         else:
             raise HTTPServiceUnavailable()
 
+    def _authorize_request(self, acl):
+        # TODO: this pattern appears in may places (e.g. obj.py,
+        #   object_versioning - grep for 'req.acl') - should we have a
+        #   request_helper function?
+        if 'swift.authorize' in self.req.environ:
+            self.req.acl = self.user_container_info.get(acl)
+            auth_resp = self.req.environ['swift.authorize'](self.req)
+            if auth_resp:
+                raise auth_resp
+
+    def _authorize_read_request(self):
+        self._authorize_request('read_acl')
+
+    def _authorize_write_request(self):
+        self._authorize_request('write_acl')
+
     def make_path(self, *parts):
         return '/'.join(['', 'v1', self.account] + [p for p in parts])
 
@@ -230,6 +246,7 @@ class MPUHandler(BaseMPUHandler):
         """
         Handles List Multipart Uploads
         """
+        self._authorize_read_request()
         path = self.make_path(self.sessions_container)
         sub_req = self.make_subrequest(path=path, method='GET')
         resp = sub_req.get_response(self.app)
@@ -264,6 +281,7 @@ class MPUHandler(BaseMPUHandler):
         """
         Handles Initiate Multipart Upload.
         """
+        self._authorize_write_request()
         # if len(req.object_name) > constraints.MAX_OBJECT_NAME_LENGTH:
         #     # Note that we can still run into trouble where the MPU is just
         #     # within the limit, which means the segment names will go over
@@ -344,6 +362,7 @@ class MPUSessionHandler(BaseMPUHandler):
             return {}
 
     def upload_part(self, part_number):
+        self._authorize_write_request()
         part_path = self.make_path(self.parts_container, self.reserved_obj,
                                    self.upload_id, str(part_number))
         part_req = self.make_subrequest(
@@ -357,6 +376,7 @@ class MPUSessionHandler(BaseMPUHandler):
         """
         Handles List Parts.
         """
+        self._authorize_read_request()
         path = self.make_path(self.parts_container)
         sub_req = self.make_subrequest(
             path=path, method='GET', params={'prefix': self.session_name})
@@ -372,6 +392,7 @@ class MPUSessionHandler(BaseMPUHandler):
         """
         Handles Abort Multipart Upload.
         """
+        self._authorize_write_request()
         if self.req.timestamp < self.session.created_timestamp:
             return HTTPConflict()
 
@@ -508,6 +529,7 @@ class MPUSessionHandler(BaseMPUHandler):
         """
         Handles Complete Multipart Upload.
         """
+        self._authorize_write_request()
         if self.req.timestamp < self.session.created_timestamp:
             return HTTPConflict()
 
@@ -575,7 +597,6 @@ class MPUObjHandler(BaseMPUHandler):
             # existing object became a version -> no cleanup
             return
 
-        self.logger.debug('MPU resp headers %s', dict(resp.headers))
         upload_id_key = get_mpu_sysmeta_key('upload-id')
         deleted_upload_ids = {}
         for backend_resp in self.req.environ.get('swift.backend_responses',

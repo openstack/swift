@@ -164,14 +164,12 @@ class TestMPU(unittest.TestCase):
     def test_create_mpu_via_container_acl(self):
         # other account cannot create mpu without acl
         resp = self._create_mpu(use_account=2, url_account=1)
-        # TODO: XXX fix assertion!
-        self.assertEqual(200, resp.status)
+        self.assertEqual(403, resp.status)
 
         # other account cannot create mpu with read acl
         self._post_acl(read_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = self._create_mpu(use_account=2, url_account=1)
-        # TODO: XXX fix assertion!
-        self.assertEqual(200, resp.status)
+        self.assertEqual(403, resp.status)
 
         # other account can create mpu with write acl
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
@@ -189,15 +187,13 @@ class TestMPU(unittest.TestCase):
         # other account cannot upload part without acl
         responses = self._upload_parts(upload_id, num_parts=1,
                                        use_account=2, url_account=1)
-        # TODO: XXX fix assertion!
-        self.assertEqual([200], [resp.status for resp in responses])
+        self.assertEqual([403], [resp.status for resp in responses])
 
         # other account cannot upload part with read acl
         self._post_acl(read_acl=tf.swift_test_perm[1])  # acl for account '2'
         responses = self._upload_parts(upload_id, num_parts=1,
                                        use_account=2, url_account=1)
-        # TODO: XXX fix assertion!
-        self.assertEqual([200], [resp.status for resp in responses])
+        self.assertEqual([403], [resp.status for resp in responses])
 
         # other account can upload part with write acl
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
@@ -218,21 +214,19 @@ class TestMPU(unittest.TestCase):
         # other account cannot complete mpu without acl
         resp = self._complete_mpu(upload_id, etags,
                                   use_account=2, url_account=1)
-        # TODO: XXX fix assertion!
-        self.assertEqual(200, resp.status)
+        self.assertEqual(403, resp.status)
 
         # other account cannot complete mpu with read acl
         self._post_acl(read_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = self._complete_mpu(upload_id, etags,
                                   use_account=2, url_account=1)
-        # TODO: XXX fix assertion!
-        self.assertEqual(404, resp.status)
+        self.assertEqual(403, resp.status)
 
         # other account can complete mpu with write acl
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = self._complete_mpu(upload_id, etags,
                                   use_account=2, url_account=1)
-        self.assertEqual(404, resp.status)
+        self.assertEqual(200, resp.status)
 
         # sanity check - creating account can read completed mpu
         resp = tf.retry(self._make_request, method='GET',
