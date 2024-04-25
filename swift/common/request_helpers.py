@@ -41,8 +41,7 @@ from swift.common.utils import split_path, validate_device_partition, \
     multipart_byteranges_to_document_iters, parse_content_type, \
     parse_content_range, csv_append, list_from_csv, Spliterator, quote, \
     RESERVED, config_true_value, md5, CloseableChain, select_ip_port
-from swift.common.wsgi import make_subrequest
-
+from swift.common.wsgi import make_subrequest, make_pre_authed_request
 
 OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
 OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX = \
@@ -570,8 +569,14 @@ class SegmentedIterable(object):
                 headers = {'x-auth-token':
                            self.req.headers.get('x-auth-token')}
                 if self.allow_reserved_names:
+                    # TODO: see similar logic in symlink _recursive_get_head -
+                    #   is this a safe, re-usable pattern? if so, make a helper
+                    # TODO: add unit test for this condition
                     headers['x-backend-allow-reserved-names'] = 'true'
-                seg_req = make_subrequest(
+                    subreq_method = make_pre_authed_request
+                else:
+                    subreq_method = make_subrequest
+                seg_req = subreq_method(
                     self.req.environ, path=path, method='GET', headers=headers,
                     agent=('%(orig)s ' + self.ua_suffix),
                     swift_source=self.swift_source)

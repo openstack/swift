@@ -260,19 +260,18 @@ class TestMPU(unittest.TestCase):
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.user_obj,
                         use_account=2, url_account=1)
-        self.assertEqual(resp.status, 403)
+        self.assertEqual(403, resp.status)
 
         # other account cannot read it with write acl
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.user_obj,
                         use_account=2, url_account=1)
-        self.assertEqual(resp.status, 403)
+        self.assertEqual(403, resp.status)
 
         # other account can read it with read acl
         self._post_acl(read_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.user_obj,
                         use_account=2, url_account=1)
-        # TODO: XXX fix assertion!
-        self.assertEqual(resp.status, 409)
+        self.assertEqual(200, resp.status)
