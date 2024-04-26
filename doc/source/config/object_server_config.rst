@@ -746,4 +746,19 @@ ionice_priority               None                            I/O scheduling pri
                                                               priority of the process. Work only with
                                                               ionice_class.
                                                               Ignored if IOPRIO_CLASS_IDLE is set.
+delay_reaping_<ACCT>           0.0                            A dynamic configuration option for
+                                                              setting account level delay_reaping values.
+                                                              The delay_reaping value is configured for
+                                                              the account with the name placed in
+                                                              <ACCT>. The object expirer will reap objects in
+                                                              this account from disk only after this delay
+                                                              following their x-delete-at time.
+delay_reaping_<ACCT>/<CNTR>    0.0                            A dynamic configuration option for
+                                                              setting container level delay_reaping values.
+                                                              The delay_reaping value is configured for
+                                                              the container with the account name placed
+                                                              in <ACCT> and the container name in <CNTR>.
+                                                              The object expirer will reap objects in this
+                                                              container from disk only after this delay
+                                                              following their x-delete-at time.
 ============================= =============================== ==========================================

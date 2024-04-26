@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import six
+from six.moves import urllib
 
 from random import random
 from time import time
@@ -28,7 +29,7 @@ from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
     Timestamp, config_true_value, normalize_delete_at_timestamp, \
-    RateLimitedIterator, md5
+    RateLimitedIterator, md5, non_negative_float
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
@@ -64,6 +65,49 @@ def parse_task_obj(task_obj):
     target_account, target_container, target_obj = \
         split_path('/' + target_path, 3, 3, True)
     return timestamp, target_account, target_container, target_obj
+
+
+def read_conf_for_delay_reaping_times(conf):
+    delay_reaping_times = {}
+    for conf_key in conf:
+        delay_reaping_prefix = "delay_reaping_"
+        if not conf_key.startswith(delay_reaping_prefix):
+            continue
+        delay_reaping_key = urllib.parse.unquote(
+            conf_key[len(delay_reaping_prefix):])
+        if delay_reaping_key.strip('/') != delay_reaping_key:
+            raise ValueError(
+                '%s '
+                'should be in the form delay_reaping_<account> '
+                'or delay_reaping_<account>/<container> '
+                '(leading or trailing "/" is not allowed)' % conf_key)
+        try:
+            # If split_path fails, have multiple '/' or
+            # account name is invalid
+            account, container = split_path(
+                '/' + delay_reaping_key, 1, 2
+            )
+        except ValueError:
+            raise ValueError(
+                '%s '
+                'should be in the form delay_reaping_<account> '
+                'or delay_reaping_<account>/<container> '
+                '(at most one "/" is allowed)' % conf_key)
+        try:
+            delay_reaping_times[(account, container)] = non_negative_float(
+                conf.get(conf_key)
+            )
+        except ValueError:
+            raise ValueError(
+                '%s must be a float '
+                'greater than or equal to 0' % conf_key)
+    return delay_reaping_times
+
+
+def get_delay_reaping(delay_reaping_times, target_account, target_container):
+    return delay_reaping_times.get(
+        (target_account, target_container),
+        delay_reaping_times.get((target_account, None), 0.0))
 
 
 class ObjectExpirer(Daemon):
@@ -112,6 +156,8 @@ class ObjectExpirer(Daemon):
         # marker will be retried before it is abandoned.  It is not coupled
         # with the tombstone reclaim age in the consistency engine.
         self.reclaim_age = int(conf.get('reclaim_age', 604800))
+
+        self.delay_reaping_times = read_conf_for_delay_reaping_times(conf)
 
     def read_conf_for_queue_access(self, swift):
         self.expiring_objects_account = AUTO_CREATE_ACCOUNT_PREFIX + \
@@ -246,6 +292,10 @@ class ObjectExpirer(Daemon):
                 break
             yield task_container
 
+    def get_delay_reaping(self, target_account, target_container):
+        return get_delay_reaping(self.delay_reaping_times, target_account,
+                                 target_container)
+
     def iter_task_to_expire(self, task_account_container_list,
                             my_index, divisor):
         """
@@ -267,17 +317,24 @@ class ObjectExpirer(Daemon):
                     self.logger.exception('Unexcepted error handling task %r' %
                                           task_object)
                     continue
+                is_async = o.get('content_type') == ASYNC_DELETE_TYPE
+                delay_reaping = self.get_delay_reaping(target_account,
+                                                       target_container)
+
                 if delete_timestamp > Timestamp.now():
-                    # we shouldn't yield the object that doesn't reach
+                    # we shouldn't yield ANY more objects that can't reach
                     # the expiration date yet.
                     break
+                if delete_timestamp > Timestamp(time() - delay_reaping) \
+                        and not is_async:
+                    # we shouldn't yield the object during the delay
+                    continue
 
                 # Only one expirer daemon assigned for one task
                 if self.hash_mod('%s/%s' % (task_container, task_object),
                                  divisor) != my_index:
                     continue
 
-                is_async = o.get('content_type') == ASYNC_DELETE_TYPE
                 yield {'task_account': task_account,
                        'task_container': task_container,
                        'task_object': task_object,
