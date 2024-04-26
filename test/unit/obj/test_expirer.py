@@ -1108,31 +1108,49 @@ class TestObjectExpirer(TestCase):
         aco_dict = {
             '.expiring_objects': {
                 self.past_time: [
-                    # tasks well past ready for execution
-                    {'name': self.past_time + '-a0/c0/o0',
+                    # tasks 86400s past ready for execution
+                    {'name': self.past_time + '-a0/c0/o00',
                      'content_type': 'application/async-deleted'},
-                    {'name': self.past_time + '-a1/c1/o1',
+                    {'name': self.past_time + '-a0/c0/o01',
+                     'content_type': 'text/plain'},
+                    {'name': self.past_time + '-a1/c0/o02',
                      'content_type': 'application/async-deleted'},
-                    {'name': self.past_time + '-a1/c2/o2',
+                    {'name': self.past_time + '-a1/c0/o03',
+                     'content_type': 'text/plain'},
+                    {'name': self.past_time + '-a1/c1/o04',
                      'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a1/c1/o05',
+                     'content_type': 'text/plain'},
                 ],
                 self.just_past_time: [
-                    # tasks only just ready for execution
-                    {'name': self.just_past_time + '-a0/c0/o0',
+                    # tasks only just 1s ready for execution
+                    {'name': self.just_past_time + '-a0/c0/o06',
                      'content_type': 'application/async-deleted'},
-                    {'name': self.just_past_time + '-a1/c1/o1',
+                    {'name': self.just_past_time + '-a0/c0/o07',
+                     'content_type': 'text/plain'},
+                    {'name': self.just_past_time + '-a1/c0/o08',
                      'content_type': 'application/async-deleted'},
-                    {'name': self.just_past_time + '-a1/c2/o2',
+                    {'name': self.just_past_time + '-a1/c0/o09',
+                     'content_type': 'text/plain'},
+                    {'name': self.just_past_time + '-a1/c1/o10',
                      'content_type': 'application/async-deleted'},
+                    {'name': self.just_past_time + '-a1/c1/o11',
+                     'content_type': 'text/plain'},
                 ],
                 self.future_time: [
                     # tasks not yet ready for execution
-                    {'name': self.future_time + '-a0/c0/o0',
+                    {'name': self.future_time + '-a0/c0/o12',
                      'content_type': 'application/async-deleted'},
-                    {'name': self.future_time + '-a1/c1/o1',
+                    {'name': self.future_time + '-a0/c0/o13',
+                     'content_type': 'text/plain'},
+                    {'name': self.future_time + '-a1/c0/o14',
                      'content_type': 'application/async-deleted'},
-                    {'name': self.future_time + '-a1/c2/o2',
+                    {'name': self.future_time + '-a1/c0/o15',
+                     'content_type': 'text/plain'},
+                    {'name': self.future_time + '-a1/c1/o16',
                      'content_type': 'application/async-deleted'},
+                    {'name': self.future_time + '-a1/c1/o17',
+                     'content_type': 'text/plain'},
                 ],
             }
         }
@@ -1142,49 +1160,39 @@ class TestObjectExpirer(TestCase):
                                   swift=fake_swift)
         # ... we expect all past async tasks to yield
         expected = [
-            self.make_task(self.past_time, target_path, is_async_delete=True)
-            for target_path in (
-                swob.wsgi_to_str(tgt) for tgt in (
-                    'a0/c0/o0',
-                    'a1/c1/o1',
-                    'a1/c2/o2',
-                )
+            self.make_task(self.past_time, swob.wsgi_to_str(tgt),
+                           is_async_delete=is_async)
+            for (tgt, is_async) in (
+                ('a0/c0/o00', True),
+                ('a0/c0/o01', False),  # a0 no delay
+                ('a1/c0/o02', True),
+                # a1/c0/o03 a1 long delay
+                ('a1/c1/o04', True),
+                ('a1/c1/o05', False),  # c1 short delay
             )
         ] + [
-            self.make_task(self.just_past_time, target_path,
-                           is_async_delete=True)
-            for target_path in (
-                swob.wsgi_to_str(tgt) for tgt in (
-                    'a0/c0/o0',
-                    'a1/c1/o1',
-                    'a1/c2/o2',
-                )
+            self.make_task(self.just_past_time, swob.wsgi_to_str(tgt),
+                           is_async_delete=is_async)
+            for (tgt, is_async) in (
+                ('a0/c0/o06', True),
+                ('a0/c0/o07', False),  # a0 no delay
+                ('a1/c0/o08', True),
+                # a1/c0/o09 a1 delay
+                ('a1/c1/o10', True),  # async
+                # a1/c1/o11 c1 delay
             )
         ]
-        task_account_container_list = [
-            ('.expiring_objects', self.past_time),
-            ('.expiring_objects', self.just_past_time),
-        ]
-        observed = list(x.iter_task_to_expire(
-            task_account_container_list, 0, 1))
-        self.assertEqual(expected, observed)
-
-        # configure delay for account a1
-        self.conf['delay_reaping_a1'] = 300.0
+        # configure delays
+        self.conf['delay_reaping_a1'] = 86500.0
+        self.conf['delay_reaping_a1/c1'] = 300.0
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
         # ... and we still expect all past async tasks to yield
-        observed = list(x.iter_task_to_expire(
-            task_account_container_list, 0, 1))
-        self.assertEqual(expected, observed)
-
-        # configure delays for all containers
-        self.conf['delay_reaping_a1/c0'] = 300.0
-        self.conf['delay_reaping_a1/c1'] = 300.0
-        self.conf['delay_reaping_a1/c2'] = 300.0
-        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
-                                  swift=fake_swift)
-        # ... and we we still expect all past async tasks to yield
+        task_account_container_list = [
+            ('.expiring_objects', self.past_time),
+            ('.expiring_objects', self.just_past_time),
+            ('.expiring_objects', self.future_time),
+        ]
         observed = list(x.iter_task_to_expire(
             task_account_container_list, 0, 1))
         self.assertEqual(expected, observed)
