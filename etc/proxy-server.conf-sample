@@ -339,6 +339,14 @@ use = egg:swift#proxy
 # the environment (default). For more information, see
 # https://bugs.launchpad.net/liberasurecode/+bug/1886088
 # write_legacy_ec_crc =
+#
+# Setting 'allow_open_expired' to 'true' allows the 'x-open-expired' header
+# to be used with HEAD, GET, or POST requests to access expired objects that
+# have not yet been deleted from disk. This can be useful in conjunction with
+# the object-expirer 'delay_reaping' feature.
+# This flag is set to false by default, so it must be changed to access
+# expired objects.
+# allow_open_expired = false
 
 # Some proxy-server configuration options may be overridden on a per-policy
 # basis by including per-policy config section(s). The value of any option
@@ -921,7 +929,7 @@ use = egg:swift#tempurl
 # list of header names and names can optionally end with '*' to indicate a
 # prefix match. incoming_allow_headers is a list of exceptions to these
 # removals.
-# incoming_remove_headers = x-timestamp
+# incoming_remove_headers = x-timestamp x-open-expired
 #
 # The headers allowed as exceptions to incoming_remove_headers. Simply a
 # whitespace delimited list of header names and names can optionally end with

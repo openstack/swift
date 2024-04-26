@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Tests for swift.common.request_helpers"""
-
+import argparse
 import unittest
 from swift.common.swob import Request, HTTPException, HeaderKeyDict, HTTPOk
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
@@ -472,6 +472,46 @@ class TestRequestHelpers(unittest.TestCase):
             rh.split_reserved_name('foo')
         self.assertEqual(str(ctx.exception),
                          'Invalid reserved name')
+
+    def test_is_open_expired(self):
+        app = argparse.Namespace(allow_open_expired=False)
+        req = Request.blank('/v1/a/c/o', headers={'X-Open-Expired': 'yes'})
+        self.assertFalse(rh.is_open_expired(app, req))
+        req = Request.blank('/v1/a/c/o', headers={'X-Open-Expired': 'no'})
+        self.assertFalse(rh.is_open_expired(app, req))
+        req = Request.blank('/v1/a/c/o', headers={})
+        self.assertFalse(rh.is_open_expired(app, req))
+
+        app = argparse.Namespace(allow_open_expired=True)
+        req = Request.blank('/v1/a/c/o', headers={'X-Open-Expired': 'no'})
+        self.assertFalse(rh.is_open_expired(app, req))
+        req = Request.blank('/v1/a/c/o', headers={})
+        self.assertFalse(rh.is_open_expired(app, req))
+
+        req = Request.blank('/v1/a/c/o', headers={'X-Open-Expired': 'yes'})
+        self.assertTrue(rh.is_open_expired(app, req))
+
+    def test_is_backend_open_expired(self):
+        req = Request.blank('/v1/a/c/o', headers={
+            'X-Backend-Open-Expired': 'yes'
+        })
+        self.assertTrue(rh.is_backend_open_expired(req))
+        req = Request.blank('/v1/a/c/o', headers={
+            'X-Backend-Open-Expired': 'no'
+        })
+        self.assertFalse(rh.is_backend_open_expired(req))
+
+        req = Request.blank('/v1/a/c/o', headers={
+            'X-Backend-Replication': 'yes'
+        })
+        self.assertTrue(rh.is_backend_open_expired(req))
+        req = Request.blank('/v1/a/c/o', headers={
+            'X-Backend-Replication': 'no'
+        })
+        self.assertFalse(rh.is_backend_open_expired(req))
+
+        req = Request.blank('/v1/a/c/o', headers={})
+        self.assertFalse(rh.is_backend_open_expired(req))
 
 
 class TestHTTPResponseToDocumentIters(unittest.TestCase):

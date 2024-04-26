@@ -98,6 +98,38 @@ section in the ``object-server.conf``::
     account if it exists. By default, no ``delay_reaping`` value is configured
     for any accounts or containers.
 
+Accessing Objects After Expiration
+----------------------------------
+
+By default, objects that expire become inaccessible, even to the account owner.
+The object may not have been deleted, but any GET/HEAD/POST client request for
+the object will respond 404 Not Found after the ``x-delete-at`` timestamp
+has passed.
+
+The ``swift-proxy-server`` offers the ability to globally configure a flag to
+allow requests to access expired objects that have not yet been deleted.
+When this flag is enabled, a user can make a GET, HEAD, or POST request with
+the header ``x-open-expired`` set to true to access the expired object.
+
+The global configuration is an opt-in flag that can be set in the
+``[proxy-server]`` section of the ``proxy-server.conf`` file. It is configured
+with a single flag ``allow_open_expired`` set to true or false. By default,
+this flag is set to false.
+
+Here is an example in the ``proxy-server`` section in ``proxy-server.conf``::
+
+    [proxy-server]
+    allow_open_expired = false
+
+To discover whether this flag is set, you can send a **GET** request to the
+``/info`` :ref:`discoverability <discoverability>` path. This will return
+configuration data in JSON format where the value of ``allow_open_expired`` is
+exposed.
+
+When using a temporary URL to access the object, this feature is not enabled.
+This means that adding the header will not allow requests to temporary URLs
+to access expired objects.
+
 Upgrading impact: General Task Queue vs Legacy Queue
 ----------------------------------------------------
 
