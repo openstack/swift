@@ -710,6 +710,7 @@ use = egg:swift#backend_ratelimit
 # delay_reaping_AUTH_test2 = 86400.0
 # delay_reaping_AUTH_test/test = 400.0
 # delay_reaping_AUTH_test/test2 = 600.0
+# delay_reaping_AUTH_test/special%0Achars%3Dshould%20be%20quoted
 # N.B. By default no delay_reaping value is configured for any accounts or
 # containers.
 
