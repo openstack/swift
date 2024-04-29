@@ -247,6 +247,7 @@ class ProxyLoggingMiddleware(object):
         :param start_time: timestamp request started
         :param end_time: timestamp request completed
         :param resp_headers: dict of the response headers
+        :param ttfb: time to first byte
         :param wire_status_int: the on the wire status int
         """
         self.obscure_req(req)
@@ -356,7 +357,7 @@ class ProxyLoggingMiddleware(object):
             except IndexError:
                 stat_type = 'object'
         else:
-            stat_type = req.environ.get('swift.source')
+            stat_type = req.environ.get('swift.source') or 'UNKNOWN'
         return stat_type
 
     def statsd_metric_name(self, req, status_int, method):

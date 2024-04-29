@@ -12035,10 +12035,11 @@ class TestSwiftInfo(unittest.TestCase):
                          constraints.MAX_OBJECT_NAME_LENGTH)
         self.assertIn('strict_cors_mode', si)
         self.assertFalse(si['allow_account_management'])
+        self.assertFalse(si['allow_open_expired'])
         self.assertFalse(si['account_autocreate'])
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 17)
+        self.assertEqual(len(si), 18)
 
         si = registry.get_swift_info()['swift']
         # Tehse settings is by default excluded by disallowed_sections

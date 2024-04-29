@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2011 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -283,6 +284,221 @@ class TestObjectExpirer(TestCase):
         with self.assertRaises(ValueError) as ctx:
             x.get_process_values(vals)
         self.assertEqual(str(ctx.exception), expected_msg)
+
+    def test_valid_delay_reaping(self):
+        conf = {}
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(x.delay_reaping_times, {})
+
+        conf = {
+            'delay_reaping_a': 1.0,
+        }
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(x.delay_reaping_times, {('a', None): 1.0})
+
+        # allow delay_reaping to be 0
+        conf = {
+            'delay_reaping_a': 0.0,
+        }
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(x.delay_reaping_times, {('a', None): 0.0})
+
+        conf = {
+            'delay_reaping_a/b': 0.0,
+        }
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(x.delay_reaping_times, {('a', 'b'): 0.0})
+
+        # test configure multi-account delay_reaping
+        conf = {
+            'delay_reaping_a': 1.0,
+            'delay_reaping_b': '259200.0',
+            'delay_reaping_AUTH_aBC': 999,
+            u'delay_reaping_AUTH_aBáC': 555,
+        }
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(x.delay_reaping_times, {
+            ('a', None): 1.0,
+            ('b', None): 259200.0,
+            ('AUTH_aBC', None): 999,
+            (u'AUTH_aBáC', None): 555,
+        })
+
+        # test configure multi-account delay_reaping with containers
+        conf = {
+            'delay_reaping_a': 10.0,
+            'delay_reaping_a/test': 1.0,
+            'delay_reaping_b': '259200.0',
+            'delay_reaping_AUTH_aBC/test2': 999,
+            u'delay_reaping_AUTH_aBáC/tést': 555,
+            'delay_reaping_AUTH_test/special%0Achars%3Dare%20quoted': 777,
+            'delay_reaping_AUTH_test/plus+signs+are+preserved': 888,
+        }
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(x.delay_reaping_times, {
+            ('a', None): 10.0,
+            ('a', 'test'): 1.0,
+            ('b', None): 259200.0,
+            ('AUTH_aBC', 'test2'): 999,
+            (u'AUTH_aBáC', u'tést'): 555,
+            ('AUTH_test', 'special\nchars=are quoted'): 777,
+            ('AUTH_test', 'plus+signs+are+preserved'): 888,
+        })
+
+    def test_invalid_delay_reaping_keys(self):
+        # there is no global delay_reaping
+        conf = {
+            'delay_reaping': 0.0,
+        }
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(x.delay_reaping_times, {})
+
+        # Multiple "/" or invalid parsing
+        conf = {
+            'delay_reaping_A_U_TH_foo_bar/my-container_name/with/slash': 60400,
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_A_U_TH_foo_bar/my-container_name/with/slash '
+            'should be in the form delay_reaping_<account> '
+            'or delay_reaping_<account>/<container> '
+            '(at most one "/" is allowed)',
+            str(ctx.exception))
+
+        # Can't sneak around it by escaping
+        conf = {
+            'delay_reaping_AUTH_test/sneaky%2fsneaky': 60400,
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_AUTH_test/sneaky%2fsneaky '
+            'should be in the form delay_reaping_<account> '
+            'or delay_reaping_<account>/<container> '
+            '(at most one "/" is allowed)',
+            str(ctx.exception))
+
+        conf = {
+            'delay_reaping_': 60400
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_ '
+            'should be in the form delay_reaping_<account> '
+            'or delay_reaping_<account>/<container> '
+            '(at most one "/" is allowed)',
+            str(ctx.exception))
+
+        # Leading and trailing "/"
+        conf = {
+            'delay_reaping_/a': 60400,
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_/a '
+            'should be in the form delay_reaping_<account> '
+            'or delay_reaping_<account>/<container> '
+            '(leading or trailing "/" is not allowed)',
+            str(ctx.exception))
+
+        conf = {
+            'delay_reaping_a/': 60400,
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_a/ '
+            'should be in the form delay_reaping_<account> '
+            'or delay_reaping_<account>/<container> '
+            '(leading or trailing "/" is not allowed)',
+            str(ctx.exception))
+
+        conf = {
+            'delay_reaping_/a/c/': 60400,
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_/a/c/ '
+            'should be in the form delay_reaping_<account> '
+            'or delay_reaping_<account>/<container> '
+            '(leading or trailing "/" is not allowed)',
+            str(ctx.exception))
+
+    def test_invalid_delay_reaping_values(self):
+        # negative tests
+        conf = {
+            'delay_reaping_a': -1.0,
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_a must be a float greater than or equal to 0',
+            str(ctx.exception))
+        conf = {
+            'delay_reaping_a': '-259200.0'
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_a must be a float greater than or equal to 0',
+            str(ctx.exception))
+        conf = {
+            'delay_reaping_a': 'foo'
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_a must be a float greater than or equal to 0',
+            str(ctx.exception))
+
+        # negative tests with containers
+        conf = {
+            'delay_reaping_a/b': -100.0
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_a/b must be a float greater than or equal to 0',
+            str(ctx.exception))
+        conf = {
+            'delay_reaping_a/b': '-259200.0'
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_a/b must be a float greater than or equal to 0',
+            str(ctx.exception))
+        conf = {
+            'delay_reaping_a/b': 'foo'
+        }
+        with self.assertRaises(ValueError) as ctx:
+            expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(
+            'delay_reaping_a/b must be a float greater than or equal to 0',
+            str(ctx.exception))
+
+    def test_get_delay_reaping(self):
+        conf = {
+            'delay_reaping_a': 1.0,
+            'delay_reaping_a/test': 2.0,
+            'delay_reaping_b': '259200.0',
+            'delay_reaping_b/a': '0.0',
+            'delay_reaping_c/test': '3.0'
+        }
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
+        self.assertEqual(1.0, x.get_delay_reaping('a', None))
+        self.assertEqual(1.0, x.get_delay_reaping('a', 'not-test'))
+        self.assertEqual(2.0, x.get_delay_reaping('a', 'test'))
+        self.assertEqual(259200.0, x.get_delay_reaping('b', None))
+        self.assertEqual(0.0, x.get_delay_reaping('b', 'a'))
+        self.assertEqual(259200.0, x.get_delay_reaping('b', 'test'))
+        self.assertEqual(3.0, x.get_delay_reaping('c', 'test'))
+        self.assertEqual(0.0, x.get_delay_reaping('c', 'not-test'))
+        self.assertEqual(0.0, x.get_delay_reaping('no-conf', 'test'))
 
     def test_init_concurrency_too_small(self):
         conf = {
@@ -745,6 +961,241 @@ class TestObjectExpirer(TestCase):
             list(x.iter_task_to_expire(
                 task_account_container_list, my_index, divisor)),
             expected)
+
+    def test_iter_task_to_expire_with_delay_reaping(self):
+        aco_dict = {
+            '.expiring_objects': {
+                self.past_time: [
+                    # tasks well past ready for execution
+                    {'name': self.past_time + '-a0/c0/o0'},
+                    {'name': self.past_time + '-a1/c1/o1'},
+                    {'name': self.past_time + '-a1/c2/o2'},
+                ],
+                self.just_past_time: [
+                    # tasks only just ready for execution
+                    {'name': self.just_past_time + '-a0/c0/o0'},
+                    {'name': self.just_past_time + '-a1/c1/o1'},
+                    {'name': self.just_past_time + '-a1/c2/o2'},
+                ],
+                self.future_time: [
+                    # tasks not yet ready for execution
+                    {'name': self.future_time + '-a0/c0/o0'},
+                    {'name': self.future_time + '-a1/c1/o1'},
+                    {'name': self.future_time + '-a1/c2/o2'},
+                ],
+            }
+        }
+        fake_swift = FakeInternalClient(aco_dict)
+        # sanity, no accounts configured with delay_reaping
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
+        # ... we expect tasks past time to yield
+        expected = [
+            self.make_task(self.past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                    'a1/c1/o1',
+                    'a1/c2/o2',
+                )
+            )
+        ] + [
+            self.make_task(self.just_past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                    'a1/c1/o1',
+                    'a1/c2/o2',
+                )
+            )
+        ]
+        task_account_container_list = [
+            ('.expiring_objects', self.past_time),
+            ('.expiring_objects', self.just_past_time),
+        ]
+        observed = list(x.iter_task_to_expire(
+            task_account_container_list, 0, 1))
+        self.assertEqual(expected, observed)
+
+        # configure delay for account a1
+        self.conf['delay_reaping_a1'] = 300.0
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
+        # ... and we don't expect *recent* a1 tasks or future tasks
+        expected = [
+            self.make_task(self.past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                    'a1/c1/o1',
+                    'a1/c2/o2',
+                )
+            )
+        ] + [
+            self.make_task(self.just_past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                )
+            )
+        ]
+        observed = list(x.iter_task_to_expire(
+            task_account_container_list, 0, 1))
+        self.assertEqual(expected, observed)
+
+        # configure delay for account a1 and for account a1 and container c2
+        # container a1/c2 expires expires almost immediately
+        # but other containers in account a1 remain (a1/c1 and a1/c3)
+        self.conf['delay_reaping_a1'] = 300.0
+        self.conf['delay_reaping_a1/c2'] = 0.1
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
+        # ... and we don't expect *recent* a1 tasks, excluding c2
+        # or future tasks
+        expected = [
+            self.make_task(self.past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                    'a1/c1/o1',
+                    'a1/c2/o2',
+                )
+            )
+        ] + [
+            self.make_task(self.just_past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                    'a1/c2/o2',
+                )
+            )
+        ]
+        observed = list(x.iter_task_to_expire(
+            task_account_container_list, 0, 1))
+        self.assertEqual(expected, observed)
+
+        # configure delay for account a1 and for account a1 and container c2
+        # container a1/c2 does not expire but others in account a1 do
+        self.conf['delay_reaping_a1'] = 0.1
+        self.conf['delay_reaping_a1/c2'] = 300.0
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
+        # ... and we don't expect *recent* a1 tasks, excluding c2
+        # or future tasks
+        expected = [
+            self.make_task(self.past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                    'a1/c1/o1',
+                    'a1/c2/o2',
+                )
+            )
+        ] + [
+            self.make_task(self.just_past_time, target_path)
+            for target_path in (
+                swob.wsgi_to_str(tgt) for tgt in (
+                    'a0/c0/o0',
+                    'a1/c1/o1',
+                )
+            )
+        ]
+        observed = list(x.iter_task_to_expire(
+            task_account_container_list, 0, 1))
+        self.assertEqual(expected, observed)
+
+    def test_iter_task_to_expire_with_delay_reaping_is_async(self):
+        aco_dict = {
+            '.expiring_objects': {
+                self.past_time: [
+                    # tasks 86400s past ready for execution
+                    {'name': self.past_time + '-a0/c0/o00',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a0/c0/o01',
+                     'content_type': 'text/plain'},
+                    {'name': self.past_time + '-a1/c0/o02',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a1/c0/o03',
+                     'content_type': 'text/plain'},
+                    {'name': self.past_time + '-a1/c1/o04',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a1/c1/o05',
+                     'content_type': 'text/plain'},
+                ],
+                self.just_past_time: [
+                    # tasks only just 1s ready for execution
+                    {'name': self.just_past_time + '-a0/c0/o06',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.just_past_time + '-a0/c0/o07',
+                     'content_type': 'text/plain'},
+                    {'name': self.just_past_time + '-a1/c0/o08',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.just_past_time + '-a1/c0/o09',
+                     'content_type': 'text/plain'},
+                    {'name': self.just_past_time + '-a1/c1/o10',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.just_past_time + '-a1/c1/o11',
+                     'content_type': 'text/plain'},
+                ],
+                self.future_time: [
+                    # tasks not yet ready for execution
+                    {'name': self.future_time + '-a0/c0/o12',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.future_time + '-a0/c0/o13',
+                     'content_type': 'text/plain'},
+                    {'name': self.future_time + '-a1/c0/o14',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.future_time + '-a1/c0/o15',
+                     'content_type': 'text/plain'},
+                    {'name': self.future_time + '-a1/c1/o16',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.future_time + '-a1/c1/o17',
+                     'content_type': 'text/plain'},
+                ],
+            }
+        }
+        fake_swift = FakeInternalClient(aco_dict)
+        # no accounts configured with delay_reaping
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
+        # ... we expect all past async tasks to yield
+        expected = [
+            self.make_task(self.past_time, swob.wsgi_to_str(tgt),
+                           is_async_delete=is_async)
+            for (tgt, is_async) in (
+                ('a0/c0/o00', True),
+                ('a0/c0/o01', False),  # a0 no delay
+                ('a1/c0/o02', True),
+                # a1/c0/o03 a1 long delay
+                ('a1/c1/o04', True),
+                ('a1/c1/o05', False),  # c1 short delay
+            )
+        ] + [
+            self.make_task(self.just_past_time, swob.wsgi_to_str(tgt),
+                           is_async_delete=is_async)
+            for (tgt, is_async) in (
+                ('a0/c0/o06', True),
+                ('a0/c0/o07', False),  # a0 no delay
+                ('a1/c0/o08', True),
+                # a1/c0/o09 a1 delay
+                ('a1/c1/o10', True),  # async
+                # a1/c1/o11 c1 delay
+            )
+        ]
+        # configure delays
+        self.conf['delay_reaping_a1'] = 86500.0
+        self.conf['delay_reaping_a1/c1'] = 300.0
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
+        # ... and we still expect all past async tasks to yield
+        task_account_container_list = [
+            ('.expiring_objects', self.past_time),
+            ('.expiring_objects', self.just_past_time),
+            ('.expiring_objects', self.future_time),
+        ]
+        observed = list(x.iter_task_to_expire(
+            task_account_container_list, 0, 1))
+        self.assertEqual(expected, observed)
 
     def test_run_once_unicode_problem(self):
         requests = []

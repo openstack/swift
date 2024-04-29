@@ -50,7 +50,8 @@ from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
-    resolve_etag_is_at_header, is_sys_meta, validate_internal_obj
+    resolve_etag_is_at_header, is_sys_meta, validate_internal_obj, \
+    is_backend_open_expired
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -635,8 +636,7 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy, open_expired=config_true_value(
-                    request.headers.get('x-backend-replication', 'false')),
+                policy=policy, open_expired=is_backend_open_expired(request),
                 next_part_power=next_part_power)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
@@ -1079,8 +1079,7 @@ class ObjectController(BaseStorageServer):
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
                 policy=policy, frag_prefs=frag_prefs,
-                open_expired=config_true_value(
-                    request.headers.get('x-backend-replication', 'false')))
+                open_expired=is_backend_open_expired(request))
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -1162,8 +1161,7 @@ class ObjectController(BaseStorageServer):
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
                 policy=policy, frag_prefs=frag_prefs,
-                open_expired=config_true_value(
-                    request.headers.get('x-backend-replication', 'false')))
+                open_expired=is_backend_open_expired(request))
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:

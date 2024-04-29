@@ -55,6 +55,81 @@ it will then look for and use the ``/etc/swift/object-expirer.conf`` config.
 The latter config file is considered deprecated and is searched for to aid
 in cluster upgrades.
 
+Delay Reaping of Objects from Disk
+----------------------------------
+
+Swift's expiring object ``x-delete-at`` feature can be used to have the cluster
+reap user's objects automatically from disk on their behalf when they no longer
+want them stored in their account. In some cases it may be necessary to
+"intervene" in the expected expiration process to prevent accidental or
+premature data loss if an object marked for expiration should NOT be deleted
+immediately when it expires for whatever reason. In these cases
+``swift-object-expirer`` offers configuration of a ``delay_reaping`` value
+on accounts and containers, which provides a delay between when an object
+is marked for deletion, or expired, and when it is actually reaped from disk.
+When this is set in the object expirer config the object expirer leaves expired
+objects on disk (and in container listings) for the ``delay_reaping`` time.
+After this delay has passed objects will be reaped as normal.
+
+The ``delay_reaping`` value can be set either at an account level or a
+container level. When set at an account level, the object expirer will
+only reap objects within the account after the delay. A container level
+``delay_reaping`` works similarly for containers and overrides an account
+level ``delay_reaping`` value.
+
+The ``delay_reaping`` values are set in the ``[object-expirer]`` section in
+either the object-server or object-expirer config files. They are configured
+with dynamic config option names prefixed with ``delay_reaping_<ACCT>``
+at the account level and ``delay_reaping_<ACCT>/<CNTR>`` at the container
+level, with the ``delay_reaping`` value in seconds.
+
+Here is an example of ``delay_reaping`` configs in the``object-expirer``
+section in the ``object-server.conf``::
+
+    [object-expirer]
+    delay_reaping_AUTH_test = 300.0
+    delay_reaping_AUTH_test2 = 86400.0
+    delay_reaping_AUTH_test/test = 0.0
+    delay_reaping_AUTH_test/test2 = 600.0
+
+.. note::
+    A container level ``delay_reaping`` value does not require an account level
+    ``delay_reaping`` value but overrides the account level value for the same
+    account if it exists. By default, no ``delay_reaping`` value is configured
+    for any accounts or containers.
+
+Accessing Objects After Expiration
+----------------------------------
+
+By default, objects that expire become inaccessible, even to the account owner.
+The object may not have been deleted, but any GET/HEAD/POST client request for
+the object will respond 404 Not Found after the ``x-delete-at`` timestamp
+has passed.
+
+The ``swift-proxy-server`` offers the ability to globally configure a flag to
+allow requests to access expired objects that have not yet been deleted.
+When this flag is enabled, a user can make a GET, HEAD, or POST request with
+the header ``x-open-expired`` set to true to access the expired object.
+
+The global configuration is an opt-in flag that can be set in the
+``[proxy-server]`` section of the ``proxy-server.conf`` file. It is configured
+with a single flag ``allow_open_expired`` set to true or false. By default,
+this flag is set to false.
+
+Here is an example in the ``proxy-server`` section in ``proxy-server.conf``::
+
+    [proxy-server]
+    allow_open_expired = false
+
+To discover whether this flag is set, you can send a **GET** request to the
+``/info`` :ref:`discoverability <discoverability>` path. This will return
+configuration data in JSON format where the value of ``allow_open_expired`` is
+exposed.
+
+When using a temporary URL to access the object, this feature is not enabled.
+This means that adding the header will not allow requests to temporary URLs
+to access expired objects.
+
 Upgrading impact: General Task Queue vs Legacy Queue
 ----------------------------------------------------
 

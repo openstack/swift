@@ -817,6 +817,129 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(resp.status_int, 400)
         self.assertEqual(b'X-Delete-At in past', resp.body)
 
+    def _test_x_open_expired(self, method, num_reqs, headers=None):
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method=method, headers=headers)
+        codes = [404] * num_reqs
+        with mocked_http_conn(*codes) as fake_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+        return fake_conn.requests
+
+    def test_x_open_expired_default_config(self):
+        for method, num_reqs in (
+                ('GET',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('HEAD',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('POST', self.obj_ring.replicas)):
+            requests = self._test_x_open_expired(method, num_reqs)
+            for r in requests:
+                self.assertNotIn('X-Open-Expired', r['headers'])
+                self.assertNotIn('X-Backend-Open-Expired', r['headers'])
+
+            requests = self._test_x_open_expired(
+                method, num_reqs, headers={'X-Open-Expired': 'true'})
+            for r in requests:
+                self.assertEqual(r['headers']['X-Open-Expired'], 'true')
+                self.assertNotIn('X-Backend-Open-Expired', r['headers'])
+
+            requests = self._test_x_open_expired(
+                method, num_reqs, headers={'X-Open-Expired': 'false'})
+            for r in requests:
+                self.assertEqual(r['headers']['X-Open-Expired'], 'false')
+                self.assertNotIn('X-Backend-Open-Expired', r['headers'])
+
+    def test_x_open_expired_custom_config(self):
+        # helper to check that PUT is not supported in all cases
+        def test_put_unsupported():
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT', headers={
+                    'Content-Length': '0',
+                    'X-Open-Expired': 'true'})
+            codes = [201] * self.obj_ring.replicas
+            expect_headers = {
+                'X-Obj-Metadata-Footer': 'yes',
+                'X-Obj-Multiphase-Commit': 'yes'
+            }
+            with mocked_http_conn(
+                    *codes, expect_headers=expect_headers) as fake_conn:
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 201)
+            for r in fake_conn.requests:
+                self.assertEqual(r['headers']['X-Open-Expired'], 'true')
+                self.assertNotIn('X-Backend-Open-Expired', r['headers'])
+
+        # Allow open expired
+        # Override app configuration
+        conf = {'allow_open_expired': 'true'}
+        # Create a new proxy instance for test with config
+        self.app = PatchedObjControllerApp(
+            conf, account_ring=FakeRing(),
+            container_ring=FakeRing(), logger=None)
+        # Use the same container info as the app used in other tests
+        self.app.container_info = dict(self.container_info)
+        self.obj_ring = self.app.get_object_ring(int(self.policy))
+
+        for method, num_reqs in (
+                ('GET',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('HEAD',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('POST', self.obj_ring.replicas)):
+            requests = self._test_x_open_expired(
+                method, num_reqs, headers={'X-Open-Expired': 'true'})
+            for r in requests:
+                # If the proxy server config is has allow_open_expired set
+                # to true, then we set x-backend-open-expired to true
+                self.assertEqual(r['headers']['X-Open-Expired'], 'true')
+                self.assertEqual(r['headers']['X-Backend-Open-Expired'],
+                                 'true')
+
+        for method, num_reqs in (
+                ('GET',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('HEAD',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('POST', self.obj_ring.replicas)):
+            requests = self._test_x_open_expired(
+                method, num_reqs, headers={'X-Open-Expired': 'false'})
+            for r in requests:
+                # If the proxy server config has allow_open_expired set
+                # to false, then we set x-backend-open-expired to false
+                self.assertEqual(r['headers']['X-Open-Expired'], 'false')
+                self.assertNotIn('X-Backend-Open-Expired', r['headers'])
+
+        # we don't support x-open-expired on PUT when allow_open_expired
+        test_put_unsupported()
+
+        # Disallow open expired
+        conf = {'allow_open_expired': 'false'}
+        # Create a new proxy instance for test with config
+        self.app = PatchedObjControllerApp(
+            conf, account_ring=FakeRing(),
+            container_ring=FakeRing(), logger=None)
+        # Use the same container info as the app used in other tests
+        self.app.container_info = dict(self.container_info)
+        self.obj_ring = self.app.get_object_ring(int(self.policy))
+
+        for method, num_reqs in (
+                ('GET',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('HEAD',
+                 self.obj_ring.replicas + self.obj_ring.max_more_nodes),
+                ('POST', self.obj_ring.replicas)):
+            # This case is different: we never add the 'X-Backend-Open-Expired'
+            # header if the proxy server config disables this feature
+            requests = self._test_x_open_expired(
+                method, num_reqs, headers={'X-Open-Expired': 'true'})
+            for r in requests:
+                self.assertEqual(r['headers']['X-Open-Expired'], 'true')
+                self.assertNotIn('X-Backend-Open-Expired', r['headers'])
+
+        # we don't support x-open-expired on PUT when not allow_open_expired
+        test_put_unsupported()
+
     def test_HEAD_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
         with set_http_connect(200):
@@ -2279,6 +2402,80 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertIn('X-Delete-At-Device', given_headers)
             self.assertIn('X-Delete-At-Partition', given_headers)
             self.assertIn('X-Delete-At-Container', given_headers)
+
+    def test_POST_delete_at_with_x_open_expired(self):
+        t_delete = str(int(time.time() + 30))
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'POST':
+                post_headers.append(headers)
+
+        def do_post(extra_headers):
+            headers = {'Content-Type': 'foo/bar',
+                       'X-Delete-At': t_delete}
+            headers.update(extra_headers)
+            req_post = swob.Request.blank('/v1/a/c/o', method='POST', body=b'',
+                                          headers=headers)
+
+            post_codes = [202] * self.obj_ring.replicas
+            with set_http_connect(*post_codes, give_connect=capture_headers):
+                resp = req_post.get_response(self.app)
+            self.assertEqual(resp.status_int, 202)
+            self.assertEqual(len(post_headers), self.obj_ring.replicas)
+            for given_headers in post_headers:
+                self.assertEqual(given_headers.get('X-Delete-At'), t_delete)
+                self.assertIn('X-Delete-At-Host', given_headers)
+                self.assertIn('X-Delete-At-Device', given_headers)
+                self.assertIn('X-Delete-At-Partition', given_headers)
+                self.assertIn('X-Delete-At-Container', given_headers)
+
+        # Check when allow_open_expired config is set to true
+        conf = {'allow_open_expired': 'true'}
+        self.app = PatchedObjControllerApp(
+            conf, account_ring=FakeRing(),
+            container_ring=FakeRing(), logger=None)
+        self.app.container_info = dict(self.container_info)
+        self.obj_ring = self.app.get_object_ring(int(self.policy))
+
+        post_headers = []
+        do_post({})
+        for given_headers in post_headers:
+            self.assertNotIn('X-Backend-Open-Expired', given_headers)
+
+        post_headers = []
+        do_post({'X-Open-Expired': 'false'})
+        for given_headers in post_headers:
+            self.assertNotIn('X-Backend-Open-Expired', given_headers)
+
+        post_headers = []
+        do_post({'X-Open-Expired': 'true'})
+        for given_headers in post_headers:
+            self.assertEqual(given_headers.get('X-Backend-Open-Expired'),
+                             'true')
+
+        # Check when allow_open_expired config is set to false
+        conf = {'allow_open_expired': 'false'}
+        self.app = PatchedObjControllerApp(
+            conf, account_ring=FakeRing(),
+            container_ring=FakeRing(), logger=None)
+        self.app.container_info = dict(self.container_info)
+        self.obj_ring = self.app.get_object_ring(int(self.policy))
+
+        post_headers = []
+        do_post({})
+        for given_headers in post_headers:
+            self.assertNotIn('X-Backend-Open-Expired', given_headers)
+
+        post_headers = []
+        do_post({'X-Open-Expired': 'false'})
+        for given_headers in post_headers:
+            self.assertNotIn('X-Backend-Open-Expired', given_headers)
+
+        post_headers = []
+        do_post({'X-Open-Expired': 'true'})
+        for given_headers in post_headers:
+            self.assertNotIn('X-Backend-Open-Expired', given_headers)
 
     def test_PUT_converts_delete_after_to_delete_at(self):
         req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
