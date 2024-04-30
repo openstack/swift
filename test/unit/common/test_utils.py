@@ -904,26 +904,18 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(options['extra_args'], ['plugin_name'])
 
     def test_parse_options_errors(self):
-        orig_stdout = sys.stdout
-        orig_stderr = sys.stderr
-        stdo = StringIO()
-        stde = StringIO()
-        utils.sys.stdout = stdo
-        utils.sys.stderr = stde
-        self.assertRaises(SystemExit, utils.parse_options, once=True,
-                          test_args=[])
-        self.assertTrue('missing config' in stdo.getvalue())
+        with mock.patch.object(utils.sys, 'stdout', StringIO()) as stdo:
+            self.assertRaises(SystemExit, utils.parse_options, once=True,
+                              test_args=[])
+            self.assertTrue('missing config' in stdo.getvalue())
 
-        # verify conf file must exist, context manager will delete temp file
-        with NamedTemporaryFile() as f:
-            conf_file = f.name
-        self.assertRaises(SystemExit, utils.parse_options, once=True,
-                          test_args=[conf_file])
-        self.assertTrue('unable to locate' in stdo.getvalue())
-
-        # reset stdio
-        utils.sys.stdout = orig_stdout
-        utils.sys.stderr = orig_stderr
+            # verify conf file must exist -- context manager will delete
+            # temp file
+            with NamedTemporaryFile() as f:
+                conf_file = f.name
+            self.assertRaises(SystemExit, utils.parse_options, once=True,
+                              test_args=[conf_file])
+            self.assertTrue('unable to locate' in stdo.getvalue())
 
     @with_tempdir
     def test_dump_recon_cache(self, testdir_base):
