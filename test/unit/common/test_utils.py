@@ -73,6 +73,7 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
     MimeInvalid
 from swift.common import utils
+from swift.common.statsd_client import StatsdClient
 from swift.common.utils import set_swift_dir, md5, ShardRangeList, \
     SwiftLogFormatter
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -1190,7 +1191,7 @@ class TestUtils(unittest.TestCase):
 
     @with_tempdir
     def test_get_logger_sysloghandler_plumbing(self, tempdir):
-        orig_sysloghandler = utils.ThreadSafeSysLogHandler
+        orig_sysloghandler = utils.logs.ThreadSafeSysLogHandler
         syslog_handler_args = []
 
         def syslog_handler_catcher(*args, **kwargs):
@@ -1207,7 +1208,7 @@ class TestUtils(unittest.TestCase):
         def fake_getaddrinfo(host, *args):
             return orig_getaddrinfo('localhost', *args)
 
-        with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
+        with mock.patch.object(utils.logs, 'ThreadSafeSysLogHandler',
                                syslog_handler_catcher), \
                 mock.patch.object(socket, 'getaddrinfo', fake_getaddrinfo):
             # default log_address
@@ -1289,7 +1290,7 @@ class TestUtils(unittest.TestCase):
                       'facility': orig_sysloghandler.LOG_LOCAL0})],
                 syslog_handler_args)
 
-        with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
+        with mock.patch.object(utils.logs, 'ThreadSafeSysLogHandler',
                                side_effect=OSError(errno.EPERM, 'oops')):
             with self.assertRaises(OSError) as cm:
                 utils.get_logger({
@@ -2011,54 +2012,57 @@ log_name = %(yarr)s'''
     @reset_logger_state
     def test_capture_stdio(self):
         # stubs
-        logger = utils.get_logger(None, 'dummy')
+        logger = utils.logs.get_logger(None, 'dummy')
 
         # mock utils system modules
-        _orig_sys = utils.sys
-        _orig_os = utils.os
-        try:
-            utils.sys = MockSys()
-            utils.os = MockOs()
-
+        mock_os = MockOs()
+        mock_sys = MockSys()
+        with mock.patch.object(utils.logs, 'os', mock_os), \
+                mock.patch.object(utils.logs, 'sys', mock_sys):
             # basic test
-            utils.capture_stdio(logger)
-            self.assertTrue(utils.sys.excepthook is not None)
-            self.assertEqual(utils.os.closed_fds, utils.sys.stdio_fds)
-            self.assertIsInstance(utils.sys.stdout, utils.LoggerFileObject)
-            self.assertIsInstance(utils.sys.stderr, utils.LoggerFileObject)
+            utils.logs.capture_stdio(logger)
+            self.assertTrue(mock_sys.excepthook is not None)
+            self.assertEqual(mock_os.closed_fds, mock_sys.stdio_fds)
+            self.assertIsInstance(mock_sys.stdout,
+                                  utils.logs.LoggerFileObject)
+            self.assertIsInstance(mock_sys.stderr,
+                                  utils.logs.LoggerFileObject)
 
-            # reset; test same args, but exc when trying to close stdio
-            utils.os = MockOs(raise_funcs=('dup2',))
-            utils.sys = MockSys()
-
+        # reset; test same args, but exc when trying to close stdio
+        mock_os = MockOs(raise_funcs=('dup2',))
+        mock_sys = MockSys()
+        with mock.patch.object(utils.logs, 'os', mock_os), \
+                mock.patch.object(utils.logs, 'sys', mock_sys):
             # test unable to close stdio
-            utils.capture_stdio(logger)
-            self.assertTrue(utils.sys.excepthook is not None)
-            self.assertEqual(utils.os.closed_fds, [])
-            self.assertIsInstance(utils.sys.stdout, utils.LoggerFileObject)
-            self.assertIsInstance(utils.sys.stderr, utils.LoggerFileObject)
+            utils.logs.capture_stdio(logger)
+            self.assertTrue(utils.logs.sys.excepthook is not None)
+            self.assertEqual(utils.logs.os.closed_fds, [])
+            self.assertIsInstance(mock_sys.stdout,
+                                  utils.logs.LoggerFileObject)
+            self.assertIsInstance(mock_sys.stderr,
+                                  utils.logs.LoggerFileObject)
 
-            # reset; test some other args
-            utils.os = MockOs()
-            utils.sys = MockSys()
+        # reset; test some other args
+        mock_os = MockOs()
+        mock_sys = MockSys()
+        with mock.patch.object(utils.logs, 'os', mock_os), \
+                mock.patch.object(utils.logs, 'sys', mock_sys):
             logger = utils.get_logger(None, log_to_console=True)
 
             # test console log
-            utils.capture_stdio(logger, capture_stdout=False,
-                                capture_stderr=False)
-            self.assertTrue(utils.sys.excepthook is not None)
+            utils.logs.capture_stdio(logger, capture_stdout=False,
+                                     capture_stderr=False)
+            self.assertTrue(utils.logs.sys.excepthook is not None)
             # when logging to console, stderr remains open
-            self.assertEqual(utils.os.closed_fds, utils.sys.stdio_fds[:2])
+            self.assertEqual(mock_os.closed_fds,
+                             mock_sys.stdio_fds[:2])
             reset_loggers()
 
             # stdio not captured
-            self.assertFalse(isinstance(utils.sys.stdout,
-                                        utils.LoggerFileObject))
-            self.assertFalse(isinstance(utils.sys.stderr,
-                                        utils.LoggerFileObject))
-        finally:
-            utils.sys = _orig_sys
-            utils.os = _orig_os
+            self.assertFalse(isinstance(mock_sys.stdout,
+                                        utils.logs.LoggerFileObject))
+            self.assertFalse(isinstance(mock_sys.stderr,
+                                        utils.logs.LoggerFileObject))
 
     @reset_logger_state
     def test_get_logger_console(self):
@@ -2464,18 +2468,14 @@ cluster_dfw1 = http://dfw1.host/v1/
         for v in utils.TRUE_VALUES:
             self.assertEqual(v, v.lower())
 
+    @mock.patch.object(utils.config, 'TRUE_VALUES', 'hello world'.split())
     def test_config_true_value(self):
-        orig_trues = utils.TRUE_VALUES
-        try:
-            utils.TRUE_VALUES = 'hello world'.split()
-            for val in 'hello world HELLO WORLD'.split():
-                self.assertTrue(utils.config_true_value(val) is True)
-            self.assertTrue(utils.config_true_value(True) is True)
-            self.assertTrue(utils.config_true_value('foo') is False)
-            self.assertTrue(utils.config_true_value(False) is False)
-            self.assertTrue(utils.config_true_value(None) is False)
-        finally:
-            utils.TRUE_VALUES = orig_trues
+        for val in 'hello world HELLO WORLD'.split():
+            self.assertTrue(utils.config_true_value(val) is True)
+        self.assertTrue(utils.config_true_value(True) is True)
+        self.assertTrue(utils.config_true_value('foo') is False)
+        self.assertTrue(utils.config_true_value(False) is False)
+        self.assertTrue(utils.config_true_value(None) is False)
 
     def test_non_negative_float(self):
         self.assertEqual(0, utils.non_negative_float('0.0'))
@@ -3361,7 +3361,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                           'Swift is great!', 'sha257', '')
 
     def test_str_anonymizer_python_maddness(self):
-        with mock.patch('swift.common.utils.hashlib') as mocklib:
+        with mock.patch('swift.common.utils.base.hashlib') as mocklib:
             if six.PY2:
                 # python <2.7.9 doesn't have this algorithms_guaranteed, but
                 # our if block short-circuts before we explode
@@ -4724,7 +4724,7 @@ class TestStatsdLogging(unittest.TestCase):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
                                   'some-name', log_route='some-route')
         # white-box construction validation
-        self.assertIsInstance(logger.logger.statsd_client, utils.StatsdClient)
+        self.assertIsInstance(logger.logger.statsd_client, StatsdClient)
         self.assertEqual(logger.logger.statsd_client._host, 'some.host.com')
         self.assertEqual(logger.logger.statsd_client._port, 8125)
         self.assertEqual(logger.logger.statsd_client._prefix, 'some-name.')
@@ -4890,7 +4890,8 @@ class TestStatsdLogging(unittest.TestCase):
                      '',
                      ('::1', port, 0, 0))]
 
-        with mock.patch.object(utils.socket, 'getaddrinfo', fake_getaddrinfo):
+        with mock.patch.object(utils.logs.socket,
+                               'getaddrinfo', fake_getaddrinfo):
             logger = utils.get_logger({
                 'log_statsd_host': '::1',
                 'log_statsd_port': '9876',

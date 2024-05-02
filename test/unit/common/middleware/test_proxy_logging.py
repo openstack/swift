@@ -22,7 +22,8 @@ from logging.handlers import SysLogHandler
 import six
 from six.moves.urllib.parse import unquote
 
-from swift.common.utils import get_logger, split_path, StatsdClient
+from swift.common.utils import get_logger, split_path
+from swift.common.statsd_client import StatsdClient
 from swift.common.middleware import proxy_logging
 from swift.common.registry import register_sensitive_header, \
     register_sensitive_param, get_sensitive_headers
