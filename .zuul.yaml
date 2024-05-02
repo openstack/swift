@@ -491,6 +491,12 @@
       previous_swift_version: origin/stable/2023.2
 
 - job:
+    name: swift-multinode-rolling-upgrade-caracal
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/2024.1
+
+- job:
     name: swift-multinode-rolling-upgrade-master
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -798,8 +804,6 @@
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
         - swift-tox-func-ec-py39-centos-9-stream
-        - swift-multinode-rolling-upgrade-train
-        - swift-multinode-rolling-upgrade-ussuri
         - swift-multinode-rolling-upgrade-victoria
         - swift-multinode-rolling-upgrade-wallaby
         - swift-multinode-rolling-upgrade-xena
@@ -807,6 +811,7 @@
         - swift-multinode-rolling-upgrade-zed
         - swift-multinode-rolling-upgrade-antelope
         - swift-multinode-rolling-upgrade-bobcat
+        - swift-multinode-rolling-upgrade-caracal
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
