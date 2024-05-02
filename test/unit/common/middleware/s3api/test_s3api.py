@@ -225,7 +225,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual('swift', s3api.logger.server)
         self.assertIsNone(s3api.logger.logger.statsd_client)
 
-        with mock.patch('swift.common.utils.StatsdClient', FakeStatsdClient):
+        with mock.patch('swift.common.statsd_client.StatsdClient',
+                        FakeStatsdClient):
             s3api = S3ApiMiddleware(None, {'log_name': 'proxy-server',
                                            'log_statsd_host': '1.2.3.4'})
             s3api.logger.increment('test-metric')

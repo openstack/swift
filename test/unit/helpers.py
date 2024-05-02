@@ -64,8 +64,8 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
     :returns: A dict containing the following entries:
                   orig_POLICIES: the value of storage_policy.POLICIES prior to
                                  it being patched with fake policies
-                  orig_SysLogHandler: the value of utils.SysLogHandler prior to
-                                      it being patched
+                  orig_SysLogHandler: the value of utils.logs.SysLogHandler
+                                      prior to it being patched
                   testdir: root directory used for test files
                   test_POLICIES: a StoragePolicyCollection of fake policies
                   test_servers: a tuple of test server instances
@@ -75,10 +75,10 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
     """
     context = {
         "orig_POLICIES": storage_policy._POLICIES,
-        "orig_SysLogHandler": utils.SysLogHandler}
+        "orig_SysLogHandler": utils.logs.SysLogHandler}
 
     utils.HASH_PATH_SUFFIX = b'endcap'
-    utils.SysLogHandler = mock.MagicMock()
+    utils.logs.SysLogHandler = mock.MagicMock()
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
     # proxy_server.Application we couldn't get to easily otherwise.
@@ -336,5 +336,5 @@ def teardown_servers(context):
     for server in context["test_coros"]:
         server.kill()
     rmtree(os.path.dirname(context["testdir"]))
-    utils.SysLogHandler = context["orig_SysLogHandler"]
+    utils.logs.SysLogHandler = context["orig_SysLogHandler"]
     storage_policy._POLICIES = context["orig_POLICIES"]

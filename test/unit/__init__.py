@@ -48,6 +48,7 @@ import six
 import six.moves.cPickle as pickle
 from six.moves import range
 from six.moves.http_client import HTTPException
+from six.moves import configparser
 
 from swift.common import storage_policy, swob, utils, exceptions
 from swift.common.memcached import MemcacheConnectionError
@@ -1448,7 +1449,7 @@ class ConfigAssertMixin(object):
 
     def assertDuplicateOptionError(self, app_config, option_name):
         with self.assertRaises(
-                utils.configparser.DuplicateOptionError) as ctx:
+                configparser.DuplicateOptionError) as ctx:
             app_config()
         msg = str(ctx.exception)
         self.assertIn(option_name, msg)

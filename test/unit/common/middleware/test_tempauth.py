@@ -24,7 +24,8 @@ from six.moves.urllib.parse import quote, urlparse
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response, bytes_to_wsgi
-from swift.common.utils import split_path, StatsdClient
+from swift.common.statsd_client import StatsdClient
+from swift.common.utils import split_path
 from test.unit import FakeMemcache
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
