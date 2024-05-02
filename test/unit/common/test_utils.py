@@ -9645,6 +9645,51 @@ class TestClosingIterator(unittest.TestCase):
         self.assertEqual([1, 1], [i.close_call_count for i in others])
 
 
+class TestClosingMapper(unittest.TestCase):
+    def test_close(self):
+        calls = []
+
+        def func(args):
+            calls.append(args)
+            return sum(args)
+
+        wrapped = FakeIterable([(2, 3), (4, 5)])
+        other = FakeIterable([])
+        it = utils.ClosingMapper(func, wrapped, [other])
+        actual = [x for x in it]
+        self.assertEqual([(2, 3), (4, 5)], calls)
+        self.assertEqual([5, 9], actual)
+        self.assertEqual(1, wrapped.close_call_count)
+        self.assertEqual(1, other.close_call_count)
+        # check against result of map()
+        wrapped = FakeIterable([(2, 3), (4, 5)])
+        mapped = [x for x in map(func, wrapped)]
+        self.assertEqual(mapped, actual)
+
+    def test_function_raises_exception(self):
+        calls = []
+
+        class TestExc(Exception):
+            pass
+
+        def func(args):
+            calls.append(args)
+            if len(calls) > 1:
+                raise TestExc('boom')
+            else:
+                return sum(args)
+
+        wrapped = FakeIterable([(2, 3), (4, 5), (6, 7)])
+        it = utils.ClosingMapper(func, wrapped)
+        self.assertEqual(5, next(it))
+        with self.assertRaises(TestExc) as cm:
+            next(it)
+        self.assertIn('boom', str(cm.exception))
+        self.assertEqual(1, wrapped.close_call_count)
+        with self.assertRaises(StopIteration) as cm:
+            next(it)
+
+
 class TestCloseableChain(unittest.TestCase):
     def test_closeable_chain_iterates(self):
         test_iter1 = FakeIterable([1])
@@ -9669,7 +9714,8 @@ class TestCloseableChain(unittest.TestCase):
         # close
         chain = utils.CloseableChain([1, 2], [3])
         chain.close()
-        self.assertEqual([1, 2, 3], [x for x in chain])
+        # read after close raises StopIteration
+        self.assertEqual([], [x for x in chain])
 
         # check with generator in the chain
         generator_closed = [False]
