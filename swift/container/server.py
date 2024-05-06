@@ -15,6 +15,7 @@
 
 import json
 import os
+import sys
 import time
 import traceback
 
@@ -38,7 +39,7 @@ from swift.common.utils import get_logger, hash_path, public, \
     config_true_value, timing_stats, replication, \
     override_bytes_from_content_type, get_log_line, \
     config_fallocate_value, fs_has_free_space, list_from_csv, \
-    ShardRange
+    ShardRange, parse_options
 from swift.common.constraints import valid_timestamp, check_utf8, \
     check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.bufferedhttp import http_connect
@@ -53,6 +54,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPException, HTTPMovedPermanently, \
     wsgi_to_str, str_to_wsgi
+from swift.common.wsgi import run_wsgi
 
 
 def gen_resp_headers(info, is_deleted=False):
@@ -1048,3 +1050,12 @@ def app_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
     return ContainerController(conf)
+
+
+def main():
+    conf_file, options = parse_options(test_config=True)
+    sys.exit(run_wsgi(conf_file, 'container-server', **options))
+
+
+if __name__ == '__main__':
+    main()
