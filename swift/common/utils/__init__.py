@@ -2328,7 +2328,34 @@ class ClosingIterator(object):
         if not self.closed:
             for wrapped in self.closeables:
                 close_if_possible(wrapped)
+            # clear it out so they get GC'ed
+            self.closeables = []
+            self.wrapped_iter = iter([])
             self.closed = True
+
+
+class ClosingMapper(ClosingIterator):
+    """
+    A closing iterator that yields the result of ``function`` as it is applied
+    to each item of ``iterable``.
+
+    Note that while this behaves similarly to the built-in ``map`` function,
+    ``other_closeables`` does not have the same semantic as the ``iterables``
+    argument of ``map``.
+
+    :param function: a function that will be called with each item of
+        ``iterable`` before yielding its result.
+    :param iterable: iterator to wrap.
+    :param other_closeables: other resources to attempt to close.
+    """
+    __slots__ = ('func',)
+
+    def __init__(self, function, iterable, other_closeables=None):
+        self.func = function
+        super(ClosingMapper, self).__init__(iterable, other_closeables)
+
+    def _get_next_item(self):
+        return self.func(super(ClosingMapper, self)._get_next_item())
 
 
 class CloseableChain(ClosingIterator):

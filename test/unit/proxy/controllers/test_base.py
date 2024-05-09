@@ -1724,7 +1724,8 @@ class TestGetOrHeadHandler(BaseTest):
                 resp = handler.get_working_response()
                 resp.app_iter.close()
         # verify that iter exited
-        self.assertEqual({1: ['next', '__del__']}, factory.captured_calls)
+        self.assertEqual({1: ['next', 'close', '__del__']},
+                         factory.captured_calls)
         self.assertEqual(["Client disconnected on read of 'some-path'"],
                          self.logger.get_lines_for_level('info'))
 
@@ -1741,7 +1742,8 @@ class TestGetOrHeadHandler(BaseTest):
                 resp = handler.get_working_response()
                 next(resp.app_iter)
             resp.app_iter.close()
-        self.assertEqual({1: ['next', '__del__']}, factory.captured_calls)
+        self.assertEqual({1: ['next', 'close', '__del__']},
+                         factory.captured_calls)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         self.assertEqual([], self.logger.get_lines_for_level('info'))
 
