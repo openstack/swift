@@ -35,7 +35,14 @@ import datetime
 from swift.common.utils.base import md5, quote, split_path
 from swift.common.utils.timestamp import UTC
 from swift.common.utils.config import config_true_value
-from swift.common import statsd_client, exceptions
+from swift.common import statsd_client
+# common.utils imports a fully qualified common.exceptions so that
+# common.exceptions can import common.utils with out a circular import error
+# (if we only make reference to attributes of a module w/i our function/method
+# bodies fully qualifed module names can have their attributes lazily
+# evaluated); as the only other module with-in utils that imports exceptions:
+# we do the same here
+import swift.common.exceptions
 
 if six.PY2:
     from eventlet.green import httplib as green_http_client
@@ -351,7 +358,7 @@ class LogAdapter(logging.LoggerAdapter, object):
             if hasattr(exc, 'created_at'):
                 detail += ' after %0.2fs' % (time.time() - exc.created_at)
             emsg += ' (%s)' % detail
-            if isinstance(exc, exceptions.MessageTimeout):
+            if isinstance(exc, swift.common.exceptions.MessageTimeout):
                 if exc.msg:
                     emsg += ' %s' % exc.msg
         else:
