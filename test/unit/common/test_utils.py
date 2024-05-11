@@ -4763,6 +4763,20 @@ class TestEventletRateLimiter(unittest.TestCase):
         self.assertEqual(1234567.8, rl.running_time)
         self.assertEqual(2000, rl.rate_buffer_ms)
 
+    def test_set_max_rate(self):
+        rl = utils.EventletRateLimiter(0.1)
+        self.assertEqual(0.1, rl.max_rate)
+        self.assertEqual(10000, rl.time_per_incr)
+        rl.set_max_rate(2)
+        self.assertEqual(2, rl.max_rate)
+        self.assertEqual(500, rl.time_per_incr)
+
+    def test_set_rate_buffer(self):
+        rl = utils.EventletRateLimiter(0.1)
+        self.assertEqual(5000.0, rl.rate_buffer_ms)
+        rl.set_rate_buffer(2.3)
+        self.assertEqual(2300, rl.rate_buffer_ms)
+
     def test_non_blocking(self):
         rate_limiter = utils.EventletRateLimiter(0.1, rate_buffer=0)
         with patch('time.time',) as mock_time:
@@ -4794,6 +4808,37 @@ class TestEventletRateLimiter(unittest.TestCase):
                 mock_sleep.assert_not_called()
                 self.assertFalse(rate_limiter.is_allowed())
                 mock_sleep.assert_not_called()
+
+    def test_non_blocking_max_rate_adjusted(self):
+        rate_limiter = utils.EventletRateLimiter(0.1, rate_buffer=0)
+        with patch('time.time',) as mock_time:
+            with patch('eventlet.sleep') as mock_sleep:
+                mock_time.return_value = 0
+                self.assertTrue(rate_limiter.is_allowed())
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_time.return_value = 9.99
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_time.return_value = 10.0
+                self.assertTrue(rate_limiter.is_allowed())
+                self.assertFalse(rate_limiter.is_allowed())
+                # increase max_rate...but the new max_rate won't have impact
+                # until the running time is next incremented, i.e. when
+                # a call to is_allowed() next returns True
+                rate_limiter.set_max_rate(0.2)
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_time.return_value = 19.99
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_time.return_value = 20.0
+                self.assertTrue(rate_limiter.is_allowed())
+                # now we can go faster...
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_time.return_value = 24.99
+                self.assertFalse(rate_limiter.is_allowed())
+                mock_time.return_value = 25.0
+                self.assertTrue(rate_limiter.is_allowed())
+                self.assertFalse(rate_limiter.is_allowed())
+
+        mock_sleep.assert_not_called()
 
     def _do_test(self, max_rate, running_time, start_time, rate_buffer,
                  burst_after_idle=False, incr_by=1.0):

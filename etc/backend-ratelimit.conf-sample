@@ -1,0 +1,10 @@
+[backend_ratelimit]
+# Set the maximum rate of requests per second per device per worker. Beyond
+# this rate the server will return 529 responses and emit a 'backend.ratelimit'
+# statsd metric without logging. The default value of zero causes no
+# rate-limiting to be applied.
+# requests_per_device_per_second = 0.0
+#
+# Set the number of seconds of unused rate-limiting allowance that can
+# accumulate and be used to allow a subsequent burst of requests.
+# requests_per_device_rate_buffer = 1.0

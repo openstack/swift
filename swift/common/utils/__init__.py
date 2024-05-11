@@ -1658,12 +1658,18 @@ class AbstractRateLimiter(object):
             running_time < (current time - rate_buffer ms) to allow an initial
             burst.
         """
-        self.max_rate = max_rate
-        self.rate_buffer_ms = rate_buffer * self.clock_accuracy
+        self.set_max_rate(max_rate)
+        self.set_rate_buffer(rate_buffer)
         self.burst_after_idle = burst_after_idle
         self.running_time = running_time
+
+    def set_max_rate(self, max_rate):
+        self.max_rate = max_rate
         self.time_per_incr = (self.clock_accuracy / self.max_rate
                               if self.max_rate else 0)
+
+    def set_rate_buffer(self, rate_buffer):
+        self.rate_buffer_ms = rate_buffer * self.clock_accuracy
 
     def _sleep(self, seconds):
         # subclasses should override to implement a sleep
