@@ -644,11 +644,6 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_udp_host = (disabled)
         log_udp_port = logging.handlers.SYSLOG_UDP_PORT
         log_address = /dev/log
-        log_statsd_host = (disabled)
-        log_statsd_port = 8125
-        log_statsd_default_sample_rate = 1.0
-        log_statsd_sample_rate_factor = 1.0
-        log_statsd_metric_prefix = (empty-string)
 
     :param conf: Configuration dict to read settings from
     :param name: This value is used to populate the ``server`` field in the log
@@ -734,18 +729,10 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
 
     # Setup logger with a StatsD client if so configured
-    statsd_host = conf.get('log_statsd_host')
-    statsd_port = int(conf.get('log_statsd_port', 8125))
-    base_prefix = conf.get('log_statsd_metric_prefix', '')
-    default_sample_rate = float(conf.get(
-        'log_statsd_default_sample_rate', 1))
-    sample_rate_factor = float(conf.get(
-        'log_statsd_sample_rate_factor', 1))
     if statsd_tail_prefix is None:
         statsd_tail_prefix = name
-    logger.statsd_client = statsd_client.StatsdClient(
-        statsd_host, statsd_port, base_prefix, statsd_tail_prefix,
-        default_sample_rate, sample_rate_factor, logger=logger)
+    logger.statsd_client = statsd_client.get_statsd_client(
+        conf, statsd_tail_prefix, logger)
 
     adapted_logger = LogAdapter(logger, name)
     other_handlers = conf.get('log_custom_handlers', None)

@@ -82,6 +82,9 @@ class TestStatsdClient(BaseTestStasdClient):
     def test_init_host(self):
         client = StatsdClient('myhost', 1234)
         self.assertEqual([('myhost', 1234)], self.getaddrinfo_calls)
+        client1 = statsd_client.get_statsd_client(
+            conf={'log_statsd_host': 'myhost1',
+                  'log_statsd_port': 1235})
         with mock.patch.object(client, '_open_socket') as mock_open:
             self.assertIs(client.increment('tunafish'),
                           mock_open.return_value.sendto.return_value)
@@ -90,14 +93,28 @@ class TestStatsdClient(BaseTestStasdClient):
             mock.call().sendto(b'tunafish:1|c', ('myhost', 1234)),
             mock.call().close(),
         ])
+        with mock.patch.object(client1, '_open_socket') as mock_open1:
+            self.assertIs(client1.increment('tunafish'),
+                          mock_open1.return_value.sendto.return_value)
+        self.assertEqual(mock_open1.mock_calls, [
+            mock.call(),
+            mock.call().sendto(b'tunafish:1|c', ('myhost1', 1235)),
+            mock.call().close(),
+        ])
 
     def test_init_host_is_none(self):
         client = StatsdClient(None, None)
+        client1 = statsd_client.get_statsd_client(conf=None,
+                                                  logger=None)
         self.assertIsNone(client._host)
+        self.assertIsNone(client1._host)
         self.assertFalse(self.getaddrinfo_calls)
         with mock.patch.object(client, '_open_socket') as mock_open:
             self.assertIsNone(client.increment('tunafish'))
         self.assertFalse(mock_open.mock_calls)
+        with mock.patch.object(client1, '_open_socket') as mock_open1:
+            self.assertIsNone(client1.increment('tunafish'))
+        self.assertFalse(mock_open1.mock_calls)
         self.assertFalse(self.getaddrinfo_calls)
 
 
@@ -762,3 +779,43 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('alpha.beta.another.counter:3|c|@0.9912',
                         self.logger.update_stats, 'another.counter', 3,
                         sample_rate=0.9912)
+
+
+class TestModuleFunctions(unittest.TestCase):
+    def setUp(self):
+        self.logger = debug_logger()
+
+    def test_get_statsd_client_defaults(self):
+        # no options configured
+        client = statsd_client.get_statsd_client({})
+        self.assertIsInstance(client, StatsdClient)
+        self.assertIsNone(client._host)
+        self.assertEqual(8125, client._port)
+        self.assertEqual('', client._base_prefix)
+        self.assertEqual('', client._prefix)
+        self.assertEqual(1.0, client._default_sample_rate)
+        self.assertEqual(1.0, client._sample_rate_factor)
+        self.assertIsNone(client.logger)
+
+    def test_get_statsd_client_options(self):
+        # legacy options...
+        conf = {
+            'log_statsd_host': 'example.com',
+            'log_statsd_port': '6789',
+            'log_statsd_metric_prefix': 'banana',
+            'log_statsd_default_sample_rate': '3.3',
+            'log_statsd_sample_rate_factor': '4.4',
+            'log_junk': 'ignored',
+        }
+        client = statsd_client.get_statsd_client(
+            conf, tail_prefix='milkshake', logger=self.logger)
+        self.assertIsInstance(client, StatsdClient)
+        self.assertEqual('example.com', client._host)
+        self.assertEqual(6789, client._port)
+        self.assertEqual('banana', client._base_prefix)
+        self.assertEqual('banana.milkshake.', client._prefix)
+        self.assertEqual(3.3, client._default_sample_rate)
+        self.assertEqual(4.4, client._sample_rate_factor)
+        self.assertEqual(self.logger, client.logger)
+        warn_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual([], warn_lines)
