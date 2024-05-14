@@ -468,31 +468,31 @@
     name: swift-multinode-rolling-upgrade-victoria
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/victoria
+      previous_swift_version: victoria-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-wallaby
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/wallaby
+      previous_swift_version: wallaby-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-xena
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/xena
+      previous_swift_version: xena-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-yoga
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/yoga
+      previous_swift_version: yoga-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-zed
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/zed
+      previous_swift_version: zed-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-antelope
