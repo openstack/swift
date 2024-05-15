@@ -136,21 +136,6 @@ class MockOs(object):
             return getattr(os, name)
 
 
-class MockUdpSocket(object):
-    def __init__(self, sendto_errno=None):
-        self.sent = []
-        self.sendto_errno = sendto_errno
-
-    def sendto(self, data, target):
-        if self.sendto_errno:
-            raise socket.error(self.sendto_errno,
-                               'test errno %s' % self.sendto_errno)
-        self.sent.append((data, target))
-
-    def close(self):
-        pass
-
-
 class MockSys(object):
 
     def __init__(self):

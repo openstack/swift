@@ -223,7 +223,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual('s3api', s3api.logger.logger.name)
         self.assertIsNot(s3api.logger.logger, proxy_logger)
         self.assertEqual('swift', s3api.logger.server)
-        self.assertIsNone(s3api.logger.logger.statsd_client)
+        # there's a stats client, but with no host, it can't send anything
+        self.assertIsNone(s3api.logger.logger.statsd_client._host)
 
         with mock.patch('swift.common.statsd_client.StatsdClient',
                         FakeStatsdClient):
