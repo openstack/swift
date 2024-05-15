@@ -15,12 +15,12 @@
 
 """ Statsd Client """
 
-import socket
 import time
 import warnings
 from contextlib import closing
 from random import random
 
+from eventlet.green import socket
 import six
 
 

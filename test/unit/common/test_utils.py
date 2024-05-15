@@ -5057,6 +5057,22 @@ class TestSwiftLoggerAdapter(unittest.TestCase):
         self.assertEqual(logger.thread_locals, locals2)
         logger.thread_locals = (None, None)
 
+    @reset_logger_state
+    def test_thread_locals_more(self):
+        logger = utils.get_logger(None)
+        # test the setter
+        logger.thread_locals = ('id', 'ip')
+        self.assertEqual(logger.thread_locals, ('id', 'ip'))
+        # reset
+        logger.thread_locals = (None, None)
+        self.assertEqual(logger.thread_locals, (None, None))
+        logger.txn_id = '1234'
+        logger.client_ip = '1.2.3.4'
+        self.assertEqual(logger.thread_locals, ('1234', '1.2.3.4'))
+        logger.txn_id = '5678'
+        logger.client_ip = '5.6.7.8'
+        self.assertEqual(logger.thread_locals, ('5678', '5.6.7.8'))
+
     def test_exception(self):
         # verify that the adapter routes exception calls to utils.LogAdapter
         # for special case handling
@@ -8274,6 +8290,76 @@ class TestShardRangeList(unittest.TestCase):
                                   utils.ShardRange.CLEAVED)))
         self.assertEqual(self.shard_ranges[2].lower,
                          do_test([utils.ShardRange.ACTIVE]))
+
+
+class TestFsync(unittest.TestCase):
+
+    def test_no_fdatasync(self):
+        called = []
+
+        class NoFdatasync(object):
+            pass
+
+        def fsync(fd):
+            called.append(fd)
+
+        with patch('swift.common.utils.os', NoFdatasync()):
+            with patch('swift.common.utils.fsync', fsync):
+                utils.fdatasync(12345)
+                self.assertEqual(called, [12345])
+
+    def test_yes_fdatasync(self):
+        called = []
+
+        class YesFdatasync(object):
+
+            def fdatasync(self, fd):
+                called.append(fd)
+
+        with patch('swift.common.utils.os', YesFdatasync()):
+            utils.fdatasync(12345)
+            self.assertEqual(called, [12345])
+
+    def test_fsync_bad_fullsync(self):
+
+        class FCNTL(object):
+
+            F_FULLSYNC = 123
+
+            def fcntl(self, fd, op):
+                raise IOError(18)
+
+        with patch('swift.common.utils.fcntl', FCNTL()):
+            self.assertRaises(OSError, lambda: utils.fsync(12345))
+
+    def test_fsync_f_fullsync(self):
+        called = []
+
+        class FCNTL(object):
+
+            F_FULLSYNC = 123
+
+            def fcntl(self, fd, op):
+                called[:] = [fd, op]
+                return 0
+
+        with patch('swift.common.utils.fcntl', FCNTL()):
+            utils.fsync(12345)
+            self.assertEqual(called, [12345, 123])
+
+    def test_fsync_no_fullsync(self):
+        called = []
+
+        class FCNTL(object):
+            pass
+
+        def fsync(fd):
+            called.append(fd)
+
+        with patch('swift.common.utils.fcntl', FCNTL()):
+            with patch('os.fsync', fsync):
+                utils.fsync(12345)
+                self.assertEqual(called, [12345])
 
 
 @patch('ctypes.get_errno')
