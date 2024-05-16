@@ -120,6 +120,17 @@ def _header_acl_property(resource):
                     doc='Get and set the %s acl property' % resource)
 
 
+class S3InputSHA256Mismatch(BaseException):
+    """
+    Client provided a X-Amz-Content-SHA256, but it doesn't match the data.
+
+    Inherit from BaseException (rather than Exception) so it cuts from the
+    proxy-server app (which will presumably be the one reading the input)
+    through all the layers of the pipeline back to us. It should never escape
+    the s3api middleware.
+    """
+
+
 class HashingInput(object):
     """
     wsgi.input wrapper to verify the hash of the input as it's read.
@@ -141,7 +152,7 @@ class HashingInput(object):
                 self._hasher.hexdigest() != self._expected):
             self.close()
             # Since we don't return the last chunk, the PUT never completes
-            raise swob.HTTPUnprocessableEntity(
+            raise S3InputSHA256Mismatch(
                 'The X-Amz-Content-SHA56 you specified did not match '
                 'what we received.')
         return chunk
@@ -910,13 +921,8 @@ class S3Request(swob.Request):
             # Limit the read similar to how SLO handles manifests
             try:
                 body = self.body_file.read(max_length)
-            except swob.HTTPException as err:
-                if err.status_int == HTTP_UNPROCESSABLE_ENTITY:
-                    # Special case for HashingInput check
-                    raise BadDigest(
-                        'The X-Amz-Content-SHA56 you specified did not '
-                        'match what we received.')
-                raise
+            except S3InputSHA256Mismatch as err:
+                raise BadDigest(err.args[0])
         else:
             # No (or zero) Content-Length provided, and not chunked transfer;
             # no body. Assume zero-length, and enforce a required body below.
@@ -1410,13 +1416,11 @@ class S3Request(swob.Request):
 
         try:
             sw_resp = sw_req.get_response(app)
-        except swob.HTTPException as err:
-            # Maybe a 422 from HashingInput? Put something in
-            # s3api.backend_path - hopefully by now any modifications to the
-            # path (e.g. tenant to account translation) will have been made by
-            # auth middleware
+        except S3InputSHA256Mismatch as err:
+            # hopefully by now any modifications to the path (e.g. tenant to
+            # account translation) will have been made by auth middleware
             self.environ['s3api.backend_path'] = sw_req.environ['PATH_INFO']
-            sw_resp = err
+            raise BadDigest(err.args[0])
         else:
             # reuse account
             _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],

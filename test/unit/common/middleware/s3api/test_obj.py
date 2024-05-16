@@ -770,6 +770,18 @@ class BaseS3ApiObj(object):
                          req.environ.get('swift.backend_path'))
 
     def test_object_PUT_v4_bad_hash(self):
+        orig_app = self.s3api.app
+
+        def error_catching_app(env, start_response):
+            try:
+                return orig_app(env, start_response)
+            except Exception:
+                self.logger.exception('uh oh')
+                start_response('599 Uh Oh', [])
+                return [b'']
+
+        self.s3api.app = error_catching_app
+
         req = Request.blank(
             '/bucket/object',
             environ={'REQUEST_METHOD': 'PUT'},
