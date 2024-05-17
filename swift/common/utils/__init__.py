@@ -1665,12 +1665,18 @@ class AbstractRateLimiter(object):
             running_time < (current time - rate_buffer ms) to allow an initial
             burst.
         """
-        self.max_rate = max_rate
-        self.rate_buffer_ms = rate_buffer * self.clock_accuracy
+        self.set_max_rate(max_rate)
+        self.set_rate_buffer(rate_buffer)
         self.burst_after_idle = burst_after_idle
         self.running_time = running_time
+
+    def set_max_rate(self, max_rate):
+        self.max_rate = max_rate
         self.time_per_incr = (self.clock_accuracy / self.max_rate
                               if self.max_rate else 0)
+
+    def set_rate_buffer(self, rate_buffer):
+        self.rate_buffer_ms = rate_buffer * self.clock_accuracy
 
     def _sleep(self, seconds):
         # subclasses should override to implement a sleep
@@ -2335,7 +2341,34 @@ class ClosingIterator(object):
         if not self.closed:
             for wrapped in self.closeables:
                 close_if_possible(wrapped)
+            # clear it out so they get GC'ed
+            self.closeables = []
+            self.wrapped_iter = iter([])
             self.closed = True
+
+
+class ClosingMapper(ClosingIterator):
+    """
+    A closing iterator that yields the result of ``function`` as it is applied
+    to each item of ``iterable``.
+
+    Note that while this behaves similarly to the built-in ``map`` function,
+    ``other_closeables`` does not have the same semantic as the ``iterables``
+    argument of ``map``.
+
+    :param function: a function that will be called with each item of
+        ``iterable`` before yielding its result.
+    :param iterable: iterator to wrap.
+    :param other_closeables: other resources to attempt to close.
+    """
+    __slots__ = ('func',)
+
+    def __init__(self, function, iterable, other_closeables=None):
+        self.func = function
+        super(ClosingMapper, self).__init__(iterable, other_closeables)
+
+    def _get_next_item(self):
+        return self.func(super(ClosingMapper, self)._get_next_item())
 
 
 class CloseableChain(ClosingIterator):
@@ -4859,6 +4892,14 @@ class Watchdog(object):
         """
         if self._run_gth is None:
             self._run_gth = eventlet.spawn(self.run)
+
+    def kill(self):
+        """
+        Stop the watchdog greenthread.
+        """
+        if self._run_gth is not None:
+            self._run_gth.kill()
+            self._run_gth = None
 
     def run(self):
         while True:

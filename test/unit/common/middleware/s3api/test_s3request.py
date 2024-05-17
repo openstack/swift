@@ -29,7 +29,8 @@ from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
     Grant, encode_acl
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
 from swift.common.middleware.s3api.s3request import S3Request, \
-    S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT, HashingInput
+    S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT, HashingInput, \
+    S3InputSHA256Mismatch
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, ServiceUnavailable, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, BadDigest, \
@@ -1405,9 +1406,11 @@ class TestHashingInput(S3ApiTestCase):
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
-        with self.assertRaises(swob.HTTPException) as raised:
+        with self.assertRaises(S3InputSHA256Mismatch) as raised:
             wrapped.read(3)
-        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
+        self.assertIsInstance(raised.exception, BaseException)
+        # won't get caught by most things in a pipeline
+        self.assertNotIsInstance(raised.exception, Exception)
         # the error causes us to close the input
         self.assertTrue(wrapped._input.closed)
 
@@ -1419,9 +1422,8 @@ class TestHashingInput(S3ApiTestCase):
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
-        with self.assertRaises(swob.HTTPException) as raised:
+        with self.assertRaises(S3InputSHA256Mismatch):
             wrapped.read(4)
-        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
         self.assertTrue(wrapped._input.closed)
 
     def test_bad_hash(self):
@@ -1431,17 +1433,14 @@ class TestHashingInput(S3ApiTestCase):
             md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'5678', wrapped.read(4))
-        with self.assertRaises(swob.HTTPException) as raised:
+        with self.assertRaises(S3InputSHA256Mismatch):
             wrapped.read(4)
-        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
         self.assertTrue(wrapped._input.closed)
 
     def test_empty_bad_hash(self):
         wrapped = HashingInput(BytesIO(b''), 0, hashlib.sha256, 'nope')
-        with self.assertRaises(swob.HTTPException) as raised:
+        with self.assertRaises(S3InputSHA256Mismatch):
             wrapped.read(3)
-        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
-        # the error causes us to close the input
         self.assertTrue(wrapped._input.closed)
 
 

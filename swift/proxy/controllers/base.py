@@ -45,7 +45,7 @@ from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
     document_iters_to_http_response_body, cache_from_env, \
-    CooperativeIterator, NamespaceBoundList, Namespace
+    CooperativeIterator, NamespaceBoundList, Namespace, ClosingMapper
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -1741,7 +1741,7 @@ class GetOrHeadHandler(GetterBase):
             return response_part
 
         return document_iters_to_http_response_body(
-            (add_content_type(pi) for pi in parts_iter),
+            ClosingMapper(add_content_type, parts_iter),
             boundary, is_multipart, self.logger)
 
     def get_working_response(self):

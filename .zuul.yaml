@@ -145,6 +145,22 @@
       python_version: '3.11'
 
 - job:
+    name: swift-tox-py312
+    parent: swift-tox-base
+    nodeset: debian-bookworm
+    description: |
+      Run unit-tests for swift under cPython version 3.12.
+
+      Uses tox with the ``py312`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py312
+      bindep_profile: test py312
+      python_use_pyenv: True
+      python_version: '3.12'
+
+- job:
     name: swift-tox-func-py27
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -452,31 +468,31 @@
     name: swift-multinode-rolling-upgrade-victoria
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/victoria
+      previous_swift_version: victoria-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-wallaby
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/wallaby
+      previous_swift_version: wallaby-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-xena
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/xena
+      previous_swift_version: xena-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-yoga
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/yoga
+      previous_swift_version: yoga-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-zed
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/zed
+      previous_swift_version: zed-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-antelope
@@ -489,6 +505,12 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/2023.2
+
+- job:
+    name: swift-multinode-rolling-upgrade-caracal
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/2024.1
 
 - job:
     name: swift-multinode-rolling-upgrade-master
@@ -673,6 +695,8 @@
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py311:
             irrelevant-files: *unittest-irrelevant-files
+        - swift-tox-py312:
+            irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests
         - swift-tox-func-py27:
@@ -733,7 +757,6 @@
               - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
         - swift-multinode-rolling-upgrade:
             irrelevant-files: *functest-irrelevant-files
-            voting: false
         - tempest-integrated-object-storage:
             irrelevant-files: &tempest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
@@ -761,6 +784,7 @@
         - swift-tox-py36
         - swift-tox-py38
         - swift-tox-py311
+        - swift-tox-py312
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
         - swift-tox-func-ec-py27
@@ -779,6 +803,8 @@
             irrelevant-files: *unittest-irrelevant-files
         - openstack-tox-pep8:
             irrelevant-files: *pep8-irrelevant-files
+        - swift-multinode-rolling-upgrade:
+            irrelevant-files: *functest-irrelevant-files
         - tempest-integrated-object-storage:
             irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
@@ -798,8 +824,6 @@
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
         - swift-tox-func-ec-py39-centos-9-stream
-        - swift-multinode-rolling-upgrade-train
-        - swift-multinode-rolling-upgrade-ussuri
         - swift-multinode-rolling-upgrade-victoria
         - swift-multinode-rolling-upgrade-wallaby
         - swift-multinode-rolling-upgrade-xena
@@ -807,6 +831,7 @@
         - swift-multinode-rolling-upgrade-zed
         - swift-multinode-rolling-upgrade-antelope
         - swift-multinode-rolling-upgrade-bobcat
+        - swift-multinode-rolling-upgrade-caracal
         - swift-multinode-rolling-upgrade-master:
             branches: master
 

@@ -1,0 +1,30 @@
+[backend_ratelimit]
+# The rate of requests to each device is limited by an overall per-device rate
+# limit that is applied to all requests to the device and/or a
+# per-method-per-device rate limit that is applied to requests of that method
+# to the device. If either of these rates would be exceeded the server will
+# return 529 responses and emit a 'backend.ratelimit' statsd metric without
+# logging.
+
+# Set the maximum overall rate of requests per device per second per worker for
+# all request methods. The default value of zero causes no per-device
+# rate-limiting to be applied other than that configured for specific request
+# methods.
+# requests_per_device_per_second = 0.0
+
+# Set maximum rate of requests per device per second per worker for individual
+# request methods. The default value of zero causes no per-method
+# rate-limiting to be applied. Note: the aggregate rate of requests for all
+# methods is still limited by requests_per_device_per_second even if a higher
+# per method rate is configured.
+# delete_requests_per_device_per_second = 0.0
+# get_requests_per_device_per_second = 0.0
+# head_requests_per_device_per_second = 0.0
+# post_requests_per_device_per_second = 0.0
+# put_requests_per_device_per_second = 0.0
+# replicate_requests_per_device_per_second = 0.0
+# update_requests_per_device_per_second = 0.0
+
+# Set the number of seconds of unused rate-limiting allowance that can
+# accumulate and be used to allow a subsequent burst of requests.
+# requests_per_device_rate_buffer = 1.0
