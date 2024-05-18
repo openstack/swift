@@ -15,6 +15,7 @@
 
 import unittest
 import mock
+from hashlib import sha256
 
 import six
 from six.moves.urllib.parse import quote, parse_qsl
@@ -1489,6 +1490,53 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
                             body=tostring(elem))
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200', body)
+
+    def test_bucket_PUT_v4_with_body(self):
+        elem = Element('CreateBucketConfiguration')
+        SubElement(elem, 'LocationConstraint').text = self.s3api.conf.location
+        req_body = tostring(elem)
+        body_sha = sha256(req_body).hexdigest()
+        headers = {
+            'Authorization': 'AWS4-HMAC-SHA256 ' + ', '.join([
+                'Credential=test:tester/%s/us-east-1/s3/aws4_request' %
+                self.get_v4_amz_date_header().split('T', 1)[0],
+                'SignedHeaders=host',
+                'Signature=X',
+            ]),
+            'Date': self.get_date_header(),
+            'x-amz-content-sha256': body_sha,
+        }
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers,
+                            body=req_body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200', body)
+
+    def test_bucket_PUT_v4_with_body_bad_hash(self):
+        elem = Element('CreateBucketConfiguration')
+        SubElement(elem, 'LocationConstraint').text = self.s3api.conf.location
+        req_body = tostring(elem)
+        headers = {
+            'Authorization': 'AWS4-HMAC-SHA256 ' + ', '.join([
+                'Credential=test:tester/%s/us-east-1/s3/aws4_request' %
+                self.get_v4_amz_date_header().split('T', 1)[0],
+                'SignedHeaders=host',
+                'Signature=X',
+            ]),
+            'Date': self.get_date_header(),
+            'x-amz-content-sha256': 'not the hash',
+        }
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers,
+                            body=req_body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body), 'BadDigest')
+        self.assertIn(b'X-Amz-Content-SHA56', body)
+        # we maybe haven't parsed the location/path yet?
+        self.assertNotIn('swift.backend_path', req.environ)
 
     def test_bucket_PUT_with_canned_acl(self):
         req = Request.blank('/bucket',
