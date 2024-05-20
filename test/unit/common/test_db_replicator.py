@@ -62,6 +62,7 @@ def lock_parent_directory(filename):
 class FakeRing(object):
     class Ring(object):
         devs = []
+        replica_count = 3
 
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
@@ -82,6 +83,7 @@ class FakeRingWithSingleNode(object):
             id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6200, device='sdb',
             meta='', replication_ip='1.1.1.1', replication_port=6200, region=1
         )]
+        replica_count = 3
 
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
@@ -117,6 +119,7 @@ class FakeRingWithNodes(object):
             id=6, weight=10.0, zone=6, ip='1.1.1.6', port=6200, device='sdb',
             meta='', replication_ip='1.1.1.6', replication_port=6200, region=2
         )]
+        replica_count = 3
 
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
@@ -890,7 +893,10 @@ class TestDBReplicator(unittest.TestCase):
                 ({'handoff_delete': 2}, [True, False, False], False),
                 ({'handoff_delete': 1}, [True] * 3, True),
                 ({'handoff_delete': 1}, [True, True, False], True),
-                ({'handoff_delete': 1}, [True, False, False], True)):
+                ({'handoff_delete': 1}, [True, False, False], True),
+                # if we configure it too high, handle it gracefully
+                ({'handoff_delete': 5}, [True] * 3, True),
+        ):
             do_test(cfg, repl_results, expected_delete)
 
     def test_replicate_object_delete_delegated_to_cleanup_post_replicate(self):
