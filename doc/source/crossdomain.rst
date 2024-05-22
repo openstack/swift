@@ -6,7 +6,7 @@ A cross-domain policy file allows web pages hosted elsewhere to use client
 side technologies such as Flash, Java and Silverlight to interact
 with the Swift API.
 
-See http://www.adobe.com/devnet/articles/crossdomain_policy_file_spec.html for
+See https://www.adobe.com/devnet-docs/acrobatetk/tools/AppSec/xdomain.html for
 a description of the purpose and structure of the cross-domain policy
 file. The cross-domain policy file is installed in the root of a web
 server (i.e., the path is ``/crossdomain.xml``).
