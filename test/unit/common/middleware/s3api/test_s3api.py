@@ -1137,7 +1137,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         headers = {
             'Authorization': authz_header,
             'X-Amz-Date': self.get_v4_amz_date_header(),
-            'X-Amz-Content-SHA256': '0123456789'}
+            'X-Amz-Content-SHA256': '0' * 64}
         req = Request.blank('/bucket/object', environ=environ, headers=headers)
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)

@@ -33,8 +33,9 @@ from swift.common.middleware.s3api.s3request import S3Request, \
     S3InputSHA256Mismatch
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, ServiceUnavailable, \
-    AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, BadDigest, \
-    InvalidPartArgument, InvalidPartNumber, InvalidRequest
+    AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, \
+    InvalidPartArgument, InvalidPartNumber, InvalidRequest, \
+    XAmzContentSHA256Mismatch
 from swift.common.utils import md5
 
 from test.debug_logger import debug_logger
@@ -412,7 +413,7 @@ class TestRequest(S3ApiTestCase):
                 'Signature=X' % (
                     scope_date,
                     ';'.join(sorted(['host', included_header]))),
-            'X-Amz-Content-SHA256': '0123456789'}
+            'X-Amz-Content-SHA256': '0' * 64}
 
         headers.update(date_header)
         req = Request.blank('/', environ=environ, headers=headers)
@@ -594,7 +595,7 @@ class TestRequest(S3ApiTestCase):
                 'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
-            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Content-SHA256': '0' * 64,
             'Date': self.get_date_header(),
             'X-Amz-Date': x_amz_date}
 
@@ -604,7 +605,7 @@ class TestRequest(S3ApiTestCase):
         headers_to_sign = sigv4_req._headers_to_sign()
         self.assertEqual(headers_to_sign, [
             ('host', 'localhost:80'),
-            ('x-amz-content-sha256', '0123456789'),
+            ('x-amz-content-sha256', '0' * 64),
             ('x-amz-date', x_amz_date)])
 
         # no x-amz-date
@@ -614,7 +615,7 @@ class TestRequest(S3ApiTestCase):
                 'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
-            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Content-SHA256': '1' * 64,
             'Date': self.get_date_header()}
 
         req = Request.blank('/', environ=environ, headers=headers)
@@ -623,7 +624,7 @@ class TestRequest(S3ApiTestCase):
         headers_to_sign = sigv4_req._headers_to_sign()
         self.assertEqual(headers_to_sign, [
             ('host', 'localhost:80'),
-            ('x-amz-content-sha256', '0123456789')])
+            ('x-amz-content-sha256', '1' * 64)])
 
         # SignedHeaders says, host and x-amz-date included but there is not
         # X-Amz-Date header
@@ -633,7 +634,7 @@ class TestRequest(S3ApiTestCase):
                 'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
-            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Content-SHA256': '2' * 64,
             'Date': self.get_date_header()}
 
         req = Request.blank('/', environ=environ, headers=headers)
@@ -730,7 +731,7 @@ class TestRequest(S3ApiTestCase):
                 'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
-            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Content-SHA256': '0' * 64,
             'Date': self.get_date_header(),
             'X-Amz-Date': x_amz_date}
 
@@ -872,7 +873,7 @@ class TestRequest(S3ApiTestCase):
                 'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % amz_date_header.split('T', 1)[0],
-            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Content-SHA256': '0' * 64,
             'X-Amz-Date': amz_date_header
         })
         sigv4_req = SigV4Request(
@@ -942,18 +943,18 @@ class TestRequest(S3ApiTestCase):
         # Virtual hosted-style
         self.s3api.conf.storage_domains = ['s3.test.com']
 
-        # bad sha256
+        # bad sha256 -- but note that SHAs are not checked for GET/HEAD!
         environ = {
             'HTTP_HOST': 'bucket.s3.test.com',
-            'REQUEST_METHOD': 'GET'}
+            'REQUEST_METHOD': 'PUT'}
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
                 'Credential=test/20210104/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
-                'Signature=f721a7941d5b7710344bc62cc45f87e66f4bb1dd00d9075ee61'
-                '5b1a5c72b0f8c',
-            'X-Amz-Content-SHA256': 'bad',
+                'Signature=5f31c77dbc63e7c6ffc84dae60a9261c57c44884fe7927baeb9'
+                '84f418d4d511a',
+            'X-Amz-Content-SHA256': '0' * 64,
             'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
             'X-Amz-Date': '20210104T102623Z',
             'Content-Length': 0,
@@ -961,15 +962,15 @@ class TestRequest(S3ApiTestCase):
 
         # lowercase sha256
         req = Request.blank('/', environ=environ, headers=headers)
-        self.assertRaises(BadDigest, SigV4Request, req.environ)
+        self.assertRaises(XAmzContentSHA256Mismatch, SigV4Request, req.environ)
         sha256_of_nothing = hashlib.sha256().hexdigest().encode('ascii')
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
                 'Credential=test/20210104/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
-                'Signature=d90542e8b4c0d2f803162040a948e8e51db00b62a59ffb16682'
-                'ef433718fde12',
+                'Signature=96df261d8f0b617b7c6368e0c5d96ee61f1ec84005e826ece65'
+                'c0e0f97eba945',
             'X-Amz-Content-SHA256': sha256_of_nothing,
             'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
             'X-Amz-Date': '20210104T102623Z',
@@ -981,14 +982,14 @@ class TestRequest(S3ApiTestCase):
             sigv4_req._canonical_request().endswith(sha256_of_nothing))
         self.assertTrue(sigv4_req.check_signature('secret'))
 
-        # uppercase sha256
+        # uppercase sha256 -- signature changes, but content's valid
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
                 'Credential=test/20210104/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
-                'Signature=4aab5102e58e9e40f331417d322465c24cac68a7ce77260e9bf'
-                '5ce9a6200862b',
+                'Signature=7a3c396fd6043fb397888e6f4d6acc294a99636ff0bb57b283d'
+                '9e075ed87fce2',
             'X-Amz-Content-SHA256': sha256_of_nothing.upper(),
             'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
             'X-Amz-Date': '20210104T102623Z',
@@ -999,6 +1000,91 @@ class TestRequest(S3ApiTestCase):
         self.assertTrue(
             sigv4_req._canonical_request().endswith(sha256_of_nothing.upper()))
         self.assertTrue(sigv4_req.check_signature('secret'))
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_v4_req_xmz_content_sha256_mismatch(self):
+        # Virtual hosted-style
+        def fake_app(environ, start_response):
+            environ['wsgi.input'].read()
+
+        self.s3api.conf.storage_domains = ['s3.test.com']
+        environ = {
+            'HTTP_HOST': 'bucket.s3.test.com',
+            'REQUEST_METHOD': 'PUT'}
+        sha256_of_body = hashlib.sha256(b'body').hexdigest()
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20210104/us-east-1/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-date,'
+                'Signature=5f31c77dbc63e7c6ffc84dae60a9261c57c44884fe7927baeb9'
+                '84f418d4d511a',
+            'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
+            'X-Amz-Date': '20210104T102623Z',
+            'Content-Length': 4,
+            'X-Amz-Content-SHA256': sha256_of_body,
+        }
+        req = Request.blank('/', environ=environ, headers=headers,
+                            body=b'not_body')
+        with self.assertRaises(XAmzContentSHA256Mismatch) as caught:
+            SigV4Request(req.environ).get_response(fake_app)
+        self.assertIn(b'<Code>XAmzContentSHA256Mismatch</Code>',
+                      caught.exception.body)
+        self.assertIn(
+            ('<ClientComputedContentSHA256>%s</ClientComputedContentSHA256>'
+             % sha256_of_body).encode('ascii'),
+            caught.exception.body)
+        self.assertIn(
+            ('<S3ComputedContentSHA256>%s</S3ComputedContentSHA256>'
+             % hashlib.sha256(b'not_body').hexdigest()).encode('ascii'),
+            caught.exception.body)
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_v4_req_xmz_content_sha256_missing(self):
+        # Virtual hosted-style
+        self.s3api.conf.storage_domains = ['s3.test.com']
+        environ = {
+            'HTTP_HOST': 'bucket.s3.test.com',
+            'REQUEST_METHOD': 'PUT'}
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20210104/us-east-1/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-date,'
+                'Signature=5f31c77dbc63e7c6ffc84dae60a9261c57c44884fe7927baeb9'
+                '84f418d4d511a',
+            'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
+            'X-Amz-Date': '20210104T102623Z',
+            'Content-Length': 0,
+        }
+        req = Request.blank('/', environ=environ, headers=headers)
+        self.assertRaises(InvalidRequest, SigV4Request, req.environ)
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_v4_req_x_mz_content_sha256_bad_format(self):
+        # Virtual hosted-style
+        self.s3api.conf.storage_domains = ['s3.test.com']
+        environ = {
+            'HTTP_HOST': 'bucket.s3.test.com',
+            'REQUEST_METHOD': 'PUT'}
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20210104/us-east-1/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-date,'
+                'Signature=5f31c77dbc63e7c6ffc84dae60a9261c57c44884fe7927baeb9'
+                '84f418d4d511a',
+            'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
+            'X-Amz-Date': '20210104T102623Z',
+            'Content-Length': 0,
+            'X-Amz-Content-SHA256': '0' * 63  # too short
+        }
+        req = Request.blank('/', environ=environ, headers=headers)
+        self.assertRaises(InvalidArgument, SigV4Request, req.environ)
+
+        headers['X-Amz-Content-SHA256'] = '0' * 63 + 'x'  # bad character
+        req = Request.blank('/', environ=environ, headers=headers)
+        self.assertRaises(InvalidArgument, SigV4Request, req.environ)
 
     def test_validate_part_number(self):
         sw_req = Request.blank('/nojunk',
@@ -1113,7 +1199,7 @@ class TestSigV4Request(S3ApiTestCase):
             x_amz_date = self.get_v4_amz_date_header()
             headers = {
                 'Authorization': auth,
-                'X-Amz-Content-SHA256': '0123456789',
+                'X-Amz-Content-SHA256': '0' * 64,
                 'Date': self.get_date_header(),
                 'X-Amz-Date': x_amz_date}
             req = Request.blank('/', environ=environ, headers=headers)
@@ -1144,7 +1230,7 @@ class TestSigV4Request(S3ApiTestCase):
             x_amz_date = self.get_v4_amz_date_header()
             headers = {
                 'Authorization': auth,
-                'X-Amz-Content-SHA256': '0123456789',
+                'X-Amz-Content-SHA256': '0' * 64,
                 'Date': self.get_date_header(),
                 'X-Amz-Date': x_amz_date}
             req = Request.blank('/', environ=environ, headers=headers)
@@ -1202,7 +1288,7 @@ class TestSigV4Request(S3ApiTestCase):
             x_amz_date = self.get_v4_amz_date_header()
             params['X-Amz-Date'] = x_amz_date
             signed_headers = {
-                'X-Amz-Content-SHA256': '0123456789',
+                'X-Amz-Content-SHA256': '0' * 64,
                 'Date': self.get_date_header(),
                 'X-Amz-Date': x_amz_date}
             req = Request.blank('/', environ=environ, headers=signed_headers,
@@ -1237,7 +1323,7 @@ class TestSigV4Request(S3ApiTestCase):
             x_amz_date = self.get_v4_amz_date_header()
             params['X-Amz-Date'] = x_amz_date
             signed_headers = {
-                'X-Amz-Content-SHA256': '0123456789',
+                'X-Amz-Content-SHA256': '0' * 64,
                 'Date': self.get_date_header(),
                 'X-Amz-Date': x_amz_date}
             req = Request.blank('/', environ=environ, headers=signed_headers,
@@ -1294,7 +1380,7 @@ class TestSigV4Request(S3ApiTestCase):
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0])
         headers = {
             'Authorization': auth,
-            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Content-SHA256': '0' * 64,
             'Date': self.get_date_header(),
             'X-Amz-Date': x_amz_date}
 
@@ -1346,7 +1432,7 @@ class TestSigV4Request(S3ApiTestCase):
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0])
         headers = {
             'Authorization': auth,
-            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Content-SHA256': '0' * 64,
             'Date': self.get_date_header(),
             'X-Amz-Date': x_amz_date}
 
@@ -1438,10 +1524,12 @@ class TestHashingInput(S3ApiTestCase):
         self.assertTrue(wrapped._input.closed)
 
     def test_empty_bad_hash(self):
-        wrapped = HashingInput(BytesIO(b''), 0, hashlib.sha256, 'nope')
-        with self.assertRaises(S3InputSHA256Mismatch):
-            wrapped.read(3)
-        self.assertTrue(wrapped._input.closed)
+        _input = BytesIO(b'')
+        self.assertFalse(_input.closed)
+        with self.assertRaises(XAmzContentSHA256Mismatch):
+            # Don't even get a chance to try to read it
+            HashingInput(_input, 0, hashlib.sha256, 'nope')
+        self.assertTrue(_input.closed)
 
 
 if __name__ == '__main__':

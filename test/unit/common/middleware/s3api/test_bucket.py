@@ -1525,7 +1525,7 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
                 'Signature=X',
             ]),
             'Date': self.get_date_header(),
-            'x-amz-content-sha256': 'not the hash',
+            'x-amz-content-sha256': '0' * 64,
         }
         req = Request.blank('/bucket',
                             environ={'REQUEST_METHOD': 'PUT'},
@@ -1533,8 +1533,9 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
                             body=req_body)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
-        self.assertEqual(self._get_error_code(body), 'BadDigest')
-        self.assertIn(b'X-Amz-Content-SHA56', body)
+        self.assertEqual(self._get_error_code(body),
+                         'XAmzContentSHA256Mismatch')
+        self.assertIn(b'x-amz-content-sha256', body)
         # we maybe haven't parsed the location/path yet?
         self.assertNotIn('swift.backend_path', req.environ)
 
