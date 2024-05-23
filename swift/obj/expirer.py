@@ -29,7 +29,7 @@ from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
     Timestamp, config_true_value, normalize_delete_at_timestamp, \
-    RateLimitedIterator, md5, non_negative_float
+    RateLimitedIterator, md5, non_negative_float, non_negative_int
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
@@ -174,8 +174,9 @@ class ObjectExpirer(Daemon):
             global_conf={'log_name': '%s-ic' % self.conf.get(
                 'log_name', self.log_route)})
 
-        self.processes = int(self.conf.get('processes', 0))
-        self.process = int(self.conf.get('process', 0))
+        self.processes = non_negative_int(self.conf.get('processes', 0))
+        self.process = non_negative_int(self.conf.get('process', 0))
+        self._validate_processes_config()
 
     def report(self, final=False):
         """
@@ -330,7 +331,7 @@ class ObjectExpirer(Daemon):
                     # we shouldn't yield the object during the delay
                     continue
 
-                # Only one expirer daemon assigned for one task
+                # Only one expirer daemon assigned for each task
                 if self.hash_mod('%s/%s' % (task_container, task_object),
                                  divisor) != my_index:
                     continue
@@ -365,6 +366,9 @@ class ObjectExpirer(Daemon):
                        These will override the values from the config file if
                        provided.
         """
+        # these config values are available to override at the command line,
+        # blow-up now if they're wrong
+        self.override_proceses_config_from_command_line(**kwargs)
         # This if-clause will be removed when general task queue feature is
         # implemented.
         if not self.dequeue_from_legacy:
@@ -375,7 +379,6 @@ class ObjectExpirer(Daemon):
                              'with dequeue_from_legacy == true.')
             return
 
-        self.get_process_values(kwargs)
         pool = GreenPool(self.concurrency)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
@@ -430,6 +433,9 @@ class ObjectExpirer(Daemon):
         :param kwargs: Extra keyword args to fulfill the Daemon interface; this
                        daemon has no additional keyword args.
         """
+        # these config values are available to override at the command line
+        # blow-up now if they're wrong
+        self.override_proceses_config_from_command_line(**kwargs)
         sleep(random() * self.interval)
         while True:
             begin = time()
@@ -441,7 +447,7 @@ class ObjectExpirer(Daemon):
             if elapsed < self.interval:
                 sleep(random() * (self.interval - elapsed))
 
-    def get_process_values(self, kwargs):
+    def override_proceses_config_from_command_line(self, **kwargs):
         """
         Sets self.processes and self.process from the kwargs if those
         values exist, otherwise, leaves those values as they were set in
@@ -452,19 +458,20 @@ class ObjectExpirer(Daemon):
                        line when the daemon is run.
         """
         if kwargs.get('processes') is not None:
-            self.processes = int(kwargs['processes'])
+            self.processes = non_negative_int(kwargs['processes'])
 
         if kwargs.get('process') is not None:
-            self.process = int(kwargs['process'])
+            self.process = non_negative_int(kwargs['process'])
 
-        if self.process < 0:
-            raise ValueError(
-                'process must be an integer greater than or equal to 0')
+        self._validate_processes_config()
 
-        if self.processes < 0:
-            raise ValueError(
-                'processes must be an integer greater than or equal to 0')
+    def _validate_processes_config(self):
+        """
+        Used in constructor and in override_proceses_config_from_command_line
+        to validate the processes configuration requirements.
 
+        :raiess: ValueError if processes config is invalid
+        """
         if self.processes and self.process >= self.processes:
             raise ValueError(
                 'process must be less than processes')

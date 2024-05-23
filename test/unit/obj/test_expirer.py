@@ -195,94 +195,87 @@ class TestObjectExpirer(TestCase):
         _do_test_init_ic_log_name({'log_name': 'my-object-expirer'},
                                   'my-object-expirer-ic')
 
-    def test_get_process_values_from_kwargs(self):
+    def test_set_process_values_from_kwargs(self):
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         vals = {
             'processes': 5,
             'process': 1,
         }
-        x.get_process_values(vals)
+        x.override_proceses_config_from_command_line(**vals)
         self.assertEqual(x.processes, 5)
         self.assertEqual(x.process, 1)
 
-    def test_get_process_values_from_config(self):
-        vals = {
+    def test_set_process_values_from_config(self):
+        conf = {
             'processes': 5,
             'process': 1,
         }
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
-        x.get_process_values({})
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
         self.assertEqual(x.processes, 5)
         self.assertEqual(x.process, 1)
 
-    def test_get_process_values_negative_process(self):
+    def test_set_process_values_negative_process(self):
         vals = {
             'processes': 5,
             'process': -1,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
-        expected_msg = 'process must be an integer greater' \
-                       ' than or equal to 0'
+        expected_msg = 'must be a non-negative integer'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
-        self.assertEqual(str(ctx.exception), expected_msg)
+            expirer.ObjectExpirer(vals, swift=self.fake_swift)
+        self.assertIn(expected_msg, str(ctx.exception))
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
-        self.assertEqual(str(ctx.exception), expected_msg)
+            x.override_proceses_config_from_command_line(**vals)
+        self.assertIn(expected_msg, str(ctx.exception))
 
-    def test_get_process_values_negative_processes(self):
+    def test_set_process_values_negative_processes(self):
         vals = {
             'processes': -5,
             'process': 1,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
-        expected_msg = 'processes must be an integer greater' \
-                       ' than or equal to 0'
+        expected_msg = 'must be a non-negative integer'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
-        self.assertEqual(str(ctx.exception), expected_msg)
+            expirer.ObjectExpirer(vals, swift=self.fake_swift)
+        self.assertIn(expected_msg, str(ctx.exception))
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
-        self.assertEqual(str(ctx.exception), expected_msg)
+            x.override_proceses_config_from_command_line(**vals)
+        self.assertIn(expected_msg, str(ctx.exception))
 
-    def test_get_process_values_process_greater_than_processes(self):
+    def test_set_process_values_process_greater_than_processes(self):
         vals = {
             'processes': 5,
             'process': 7,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
         expected_msg = 'process must be less than processes'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
+            x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
         self.assertEqual(str(ctx.exception), expected_msg)
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
+            x.override_proceses_config_from_command_line(**vals)
         self.assertEqual(str(ctx.exception), expected_msg)
 
-    def test_get_process_values_process_equal_to_processes(self):
+    def test_set_process_values_process_equal_to_processes(self):
         vals = {
             'processes': 5,
             'process': 5,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
         expected_msg = 'process must be less than processes'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
+            expirer.ObjectExpirer(vals, swift=self.fake_swift)
         self.assertEqual(str(ctx.exception), expected_msg)
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
+            x.override_proceses_config_from_command_line(**vals)
         self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_valid_delay_reaping(self):
@@ -1374,6 +1367,61 @@ class TestObjectExpirer(TestCase):
         log_args, log_kwargs = x.logger.log_dict['error'][0]
         self.assertEqual(str(log_kwargs['exc_info'][1]),
                          'exception 1')
+
+    def test_run_forever_bad_process_values_config(self):
+        conf = {
+            'processes': -1,
+            'process': -2,
+            'interval': 1,
+        }
+        iterations = [0]
+
+        def wrap_with_exit(orig_f, exit_after_count=3):
+            def wrapped_f(*args, **kwargs):
+                iterations[0] += 1
+                if iterations[0] > exit_after_count:
+                    raise SystemExit('that is enough for now')
+                return orig_f(*args, **kwargs)
+            return wrapped_f
+
+        with self.assertRaises(ValueError) as ctx:
+            # we should blow up here
+            x = expirer.ObjectExpirer(conf, logger=self.logger,
+                                      swift=self.fake_swift)
+            x.pop_queue = lambda a, c, o: None
+            x.run_once = wrap_with_exit(x.run_once)
+            # at least we should hopefully we blow up here?
+            x.run_forever()
+
+        # bad config should exit immediately with ValueError
+        self.assertIn('must be a non-negative integer', str(ctx.exception))
+
+    def test_run_forever_bad_process_values_command_line(self):
+        conf = {
+            'interval': 1,
+        }
+        bad_kwargs = {
+            'processes': -1,
+            'process': -2,
+        }
+        iterations = [0]
+
+        def wrap_with_exit(orig_f, exit_after_count=3):
+            def wrapped_f(*args, **kwargs):
+                iterations[0] += 1
+                if iterations[0] > exit_after_count:
+                    raise SystemExit('that is enough for now')
+                return orig_f(*args, **kwargs)
+            return wrapped_f
+
+        with self.assertRaises(ValueError) as ctx:
+            x = expirer.ObjectExpirer(conf, logger=self.logger,
+                                      swift=self.fake_swift)
+            x.run_once = wrap_with_exit(x.run_once)
+            x.run_forever(**bad_kwargs)
+
+        # bad command args should exit immediately with ValueError
+        self.assertIn('must be a non-negative integer', str(ctx.exception))
 
     def test_delete_actual_object(self):
         got_env = [None]
