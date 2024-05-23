@@ -33,6 +33,18 @@ def config_true_value(value):
         (isinstance(value, six.string_types) and value.lower() in TRUE_VALUES)
 
 
+def _non_negative_number(value, expected_type_f=float,
+                         expected_type_description='float number'):
+    try:
+        value = expected_type_f(value)
+        if value < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError('Value must be a non-negative %s, not "%s".'
+                         % (expected_type_description, value))
+    return value
+
+
 def non_negative_float(value):
     """
     Check that the value casts to a float and is non-negative.
@@ -41,14 +53,7 @@ def non_negative_float(value):
     :raises ValueError: if the value cannot be cast to a float or is negative.
     :return: a float
     """
-    try:
-        value = float(value)
-        if value < 0:
-            raise ValueError
-    except (TypeError, ValueError):
-        raise ValueError('Value must be a non-negative float number, not "%s".'
-                         % value)
-    return value
+    return _non_negative_number(value)
 
 
 def non_negative_int(value):
@@ -60,10 +65,8 @@ def non_negative_int(value):
         represent a whole number.
     :return: an int
     """
-    int_value = int(value)
-    if int_value != non_negative_float(value):
-        raise ValueError
-    return int_value
+    return _non_negative_number(value, expected_type_f=int,
+                                expected_type_description='integer')
 
 
 def config_positive_int_value(value):
