@@ -199,11 +199,10 @@ configuration steps are required:
 
 import json
 import os
-from cgi import parse_header
 
 from swift.common.utils import get_logger, split_path, \
     MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible, \
-    config_true_value, drain_and_close
+    config_true_value, drain_and_close, parse_header
 from swift.common.registry import register_swift_info
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest, \
@@ -289,7 +288,7 @@ def _validate_and_prep_request_headers(req):
             request=req, content_type='text/plain')
     etag = normalize_etag(req.headers.get(TGT_ETAG_SYMLINK_HDR, None))
     if etag and any(c in etag for c in ';"\\'):
-        # See cgi.parse_header for why the above chars are problematic
+        # See utils.parse_header for why the above chars are problematic
         raise HTTPBadRequest(
             body='Bad %s format' % TGT_ETAG_SYMLINK_HDR.title(),
             request=req, content_type='text/plain')

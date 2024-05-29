@@ -147,7 +147,6 @@ import itertools
 import json
 import time
 
-from cgi import parse_header
 from urllib.parse import unquote
 
 from swift.common.constraints import MAX_FILE_SIZE, valid_api_version, \
@@ -169,7 +168,7 @@ from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import get_logger, Timestamp, drain_and_close, \
     config_true_value, close_if_possible, closing_if_possible, \
-    FileLikeIter, split_path, parse_content_type, RESERVED_STR
+    FileLikeIter, split_path, parse_content_type, parse_header, RESERVED_STR
 from swift.common.wsgi import WSGIContext, make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 

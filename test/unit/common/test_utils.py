@@ -1853,6 +1853,77 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(
             utils.parse_content_type(r'text/plain; x="\""; a'),
             ('text/plain', [('x', r'"\""'), ('a', '')]))
+        self.assertEqual(
+            utils.parse_content_type(r'text/plain; x=a/b; y'),
+            ('text/plain', [('x', 'a'), ('y', '')]))
+
+        self.assertEqual(
+            utils.parse_content_type(r'text/plain; x=a/b; y', strict=True),
+            ('text/plain', [('x', 'a'), ('y', '')]))
+        self.assertEqual(
+            utils.parse_content_type(r'text/plain; x=a/b; y', strict=False),
+            ('text/plain', [('x', 'a/b'), ('y', '')]))
+
+    def test_parse_header(self):
+        self.assertEqual(
+            utils.parse_header('text/plain'), ('text/plain', {}))
+        self.assertEqual(
+            utils.parse_header('text/plain;'), ('text/plain', {}))
+        self.assertEqual(
+            utils.parse_header(r'text/plain; x=a/b; y  =  z'),
+            ('text/plain', {'x': 'a/b', 'y': 'z'}))
+        self.assertEqual(
+            utils.parse_header(r'text/plain; x=a/b; y'),
+            ('text/plain', {'x': 'a/b', 'y': ''}))
+        self.assertEqual(
+            utils.parse_header('etag; x=a/b; y'),
+            ('etag', {'x': 'a/b', 'y': ''}))
+
+    def test_parse_headers_chars_in_params(self):
+        def do_test(val):
+            self.assertEqual(
+                utils.parse_header('text/plain; x=a%sb' % val),
+                ('text/plain', {'x': 'a%sb' % val}))
+
+        do_test('\N{SNOWMAN}')
+        do_test('\\')
+        do_test('%')
+        do_test('-')
+        do_test('-')
+        do_test('&')
+        # wsgi_quote'd null character is ok...
+        do_test('%00')
+
+    def test_parse_header_non_token_chars_in_params(self):
+        def do_test(val):
+            # character terminates individual param parsing...
+            self.assertEqual(
+                utils.parse_header('text/plain; x=a%sb; y=z' % val),
+                ('text/plain', {'x': 'a', 'y': 'z'}),
+                'val=%s' % val
+            )
+
+        non_token_chars = '()<>@,:[]?={}\x00"'
+
+        for ch in non_token_chars:
+            do_test(ch)
+
+        do_test(' space  oddity ')
+
+    def test_parse_header_quoted_string_in_params(self):
+        def do_test(val):
+            self.assertEqual(
+                utils.parse_header('text/plain; x="%s"; y=z' % val),
+                ('text/plain', {'x': '"%s"' % val, 'y': 'z'}),
+                'val=%s' % val
+            )
+
+        non_token_chars = '()<>@,:[]?={}\x00'
+
+        for ch in non_token_chars:
+            do_test(ch)
+
+        do_test(' space  oddity ')
 
     def test_override_bytes_from_content_type(self):
         listing_dict = {
