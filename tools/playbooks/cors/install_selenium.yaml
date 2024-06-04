@@ -7,7 +7,7 @@
         state: present
     - name: install selenium
       pip:
-        name: selenium
+        name: 'selenium<4'
         state: present
     - name: install firefox
       yum:
