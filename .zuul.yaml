@@ -46,11 +46,6 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-py36-centos-8-stream
-    parent: swift-tox-py36
-    nodeset: centos-8-stream
-
-- job:
     name: swift-tox-py37
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -285,13 +280,13 @@
     name: swift-tox-func-s3api-ceph-s3tests-tempauth
     parent: unittests
     voting: false
-    nodeset: centos-8-stream
+    nodeset: centos-9-stream
     description: |
       Setup a SAIO dev environment and run ceph-s3tests
     timeout: 5400
     vars:
       s3_acl: yes
-      bindep_profile: test py36
+      bindep_profile: test py39
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -306,13 +301,13 @@
 - job:
     name: swift-tox-func-s3api-tests-tempauth
     parent: unittests
-    nodeset: centos-8-stream
+    nodeset: centos-9-stream
     description: |
       Setup a SAIO dev environment and run our s3api test suite
     timeout: 1800
     vars:
       s3_acl: yes
-      bindep_profile: test py36
+      bindep_profile: test py39
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -324,15 +319,15 @@
       - tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-probetests-centos-8-stream
+    name: swift-probetests-centos-9-stream
     parent: unittests
-    nodeset: centos-8-stream
+    nodeset: centos-9-stream
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
       under Python 3.
     timeout: 7200
     vars:
-      bindep_profile: test py36
+      bindep_profile: test py39
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -341,12 +336,12 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-probetests-centos-8-stream-arm64
-    parent: swift-probetests-centos-8-stream
+    name: swift-probetests-centos-9-stream-arm64
+    parent: swift-probetests-centos-9-stream
     nodeset:
       nodes:
-        - name: swift-centos-8-stream-arm64
-          label: centos-8-stream-arm64
+        - name: swift-centos-9-stream-arm64
+          label: centos-9-stream-arm64
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
       under Python 3 on top of arm64 architecture.
@@ -354,7 +349,7 @@
 
 - job:
     name: swift-func-cors
-    parent: swift-probetests-centos-8-stream
+    parent: swift-probetests-centos-9-stream
     description: |
       Setup a SAIO dev environment and run Swift's CORS functional tests
     timeout: 1200
@@ -367,18 +362,18 @@
     post-run: tools/playbooks/cors/post.yaml
 
 - nodeset:
-    name: swift-five-nodes-py3
+    name: swift-five-nodes-centos-9
     nodes:
       - name: test-runner1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: proxy1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: account1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: container1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: object1
-        label: centos-8-stream
+        label: centos-9-stream
     groups:
       - name: test-runner
         nodes:
@@ -410,12 +405,12 @@
 - job:
     name: swift-multinode-rolling-upgrade
     parent: multinode
-    nodeset: swift-five-nodes-py3
+    nodeset: swift-five-nodes-centos-9
     description: |
       Build a 4 node swift cluster and run functional tests
     timeout: 5400
     vars:
-      bindep_profile: test py36
+      bindep_profile: test py39
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
       - tools/playbooks/common/install_dependencies.yaml
@@ -424,12 +419,6 @@
       - tools/playbooks/multinode_setup/make_rings.yaml
     run: tools/playbooks/multinode_setup/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
-
-- job:
-    name: swift-multinode-rolling-upgrade-victoria
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/unmaintained/victoria
 
 - job:
     name: swift-multinode-rolling-upgrade-wallaby
@@ -716,7 +705,7 @@
         - swift-tox-func-ec-py38
         - swift-func-cors
         - swift-tox-func-s3api-tests-tempauth
-        - swift-probetests-centos-8-stream:
+        - swift-probetests-centos-9-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
@@ -735,11 +724,9 @@
       jobs:
         - swift-tox-py37
         - swift-tox-py38
-        - swift-tox-py36-centos-8-stream
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
         - swift-tox-func-ec-py39-centos-9-stream
-        - swift-multinode-rolling-upgrade-victoria
         - swift-multinode-rolling-upgrade-wallaby
         - swift-multinode-rolling-upgrade-xena
         - swift-multinode-rolling-upgrade-master:

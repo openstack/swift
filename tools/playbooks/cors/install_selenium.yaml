@@ -5,9 +5,15 @@
       yum:
         name: xorg-x11-server-Xvfb
         state: present
+    # Note that more recent branches would require boto3, which would
+    # (eventually) enforce a similar version cap on urllib3
+    - name: cap urllib3
+      pip:
+        name: 'urllib3<2'
+        state: present
     - name: install selenium
       pip:
-        name: selenium
+        name: 'selenium<4'
         state: present
     - name: install firefox
       yum:

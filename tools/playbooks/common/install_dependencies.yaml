@@ -24,13 +24,13 @@
         name: pip<21
         extra_args: --upgrade
 
-    - name: install rsync-daemon - CentOS 8
+    - name: install rsync-daemon - CentOS 8, 9
       package:
         name: rsync-daemon
         state: present
       when:
         - ansible_facts['distribution'] == "CentOS"
-        - ansible_facts['distribution_major_version'] == "8"
+        - ansible_facts['distribution_major_version'] != "7"
 
     - name: install python modules with pip
       pip: name={{ item }} state=present extra_args='--upgrade'
