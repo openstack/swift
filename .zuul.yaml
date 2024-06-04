@@ -46,11 +46,6 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-py36-centos-8-stream
-    parent: swift-tox-py36
-    nodeset: centos-8-stream
-
-- job:
     name: swift-tox-py37
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -135,22 +130,22 @@
       python_version: 3.7
 
 - job:
-    name: swift-tox-func-py36-centos-8-stream
-    parent: swift-tox-func-py37
-    nodeset: centos-8-stream
+    name: swift-tox-func-py39-centos-9-stream
+    parent: swift-tox-func-py38
+    nodeset: centos-9-stream
     vars:
-      bindep_profile: test py36
-      python_version: 3.6
+      bindep_profile: test py39
+      python_version: 3.9
 
 - job:
-    name: swift-tox-func-encryption-py36-centos-8-stream
-    parent: swift-tox-func-py36-centos-8-stream
+    name: swift-tox-func-encryption-py39-centos-9-stream
+    parent: swift-tox-func-py39-centos-9-stream
     vars:
       tox_envlist: func-encryption-py3
 
 - job:
-    name: swift-tox-func-ec-py36-centos-8-stream
-    parent: swift-tox-func-py36-centos-8-stream
+    name: swift-tox-func-ec-py39-centos-9-stream
+    parent: swift-tox-func-py39-centos-9-stream
     vars:
       tox_envlist: func-ec-py3
 
@@ -245,15 +240,15 @@
         SERVICE_HOST: ""
 
 - job:
-    name: swift-probetests-centos-8-stream
+    name: swift-probetests-centos-9-stream
     parent: unittests
-    nodeset: centos-8-stream
+    nodeset: centos-9-stream
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
       under Python 3.
     timeout: 7200
     vars:
-      bindep_profile: test py36
+      bindep_profile: test py39
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -263,7 +258,7 @@
 
 - job:
     name: swift-func-cors
-    parent: swift-probetests-centos-8-stream
+    parent: swift-probetests-centos-9-stream
     description: |
       Setup a SAIO dev environment and run Swift's CORS functional tests
     timeout: 1200
@@ -276,18 +271,18 @@
     post-run: tools/playbooks/cors/post.yaml
 
 - nodeset:
-    name: swift-five-nodes-centos8
+    name: swift-five-nodes-centos-9
     nodes:
       - name: test-runner1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: proxy1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: account1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: container1
-        label: centos-8-stream
+        label: centos-9-stream
       - name: object1
-        label: centos-8-stream
+        label: centos-9-stream
     groups:
       - name: test-runner
         nodes:
@@ -319,10 +314,12 @@
 - job:
     name: swift-multinode-rolling-upgrade
     parent: multinode
-    nodeset: swift-five-nodes-centos8
+    nodeset: swift-five-nodes-centos-9
     description: |
       Build a 4 node swift cluster and run functional tests
     timeout: 5400
+    vars:
+      bindep_profile: test py39
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
       - tools/playbooks/common/install_dependencies.yaml
@@ -438,32 +435,32 @@
     vars: *swift_image_vars_py3
 
 - job:
-    name: swift-tox-func-py36-centos-8-stream-fips
-    parent: swift-tox-func-py36-centos-8-stream
+    name: swift-tox-func-py39-centos-9-stream-fips
+    parent: swift-tox-func-py39-centos-9-stream
     voting: false
     description: |
-      Functional testing on a FIPS enabled Centos 8 system
+      Functional testing on a FIPS enabled Centos 9 system
     vars:
       nslookup_target: 'opendev.org'
       enable_fips: true
 
 - job:
-    name: swift-tox-func-encryption-py36-centos-8-stream-fips
-    parent: swift-tox-func-encryption-py36-centos-8-stream
+    name: swift-tox-func-encryption-py39-centos-9-stream-fips
+    parent: swift-tox-func-encryption-py39-centos-9-stream
     voting: false
     description: |
       Functional encryption testing on a FIPS enabled
-      Centos 8 system
+      Centos 9 system
     vars:
       nslookup_target: 'opendev.org'
       enable_fips: true
 
 - job:
-    name: swift-tox-func-ec-py36-centos-8-stream-fips
-    parent: swift-tox-func-ec-py36-centos-8-stream
+    name: swift-tox-func-ec-py39-centos-9-stream-fips
+    parent: swift-tox-func-ec-py39-centos-9-stream
     voting: false
     description: |
-      Functional EC testing on a FIPS enabled Centos 8 system
+      Functional EC testing on a FIPS enabled Centos 9 system
     vars:
       nslookup_target: 'opendev.org'
       enable_fips: true
@@ -478,14 +475,14 @@
       - release-notes-jobs-python3
     check:
       jobs:
-        - swift-tox-func-py36-centos-8-stream-fips:
+        - swift-tox-func-py39-centos-9-stream-fips:
             irrelevant-files: &functest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(cors|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-encryption-py36-centos-8-stream-fips:
+        - swift-tox-func-encryption-py39-centos-9-stream-fips:
             irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-ec-py36-centos-8-stream-fips:
+        - swift-tox-func-ec-py39-centos-9-stream-fips:
             irrelevant-files: *functest-irrelevant-files
         - swift-build-image:
             irrelevant-files: &docker-irrelevant-files
@@ -598,7 +595,7 @@
         - swift-tox-func-py37
         - swift-tox-func-encryption-py37
         - swift-tox-func-ec-py37
-        - swift-probetests-centos-8-stream:
+        - swift-probetests-centos-9-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
@@ -617,11 +614,9 @@
             voting: false
     experimental:
       jobs:
-        - swift-tox-py36-centos-8-stream
-        - swift-tox-func-py36-centos-8-stream
-        - swift-tox-func-encryption-py36-centos-8-stream
-        - swift-tox-func-ec-py36-centos-8-stream
-        - swift-multinode-rolling-upgrade-victoria
+        - swift-tox-func-py39-centos-9-stream
+        - swift-tox-func-encryption-py39-centos-9-stream
+        - swift-tox-func-ec-py39-centos-9-stream
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
