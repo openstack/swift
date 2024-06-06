@@ -149,6 +149,7 @@ from six.moves.urllib.parse import parse_qs
 from swift.common.constraints import valid_api_version
 from swift.common.middleware.listing_formats import \
     MAX_CONTAINER_LISTING_CONTENT_LENGTH
+from swift.common.request_helpers import append_log_info
 from swift.common.wsgi import PipelineWrapper, loadcontext, WSGIContext
 
 from swift.common.middleware import app_property
@@ -353,6 +354,7 @@ class S3ApiMiddleware(object):
             self.logger.debug(e.cause)
         except ErrorResponse as err_resp:
             self.logger.increment(err_resp.metric_name)
+            append_log_info(env, 's3:err:%s' % err_resp.summary)
             if isinstance(err_resp, InternalError):
                 self.logger.exception(err_resp)
             resp = err_resp
