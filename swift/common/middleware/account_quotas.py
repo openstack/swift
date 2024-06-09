@@ -18,15 +18,29 @@
 given account quota (in bytes) is exceeded while DELETE requests are still
 allowed.
 
-``account_quotas`` uses the ``x-account-meta-quota-bytes`` metadata entry to
-store the overall account quota. Write requests to this metadata entry are
-only permitted for resellers. There is no overall account quota limit if
-``x-account-meta-quota-bytes`` is not set.
+``account_quotas`` uses the following metadata entries to store the account
+quota
 
-Additionally, account quotas may be set for each storage policy, using metadata
-of the form ``x-account-quota-bytes-policy-<policy name>``. Again, only
-resellers may update these metadata, and there will be no limit for a
-particular policy if the corresponding metadata is not set.
++---------------------------------------------+-------------------------------+
+|Metadata                                     | Use                           |
++=============================================+===============================+
+| X-Account-Meta-Quota-Bytes                  | Maximum overall bytes stored  |
+|                                             | in account across containers. |
++---------------------------------------------+-------------------------------+
+| X-Account-Meta-Quota-Count                  | Maximum object count under    |
+|                                             | account.                      |
++---------------------------------------------+-------------------------------+
+
+
+Write requests to those metadata entries are only permitted for resellers.
+There is no overall byte or object count limit set if the corresponding
+metadata entries are not set.
+
+Additionally, account quotas, of type quota-bytes or quota-count, may be set
+for each storage policy, using metadata of the form ``x-account-<quota type>-\
+policy-<policy name>``. Again, only resellers may update these metadata, and
+there will be no limit for a particular policy if the corresponding metadata
+is not set.
 
 .. note::
    Per-policy quotas need not sum to the overall account quota, and the sum of
@@ -78,45 +92,50 @@ class AccountQuotaMiddleware(object):
     def __init__(self, app, *args, **kwargs):
         self.app = app
 
+    def validate_and_translate_quotas(self, request, quota_type):
+        new_quotas = {}
+        new_quotas[None] = request.headers.get(
+            'X-Account-Meta-%s' % quota_type)
+        if request.headers.get(
+                'X-Remove-Account-Meta-%s' % quota_type):
+            new_quotas[None] = 0  # X-Remove dominates if both are present
+
+        for policy in POLICIES:
+            tail = 'Account-%s-Policy-%s' % (quota_type, policy.name)
+            if request.headers.get('X-Remove-' + tail):
+                new_quotas[policy.idx] = 0
+            else:
+                quota = request.headers.pop('X-' + tail, None)
+                new_quotas[policy.idx] = quota
+
+        if request.environ.get('reseller_request') is True:
+            if any(quota and not quota.isdigit()
+                    for quota in new_quotas.values()):
+                raise HTTPBadRequest()
+            for idx, quota in new_quotas.items():
+                if idx is None:
+                    continue  # For legacy reasons, it's in user meta
+                hdr = 'X-Account-Sysmeta-%s-Policy-%d' % (quota_type, idx)
+                request.headers[hdr] = quota
+        elif any(quota is not None for quota in new_quotas.values()):
+            # deny quota set for non-reseller
+            raise HTTPForbidden()
+
     def handle_account(self, request):
         if request.method in ("POST", "PUT"):
             # account request, so we pay attention to the quotas
-            new_quotas = {}
-            new_quotas[None] = request.headers.get(
-                'X-Account-Meta-Quota-Bytes')
-            if request.headers.get(
-                    'X-Remove-Account-Meta-Quota-Bytes'):
-                new_quotas[None] = 0  # X-Remove dominates if both are present
-
-            for policy in POLICIES:
-                tail = 'Account-Quota-Bytes-Policy-%s' % policy.name
-                if request.headers.get('X-Remove-' + tail):
-                    new_quotas[policy.idx] = 0
-                else:
-                    quota = request.headers.pop('X-' + tail, None)
-                    new_quotas[policy.idx] = quota
-
-            if request.environ.get('reseller_request') is True:
-                if any(quota and not quota.isdigit()
-                       for quota in new_quotas.values()):
-                    return HTTPBadRequest()
-                for idx, quota in new_quotas.items():
-                    if idx is None:
-                        continue  # For legacy reasons, it's in user meta
-                    hdr = 'X-Account-Sysmeta-Quota-Bytes-Policy-%d' % idx
-                    request.headers[hdr] = quota
-            elif any(quota is not None for quota in new_quotas.values()):
-                # deny quota set for non-reseller
-                return HTTPForbidden()
-
+            self.validate_and_translate_quotas(request, "Quota-Bytes")
+            self.validate_and_translate_quotas(request, "Quota-Count")
         resp = request.get_response(self.app)
         # Non-resellers can't update quotas, but they *can* see them
         for policy in POLICIES:
-            infix = 'Quota-Bytes-Policy'
-            value = resp.headers.get('X-Account-Sysmeta-%s-%d' % (
-                infix, policy.idx))
-            if value:
-                resp.headers['X-Account-%s-%s' % (infix, policy.name)] = value
+            infixes = ('Quota-Bytes-Policy', 'Quota-Count-Policy')
+            for infix in infixes:
+                value = resp.headers.get('X-Account-Sysmeta-%s-%d' % (
+                    infix, policy.idx))
+                if value:
+                    resp.headers['X-Account-%s-%s' % (
+                        infix, policy.name)] = value
         return resp
 
     @wsgify
@@ -148,6 +167,8 @@ class AccountQuotaMiddleware(object):
                                         swift_source='AQ')
         if not account_info:
             return self.app
+
+        # Check for quota byte violation
         try:
             quota = int(account_info['meta'].get('quota-bytes', -1))
         except ValueError:
@@ -168,11 +189,34 @@ class AccountQuotaMiddleware(object):
                 else:
                     return resp
 
+        # Check for quota count violation
+        try:
+            quota = int(account_info['meta'].get('quota-count', -1))
+        except ValueError:
+            quota = -1
+        if quota >= 0:
+            new_count = int(account_info['total_object_count']) + 1
+            if quota < new_count:
+                resp = HTTPRequestEntityTooLarge(body='Upload exceeds quota.')
+                if 'swift.authorize' in request.environ:
+                    orig_authorize = request.environ['swift.authorize']
+
+                    def reject_authorize(*args, **kwargs):
+                        aresp = orig_authorize(*args, **kwargs)
+                        if aresp:
+                            return aresp
+                        return resp
+                    request.environ['swift.authorize'] = reject_authorize
+                else:
+                    return resp
+
         container_info = get_container_info(request.environ, self.app,
                                             swift_source='AQ')
         if not container_info:
             return self.app
         policy_idx = container_info['storage_policy']
+
+        # Check quota-byte per policy
         sysmeta_key = 'quota-bytes-policy-%s' % policy_idx
         try:
             policy_quota = int(account_info['sysmeta'].get(sysmeta_key, -1))
@@ -181,6 +225,30 @@ class AccountQuotaMiddleware(object):
         if policy_quota >= 0:
             policy_stats = account_info['storage_policies'].get(policy_idx, {})
             new_size = int(policy_stats.get('bytes', 0)) + content_length
+            if policy_quota < new_size:
+                resp = HTTPRequestEntityTooLarge(
+                    body='Upload exceeds policy quota.')
+                if 'swift.authorize' in request.environ:
+                    orig_authorize = request.environ['swift.authorize']
+
+                    def reject_authorize(*args, **kwargs):
+                        aresp = orig_authorize(*args, **kwargs)
+                        if aresp:
+                            return aresp
+                        return resp
+                    request.environ['swift.authorize'] = reject_authorize
+                else:
+                    return resp
+
+        # Check quota-count per policy
+        sysmeta_key = 'quota-count-policy-%s' % policy_idx
+        try:
+            policy_quota = int(account_info['sysmeta'].get(sysmeta_key, -1))
+        except ValueError:
+            policy_quota = -1
+        if policy_quota >= 0:
+            policy_stats = account_info['storage_policies'].get(policy_idx, {})
+            new_size = int(policy_stats.get('object_count', 0)) + 1
             if policy_quota < new_size:
                 resp = HTTPRequestEntityTooLarge(
                     body='Upload exceeds policy quota.')
