@@ -34,7 +34,7 @@ class KmsKeyMaster(BaseKeyMaster):
                       'domain_id', 'domain_name', 'project_id',
                       'project_domain_id', 'reauthenticate',
                       'auth_endpoint', 'api_class', 'key_id*',
-                      'active_root_secret_id')
+                      'barbican_endpoint', 'active_root_secret_id')
     keymaster_conf_section = 'kms_keymaster'
 
     def _get_root_secret(self, conf):
@@ -67,6 +67,7 @@ class KmsKeyMaster(BaseKeyMaster):
         oslo_conf = cfg.ConfigOpts()
         options.set_defaults(
             oslo_conf, auth_endpoint=conf.get('auth_endpoint'),
+            barbican_endpoint=conf.get('barbican_endpoint'),
             api_class=conf.get('api_class')
         )
         options.enable_logging()
