@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from time import time
 from unittest import main, TestCase
 from test.debug_logger import debug_logger
@@ -29,7 +30,7 @@ from six.moves import urllib
 
 from swift.common import internal_client, utils, swob
 from swift.common.utils import Timestamp
-from swift.obj import expirer
+from swift.obj import expirer, diskfile
 
 
 def not_random():
@@ -93,6 +94,112 @@ class FakeInternalClient(object):
 
     def delete_object(*a, **kw):
         pass
+
+
+class TestExpirerHelpers(TestCase):
+
+    def test_add_expirer_bytes_to_ctype(self):
+        self.assertEqual(
+            'text/plain;swift_expirer_bytes=10',
+            expirer.embed_expirer_bytes_in_ctype(
+                'text/plain', {'Content-Length': 10}))
+        self.assertEqual(
+            'text/plain;some_foo=bar;swift_expirer_bytes=10',
+            expirer.embed_expirer_bytes_in_ctype(
+                'text/plain;some_foo=bar', {'Content-Length': '10'}))
+        # you could probably make a case it'd be better to replace an existing
+        # value if the swift_expirer_bytes key already exists in the content
+        # type; but in the only case we use this function currently the content
+        # type is hard coded to text/plain
+        self.assertEqual(
+            'text/plain;some_foo=bar;swift_expirer_bytes=10;'
+            'swift_expirer_bytes=11',
+            expirer.embed_expirer_bytes_in_ctype(
+                'text/plain;some_foo=bar;swift_expirer_bytes=10',
+                {'Content-Length': '11'}))
+
+    def test_extract_expirer_bytes_from_ctype(self):
+        self.assertEqual(10, expirer.extract_expirer_bytes_from_ctype(
+            'text/plain;swift_expirer_bytes=10'))
+        self.assertEqual(10, expirer.extract_expirer_bytes_from_ctype(
+            'text/plain;swift_expirer_bytes=10;some_foo=bar'))
+
+    def test_inverse_add_extract_bytes_from_ctype(self):
+        ctype_bytes = [
+            ('null', 0),
+            ('text/plain', 10),
+            ('application/octet-stream', 42),
+            ('application/json', 512),
+            ('gzip', 1000044),
+        ]
+        for ctype, expirer_bytes in ctype_bytes:
+            embedded_ctype = expirer.embed_expirer_bytes_in_ctype(
+                ctype, {'Content-Length': expirer_bytes})
+            found_bytes = expirer.extract_expirer_bytes_from_ctype(
+                embedded_ctype)
+            self.assertEqual(expirer_bytes, found_bytes)
+
+    def test_add_invalid_expirer_bytes_to_ctype(self):
+        self.assertRaises(TypeError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill', None)
+        self.assertRaises(TypeError,
+                          expirer.embed_expirer_bytes_in_ctype, 'bar', 'foo')
+        self.assertRaises(KeyError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill', {})
+        self.assertRaises(TypeError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill',
+                          {'Content-Length': None})
+        self.assertRaises(ValueError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill',
+                          {'Content-Length': 'foo'})
+        # perhaps could be an error
+        self.assertEqual(
+            'weird/float;swift_expirer_bytes=15',
+            expirer.embed_expirer_bytes_in_ctype('weird/float',
+                                                 {'Content-Length': 15.9}))
+
+    def test_embed_expirer_bytes_from_diskfile_metadata(self):
+        self.logger = debug_logger('test-expirer')
+        self.ts = make_timestamp_iter()
+        self.devices = mkdtemp()
+        self.conf = {
+            'mount_check': 'false',
+            'devices': self.devices,
+        }
+        self.df_mgr = diskfile.DiskFileManager(self.conf, logger=self.logger)
+        utils.mkdirs(os.path.join(self.devices, 'sda1'))
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o', policy=0)
+
+        ts = next(self.ts)
+        with df.create() as writer:
+            writer.write(b'test')
+            writer.put({
+                # wrong key/case here would KeyError
+                'X-Timestamp': ts.internal,
+                # wrong key/case here would cause quarantine on read
+                'Content-Length': '4',
+            })
+
+        metadata = df.read_metadata()
+        # the Content-Type in the metadata is irrelevant; this method is used
+        # to create the content_type of an expirer queue task object
+        embeded_ctype_entry = expirer.embed_expirer_bytes_in_ctype(
+            'text/plain', metadata)
+        self.assertEqual('text/plain;swift_expirer_bytes=4',
+                         embeded_ctype_entry)
+
+    def test_extract_missing_bytes_from_ctype(self):
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype('text/plain'))
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype(
+                'text/plain;swift_bytes=10'))
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype(
+                'text/plain;bytes=21'))
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype(
+                'text/plain;some_foo=bar;other-baz=buz'))
 
 
 class TestObjectExpirer(TestCase):
