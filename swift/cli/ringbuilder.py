@@ -22,9 +22,11 @@ from itertools import islice
 from operator import itemgetter
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
+import sys
 from sys import argv as sys_argv, exit, stderr, stdout
 from textwrap import wrap
 from time import time
+import traceback
 from datetime import timedelta
 import optparse
 import math
@@ -1698,3 +1700,25 @@ def main(arguments=None):
             exit(2)
     else:
         getattr(Commands, command, Commands.unknown)()
+
+
+def error_handling_main():
+    # We exit code 1 on WARNING statuses, 2 on ERROR. This means we need
+    # to handle any uncaught exceptions by printing the usual backtrace,
+    # but then exiting 2 (not 1 as is usual for a python
+    # exception).
+
+    # We *don't* want to do this in main(), however, because we don't want to
+    # pollute the test environment or cause a bunch of test churn to mock out
+    # sys.excepthook
+
+    def exit_with_status_two(tp, val, tb):
+        traceback.print_exception(tp, val, tb)
+        exit(2)
+
+    sys.excepthook = exit_with_status_two
+    main()
+
+
+if __name__ == '__main__':
+    error_handling_main()

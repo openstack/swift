@@ -12,10 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.container.reconciler import ContainerReconciler
-from swift.common.utils import parse_options
-from swift.common.daemon import run_daemon
+from swift.container import reconciler
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(once=True)
-    run_daemon(ContainerReconciler, conf_file, **options)
+    reconciler.main()

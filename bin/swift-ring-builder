@@ -14,24 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import sys
-import traceback
-
-# We exit code 1 on WARNING statuses, 2 on ERROR. This means we need
-# to handle any uncaught exceptions by printing the usual backtrace,
-# but then exiting 2 (not 1 as is usual for a python
-# exception).
-
-
-def exit_with_status_two(tp, val, tb):
-    traceback.print_exception(tp, val, tb)
-    sys.exit(2)
-
-
-sys.excepthook = exit_with_status_two
-
-from swift.cli.ringbuilder import main
+from swift.cli.ringbuilder import error_handling_main
 
 if __name__ == "__main__":
-    sys.exit(main())
+    error_handling_main()

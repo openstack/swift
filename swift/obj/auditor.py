@@ -18,6 +18,7 @@ import os
 import sys
 import time
 import signal
+from optparse import OptionParser
 from os.path import basename, dirname, join
 from random import shuffle
 from contextlib import closing
@@ -26,12 +27,13 @@ from eventlet import Timeout
 from swift.obj import diskfile, replicator
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileDeleted, DiskFileExpired, QuarantineRequest
-from swift.common.daemon import Daemon
+from swift.common.daemon import Daemon, run_daemon
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import (
     config_auto_int_value, dump_recon_cache, get_logger, list_from_csv,
     listdir, load_pkg_resource, parse_prefixed_conf, EventletRateLimiter,
-    readconf, round_robin_iter, unlink_paths_older_than, PrefixLoggerAdapter)
+    readconf, round_robin_iter, unlink_paths_older_than, PrefixLoggerAdapter,
+    parse_options)
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 
 
@@ -537,3 +539,17 @@ class WatcherWrapper(object):
         except (Exception, Timeout):
             self.logger.exception('Error ending watcher')
             self.watcher_in_error = True
+
+
+def main():
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-z', '--zero_byte_fps',
+                      help='Audit only zero byte files at specified files/sec')
+    parser.add_option('-d', '--devices',
+                      help='Audit only given devices. Comma-separated list')
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(ObjectAuditor, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

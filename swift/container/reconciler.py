@@ -22,7 +22,7 @@ from eventlet import GreenPile, GreenPool, Timeout
 import six
 
 from swift.common import constraints
-from swift.common.daemon import Daemon
+from swift.common.daemon import Daemon, run_daemon
 from swift.common.direct_client import (
     direct_head_container, direct_delete_container_object,
     direct_put_container_object, ClientException)
@@ -31,7 +31,7 @@ from swift.common.request_helpers import MISPLACED_OBJECTS_ACCOUNT, \
     USE_REPLICATION_NETWORK_HEADER
 from swift.common.utils import get_logger, split_path, majority_size, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
-    LRUCache, decode_timestamps, hash_path
+    LRUCache, decode_timestamps, hash_path, parse_options
 from swift.common.storage_policy import POLICIES
 
 MISPLACED_OBJECTS_CONTAINER_DIVISOR = 3600  # 1 hour
@@ -860,3 +860,12 @@ class ContainerReconciler(Daemon):
             self.stats = defaultdict(int)
             self.logger.info('sleeping between intervals (%ss)', self.interval)
             time.sleep(self.interval)
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(ContainerReconciler, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

@@ -32,8 +32,8 @@ from swift.common.exceptions import ConnectionTimeout, LockTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, majority_size, Timestamp, EventletRateLimiter, \
-    eventlet_monkey_patch, node_to_string
-from swift.common.daemon import Daemon
+    eventlet_monkey_patch, node_to_string, parse_options
+from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 from swift.common.recon import RECON_CONTAINER_FILE, DEFAULT_RECON_CACHE_PATH
 
@@ -357,3 +357,12 @@ class ContainerUpdater(Daemon):
                 return HTTP_INTERNAL_SERVER_ERROR
             finally:
                 conn.close()
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(ContainerUpdater, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

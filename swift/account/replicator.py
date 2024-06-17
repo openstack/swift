@@ -13,8 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import optparse
+
 from swift.account.backend import AccountBroker, DATADIR
 from swift.common import db_replicator
+from swift.common.daemon import run_daemon
+from swift.common.utils import parse_options
 
 
 class AccountReplicator(db_replicator.Replicator):
@@ -22,3 +26,21 @@ class AccountReplicator(db_replicator.Replicator):
     brokerclass = AccountBroker
     datadir = DATADIR
     default_port = 6202
+
+
+def main():
+    parser = optparse.OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help=('Replicate only given devices. '
+                            'Comma-separated list. '
+                            'Only has effect if --once is used.'))
+    parser.add_option('-p', '--partitions',
+                      help=('Replicate only given partitions. '
+                            'Comma-separated list. '
+                            'Only has effect if --once is used.'))
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(AccountReplicator, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()
