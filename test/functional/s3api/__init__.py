@@ -24,6 +24,10 @@ import os
 import test.functional as tf
 from test.functional.s3api.s3_test_client import (
     Connection, get_boto3_conn, tear_down_s3)
+try:
+    import boto
+except ImportError:
+    boto = None
 
 
 def setUpModule():
@@ -52,6 +56,8 @@ class S3ApiBase(unittest.TestCase):
             raise SkipTest('no s3api user configured')
         if 's3api' not in tf.cluster_info:
             raise SkipTest('s3api middleware is not enabled')
+        if boto is None:
+            raise SkipTest('boto 2.x library is not installed')
         if tf.config.get('account'):
             user_id = '%s:%s' % (tf.config['account'], tf.config['username'])
         else:
