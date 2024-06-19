@@ -93,6 +93,12 @@
 # domain_id = changeme
 # domain_name = changeme
 
+# If running on a multi-region cluster, Castellan may select the wrong
+# endpoint for Barbican. To avoid this, set this to the URL of the
+# correct barbican endpoint. If there is only a single Barbican service
+# in your deployment, it is fine to leave this unconfigured.
+# barbican_endpoint =
+
 [kmip_keymaster]
 # The kmip_keymaster section is used to configure a keymaster that fetches an
 # encryption root secret from a KMIP service.

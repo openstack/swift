@@ -7179,3 +7179,113 @@ class TestModuleFunctions(unittest.TestCase):
         self.assertIn(sr1, to_add)
         self.assertIn(sr2, to_add)
         self.assertEqual({'a/o'}, to_delete)
+
+
+class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
+
+    def setUp(self):
+        super(TestExpirerBytesCtypeTimestamp, self).setUp()
+        self.ts = make_timestamp_iter()
+        self.policy = POLICIES.default
+
+    def _get_broker(self):
+        broker = ContainerBroker(self.db_path,
+                                 account='.expiring_objects',
+                                 container='1234')
+        broker.initialize(next(self.ts).internal, self.policy.idx)
+        return broker
+
+    def test_in_order_expirer_bytes_ctype(self):
+        broker = self._get_broker()
+
+        put1_ts = next(self.ts)
+        put2_ts = next(self.ts)
+        post_ts = next(self.ts)
+
+        broker.put_object(
+            '1234-a/c/o', post_ts.internal, 0,
+            'text/plain;swift_expirer_bytes=1',
+            'd41d8cd98f00b204e9800998ecf8427e',
+            storage_policy_index=self.policy.idx,
+            ctype_timestamp=put1_ts.internal)
+        broker.put_object(
+            '1234-a/c/o', post_ts.internal, 0,
+            'text/plain;swift_expirer_bytes=2',
+            'd41d8cd98f00b204e9800998ecf8427e',
+            storage_policy_index=self.policy.idx,
+            ctype_timestamp=put2_ts.internal)
+
+        self.assertEqual([{
+            'content_type': 'text/plain;swift_expirer_bytes=2',
+            'created_at': encode_timestamps(post_ts, put2_ts, put2_ts),
+            'deleted': 0,
+            'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            'name': '1234-a/c/o',
+            'size': 0,
+            'storage_policy_index': self.policy.idx,
+        }], broker.get_objects())
+
+    def test_out_of_order_expirer_bytes_ctype(self):
+        broker = self._get_broker()
+
+        put1_ts = next(self.ts)
+        put2_ts = next(self.ts)
+        post_ts = next(self.ts)
+
+        broker.put_object(
+            '1234-a/c/o', post_ts.internal, 0,
+            'text/plain;swift_expirer_bytes=2',
+            'd41d8cd98f00b204e9800998ecf8427e',
+            storage_policy_index=self.policy.idx,
+            ctype_timestamp=put2_ts.internal)
+        # order doesn't matter, more recent put2_ts ctype_timestamp wins
+        broker.put_object(
+            '1234-a/c/o', post_ts.internal, 0,
+            'text/plain;swift_expirer_bytes=1',
+            'd41d8cd98f00b204e9800998ecf8427e',
+            storage_policy_index=self.policy.idx,
+            ctype_timestamp=put1_ts.internal)
+
+        self.assertEqual([{
+            'content_type': 'text/plain;swift_expirer_bytes=2',
+            'created_at': encode_timestamps(post_ts, put2_ts, put2_ts),
+            'deleted': 0,
+            'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            'name': '1234-a/c/o',
+            'size': 0,
+            'storage_policy_index': self.policy.idx,
+        }], broker.get_objects())
+
+    def test_unupgraded_expirer_bytes_ctype(self):
+        broker = self._get_broker()
+
+        put1_ts = next(self.ts)
+        post_ts = next(self.ts)
+
+        broker.put_object(
+            '1234-a/c/o', post_ts.internal, 0,
+            'text/plain',
+            'd41d8cd98f00b204e9800998ecf8427e',
+            storage_policy_index=self.policy.idx)
+        # since the un-upgraded server's task creation request arrived w/o a
+        # ctype_timestamp, the row treats it's ctype timestamp as being the
+        # same as the x-timestamp that created the row (the post_ts) - which is
+        # more recent than the put1_ts used as the ctype_timestamp from the
+        # already-upgraded server
+        broker.put_object(
+            '1234-a/c/o', post_ts.internal, 0,
+            'text/plain;swift_expirer_bytes=1',
+            'd41d8cd98f00b204e9800998ecf8427e',
+            storage_policy_index=self.policy.idx,
+            ctype_timestamp=put1_ts.internal)
+
+        # so the un-upgraded row wins
+        self.assertEqual([{
+            'content_type': 'text/plain',
+            'created_at': post_ts,
+            'deleted': 0,
+            'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            'name': '1234-a/c/o',
+            'size': 0,
+            'storage_policy_index': self.policy.idx,
+        }], broker.get_objects())

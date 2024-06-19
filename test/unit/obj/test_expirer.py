@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from time import time
 from unittest import main, TestCase
 from test.debug_logger import debug_logger
@@ -29,7 +30,7 @@ from six.moves import urllib
 
 from swift.common import internal_client, utils, swob
 from swift.common.utils import Timestamp
-from swift.obj import expirer
+from swift.obj import expirer, diskfile
 
 
 def not_random():
@@ -95,9 +96,125 @@ class FakeInternalClient(object):
         pass
 
 
+class TestExpirerHelpers(TestCase):
+
+    def test_add_expirer_bytes_to_ctype(self):
+        self.assertEqual(
+            'text/plain;swift_expirer_bytes=10',
+            expirer.embed_expirer_bytes_in_ctype(
+                'text/plain', {'Content-Length': 10}))
+        self.assertEqual(
+            'text/plain;some_foo=bar;swift_expirer_bytes=10',
+            expirer.embed_expirer_bytes_in_ctype(
+                'text/plain;some_foo=bar', {'Content-Length': '10'}))
+        # you could probably make a case it'd be better to replace an existing
+        # value if the swift_expirer_bytes key already exists in the content
+        # type; but in the only case we use this function currently the content
+        # type is hard coded to text/plain
+        self.assertEqual(
+            'text/plain;some_foo=bar;swift_expirer_bytes=10;'
+            'swift_expirer_bytes=11',
+            expirer.embed_expirer_bytes_in_ctype(
+                'text/plain;some_foo=bar;swift_expirer_bytes=10',
+                {'Content-Length': '11'}))
+
+    def test_extract_expirer_bytes_from_ctype(self):
+        self.assertEqual(10, expirer.extract_expirer_bytes_from_ctype(
+            'text/plain;swift_expirer_bytes=10'))
+        self.assertEqual(10, expirer.extract_expirer_bytes_from_ctype(
+            'text/plain;swift_expirer_bytes=10;some_foo=bar'))
+
+    def test_inverse_add_extract_bytes_from_ctype(self):
+        ctype_bytes = [
+            ('null', 0),
+            ('text/plain', 10),
+            ('application/octet-stream', 42),
+            ('application/json', 512),
+            ('gzip', 1000044),
+        ]
+        for ctype, expirer_bytes in ctype_bytes:
+            embedded_ctype = expirer.embed_expirer_bytes_in_ctype(
+                ctype, {'Content-Length': expirer_bytes})
+            found_bytes = expirer.extract_expirer_bytes_from_ctype(
+                embedded_ctype)
+            self.assertEqual(expirer_bytes, found_bytes)
+
+    def test_add_invalid_expirer_bytes_to_ctype(self):
+        self.assertRaises(TypeError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill', None)
+        self.assertRaises(TypeError,
+                          expirer.embed_expirer_bytes_in_ctype, 'bar', 'foo')
+        self.assertRaises(KeyError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill', {})
+        self.assertRaises(TypeError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill',
+                          {'Content-Length': None})
+        self.assertRaises(ValueError,
+                          expirer.embed_expirer_bytes_in_ctype, 'nill',
+                          {'Content-Length': 'foo'})
+        # perhaps could be an error
+        self.assertEqual(
+            'weird/float;swift_expirer_bytes=15',
+            expirer.embed_expirer_bytes_in_ctype('weird/float',
+                                                 {'Content-Length': 15.9}))
+
+    def test_embed_expirer_bytes_from_diskfile_metadata(self):
+        self.logger = debug_logger('test-expirer')
+        self.ts = make_timestamp_iter()
+        self.devices = mkdtemp()
+        self.conf = {
+            'mount_check': 'false',
+            'devices': self.devices,
+        }
+        self.df_mgr = diskfile.DiskFileManager(self.conf, logger=self.logger)
+        utils.mkdirs(os.path.join(self.devices, 'sda1'))
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o', policy=0)
+
+        ts = next(self.ts)
+        with df.create() as writer:
+            writer.write(b'test')
+            writer.put({
+                # wrong key/case here would KeyError
+                'X-Timestamp': ts.internal,
+                # wrong key/case here would cause quarantine on read
+                'Content-Length': '4',
+            })
+
+        metadata = df.read_metadata()
+        # the Content-Type in the metadata is irrelevant; this method is used
+        # to create the content_type of an expirer queue task object
+        embeded_ctype_entry = expirer.embed_expirer_bytes_in_ctype(
+            'text/plain', metadata)
+        self.assertEqual('text/plain;swift_expirer_bytes=4',
+                         embeded_ctype_entry)
+
+    def test_extract_missing_bytes_from_ctype(self):
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype('text/plain'))
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype(
+                'text/plain;swift_bytes=10'))
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype(
+                'text/plain;bytes=21'))
+        self.assertEqual(
+            None, expirer.extract_expirer_bytes_from_ctype(
+                'text/plain;some_foo=bar;other-baz=buz'))
+
+
 class TestObjectExpirer(TestCase):
     maxDiff = None
     internal_client = None
+
+    def get_expirer_container(self, delete_at, target_account='a',
+                              target_container='c', target_object='o',
+                              expirer_divisor=86400):
+        # the actual target a/c/o used only matters for consistent
+        # distribution, tests typically only create one task container per-day,
+        # but we want the task container names to be realistic
+        return utils.get_expirer_container(
+            delete_at, expirer_divisor,
+            target_account, target_container, target_object)
 
     def setUp(self):
         global not_sleep
@@ -111,23 +228,32 @@ class TestObjectExpirer(TestCase):
         self.logger = debug_logger('test-expirer')
 
         self.ts = make_timestamp_iter()
-        self.empty_time = str(int(time() - 864000))
-        self.past_time = str(int(time() - 86400))
-        self.just_past_time = str(int(time() - 1))
-        self.future_time = str(int(time() + 86400))
+
+        now = int(time())
+
+        self.empty_time = str(now - 864000)
+        self.empty_time_container = self.get_expirer_container(self.empty_time)
+        self.past_time = str(now - 86400)
+        self.past_time_container = self.get_expirer_container(self.past_time)
+        self.just_past_time = str(now - 1)
+        self.just_past_time_container = self.get_expirer_container(
+            self.just_past_time)
+        self.future_time = str(now + 86400)
+        self.future_time_container = self.get_expirer_container(
+            self.future_time)
         # Dummy task queue for test
         self.fake_swift = FakeInternalClient({
             '.expiring_objects': {
                 # this task container will be checked
-                self.empty_time: [],
-                self.past_time: [
+                self.empty_time_container: [],
+                self.past_time_container: [
                     # tasks ready for execution
                     self.past_time + '-a0/c0/o0',
                     self.past_time + '-a1/c1/o1',
                     self.past_time + '-a2/c2/o2',
                     self.past_time + '-a3/c3/o3',
                     self.past_time + '-a4/c4/o4'],
-                self.just_past_time: [
+                self.just_past_time_container: [
                     self.just_past_time + '-a5/c5/o5',
                     self.just_past_time + '-a6/c6/o6',
                     self.just_past_time + '-a7/c7/o7',
@@ -138,7 +264,7 @@ class TestObjectExpirer(TestCase):
                     # *trying* to delete the container
                     self.future_time + '-a10/c10/o10'],
                 # this task container will be skipped
-                self.future_time: [
+                self.future_time_container: [
                     self.future_time + '-a11/c11/o11']}
         })
         self.expirer = expirer.ObjectExpirer(self.conf, logger=self.logger,
@@ -195,94 +321,87 @@ class TestObjectExpirer(TestCase):
         _do_test_init_ic_log_name({'log_name': 'my-object-expirer'},
                                   'my-object-expirer-ic')
 
-    def test_get_process_values_from_kwargs(self):
+    def test_set_process_values_from_kwargs(self):
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         vals = {
             'processes': 5,
             'process': 1,
         }
-        x.get_process_values(vals)
+        x.override_proceses_config_from_command_line(**vals)
         self.assertEqual(x.processes, 5)
         self.assertEqual(x.process, 1)
 
-    def test_get_process_values_from_config(self):
-        vals = {
+    def test_set_process_values_from_config(self):
+        conf = {
             'processes': 5,
             'process': 1,
         }
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
-        x.get_process_values({})
+        x = expirer.ObjectExpirer(conf, swift=self.fake_swift)
         self.assertEqual(x.processes, 5)
         self.assertEqual(x.process, 1)
 
-    def test_get_process_values_negative_process(self):
+    def test_set_process_values_negative_process(self):
         vals = {
             'processes': 5,
             'process': -1,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
-        expected_msg = 'process must be an integer greater' \
-                       ' than or equal to 0'
+        expected_msg = 'must be a non-negative integer'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
-        self.assertEqual(str(ctx.exception), expected_msg)
+            expirer.ObjectExpirer(vals, swift=self.fake_swift)
+        self.assertIn(expected_msg, str(ctx.exception))
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
-        self.assertEqual(str(ctx.exception), expected_msg)
+            x.override_proceses_config_from_command_line(**vals)
+        self.assertIn(expected_msg, str(ctx.exception))
 
-    def test_get_process_values_negative_processes(self):
+    def test_set_process_values_negative_processes(self):
         vals = {
             'processes': -5,
             'process': 1,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
-        expected_msg = 'processes must be an integer greater' \
-                       ' than or equal to 0'
+        expected_msg = 'must be a non-negative integer'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
-        self.assertEqual(str(ctx.exception), expected_msg)
+            expirer.ObjectExpirer(vals, swift=self.fake_swift)
+        self.assertIn(expected_msg, str(ctx.exception))
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
-        self.assertEqual(str(ctx.exception), expected_msg)
+            x.override_proceses_config_from_command_line(**vals)
+        self.assertIn(expected_msg, str(ctx.exception))
 
-    def test_get_process_values_process_greater_than_processes(self):
+    def test_set_process_values_process_greater_than_processes(self):
         vals = {
             'processes': 5,
             'process': 7,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
         expected_msg = 'process must be less than processes'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
+            x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
         self.assertEqual(str(ctx.exception), expected_msg)
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
+            x.override_proceses_config_from_command_line(**vals)
         self.assertEqual(str(ctx.exception), expected_msg)
 
-    def test_get_process_values_process_equal_to_processes(self):
+    def test_set_process_values_process_equal_to_processes(self):
         vals = {
             'processes': 5,
             'process': 5,
         }
         # from config
-        x = expirer.ObjectExpirer(vals, swift=self.fake_swift)
         expected_msg = 'process must be less than processes'
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values({})
+            expirer.ObjectExpirer(vals, swift=self.fake_swift)
         self.assertEqual(str(ctx.exception), expected_msg)
         # from kwargs
         x = expirer.ObjectExpirer({}, swift=self.fake_swift)
         with self.assertRaises(ValueError) as ctx:
-            x.get_process_values(vals)
+            x.override_proceses_config_from_command_line(**vals)
         self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_valid_delay_reaping(self):
@@ -544,10 +663,10 @@ class TestObjectExpirer(TestCase):
         deleted_objects = {
             con: sorted(o_set) for con, o_set in deleted_objects.items()}
         expected = {
-            self.past_time: [
+            self.past_time_container: [
                 self.past_time + '-' + target_path
                 for target_path in self.expired_target_paths[self.past_time]],
-            self.just_past_time: [
+            self.just_past_time_container: [
                 self.just_past_time + '-' + target_path
                 for target_path
                 in self.expired_target_paths[self.just_past_time]]}
@@ -654,10 +773,11 @@ class TestObjectExpirer(TestCase):
         assert_parse_task_obj('1000-a/c/o', 1000, 'a', 'c', 'o')
         assert_parse_task_obj('0000-acc/con/obj', 0, 'acc', 'con', 'obj')
 
-    def make_task(self, delete_at, target, is_async_delete=False):
+    def make_task(self, task_container, delete_at, target,
+                  is_async_delete=False):
         return {
             'task_account': '.expiring_objects',
-            'task_container': delete_at,
+            'task_container': task_container,
             'task_object': delete_at + '-' + target,
             'delete_timestamp': Timestamp(delete_at),
             'target_path': target,
@@ -667,55 +787,63 @@ class TestObjectExpirer(TestCase):
     def test_round_robin_order(self):
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=self.fake_swift)
+
+        def make_task(delete_at, target_path, is_async_delete=False):
+            a, c, o = utils.split_path('/' + target_path, 1, 3, True)
+            task_container = self.get_expirer_container(
+                delete_at, a, c or 'c', o or 'o')
+            return self.make_task(task_container, delete_at, target_path,
+                                  is_async_delete=is_async_delete)
+
         task_con_obj_list = [
             # objects in 0000 timestamp container
-            self.make_task('0000', 'a/c0/o0'),
-            self.make_task('0000', 'a/c0/o1'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
             # objects in 0001 timestamp container
-            self.make_task('0001', 'a/c1/o0'),
-            self.make_task('0001', 'a/c1/o1'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'a/c1/o1'),
             # objects in 0002 timestamp container
-            self.make_task('0002', 'a/c2/o0'),
-            self.make_task('0002', 'a/c2/o1'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
         ]
         result = list(x.round_robin_order(task_con_obj_list))
 
         # sorted by popping one object to delete for each target_container
         expected = [
-            self.make_task('0000', 'a/c0/o0'),
-            self.make_task('0001', 'a/c1/o0'),
-            self.make_task('0002', 'a/c2/o0'),
-            self.make_task('0000', 'a/c0/o1'),
-            self.make_task('0001', 'a/c1/o1'),
-            self.make_task('0002', 'a/c2/o1'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0002', 'a/c2/o1'),
         ]
         self.assertEqual(expected, result)
 
         # task containers have some task objects with invalid target paths
         task_con_obj_list = [
             # objects in 0000 timestamp container
-            self.make_task('0000', 'invalid0'),
-            self.make_task('0000', 'a/c0/o0'),
-            self.make_task('0000', 'a/c0/o1'),
+            make_task('0000', 'invalid0'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
             # objects in 0001 timestamp container
-            self.make_task('0001', 'a/c1/o0'),
-            self.make_task('0001', 'invalid1'),
-            self.make_task('0001', 'a/c1/o1'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'invalid1'),
+            make_task('0001', 'a/c1/o1'),
             # objects in 0002 timestamp container
-            self.make_task('0002', 'a/c2/o0'),
-            self.make_task('0002', 'a/c2/o1'),
-            self.make_task('0002', 'invalid2'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
+            make_task('0002', 'invalid2'),
         ]
         result = list(x.round_robin_order(task_con_obj_list))
 
         # the invalid task objects are ignored
         expected = [
-            self.make_task('0000', 'a/c0/o0'),
-            self.make_task('0001', 'a/c1/o0'),
-            self.make_task('0002', 'a/c2/o0'),
-            self.make_task('0000', 'a/c0/o1'),
-            self.make_task('0001', 'a/c1/o1'),
-            self.make_task('0002', 'a/c2/o1'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0002', 'a/c2/o1'),
         ]
         self.assertEqual(expected, result)
 
@@ -723,51 +851,51 @@ class TestObjectExpirer(TestCase):
         # the same timestamp container
         task_con_obj_list = [
             # objects in 0000 timestamp container
-            self.make_task('0000', 'a/c0/o0'),
-            self.make_task('0000', 'a/c0/o1'),
-            self.make_task('0000', 'a/c2/o2'),
-            self.make_task('0000', 'a/c2/o3'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0000', 'a/c2/o2'),
+            make_task('0000', 'a/c2/o3'),
             # objects in 0001 timestamp container
-            self.make_task('0001', 'a/c0/o2'),
-            self.make_task('0001', 'a/c0/o3'),
-            self.make_task('0001', 'a/c1/o0'),
-            self.make_task('0001', 'a/c1/o1'),
+            make_task('0001', 'a/c0/o2'),
+            make_task('0001', 'a/c0/o3'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'a/c1/o1'),
             # objects in 0002 timestamp container
-            self.make_task('0002', 'a/c2/o0'),
-            self.make_task('0002', 'a/c2/o1'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
         ]
         result = list(x.round_robin_order(task_con_obj_list))
 
         # so we go around popping by *target* container, not *task* container
         expected = [
-            self.make_task('0000', 'a/c0/o0'),
-            self.make_task('0001', 'a/c1/o0'),
-            self.make_task('0000', 'a/c2/o2'),
-            self.make_task('0000', 'a/c0/o1'),
-            self.make_task('0001', 'a/c1/o1'),
-            self.make_task('0000', 'a/c2/o3'),
-            self.make_task('0001', 'a/c0/o2'),
-            self.make_task('0002', 'a/c2/o0'),
-            self.make_task('0001', 'a/c0/o3'),
-            self.make_task('0002', 'a/c2/o1'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0000', 'a/c2/o2'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0000', 'a/c2/o3'),
+            make_task('0001', 'a/c0/o2'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0001', 'a/c0/o3'),
+            make_task('0002', 'a/c2/o1'),
         ]
         self.assertEqual(expected, result)
 
         # all of the work to be done could be for different target containers
         task_con_obj_list = [
             # objects in 0000 timestamp container
-            self.make_task('0000', 'a/c0/o'),
-            self.make_task('0000', 'a/c1/o'),
-            self.make_task('0000', 'a/c2/o'),
-            self.make_task('0000', 'a/c3/o'),
+            make_task('0000', 'a/c0/o'),
+            make_task('0000', 'a/c1/o'),
+            make_task('0000', 'a/c2/o'),
+            make_task('0000', 'a/c3/o'),
             # objects in 0001 timestamp container
-            self.make_task('0001', 'a/c4/o'),
-            self.make_task('0001', 'a/c5/o'),
-            self.make_task('0001', 'a/c6/o'),
-            self.make_task('0001', 'a/c7/o'),
+            make_task('0001', 'a/c4/o'),
+            make_task('0001', 'a/c5/o'),
+            make_task('0001', 'a/c6/o'),
+            make_task('0001', 'a/c7/o'),
             # objects in 0002 timestamp container
-            self.make_task('0002', 'a/c8/o'),
-            self.make_task('0002', 'a/c9/o'),
+            make_task('0002', 'a/c8/o'),
+            make_task('0002', 'a/c9/o'),
         ]
         result = list(x.round_robin_order(task_con_obj_list))
 
@@ -848,10 +976,12 @@ class TestObjectExpirer(TestCase):
                         side_effect=fake_ratelimiter):
             x.run_once()
         self.assertEqual(calls, [([
-            self.make_task(self.past_time, target_path)
+            self.make_task(self.past_time_container, self.past_time,
+                           target_path)
             for target_path in self.expired_target_paths[self.past_time]
         ] + [
-            self.make_task(self.just_past_time, target_path)
+            self.make_task(self.just_past_time_container, self.just_past_time,
+                           target_path)
             for target_path in self.expired_target_paths[self.just_past_time]
         ], 2)])
 
@@ -874,7 +1004,9 @@ class TestObjectExpirer(TestCase):
         divisor = 1
 
         # empty container gets deleted inline
-        task_account_container_list = [('.expiring_objects', self.empty_time)]
+        task_account_container_list = [
+            ('.expiring_objects', self.empty_time_container)
+        ]
         with mock.patch.object(self.expirer.swift, 'delete_container') \
                 as mock_delete_container:
             self.assertEqual(
@@ -882,13 +1014,30 @@ class TestObjectExpirer(TestCase):
                     task_account_container_list, my_index, divisor)),
                 [])
         self.assertEqual(mock_delete_container.mock_calls, [
-            mock.call('.expiring_objects', self.empty_time,
+            mock.call('.expiring_objects', self.empty_time_container,
                       acceptable_statuses=(2, 404, 409))])
 
-        task_account_container_list = [('.expiring_objects', self.past_time)]
+        # 404 (account/container list race) gets deleted inline
+        task_account_container_list = [
+            ('.expiring_objects', 'does-not-matter')
+        ]
+        with mock.patch.object(self.expirer.swift, 'delete_container') \
+                as mock_delete_container:
+            self.assertEqual(
+                list(self.expirer.iter_task_to_expire(
+                    task_account_container_list, my_index, divisor)),
+                [])
+        self.assertEqual(mock_delete_container.mock_calls, [
+            mock.call('.expiring_objects', 'does-not-matter',
+                      acceptable_statuses=(2, 404, 409))])
+
+        # ready containers are processed
+        task_account_container_list = [
+            ('.expiring_objects', self.past_time_container)]
 
         expected = [
-            self.make_task(self.past_time, target_path)
+            self.make_task(self.past_time_container, self.past_time,
+                           target_path)
             for target_path in self.expired_target_paths[self.past_time]]
 
         with mock.patch.object(self.expirer.swift, 'delete_container') \
@@ -902,9 +1051,9 @@ class TestObjectExpirer(TestCase):
 
         # the task queue has invalid task object
         invalid_aco_dict = deepcopy(self.fake_swift.aco_dict)
-        invalid_aco_dict['.expiring_objects'][self.past_time].insert(
+        invalid_aco_dict['.expiring_objects'][self.past_time_container].insert(
             0, self.past_time + '-invalid0')
-        invalid_aco_dict['.expiring_objects'][self.past_time].insert(
+        invalid_aco_dict['.expiring_objects'][self.past_time_container].insert(
             5, self.past_time + '-invalid1')
         invalid_fake_swift = FakeInternalClient(invalid_aco_dict)
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
@@ -920,7 +1069,7 @@ class TestObjectExpirer(TestCase):
         async_delete_aco_dict = {
             '.expiring_objects': {
                 # this task container will be checked
-                self.past_time: [
+                self.past_time_container: [
                     # tasks ready for execution
                     {'name': self.past_time + '-a0/c0/o0',
                      'content_type': 'application/async-deleted'},
@@ -951,33 +1100,35 @@ class TestObjectExpirer(TestCase):
                                   swift=async_delete_fake_swift)
 
         expected = [
-            self.make_task(self.past_time, target_path,
-                           is_async_delete=True)
+            self.make_task(self.past_time_container, self.past_time,
+                           target_path, is_async_delete=True)
             for target_path in (
                 self.expired_target_paths[self.past_time] +
-                self.expired_target_paths[self.just_past_time])]
+                self.expired_target_paths[self.just_past_time]
+            )
+        ]
 
-        self.assertEqual(
-            list(x.iter_task_to_expire(
-                task_account_container_list, my_index, divisor)),
-            expected)
+        found = list(x.iter_task_to_expire(
+            task_account_container_list, my_index, divisor))
+
+        self.assertEqual(expected, found)
 
     def test_iter_task_to_expire_with_delay_reaping(self):
         aco_dict = {
             '.expiring_objects': {
-                self.past_time: [
+                self.past_time_container: [
                     # tasks well past ready for execution
                     {'name': self.past_time + '-a0/c0/o0'},
                     {'name': self.past_time + '-a1/c1/o1'},
                     {'name': self.past_time + '-a1/c2/o2'},
                 ],
-                self.just_past_time: [
+                self.just_past_time_container: [
                     # tasks only just ready for execution
                     {'name': self.just_past_time + '-a0/c0/o0'},
                     {'name': self.just_past_time + '-a1/c1/o1'},
                     {'name': self.just_past_time + '-a1/c2/o2'},
                 ],
-                self.future_time: [
+                self.future_time_container: [
                     # tasks not yet ready for execution
                     {'name': self.future_time + '-a0/c0/o0'},
                     {'name': self.future_time + '-a1/c1/o1'},
@@ -991,7 +1142,8 @@ class TestObjectExpirer(TestCase):
                                   swift=fake_swift)
         # ... we expect tasks past time to yield
         expected = [
-            self.make_task(self.past_time, target_path)
+            self.make_task(self.past_time_container, self.past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1000,7 +1152,8 @@ class TestObjectExpirer(TestCase):
                 )
             )
         ] + [
-            self.make_task(self.just_past_time, target_path)
+            self.make_task(self.just_past_time_container, self.just_past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1010,8 +1163,8 @@ class TestObjectExpirer(TestCase):
             )
         ]
         task_account_container_list = [
-            ('.expiring_objects', self.past_time),
-            ('.expiring_objects', self.just_past_time),
+            ('.expiring_objects', self.past_time_container),
+            ('.expiring_objects', self.just_past_time_container),
         ]
         observed = list(x.iter_task_to_expire(
             task_account_container_list, 0, 1))
@@ -1023,7 +1176,8 @@ class TestObjectExpirer(TestCase):
                                   swift=fake_swift)
         # ... and we don't expect *recent* a1 tasks or future tasks
         expected = [
-            self.make_task(self.past_time, target_path)
+            self.make_task(self.past_time_container, self.past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1032,7 +1186,8 @@ class TestObjectExpirer(TestCase):
                 )
             )
         ] + [
-            self.make_task(self.just_past_time, target_path)
+            self.make_task(self.just_past_time_container, self.just_past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1053,7 +1208,8 @@ class TestObjectExpirer(TestCase):
         # ... and we don't expect *recent* a1 tasks, excluding c2
         # or future tasks
         expected = [
-            self.make_task(self.past_time, target_path)
+            self.make_task(self.past_time_container, self.past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1062,7 +1218,8 @@ class TestObjectExpirer(TestCase):
                 )
             )
         ] + [
-            self.make_task(self.just_past_time, target_path)
+            self.make_task(self.just_past_time_container, self.just_past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1083,7 +1240,8 @@ class TestObjectExpirer(TestCase):
         # ... and we don't expect *recent* a1 tasks, excluding c2
         # or future tasks
         expected = [
-            self.make_task(self.past_time, target_path)
+            self.make_task(self.past_time_container, self.past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1092,7 +1250,8 @@ class TestObjectExpirer(TestCase):
                 )
             )
         ] + [
-            self.make_task(self.just_past_time, target_path)
+            self.make_task(self.just_past_time_container, self.just_past_time,
+                           target_path)
             for target_path in (
                 swob.wsgi_to_str(tgt) for tgt in (
                     'a0/c0/o0',
@@ -1107,7 +1266,7 @@ class TestObjectExpirer(TestCase):
     def test_iter_task_to_expire_with_delay_reaping_is_async(self):
         aco_dict = {
             '.expiring_objects': {
-                self.past_time: [
+                self.past_time_container: [
                     # tasks 86400s past ready for execution
                     {'name': self.past_time + '-a0/c0/o00',
                      'content_type': 'application/async-deleted'},
@@ -1122,7 +1281,7 @@ class TestObjectExpirer(TestCase):
                     {'name': self.past_time + '-a1/c1/o05',
                      'content_type': 'text/plain'},
                 ],
-                self.just_past_time: [
+                self.just_past_time_container: [
                     # tasks only just 1s ready for execution
                     {'name': self.just_past_time + '-a0/c0/o06',
                      'content_type': 'application/async-deleted'},
@@ -1137,7 +1296,7 @@ class TestObjectExpirer(TestCase):
                     {'name': self.just_past_time + '-a1/c1/o11',
                      'content_type': 'text/plain'},
                 ],
-                self.future_time: [
+                self.future_time_container: [
                     # tasks not yet ready for execution
                     {'name': self.future_time + '-a0/c0/o12',
                      'content_type': 'application/async-deleted'},
@@ -1160,8 +1319,8 @@ class TestObjectExpirer(TestCase):
                                   swift=fake_swift)
         # ... we expect all past async tasks to yield
         expected = [
-            self.make_task(self.past_time, swob.wsgi_to_str(tgt),
-                           is_async_delete=is_async)
+            self.make_task(self.past_time_container, self.past_time,
+                           swob.wsgi_to_str(tgt), is_async_delete=is_async)
             for (tgt, is_async) in (
                 ('a0/c0/o00', True),
                 ('a0/c0/o01', False),  # a0 no delay
@@ -1171,8 +1330,8 @@ class TestObjectExpirer(TestCase):
                 ('a1/c1/o05', False),  # c1 short delay
             )
         ] + [
-            self.make_task(self.just_past_time, swob.wsgi_to_str(tgt),
-                           is_async_delete=is_async)
+            self.make_task(self.just_past_time_container, self.just_past_time,
+                           swob.wsgi_to_str(tgt), is_async_delete=is_async)
             for (tgt, is_async) in (
                 ('a0/c0/o06', True),
                 ('a0/c0/o07', False),  # a0 no delay
@@ -1189,9 +1348,9 @@ class TestObjectExpirer(TestCase):
                                   swift=fake_swift)
         # ... and we still expect all past async tasks to yield
         task_account_container_list = [
-            ('.expiring_objects', self.past_time),
-            ('.expiring_objects', self.just_past_time),
-            ('.expiring_objects', self.future_time),
+            ('.expiring_objects', self.past_time_container),
+            ('.expiring_objects', self.just_past_time_container),
+            ('.expiring_objects', self.future_time_container),
         ]
         observed = list(x.iter_task_to_expire(
             task_account_container_list, 0, 1))
@@ -1215,9 +1374,9 @@ class TestObjectExpirer(TestCase):
 
         # iter_objects is called only for past_time, not future_time
         self.assertEqual(mock_method.call_args_list, [
-            mock.call('.expiring_objects', self.empty_time),
-            mock.call('.expiring_objects', self.past_time),
-            mock.call('.expiring_objects', self.just_past_time)])
+            mock.call('.expiring_objects', self.empty_time_container),
+            mock.call('.expiring_objects', self.past_time_container),
+            mock.call('.expiring_objects', self.just_past_time_container)])
 
     def test_object_timestamp_break(self):
         with mock.patch.object(self.expirer, 'delete_actual_object') \
@@ -1256,10 +1415,10 @@ class TestObjectExpirer(TestCase):
         # all tasks are popped from the queue
         self.assertEqual(
             mock_method.call_args_list,
-            [mock.call('.expiring_objects', self.past_time,
+            [mock.call('.expiring_objects', self.past_time_container,
              self.past_time + '-' + target_path)
              for target_path in self.expired_target_paths[self.past_time]] +
-            [mock.call('.expiring_objects', self.just_past_time,
+            [mock.call('.expiring_objects', self.just_past_time_container,
              self.just_past_time + '-' + target_path)
              for target_path
              in self.expired_target_paths[self.just_past_time]])
@@ -1312,11 +1471,11 @@ class TestObjectExpirer(TestCase):
 
         self.assertEqual(error_lines, [
             'Exception while deleting container .expiring_objects %s failed '
-            'to delete container: ' % self.empty_time
+            'to delete container: ' % self.empty_time_container
         ] + [
             'Exception while deleting object %s %s %s '
             'failed to delete actual object: ' % (
-                '.expiring_objects', self.just_past_time,
+                '.expiring_objects', self.just_past_time_container,
                 self.just_past_time + '-' + target_path)
             for target_path in self.expired_target_paths[self.just_past_time]
         ])
@@ -1326,7 +1485,7 @@ class TestObjectExpirer(TestCase):
             'Pass completed in 0s; 5 objects expired',
         ])
         self.assertEqual(mock_pop.mock_calls, [
-            mock.call('.expiring_objects', self.past_time,
+            mock.call('.expiring_objects', self.past_time_container,
                       self.past_time + '-' + target_path)
             for target_path in self.expired_target_paths[self.past_time]
         ])
@@ -1374,6 +1533,61 @@ class TestObjectExpirer(TestCase):
         log_args, log_kwargs = x.logger.log_dict['error'][0]
         self.assertEqual(str(log_kwargs['exc_info'][1]),
                          'exception 1')
+
+    def test_run_forever_bad_process_values_config(self):
+        conf = {
+            'processes': -1,
+            'process': -2,
+            'interval': 1,
+        }
+        iterations = [0]
+
+        def wrap_with_exit(orig_f, exit_after_count=3):
+            def wrapped_f(*args, **kwargs):
+                iterations[0] += 1
+                if iterations[0] > exit_after_count:
+                    raise SystemExit('that is enough for now')
+                return orig_f(*args, **kwargs)
+            return wrapped_f
+
+        with self.assertRaises(ValueError) as ctx:
+            # we should blow up here
+            x = expirer.ObjectExpirer(conf, logger=self.logger,
+                                      swift=self.fake_swift)
+            x.pop_queue = lambda a, c, o: None
+            x.run_once = wrap_with_exit(x.run_once)
+            # at least we should hopefully we blow up here?
+            x.run_forever()
+
+        # bad config should exit immediately with ValueError
+        self.assertIn('must be a non-negative integer', str(ctx.exception))
+
+    def test_run_forever_bad_process_values_command_line(self):
+        conf = {
+            'interval': 1,
+        }
+        bad_kwargs = {
+            'processes': -1,
+            'process': -2,
+        }
+        iterations = [0]
+
+        def wrap_with_exit(orig_f, exit_after_count=3):
+            def wrapped_f(*args, **kwargs):
+                iterations[0] += 1
+                if iterations[0] > exit_after_count:
+                    raise SystemExit('that is enough for now')
+                return orig_f(*args, **kwargs)
+            return wrapped_f
+
+        with self.assertRaises(ValueError) as ctx:
+            x = expirer.ObjectExpirer(conf, logger=self.logger,
+                                      swift=self.fake_swift)
+            x.run_once = wrap_with_exit(x.run_once)
+            x.run_forever(**bad_kwargs)
+
+        # bad command args should exit immediately with ValueError
+        self.assertIn('must be a non-negative integer', str(ctx.exception))
 
     def test_delete_actual_object(self):
         got_env = [None]

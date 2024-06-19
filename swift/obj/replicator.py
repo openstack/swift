@@ -195,6 +195,12 @@ class ObjectReplicator(Daemon):
                                 'operation, please disable handoffs_first and '
                                 'handoff_delete before the next '
                                 'normal rebalance')
+        if all(self.load_object_ring(p).replica_count <= self.handoff_delete
+               for p in self.policies):
+            self.logger.warning('No storage policies found for which '
+                                'handoff_delete=%d would have an effect. '
+                                'Disabling.', self.handoff_delete)
+            self.handoff_delete = 0
         self.is_multiprocess_worker = None
         self._df_router = DiskFileRouter(conf, self.logger)
         self._child_process_reaper_queue = queue.LightQueue()
@@ -554,7 +560,8 @@ class ObjectReplicator(Daemon):
                 if self.handoff_delete:
                     # delete handoff if we have had handoff_delete successes
                     successes_count = len([resp for resp in responses if resp])
-                    delete_handoff = successes_count >= self.handoff_delete
+                    delete_handoff = successes_count >= min(
+                        self.handoff_delete, len(job['nodes']))
                 else:
                     # delete handoff if all syncs were successful
                     delete_handoff = len(responses) == len(job['nodes']) and \

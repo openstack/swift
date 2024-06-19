@@ -149,7 +149,7 @@ class FakeLogger(logging.Logger, CaptureLog):
         self.level = logging.NOTSET
         if 'facility' in kwargs:
             self.facility = kwargs['facility']
-        self.statsd_client = FakeStatsdClient("host", 8125)
+        self.statsd_client = FakeStatsdClient(None, 8125)
         self.thread_locals = None
         self.parent = None
         # ensure the NOTICE level has been named, in case it has not already

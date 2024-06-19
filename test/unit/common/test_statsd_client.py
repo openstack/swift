@@ -30,16 +30,34 @@ from mock import patch
 
 from swift.common import utils
 from swift.common import statsd_client
+from swift.common.statsd_client import StatsdClient
 
 from test.debug_logger import debug_logger
-from test.unit.common.test_utils import MockUdpSocket
 from swift.common.swob import Response
 
 
-class TestStatsdLogging(unittest.TestCase):
+class MockUdpSocket(object):
+    def __init__(self, sendto_errno=None):
+        self.sent = []
+        self.sendto_errno = sendto_errno
+
+    def sendto(self, data, target):
+        if self.sendto_errno:
+            raise socket.error(self.sendto_errno,
+                               'test errno %s' % self.sendto_errno)
+        self.sent.append((data, target))
+        return len(data)
+
+    def close(self):
+        pass
+
+
+class BaseTestStasdClient(unittest.TestCase):
     def setUp(self):
+        self.getaddrinfo_calls = []
 
         def fake_getaddrinfo(host, port, *args):
+            self.getaddrinfo_calls.append((host, port))
             # this is what a real getaddrinfo('localhost', port,
             # socket.AF_INET) returned once
             return [(socket.AF_INET,      # address family
@@ -59,10 +77,43 @@ class TestStatsdLogging(unittest.TestCase):
         self.mock_getaddrinfo = self.getaddrinfo_patcher.start()
         self.addCleanup(self.getaddrinfo_patcher.stop)
 
+
+class TestStatsdClient(BaseTestStasdClient):
+    def test_init_host(self):
+        client = StatsdClient('myhost', 1234)
+        self.assertEqual([('myhost', 1234)], self.getaddrinfo_calls)
+        with mock.patch.object(client, '_open_socket') as mock_open:
+            self.assertIs(client.increment('tunafish'),
+                          mock_open.return_value.sendto.return_value)
+        self.assertEqual(mock_open.mock_calls, [
+            mock.call(),
+            mock.call().sendto(b'tunafish:1|c', ('myhost', 1234)),
+            mock.call().close(),
+        ])
+
+    def test_init_host_is_none(self):
+        client = StatsdClient(None, None)
+        self.assertIsNone(client._host)
+        self.assertFalse(self.getaddrinfo_calls)
+        with mock.patch.object(client, '_open_socket') as mock_open:
+            self.assertIsNone(client.increment('tunafish'))
+        self.assertFalse(mock_open.mock_calls)
+        self.assertFalse(self.getaddrinfo_calls)
+
+
+class TestStatsdLogging(BaseTestStasdClient):
     def test_get_logger_statsd_client_not_specified(self):
         logger = utils.get_logger({}, 'some-name', log_route='some-route')
-        # white-box construction validation
-        self.assertIsNone(logger.logger.statsd_client)
+        # white-box construction validation:
+        # there may be a client instance, but it won't send anything;
+        # won't even open a socket
+        self.assertIsInstance(logger.logger.statsd_client,
+                              statsd_client.StatsdClient)
+        self.assertIsNone(logger.logger.statsd_client._host)
+        with mock.patch.object(logger.logger.statsd_client,
+                               '_open_socket') as mock_open:
+            logger.increment('tunafish')
+        self.assertFalse(mock_open.mock_calls)
 
     def test_get_logger_statsd_client_defaults(self):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
@@ -325,11 +376,12 @@ class TestStatsdLogging(unittest.TestCase):
         client._open_socket = lambda *_: mock_socket
         client.random = lambda: 0.50001
 
-        logger.increment('tribbles', sample_rate=0.5)
+        self.assertIsNone(logger.increment('tribbles', sample_rate=0.5))
         self.assertEqual(len(mock_socket.sent), 0)
 
         client.random = lambda: 0.49999
-        logger.increment('tribbles', sample_rate=0.5)
+        rv = logger.increment('tribbles', sample_rate=0.5)
+        self.assertIsInstance(rv, int)
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]

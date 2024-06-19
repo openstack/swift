@@ -19,8 +19,14 @@ from six.moves.urllib.parse import urlparse
 import test.functional as tf
 import boto3
 from botocore.exceptions import ClientError
-from boto.s3.connection import S3Connection, OrdinaryCallingFormat, \
-    S3ResponseError
+try:
+    from boto.s3.connection import (
+        S3Connection,
+        OrdinaryCallingFormat,
+        S3ResponseError,
+    )
+except ImportError:
+    S3Connection = OrdinaryCallingFormat = S3ResponseError = None
 import six
 import sys
 import traceback

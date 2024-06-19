@@ -5960,7 +5960,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             {'quarantine_threshold': 2.0})
         self.assertEqual(2, reconstructor.quarantine_threshold)
 
-        for bad in ('1.1', 1.1, '-1', -1, 'auto', 'bad'):
+        for bad in ('1.1', '-1', -1, 'auto', 'bad'):
             with annotate_failure(bad):
                 with self.assertRaises(ValueError):
                     object_reconstructor.ObjectReconstructor(

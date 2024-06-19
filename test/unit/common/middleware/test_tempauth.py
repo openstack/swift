@@ -100,7 +100,7 @@ class TestAuth(unittest.TestCase):
 
     def test_statsd_prefix(self):
         app = FakeApp()
-        ath = auth.filter_factory({'log_statsd_host': 'example.com'})(app)
+        ath = auth.filter_factory({})(app)
         self.assertIsNotNone(ath.logger.logger.statsd_client)
         self.assertIsInstance(ath.logger.logger.statsd_client,
                               StatsdClient)
@@ -108,8 +108,7 @@ class TestAuth(unittest.TestCase):
                          ath.logger.logger.statsd_client._prefix)
 
         ath = auth.filter_factory({'log_statsd_metric_prefix': 'foo',
-                                   'log_name': 'bar',
-                                   'log_statsd_host': 'example.com'})(app)
+                                   'log_name': 'bar'})(app)
         self.assertIsNotNone(ath.logger.logger.statsd_client)
         self.assertIsInstance(ath.logger.logger.statsd_client,
                               StatsdClient)
@@ -118,7 +117,6 @@ class TestAuth(unittest.TestCase):
 
         ath = auth.filter_factory({'log_statsd_metric_prefix': 'foo',
                                    'log_name': 'bar',
-                                   'log_statsd_host': 'example.com',
                                    'reseller_prefix': 'TEST'})(app)
         self.assertIsNotNone(ath.logger.logger.statsd_client)
         self.assertIsInstance(ath.logger.logger.statsd_client,

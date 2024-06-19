@@ -58,6 +58,8 @@ ceph_s3:
   s3tests_boto3.functional.test_headers.test_object_create_bad_contentlength_mismatch_below_aws2: {status: KNOWN}
   s3tests_boto3.functional.test_headers.test_object_create_bad_contentlength_none: {status: KNOWN}
   s3tests_boto3.functional.test_headers.test_object_create_bad_date_none_aws2: {status: KNOWN}
+  s3tests_boto3.functional.test_headers.test_bucket_create_bad_ua_empty_aws2: {status: KNOWN}
+  s3tests_boto3.functional.test_headers.test_bucket_create_bad_ua_none_aws2: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_100_continue: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_atomic_conditional_write_1mb: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_atomic_dual_conditional_write_1mb: {status: KNOWN}

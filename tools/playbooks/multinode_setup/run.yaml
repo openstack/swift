@@ -13,6 +13,13 @@
 - hosts: storage
   tasks:
 
+    - name: remove old swift
+      become: true
+      shell:
+        cmd: pip uninstall -y swift
+        executable: /bin/bash
+        chdir: '{{ zuul.project.src_dir }}'
+
     - name: checkout master swift
       shell:
         cmd: git checkout master
