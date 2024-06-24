@@ -7,6 +7,11 @@ OpenStack Swift
 
 .. Change things from this point on
 
+**NOTE:** This branch has run its course and is now only useful for
+historical/archaeological purposes.
+
+----
+
 OpenStack Swift is a distributed object storage system designed to scale
 from a single machine to thousands of servers. Swift is optimized for
 multi-tenancy and high concurrency. Swift is ideal for backups, web and mobile
