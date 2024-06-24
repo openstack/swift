@@ -7,6 +7,11 @@ Team and repository tags
 
 .. Change things from this point on
 
+**NOTE:** This branch has run its course and is now only useful for
+historical/archaeological purposes.
+
+----
+
 Swift
 =====
 
