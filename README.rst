@@ -10,6 +10,11 @@ Team and repository tags
 Swift
 =====
 
+**NOTE:** This branch has run its course and is now only useful for
+historical/archaeological purposes.
+
+----
+
 A distributed object storage system designed to scale from a single
 machine to thousands of servers. Swift is optimized for multi-tenancy
 and high concurrency. Swift is ideal for backups, web and mobile
