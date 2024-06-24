@@ -30,11 +30,8 @@ class WARN_DEPRECATED(Exception):
 
 
 class FakeStatsdClient(statsd_client.StatsdClient):
-    def __init__(self, host, port, base_prefix='', tail_prefix='',
-                 default_sample_rate=1, sample_rate_factor=1, logger=None):
-        super(FakeStatsdClient, self).__init__(
-            host, port, base_prefix, tail_prefix, default_sample_rate,
-            sample_rate_factor, logger)
+    def __init__(self, *args, **kwargs):
+        super(FakeStatsdClient, self).__init__(*args, **kwargs)
         self.clear()
 
         # Capture then call parent pubic stat functions

@@ -2292,15 +2292,15 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         use = egg:swift#proxy
         """ % self.tempdir
         conf_path = self._write_conf(dedent(conf_sections))
-
-        with mock.patch('swift.common.statsd_client.StatsdClient')\
+        with mock.patch('swift.common.statsd_client.StatsdClient') \
                 as mock_statsd:
             app = loadapp(conf_path, allow_modify_pipeline=False)
         # logger name is hard-wired 'proxy-server'
         self.assertEqual('proxy-server', app.logger.name)
         self.assertEqual('swift', app.logger.server)
         mock_statsd.assert_called_once_with(
-            'example.com', 8125, '', 'proxy-server', 1.0, 1.0,
+            'example.com', 8125, base_prefix='', tail_prefix='proxy-server',
+            default_sample_rate=1.0, sample_rate_factor=1.0,
             logger=app.logger.logger)
 
         conf_sections = """
@@ -2326,7 +2326,8 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self.assertEqual('test-name', app.logger.server)
         # statsd tail prefix is hard-wired 'proxy-server'
         mock_statsd.assert_called_once_with(
-            'example.com', 8125, '', 'proxy-server', 1.0, 1.0,
+            'example.com', 8125, base_prefix='', tail_prefix='proxy-server',
+            default_sample_rate=1.0, sample_rate_factor=1.0,
             logger=app.logger.logger)
 
 

@@ -24,21 +24,55 @@ from eventlet.green import socket
 import six
 
 
+def get_statsd_client(conf=None, tail_prefix='', logger=None):
+    """
+    Get an instance of StatsdClient using config settings.
+
+    **config and defaults**::
+
+        log_statsd_host = (disabled)
+        log_statsd_port = 8125
+        log_statsd_default_sample_rate = 1.0
+        log_statsd_sample_rate_factor = 1.0
+        log_statsd_metric_prefix = (empty-string)
+
+    :param conf: Configuration dict to read settings from
+    :param tail_prefix: tail prefix to pass to statsd client
+    :param logger: stdlib logger instance used by statsd client for logging
+    :return: an instance of ``StatsdClient``
+
+    """
+    conf = conf or {}
+
+    host = conf.get('log_statsd_host')
+    port = int(conf.get('log_statsd_port', 8125))
+    base_prefix = conf.get('log_statsd_metric_prefix', '')
+    default_sample_rate = float(
+        conf.get('log_statsd_default_sample_rate', 1))
+    sample_rate_factor = float(
+        conf.get('log_statsd_sample_rate_factor', 1))
+
+    return StatsdClient(host, port, base_prefix=base_prefix,
+                        tail_prefix=tail_prefix,
+                        default_sample_rate=default_sample_rate,
+                        sample_rate_factor=sample_rate_factor, logger=logger)
+
+
 class StatsdClient(object):
     def __init__(self, host, port, base_prefix='', tail_prefix='',
                  default_sample_rate=1, sample_rate_factor=1, logger=None):
         self._host = host
         self._port = port
         self._base_prefix = base_prefix
-        self._set_prefix(tail_prefix)
         self._default_sample_rate = default_sample_rate
         self._sample_rate_factor = sample_rate_factor
         self.random = random
         self.logger = logger
+        self._set_prefix(tail_prefix)
         self._sock_family = self._target = None
 
         if self._host:
-            self._set_sock_family_and_target(host, port)
+            self._set_sock_family_and_target(self._host, self._port)
 
     def _set_sock_family_and_target(self, host, port):
         # Determine if host is IPv4 or IPv6
@@ -123,6 +157,7 @@ class StatsdClient(object):
         if sample_rate is None:
             sample_rate = self._default_sample_rate
         sample_rate = sample_rate * self._sample_rate_factor
+
         parts = ['%s%s:%s' % (self._prefix, m_name, m_value), m_type]
         if sample_rate < 1:
             if self.random() < sample_rate:
