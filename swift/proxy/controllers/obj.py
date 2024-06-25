@@ -78,7 +78,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     normalize_etag, str_to_wsgi
 from swift.common.request_helpers import update_etag_is_at_header, \
     resolve_etag_is_at_header, validate_internal_obj, get_ip_port, \
-    is_open_expired
+    is_open_expired, append_log_info
 
 
 def check_content_type(req):
@@ -631,8 +631,7 @@ class BaseObjectController(Controller):
                 int(req.headers['x-delete-at']))
             x_delete_at = int(req.headers['x-delete-at'])
 
-            req.environ.setdefault('swift.log_info', []).append(
-                'x-delete-at:%s' % x_delete_at)
+            append_log_info(req.environ, 'x-delete-at:%s' % x_delete_at)
 
             delete_at_container = get_expirer_container(
                 x_delete_at, self.app.expiring_objects_container_divisor,

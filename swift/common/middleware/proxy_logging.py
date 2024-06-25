@@ -89,6 +89,7 @@ import os
 import time
 
 from swift.common.middleware.catch_errors import enforce_byte_count
+from swift.common.request_helpers import get_log_info
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 config_true_value, reiterate,
@@ -318,8 +319,7 @@ class ProxyLoggingMiddleware(object):
             'transaction_id': req.environ.get('swift.trans_id'),
             'request_time': duration_time_str,
             'source': req.environ.get('swift.source'),
-            'log_info':
-                ','.join(req.environ.get('swift.log_info', '')),
+            'log_info': get_log_info(req.environ),
             'policy_index': policy_index,
             'ttfb': ttfb,
             'pid': self.pid,

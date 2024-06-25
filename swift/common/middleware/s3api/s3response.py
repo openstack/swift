@@ -252,12 +252,17 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
         self.headers = HeaderKeyDict(self.headers)
 
     @property
-    def metric_name(self):
-        parts = [str(self.status_int), self._code]
+    def summary(self):
+        """Provide a summary of the error code and reason."""
         if self.reason:
-            parts.append(self.reason)
-        metric = '.'.join(parts)
-        return metric.replace(' ', '_')
+            summary = '.'.join([self._code, self.reason])
+        else:
+            summary = self._code
+        return summary.replace(' ', '_')
+
+    @property
+    def metric_name(self):
+        return '.'.join([str(self.status_int), self.summary])
 
     def _body_iter(self):
         error_elem = Element('Error')

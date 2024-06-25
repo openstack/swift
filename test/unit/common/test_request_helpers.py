@@ -32,6 +32,22 @@ server_types = ['account', 'container', 'object']
 
 class TestRequestHelpers(unittest.TestCase):
 
+    def test_append_log_info(self):
+        req = Request.blank('/v/a/c/o')
+        self.assertNotIn('swift.log_info', req.environ)
+        rh.append_log_info(req.environ, 'msg1')
+        self.assertEqual(['msg1'], req.environ.get('swift.log_info'))
+        rh.append_log_info(req.environ, 'msg2')
+        self.assertEqual(['msg1', 'msg2'], req.environ.get('swift.log_info'))
+
+    def test_get_log_info(self):
+        req = Request.blank('/v/a/c/o')
+        self.assertEqual('', rh.get_log_info(req.environ))
+        req.environ['swift.log_info'] = ['msg1']
+        self.assertEqual('msg1', rh.get_log_info(req.environ))
+        rh.append_log_info(req.environ, 'msg2')
+        self.assertEqual('msg1,msg2', rh.get_log_info(req.environ))
+
     def test_constrain_req_limit(self):
         req = Request.blank('')
         self.assertEqual(10, rh.constrain_req_limit(req, 10))

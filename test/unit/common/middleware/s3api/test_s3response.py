@@ -17,7 +17,7 @@ import unittest
 
 from swift.common.swob import Response
 from swift.common.utils import HeaderKeyDict
-from swift.common.middleware.s3api.s3response import S3Response
+from swift.common.middleware.s3api.s3response import S3Response, ErrorResponse
 from swift.common.middleware.s3api.utils import sysmeta_prefix
 
 
@@ -101,6 +101,28 @@ class TestResponse(unittest.TestCase):
                 {sysmeta_prefix(_server_type) + 'test': 'ok'})
             # but only s3api sysmeta remains in the response sysmeta_headers
             self.assertEqual(expected_headers, s3resp.sysmeta_headers)
+
+
+class DummyErrorResponse(ErrorResponse):
+    _status = "418 I'm a teapot"
+
+
+class TestErrorResponse(unittest.TestCase):
+    def test_error_response(self):
+        resp = DummyErrorResponse(msg='my-msg', reason='my reason')
+        self.assertEqual("418 I'm a teapot", str(resp))
+        self.assertEqual("418 I'm a teapot", resp.status)
+        self.assertEqual(418, resp.status_int)
+        self.assertEqual('my reason', resp.reason)
+        self.assertEqual('DummyErrorResponse.my_reason', resp.summary)
+        self.assertEqual('418.DummyErrorResponse.my_reason', resp.metric_name)
+        self.assertEqual(
+            b"<?xml version='1.0' encoding='UTF-8'?>\n"
+            b"<Error>"
+            b"<Code>DummyErrorResponse</Code>"
+            b"<Message>my-msg</Message>"
+            b"</Error>",
+            resp.body)
 
 
 if __name__ == '__main__':
