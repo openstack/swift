@@ -238,8 +238,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual('s3api.', s3api.logger.logger.statsd_client._prefix)
         client = s3api.logger.logger.statsd_client
         self.assertEqual({'test-metric': 1}, client.get_increment_counts())
-        self.assertEqual(1, len(client.sendto_calls))
-        self.assertEqual(b's3api.test-metric:1|c', client.sendto_calls[0][0])
+        self.assertEqual([(b's3api.test-metric:1|c', ('1.2.3.4', 8125))],
+                         client.sendto_calls)
 
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')
