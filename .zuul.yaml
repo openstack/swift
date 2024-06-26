@@ -646,8 +646,6 @@
        - swift-tox-func-py38-arm64
 
 - project:
-    vars:
-      ensure_tox_version: '<4'
     templates:
       - publish-openstack-docs-pti
       - periodic-stable-jobs
