@@ -10,15 +10,21 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+
 from __future__ import print_function
+import codecs
 import itertools
 import json
+from optparse import OptionParser
 import os
 import sqlite3
+import sys
 from collections import defaultdict
 
+import six
 from six.moves import urllib
 
+from swift.common.exceptions import LockTimeout
 from swift.common.utils import hash_path, storage_directory, \
     Timestamp, is_valid_ipv6
 from swift.common.ring import Ring
@@ -29,10 +35,10 @@ from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
 from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
     extract_policy
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import wsgi_to_str
 from swift.common.middleware.crypto.crypto_utils import load_crypto_meta
-from swift.common.utils import md5
+from swift.common.utils import md5, set_swift_dir
 
 
 class InfoSystemExit(Exception):
@@ -713,3 +719,95 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
         print('Object   \t%s\n\n' % urllib.parse.quote(obj))
     print_ring_locations(ring, loc, account, container, obj, part, all_nodes,
                          policy_index=policy_index)
+
+
+def obj_main():
+    if not six.PY2:
+        # Make stdout able to write escaped bytes
+        sys.stdout = codecs.getwriter("utf-8")(
+            sys.stdout.detach(), errors='surrogateescape')
+
+    parser = OptionParser('%prog [options] OBJECT_FILE')
+    parser.add_option(
+        '-n', '--no-check-etag', default=True,
+        action="store_false", dest="check_etag",
+        help="Don't verify file contents against stored etag")
+    parser.add_option(
+        '-d', '--swift-dir', default='/etc/swift', dest='swift_dir',
+        help="Pass location of swift directory")
+    parser.add_option(
+        '--drop-prefixes', default=False, action="store_true",
+        help="When outputting metadata, drop the per-section common prefixes")
+    parser.add_option(
+        '-P', '--policy-name', dest='policy_name',
+        help="Specify storage policy name")
+
+    options, args = parser.parse_args()
+
+    if len(args) != 1:
+        sys.exit(parser.print_help())
+
+    if set_swift_dir(options.swift_dir):
+        reload_storage_policies()
+
+    try:
+        print_obj(*args, **vars(options))
+    except InfoSystemExit:
+        sys.exit(1)
+
+
+def run_print_info(db_type, args, opts):
+    try:
+        print_info(db_type, *args, **opts)
+    except InfoSystemExit:
+        sys.exit(1)
+    except (sqlite3.OperationalError, LockTimeout) as e:
+        if not opts.get('stale_reads_ok'):
+            opts['stale_reads_ok'] = True
+            print('Warning: Possibly Stale Data')
+            run_print_info(db_type, args, opts)
+            sys.exit(2)
+        else:
+            print('%s info failed: %s' % (db_type.title(), e))
+            sys.exit(1)
+
+
+def container_main():
+    parser = OptionParser('%prog [options] CONTAINER_DB_FILE')
+    parser.add_option(
+        '-d', '--swift-dir', default='/etc/swift',
+        help="Pass location of swift directory")
+    parser.add_option(
+        '--drop-prefixes', default=False, action="store_true",
+        help="When outputting metadata, drop the per-section common prefixes")
+    parser.add_option(
+        '-v', '--verbose', default=False, action="store_true",
+        help="Show all shard ranges. By default, only the number of shard "
+             "ranges is displayed if there are many shards.")
+    parser.add_option(
+        '--sync', '-s', default=False, action="store_true",
+        help="Output the contents of the incoming/outging sync tables")
+
+    options, args = parser.parse_args()
+
+    if len(args) != 1:
+        sys.exit(parser.print_help())
+
+    run_print_info('container', args, vars(options))
+
+
+def account_main():
+    parser = OptionParser('%prog [options] ACCOUNT_DB_FILE')
+    parser.add_option(
+        '-d', '--swift-dir', default='/etc/swift',
+        help="Pass location of swift directory")
+    parser.add_option(
+        '--drop-prefixes', default=False, action="store_true",
+        help="When outputting metadata, drop the per-section common prefixes")
+
+    options, args = parser.parse_args()
+
+    if len(args) != 1:
+        sys.exit(parser.print_help())
+
+    run_print_info('account', args, vars(options))
