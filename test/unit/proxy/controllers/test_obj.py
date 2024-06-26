@@ -32,7 +32,7 @@ from eventlet.queue import Empty
 import six
 from six import StringIO
 from six.moves import range
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qsl
 if six.PY2:
     from email.parser import FeedParser as EmailFeedParser
 else:
@@ -7816,9 +7816,16 @@ class TestGetUpdateShard(BaseObjectControllerMixin, unittest.TestCase):
                          captured_hdrs.get('X-Backend-Record-Shard-Format'))
         self.assertIsNone(self.memcache.get('shard-updating-v2/a/c'))
         self.assertIsNone(actual)
-        lines = self.app.logger.get_lines_for_level('error')
-        self.assertEqual(1, len(lines))
-        self.assertIn('Problem with listing response from /v1/a/c/o', lines[0])
+
+        error_lines = self.logger.get_lines_for_level('error')
+        start = 'Problem with container shard listing response from /v1/a/c?'
+        msg, _, _ = error_lines[0].partition(':')
+        self.assertEqual(start, msg[:len(start)])
+        actual_qs = msg[len(start):]
+        actual_params = dict(parse_qsl(actual_qs, keep_blank_values=True))
+        self.assertEqual({'format': 'json', 'states': 'updating'},
+                         actual_params)
+        self.assertFalse(error_lines[1:])
 
 
 class TestGetUpdateShardUTF8(TestGetUpdateShard):
@@ -7864,18 +7871,34 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
 
     def test_get_namespaces_empty_body(self):
         error_lines = self._check_get_namespaces_bad_data(b'')
-        self.assertIn('Problem with listing response', error_lines[0])
+        start = 'Problem with container shard listing response from /v1/a/c?'
+        msg, _, err = error_lines[0].partition(':')
+        self.assertEqual(start, msg[:len(start)])
+        actual_qs = msg[len(start):]
+        actual_params = dict(parse_qsl(actual_qs, keep_blank_values=True))
+        self.assertEqual({'format': 'json',
+                          'includes': '1_test',
+                          'states': 'updating'},
+                         actual_params)
         if six.PY2:
-            self.assertIn('No JSON', error_lines[0])
+            self.assertIn('No JSON', err)
         else:
-            self.assertIn('JSONDecodeError', error_lines[0])
+            self.assertIn('JSONDecodeError', err)
         self.assertFalse(error_lines[1:])
 
     def test_get_namespaces_not_a_list(self):
         body = json.dumps({}).encode('ascii')
         error_lines = self._check_get_namespaces_bad_data(body)
-        self.assertIn('Problem with listing response', error_lines[0])
-        self.assertIn('not a list', error_lines[0])
+        start = 'Problem with container shard listing response from /v1/a/c?'
+        msg, _, err = error_lines[0].partition(':')
+        self.assertEqual(start, msg[:len(start)])
+        actual_qs = msg[len(start):]
+        actual_params = dict(parse_qsl(actual_qs, keep_blank_values=True))
+        self.assertEqual({'format': 'json',
+                          'includes': '1_test',
+                          'states': 'updating'},
+                         actual_params)
+        self.assertIn('ValueError', err)
         self.assertFalse(error_lines[1:])
 
     def test_get_namespaces_key_missing(self):
@@ -7937,8 +7960,16 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
         self.assertIsNone(actual)
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
         warning_lines = self.app.logger.get_lines_for_level('warning')
-        self.assertIn('Failed to get container listing', warning_lines[0])
-        self.assertIn('/a/c', warning_lines[0])
+        start = 'Failed to get container shard listing from /v1/a/c?'
+        msg, _, status_txn = warning_lines[0].partition(': ')
+        self.assertEqual(start, msg[:len(start)])
+        actual_qs = msg[len(start):]
+        actual_params = dict(parse_qsl(actual_qs, keep_blank_values=True))
+        self.assertEqual({'format': 'json',
+                          'includes': '1_test',
+                          'states': 'updating'},
+                         actual_params)
+        self.assertEqual('404', status_txn[:3])
         self.assertFalse(warning_lines[1:])
 
 

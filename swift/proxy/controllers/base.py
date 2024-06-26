@@ -2452,9 +2452,10 @@ class Controller(object):
 
     def _parse_listing_response(self, req, response):
         if not is_success(response.status_int):
+            record_type = req.headers.get('X-Backend-Record-Type')
             self.logger.warning(
-                'Failed to get container listing from %s: %s',
-                req.path_qs, response.status_int)
+                'Failed to get container %s listing from %s: %s',
+                record_type, req.path_qs, response.status_int)
             return None
 
         try:
@@ -2463,9 +2464,10 @@ class Controller(object):
                 raise ValueError('not a list')
             return data
         except ValueError as err:
+            record_type = response.headers.get('X-Backend-Record-Type')
             self.logger.error(
-                'Problem with listing response from %s: %r',
-                req.path_qs, err)
+                'Problem with container %s listing response from %s: %r',
+                record_type, req.path_qs, err)
             return None
 
     def _get_container_listing(self, req, account, container, headers=None,
@@ -2495,7 +2497,7 @@ class Controller(object):
         self.logger.debug(
             'Get listing from %s %s' % (subreq.path_qs, headers))
         response = self.app.handle_request(subreq)
-        data = self._parse_listing_response(req, response)
+        data = self._parse_listing_response(subreq, response)
         return data, response
 
     def _parse_namespaces(self, req, listing, response):
