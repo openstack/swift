@@ -911,12 +911,14 @@ class ObjectReconstructor(Daemon):
             except StopIteration:
                 break
             attempts_remaining -= 1
+            conn = None
             try:
                 with Timeout(self.http_timeout):
-                    resp = http_connect(
+                    conn = http_connect(
                         node['replication_ip'], node['replication_port'],
                         node['device'], job['partition'], 'REPLICATE',
-                        '', headers=headers).getresponse()
+                        '', headers=headers)
+                    resp = conn.getresponse()
                 if resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.logger.error(
                         '%s responded as unmounted',
@@ -939,6 +941,9 @@ class ObjectReconstructor(Daemon):
                                       'from %r' % _full_path(
                                           node, job['partition'], '',
                                           job['policy']))
+            finally:
+                if conn:
+                    conn.close()
         if remote_suffixes is None:
             raise SuffixSyncError('Unable to get remote suffix hashes')
 
