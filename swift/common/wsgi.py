@@ -198,9 +198,14 @@ def get_socket(conf):
             sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)),
                           family=address_family)
             if 'cert_file' in conf:
+                if six.PY2:
+                    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+                else:
+                    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                context.verify_mode = ssl.CERT_NONE
+                context.load_cert_chain(conf['cert_file'], conf['key_file'])
                 warn_ssl = True
-                sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
-                                       keyfile=conf['key_file'])
+                sock = context.wrap_socket(sock, server_side=True)
         except socket.error as err:
             if err.args[0] != errno.EADDRINUSE:
                 raise
