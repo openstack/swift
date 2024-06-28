@@ -544,6 +544,9 @@
       docker_images:
         - context: .
           repository: openstackswift/saio
+          tags:
+            - latest
+            - py3
 
 - job:
     name: swift-upload-image
@@ -566,41 +569,6 @@
       secret: swift-dockerhub
       pass-to-parent: true
     vars: *swift_image_vars
-
-- job:
-    name: swift-build-image-py3
-    parent: opendev-build-docker-image
-    voting: false
-    description: Build py3 SAIO docker images.
-    vars: &swift_image_vars_py3
-      docker_images:
-        - context: .
-          dockerfile: Dockerfile-py3
-          repository: openstackswift/saio
-          tags:
-           - py3
-
-- job:
-    name: swift-upload-image-py3
-    parent: opendev-upload-docker-image
-    voting: false
-    description: Build py3 SAIO docker images and upload to Docker Hub.
-    secrets:
-      name: docker_credentials
-      secret: swift-dockerhub
-      pass-to-parent: true
-    vars: *swift_image_vars_py3
-
-- job:
-    name: swift-promote-image-py3
-    parent: opendev-promote-docker-image
-    voting: false
-    description: Promote previously uploaded Docker images.
-    secrets:
-      name: docker_credentials
-      secret: swift-dockerhub
-      pass-to-parent: true
-    vars: *swift_image_vars_py3
 
 - job:
     name: swift-tox-func-py39-centos-9-stream-fips
