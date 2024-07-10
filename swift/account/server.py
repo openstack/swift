@@ -15,6 +15,7 @@
 
 import json
 import os
+import sys
 import time
 import traceback
 
@@ -30,7 +31,7 @@ from swift.common.request_helpers import get_param, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, config_true_value, \
     timing_stats, replication, get_log_line, \
-    config_fallocate_value, fs_has_free_space
+    config_fallocate_value, fs_has_free_space, parse_options
 from swift.common.constraints import valid_timestamp, check_utf8, \
     check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common import constraints
@@ -43,6 +44,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPException, wsgi_to_str
 from swift.common.request_helpers import is_sys_or_user_meta
+from swift.common.wsgi import run_wsgi
 
 
 def get_account_name_and_placement(req):
@@ -339,3 +341,12 @@ def app_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
     return AccountController(conf)
+
+
+def main():
+    conf_file, options = parse_options(test_config=True)
+    sys.exit(run_wsgi(conf_file, 'account-server', **options))
+
+
+if __name__ == '__main__':
+    main()

@@ -21,6 +21,7 @@ from six.moves.urllib.parse import unquote
 import json
 import os
 import multiprocessing
+import sys
 import time
 import traceback
 import socket
@@ -34,7 +35,7 @@ from swift.common.utils import public, get_logger, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
-    normalize_timestamp, md5
+    normalize_timestamp, md5, parse_options
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
@@ -58,6 +59,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
     HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, normalize_etag
+from swift.common.wsgi import run_wsgi
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj, embed_expirer_bytes_in_ctype, \
     X_DELETE_TYPE
@@ -1454,3 +1456,14 @@ def app_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
     return ObjectController(conf)
+
+
+def main():
+    conf_file, options = parse_options(test_config=True)
+    sys.exit(run_wsgi(conf_file, 'object-server',
+                      global_conf_callback=global_conf_callback,
+                      **options))
+
+
+if __name__ == '__main__':
+    main()

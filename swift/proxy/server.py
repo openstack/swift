@@ -36,7 +36,8 @@ from swift.common.utils import Watchdog, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     parse_prefixed_conf, config_auto_int_value, node_to_string, \
-    config_request_node_count_value, config_percent_value, cap_length
+    config_request_node_count_value, config_percent_value, cap_length, \
+    parse_options
 from swift.common.registry import register_swift_info
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
@@ -49,6 +50,7 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPServerError, HTTPException, Request, HTTPServiceUnavailable, \
     wsgi_to_str
 from swift.common.exceptions import APIVersionError
+from swift.common.wsgi import run_wsgi
 
 
 # List of entry points for mandatory middlewares.
@@ -818,3 +820,12 @@ def app_factory(global_conf, **local_conf):
     app = Application(conf)
     app.check_config()
     return app
+
+
+def main():
+    conf_file, options = parse_options(test_config=True)
+    sys.exit(run_wsgi(conf_file, 'proxy-server', **options))
+
+
+if __name__ == '__main__':
+    main()
