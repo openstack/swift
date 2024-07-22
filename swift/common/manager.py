@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 from __future__ import print_function
 import functools
 import errno
+from optparse import OptionParser
 import os
 import resource
 import signal
@@ -23,6 +25,7 @@ import time
 import subprocess
 import re
 import six
+import sys
 import tempfile
 try:
     from shutil import which
@@ -936,3 +939,102 @@ class Server(object):
 
         """
         return self.kill_running_pids(**kwargs)
+
+
+USAGE = \
+    """%prog <server>[.<config>] [<server>[.<config>] ...] <command> [options]
+
+where:
+    <server>  is the name of a swift service e.g. proxy-server.
+              The '-server' part of the name may be omitted.
+              'all', 'main' and 'rest' are reserved words that represent a
+              group of services.
+              all: Expands to all swift daemons.
+              main: Expands to main swift daemons.
+                    (proxy, container, account, object)
+              rest: Expands to all remaining background daemons (beyond
+                    "main").
+                    (updater, replicator, auditor, etc)
+    <config>  is an explicit configuration filename without the
+              .conf extension. If <config> is specified then <server> should
+              refer to a directory containing the configuration file, e.g.:
+
+                  swift-init object.1 start
+
+              will start an object-server using the configuration file
+              /etc/swift/object-server/1.conf
+    <command> is a command from the list below.
+
+Commands:
+""" + '\n'.join(["%16s: %s" % x for x in Manager.list_commands()])
+
+
+def main():
+    parser = OptionParser(USAGE)
+    parser.add_option('-v', '--verbose', action="store_true",
+                      default=False, help="display verbose output")
+    parser.add_option('-w', '--no-wait', action="store_false", dest="wait",
+                      default=True, help="won't wait for server to start "
+                      "before returning")
+    parser.add_option('-o', '--once', action="store_true",
+                      default=False, help="only run one pass of daemon")
+    # this is a negative option, default is options.daemon = True
+    parser.add_option('-n', '--no-daemon', action="store_false", dest="daemon",
+                      default=True, help="start server interactively")
+    parser.add_option('-g', '--graceful', action="store_true",
+                      default=False, help="send SIGHUP to supporting servers")
+    parser.add_option('-c', '--config-num', metavar="N", type="int",
+                      dest="number", default=0,
+                      help="send command to the Nth server only")
+    parser.add_option('-k', '--kill-wait', metavar="N", type="int",
+                      dest="kill_wait", default=KILL_WAIT,
+                      help="wait N seconds for processes to die (default 15)")
+    parser.add_option('-r', '--run-dir', type="str",
+                      dest="run_dir", default=RUN_DIR,
+                      help="alternative directory to store running pid files "
+                      "default: %s" % RUN_DIR)
+    # Changing behaviour if missing config
+    parser.add_option('--strict', dest='strict', action='store_true',
+                      help="Return non-zero status code if some config is "
+                           "missing. Default mode if all servers are "
+                           "explicitly named.")
+    # a negative option for strict
+    parser.add_option('--non-strict', dest='strict', action='store_false',
+                      help="Return zero status code even if some config is "
+                           "missing. Default mode if any server is a glob or "
+                           "one of aliases `all`, `main` or `rest`.")
+    # SIGKILL daemon after kill_wait period
+    parser.add_option('--kill-after-timeout', dest='kill_after_timeout',
+                      action='store_true',
+                      help="Kill daemon and all children after kill-wait "
+                           "period.")
+
+    options, args = parser.parse_args()
+
+    if len(args) < 2:
+        parser.print_help()
+        print('ERROR: specify server(s) and command')
+        return 1
+
+    command = args[-1]
+    servers = args[:-1]
+
+    # this is just a silly swap for me cause I always try to "start main"
+    commands = dict(Manager.list_commands()).keys()
+    if command not in commands and servers[0] in commands:
+        servers.append(command)
+        command = servers.pop(0)
+
+    manager = Manager(servers, run_dir=options.run_dir)
+    try:
+        status = manager.run_command(command, **options.__dict__)
+    except UnknownCommandError:
+        parser.print_help()
+        print('ERROR: unknown command, %s' % command)
+        status = 1
+
+    return 1 if status else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
