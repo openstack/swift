@@ -29,6 +29,7 @@ from swift.common.db import DatabaseConnectionError
 from swift.container.backend import ContainerBroker
 from swift.container.sync_store import ContainerSyncStore
 from swift.common.container_sync_realms import ContainerSyncRealms
+from swift.common.daemon import run_daemon
 from swift.common.internal_client import (
     delete_object, put_object, head_object,
     InternalClient, UnexpectedResponse)
@@ -39,7 +40,7 @@ from swift.common.swob import normalize_etag
 from swift.common.utils import (
     clean_content_type, config_true_value,
     FileLikeIter, get_logger, hash_path, quote, validate_sync_to,
-    whataremyips, Timestamp, decode_timestamps)
+    whataremyips, Timestamp, decode_timestamps, parse_options)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
 from swift.common.wsgi import ConfigString
@@ -650,3 +651,12 @@ class ContainerSync(Daemon):
 
     def select_http_proxy(self):
         return choice(self.http_proxies) if self.http_proxies else None
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(ContainerSync, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

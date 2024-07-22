@@ -15,7 +15,9 @@
 
 
 from swift.container.backend import ContainerBroker
+from swift.common.daemon import run_daemon
 from swift.common.db_auditor import DatabaseAuditor
+from swift.common.utils import parse_options
 
 
 class ContainerAuditor(DatabaseAuditor):
@@ -26,3 +28,12 @@ class ContainerAuditor(DatabaseAuditor):
 
     def _audit(self, job, broker):
         return None
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(ContainerAuditor, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

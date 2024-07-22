@@ -27,6 +27,7 @@ import six
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
 from swift.common.constraints import check_drive
+from swift.common.daemon import run_daemon
 from swift.common.direct_client import direct_delete_container, \
     direct_delete_object, direct_get_container
 from swift.common.exceptions import ClientException
@@ -34,7 +35,7 @@ from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, whataremyips, config_true_value, \
-    Timestamp, md5, node_to_string
+    Timestamp, md5, node_to_string, parse_options
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES, PolicyError
 
@@ -525,3 +526,12 @@ class AccountReaper(Daemon):
             else:
                 self.stats_objects_possibly_remaining += 1
                 self.logger.increment('objects_possibly_remaining')
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(AccountReaper, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

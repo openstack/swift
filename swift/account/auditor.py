@@ -16,7 +16,9 @@
 
 from swift.account.backend import AccountBroker
 from swift.common.exceptions import InvalidAccountInfo
+from swift.common.daemon import run_daemon
 from swift.common.db_auditor import DatabaseAuditor
+from swift.common.utils import parse_options
 
 
 class AccountAuditor(DatabaseAuditor):
@@ -45,3 +47,12 @@ class AccountAuditor(DatabaseAuditor):
                 'does not match the sum of %(key)s across policies (%(sum)s)'
                 % {'key': key, 'account': info.get('account'),
                    'total': info[key], 'sum': policy_totals[key]})
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(AccountAuditor, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

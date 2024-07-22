@@ -743,7 +743,7 @@ def auto_or_int(value):
     return config_auto_int_value(value, default='auto')
 
 
-def main(args):
+def main(args=None):
     parser = argparse.ArgumentParser(
         description='Relink and cleanup objects to increase partition power')
     parser.add_argument('action', choices=['relink', 'cleanup'])

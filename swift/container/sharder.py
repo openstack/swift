@@ -17,6 +17,7 @@ import errno
 import json
 import logging
 import operator
+from optparse import OptionParser
 import time
 from collections import defaultdict
 from operator import itemgetter
@@ -32,6 +33,7 @@ from swift.common import internal_client
 from swift.common.constraints import check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
+from swift.common.daemon import run_daemon
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring.utils import is_local_device
 from swift.common.swob import str_to_wsgi
@@ -39,7 +41,7 @@ from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
     config_positive_int_value, quorum_size, parse_override_options, \
     Everything, config_auto_int_value, ShardRangeList, config_percent_value, \
-    node_to_string
+    node_to_string, parse_options
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD, UNSHARDED, SHARDING, SHARDED, COLLAPSED, \
     SHARD_UPDATE_STATES, sift_shard_ranges, SHARD_UPDATE_STAT_STATES
@@ -2574,3 +2576,25 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             elapsed = time.time() - begin
             self.logger.info(
                 'Container sharder "once" mode completed: %.02fs', elapsed)
+
+
+def main():
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help='Shard containers only on given devices. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('-p', '--partitions',
+                      help='Shard containers only in given partitions. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('--no-auto-shard', action='store_false',
+                      dest='auto_shard', default=None,
+                      help='Disable auto-sharding. Overrides the auto_shard '
+                           'value in the config file.')
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(ContainerSharder, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

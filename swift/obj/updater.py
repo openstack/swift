@@ -34,8 +34,8 @@ from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, RateLimitedIterator, split_path, \
     eventlet_monkey_patch, get_redirect_data, ContextPool, hash_path, \
     non_negative_float, config_positive_int_value, non_negative_int, \
-    EventletRateLimiter, node_to_string
-from swift.common.daemon import Daemon
+    EventletRateLimiter, node_to_string, parse_options
+from swift.common.daemon import Daemon, run_daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
@@ -758,3 +758,12 @@ class ObjectUpdater(Daemon):
             self.logger.timing('updater.timing.status.%s' % status,
                                elapsed * 1000)
         return HTTP_INTERNAL_SERVER_ERROR, node['id'], redirect
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(ObjectUpdater, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()
