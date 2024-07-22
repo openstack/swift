@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
 
 import mock
 import time
@@ -30,7 +31,7 @@ from swift.common.registry import register_sensitive_header, \
 from swift.common.swob import Request, Response, HTTPServiceUnavailable
 from swift.common import constraints, registry
 from swift.common.storage_policy import StoragePolicy
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, FakeStatsdClient
 from test.unit import patch_policies
 from test.unit.common.middleware.helpers import FakeAppThatExcepts, FakeSwift
 
@@ -168,6 +169,98 @@ class TestProxyLogging(unittest.TestCase):
                 (('proxy-server.%s:%s|c' % (metric, value)).encode(),
                  ('host', 8125)),
                 app.access_logger.statsd_client.sendto_calls)
+
+    def test_init_statsd_options_log_prefix(self):
+        conf = {
+            'log_headers': 'no',
+            'log_statsd_valid_http_methods': 'GET',
+            'log_facility': 'LOG_LOCAL7',
+            'log_name': 'bob',
+            'log_level': 'DEBUG',
+            'log_udp_host': 'example.com',
+            'log_udp_port': '3456',
+            'log_statsd_host': 'example.com',
+            'log_statsd_port': '1234',
+            'log_statsd_default_sample_rate': 10,
+            'log_statsd_sample_rate_factor': .04,
+            'log_statsd_metric_prefix': 'foo',
+        }
+        with mock.patch('swift.common.statsd_client.StatsdClient',
+                        FakeStatsdClient):
+            app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), conf)
+
+        self.assertFalse(app.log_hdrs)
+        self.assertEqual(['GET'], app.valid_methods)
+
+        log_adapter = app.access_logger
+        self.assertEqual('proxy-access', log_adapter.name)
+        self.assertEqual('bob', app.access_logger.server)
+        self.assertEqual(logging.DEBUG, log_adapter.logger.level)
+        self.assertEqual(('example.com', 3456),
+                         log_adapter.logger.handlers[0].address)
+        self.assertEqual(SysLogHandler.LOG_LOCAL7,
+                         log_adapter.logger.handlers[0].facility)
+
+        statsd_client = app.access_logger.logger.statsd_client
+        self.assertIsInstance(statsd_client, FakeStatsdClient)
+        with mock.patch.object(statsd_client, 'random', return_value=0):
+            statsd_client.increment('baz')
+        self.assertEqual(
+            [(b'foo.proxy-server.baz:1|c|@0.4', ('example.com', 1234))],
+            statsd_client.sendto_calls)
+
+    def test_init_statsd_options_access_log_prefix(self):
+        # verify that access_log_ prefix has precedence over log_
+        conf = {
+            'access_log_route': 'my-proxy-access',
+            'access_log_headers': 'yes',
+            'access_log_statsd_valid_http_methods': 'GET, HEAD',
+            'access_log_facility': 'LOG_LOCAL6',
+            'access_log_name': 'alice',
+            'access_log_level': 'WARN',
+            'access_log_udp_host': 'access.com',
+            'access_log_udp_port': '6789',
+            'log_headers': 'no',
+            'log_statsd_valid_http_methods': 'GET',
+            'log_facility': 'LOG_LOCAL7',
+            'log_name': 'bob',
+            'log_level': 'DEBUG',
+            'log_udp_host': 'example.com',
+            'log_udp_port': '3456',
+            'access_log_statsd_host': 'access.com',
+            'access_log_statsd_port': '5678',
+            'access_log_statsd_default_sample_rate': 20,
+            'access_log_statsd_sample_rate_factor': .03,
+            'access_log_statsd_metric_prefix': 'access_foo',
+            'log_statsd_host': 'example.com',
+            'log_statsd_port': '1234',
+            'log_statsd_default_sample_rate': 10,
+            'log_statsd_sample_rate_factor': .04,
+            'log_statsd_metric_prefix': 'foo',
+        }
+        with mock.patch('swift.common.statsd_client.StatsdClient',
+                        FakeStatsdClient):
+            app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), conf)
+
+        self.assertTrue(app.log_hdrs)
+        self.assertEqual(['GET', 'HEAD'], app.valid_methods)
+
+        log_adapter = app.access_logger
+        self.assertEqual('my-proxy-access', log_adapter.name)
+        self.assertEqual('alice', app.access_logger.server)
+        self.assertEqual(logging.WARN, log_adapter.logger.level)
+        self.assertEqual(('access.com', 6789),
+                         log_adapter.logger.handlers[0].address)
+        self.assertEqual(SysLogHandler.LOG_LOCAL6,
+                         log_adapter.logger.handlers[0].facility)
+
+        statsd_client = app.access_logger.logger.statsd_client
+        self.assertIsInstance(statsd_client, FakeStatsdClient)
+        with mock.patch.object(statsd_client, 'random', return_value=0):
+            statsd_client.increment('baz')
+        self.assertEqual(
+            [(b'access_foo.proxy-server.baz:1|c|@0.6', ('access.com', 5678))],
+            statsd_client.sendto_calls)
 
     def test_logger_statsd_prefix(self):
         app = proxy_logging.ProxyLoggingMiddleware(
