@@ -147,7 +147,12 @@ def get_errors(error_re, log_file_pattern, minutes, logger,
                 log_time = datetime.datetime.strptime(
                     log_time_string, '%Y %b %d %H:%M:%S')
             except ValueError:
-                continue
+                # Some versions use ISO timestamps instead
+                try:
+                    log_time = datetime.datetime.strptime(
+                        line[0:19], '%Y-%m-%dT%H:%M:%S')
+                except ValueError:
+                    continue
             if log_time > end_time:
                 for err in error_re:
                     for device in err.findall(line):
