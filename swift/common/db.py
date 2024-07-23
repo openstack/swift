@@ -138,7 +138,8 @@ class GreenDBConnection(sqlite3.Connection):
             timeout = BROKER_TIMEOUT
         self.timeout = timeout
         self.db_file = database
-        super(GreenDBConnection, self).__init__(database, 0, *args, **kwargs)
+        super(GreenDBConnection, self).__init__(
+            database, timeout=0, *args, **kwargs)
 
     def cursor(self, cls=None):
         if cls is None:
