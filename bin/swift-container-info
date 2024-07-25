@@ -11,49 +11,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import sqlite3
-import sys
-from optparse import OptionParser
-
-from swift.cli.info import print_info, InfoSystemExit
-from swift.common.exceptions import LockTimeout
-
-
-def run_print_info(args, opts):
-    try:
-        print_info('container', *args, **opts)
-    except InfoSystemExit:
-        sys.exit(1)
-    except (sqlite3.OperationalError, LockTimeout) as e:
-        if not opts.get('stale_reads_ok'):
-            opts['stale_reads_ok'] = True
-            print('Warning: Possibly Stale Data')
-            run_print_info(args, opts)
-            sys.exit(2)
-        else:
-            print('Container info failed: %s' % e)
-            sys.exit(1)
-
+from swift.cli import info
 
 if __name__ == '__main__':
-    parser = OptionParser('%prog [options] CONTAINER_DB_FILE')
-    parser.add_option(
-        '-d', '--swift-dir', default='/etc/swift',
-        help="Pass location of swift directory")
-    parser.add_option(
-        '--drop-prefixes', default=False, action="store_true",
-        help="When outputting metadata, drop the per-section common prefixes")
-    parser.add_option(
-        '-v', '--verbose', default=False, action="store_true",
-        help="Show all shard ranges. By default, only the number of shard "
-             "ranges is displayed if there are many shards.")
-    parser.add_option(
-        '--sync', '-s', default=False, action="store_true",
-        help="Output the contents of the incoming/outging sync tables")
-
-    options, args = parser.parse_args()
-
-    if len(args) != 1:
-        sys.exit(parser.print_help())
-
-    run_print_info(args, vars(options))
+    info.container_main()
