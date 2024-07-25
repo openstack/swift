@@ -5733,6 +5733,15 @@ class TestPipeMutex(unittest.TestCase):
         self.mutex.release()
         self.assertTrue(eventlet.spawn(try_acquire_lock).wait())
 
+    def test_context_manager_api(self):
+        def try_acquire_lock():
+            return self.mutex.acquire(blocking=False)
+
+        with self.mutex as ref:
+            self.assertIs(ref, self.mutex)
+            self.assertFalse(eventlet.spawn(try_acquire_lock).wait())
+        self.assertTrue(eventlet.spawn(try_acquire_lock).wait())
+
     def test_release_without_acquire(self):
         self.assertRaises(RuntimeError, self.mutex.release)
 
@@ -5865,6 +5874,24 @@ class TestPipeMutex(unittest.TestCase):
     def tearDownClass(cls):
         # PipeMutex turns this off when you instantiate one
         eventlet.debug.hub_prevent_multiple_readers(True)
+
+
+class TestNoopMutex(unittest.TestCase):
+    def setUp(self):
+        self.mutex = utils.NoopMutex()
+
+    def test_acquire_release_api(self):
+        # Prior to 3.13, logging called these explicitly
+        self.mutex.acquire()
+        self.mutex.release()
+
+    def test_context_manager_api(self):
+        # python 3.13 started using it as a context manager
+        def try_acquire_lock():
+            return self.mutex.acquire(blocking=False)
+
+        with self.mutex as ref:
+            self.assertIs(ref, self.mutex)
 
 
 class TestDistributeEvenly(unittest.TestCase):

@@ -187,6 +187,13 @@ class PipeMutex(object):
         # do, so nobody does it and that's okay.
         self.close()
 
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
 
 class NoopMutex(object):
     """
@@ -217,6 +224,12 @@ class NoopMutex(object):
         pass
 
     def release(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
         pass
 
 
