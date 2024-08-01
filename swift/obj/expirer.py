@@ -351,6 +351,7 @@ class ObjectExpirer(Daemon):
                 except ValueError:
                     self.logger.exception('Unexcepted error handling task %r' %
                                           task_object)
+                    self.logger.increment('tasks.parse_errors')
                     continue
                 is_async = o.get('content_type') == ASYNC_DELETE_TYPE
                 delay_reaping = self.get_delay_reaping(target_account,
@@ -360,16 +361,20 @@ class ObjectExpirer(Daemon):
                     # we shouldn't yield ANY more objects that can't reach
                     # the expiration date yet.
                     break
-                if delete_timestamp > Timestamp(time() - delay_reaping) \
-                        and not is_async:
-                    # we shouldn't yield the object during the delay
-                    continue
 
                 # Only one expirer daemon assigned for each task
                 if self.hash_mod('%s/%s' % (task_container, task_object),
                                  divisor) != my_index:
+                    self.logger.increment('tasks.skipped')
                     continue
 
+                if delete_timestamp > Timestamp(time() - delay_reaping) \
+                        and not is_async:
+                    # we shouldn't yield the object during the delay
+                    self.logger.increment('tasks.delayed')
+                    continue
+
+                self.logger.increment('tasks.assigned')
                 yield {'task_account': task_account,
                        'task_container': task_container,
                        'task_object': task_object,
