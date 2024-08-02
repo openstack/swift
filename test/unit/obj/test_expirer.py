@@ -13,7 +13,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import contextlib
 import os
 import itertools
 from time import time
@@ -634,30 +634,29 @@ class TestObjectExpirer(TestCase):
 
     def test_process_based_concurrency(self):
 
-        class ObjectExpirer(expirer.ObjectExpirer):
+        @contextlib.contextmanager
+        def capture_deleted_objects(exp):
+            captured = defaultdict(set)
 
-            def __init__(self, conf, swift):
-                super(ObjectExpirer, self).__init__(conf, swift=swift)
-                self.processes = 3
-                self.deleted_objects = {}
+            def mock_delete_object(target_path, delete_timestamp,
+                                   task_account, task_container, task_object,
+                                   is_async_delete):
+                captured[task_container].add(task_object)
 
-            def delete_object(self, target_path, delete_timestamp,
-                              task_account, task_container, task_object,
-                              is_async_delete):
-                if task_container not in self.deleted_objects:
-                    self.deleted_objects[task_container] = set()
-                self.deleted_objects[task_container].add(task_object)
+            with mock.patch.object(exp, 'delete_object', mock_delete_object):
+                yield captured
 
-        x = ObjectExpirer(self.conf, swift=self.fake_swift)
-        x.logger = self.logger
+        conf = dict(self.conf, processes=3)
+        x = expirer.ObjectExpirer(
+            conf, swift=self.fake_swift, logger=self.logger)
 
         deleted_objects = defaultdict(set)
         for i in range(3):
             x.process = i
             # reset progress so we know we don't double-up work among processes
-            x.deleted_objects = defaultdict(set)
-            x.run_once()
-            for task_container, deleted in x.deleted_objects.items():
+            with capture_deleted_objects(x) as captured_deleted_objects:
+                x.run_once()
+            for task_container, deleted in captured_deleted_objects.items():
                 self.assertFalse(deleted_objects[task_container] & deleted)
                 deleted_objects[task_container] |= deleted
 
@@ -1184,12 +1183,12 @@ class TestObjectExpirer(TestCase):
                     task_account_container_list, i, processes
                 ))
             total_tasks += len(yielded_tasks)
-        # Ten tasks, each process gets 1 on overage.
+        # Ten tasks, each process gets 1 on average.
         # N.B. each process may get 0 or multiple tasks, since hash_mod is
         # based on names of current time.
         self.assertEqual(10, total_tasks)
 
-        # On overage, each process was assigned 1 task and skipped 9
+        # On average, each process was assigned 1 task and skipped 9
         self.assertEqual({
             'tasks.assigned': 10,
             'tasks.skipped': 90,
@@ -1543,8 +1542,12 @@ class TestObjectExpirer(TestCase):
 
         # no tasks are popped from the queue
         self.assertEqual(mock_method.call_args_list, [])
+        self.assertEqual(
+            {'errors': 10, 'tasks.assigned': 10},
+            self.expirer.logger.statsd_client.get_increment_counts())
 
         # all tasks are done
+        self.expirer.logger.clear()
         with mock.patch.object(self.expirer, 'delete_actual_object',
                                lambda o, t, b: None), \
                 mock.patch.object(self.expirer, 'pop_queue') as mock_method:
@@ -1560,6 +1563,9 @@ class TestObjectExpirer(TestCase):
              self.just_past_time + '-' + target_path)
              for target_path
              in self.expired_target_paths[self.just_past_time]])
+        self.assertEqual(
+            {'objects': 10, 'tasks.assigned': 10},
+            self.expirer.logger.statsd_client.get_increment_counts())
 
     def test_success_gets_counted(self):
         self.assertEqual(self.expirer.report_objects, 0)
@@ -1631,6 +1637,9 @@ class TestObjectExpirer(TestCase):
                       self.past_time + '-' + target_path)
             for target_path in self.expired_target_paths[self.past_time]
         ])
+        self.assertEqual(
+            {'errors': 5, 'objects': 5, 'tasks.assigned': 10},
+            self.expirer.logger.statsd_client.get_increment_counts())
 
     def test_run_forever_initial_sleep_random(self):
         global last_not_sleep
