@@ -65,8 +65,8 @@ class FakeStatsdClient(statsd_client.StatsdClient):
             return func(*args, **kwargs)
         return wrapper
 
-    def _determine_sock_family(self, host, port):
-        return None, None
+    def _set_sock_family_and_target(self, host, port):
+        self._target = (host, port)
 
     def _open_socket(self):
         return self.recording_socket
@@ -113,6 +113,7 @@ class CaptureLog(object):
     Captures log records passed to the ``handle`` method and provides accessor
     functions to the captured logs.
     """
+
     def __init__(self):
         self.clear()
 
@@ -280,6 +281,7 @@ class ForwardingLogHandler(logging.NullHandler):
     to a given handler function. This can be useful to forward records to a
     handler without the handler itself needing to subclass LogHandler.
     """
+
     def __init__(self, handler_fn):
         super(ForwardingLogHandler, self).__init__()
         self.handler_fn = handler_fn
@@ -293,6 +295,7 @@ class CaptureLogAdapter(utils.LogAdapter, CaptureLog):
     A LogAdapter that is capable of capturing logs for inspection via accessor
     methods.
     """
+
     def __init__(self, logger, name):
         super(CaptureLogAdapter, self).__init__(logger, name)
         self.clear()
