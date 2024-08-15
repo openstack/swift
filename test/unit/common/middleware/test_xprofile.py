@@ -83,8 +83,12 @@ class TestProfileMiddleware(unittest.TestCase):
     @unittest.skipIf(xprofile is None, "can't import xprofile")
     def setUp(self):
         self.got_statuses = []
-        self.app = ProfileMiddleware(FakeApp, {})
-        self.tempdir = os.path.dirname(self.app.log_filename_prefix)
+        self.tempdir = tempfile.mkdtemp()
+        log_filename_prefix = os.path.join(
+            self.tempdir,
+            'log/swift/profile/default.profile')
+        conf = {'log_filename_prefix': log_filename_prefix}
+        self.app = ProfileMiddleware(FakeApp, conf)
         self.pids = ['123', '456', str(os.getpid())]
         profiler = xprofile.get_profiler('eventlet.green.profile')
         for pid in self.pids:
