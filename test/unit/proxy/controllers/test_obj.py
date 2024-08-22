@@ -84,7 +84,12 @@ def set_http_connect(*args, **kwargs):
         yield new_connect
         left_over_status = list(new_connect.code_iter)
         if left_over_status:
-            raise AssertionError('left over status %r' % left_over_status)
+            raise AssertionError('%d left over statuses %r'
+                                 % (len(left_over_status), left_over_status))
+        if new_connect.unexpected_requests:
+            raise AssertionError(' %d unexpected requests'
+                                 % len(new_connect.unexpected_requests))
+
     finally:
         swift.proxy.controllers.base.http_connect = old_connect
         swift.proxy.controllers.obj.http_connect = old_connect
@@ -958,7 +963,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_HEAD_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD',
                                               headers={'X-Newest': 'true'})
-        with set_http_connect(*([200] * self.replicas())):
+        with set_http_connect(*([200] * 2 * self.replicas())):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
 
@@ -966,14 +971,15 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
-        timestamps = [next(ts) for i in range(self.replicas())]
+        num_expected_requests = 2 * self.replicas()
+        timestamps = [next(ts) for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
         random.shuffle(timestamps)
         backend_response_headers = [{
             'X-Backend-Timestamp': t.internal,
             'X-Timestamp': t.normal
         } for t in timestamps]
-        with set_http_connect(*([200] * self.replicas()),
+        with set_http_connect(*([200] * num_expected_requests),
                               headers=backend_response_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
@@ -984,14 +990,15 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                                  headers={'X-Newest': 'true'})
         ts = (utils.Timestamp.now(offset=offset)
               for offset in itertools.count())
-        timestamps = [next(ts) for i in range(self.replicas())]
+        num_expected_requests = 2 * self.replicas()
+        timestamps = [next(ts) for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
         random.shuffle(timestamps)
         backend_response_headers = [{
             'X-Backend-Timestamp': t.internal,
             'X-Timestamp': t.normal
         } for t in timestamps]
-        with set_http_connect(*([200] * self.replicas()),
+        with set_http_connect(*([200] * num_expected_requests),
                               headers=backend_response_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
@@ -3212,9 +3219,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 404)
 
     def _test_if_match(self, method):
-        num_responses = self.policy.ec_ndata if method == 'GET' else 1
-
-        def _do_test(match_value, backend_status,
+        def _do_test(match_value, backend_status, num_responses,
                      etag_is_at='X-Object-Sysmeta-Does-Not-Exist'):
             req = swift.common.swob.Request.blank(
                 '/v1/a/c/o', method=method,
@@ -3229,30 +3234,33 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             self.assertEqual('data_etag', resp.headers['Etag'])
             return resp
 
+        num_ok_responses = self.policy.ec_ndata if method == 'GET' else 1
         # wildcard
-        resp = _do_test('*', 200)
+        resp = _do_test('*', 200, num_ok_responses)
         self.assertEqual(resp.status_int, 200)
 
         # match
-        resp = _do_test('"data_etag"', 200)
+        resp = _do_test('"data_etag"', 200, num_ok_responses)
         self.assertEqual(resp.status_int, 200)
 
         # no match
-        resp = _do_test('"frag_etag"', 412)
+        resp = _do_test('"frag_etag"', 412,
+                        2 * self.policy.ec_n_unique_fragments)
         self.assertEqual(resp.status_int, 412)
 
         # match wildcard against an alternate etag
-        resp = _do_test('*', 200,
+        resp = _do_test('*', 200, num_ok_responses,
                         etag_is_at='X-Object-Sysmeta-Alternate-Etag')
         self.assertEqual(resp.status_int, 200)
 
         # match against an alternate etag
-        resp = _do_test('"alt_etag"', 200,
+        resp = _do_test('"alt_etag"', 200, num_ok_responses,
                         etag_is_at='X-Object-Sysmeta-Alternate-Etag')
         self.assertEqual(resp.status_int, 200)
 
         # no match against an alternate etag
         resp = _do_test('"data_etag"', 412,
+                        2 * self.policy.ec_n_unique_fragments,
                         etag_is_at='X-Object-Sysmeta-Alternate-Etag')
         self.assertEqual(resp.status_int, 412)
 
@@ -3263,9 +3271,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self._test_if_match('HEAD')
 
     def _test_if_none_match(self, method):
-        num_responses = self.policy.ec_ndata if method == 'GET' else 1
-
-        def _do_test(match_value, backend_status,
+        def _do_test(match_value, backend_status, num_responses,
                      etag_is_at='X-Object-Sysmeta-Does-Not-Exist'):
             req = swift.common.swob.Request.blank(
                 '/v1/a/c/o', method=method,
@@ -3280,30 +3286,38 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             self.assertEqual('data_etag', resp.headers['Etag'])
             return resp
 
+        if method == 'GET':
+            num_ok_responses = self.policy.ec_ndata
+            num_304_responses = 2 * self.policy.ec_n_unique_fragments
+        else:
+            num_ok_responses = num_304_responses = 1
+
         # wildcard
-        resp = _do_test('*', 304)
+        resp = _do_test('*', 304, num_304_responses)
         self.assertEqual(resp.status_int, 304)
 
         # match
-        resp = _do_test('"data_etag"', 304)
+        resp = _do_test('"data_etag"', 304, num_304_responses)
         self.assertEqual(resp.status_int, 304)
 
         # no match
-        resp = _do_test('"frag_etag"', 200)
+        resp = _do_test('"frag_etag"', 200, num_ok_responses)
         self.assertEqual(resp.status_int, 200)
 
         # match wildcard against an alternate etag
         resp = _do_test('*', 304,
+                        num_304_responses,
                         etag_is_at='X-Object-Sysmeta-Alternate-Etag')
         self.assertEqual(resp.status_int, 304)
 
         # match against an alternate etag
         resp = _do_test('"alt_etag"', 304,
+                        num_304_responses,
                         etag_is_at='X-Object-Sysmeta-Alternate-Etag')
         self.assertEqual(resp.status_int, 304)
 
         # no match against an alternate etag
-        resp = _do_test('"data_etag"', 200,
+        resp = _do_test('"data_etag"', 200, num_ok_responses,
                         etag_is_at='X-Object-Sysmeta-Alternate-Etag')
         self.assertEqual(resp.status_int, 200)
 
@@ -3330,7 +3344,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
     def test_GET_no_response_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect():
+        num_responses = 2 * self.policy.ec_n_unique_fragments
+        with set_http_connect(*([Timeout()] * num_responses)):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
 
