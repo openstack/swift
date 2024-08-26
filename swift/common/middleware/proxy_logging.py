@@ -88,6 +88,7 @@ bandwidth usage will want to only sum up logs with no ``swift.source``.
 import os
 import time
 
+from swift.common.constraints import valid_api_version
 from swift.common.middleware.catch_errors import enforce_byte_count
 from swift.common.request_helpers import get_log_info
 from swift.common.swob import Request
@@ -271,10 +272,8 @@ class ProxyLoggingMiddleware(object):
         duration_time_str = "%.4f" % (end_time - start_time)
         policy_index = get_policy_index(req.headers, resp_headers)
 
-        acc, cont, obj = None, None, None
         swift_path = req.environ.get('swift.backend_path', req.path)
-        if swift_path.startswith('/v1/'):
-            _, acc, cont, obj = split_path(swift_path, 1, 4, True)
+        acc, cont, obj = self.get_aco_from_path(swift_path)
 
         replacements = {
             # Time information
@@ -348,9 +347,19 @@ class ProxyLoggingMiddleware(object):
             self.access_logger.update_stats(metric_name_policy + '.xfer',
                                             bytes_received + bytes_sent)
 
+    def get_aco_from_path(self, swift_path):
+        try:
+            version, acc, cont, obj = split_path(swift_path, 1, 4, True)
+            if not valid_api_version(version):
+                raise ValueError
+        except ValueError:
+            version, acc, cont, obj = None, None, None, None
+        return acc, cont, obj
+
     def get_metric_name_type(self, req):
         swift_path = req.environ.get('swift.backend_path', req.path)
-        if swift_path.startswith('/v1/'):
+        acc, cont, obj = self.get_aco_from_path(swift_path)
+        if acc:
             try:
                 stat_type = [None, 'account', 'container',
                              'object'][swift_path.strip('/').count('/')]
