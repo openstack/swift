@@ -941,16 +941,16 @@ class ContainerBroker(DatabaseBroker):
                 self._do_get_info_query(conn)
 
     def _get_alternate_object_stats(self):
-        state = self.get_db_state()
-        if state == SHARDING:
+        db_state = self.get_db_state()
+        if db_state == SHARDING:
             other_info = self.get_brokers()[0]._get_info()
             stats = {'object_count': other_info['object_count'],
                      'bytes_used': other_info['bytes_used']}
-        elif state == SHARDED and self.is_root_container():
+        elif db_state == SHARDED and self.is_root_container():
             stats = self.get_shard_usage()
         else:
             stats = {}
-        return state, stats
+        return db_state, stats
 
     def get_info(self):
         """
@@ -2144,10 +2144,10 @@ class ContainerBroker(DatabaseBroker):
             self.logger.warning("Container '%s' cannot be set to sharding "
                                 "state: missing epoch", self.path)
             return False
-        state = self.get_db_state()
-        if not state == UNSHARDED:
+        db_state = self.get_db_state()
+        if not db_state == UNSHARDED:
             self.logger.warning("Container '%s' cannot be set to sharding "
-                                "state while in %s state", self.path, state)
+                                "state while in %s state", self.path, db_state)
             return False
 
         info = self.get_info()
@@ -2225,11 +2225,11 @@ class ContainerBroker(DatabaseBroker):
         :return: True if the retiring DB was successfully unlinked, False
             otherwise.
         """
-        state = self.get_db_state()
-        if not state == SHARDING:
+        db_state = self.get_db_state()
+        if not db_state == SHARDING:
             self.logger.warning("Container %r cannot be set to sharded "
                                 "state while in %s state",
-                                self.path, state)
+                                self.path, db_state)
             return False
 
         self.reload_db_files()

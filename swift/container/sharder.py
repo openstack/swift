@@ -1819,12 +1819,12 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
     def _make_misplaced_object_bounds(self, broker):
         bounds = []
-        state = broker.get_db_state()
-        if state == SHARDED:
+        db_state = broker.get_db_state()
+        if db_state == SHARDED:
             # Anything in the object table is treated as a misplaced object.
             bounds.append(('', ''))
 
-        if not bounds and state == SHARDING:
+        if not bounds and db_state == SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
             cleave_context = CleavingContext.load(broker)
@@ -2344,9 +2344,9 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
     def _process_broker(self, broker, node, part):
         broker.get_info()  # make sure account/container are populated
-        state = broker.get_db_state()
+        db_state = broker.get_db_state()
         is_deleted = broker.is_deleted()
-        self.debug(broker, 'Starting processing, state %s%s', state,
+        self.debug(broker, 'Starting processing, state %s%s', db_state,
                    ' (deleted)' if is_deleted else '')
 
         if not self._audit_container(broker):
@@ -2360,7 +2360,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
         is_leader = node['index'] == 0 and self.auto_shard and not is_deleted
 
-        if state in (UNSHARDED, COLLAPSED):
+        if db_state in (UNSHARDED, COLLAPSED):
             if is_leader and broker.is_root_container():
                 # bootstrap sharding of root container
                 own_shard_range = broker.get_own_shard_range()
@@ -2376,7 +2376,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                     # or manually triggered cleaving.
                     db_start_ts = time.time()
                     if broker.set_sharding_state():
-                        state = SHARDING
+                        db_state = SHARDING
                         self.info(broker, 'Kick off container cleaving, '
                                           'own shard range in state %r',
                                   own_shard_range.state_text)
@@ -2384,14 +2384,14 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                         'sharder.sharding.set_state', db_start_ts)
                 elif is_leader:
                     if broker.set_sharding_state():
-                        state = SHARDING
+                        db_state = SHARDING
                 else:
                     self.debug(broker,
                                'Own shard range in state %r but no shard '
                                'ranges and not leader; remaining unsharded',
                                own_shard_range.state_text)
 
-        if state == SHARDING:
+        if db_state == SHARDING:
             cleave_start_ts = time.time()
             if is_leader:
                 num_found = self._find_shard_ranges(broker)
@@ -2412,7 +2412,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
             if cleave_complete:
                 if self._complete_sharding(broker):
-                    state = SHARDED
+                    db_state = SHARDED
                     self._increment_stat('visited', 'completed', statsd=True)
                     self.info(broker, 'Completed cleaving, DB set to sharded '
                                       'state')
@@ -2424,7 +2424,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                                       'sharding state')
 
         if not broker.is_deleted():
-            if state == SHARDED and broker.is_root_container():
+            if db_state == SHARDED and broker.is_root_container():
                 # look for shrink stats
                 send_start_ts = time.time()
                 self._identify_shrinking_candidate(broker, node)
