@@ -804,6 +804,9 @@ def account_main():
     parser.add_option(
         '--drop-prefixes', default=False, action="store_true",
         help="When outputting metadata, drop the per-section common prefixes")
+    parser.add_option(
+        '--sync', '-s', default=False, action="store_true",
+        help="Output the contents of the incoming/outging sync tables")
 
     options, args = parser.parse_args()
 
