@@ -619,7 +619,8 @@ class ObjectReplicator(Daemon):
         try:
             tpool.execute(shutil.rmtree, path)
         except OSError as e:
-            if e.errno not in (errno.ENOENT, errno.ENOTEMPTY, errno.ENODATA):
+            if e.errno not in (errno.ENOENT, errno.ENOTEMPTY, errno.ENODATA,
+                               errno.EUCLEAN):
                 # Don't worry if there was a race to create or delete,
                 # or some disk corruption that happened after the sync
                 raise
