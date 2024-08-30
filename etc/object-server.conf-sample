@@ -154,6 +154,14 @@ use = egg:swift#object
 # chunk reads. A value of '0' (the default) will turn off cooperative yielding.
 # cooperative_period = 0
 #
+# By default, the object-server will always validate the MD5 of object data
+# while streaming a complete object response. Occassionally this is identified
+# as a CPU bottleneck, consuming as much as 40% of the CPU time of the
+# object-server. Since range-request-heavy clients don't get these integrity
+# checks, it seems reasonable to give operators a chance to tune it down and
+# instead rely on the object-auditor to detect and quarantine corrupted objects.
+# etag_validate_pct = 100
+#
 # on PUTs, sync data every n MB
 # mb_per_sync = 512
 #

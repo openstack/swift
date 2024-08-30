@@ -4267,6 +4267,56 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
 
+    def test_GET_no_etag_validation(self):
+        conf = {'devices': self.testdir, 'mount_check': 'false',
+                'container_update_timeout': 0.0,
+                'etag_validate_pct': '0'}
+        object_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'VERIFY'
+        resp = req.get_response(object_controller)
+        self.assertEqual(resp.status_int, 201)
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
+        disk_file.open()
+        file_name = os.path.basename(disk_file._data_file)
+        bad_etag = md5(b'VERIF', usedforsecurity=False).hexdigest()
+        metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
+                    'Content-Length': 6, 'ETag': bad_etag}
+        diskfile.write_metadata(disk_file._fp, metadata)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = req.get_response(object_controller)
+        quar_dir = os.path.join(
+            self.testdir, 'sda1', 'quarantined', 'objects',
+            os.path.basename(os.path.dirname(disk_file._data_file)))
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
+        body = resp.body
+        self.assertEqual(body, b'VERIFY')
+        self.assertEqual(resp.headers['Etag'], '"%s"' % bad_etag)
+        # Didn't quarantine!
+        self.assertFalse(os.path.exists(quar_dir))
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = req.get_response(object_controller)
+        body = resp.body
+        self.assertEqual(body, b'VERIFY')
+        self.assertEqual(resp.headers['Etag'], '"%s"' % bad_etag)
+
+        # If there's a size mismatch, though, we *should* quarantine
+        metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
+                    'Content-Length': 5, 'ETag': bad_etag}
+        diskfile.write_metadata(disk_file._fp, metadata)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = req.get_response(object_controller)
+        self.assertEqual('404 Not Found', resp.status)
+        self.assertFalse(os.path.exists(disk_file._datadir))
+        self.assertTrue(os.path.exists(quar_dir))
+
     def test_GET_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
@@ -4378,7 +4428,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4402,7 +4452,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have 'X-Storage-Token'.
@@ -4413,7 +4463,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have both 'X-Auth-Token' and 'X-Storage-Token'.
@@ -4425,7 +4475,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
     def test_GET_keep_cache_private_config_false(self):
@@ -4454,7 +4504,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1.0)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4478,7 +4528,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have 'X-Storage-Token'.
@@ -4489,7 +4539,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have both 'X-Auth-Token' and 'X-Storage-Token'.
@@ -4501,7 +4551,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
     def test_GET_keep_cache_slo_manifest_no_config(self):
@@ -4532,7 +4582,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4578,7 +4628,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4624,7 +4674,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4669,7 +4719,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4708,7 +4758,8 @@ class TestObjectController(BaseTestCase):
             "swift.obj.diskfile.BaseDiskFile.reader"
         ) as reader_mock:
             resp = req.get_response(obj_controller)
-        reader_mock.assert_called_with(keep_cache=False, cooperative_period=99)
+        reader_mock.assert_called_with(keep_cache=False, cooperative_period=99,
+                                       etag_validate_frac=1.0)
         self.assertEqual(resp.status_int, 200)
 
         # Test DiskFile reader actually sleeps when reading chunks. When
