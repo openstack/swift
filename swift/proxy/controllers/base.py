@@ -1107,6 +1107,18 @@ def is_good_source(status, server_type):
     return is_success(status) or is_redirection(status)
 
 
+def is_useful_response(resp, node):
+    if not resp:
+        return False
+    if ('handoff_index' in node
+            and resp.status == 404
+            and resp.headers.get('x-backend-timestamp') is None):
+        # a 404 from a handoff are not considered authoritative unless they
+        # have an x-backend-timestamp that indicates that there is a tombstone
+        return False
+    return True
+
+
 class ByteCountEnforcer(object):
     """
     Enforces that successive calls to file_like.read() give at least
@@ -1956,7 +1968,7 @@ class Controller(object):
     def generate_request_headers(self, orig_req=None, additional=None,
                                  transfer=False):
         """
-        Create a list of headers to be used in backend requests
+        Create a dict of headers to be used in backend requests
 
         :param orig_req: the original request sent by the client to the proxy
         :param additional: additional headers to send to the backend
@@ -2088,14 +2100,14 @@ class Controller(object):
                     if (self.app.check_response(node, self.server_type, resp,
                                                 method, path)
                             and not is_informational(resp.status)):
-                        return resp.status, resp.reason, resp.getheaders(), \
-                            resp.read()
+                        return resp, resp.read(), node
 
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,
                     'Trying to %(method)s %(path)s' %
                     {'method': method, 'path': path})
+        return None, None, None
 
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string='', overrides=None, node_count=None,
@@ -2118,6 +2130,8 @@ class Controller(object):
                           the returned status of a request.
         :param node_count: optional number of nodes to send request to.
         :param node_iterator: optional node iterator.
+        :param body: byte string to use as the request body.
+                     Try to keep it small.
         :returns: a swob.Response object
         """
         nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
@@ -2128,25 +2142,25 @@ class Controller(object):
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
                        head, query_string, body, self.logger.thread_locals)
-        response = []
+        results = []
         statuses = []
-        for resp in pile:
-            if not resp:
+        for resp, body, node in pile:
+            if not is_useful_response(resp, node):
                 continue
-            response.append(resp)
-            statuses.append(resp[0])
+            results.append((resp.status, resp.reason, resp.getheaders(), body))
+            statuses.append(resp.status)
             if self.have_quorum(statuses, node_number):
                 break
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
-        for resp in finished_quickly:
-            if not resp:
+        for resp, body, node in finished_quickly:
+            if not is_useful_response(resp, node):
                 continue
-            response.append(resp)
-            statuses.append(resp[0])
-        while len(response) < node_number:
-            response.append((HTTP_SERVICE_UNAVAILABLE, '', '', b''))
-        statuses, reasons, resp_headers, bodies = zip(*response)
+            results.append((resp.status, resp.reason, resp.getheaders(), body))
+            statuses.append(resp.status)
+        while len(results) < node_number:
+            results.append((HTTP_SERVICE_UNAVAILABLE, '', '', b''))
+        statuses, reasons, resp_headers, bodies = zip(*results)
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (self.server_type, req.method),
                                   overrides=overrides, headers=resp_headers)

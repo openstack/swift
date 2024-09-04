@@ -1464,8 +1464,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         handoff_codes = [404] * primary_failure
         with mocked_http_conn(*(primary_codes + handoff_codes)):
             resp = req.get_response(self.app)
-        # TODO: this should really be a 503
-        self.assertEqual(404, resp.status_int,
+        self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
 
     def test_POST_insufficient_primaries_others_fail_handoffs_fail(self):
@@ -1487,8 +1486,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         handoff_codes = [202] * handoff_success + [404] * handoff_not_found
         with mocked_http_conn(*(primary_codes + handoff_codes)):
             resp = req.get_response(self.app)
-        # TODO: this should really be a 503
-        self.assertEqual(404, resp.status_int,
+        self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
 
     def test_POST_all_primaries_fail_sufficient_handoff_succeeds(self):
