@@ -14,10 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.container.updater import ContainerUpdater
-from swift.common.utils import parse_options
-from swift.common.daemon import run_daemon
+from swift.container import updater
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(once=True)
-    run_daemon(ContainerUpdater, conf_file, **options)
+    updater.main()

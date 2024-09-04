@@ -463,8 +463,8 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         conf = {'bind_port': 54321}
         ssl_conf = conf.copy()
         ssl_conf.update({
-            'cert_file': '',
-            'key_file': '',
+            'cert_file': 'cert.pem',
+            'key_file': 'private.key',
         })
 
         # mocks
@@ -478,20 +478,25 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         def mock_listen(*args, **kwargs):
             return MockSocket()
 
-        class MockSsl(object):
-            def __init__(self):
-                self.wrap_socket_called = []
+        class MockSslContext(object):
+            _instance = None
 
-            def wrap_socket(self, sock, **kwargs):
-                self.wrap_socket_called.append(kwargs)
+            def __init__(self, *args, **kwargs):
+                MockSslContext._instance = self
+                self.load_cert_chain_args = []
+
+            def wrap_socket(self, sock, *args, **kwargs):
                 return sock
+
+            def load_cert_chain(self, *args, **kwargs):
+                self.load_cert_chain_args.extend(args)
 
         # patch
         old_listen = wsgi.listen
-        old_ssl = wsgi.ssl
+        old_ssl_context = wsgi.ssl.SSLContext
         try:
             wsgi.listen = mock_listen
-            wsgi.ssl = MockSsl()
+            wsgi.ssl.SSLContext = MockSslContext
             # test
             sock = wsgi.get_socket(conf)
             # assert
@@ -510,11 +515,9 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
             self.assertEqual(sock.opts, expected_socket_opts)
             # test ssl
             sock = wsgi.get_socket(ssl_conf)
-            expected_kwargs = {
-                'certfile': '',
-                'keyfile': '',
-            }
-            self.assertEqual(wsgi.ssl.wrap_socket_called, [expected_kwargs])
+            expected_args = ['cert.pem', 'private.key']
+            self.assertEqual(MockSslContext._instance.load_cert_chain_args,
+                             expected_args)
 
             # test keep_idle value
             keepIdle_value = 700
@@ -550,7 +553,7 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
 
         finally:
             wsgi.listen = old_listen
-            wsgi.ssl = old_ssl
+            wsgi.ssl.SSLContext = old_ssl_context
 
     def test_address_in_use(self):
         # stubs

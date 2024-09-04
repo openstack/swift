@@ -980,6 +980,11 @@ use = egg:swift#etag_quoter
 use = egg:swift#list_endpoints
 # list_endpoints_path = /endpoints/
 
+# Note: The double proxy-logging in the pipeline is not a mistake. The
+# left-most proxy-logging is there to log requests that were handled in
+# middleware and never made it through to the right-most middleware (and
+# proxy server). Double logging is prevented for normal requests. See
+# proxy-logging docs.
 [filter:proxy-logging]
 use = egg:swift#proxy_logging
 # If not set, logging directives from [DEFAULT] without "access_" will be used
@@ -1025,12 +1030,6 @@ use = egg:swift#proxy_logging
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 # not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
 # log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS
-#
-# Note: The double proxy-logging in the pipeline is not a mistake. The
-# left-most proxy-logging is there to log requests that were handled in
-# middleware and never made it through to the right-most middleware (and
-# proxy server). Double logging is prevented for normal requests. See
-# proxy-logging docs.
 #
 # Hashing algorithm for log anonymization. Must be one of algorithms supported
 # by Python's hashlib.

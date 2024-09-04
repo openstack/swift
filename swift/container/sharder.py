@@ -17,6 +17,7 @@ import errno
 import json
 import logging
 import operator
+from optparse import OptionParser
 import time
 from collections import defaultdict
 from operator import itemgetter
@@ -32,6 +33,7 @@ from swift.common import internal_client
 from swift.common.constraints import check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
+from swift.common.daemon import run_daemon
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring.utils import is_local_device
 from swift.common.swob import str_to_wsgi
@@ -39,7 +41,7 @@ from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
     config_positive_int_value, quorum_size, parse_override_options, \
     Everything, config_auto_int_value, ShardRangeList, config_percent_value, \
-    node_to_string
+    node_to_string, parse_options
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD, UNSHARDED, SHARDING, SHARDED, COLLAPSED, \
     SHARD_UPDATE_STATES, sift_shard_ranges, SHARD_UPDATE_STAT_STATES
@@ -1817,12 +1819,12 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
     def _make_misplaced_object_bounds(self, broker):
         bounds = []
-        state = broker.get_db_state()
-        if state == SHARDED:
+        db_state = broker.get_db_state()
+        if db_state == SHARDED:
             # Anything in the object table is treated as a misplaced object.
             bounds.append(('', ''))
 
-        if not bounds and state == SHARDING:
+        if not bounds and db_state == SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
             cleave_context = CleavingContext.load(broker)
@@ -2342,9 +2344,9 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
     def _process_broker(self, broker, node, part):
         broker.get_info()  # make sure account/container are populated
-        state = broker.get_db_state()
+        db_state = broker.get_db_state()
         is_deleted = broker.is_deleted()
-        self.debug(broker, 'Starting processing, state %s%s', state,
+        self.debug(broker, 'Starting processing, state %s%s', db_state,
                    ' (deleted)' if is_deleted else '')
 
         if not self._audit_container(broker):
@@ -2358,7 +2360,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
         is_leader = node['index'] == 0 and self.auto_shard and not is_deleted
 
-        if state in (UNSHARDED, COLLAPSED):
+        if db_state in (UNSHARDED, COLLAPSED):
             if is_leader and broker.is_root_container():
                 # bootstrap sharding of root container
                 own_shard_range = broker.get_own_shard_range()
@@ -2374,7 +2376,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                     # or manually triggered cleaving.
                     db_start_ts = time.time()
                     if broker.set_sharding_state():
-                        state = SHARDING
+                        db_state = SHARDING
                         self.info(broker, 'Kick off container cleaving, '
                                           'own shard range in state %r',
                                   own_shard_range.state_text)
@@ -2382,14 +2384,14 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                         'sharder.sharding.set_state', db_start_ts)
                 elif is_leader:
                     if broker.set_sharding_state():
-                        state = SHARDING
+                        db_state = SHARDING
                 else:
                     self.debug(broker,
                                'Own shard range in state %r but no shard '
                                'ranges and not leader; remaining unsharded',
                                own_shard_range.state_text)
 
-        if state == SHARDING:
+        if db_state == SHARDING:
             cleave_start_ts = time.time()
             if is_leader:
                 num_found = self._find_shard_ranges(broker)
@@ -2410,7 +2412,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
             if cleave_complete:
                 if self._complete_sharding(broker):
-                    state = SHARDED
+                    db_state = SHARDED
                     self._increment_stat('visited', 'completed', statsd=True)
                     self.info(broker, 'Completed cleaving, DB set to sharded '
                                       'state')
@@ -2422,7 +2424,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                                       'sharding state')
 
         if not broker.is_deleted():
-            if state == SHARDED and broker.is_root_container():
+            if db_state == SHARDED and broker.is_root_container():
                 # look for shrink stats
                 send_start_ts = time.time()
                 self._identify_shrinking_candidate(broker, node)
@@ -2574,3 +2576,25 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             elapsed = time.time() - begin
             self.logger.info(
                 'Container sharder "once" mode completed: %.02fs', elapsed)
+
+
+def main():
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help='Shard containers only on given devices. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('-p', '--partitions',
+                      help='Shard containers only in given partitions. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('--no-auto-shard', action='store_false',
+                      dest='auto_shard', default=None,
+                      help='Disable auto-sharding. Overrides the auto_shard '
+                           'value in the config file.')
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(ContainerSharder, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

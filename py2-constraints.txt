@@ -2,8 +2,6 @@ voluptuous===0.11.7
 chardet===3.0.4
 enum-compat===0.0.3
 os-api-ref===1.6.2
-lxml===4.5.0
-certifi===2020.4.5.1
 alabaster===0.7.12
 pbr===5.4.5
 oslo.i18n===3.25.1
@@ -19,14 +17,11 @@ eventlet===0.25.2
 extras===1.0.0
 reno===2.11.3
 imagesize===1.2.0
-urllib3===1.25.8
 mock===3.0.5
-PyYAML===5.3.1
 cryptography===2.9
 requests-mock===1.7.0
 unittest2===1.1.0
 Pygments===2.5.2
-requests===2.23.0
 snowballstemmer===2.0.0
 Jinja2===2.11.1
 cliff===2.18.0
@@ -83,3 +78,8 @@ PasteDeploy==2.1.1
 pytest==4.6.11
 pytest-cov==2.12.1
 attrs==21.4.0
+lxml===5.0.2
+certifi===2020.4.5.1
+PyYAML===5.4.1
+requests===2.27.1
+urllib3===1.26.19

@@ -1,10 +1,10 @@
 ################################################
 #
-#  Alpine 3.15.6 Swift-All-In-One
+#  Alpine 3.16.2 Swift-All-In-One
 #
 ################################################
 
-FROM        alpine:3.15.6
+FROM        alpine:3.16.2
 MAINTAINER  Openstack Swift
 
 ENV	        S6_LOGGING 1
@@ -35,8 +35,8 @@ RUN         mkdir /etc/swift && \
             echo && \
             echo && \
             echo && \
-            echo "================   starting apk_install_py2  ===================" && \
-            /opt/swift/docker/install_scripts/20_apk_install_py2.sh && \
+            echo "================   starting apk_install_py3  ===================" && \
+            /opt/swift/docker/install_scripts/21_apk_install_py3.sh && \
             echo && \
             echo && \
             echo && \

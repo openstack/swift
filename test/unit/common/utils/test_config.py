@@ -77,6 +77,7 @@ class TestUtilsConfig(unittest.TestCase):
         self.assertEqual(0, config.non_negative_int('0'))
         self.assertEqual(0, config.non_negative_int(0.0))
         self.assertEqual(1, config.non_negative_int(1))
+        self.assertEqual(1, config.non_negative_int(1.1))
         self.assertEqual(1, config.non_negative_int('1'))
         self.assertEqual(1, config.non_negative_int(True))
         self.assertEqual(0, config.non_negative_int(False))
@@ -118,6 +119,7 @@ class TestUtilsConfig(unittest.TestCase):
             u'1': 1,
             b'1': 1,
             1: 1,
+            1.1: 1,
             u'2': 2,
             b'2': 2,
             u'1024': 1024,

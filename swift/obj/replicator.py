@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from collections import defaultdict
+from optparse import OptionParser
 import os
 import errno
 from os.path import isdir, isfile, join, dirname
@@ -35,9 +36,9 @@ from swift.common.utils import whataremyips, unlink_older_than, \
     rsync_module_interpolation, mkdirs, config_true_value, \
     config_auto_int_value, storage_directory, \
     load_recon_cache, PrefixLoggerAdapter, parse_override_options, \
-    distribute_evenly, listdir, node_to_string
+    distribute_evenly, listdir, node_to_string, parse_options
 from swift.common.bufferedhttp import http_connect
-from swift.common.daemon import Daemon
+from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.obj import ssync_sender
@@ -479,7 +480,10 @@ class ObjectReplicator(Daemon):
                     node['replication_ip'], node['replication_port'],
                     node['device'], job['partition'], 'REPLICATE',
                     '/' + '-'.join(suffixes), headers=headers)
-                conn.getresponse().read()
+                try:
+                    conn.getresponse().read()
+                finally:
+                    conn.close()
         return success, {}
 
     def ssync(self, node, job, suffixes, remote_check_objs=None):
@@ -682,25 +686,30 @@ class ObjectReplicator(Daemon):
                     continue
                 try:
                     with Timeout(self.http_timeout):
-                        resp = http_connect(
+                        conn = http_connect(
                             node['replication_ip'], node['replication_port'],
                             node['device'], job['partition'], 'REPLICATE',
-                            '', headers=headers).getresponse()
-                        if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                            self.logger.error('%s responded as unmounted',
-                                              node_str)
-                            attempts_left += 1
-                            failure_devs_info.add((node['replication_ip'],
-                                                   node['device']))
-                            continue
-                        if resp.status != HTTP_OK:
-                            self.logger.error(
-                                "Invalid response %(resp)s from %(remote)s",
-                                {'resp': resp.status, 'remote': node_str})
-                            failure_devs_info.add((node['replication_ip'],
-                                                   node['device']))
-                            continue
-                        remote_hash = pickle.loads(resp.read())
+                            '', headers=headers)
+                        try:
+                            resp = conn.getresponse()
+                            if resp.status == HTTP_INSUFFICIENT_STORAGE:
+                                self.logger.error('%s responded as unmounted',
+                                                  node_str)
+                                attempts_left += 1
+                                failure_devs_info.add((node['replication_ip'],
+                                                       node['device']))
+                                continue
+                            if resp.status != HTTP_OK:
+                                self.logger.error(
+                                    "Invalid response %(resp)s "
+                                    "from %(remote)s",
+                                    {'resp': resp.status, 'remote': node_str})
+                                failure_devs_info.add((node['replication_ip'],
+                                                       node['device']))
+                                continue
+                            remote_hash = pickle.loads(resp.read())
+                        finally:
+                            conn.close()
                         del resp
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
@@ -1147,3 +1156,25 @@ class ObjectReplicator(Daemon):
         # This method is called after run_once using multiple workers.
         update = self.aggregate_recon_update()
         dump_recon_cache(update, self.rcache, self.logger)
+
+
+def main():
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help='Replicate only given devices. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('-p', '--partitions',
+                      help='Replicate only given partitions. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('-i', '--policies',
+                      help='Replicate only given policy indices. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(ObjectReplicator, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

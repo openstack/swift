@@ -21,6 +21,7 @@ from six.moves.urllib.parse import unquote
 import json
 import os
 import multiprocessing
+import sys
 import time
 import traceback
 import socket
@@ -34,7 +35,7 @@ from swift.common.utils import public, get_logger, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
-    normalize_timestamp, md5
+    normalize_timestamp, md5, parse_options
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
@@ -58,6 +59,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
     HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, normalize_etag
+from swift.common.wsgi import run_wsgi
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj, embed_expirer_bytes_in_ctype, \
     X_DELETE_TYPE
@@ -270,7 +272,8 @@ class ObjectController(BaseStorageServer):
 
     def async_update(self, op, account, container, obj, host, partition,
                      contdevice, headers_out, objdevice, policy,
-                     logger_thread_locals=None, container_path=None):
+                     logger_thread_locals=None, container_path=None,
+                     db_state=None):
         """
         Sends or saves an async update.
 
@@ -292,6 +295,8 @@ class ObjectController(BaseStorageServer):
             to which the update should be sent. If given this path will be used
             instead of constructing a path from the ``account`` and
             ``container`` params.
+        :param db_state: The current database state of the container as
+            supplied to us by the proxy.
         """
         if logger_thread_locals:
             self.logger.thread_locals = logger_thread_locals
@@ -335,7 +340,7 @@ class ObjectController(BaseStorageServer):
                     '%(ip)s:%(port)s/%(dev)s (saving for async update later)',
                     {'ip': ip, 'port': port, 'dev': contdevice})
         data = {'op': op, 'account': account, 'container': container,
-                'obj': obj, 'headers': headers_out}
+                'obj': obj, 'headers': headers_out, 'db_state': db_state}
         if redirect_data:
             self.logger.debug(
                 'Update to %(path)s redirected to %(redirect)s',
@@ -369,6 +374,7 @@ class ObjectController(BaseStorageServer):
         contdevices = [d.strip() for d in
                        headers_in.get('X-Container-Device', '').split(',')]
         contpartition = headers_in.get('X-Container-Partition', '')
+        contdbstate = headers_in.get('X-Container-Root-Db-State')
 
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
@@ -419,7 +425,7 @@ class ObjectController(BaseStorageServer):
                        conthost, contpartition, contdevice, headers_out,
                        objdevice, policy,
                        logger_thread_locals=self.logger.thread_locals,
-                       container_path=contpath)
+                       container_path=contpath, db_state=contdbstate)
             update_greenthreads.append(gt)
         # Wait a little bit to see if the container updates are successful.
         # If we immediately return after firing off the greenthread above, then
@@ -1464,3 +1470,14 @@ def app_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
     return ObjectController(conf)
+
+
+def main():
+    conf_file, options = parse_options(test_config=True)
+    sys.exit(run_wsgi(conf_file, 'object-server',
+                      global_conf_callback=global_conf_callback,
+                      **options))
+
+
+if __name__ == '__main__':
+    main()

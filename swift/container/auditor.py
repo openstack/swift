@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from swift.container.backend import ContainerBroker
+from swift.common.daemon import run_daemon
 from swift.common.db_auditor import DatabaseAuditor
+from swift.common.utils import parse_options
 from swift.container.mpu_auditor import MpuAuditor
 
 
@@ -30,3 +32,12 @@ class ContainerAuditor(DatabaseAuditor):
     def _audit(self, job, broker):
         self.mpu_auditor.audit(broker)
         return None
+
+
+def main():
+    conf_file, options = parse_options(once=True)
+    run_daemon(ContainerAuditor, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

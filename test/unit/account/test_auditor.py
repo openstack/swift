@@ -77,6 +77,9 @@ class TestAuditorRealBroker(unittest.TestCase):
 
     def setUp(self):
         self.logger = debug_logger()
+        # really, this would come by way of base_prefix/tail_prefix in
+        # get_logger, ultimately tracing back to section_name in daemon...
+        self.logger.logger.statsd_client._prefix = 'account-auditor.'
 
     @with_tempdir
     def test_db_validate_fails(self, tempdir):
@@ -133,6 +136,9 @@ class TestAuditorRealBroker(unittest.TestCase):
         self.assertEqual(
             test_auditor.logger.statsd_client.get_increment_counts(),
             {'failures': 1})
+        self.assertIn(
+            (b'account-auditor.failures:1|c', ('host', 8125)),
+            test_auditor.logger.statsd_client.sendto_calls)
 
 
 if __name__ == '__main__':

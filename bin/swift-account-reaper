@@ -14,10 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.account.reaper import AccountReaper
-from swift.common.utils import parse_options
-from swift.common.daemon import run_daemon
+from swift.account import reaper
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(once=True)
-    run_daemon(AccountReaper, conf_file, **options)
+    reaper.main()

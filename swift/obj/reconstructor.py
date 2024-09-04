@@ -15,6 +15,7 @@
 import itertools
 import json
 import errno
+from optparse import OptionParser
 import os
 from os.path import join
 import random
@@ -33,10 +34,10 @@ from swift.common.utils import (
     GreenAsyncPile, Timestamp, remove_file, node_to_string,
     load_recon_cache, parse_override_options, distribute_evenly,
     PrefixLoggerAdapter, remove_directory, config_request_node_count_value,
-    non_negative_int)
+    non_negative_int, parse_options)
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
-from swift.common.daemon import Daemon
+from swift.common.daemon import Daemon, run_daemon
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.common.ring.utils import is_local_device
 from swift.obj.ssync_sender import Sender as ssync_sender
@@ -911,12 +912,14 @@ class ObjectReconstructor(Daemon):
             except StopIteration:
                 break
             attempts_remaining -= 1
+            conn = None
             try:
                 with Timeout(self.http_timeout):
-                    resp = http_connect(
+                    conn = http_connect(
                         node['replication_ip'], node['replication_port'],
                         node['device'], job['partition'], 'REPLICATE',
-                        '', headers=headers).getresponse()
+                        '', headers=headers)
+                    resp = conn.getresponse()
                 if resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.logger.error(
                         '%s responded as unmounted',
@@ -939,6 +942,9 @@ class ObjectReconstructor(Daemon):
                                       'from %r' % _full_path(
                                           node, job['partition'], '',
                                           job['policy']))
+            finally:
+                if conn:
+                    conn.close()
         if remote_suffixes is None:
             raise SuffixSyncError('Unable to get remote suffix hashes')
 
@@ -1556,3 +1562,21 @@ class ObjectReconstructor(Daemon):
             self.logger.debug('reconstruction sleeping for %s seconds.',
                               self.interval)
             sleep(self.interval)
+
+
+def main():
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help='Reconstruct only given devices. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('-p', '--partitions',
+                      help='Reconstruct only given partitions. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(ObjectReconstructor, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

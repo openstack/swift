@@ -17,6 +17,7 @@ import os
 import json
 from collections import defaultdict
 from eventlet import Timeout
+import optparse
 from random import choice
 
 from swift.container.sync_store import ContainerSyncStore
@@ -26,10 +27,12 @@ from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, incorrect_policy_index,
     get_reconciler_container_name, get_row_to_q_entry_translator)
 from swift.common import db_replicator
+from swift.common.daemon import run_daemon
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPOk, HTTPAccepted
 from swift.common.http import is_success
-from swift.common.utils import Timestamp, majority_size, get_db_files
+from swift.common.utils import Timestamp, majority_size, get_db_files, \
+    parse_options
 
 
 def check_merge_own_shard_range(shards, broker, logger, source):
@@ -440,3 +443,21 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
     def get_shard_ranges(self, broker, args):
         return HTTPOk(headers={'Content-Type': 'application/json'},
                       body=json.dumps(broker.get_all_shard_range_data()))
+
+
+def main():
+    parser = optparse.OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help=('Replicate only given devices. '
+                            'Comma-separated list. '
+                            'Only has effect if --once is used.'))
+    parser.add_option('-p', '--partitions',
+                      help=('Replicate only given partitions. '
+                            'Comma-separated list. '
+                            'Only has effect if --once is used.'))
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(ContainerReplicator, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

@@ -44,6 +44,7 @@ use = egg:swift#memcache
 
 [filter:proxy-logging]
 use = egg:swift#proxy_logging
+# See proxy-server.conf-sample for options
 
 [filter:catch_errors]
 use = egg:swift#catch_errors

@@ -243,6 +243,18 @@ class QuarantineRequest(SwiftException):
     pass
 
 
+class MemcacheConnectionError(Exception):
+    pass
+
+
+class MemcacheIncrNotFoundError(MemcacheConnectionError):
+    pass
+
+
+class MemcachePoolTimeout(Timeout):
+    pass
+
+
 class ClientException(Exception):
 
     def __init__(self, msg, http_scheme='', http_host='', http_port='',

@@ -17,6 +17,7 @@ import os
 
 from swift.common.constraints import valid_api_version
 from swift.common.container_sync_realms import ContainerSyncRealms
+from swift.common.request_helpers import append_log_info
 from swift.common.swob import HTTPBadRequest, HTTPUnauthorized, wsgify
 from swift.common.utils import (
     config_true_value, get_logger, streq_const_time)
@@ -109,20 +110,17 @@ class ContainerSync(object):
             valid = False
             auth = auth.split()
             if len(auth) != 3:
-                req.environ.setdefault('swift.log_info', []).append(
-                    'cs:not-3-args')
+                append_log_info(req.environ, 'cs:not-3-args')
             else:
                 realm, nonce, sig = auth
                 realm_key = self.realms_conf.key(realm)
                 realm_key2 = self.realms_conf.key2(realm)
                 if not realm_key:
-                    req.environ.setdefault('swift.log_info', []).append(
-                        'cs:no-local-realm-key')
+                    append_log_info(req.environ, 'cs:no-local-realm-key')
                 else:
                     user_key = info.get('sync_key')
                     if not user_key:
-                        req.environ.setdefault('swift.log_info', []).append(
-                            'cs:no-local-user-key')
+                        append_log_info(req.environ, 'cs:no-local-user-key')
                     else:
                         # x-timestamp headers get shunted by gatekeeper
                         if 'x-backend-inbound-x-timestamp' in req.headers:
@@ -139,11 +137,9 @@ class ContainerSync(object):
                             realm_key2, user_key) if realm_key2 else expected
                         if not streq_const_time(sig, expected) and \
                                 not streq_const_time(sig, expected2):
-                            req.environ.setdefault(
-                                'swift.log_info', []).append('cs:invalid-sig')
+                            append_log_info(req.environ, 'cs:invalid-sig')
                         else:
-                            req.environ.setdefault(
-                                'swift.log_info', []).append('cs:valid')
+                            append_log_info(req.environ, 'cs:valid')
                             valid = True
             if not valid:
                 exc = HTTPUnauthorized(

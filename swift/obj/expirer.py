@@ -18,6 +18,7 @@ from six.moves import urllib
 
 from random import random
 from time import time
+from optparse import OptionParser
 from os.path import join
 from collections import defaultdict, deque
 
@@ -25,12 +26,12 @@ from eventlet import sleep, Timeout
 from eventlet.greenpool import GreenPool
 
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
-from swift.common.daemon import Daemon
+from swift.common.daemon import Daemon, run_daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
     Timestamp, config_true_value, normalize_delete_at_timestamp, \
     RateLimitedIterator, md5, non_negative_float, non_negative_int, \
-    parse_content_type
+    parse_content_type, parse_options
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
@@ -350,6 +351,7 @@ class ObjectExpirer(Daemon):
                 except ValueError:
                     self.logger.exception('Unexcepted error handling task %r' %
                                           task_object)
+                    self.logger.increment('tasks.parse_errors')
                     continue
                 is_async = o.get('content_type') == ASYNC_DELETE_TYPE
                 delay_reaping = self.get_delay_reaping(target_account,
@@ -359,16 +361,20 @@ class ObjectExpirer(Daemon):
                     # we shouldn't yield ANY more objects that can't reach
                     # the expiration date yet.
                     break
-                if delete_timestamp > Timestamp(time() - delay_reaping) \
-                        and not is_async:
-                    # we shouldn't yield the object during the delay
-                    continue
 
                 # Only one expirer daemon assigned for each task
                 if self.hash_mod('%s/%s' % (task_container, task_object),
                                  divisor) != my_index:
+                    self.logger.increment('tasks.skipped')
                     continue
 
+                if delete_timestamp > Timestamp(time() - delay_reaping) \
+                        and not is_async:
+                    # we shouldn't yield the object during the delay
+                    self.logger.increment('tasks.delayed')
+                    continue
+
+                self.logger.increment('tasks.assigned')
                 yield {'task_account': task_account,
                        'task_container': task_container,
                        'task_object': task_object,
@@ -581,3 +587,21 @@ class ObjectExpirer(Daemon):
         self.swift.delete_object(*split_path('/' + actual_obj, 3, 3, True),
                                  headers=headers,
                                  acceptable_statuses=acceptable_statuses)
+
+
+def main():
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('--processes', dest='processes',
+                      help="Number of processes to use to do the work, don't "
+                      "use this option to do all the work in one process")
+    parser.add_option('--process', dest='process',
+                      help="Process number for this process, don't use "
+                      "this option to do all the work in one process, this "
+                      "is used to determine which part of the work this "
+                      "process should do")
+    conf_file, options = parse_options(parser=parser, once=True)
+    run_daemon(ObjectExpirer, conf_file, **options)
+
+
+if __name__ == '__main__':
+    main()

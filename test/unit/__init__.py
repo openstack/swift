@@ -1053,8 +1053,11 @@ def mocked_http_conn(*args, **kwargs):
         if left_over_status:
             raise AssertionError('left over status %r' % left_over_status)
         if fake_conn.unexpected_requests:
-            raise AssertionError('unexpected requests:\n%s' % '\n  '.join(
-                '%r' % (req,) for req in fake_conn.unexpected_requests))
+            raise AssertionError(
+                '%d unexpected requests:\n%s' %
+                (len(fake_conn.unexpected_requests),
+                 '\n  '.join('%r' % (req,)
+                             for req in fake_conn.unexpected_requests)))
 
 
 def make_timestamp_iter(offset=0):

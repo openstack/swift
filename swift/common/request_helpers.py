@@ -1034,3 +1034,11 @@ def is_backend_open_expired(request):
     x_backend_replication = config_true_value(request.headers.get(
         'x-backend-replication', 'false'))
     return x_backend_open_expired or x_backend_replication
+
+
+def append_log_info(environ, log_info):
+    environ.setdefault('swift.log_info', []).append(log_info)
+
+
+def get_log_info(environ):
+    return ','.join(environ.get('swift.log_info', []))

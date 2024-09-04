@@ -1,9 +1,9 @@
 #!/bin/sh
 set -e
 
-pip install -U pip && \
-cd /opt/swift && \
-pip install -r requirements.txt && \
+pip install -U pip
+cd /opt/swift
+pip install -r requirements.txt
 pip install -e .
 
 cp doc/saio/bin/* $HOME/bin
