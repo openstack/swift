@@ -285,7 +285,7 @@ class TestProxyLogging(unittest.TestCase):
     def test_log_request_statsd_invalid_stats_types(self):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeApp(), {}, logger=self.logger)
-        for url in ['/', '/foo', '/foo/bar', '/v1']:
+        for url in ['/', '/foo', '/foo/bar', '/v1', '/v1.0']:
             req = Request.blank(url, environ={'REQUEST_METHOD': 'GET'})
             resp = app(req.environ, start_response)
             # get body
@@ -295,7 +295,7 @@ class TestProxyLogging(unittest.TestCase):
 
     def test_log_request_stat_type_bad(self):
         for bad_path in ['', '/', '/bad', '/baddy/mc_badderson', '/v1',
-                         '/v1/']:
+                         '/v1/', '/v1.0', '/v1.0/']:
             app = proxy_logging.ProxyLoggingMiddleware(
                 FakeApp(), {}, logger=self.logger)
             req = Request.blank(bad_path, environ={'REQUEST_METHOD': 'GET'})
@@ -326,6 +326,15 @@ class TestProxyLogging(unittest.TestCase):
             '/v1/a/c/o/p': 'object',
             '/v1/a/c/o/p/': 'object',
             '/v1/a/c/o/p/p2': 'object',
+            '/v1.0/a': 'account',
+            '/v1.0/a/': 'account',
+            '/v1.0/a/c': 'container',
+            '/v1.0/a/c/': 'container',
+            '/v1.0/a/c/o': 'object',
+            '/v1.0/a/c/o/': 'object',
+            '/v1.0/a/c/o/p': 'object',
+            '/v1.0/a/c/o/p/': 'object',
+            '/v1.0/a/c/o/p/p2': 'object',
         }
         with mock.patch("time.time", stub_time):
             for path, exp_type in path_types.items():
