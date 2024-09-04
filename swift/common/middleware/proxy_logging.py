@@ -353,26 +353,22 @@ class ProxyLoggingMiddleware(object):
             if not valid_api_version(version):
                 raise ValueError
         except ValueError:
-            version, acc, cont, obj = None, None, None, None
+            acc, cont, obj = None, None, None
         return acc, cont, obj
 
     def get_metric_name_type(self, req):
         swift_path = req.environ.get('swift.backend_path', req.path)
         acc, cont, obj = self.get_aco_from_path(swift_path)
+        if obj:
+            return 'object'
+        if cont:
+            return 'container'
         if acc:
-            try:
-                stat_type = [None, 'account', 'container',
-                             'object'][swift_path.strip('/').count('/')]
-            except IndexError:
-                stat_type = 'object'
-        else:
-            stat_type = req.environ.get('swift.source') or 'UNKNOWN'
-        return stat_type
+            return 'account'
+        return req.environ.get('swift.source') or 'UNKNOWN'
 
     def statsd_metric_name(self, req, status_int, method):
         stat_type = self.get_metric_name_type(req)
-        if stat_type is None:
-            return None
         stat_method = method if method in self.valid_methods \
             else 'BAD_METHOD'
         return '.'.join((stat_type, stat_method, str(status_int)))
