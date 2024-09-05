@@ -302,28 +302,28 @@ class TestProxyLogging(unittest.TestCase):
     def test_log_request_stat_type_bad(self):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeApp(), {}, logger=self.logger)
-        for bad_path, prefix in [
-                ('', 'UNKNOWN'),
-                ('/', 'UNKNOWN'),
-                ('/bad', 'UNKNOWN'),
-                ('/baddy/mc_badderson', 'UNKNOWN'),
-                ('/v1', 'UNKNOWN'),
-                ('/v1/', 'UNKNOWN'),
-                ('/v1.0', 'UNKNOWN'),
-                ('/v1.0/', 'UNKNOWN'),
-                ('/v1.0//', 'UNKNOWN'),
-                ('/v1.0//c', 'UNKNOWN'),
-                ('/v1.0/a//', 'account'),
-                ('/v1.0/a//o', 'object'),
+        for bad_path in [
+                '',
+                '/',
+                '/bad',
+                '/baddy/mc_badderson',
+                '/v1',
+                '/v1/',
+                '/v1.0',
+                '/v1.0/',
+                '/v1.0//',
+                '/v1.0//c',
+                '/v1.0/a//',
+                '/v1.0/a//o',
         ]:
             req = Request.blank(bad_path, environ={'REQUEST_METHOD': 'GET'})
             now = 10000.0
             app.log_request(req, 123, 7, 13, now, now + 2.71828182846)
             self.assertEqual(
-                [((prefix + '.GET.123.timing', 2718.2818284600216), {})],
+                [(('UNKNOWN.GET.123.timing', 2718.2818284600216), {})],
                 app.access_logger.statsd_client.calls['timing'])
             self.assertEqual(
-                [((prefix + '.GET.123.xfer', 20), {})],
+                [(('UNKNOWN.GET.123.xfer', 20), {})],
                 app.access_logger.statsd_client.calls['update_stats'])
             app.access_logger.clear()
 

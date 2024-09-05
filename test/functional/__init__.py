@@ -1092,10 +1092,10 @@ def connection(url):
 
     # Add the policy header if policy_specified is set
     def request_with_policy(method, url, body=None, headers={}):
-        version, account, container, obj = split_path(url, 1, 4, True)
-        if policy_specified and method == 'PUT' and container and not obj \
-                and 'X-Storage-Policy' not in headers:
-            headers['X-Storage-Policy'] = policy_specified
+        if policy_specified and method == 'PUT':
+            version, account, container, obj = split_path(url, 1, 4, True)
+            if container and not obj and 'X-Storage-Policy' not in headers:
+                headers['X-Storage-Policy'] = policy_specified
 
         return orig_request(method, url, body, headers)
 

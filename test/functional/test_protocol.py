@@ -32,6 +32,14 @@ def tearDownModule():
 class TestHttpProtocol(unittest.TestCase):
     existing_metadata = None
 
+    def _check_transaction_id(self, resp):
+        self.assertIsNotNone(resp.getheader('X-Trans-Id'))
+        self.assertIsNotNone(resp.getheader('X-Openstack-Request-Id'))
+        self.assertIn('tx', resp.getheader('X-Trans-Id'))
+        self.assertIn('tx', resp.getheader('X-Openstack-Request-Id'))
+        self.assertEqual(resp.getheader('X-Openstack-Request-Id'),
+                         resp.getheader('X-Trans-Id'))
+
     def test_invalid_path_info(self):
         if tf.skip:
             raise SkipTest
@@ -43,11 +51,28 @@ class TestHttpProtocol(unittest.TestCase):
 
         resp = retry(get)
         resp.read()
-
         self.assertEqual(resp.status, 412)
-        self.assertIsNotNone(resp.getheader('X-Trans-Id'))
-        self.assertIsNotNone(resp.getheader('X-Openstack-Request-Id'))
-        self.assertIn('tx', resp.getheader('X-Trans-Id'))
-        self.assertIn('tx', resp.getheader('X-Openstack-Request-Id'))
-        self.assertEqual(resp.getheader('X-Openstack-Request-Id'),
-                         resp.getheader('X-Trans-Id'))
+        self._check_transaction_id(resp)
+
+    def _do_test_path_missing_element(self, path):
+        if tf.skip:
+            raise SkipTest
+
+        def get(url, token, parsed, conn, **kwargs):
+            conn.request('GET', path, '', {'X-Auth-Token': token})
+            resp = check_response(conn)
+            resp.read()
+            return resp
+
+        resp = retry(get, resource=path)
+        self.assertEqual(resp.status, 404)
+        self._check_transaction_id(resp)
+
+    def test_path_missing_account(self):
+        self._do_test_path_missing_element('/v1//testc/testo')
+
+    def test_path_missing_container(self):
+        self._do_test_path_missing_element('/v1/testa//testo')
+
+    def test_path_missing_account_and_container(self):
+        self._do_test_path_missing_element('/v1///testo')
