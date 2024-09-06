@@ -924,5 +924,132 @@ class TestAccountInNonDefaultDomain(unittest.TestCase):
         self.assertIn('X-Account-Project-Domain-Id', resp.headers)
 
 
+class TestAccountQuotas(unittest.TestCase):
+    def setUp(self):
+        if 'account_quotas' not in tf.cluster_info:
+            raise SkipTest('Account quotas are not enabled')
+
+        self.policies = tf.FunctionalStoragePolicyCollection.from_info()
+
+    def _check_user_cannot_post(self, headers):
+        def post(url, token, parsed, conn):
+            conn.request('POST', parsed.path, '',
+                         dict({'X-Auth-Token': token}, **headers))
+            return check_response(conn)
+
+        resp = retry(post)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+    def test_user_cannot_set_own_quota(self):
+        self._check_user_cannot_post({'X-Account-Meta-Quota-Bytes': '0'})
+
+    def test_user_cannot_set_own_policy_quota(self):
+        policy = self.policies.select()['name']
+        self._check_user_cannot_post(
+            {'X-Account-Quota-Bytes-Policy-' + policy: '0'})
+
+    def test_user_cannot_remove_own_quota(self):
+        self._check_user_cannot_post(
+            {'X-Remove-Account-Meta-Quota-Bytes': 't'})
+
+    def test_user_cannot_remove_own_policy_quota(self):
+        policy = self.policies.select()['name']
+        self._check_user_cannot_post(
+            {'X-Remove-Account-Quota-Bytes-Policy-' + policy: 't'})
+
+    def _check_admin_can_post(self, headers):
+        def post(url, token, parsed, conn):
+            conn.request('POST', parsed.path, '',
+                         dict({'X-Auth-Token': token}, **headers))
+            return check_response(conn)
+
+        resp = retry(post, use_account=6, url_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+    def test_admin_can_set_and_remove_user_quota(self):
+        if tf.skip_if_no_reseller_admin:
+            raise SkipTest('No admin user configured')
+        quota_header = 'X-Account-Meta-Quota-Bytes'
+
+        def get_current_quota():
+            def head(url, token, parsed, conn):
+                conn.request('HEAD', parsed.path, '',
+                             {'X-Auth-Token': token})
+                return check_response(conn)
+
+            # Use user, not admin, to ensure globals in test.functional
+            # are properly populated before issuing POSTs
+            resp = retry(head)
+            resp.read()
+            self.assertEqual(resp.status, 204)
+            return resp.headers.get(quota_header)
+
+        original_quota = get_current_quota()
+
+        try:
+            self._check_admin_can_post({quota_header: '123'})
+            self.assertEqual('123', get_current_quota())
+
+            self._check_admin_can_post(
+                {quota_header.replace('X-', 'X-Remove-'): 't'})
+            self.assertIsNone(get_current_quota())
+
+            self._check_admin_can_post({quota_header: '111'})
+            self.assertEqual('111', get_current_quota())
+
+            # Can also remove with an explicit empty string
+            self._check_admin_can_post({quota_header: ''})
+            self.assertIsNone(get_current_quota())
+
+            self._check_admin_can_post({quota_header: '0'})
+            self.assertEqual('0', get_current_quota())
+        finally:
+            self._check_admin_can_post({quota_header: original_quota or ''})
+
+    def test_admin_can_set_and_remove_user_policy_quota(self):
+        if tf.skip_if_no_reseller_admin:
+            raise SkipTest('No admin user configured')
+        policy = self.policies.select()['name']
+        quota_header = 'X-Account-Quota-Bytes-Policy-' + policy
+
+        def get_current_quota():
+            def head(url, token, parsed, conn):
+                conn.request('HEAD', parsed.path, '',
+                             {'X-Auth-Token': token})
+                return check_response(conn)
+
+            # Use user, not admin, to ensure globals in test.functional
+            # are properly populated before issuing POSTs
+            resp = retry(head)
+            resp.read()
+            self.assertEqual(resp.status, 204)
+            return resp.headers.get(quota_header)
+
+        original_quota = get_current_quota()
+
+        try:
+            self._check_admin_can_post({quota_header: '123'})
+            self.assertEqual('123', get_current_quota())
+
+            self._check_admin_can_post(
+                {quota_header.replace('X-', 'X-Remove-'): 't'})
+            # TODO: well that seems like the opposite of what was intended...
+            self.assertEqual('0', get_current_quota())
+
+            self._check_admin_can_post({quota_header: '111'})
+            self.assertEqual('111', get_current_quota())
+
+            # Can actually remove with an explicit empty string
+            self._check_admin_can_post({quota_header: ''})
+            self.assertIsNone(get_current_quota())
+
+            self._check_admin_can_post({quota_header: '0'})
+            self.assertEqual('0', get_current_quota())
+        finally:
+            self._check_admin_can_post({quota_header: original_quota or ''})
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -607,9 +607,9 @@ def in_process_setup(the_object_server=object_server):
         'reseller_prefix': 'AUTH, SERVICE',
         'SERVICE_require_group': 'service',
         # Reseller admin user (needs reseller_admin_role)
-        'account6': 'test6',
-        'username6': 'tester6',
-        'password6': 'testing6'
+        'account6': 'admin',
+        'username6': 'admin',
+        'password6': 'admin'
     })
 
     acc1lis = listen_zero()
@@ -912,6 +912,13 @@ def setup_package():
                 swift_test_tenant[4] = config['account5']
             except KeyError:
                 pass  # no service token tests can be run
+            try:
+                swift_test_user[5] = '%s%s' % (
+                    '%s:' % config['account6'], config['username6'])
+                swift_test_key[5] = config['password6']
+                swift_test_tenant[5] = config['account6']
+            except KeyError:
+                pass  # no reseller admin tests can be run
 
             for _ in range(3):
                 swift_test_perm[_] = swift_test_user[_]
@@ -1067,20 +1074,20 @@ class InternalServerError(Exception):
     pass
 
 
-url = [None, None, None, None, None]
-token = [None, None, None, None, None]
-service_token = [None, None, None, None, None]
-parsed = [None, None, None, None, None]
-conn = [None, None, None, None, None]
+url = [None, None, None, None, None, None]
+token = [None, None, None, None, None, None]
+service_token = [None, None, None, None, None, None]
+parsed = [None, None, None, None, None, None]
+conn = [None, None, None, None, None, None]
 
 
 def reset_globals():
     global url, token, service_token, parsed, conn, config
-    url = [None, None, None, None, None]
-    token = [None, None, None, None, None]
-    service_token = [None, None, None, None, None]
-    parsed = [None, None, None, None, None]
-    conn = [None, None, None, None, None]
+    url = [None, None, None, None, None, None]
+    token = [None, None, None, None, None, None]
+    service_token = [None, None, None, None, None, None]
+    parsed = [None, None, None, None, None, None]
+    conn = [None, None, None, None, None, None]
     if config:
         config = {}
 
