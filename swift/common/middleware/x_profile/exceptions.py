@@ -13,16 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift import gettext_ as _
-
-
 class ProfileException(Exception):
 
     def __init__(self, msg):
         self.msg = msg
 
     def __str__(self):
-        return _('Profiling Error: %s') % self.msg
+        return 'Profiling Error: %s' % self.msg
 
 
 class NotFoundException(ProfileException):
