@@ -1035,13 +1035,12 @@ class TestAccountQuotas(unittest.TestCase):
 
             self._check_admin_can_post(
                 {quota_header.replace('X-', 'X-Remove-'): 't'})
-            # TODO: well that seems like the opposite of what was intended...
-            self.assertEqual('0', get_current_quota())
+            self.assertIsNone(get_current_quota())
 
             self._check_admin_can_post({quota_header: '111'})
             self.assertEqual('111', get_current_quota())
 
-            # Can actually remove with an explicit empty string
+            # Can also remove with an explicit empty string
             self._check_admin_can_post({quota_header: ''})
             self.assertIsNone(get_current_quota())
 

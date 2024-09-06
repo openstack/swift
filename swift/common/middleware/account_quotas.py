@@ -98,12 +98,12 @@ class AccountQuotaMiddleware(object):
             'X-Account-Meta-%s' % quota_type)
         if request.headers.get(
                 'X-Remove-Account-Meta-%s' % quota_type):
-            new_quotas[None] = 0  # X-Remove dominates if both are present
+            new_quotas[None] = ''  # X-Remove dominates if both are present
 
         for policy in POLICIES:
             tail = 'Account-%s-Policy-%s' % (quota_type, policy.name)
             if request.headers.get('X-Remove-' + tail):
-                new_quotas[policy.idx] = 0
+                new_quotas[policy.idx] = ''
             else:
                 quota = request.headers.pop('X-' + tail, None)
                 new_quotas[policy.idx] = quota
