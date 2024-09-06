@@ -968,10 +968,9 @@ class TestAccountQuotas(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 204)
 
-    def test_admin_can_set_and_remove_user_quota(self):
+    def _test_admin_can_set_and_remove_user_quota(self, quota_header):
         if tf.skip_if_no_reseller_admin:
             raise SkipTest('No admin user configured')
-        quota_header = 'X-Account-Meta-Quota-Bytes'
 
         def get_current_quota():
             def head(url, token, parsed, conn):
@@ -984,7 +983,9 @@ class TestAccountQuotas(unittest.TestCase):
             resp = retry(head)
             resp.read()
             self.assertEqual(resp.status, 204)
-            return resp.headers.get(quota_header)
+            # Non-user-meta is authoritative now
+            return resp.headers.get(quota_header.replace('-Meta-', '-'),
+                                    resp.headers.get(quota_header))
 
         original_quota = get_current_quota()
 
@@ -1007,6 +1008,14 @@ class TestAccountQuotas(unittest.TestCase):
             self.assertEqual('0', get_current_quota())
         finally:
             self._check_admin_can_post({quota_header: original_quota or ''})
+
+    def test_admin_can_set_and_remove_user_quota_legacy(self):
+        self._test_admin_can_set_and_remove_user_quota(
+            'X-Account-Meta-Quota-Bytes')
+
+    def test_admin_can_set_and_remove_user_quota(self):
+        self._test_admin_can_set_and_remove_user_quota(
+            'X-Account-Quota-Bytes')
 
     def test_admin_can_set_and_remove_user_policy_quota(self):
         if tf.skip_if_no_reseller_admin:
