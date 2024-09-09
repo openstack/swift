@@ -941,22 +941,36 @@ class TestAccountQuotas(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 403)
 
-    def test_user_cannot_set_own_quota(self):
+    def test_user_cannot_set_own_quota_legacy(self):
         self._check_user_cannot_post({'X-Account-Meta-Quota-Bytes': '0'})
+
+    def test_user_cannot_set_own_quota(self):
+        self._check_user_cannot_post({'X-Account-Quota-Bytes': '0'})
+        self._check_user_cannot_post({'X-Account-Quota-Count': '0'})
 
     def test_user_cannot_set_own_policy_quota(self):
         policy = self.policies.select()['name']
         self._check_user_cannot_post(
             {'X-Account-Quota-Bytes-Policy-' + policy: '0'})
+        self._check_user_cannot_post(
+            {'X-Account-Quota-Count-Policy-' + policy: '0'})
+
+    def test_user_cannot_remove_own_quota_legacy(self):
+        self._check_user_cannot_post(
+            {'X-Remove-Account-Meta-Quota-Bytes': 't'})
 
     def test_user_cannot_remove_own_quota(self):
         self._check_user_cannot_post(
-            {'X-Remove-Account-Meta-Quota-Bytes': 't'})
+            {'X-Remove-Account-Quota-Bytes': 't'})
+        self._check_user_cannot_post(
+            {'X-Remove-Account-Quota-Count': 't'})
 
     def test_user_cannot_remove_own_policy_quota(self):
         policy = self.policies.select()['name']
         self._check_user_cannot_post(
             {'X-Remove-Account-Quota-Bytes-Policy-' + policy: 't'})
+        self._check_user_cannot_post(
+            {'X-Remove-Account-Quota-Count-Policy-' + policy: 't'})
 
     def _check_admin_can_post(self, headers):
         def post(url, token, parsed, conn):
@@ -1016,14 +1030,15 @@ class TestAccountQuotas(unittest.TestCase):
     def test_admin_can_set_and_remove_user_quota(self):
         self._test_admin_can_set_and_remove_user_quota(
             'X-Account-Quota-Bytes')
+        self._test_admin_can_set_and_remove_user_quota(
+            'X-Account-Quota-Count')
 
     def test_admin_can_set_and_remove_user_policy_quota(self):
         if tf.skip_if_no_reseller_admin:
             raise SkipTest('No admin user configured')
         policy = self.policies.select()['name']
-        quota_header = 'X-Account-Quota-Bytes-Policy-' + policy
 
-        def get_current_quota():
+        def get_current_quota(header):
             def head(url, token, parsed, conn):
                 conn.request('HEAD', parsed.path, '',
                              {'X-Auth-Token': token})
@@ -1034,29 +1049,31 @@ class TestAccountQuotas(unittest.TestCase):
             resp = retry(head)
             resp.read()
             self.assertEqual(resp.status, 204)
-            return resp.headers.get(quota_header)
+            return resp.headers.get(header)
 
-        original_quota = get_current_quota()
+        for quota_header in ('X-Account-Quota-Bytes-Policy-' + policy,
+                             'X-Account-Quota-Count-Policy-' + policy):
+            original_quota = get_current_quota(quota_header)
+            try:
+                self._check_admin_can_post({quota_header: '123'})
+                self.assertEqual('123', get_current_quota(quota_header))
 
-        try:
-            self._check_admin_can_post({quota_header: '123'})
-            self.assertEqual('123', get_current_quota())
+                self._check_admin_can_post(
+                    {quota_header.replace('X-', 'X-Remove-'): 't'})
+                self.assertIsNone(get_current_quota(quota_header))
 
-            self._check_admin_can_post(
-                {quota_header.replace('X-', 'X-Remove-'): 't'})
-            self.assertIsNone(get_current_quota())
+                self._check_admin_can_post({quota_header: '111'})
+                self.assertEqual('111', get_current_quota(quota_header))
 
-            self._check_admin_can_post({quota_header: '111'})
-            self.assertEqual('111', get_current_quota())
+                # Can also remove with an explicit empty string
+                self._check_admin_can_post({quota_header: ''})
+                self.assertIsNone(get_current_quota(quota_header))
 
-            # Can also remove with an explicit empty string
-            self._check_admin_can_post({quota_header: ''})
-            self.assertIsNone(get_current_quota())
-
-            self._check_admin_can_post({quota_header: '0'})
-            self.assertEqual('0', get_current_quota())
-        finally:
-            self._check_admin_can_post({quota_header: original_quota or ''})
+                self._check_admin_can_post({quota_header: '0'})
+                self.assertEqual('0', get_current_quota(quota_header))
+            finally:
+                self._check_admin_can_post(
+                    {quota_header: original_quota or ''})
 
 
 if __name__ == '__main__':
