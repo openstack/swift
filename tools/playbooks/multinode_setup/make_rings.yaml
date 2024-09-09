@@ -57,7 +57,7 @@
     - name: set the options in the proxy config file
       shell:
         cmd: |
-          crudini --set /etc/swift/proxy-server.conf DEFAULT bind_ip {{ hostvars['proxy1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/proxy-server.conf DEFAULT bind_ip {{ hostvars['proxy1'].nodepool.private_ipv4 }}
           crudini --set /etc/swift/proxy-server.conf DEFAULT user {{ ansible_user_id }}
           crudini --set /etc/swift/proxy-server.conf app:proxy-server node_timeout 20
         executable: /bin/bash
@@ -71,7 +71,7 @@
     - name: set the options in the account config file
       shell:
         cmd: |
-          crudini --set /etc/swift/account-server.conf DEFAULT bind_ip {{ hostvars['account1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/account-server.conf DEFAULT bind_ip {{ hostvars['account1'].nodepool.private_ipv4 }}
           crudini --set /etc/swift/account-server.conf DEFAULT user {{ ansible_user_id }}
         executable: /bin/bash
 
@@ -84,7 +84,7 @@
     - name: set the options in the container config file
       shell:
         cmd: |
-          crudini --set /etc/swift/container-server.conf DEFAULT bind_ip {{ hostvars['container1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/container-server.conf DEFAULT bind_ip {{ hostvars['container1'].nodepool.private_ipv4 }}
           crudini --set /etc/swift/container-server.conf DEFAULT user {{ ansible_user_id }}
         executable: /bin/bash
 
@@ -97,7 +97,7 @@
     - name: set the options in the object config file
       shell:
         cmd: |
-          crudini --set /etc/swift/object-server.conf DEFAULT bind_ip {{ hostvars['object1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/object-server.conf DEFAULT bind_ip {{ hostvars['object1'].nodepool.private_ipv4 }}
           crudini --set /etc/swift/object-server.conf DEFAULT user {{ ansible_user_id }}
           crudini --set /etc/swift/object-server.conf DEFAULT conn_timeout 3
           crudini --set /etc/swift/object-server.conf DEFAULT container_update_timeout 3
@@ -139,7 +139,7 @@
         executable: /bin/bash
 
     - name: scp rings to all swift-cluster nodes
-      command: scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o ConnectionAttempts=360 /home/{{ ansible_user }}/rings/{{ item[0] }} {{ ansible_user }}@{{ hostvars[item[1]].nodepool.public_ipv4 }}:/etc/swift
+      command: scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o ConnectionAttempts=360 /home/{{ ansible_user }}/rings/{{ item[0] }} {{ ansible_user }}@{{ hostvars[item[1]].nodepool.private_ipv4 }}:/etc/swift
       with_nested:
         - ['account.ring.gz', 'container.ring.gz', 'object.ring.gz', 'object-1.ring.gz', 'object-2.ring.gz']
         - "{{ groups['swift-cluster'] }}"
