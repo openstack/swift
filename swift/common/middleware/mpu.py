@@ -23,7 +23,7 @@ from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import generate_unique_id, drain_and_close, \
-    config_positive_int_value, reiterate
+    config_positive_int_value, reiterate, parse_content_type
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
@@ -673,7 +673,8 @@ class MPUSessionHandler(BaseMPUHandler):
                 mpu_resp = self._put_symlink(mpu_etag, mpu_bytes)
                 drain_and_close(mpu_resp)
                 if mpu_resp.status_int == 201:
-                    yield manifest_resp_body
+                    body_dict['Etag'] = mpu_etag
+                    yield json.dumps(body_dict).encode('ascii')
                     # TODO: move _delete_session before the yield??
                     #   pro: we can delete session object before waiting for
                     #   user to read this response iter; we want to delete the
@@ -776,6 +777,51 @@ class MPUObjHandler(BaseMPUHandler):
         return resp
 
 
+class ContainerHandler(BaseMPUHandler):
+    def _process_json_resp(self, resp):
+        body_json = json.loads(resp.body)
+        for item in body_json:
+            if 'hash' not in item:
+                continue
+
+            # When symlink middleware validates the static symlink to the SLO
+            # manifest it gets the container update override etag params from
+            # the SLO manifest and adds them the symlink's etag params.
+            hash_value, params = parse_content_type(item['hash'])
+            new_params = []
+            mpu_etag = mpu_bytes = None
+            for k, v in params:
+                if k == 'mpu_etag':
+                    mpu_etag = v
+                elif k == 'mpu_bytes':
+                    mpu_bytes = int(v)
+                else:
+                    new_params.append((k, v))
+
+            if mpu_etag is None:
+                continue
+
+            # put back any etag params that may be the responsibility of
+            # other middlwares...
+            item['hash'] = mpu_etag + ''.join('; %s=%s' % kv
+                                              for kv in new_params)
+            item['bytes'] = mpu_bytes
+            # hide the implementation details from the user
+            item.pop('symlink_path', None)
+        resp.body = json.dumps(body_json).encode('ascii')
+        return resp
+
+    def handle_request(self):
+        if self.req.method != 'GET':
+            return None
+
+        resp = self.req.get_response(self.app)
+        if not resp.is_success:
+            return resp
+
+        return self._process_json_resp(resp)
+
+
 class MPUMiddleware(object):
     def __init__(self, app, conf, logger=None):
         self.conf = conf
@@ -809,6 +855,8 @@ class MPUMiddleware(object):
                 resp = None
         elif obj:
             resp = MPUObjHandler(self, req).handle_request()
+        elif container:
+            resp = ContainerHandler(self, req).handle_request()
         else:
             resp = None
         # TODO: should we return 405 for any unsupported container?uploads

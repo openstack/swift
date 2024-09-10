@@ -12,7 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import binascii
 import json
+import mock
 import unittest
 from unittest import SkipTest
 from uuid import uuid4
@@ -135,7 +137,7 @@ class BaseTestMPU(unittest.TestCase):
                         query_string='upload-id=%s' % upload_id,
                         use_account=use_account, url_account=url_account)
 
-    def _make_mpu(self, name, extra_create_headers=None):
+    def _make_mpu(self, name, num_parts=2, extra_create_headers=None):
         # create an mpu
         resp = self._create_mpu(name,
                                 extra_create_headers=extra_create_headers)
@@ -143,7 +145,7 @@ class BaseTestMPU(unittest.TestCase):
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         responses, part_bodies = self._upload_parts(
-            name, upload_id, num_parts=2)
+            name, upload_id, num_parts=num_parts)
         self.assertEqual([200, 200], [resp.status for resp in responses])
         etags = [resp.headers['Etag'] for resp in responses]
         part_hashes = [
@@ -151,8 +153,8 @@ class BaseTestMPU(unittest.TestCase):
             for part_body in part_bodies]
         hasher = md5(usedforsecurity=False)
         for part_hash in part_hashes:
-            hasher.update(part_hash)
-        expected_mpu_etag = hasher.hexdigest()
+            hasher.update(binascii.a2b_hex(part_hash))
+        expected_mpu_etag = '%s-%d' % (hasher.hexdigest(), num_parts)
         resp = self._complete_mpu(name, upload_id, etags)
         self.assertEqual(200, resp.status)
         resp_dict = json.loads(resp.content)
@@ -161,10 +163,10 @@ class BaseTestMPU(unittest.TestCase):
         return upload_id, expected_mpu_etag
 
 
-class TestMpu(BaseTestMPU):
+class TestMPU(BaseTestMPU):
     # tests in this class create MPUs
     def setUp(self):
-        super(TestMpu, self).setUp()
+        super(TestMPU, self).setUp()
 
     def test_list_mpus(self):
         container = self._create_container()
@@ -212,6 +214,9 @@ class TestMpu(BaseTestMPU):
         resp = self._upload_part(name, upload_id, 2, part_2)
         self.assertEqual(200, resp.status)
         etags.append(resp.getheader('Etag'))
+        etag_hasher = md5(usedforsecurity=False)
+        for part_etag in etags:
+            etag_hasher.update(binascii.a2b_hex(normalize_etag(part_etag)))
 
         # list parts
         resp = tf.retry(self._make_request, method='GET',
@@ -226,7 +231,8 @@ class TestMpu(BaseTestMPU):
         resp = self._complete_mpu(name, upload_id, etags)
         self.assertEqual(200, resp.status, resp.content)
         body = json.loads(resp.content)
-        self.assertEqual('201 Created', body['Response Status'], body)
+        self.assertEqual('201 Created', body.get('Response Status'), body)
+        self.assertEqual(etag_hasher.hexdigest() + '-2', body.get('Etag'))
         self.assertEqual([], body['Errors'], body)
 
         # GET the user object
@@ -243,13 +249,10 @@ class TestMpu(BaseTestMPU):
 
     def test_make_mpu_no_user_content_type(self):
         name = uuid4().hex
-        upload_id, exp_mpu_etag = self._make_mpu(
-            name, extra_create_headers={'content_type': None})
+        self._make_mpu(name, extra_create_headers={'content_type': None})
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=name)
         self.assertEqual(200, resp.status)
-        self.assertEqual(exp_mpu_etag,
-                         normalize_etag(resp.getheader('Etag')))
         self.assertEqual('application/test',
                          resp.getheader('Content-Type'))
 
@@ -339,22 +342,25 @@ class TestExistingMPU(BaseTestMPU):
         super(TestExistingMPU, self).setUp()
         # ...but only create an mpu once
         if not TestExistingMPU.user_obj:
-            TestExistingMPU.user_obj = uuid4().hex
+            user_obj = uuid4().hex
             TestExistingMPU.upload_id, TestExistingMPU.user_obj_etag = \
-                self._make_mpu(self.user_obj)
+                self._make_mpu(user_obj, num_parts=2)
+            TestExistingMPU.user_obj = user_obj
 
     def _verify_listing(self, resp):
+        self.maxDiff = None
         self.assertEqual('1', resp.headers['X-Container-Object-Count'])
-        # TODO: fix bytes-used
-        # self.assertEqual('0',
-        #                  resp.headers['X-Container-Bytes-Used'])
-
+        self.assertEqual('0', resp.headers['X-Container-Bytes-Used'])
         listing = json.loads(resp.content)
         self.assertEqual(1, len(listing))
-        self.assertEqual(self.user_obj, listing[0].get('name'))
-        # TODO: fix listing entry etag and bytes
-        # self.assertEqual(2 * self.part_size, listing[0]['bytes'])
-        self.assertEqual('application/test', listing[0].get('content_type'))
+        expected = {
+            'name': self.user_obj,
+            'hash': self.user_obj_etag,
+            'bytes': 2 * self.part_size,
+            'content_type': 'application/test',
+            'last_modified': mock.ANY,
+        }
+        self.assertEqual(expected, listing[0])
 
     def test_container_listing_with_mpu(self):
         # GET the user container

@@ -26,7 +26,7 @@ from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
     HTTPPreconditionFailed, HTTPException
-from swift.common.utils import md5, quote, Timestamp
+from swift.common.utils import md5, quote, Timestamp, MD5_OF_EMPTY_STRING
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
 from test.unit import make_timestamp_iter
@@ -253,7 +253,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/test'},
             self.app.headers[-1])
 
-    def test_list_mpus(self):
+    def test_list_in_progress_mpus(self):
         listing = [
             # in progress
             {'name': '\x00obj1/%s' % next(self.id_iter),
@@ -465,7 +465,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(200, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
-            {"Response Status": "201 Created", "Etag": "slo-etag"}, resp_dict)
+            {"Response Status": "201 Created",
+             "Etag": exp_mpu_etag},
+            resp_dict)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -568,13 +570,16 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         mpu_etag_hasher = md5(usedforsecurity=False)
         for part in mpu_manifest:
             mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
+        exp_mpu_etag = mpu_etag_hasher.hexdigest() + '-2'
         req.body = json.dumps(mpu_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(200, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
-            {"Response Status": "201 Created", "Etag": "slo-etag"}, resp_dict)
+            {"Response Status": "201 Created",
+             "Etag": exp_mpu_etag},
+            resp_dict)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -588,8 +593,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_session = next(self.ts_iter)
         self._setup_mpu_existence_check_call(ts_session)
         ts_complete = next(self.ts_iter)
-        put_resp_body = {'Response Status': '201 Created',
-                         'Etag': 'slo-etag'}
+        put_slo_resp_body = {'Response Status': '201 Created',
+                             'Etag': 'slo-etag'}
         registered_calls = [
             ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPOk,
@@ -599,7 +604,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                     'heartbeat=on&multipart-manifest=put' % self.mpu_id,
              HTTPAccepted,
              {},
-             json.dumps(put_resp_body).encode('ascii')),
+             json.dumps(put_slo_resp_body).encode('ascii')),
             ('PUT', '/v1/a/c/o', HTTPNotFound, {}),
             # note: no DELETE
         ]
@@ -670,7 +675,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_session = next(self.ts_iter)
         self._setup_mpu_existence_check_call(ts_session)
         ts_complete = next(self.ts_iter)
-        put_resp_body = {
+        put_slo_resp_body = {
             'Response Status': '400 Bad Request',
             'Response Body': 'Bad Request\nThe server could not comply with '
                              'the request since it is either malformed or '
@@ -687,7 +692,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             # SLO heartbeat response is 202...
             ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/%s?'
                     'heartbeat=on&multipart-manifest=put' % self.mpu_id,
-             HTTPAccepted, {}, json.dumps(put_resp_body).encode('ascii')),
+             HTTPAccepted, {}, json.dumps(put_slo_resp_body).encode('ascii')),
         ]
         for call in registered_calls:
             self.app.register(*call)
@@ -1021,6 +1026,61 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              % mpu_id_alt),
         ])
         self.assertEqual(exp_calls, sorted(self.app.calls[1:]))
+
+    def test_container_listing(self):
+        listing = [
+            # MPU
+            {'name': 'a-mpu',
+             'bytes': 0,
+             'hash': '%s; '
+                     'other_mw_etag=banana; '
+                     'mpu_etag=my-mpu-etag; '
+                     'mpu_bytes=10485760'
+                     % MD5_OF_EMPTY_STRING,
+             'content_type': 'application/test',
+             'last_modified': '2024-09-10T14:16:00.579190',
+             'symlink_path':
+                 '/v1/a/%00mpu_manifests%00cont/%00obj1/1725977760.57919_'
+                 'MzZlMjQ5YjUtYTMxMy00YjkxLWIyZWItYzUwNDY0NmVmOTE1'},
+            # the following shouldn't be modified...
+            # symlink
+            {'name': 'b-symlink',
+             'bytes': 0,
+             'hash': '%s' % MD5_OF_EMPTY_STRING,
+             'content_type': 'application/test',
+             'last_modified': '2024-09-10T14:16:00.579190',
+             'symlink_etag': 'symlink-etag',
+             'symlink_bytes': 10485760,
+             'symlink_path': '/v1/a/b/c'},
+            # SLO
+            {'name': 'c-slo',
+             'bytes': 0,
+             'hash': '%s' % MD5_OF_EMPTY_STRING,
+             'content_type': 'application/test',
+             'last_modified': '2024-09-10T14:16:00.579190',
+             'slo_etag': 'my-slo-etag'},
+            # plain old object
+            {'name': 'd-obj',
+             'hash': 'my-etag',
+             'bytes': 123,
+             'content_type': "text/plain",
+             'last_modified': '1970-01-01T00:00:01.000000'},
+        ]
+        resp_body = json.dumps(listing).encode('ascii')
+        self.app.register('GET', '/v1/a/cont', swob.HTTPCreated, {}, resp_body)
+        req = Request.blank('/v1/a/cont')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(201, resp.status_int)
+        actual = json.loads(b''.join(resp.app_iter))
+        expected = [
+            {'name': 'a-mpu',
+             'bytes': 10485760,
+             'hash': 'my-mpu-etag; other_mw_etag=banana',
+             'content_type': 'application/test',
+             'last_modified': '2024-09-10T14:16:00.579190',
+             }] + listing[1:]
+        self.assertEqual(expected, actual)
 
 
 class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
