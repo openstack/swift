@@ -132,5 +132,7 @@ def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
                 (count == maxsegs + 1 and segs[maxsegs])):
             raise ValueError('Invalid path: %s' % quote(path))
     segs = segs[1:maxsegs]
+    if not all(segs[:-1]):
+        raise ValueError('Invalid path: %s' % quote(path))
     segs.extend([None] * (maxsegs - 1 - len(segs)))
     return segs
