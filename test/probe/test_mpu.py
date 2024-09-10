@@ -336,13 +336,13 @@ class TestNativeMPU(BaseTestMPU):
         part_size = 5 * 2 ** 20
         part_file, hash_, hash_hash = self.make_file(part_size, 1)
         with open(part_file, 'rb') as fd:
-            etag = swiftclient.put_object(
+            part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 contents=fd,
                 query_string='upload-id=%s&part-number=1' % upload_id)
         self.assertEqual(200, resp.status)
         # TODO: check resp content-length header
-        self.assertEqual(hash_, etag)
+        self.assertEqual(hash_, part_etag)
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
         self.assertEqual(['\x00%s/%s/1' % (self.mpu_name, upload_id)],
@@ -356,7 +356,7 @@ class TestNativeMPU(BaseTestMPU):
                          [o['name'] for o in json.loads(resp_body)])
 
         # complete
-        manifest = [{'part_number': 1, 'etag': etag}]
+        manifest = [{'part_number': 1, 'etag': part_etag}]
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='upload-id=%s' % upload_id,
                                       body=json.dumps(manifest).encode(
@@ -474,6 +474,8 @@ class TestNativeMPU(BaseTestMPU):
             self.url, self.token, self.bucket_name, query_string='uploads')
         self.assertEqual(['%s/%s' % (self.mpu_name, upload_id)],
                          [o['name'] for o in listing])
+        self.assertEqual(['application/x-mpu'],
+                         [o['content_type'] for o in listing])
         # upload part
         part_size = 5 * 2 ** 20
         part_file, hash_, hash_hash = self.make_file(part_size, 1)

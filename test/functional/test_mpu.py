@@ -122,6 +122,14 @@ class BaseTestMPU(unittest.TestCase):
                         body=json.dumps(manifest).encode('ascii'),
                         use_account=use_account, url_account=url_account)
 
+    def _abort_mpu(self, name, upload_id, container=None,
+                   use_account=1, url_account=1):
+        container = container or self.user_cont
+        return tf.retry(self._make_request, method='DELETE',
+                        container=container, obj=name,
+                        query_string='upload-id=%s' % upload_id,
+                        use_account=use_account, url_account=url_account)
+
     def _make_mpu(self, name):
         # create an mpu
         resp = self._create_mpu(name)
@@ -158,6 +166,11 @@ class TestMpu(BaseTestMPU):
             resp = self._create_mpu(obj, container=container)
             self.assertEqual(200, resp.status, obj)
             created.append('%s/%s' % (obj, resp.headers.get('X-Upload-Id')))
+        resp = self._create_mpu('obj4', container=container)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        resp = self._abort_mpu('obj4', upload_id, container=container)
+        self.assertEqual(204, resp.status)
 
         resp = tf.retry(self._make_request, method='GET',
                         container=container,

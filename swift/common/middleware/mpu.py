@@ -139,10 +139,10 @@ class MPUSession(object):
                                                 MPU_CONTENT_TYPE)
 
     def is_aborted(self):
-        return self.content_type == MPU_ABORTED_MARKER_SUFFIX
+        return self.content_type == MPU_ABORTED_CONTENT_TYPE
 
     def abort(self):
-        self.content_type = MPU_ABORTED_MARKER_SUFFIX
+        self.content_type = MPU_ABORTED_CONTENT_TYPE
 
     @property
     def state(self):
@@ -312,9 +312,12 @@ class MPUHandler(BaseMPUHandler):
         sub_req = self.make_subrequest(path=path, method='GET')
         resp = sub_req.get_response(self.app)
         if resp.is_success:
-            listing = json.loads(resp.body)
-            for item in listing:
+            listing = []
+            for item in json.loads(resp.body):
+                if item['content_type'] != MPU_CONTENT_TYPE:
+                    continue
                 item['name'] = split_reserved_name(item['name'])[0]
+                listing.append(item)
             resp.body = json.dumps(listing).encode('ascii')
         return resp
 

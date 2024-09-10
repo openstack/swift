@@ -261,7 +261,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'last_modified': '1970-01-01T00:00:00.000000'},
         ]
         exp_listing = [dict(item, name=item['name'][1:])
-                       for item in listing]
+                       for item in listing[:3]]
         registered_calls = [('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
                              json.dumps(listing).encode('ascii'))]
         for call in registered_calls:
@@ -676,7 +676,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_abort = next(self.ts_iter)
         session_resp_headers = {
             'X-Timestamp': ts_other.internal,
-            'Content-Type': 'application/mpu',
+            'Content-Type': 'application/x-mpu',
             'X-Backend-Data-Timestamp': ts_session.internal,
             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
