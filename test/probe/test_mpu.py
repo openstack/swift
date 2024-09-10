@@ -480,7 +480,7 @@ class TestNativeMPU(BaseTestMPU):
         part_size = 5 * 2 ** 20
         part_file, hash_, hash_hash = self.make_file(part_size, 1)
         with open(part_file, 'rb') as fd:
-            swiftclient.put_object(
+            part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 contents=fd,
                 query_string='upload-id=%s&part-number=1' % upload_id)
@@ -495,6 +495,30 @@ class TestNativeMPU(BaseTestMPU):
         swiftclient.delete_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
             query_string='upload-id=%s' % upload_id)
+
+        # try (but fail) to upload another part
+        with open(part_file, 'rb') as fd:
+            with self.assertRaises(ClientException) as cm:
+                swiftclient.put_object(
+                    self.url, self.token, self.bucket_name, self.mpu_name,
+                    contents=fd,
+                    query_string='upload-id=%s&part-number=2' % upload_id)
+            self.assertEqual(404, cm.exception.http_status)
+
+        # try (but fail) to list parts
+        with self.assertRaises(ClientException) as cm:
+            swiftclient.get_object(
+                self.url, self.token, self.bucket_name, self.mpu_name,
+                query_string='upload-id=%s' % upload_id)
+            self.assertEqual(404, cm.exception.http_status)
+
+        # try (but fail) to complete the upload
+        manifest = [{'part_number': 1, 'etag': part_etag}]
+        resp, body = self.post_object(self.bucket_name, self.mpu_name,
+                                      query_string='upload-id=%s' % upload_id,
+                                      body=json.dumps(manifest).encode(
+                                          'ascii'))
+        self.assertEqual(404, resp.status)
 
         # list mpus - empty list
         resp_hdrs, listing = swiftclient.get_container(
