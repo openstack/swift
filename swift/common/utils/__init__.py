@@ -340,7 +340,7 @@ def generate_trans_id(trans_id_suffix):
 
 
 def generate_unique_id():
-    result = base64.urlsafe_b64encode(str(uuid.uuid4()).encode('ascii'))
+    result = base64.urlsafe_b64encode(os.urandom(16))
     if six.PY2:
         return result
     return result.decode('ascii')
