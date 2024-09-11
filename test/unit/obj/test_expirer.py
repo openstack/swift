@@ -306,6 +306,76 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(x.expiring_objects_account, '.expiring_objects')
         self.assertIs(x.swift, self.fake_swift)
 
+    def test_init_internal_client_path(self):
+        # default -> /etc/swift/object-expirer.conf
+        conf = {'internal_client_conf_path': 'ignored'}
+        with mock.patch.object(expirer, 'InternalClient',
+                               return_value=self.fake_swift) as mock_ic:
+            x = expirer.ObjectExpirer(conf, logger=self.logger)
+        self.assertEqual(mock_ic.mock_calls, [mock.call(
+            '/etc/swift/object-expirer.conf', 'Swift Object Expirer', 3,
+            use_replication_network=True,
+            global_conf={'log_name': 'object-expirer-ic'})])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIs(x.swift, self.fake_swift)
+
+        # conf read from /etc/swift/object-expirer.conf
+        # -> /etc/swift/object-expirer.conf
+        conf = {'__file__': '/etc/swift/object-expirer.conf',
+                'internal_client_conf_path': 'ignored'}
+        with mock.patch.object(expirer, 'InternalClient',
+                               return_value=self.fake_swift) as mock_ic:
+            x = expirer.ObjectExpirer(conf, logger=self.logger)
+        self.assertEqual(mock_ic.mock_calls, [mock.call(
+            '/etc/swift/object-expirer.conf', 'Swift Object Expirer', 3,
+            use_replication_network=True,
+            global_conf={'log_name': 'object-expirer-ic'})])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIs(x.swift, self.fake_swift)
+
+        # conf read from object-server.conf, no internal_client_conf_path
+        # specified -> /etc/swift/internal-client.conf
+        conf = {'__file__': '/etc/swift/object-server.conf'}
+        with mock.patch.object(expirer, 'InternalClient',
+                               return_value=self.fake_swift) as mock_ic:
+            x = expirer.ObjectExpirer(conf, logger=self.logger)
+        self.assertEqual(mock_ic.mock_calls, [mock.call(
+            '/etc/swift/internal-client.conf', 'Swift Object Expirer', 3,
+            use_replication_network=True,
+            global_conf={'log_name': 'object-expirer-ic'})])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIs(x.swift, self.fake_swift)
+
+        # conf read from object-server.conf, internal_client_conf_path is
+        # specified -> internal_client_conf_path value
+        conf = {'__file__': '/etc/swift/object-server.conf',
+                'internal_client_conf_path':
+                    '/etc/swift/other-internal-client.conf'}
+        with mock.patch.object(expirer, 'InternalClient',
+                               return_value=self.fake_swift) as mock_ic:
+            x = expirer.ObjectExpirer(conf, logger=self.logger)
+        self.assertEqual(mock_ic.mock_calls, [mock.call(
+            '/etc/swift/other-internal-client.conf', 'Swift Object Expirer', 3,
+            use_replication_network=True,
+            global_conf={'log_name': 'object-expirer-ic'})])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIs(x.swift, self.fake_swift)
+
+        # conf read from other file, internal_client_conf_path is
+        # specified -> internal_client_conf_path value
+        conf = {'__file__': '/etc/swift/other-object-server.conf',
+                'internal_client_conf_path':
+                    '/etc/swift/other-internal-client.conf'}
+        with mock.patch.object(expirer, 'InternalClient',
+                               return_value=self.fake_swift) as mock_ic:
+            x = expirer.ObjectExpirer(conf, logger=self.logger)
+        self.assertEqual(mock_ic.mock_calls, [mock.call(
+            '/etc/swift/other-internal-client.conf', 'Swift Object Expirer', 3,
+            use_replication_network=True,
+            global_conf={'log_name': 'object-expirer-ic'})])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIs(x.swift, self.fake_swift)
+
     def test_init_internal_client_log_name(self):
         def _do_test_init_ic_log_name(conf, exp_internal_client_log_name):
             with mock.patch(

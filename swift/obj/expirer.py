@@ -167,17 +167,8 @@ class ObjectExpirer(Daemon):
         self.dequeue_from_legacy = \
             True if is_legacy_conf else \
             config_true_value(conf.get('dequeue_from_legacy', 'false'))
-
-        if is_legacy_conf:
-            self.ic_conf_path = self.conf_path
-        else:
-            self.ic_conf_path = \
-                self.conf.get('internal_client_conf_path') or \
-                '/etc/swift/internal-client.conf'
         self.swift = swift or self._make_internal_client(is_legacy_conf)
-
         self.read_conf_for_queue_access()
-
         self.report_interval = float(conf.get('report_interval') or 300)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
@@ -195,9 +186,15 @@ class ObjectExpirer(Daemon):
         self.delay_reaping_times = read_conf_for_delay_reaping_times(conf)
 
     def _make_internal_client(self, is_legacy_conf):
+        if is_legacy_conf:
+            ic_conf_path = self.conf_path
+        else:
+            ic_conf_path = \
+                self.conf.get('internal_client_conf_path') or \
+                '/etc/swift/internal-client.conf'
         request_tries = int(self.conf.get('request_tries') or 3)
         return InternalClient(
-            self.ic_conf_path, 'Swift Object Expirer', request_tries,
+            ic_conf_path, 'Swift Object Expirer', request_tries,
             use_replication_network=True,
             global_conf={'log_name': '%s-ic' % self.conf.get(
                 'log_name', self.log_route)})
