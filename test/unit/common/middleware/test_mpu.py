@@ -402,8 +402,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.app.register(*call)
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id)
         req.method = 'GET'
-        mw = MPUMiddleware(self.app, {}, logger=self.debug_logger)
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         expected = [call[:2] for call in self.exp_calls] + [
             ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id),
@@ -459,8 +458,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
         exp_mpu_etag = mpu_etag_hasher.hexdigest() + '-2'
         req.body = json.dumps(mpu_manifest)
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(200, resp.status_int)
         resp_dict = json.loads(resp_body)
@@ -589,6 +587,51 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         mpu_hdrs = self.app.headers[5]
         self.assertNotIn('Content-Type', mpu_hdrs)
 
+    def test_complete_mpu_bad_manifest(self):
+        ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
+
+        def do_complete(manifest_body):
+            self.app.clear_calls()
+            ts_complete = next(self.ts_iter)
+            req_hdrs = {'X-Timestamp': ts_complete.internal,
+                        'Content-Type': 'ignored'}
+            req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                                headers=req_hdrs)
+            req.method = 'POST'
+            req.body = manifest_body
+            resp = req.get_response(self.mw)
+            expected = [call[:2] for call in self.exp_calls]
+            self.assertEqual(expected, self.app.calls)
+            self.assertEqual(400, resp.status_int)
+            return resp
+
+        resp = do_complete(b"[{123: 'foo'}]")
+        self.assertEqual(b'Manifest must be valid JSON.\n',
+                         resp.body)
+
+        resp = do_complete(json.dumps({'part_number': 2}))
+        self.assertEqual(b'Manifest must be a list.\n',
+                         resp.body)
+
+        resp = do_complete(json.dumps([[]]))
+        self.assertEqual(b'Index 0: not a JSON object.\n',
+                         resp.body)
+
+        resp = do_complete(json.dumps([{'part_number': 2}]))
+        self.assertEqual(b'Index 0: expected keys to include etag.\n',
+                         resp.body)
+
+        resp = do_complete(json.dumps([{'etag': 'a' * 32}]))
+        self.assertEqual(b'Index 0: expected keys to include part_number.\n',
+                         resp.body)
+
+        resp = do_complete(json.dumps([{'etag': 'a' * 32},
+                                       {'part_number': 2}]))
+        self.assertEqual(b'Index 0: expected keys to include part_number.\n'
+                         b'Index 1: expected keys to include etag.\n',
+                         resp.body)
+
     def test_complete_mpu_symlink_put_fails(self):
         ts_session = next(self.ts_iter)
         self._setup_mpu_existence_check_call(ts_session)
@@ -619,8 +662,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 1, 'etag': 'a' * 32},
             {'part_number': 2, 'etag': 'b' * 32},
         ])
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(200, resp.status_int)
         resp_dict = json.loads(resp_body)
@@ -657,8 +699,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 1, 'etag': 'a' * 32},
             {'part_number': 2, 'etag': 'b' * 32},
         ])
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(200, resp.status_int)
         resp_dict = json.loads(resp_body)
@@ -705,8 +746,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 1, 'etag': 'a' * 32},
             {'part_number': 2, 'etag': 'b' * 32},
         ])
-        mw = MPUMiddleware(self.app, {}, logger=self.debug_logger)
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(200, resp.status_int)
         resp_dict = json.loads(resp_body)
@@ -742,8 +782,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 1, 'etag': 'a' * 32},
             {'part_number': 2, 'etag': 'b' * 32},
         ])
-        mw = MPUMiddleware(self.app, {}, logger=self.debug_logger)
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(200, resp.status_int)
         resp_dict = json.loads(resp_body)
@@ -779,8 +818,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 1, 'etag': 'a' * 32},
             {'part_number': 2, 'etag': 'b' * 32},
         ])
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         b''.join(resp.app_iter)
         self.assertEqual(409, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
@@ -803,8 +841,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 1, 'etag': 'a' * 32},
             {'part_number': 2, 'etag': 'b' * 32},
         ])
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         b''.join(resp.app_iter)
         self.assertEqual(404, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
@@ -851,8 +888,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                             headers=req_hdrs)
         req.method = 'DELETE'
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(204, resp.status_int)
         self.assertEqual(b'', resp_body)
@@ -917,8 +953,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 1, 'etag': 'a' * 32},
             {'part_number': 2, 'etag': 'b' * 32},
         ])
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         b''.join(resp.app_iter)
         self.assertEqual(404, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
@@ -939,8 +974,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {})
         req = Request.blank('/v1/a/c/o')
         req.method = 'DELETE'
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(204, resp.status_int)
         self.assertEqual(b'', resp_body)
@@ -967,8 +1001,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {})
         req = Request.blank('/v1/a/c/o')
         req.method = 'PUT'
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(201, resp.status_int)
         self.assertEqual(b'', resp_body)
@@ -1010,8 +1043,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {})
         req = Request.blank('/v1/a/c/o')
         req.method = 'PUT'
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(201, resp.status_int)
         self.assertEqual(b'', resp_body)
@@ -1132,7 +1164,7 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
         self.app.register('HEAD', '/v1/a/c', HTTPNotFound, {})
         for req in self.requests:
             self.app.clear_calls()
-            resp = req.get_response(MPUMiddleware(self.app, {}))
+            resp = req.get_response(self.mw)
             self.assertEqual(404, resp.status_int)
             self.assertEqual([call[:2] for call in self.exp_calls],
                              self.app.calls)
@@ -1141,7 +1173,7 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
         self.app.register('HEAD', '/v1/a/c', HTTPServiceUnavailable, {})
         for req in self.requests:
             self.app.clear_calls()
-            resp = req.get_response(MPUMiddleware(self.app, {}))
+            resp = req.get_response(self.mw)
             self.assertEqual(503, resp.status_int)
             self.assertEqual([call[:2] for call in self.exp_calls],
                              self.app.calls)
@@ -1150,7 +1182,7 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
         self.app.register('HEAD', '/v1/a/c', HTTPPreconditionFailed, {})
         for req in self.requests:
             self.app.clear_calls()
-            resp = req.get_response(MPUMiddleware(self.app, {}))
+            resp = req.get_response(self.mw)
             self.assertEqual(503, resp.status_int)
             self.assertEqual([call[:2] for call in self.exp_calls],
                              self.app.calls)

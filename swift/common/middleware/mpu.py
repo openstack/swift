@@ -510,10 +510,10 @@ class MPUSessionHandler(BaseMPUHandler):
             part_number = part_dict['part_number']
             if part_number <= previous_part:
                 raise ValueError(
-                    b"part_number %s must be greater than previous %s"
+                    "part_number %s must be greater than previous %s"
                     % (part_number, previous_part))
         except KeyError:
-            raise ValueError(b"expected keys to include part_number")
+            raise ValueError("expected keys to include part_number")
         return part_number
 
     def _parse_etag(self, part_dict):
@@ -522,9 +522,9 @@ class MPUSessionHandler(BaseMPUHandler):
             etag = normalize_etag(etag)
             if (etag is None or len(etag) != 32 or
                     any(c not in '0123456789abcdef' for c in etag)):
-                raise ValueError(b"etag %s is invalid" % etag)
+                raise ValueError("etag %s is invalid" % etag)
         except KeyError:
-            raise ValueError(b"expected keys to include etag")
+            raise ValueError("expected keys to include etag")
         return etag
 
     def _parse_user_manifest(self, body):
@@ -713,6 +713,8 @@ class MPUSessionHandler(BaseMPUHandler):
             # complete the upload.
             return HTTPConflict()
 
+        manifest, mpu_etag = self._parse_user_manifest(self.req.body)
+
         self.session.timestamp = self.req.timestamp
         self.session.state = MPUSession.COMPLETING_STATE
         session_req = self.make_subrequest(
@@ -725,9 +727,6 @@ class MPUSessionHandler(BaseMPUHandler):
         # Leave base header value blank; SLO will populate
         # c_etag = '; s3_etag=%s' % manifest_etag
         # manifest_headers[get_container_update_override_key('etag')] = c_etag
-
-        manifest, mpu_etag = self._parse_user_manifest(self.req.body)
-
         resp = HTTPOk()  # assume we're good for now...
         resp.app_iter = self._make_complete_upload_resp_iter(
             manifest, mpu_etag)
