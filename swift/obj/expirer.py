@@ -186,12 +186,11 @@ class ObjectExpirer(Daemon):
         self.delay_reaping_times = read_conf_for_delay_reaping_times(conf)
 
     def _make_internal_client(self, is_legacy_conf):
+        default_ic_conf_path = '/etc/swift/internal-client.conf'
         if is_legacy_conf:
-            ic_conf_path = self.conf_path
-        else:
-            ic_conf_path = \
-                self.conf.get('internal_client_conf_path') or \
-                '/etc/swift/internal-client.conf'
+            default_ic_conf_path = self.conf_path
+        ic_conf_path = self.conf.get(
+            'internal_client_conf_path', default_ic_conf_path)
         request_tries = int(self.conf.get('request_tries') or 3)
         return InternalClient(
             ic_conf_path, 'Swift Object Expirer', request_tries,
