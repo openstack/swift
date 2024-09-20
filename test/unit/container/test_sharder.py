@@ -410,101 +410,6 @@ class TestSharder(BaseTestSharder):
         _do_test_init_ic_log_name({'log_name': 'container-sharder-6021'},
                                   'container-sharder-6021-ic')
 
-    def test_log_broker(self):
-        broker = self._make_broker(container='c@d')
-
-        def do_test(level):
-            with self._mock_sharder() as sharder:
-                func = getattr(sharder, level)
-                func(broker, 'bonjour %s %s', 'mes', 'amis')
-                func(broker, 'hello my %s', 'friend%04ds')
-                func(broker, 'greetings friend%04ds')
-
-            self.assertEqual(
-                ['bonjour mes amis, path: a/c%40d, db: ' + broker.db_file,
-                 'hello my friend%04ds, path: a/c%40d, db: ' + broker.db_file,
-                 'greetings friend%04ds, path: a/c%40d, db: ' + broker.db_file
-                 ], sharder.logger.get_lines_for_level(level))
-
-            for log_level, lines in sharder.logger.all_log_lines().items():
-                if log_level == level:
-                    continue
-                else:
-                    self.assertFalse(lines)
-
-        do_test('debug')
-        do_test('info')
-        do_test('warning')
-        do_test('error')
-
-    def test_log_broker_exception(self):
-        broker = self._make_broker()
-
-        with self._mock_sharder() as sharder:
-            try:
-                raise ValueError('test')
-            except ValueError as err:
-                sharder.exception(broker, 'exception: %s', err)
-
-        self.assertEqual(
-            ['exception: test, path: a/c, db: %s: ' % broker.db_file],
-            sharder.logger.get_lines_for_level('error'))
-
-        for log_level, lines in sharder.logger.all_log_lines().items():
-            if log_level == 'error':
-                continue
-            else:
-                self.assertFalse(lines)
-
-    def test_log_broker_levels(self):
-        # verify that the broker is not queried if the log level is not enabled
-        broker = self._make_broker()
-        # erase cached properties...
-        broker.account = broker.container = None
-
-        with self._mock_sharder() as sharder:
-            with mock.patch.object(sharder.logger, 'isEnabledFor',
-                                   return_value=False):
-                sharder.debug(broker, 'test')
-                sharder.info(broker, 'test')
-                sharder.warning(broker, 'test')
-                sharder.error(broker, 'test')
-
-        # cached properties have not been set...
-        self.assertIsNone(broker.account)
-        self.assertIsNone(broker.container)
-        self.assertFalse(sharder.logger.all_log_lines())
-
-    def test_log_broker_exception_while_logging(self):
-        broker = self._make_broker()
-
-        def do_test(level):
-            with self._mock_sharder() as sharder:
-                func = getattr(sharder, level)
-            with mock.patch.object(broker, '_populate_instance_cache',
-                                   side_effect=Exception()):
-                func(broker, 'bonjour %s %s', 'mes', 'amis')
-            broker._db_files = None
-            with mock.patch.object(broker, 'reload_db_files',
-                                   side_effect=Exception()):
-                func(broker, 'bonjour %s %s', 'mes', 'amis')
-
-            self.assertEqual(
-                ['bonjour mes amis, path: , db: %s' % broker.db_file,
-                 'bonjour mes amis, path: a/c, db: '],
-                sharder.logger.get_lines_for_level(level))
-
-            for log_level, lines in sharder.logger.all_log_lines().items():
-                if log_level == level:
-                    continue
-                else:
-                    self.assertFalse(lines)
-
-        do_test('debug')
-        do_test('info')
-        do_test('warning')
-        do_test('error')
-
     def test_periodic_warning(self):
         now = [time.time()]
 
@@ -521,11 +426,11 @@ class TestSharder(BaseTestSharder):
                     sharder.periodic_warning(broker1, 'periodic warning 1a')
                     sharder.periodic_warning(broker2, 'periodic warning 2')
                     now[0] += 1
-                sharder.warning(broker1, 'normal warning')
+                sharder.db_logger.warning(broker1, 'normal warning')
                 sharder.periodic_warning(broker1, 'periodic warning 1')
                 sharder.periodic_warning(broker1, 'periodic warning 1a')
                 sharder.periodic_warning(broker2, 'periodic warning 2')
-                sharder.warning(broker1, 'normal warning')
+                sharder.db_logger.warning(broker1, 'normal warning')
                 for i in range(10):
                     sharder.periodic_warning(broker1, 'periodic warning 1')
                     sharder.periodic_warning(broker1, 'periodic warning 1a')
