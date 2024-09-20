@@ -45,11 +45,12 @@ class S3ApiBase(unittest.TestCase):
 
     @contextmanager
     def quiet_boto_logging(self):
+        original_level = logging.getLogger('boto').getEffectiveLevel()
         try:
             logging.getLogger('boto').setLevel(logging.INFO)
             yield
         finally:
-            logging.getLogger('boto').setLevel(logging.DEBUG)
+            logging.getLogger('boto').setLevel(original_level)
 
     def setUp(self):
         if not tf.config.get('s3_access_key'):
