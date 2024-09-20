@@ -186,7 +186,7 @@ class ObjectExpirer(Daemon):
         self.delay_reaping_times = read_conf_for_delay_reaping_times(conf)
 
     def _make_internal_client(self, is_legacy_conf):
-        if is_legacy_conf:
+        if is_legacy_conf and 'internal_client_conf_path' not in self.conf:
             ic_conf_path = self.conf_path
         else:
             ic_conf_path = \
