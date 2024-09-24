@@ -37,6 +37,19 @@ def tearDownModule():
 class BaseTestMPU(unittest.TestCase):
     user_cont = uuid4().hex
 
+    def setUp(self):
+        super(BaseTestMPU, self).setUp()
+        if tf.skip or tf.skip2:
+            raise SkipTest
+        if 'mpu' not in tf.cluster_info:
+            raise SkipTest("MPU not enabled")
+        try:
+            self._create_container(self.user_cont)  # use_account=1
+        except ResponseError as err:
+            self.fail('Creating container: %s' % err)
+        self._post_acl()  # always clear acls
+        self.part_size = 5 * 1024 * 1024
+
     def _make_request(self, env, token, parsed, conn, method,
                       container, obj='', headers=None, body=b'',
                       query_string=None):
@@ -60,19 +73,6 @@ class BaseTestMPU(unittest.TestCase):
         if resp.status not in (201, 202):
             raise ResponseError(resp)
         return name
-
-    def setUp(self):
-        super(BaseTestMPU, self).setUp()
-        if tf.skip or tf.skip2:
-            raise SkipTest
-        if 'mpu' not in tf.cluster_info:
-            raise SkipTest("MPU not enabled")
-        try:
-            self._create_container(self.user_cont)  # use_account=1
-        except ResponseError as err:
-            self.fail('Creating container: %s' % err)
-        self._post_acl()  # always clear acls
-        self.part_size = 5 * 1024 * 1024
 
     def _post_acl(self, read_acl='', write_acl=''):
         resp = tf.retry(self._make_request, method='POST',
@@ -165,6 +165,8 @@ class BaseTestMPU(unittest.TestCase):
 
 class TestMPU(BaseTestMPU):
     # tests in this class create MPUs
+
+    @tf.requires_policies
     def setUp(self):
         super(TestMPU, self).setUp()
 
@@ -196,6 +198,14 @@ class TestMPU(BaseTestMPU):
         # create upload
         resp = self._create_mpu(name)
         self.assertEqual(200, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'text/html; charset=UTF-8',
+             'X-Upload-Id': mock.ANY,
+             'Content-Length': '0',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -207,22 +217,60 @@ class TestMPU(BaseTestMPU):
         # upload parts
         etags = []
         part_1 = b'a' * part_size
+        part_1_etag = md5(part_1).hexdigest()
         resp = self._upload_part(name, upload_id, 1, part_1)
         self.assertEqual(200, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'text/html; charset=UTF-8',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % part_1_etag,
+             'Last-Modified': mock.ANY,
+             'Content-Length': '0',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers)
         etags.append(resp.getheader('Etag'))
         part_2 = b'b' * part_size
+        part_2_etag = md5(part_2).hexdigest()
         resp = self._upload_part(name, upload_id, 2, part_2)
         self.assertEqual(200, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'text/html; charset=UTF-8',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % part_2_etag,
+             'Last-Modified': mock.ANY,
+             'Content-Length': '0',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers)
         etags.append(resp.getheader('Etag'))
         etag_hasher = md5(usedforsecurity=False)
         for part_etag in etags:
             etag_hasher.update(binascii.a2b_hex(normalize_etag(part_etag)))
+        exp_mpu_etag = etag_hasher.hexdigest() + '-2'
 
         # list parts
+        exp_policy = self.policies.default['name']
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=name,
                         query_string='upload-id=%s' % upload_id)
         self.assertEqual(200, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'application/json; charset=utf-8',
+             'Content-Length': str(len(resp.content)),
+             # TODO: filter out/modify these headers...
+             'X-Container-Object-Count': mock.ANY,
+             'X-Container-Bytes-Used': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Last-Modified': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'X-Storage-Policy': exp_policy,
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers)
         parts = [item['name'] for item in json.loads(resp.content)]
         self.assertEqual(['%s/%s/%d' % (name, upload_id, i + 1)
                           for i in range(2)], parts)
@@ -230,19 +278,37 @@ class TestMPU(BaseTestMPU):
         # complete mpu
         resp = self._complete_mpu(name, upload_id, etags)
         self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(
+            {'Content-Type': 'text/html; charset=UTF-8',
+             'Transfer-Encoding': 'chunked',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers)
         body = json.loads(resp.content)
         self.assertEqual('201 Created', body.get('Response Status'), body)
-        self.assertEqual(etag_hasher.hexdigest() + '-2', body.get('Etag'))
+        self.assertEqual(exp_mpu_etag, body.get('Etag'))
         self.assertEqual([], body['Errors'], body)
 
         # GET the user object
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=name)
         self.assertEqual(200, resp.status)
-        self.assertEqual(str(2 * 5 * 1024 * 1024),
-                         resp.getheader('Content-Length'))
-        self.assertEqual('application/test',
-                         resp.getheader('Content-Type'))
+        self.assertEqual(
+            {'Content-Type': 'application/test',
+             # NB: mpu etags are always quoted by MPU middleware
+             'Etag': '"%s"' % exp_mpu_etag,
+             'X-Upload-Id': upload_id,
+             'X-Parts-Count': '2',
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'Content-Length': '10485760',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers
+        )
         self.assertEqual(2 * part_size, len(resp.content))
         self.assertEqual(part_1, resp.content[:5 * 1024 * 1024])
         self.assertEqual(part_2, resp.content[-5 * 1024 * 1024:])
@@ -341,10 +407,11 @@ class TestExistingMPU(BaseTestMPU):
     def setUp(self):
         super(TestExistingMPU, self).setUp()
         # ...but only create an mpu once
+        self.num_parts = 2
         if not TestExistingMPU.user_obj:
             user_obj = uuid4().hex
             TestExistingMPU.upload_id, TestExistingMPU.user_obj_etag = \
-                self._make_mpu(user_obj, num_parts=2)
+                self._make_mpu(user_obj, num_parts=self.num_parts)
             TestExistingMPU.user_obj = user_obj
 
     def _verify_listing(self, resp):
@@ -421,3 +488,32 @@ class TestExistingMPU(BaseTestMPU):
                         container=self.user_cont, obj=name,
                         use_account=2, url_account=1)
         self.assertEqual(200, resp.status)
+
+    def _do_test_get_mpu(self, method):
+        resp = tf.retry(self._make_request, method=method,
+                        container=self.user_cont, obj=self.user_obj)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'application/test',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % self.user_obj_etag,
+             'X-Upload-Id': self.upload_id,
+             'X-Parts-Count': str(self.num_parts),
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'Content-Length': str(self.part_size * self.num_parts),
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers
+        )
+        return resp
+
+    def test_get_mpu(self):
+        resp = self._do_test_get_mpu('GET')
+        self.assertEqual(2 * self.part_size, len(resp.content))
+
+    def test_head_mpu(self):
+        resp = self._do_test_get_mpu('HEAD')
+        self.assertEqual(0, len(resp.content))

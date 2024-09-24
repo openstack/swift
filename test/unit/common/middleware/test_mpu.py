@@ -314,8 +314,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             body=b'testing')
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
-        self.assertEqual(md5(b'testing', usedforsecurity=False).hexdigest(),
-                         resp.headers.get('Etag'))
+        exp_etag = md5(b'testing', usedforsecurity=False).hexdigest()
+        self.assertEqual('"%s"' % exp_etag, resp.headers.get('Etag'))
         self.assertEqual('7', resp.headers['Content-Length'])
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -1113,6 +1113,95 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'last_modified': '2024-09-10T14:16:00.579190',
              }] + listing[1:]
         self.assertEqual(expected, actual)
+
+    def _do_test_get_head_mpu(self, method):
+        upload_id = MPUId.create(next(self.ts_iter))
+        get_resp_headers = {
+            'Content-Type': 'application/test',
+            'X-Static-Large-Object': 'True',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29655',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': '4',
+            'Content-Location': '/v1/AUTH_test/%00mpu_manifests%00etc',
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+        }
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, get_resp_headers,
+                          b'test')
+        req = Request.blank('/v1/a/c/o')
+        req.method = method
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual(1, len(self.app.calls))
+        self.assertEqual((method, '/v1/a/c/o'), self.app.calls[0])
+        exp_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29655',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': '4',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"mpu-etag"',
+            'X-Parts-Count': '2',
+            'X-Upload-Id': str(upload_id),
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+        return resp
+
+    def test_get_mpu(self):
+        resp = self._do_test_get_head_mpu('GET')
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(b'test', resp_body)
+
+    def test_head_mpu(self):
+        resp = self._do_test_get_head_mpu('HEAD')
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(b'', resp_body)
+
+    def _do_test_get_head_not_mpu(self, method):
+        get_resp_headers = {
+            'Content-Type': 'application/test',
+            'X-Static-Large-Object': 'True',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29655',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': '4',
+            'Content-Location': '/v1/AUTH_test/%00mpu_manifests%00etc',
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+        }
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, get_resp_headers,
+                          b'test')
+        req = Request.blank('/v1/a/c/o')
+        req.method = method
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual(1, len(self.app.calls))
+        self.assertEqual((method, '/v1/a/c/o'), self.app.calls[0])
+        self.assertEqual(get_resp_headers, resp.headers)
+        return resp
+
+    def test_get_not_mpu(self):
+        resp = self._do_test_get_head_not_mpu('GET')
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(b'test', resp_body)
+
+    def test_head_not_mpu(self):
+        resp = self._do_test_get_head_mpu('HEAD')
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(b'', resp_body)
 
 
 class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):

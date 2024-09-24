@@ -27,7 +27,7 @@ from swift.common.utils import generate_unique_id, drain_and_close, \
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
-    HTTPServiceUnavailable
+    HTTPServiceUnavailable, quote_etag
 from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
@@ -83,9 +83,9 @@ def get_upload_id(req):
         return None
 
 
-MPU_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
+MPU_SYSMETA_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
 MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
-MPU_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
+MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
 
 
 class MPUId(object):
@@ -456,7 +456,11 @@ class MPUSessionHandler(BaseMPUHandler):
         # TODO: support copy part
 
         resp = part_req.get_response(self.app)
-        return HTTPOk(headers=resp.headers)
+        # TODO: handle failure
+        headers = HeaderKeyDict(resp.headers)
+        # mpu mw always quotes response header etag for requests it handles
+        headers['Etag'] = quote_etag(resp.headers.get('Etag'))
+        return HTTPOk(headers=headers)
 
     def list_parts(self):
         """
@@ -585,9 +589,9 @@ class MPUSessionHandler(BaseMPUHandler):
             'Content-Type': self.session.get_user_content_type(
                 default=MPU_MANIFEST_DEFAULT_CONTENT_TYPE),
             ALLOW_RESERVED_NAMES: 'true',
-            MPU_UPLOAD_ID_KEY: str(self.upload_id),
+            MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             MPU_SYSMETA_ETAG_KEY: mpu_etag,
-            MPU_PARTS_COUNT_KEY: len(manifest),
+            MPU_SYSMETA_PARTS_COUNT_KEY: str(len(manifest)),
             # TODO: include max part index in sysmeta.
             #   There *may* turn out to be situations where knowing that
             #   max part index is useful/enable optimisation. For example,
@@ -618,7 +622,7 @@ class MPUSessionHandler(BaseMPUHandler):
             'Content-Length': '0',
             'Content-Type': self.session.get_user_content_type(default=None),
             ALLOW_RESERVED_NAMES: 'true',
-            MPU_UPLOAD_ID_KEY: str(self.upload_id),
+            MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             TGT_OBJ_SYMLINK_HDR: self.manifest_relative_path,
         })
         # set the MPU etag override to be forwarded to the user container
@@ -673,7 +677,8 @@ class MPUSessionHandler(BaseMPUHandler):
                 mpu_resp = self._put_symlink(mpu_etag, mpu_bytes)
                 drain_and_close(mpu_resp)
                 if mpu_resp.status_int == 201:
-                    body_dict['Etag'] = mpu_etag
+                    # NB: etag is response body is not quoted
+                    body_dict['Etag'] = normalize_etag(mpu_etag)
                     yield json.dumps(body_dict).encode('ascii')
                     # TODO: move _delete_session before the yield??
                     #   pro: we can delete session object before waiting for
@@ -727,6 +732,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # Leave base header value blank; SLO will populate
         # c_etag = '; s3_etag=%s' % manifest_etag
         # manifest_headers[get_container_update_override_key('etag')] = c_etag
+        # TODO: change to 202 because we use heartbeat=on with SLO request
         resp = HTTPOk()  # assume we're good for now...
         resp.app_iter = self._make_complete_upload_resp_iter(
             manifest, mpu_etag)
@@ -765,14 +771,43 @@ class MPUObjHandler(BaseMPUHandler):
             self._put_manifest_delete_marker(upload_id,
                                              MPU_DELETED_MARKER_SUFFIX)
 
-    def handle_request(self):
-        if self.req.method not in ('PUT', 'DELETE'):
-            return None
+    def _cleanup_get_head_resp(self, resp):
+        upload_id = resp.headers.get(MPU_SYSMETA_UPLOAD_ID_KEY)
+        if not upload_id:
+            return
 
-        # TODO: write down a general maybe-deleted marker in manifests
-        #  container *before* forwarding request
+        new_headers = HeaderKeyDict()
+        mpu_etag = None
+        for key, val in resp.headers.items():
+            key = key.lower()
+            if key in ('x-static-large-object',
+                       'content-location',
+                       'x-manifest-etag'):
+                continue
+            if key == MPU_SYSMETA_ETAG_KEY:
+                mpu_etag = val
+            elif key == MPU_SYSMETA_PARTS_COUNT_KEY:
+                new_headers['x-parts-count'] = val
+            elif key == MPU_SYSMETA_UPLOAD_ID_KEY:
+                new_headers['x-upload-id'] = val
+            elif key.startswith(MPU_SYSMETA_PREFIX):
+                continue
+            else:
+                new_headers[key] = val
+        if mpu_etag:
+            # mpu mw always quotes response header etag for requests it handles
+            new_headers['etag'] = quote_etag(mpu_etag)
+        resp.headers = new_headers
+
+    def handle_request(self):
         resp = self.req.get_response(self.app)
-        self._maybe_cleanup_mpu(resp)
+        if self.req.method in ('GET', 'HEAD'):
+            self._cleanup_get_head_resp(resp)
+        elif self.req.method in ('PUT', 'DELETE'):
+            # TODO: write down a general maybe-deleted marker in manifests
+            #  container *before* forwarding request
+            self._maybe_cleanup_mpu(resp)
+
         return resp
 
 

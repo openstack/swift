@@ -700,6 +700,16 @@ def normalize_etag(tag):
     return tag
 
 
+def quote_etag(tag):
+    """
+    Ensure that tag is enclosed in a single pair of "".
+    """
+    # TODO: this doesn't fix multiple quotes e.g. """etag""""
+    if tag is None:
+        return tag
+    return '"%s"' % normalize_etag(tag)
+
+
 class Match(object):
     """
     Wraps a Request's If-[None-]Match header as a friendly object.

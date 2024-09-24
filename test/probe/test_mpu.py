@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import binascii
 import json
 import unittest
 import uuid
@@ -19,12 +20,11 @@ from tempfile import mkdtemp
 import os.path
 import shutil
 import random
-from hashlib import md5
 
 from swift.common.manager import Manager
 from swift.common.middleware.mpu import MPU_MARKER_CONTENT_TYPE
 from swift.common.swob import normalize_etag
-from swift.common.utils import quote
+from swift.common.utils import quote, md5
 from swiftclient import client as swiftclient, ClientException
 
 from test.probe.brain import BrainSplitter
@@ -39,6 +39,20 @@ def status_from_response(resp):
     return resp['ResponseMetadata']['HTTPStatusCode']
 
 
+def calc_slo_etag(chunk_etags):
+    slo_etag_hasher = md5(usedforsecurity=False)
+    for chunk_etag in chunk_etags:
+        slo_etag_hasher.update(chunk_etag.encode())
+    return slo_etag_hasher.hexdigest()
+
+
+def calc_s3mpu_etag(chunk_etags):
+    etag_hasher = md5(usedforsecurity=False)
+    for chunk_etag in chunk_etags:
+        etag_hasher.update(binascii.a2b_hex(normalize_etag(chunk_etag)))
+    return etag_hasher.hexdigest() + '-%d' % len(chunk_etags)
+
+
 class BaseTestMPU(ReplProbeTest):
     def setUp(self):
         self.tempdir = mkdtemp()
@@ -48,8 +62,8 @@ class BaseTestMPU(ReplProbeTest):
 
     def make_file(self, chunksize, num_chunks):
         filename = os.path.join(self.tempdir, 'big.file')
-        md5_hasher = md5()
-        slo_etag_hasher = md5()
+        md5_hasher = md5(usedforsecurity=False)
+        chunk_etags = []
         with open(filename, 'wb') as f:
             c = 'a'
             for i in range(num_chunks):
@@ -57,9 +71,9 @@ class BaseTestMPU(ReplProbeTest):
                 chunk = c.encode() * chunksize
                 f.write(chunk)
                 md5_hasher.update(chunk)
-                chunk_etag = md5(chunk).hexdigest()
-                slo_etag_hasher.update(chunk_etag.encode())
-        return filename, md5_hasher.hexdigest(), slo_etag_hasher.hexdigest()
+                chunk_etags.append(
+                    md5(chunk, usedforsecurity=False).hexdigest())
+        return filename, md5_hasher.hexdigest(), chunk_etags
 
     def tearDown(self):
         shutil.rmtree(self.tempdir)
@@ -120,8 +134,8 @@ class TestS3MPU(BaseTestS3MPU):
         self._assert_container_storage_policy(self.segment_bucket_name,
                                               self.other_policy)
         num_chunks = 3
-        data_filename, md5_hash, slo_etag = self.make_file(self.chunksize,
-                                                           num_chunks)
+        data_filename, md5_hash, chunk_etags = self.make_file(self.chunksize,
+                                                              num_chunks)
         expected_size = self.chunksize * num_chunks
 
         self.s3.upload_file(data_filename, self.bucket_name, self.mpu_name,
@@ -138,8 +152,9 @@ class TestS3MPU(BaseTestS3MPU):
             resp_chunk_size=65536)
         self.assertEqual(expected_size,
                          int(swift_obj_headers['content-length']))
-        self.assertEqual(slo_etag, swift_obj_headers['etag'].strip('"'))
-        hasher = md5()
+        self.assertEqual('"%s"' % calc_slo_etag(chunk_etags),
+                         swift_obj_headers['etag'])
+        hasher = md5(usedforsecurity=False)
         for chunk in body:
             hasher.update(chunk)
         self.assertEqual(md5_hash, hasher.hexdigest())
@@ -179,8 +194,8 @@ class TestS3MPU(BaseTestS3MPU):
 
     def _create_slo_mpu(self, num_parts):
         self.s3.create_bucket(Bucket=self.bucket_name)
-        data_filename, md5_hash, slo_etag = self.make_file(self.chunksize,
-                                                           num_parts)
+        data_filename, md5_hash, chunk_etags = self.make_file(self.chunksize,
+                                                              num_parts)
         expected_size = self.chunksize * num_parts
 
         # upload an mpu
@@ -209,7 +224,7 @@ class TestS3MPU(BaseTestS3MPU):
         num_parts = 2
         self._create_slo_mpu(num_parts)
         # overwrite the mpu with a tiny file
-        data_filename, md5_hash, slo_etag = self.make_file(1, 1)
+        data_filename, md5_hash, chunk_etags = self.make_file(1, 1)
         self.s3.upload_file(data_filename, self.bucket_name,
                             self.mpu_name, Config=self.transfer_config)
         # check the tiny file
@@ -334,7 +349,7 @@ class TestNativeMPU(BaseTestMPU):
 
         # upload part
         part_size = 5 * 2 ** 20
-        part_file, hash_, hash_hash = self.make_file(part_size, 1)
+        part_file, hash_, chunk_etags = self.make_file(part_size, 1)
         with open(part_file, 'rb') as fd:
             part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
@@ -342,6 +357,7 @@ class TestNativeMPU(BaseTestMPU):
                 query_string='upload-id=%s&part-number=1' % upload_id)
         self.assertEqual(200, resp.status)
         # TODO: check resp content-length header
+        # swiftclient strips the "" from etag!
         self.assertEqual(hash_, part_etag)
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
@@ -352,6 +368,7 @@ class TestNativeMPU(BaseTestMPU):
         resp_hdrs, resp_body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
             query_string='upload-id=%s' % upload_id)
+        # TODO: assert etag, bytes etc
         self.assertEqual(['%s/%s/1' % (self.mpu_name, upload_id)],
                          [o['name'] for o in json.loads(resp_body)])
 
@@ -385,28 +402,24 @@ class TestNativeMPU(BaseTestMPU):
                          mpu_meta.get('x-object-sysmeta-mpu-upload-id'),
                          mpu_meta)
 
-        # check user obj
+        # check user container listing
         resp_hdrs, user_objs = swiftclient.get_container(
             self.url, self.token, self.bucket_name)
+        # TODO: assert etag, bytes etc
         self.assertEqual([self.mpu_name], [o['name'] for o in user_objs])
+
+        # head mpu
         headers = swiftclient.head_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
         self.assertEqual(str(part_size), headers.get('content-length'))
-        self.assertEqual(hash_hash, normalize_etag(headers.get('etag')))
-        user_objs = self.internal_client.iter_objects(
-            self.account, self.bucket_name)
-        self.assertEqual([self.mpu_name], [o['name'] for o in user_objs])
-        mpu_meta = self.internal_client.get_object_metadata(
-            self.account, self.bucket_name, self.mpu_name)
-        self.assertEqual(upload_id,
-                         mpu_meta.get('x-object-sysmeta-mpu-upload-id'),
-                         mpu_meta)
-
+        self.assertEqual('"%s"' % calc_s3mpu_etag(chunk_etags),
+                         headers.get('etag'))
         # download mpu
         headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
         self.assertEqual(str(part_size), headers.get('content-length'))
-        self.assertEqual(hash_hash, normalize_etag(headers.get('etag')))
+        self.assertEqual('"%s"' % calc_s3mpu_etag(chunk_etags),
+                         headers.get('etag'))
 
         # manifest cannot be downloaded
         with self.assertRaises(ClientException) as cm:
@@ -478,7 +491,7 @@ class TestNativeMPU(BaseTestMPU):
                          [o['content_type'] for o in listing])
         # upload part
         part_size = 5 * 2 ** 20
-        part_file, hash_, hash_hash = self.make_file(part_size, 1)
+        part_file, hash_, chunk_etags = self.make_file(part_size, 1)
         with open(part_file, 'rb') as fd:
             part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
