@@ -1112,7 +1112,7 @@ def is_useful_response(resp, node):
         return False
     if ('handoff_index' in node
             and resp.status == 404
-            and resp.headers.get('x-backend-timestamp') is None):
+            and resp.getheader('x-backend-timestamp') is None):
         # a 404 from a handoff are not considered authoritative unless they
         # have an x-backend-timestamp that indicates that there is a tombstone
         return False

@@ -1462,7 +1462,12 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         primary_failure = self.replicas() - primary_success
         primary_codes = [Timeout()] * primary_failure + [202] * primary_success
         handoff_codes = [404] * primary_failure
-        with mocked_http_conn(*(primary_codes + handoff_codes)):
+        # note: by default fake_http_connect will return an x-backend-timestamp
+        # header; we need to override that for handoffs by setting to None
+        with mocked_http_conn(
+                *(primary_codes + handoff_codes),
+                headers=[{}] * len(primary_codes) +
+                        [{'x-backend-timestamp': None}] * len(handoff_codes)):
             resp = req.get_response(self.app)
         self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
@@ -1484,7 +1489,12 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         handoff_not_found = self.replicas() - handoff_success
         primary_codes = [Timeout()] * self.replicas()
         handoff_codes = [202] * handoff_success + [404] * handoff_not_found
-        with mocked_http_conn(*(primary_codes + handoff_codes)):
+        # note: by default fake_http_connect will return an x-backend-timestamp
+        # header; we need to override that for handoffs by setting to None
+        with mocked_http_conn(
+                *(primary_codes + handoff_codes),
+                headers=[{}] * len(primary_codes) +
+                        [{'x-backend-timestamp': None}] * len(handoff_codes)):
             resp = req.get_response(self.app)
         self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
@@ -6365,7 +6375,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             self.assertIn(req.headers['x-trans-id'], line)
         etag2_conns = []
         for conn in log.responses:
-            if conn.headers.get('X-Object-Sysmeta-Ec-Etag') == etag2:
+            if conn._headers.get('X-Object-Sysmeta-Ec-Etag') == etag2:
                 etag2_conns.append(conn)
         self.assertEqual(
             ([True] * 8) + [False],  # the resumed etag2 doesn't get closed

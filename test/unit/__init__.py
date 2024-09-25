@@ -809,7 +809,7 @@ def fake_http_connect(*code_iter, **kwargs):
             self.received = 0
             self.etag = etag
             self.body = body
-            self.headers = headers or {}
+            self._headers = headers or {}
             self.expect_headers = expect_headers or {}
             if timestamp == -1:
                 # -1 is reserved to mean "magic default"
@@ -894,7 +894,7 @@ def fake_http_connect(*code_iter, **kwargs):
                     headers['x-container-timestamp'] = '1'
             except StopIteration:
                 pass
-            headers.update(self.headers)
+            headers.update(self._headers)
             return headers.items()
 
         def get_slow(self):
