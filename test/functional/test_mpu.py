@@ -260,12 +260,6 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(
             {'Content-Type': 'application/json; charset=utf-8',
              'Content-Length': str(len(resp.content)),
-             # TODO: filter out/modify these headers...
-             'X-Container-Object-Count': mock.ANY,
-             'X-Container-Bytes-Used': mock.ANY,
-             'X-Timestamp': mock.ANY,
-             'Last-Modified': mock.ANY,
-             'Accept-Ranges': 'bytes',
              'X-Storage-Policy': exp_policy,
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,

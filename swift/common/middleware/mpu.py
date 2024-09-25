@@ -17,6 +17,7 @@ import json
 
 import six
 
+from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
@@ -86,6 +87,16 @@ def get_upload_id(req):
 MPU_SYSMETA_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
 MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
 MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
+
+
+def translate_error_response(sub_resp):
+    if sub_resp.status_int == 404:
+        client_resp_status_int = 503
+    else:
+        client_resp_status_int = sub_resp.status_int
+    if client_resp_status_int not in swob.RESPONSE_REASONS:
+        client_resp_status_int = 503
+    return swob.status_map[client_resp_status_int]()
 
 
 class MPUId(object):
@@ -470,12 +481,22 @@ class MPUSessionHandler(BaseMPUHandler):
         path = self.make_path(self.parts_container)
         sub_req = self.make_subrequest(
             path=path, method='GET', params={'prefix': self.session_name})
-        resp = sub_req.get_response(self.app)
-        if resp.is_success:
-            listing = json.loads(resp.body)
+        sub_resp = sub_req.get_response(self.app)
+        if sub_resp.is_success:
+            listing = json.loads(sub_resp.body)
             for item in listing:
                 item['name'] = split_reserved_name(item['name'])[0]
-            resp.body = json.dumps(listing).encode('ascii')
+            headers = {
+                'Content-Type': 'application/json; charset=utf-8',
+                'X-Storage-Policy': sub_resp.headers.get('X-Storage-Policy')
+            }
+            resp = HTTPOk(
+                body=json.dumps(listing).encode('ascii'),
+                headers=headers,
+            )
+        else:
+            drain_and_close(sub_resp)
+            resp = translate_error_response(sub_resp)
         return resp
 
     def abort_upload(self):

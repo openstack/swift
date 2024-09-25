@@ -22,10 +22,11 @@ import mock
 
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id
+from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id, \
+    translate_error_response
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
-    HTTPPreconditionFailed, HTTPException
+    HTTPPreconditionFailed, HTTPException, HTTPBadRequest
 from swift.common.utils import md5, quote, Timestamp, MD5_OF_EMPTY_STRING
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
@@ -72,6 +73,35 @@ class TestModuleFunctions(unittest.TestCase):
         do_test_bad_value('my-uuid:')
         do_test_bad_value(':%s' % Timestamp.now().internal)
         do_test_bad_value('my-uuid:xyz')
+
+    def test_translate_error_response_400(self):
+        resp = HTTPBadRequest()
+        actual = translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(400, actual.status_int)
+
+    def test_translate_error_response_503(self):
+        resp = HTTPServiceUnavailable()
+        actual = translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(503, actual.status_int)
+
+    def test_translate_error_response_404(self):
+        resp = HTTPNotFound()
+        actual = translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(503, actual.status_int)
+
+    def test_translate_error_response_567(self):
+        resp = HTTPException()
+        resp.status_int = 567
+        actual = translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(503, actual.status_int)
 
 
 class TestMPUId(unittest.TestCase):
@@ -393,9 +423,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              HTTPOk,
              {'X-Timestamp': ts_session.internal,
               'Content-Type': 'application/x-mpu-session'}),
-            ('GET', '/v1/a/\x00mpu_parts\x00c',
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c',
              HTTPOk,
-             {},
+             {'X-Container-Object-Count': '123',
+              'X-Container-Bytes-Used': '999999',
+              'X-Storage-Policy': 'policy-0'},
              json.dumps(listing).encode('ascii'))
         ]
         for call in registered_calls:
@@ -417,6 +450,64 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         'last_modified': '1970-01-01T00:00:00.000000'}
                        for i in range(3)]
         self.assertEqual(exp_listing, json.loads(resp.body))
+        self.assertEqual({'Content-Length': str(len(resp.body)),
+                          'Content-Type': 'application/json; charset=utf-8',
+                          'X-Storage-Policy': 'policy-0'},
+                         resp.headers)
+
+    def test_list_parts_subrequest_404(self):
+        ts_session = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {'X-Timestamp': ts_session.internal,
+              'Content-Type': 'application/x-mpu'}),
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c',
+             HTTPNotFound,
+             {})
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id)
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(503, resp.status_int)
+        self.assertEqual(
+            b'<html><h1>Service Unavailable</h1>'
+            b'<p>The server is currently unavailable. Please try again at a '
+            b'later time.</p></html>', resp.body)
+        self.assertEqual({'Content-Length': str(len(resp.body)),
+                          'Content-Type': 'text/html; charset=UTF-8'},
+                         resp.headers)
+
+    def test_list_parts_subrequest_503(self):
+        ts_session = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {'X-Timestamp': ts_session.internal,
+              'Content-Type': 'application/x-mpu'}),
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c',
+             HTTPServiceUnavailable,
+             {})
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id)
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(503, resp.status_int)
+        self.assertEqual(
+            b'<html><h1>Service Unavailable</h1>'
+            b'<p>The server is currently unavailable. Please try again at a '
+            b'later time.</p></html>', resp.body)
+        self.assertEqual({'Content-Length': str(len(resp.body)),
+                          'Content-Type': 'text/html; charset=UTF-8'},
+                         resp.headers)
 
     def test_complete_mpu(self):
         ts_session = next(self.ts_iter)
