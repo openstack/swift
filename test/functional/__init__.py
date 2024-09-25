@@ -14,6 +14,10 @@
 # limitations under the License.
 
 from __future__ import print_function
+
+import configparser
+import contextlib
+
 import mock
 import os
 import six
@@ -35,7 +39,7 @@ from shutil import rmtree
 from tempfile import mkdtemp
 from unittest import SkipTest
 
-from six.moves.configparser import ConfigParser, NoSectionError
+from six.moves.configparser import ConfigParser
 from six.moves import http_client
 from six.moves.http_client import HTTPException
 
@@ -131,24 +135,60 @@ def _debug(msg):
         _info('DEBUG: ' + msg)
 
 
+@contextlib.contextmanager
+def _modify_conf_file(src_conf_file, dest_conf_file):
+    conf = ConfigParser()
+    conf.read(src_conf_file)
+    try:
+        yield conf
+    except configparser.Error as err:
+        msg = 'Error modifying conf file %s: %s' % (src_conf_file, err)
+        raise InProcessException(msg)
+    else:
+        with open(dest_conf_file, 'w') as fp:
+            conf.write(fp)
+
+
+def _cleanup_pipeline(pipeline_str):
+    # return single-whitespace delimited and padded string
+    # e.g. "x   y  " -> " x y "
+    return ' %s ' % ' '.join([x for x in pipeline_str.split(' ') if x])
+
+
+def _modify_pipeline_substring(conf, old_substr, new_substr):
+    section = 'pipeline:main'
+    old_pipeline = _cleanup_pipeline(conf.get(section, 'pipeline'))
+    old_substr = _cleanup_pipeline(old_substr)
+    new_substr = _cleanup_pipeline(new_substr)
+    if old_substr not in old_pipeline:
+        raise InProcessException(
+            'Failed to replace pipeline substring: old="%s", new="%s", '
+            'pipeline="%s"' % (old_substr, new_substr, old_pipeline))
+
+    if new_substr in old_pipeline:
+        _info('WARNING: "%s" is already in pipeline, not replacing'
+              % new_substr)
+        new_pipeline = old_pipeline
+    else:
+        new_pipeline = old_pipeline.replace(old_substr, new_substr)
+        _debug('Replaced pipeline substring "%s" with "%s"'
+               % (old_substr, new_substr))
+    # remove padding
+    new_pipeline = new_pipeline.strip(' ')
+    conf.set(section, 'pipeline', new_pipeline)
+    _debug('Proxy pipeline is now "%s"' % new_pipeline)
+
+
 def _in_process_setup_swift_conf(swift_conf_src, testdir):
     # override swift.conf contents for in-process functional test runs
-    conf = ConfigParser()
-    conf.read(swift_conf_src)
-    try:
+    test_conf_file = os.path.join(testdir, 'swift.conf')
+    with _modify_conf_file(swift_conf_src, test_conf_file) as conf:
         section = 'swift-hash'
         conf.set(section, 'swift_hash_path_suffix', 'inprocfunctests')
         conf.set(section, 'swift_hash_path_prefix', 'inprocfunctests')
         section = 'swift-constraints'
         max_file_size = (8 * 1024 * 1024) + 2  # 8 MB + 2
         conf.set(section, 'max_file_size', str(max_file_size))
-    except NoSectionError:
-        msg = 'Conf file %s is missing section %s' % (swift_conf_src, section)
-        raise InProcessException(msg)
-
-    test_conf_file = os.path.join(testdir, 'swift.conf')
-    with open(test_conf_file, 'w') as fp:
-        conf.write(fp)
 
     return test_conf_file
 
@@ -195,39 +235,36 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
       in process testing, and renaming it to suit policy-0
     Otherwise, create a default ring file.
     """
-    conf = ConfigParser()
-    conf.read(swift_conf)
-    sp_prefix = 'storage-policy:'
+    with _modify_conf_file(swift_conf, swift_conf) as conf:
+        sp_prefix = 'storage-policy:'
 
-    try:
-        # policy index 0 will be created if no policy exists in conf
-        policies = parse_storage_policies(conf)
-    except PolicyError as e:
-        raise InProcessException(e)
+        try:
+            # policy index 0 will be created if no policy exists in conf
+            policies = parse_storage_policies(conf)
+        except PolicyError as e:
+            raise InProcessException(e)
 
-    # clear all policies from test swift.conf before adding test policy back
-    for policy in policies:
-        conf.remove_section(sp_prefix + str(policy.idx))
+        # clear all policies from test swift.conf before adding test policy
+        # back
+        for policy in policies:
+            conf.remove_section(sp_prefix + str(policy.idx))
 
-    if policy_specified:
-        policy_to_test = policies.get_by_name(policy_specified)
-        if policy_to_test is None:
-            raise InProcessException('Failed to find policy name "%s"'
-                                     % policy_specified)
-        _info('Using specified policy %s' % policy_to_test.name)
-    else:
-        policy_to_test = policies.default
-        _info('Defaulting to policy %s' % policy_to_test.name)
+        if policy_specified:
+            policy_to_test = policies.get_by_name(policy_specified)
+            if policy_to_test is None:
+                raise InProcessException('Failed to find policy name "%s"'
+                                         % policy_specified)
+            _info('Using specified policy %s' % policy_to_test.name)
+        else:
+            policy_to_test = policies.default
+            _info('Defaulting to policy %s' % policy_to_test.name)
 
-    # make policy_to_test be policy index 0 and default for the test config
-    sp_zero_section = sp_prefix + '0'
-    conf.add_section(sp_zero_section)
-    for (k, v) in policy_to_test.get_info(config=True).items():
-        conf.set(sp_zero_section, k, str(v))
-    conf.set(sp_zero_section, 'default', 'True')
-
-    with open(swift_conf, 'w') as fp:
-        conf.write(fp)
+        # make policy_to_test be policy index 0 and default for the test config
+        sp_zero_section = sp_prefix + '0'
+        conf.add_section(sp_zero_section)
+        for (k, v) in policy_to_test.get_info(config=True).items():
+            conf.set(sp_zero_section, k, str(v))
+        conf.set(sp_zero_section, 'default', 'True')
 
     # look for a source ring file
     ring_file_src = ring_file_test = 'object.ring.gz'
@@ -284,6 +321,18 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
     return obj_sockets
 
 
+def _load_etag_quoter(proxy_conf_file, swift_conf_file, **kwargs):
+    _debug('Ensuring etag-quoter is in proxy pipeline')
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with _modify_conf_file(proxy_conf_file, test_conf_file) as conf:
+        _modify_pipeline_substring(
+            conf,
+            "cache",
+            "cache etag-quoter")
+
+    return test_conf_file, swift_conf_file
+
+
 def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
     """
     Load encryption configuration and override proxy-server.conf contents.
@@ -302,34 +351,20 @@ def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
     # conf during wsgi load_app.
     # Therefore we must modify the [pipeline:main] section.
 
-    conf = ConfigParser()
-    conf.read(proxy_conf_file)
-    try:
-        section = 'pipeline:main'
-        pipeline = conf.get(section, 'pipeline')
-        pipeline = pipeline.replace(
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with _modify_conf_file(proxy_conf_file, test_conf_file) as conf:
+        _modify_pipeline_substring(
+            conf,
             "proxy-logging proxy-server",
             "keymaster encryption proxy-logging proxy-server")
-        pipeline = pipeline.replace(
-            "cache listing_formats",
-            "cache etag-quoter listing_formats")
-        conf.set(section, 'pipeline', pipeline)
         root_secret = base64.b64encode(os.urandom(32))
         if not six.PY2:
             root_secret = root_secret.decode('ascii')
         conf.set('filter:keymaster', 'encryption_root_secret', root_secret)
         conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
         conf.set('filter:etag-quoter', 'enable_by_default', 'true')
-    except NoSectionError as err:
-        msg = 'Error problem with proxy conf file %s: %s' % \
-              (proxy_conf_file, err)
-        raise InProcessException(msg)
 
-    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
-    with open(test_conf_file, 'w') as fp:
-        conf.write(fp)
-
-    return test_conf_file, swift_conf_file
+    return _load_etag_quoter(test_conf_file, swift_conf_file)
 
 
 def _load_ec_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
@@ -342,29 +377,26 @@ def _load_ec_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
     """
     _debug('Setting configuration for default EC policy')
 
-    conf = ConfigParser()
-    conf.read(swift_conf_file)
-    # remove existing policy sections that came with swift.conf-sample
-    for section in list(conf.sections()):
-        if section.startswith('storage-policy'):
-            conf.remove_section(section)
-    # add new policy 0 section for an EC policy
-    conf.add_section('storage-policy:0')
-    ec_policy_spec = {
-        'name': 'ec-test',
-        'policy_type': 'erasure_coding',
-        'ec_type': 'liberasurecode_rs_vand',
-        'ec_num_data_fragments': 2,
-        'ec_num_parity_fragments': 1,
-        'ec_object_segment_size': 1048576,
-        'default': True
-    }
+    with _modify_conf_file(swift_conf_file, swift_conf_file) as conf:
+        # remove existing policy sections that came with swift.conf-sample
+        for section in list(conf.sections()):
+            if section.startswith('storage-policy'):
+                conf.remove_section(section)
+        # add new policy 0 section for an EC policy
+        conf.add_section('storage-policy:0')
+        ec_policy_spec = {
+            'name': 'ec-test',
+            'policy_type': 'erasure_coding',
+            'ec_type': 'liberasurecode_rs_vand',
+            'ec_num_data_fragments': 2,
+            'ec_num_parity_fragments': 1,
+            'ec_object_segment_size': 1048576,
+            'default': True
+        }
 
-    for k, v in ec_policy_spec.items():
-        conf.set('storage-policy:0', k, str(v))
+        for k, v in ec_policy_spec.items():
+            conf.set('storage-policy:0', k, str(v))
 
-    with open(swift_conf_file, 'w') as fp:
-        conf.write(fp)
     return proxy_conf_file, swift_conf_file
 
 
@@ -390,33 +422,19 @@ def _load_domain_remap_staticweb(proxy_conf_file, swift_conf_file, **kwargs):
     # DEFAULTS options) then it prevents pipeline being loaded into the local
     # conf during wsgi load_app.
     # Therefore we must modify the [pipeline:main] section.
-    conf = ConfigParser()
-    conf.read(proxy_conf_file)
-    try:
-        section = 'pipeline:main'
-        old_pipeline = conf.get(section, 'pipeline')
-        pipeline = old_pipeline.replace(
-            " tempauth ",
-            " tempauth staticweb ")
-        pipeline = pipeline.replace(
-            " listing_formats ",
-            " domain_remap listing_formats ")
-        if pipeline == old_pipeline:
-            raise InProcessException(
-                "Failed to insert domain_remap and staticweb into pipeline: %s"
-                % old_pipeline)
-        conf.set(section, 'pipeline', pipeline)
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with _modify_conf_file(proxy_conf_file, test_conf_file) as conf:
+        _modify_pipeline_substring(
+            conf,
+            "tempauth",
+            "tempauth staticweb")
+        _modify_pipeline_substring(
+            conf,
+            "listing_formats",
+            "domain_remap listing_formats")
         # set storage_domain in domain_remap middleware to match test config
         section = 'filter:domain_remap'
         conf.set(section, 'storage_domain', storage_domain)
-    except NoSectionError as err:
-        msg = 'Error problem with proxy conf file %s: %s' % \
-              (proxy_conf_file, err)
-        raise InProcessException(msg)
-
-    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
-    with open(test_conf_file, 'w') as fp:
-        conf.write(fp)
 
     return test_conf_file, swift_conf_file
 
@@ -439,26 +457,15 @@ def _load_s3api(proxy_conf_file, swift_conf_file, **kwargs):
     # conf during wsgi load_app.
     # Therefore we must modify the [pipeline:main] section.
 
-    conf = ConfigParser()
-    conf.read(proxy_conf_file)
-    try:
-        section = 'pipeline:main'
-        pipeline = conf.get(section, 'pipeline')
-        pipeline = pipeline.replace(
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with _modify_conf_file(proxy_conf_file, test_conf_file) as conf:
+        _modify_pipeline_substring(
+            conf,
             "tempauth",
             "s3api tempauth")
-        conf.set(section, 'pipeline', pipeline)
         conf.set('filter:s3api', 's3_acl', 'true')
 
         conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
-    except NoSectionError as err:
-        msg = 'Error problem with proxy conf file %s: %s' % \
-              (proxy_conf_file, err)
-        raise InProcessException(msg)
-
-    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
-    with open(test_conf_file, 'w') as fp:
-        conf.write(fp)
 
     return test_conf_file, swift_conf_file
 
