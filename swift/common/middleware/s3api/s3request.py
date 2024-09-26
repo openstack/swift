@@ -57,7 +57,7 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, \
     BadDigest, AuthorizationHeaderMalformed, SlowDown, \
     AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU, \
-    InvalidPartNumber, InvalidPartArgument
+    InvalidPartNumber, InvalidPartArgument, XAmzContentSHA256Mismatch
 from swift.common.middleware.s3api.exception import NotS3Request
 from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
@@ -129,6 +129,9 @@ class S3InputSHA256Mismatch(BaseException):
     through all the layers of the pipeline back to us. It should never escape
     the s3api middleware.
     """
+    def __init__(self, expected, computed):
+        self.expected = expected
+        self.computed = computed
 
 
 class HashingInput(object):
@@ -141,6 +144,13 @@ class HashingInput(object):
         self._to_read = content_length
         self._hasher = hasher()
         self._expected = expected_hex_hash
+        if content_length == 0 and \
+                self._hasher.hexdigest() != self._expected.lower():
+            self.close()
+            raise XAmzContentSHA256Mismatch(
+                client_computed_content_s_h_a256=self._expected,
+                s3_computed_content_s_h_a256=self._hasher.hexdigest(),
+            )
 
     def read(self, size=None):
         chunk = self._input.read(size)
@@ -149,12 +159,12 @@ class HashingInput(object):
         short_read = bool(chunk) if size is None else (len(chunk) < size)
         if self._to_read < 0 or (short_read and self._to_read) or (
                 self._to_read == 0 and
-                self._hasher.hexdigest() != self._expected):
+                self._hasher.hexdigest() != self._expected.lower()):
             self.close()
             # Since we don't return the last chunk, the PUT never completes
             raise S3InputSHA256Mismatch(
-                'The X-Amz-Content-SHA56 you specified did not match '
-                'what we received.')
+                self._expected,
+                self._hasher.hexdigest())
         return chunk
 
     def close(self):
@@ -248,6 +258,28 @@ class SigV4Mixin(object):
 
         if int(self.timestamp) + expires < S3Timestamp.now():
             raise AccessDenied('Request has expired', reason='expired')
+
+    def _validate_sha256(self):
+        aws_sha256 = self.headers.get('x-amz-content-sha256')
+        looks_like_sha256 = (
+            aws_sha256 and len(aws_sha256) == 64 and
+            all(c in '0123456789abcdef' for c in aws_sha256.lower()))
+        if not aws_sha256:
+            if 'X-Amz-Credential' in self.params:
+                pass  # pre-signed URL; not required
+            else:
+                msg = 'Missing required header for this request: ' \
+                      'x-amz-content-sha256'
+                raise InvalidRequest(msg)
+        elif aws_sha256 == 'UNSIGNED-PAYLOAD':
+            pass
+        elif not looks_like_sha256 and 'X-Amz-Credential' not in self.params:
+            raise InvalidArgument(
+                'x-amz-content-sha256',
+                aws_sha256,
+                'x-amz-content-sha256 must be UNSIGNED-PAYLOAD, or '
+                'a valid sha256 value.')
+        return aws_sha256
 
     def _parse_credential(self, credential_string):
         parts = credential_string.split("/")
@@ -459,30 +491,9 @@ class SigV4Mixin(object):
         cr.append(b';'.join(swob.wsgi_to_bytes(k) for k, v in headers_to_sign))
 
         # 6. Add payload string at the tail
-        if 'X-Amz-Credential' in self.params:
-            # V4 with query parameters only
-            hashed_payload = 'UNSIGNED-PAYLOAD'
-        elif 'X-Amz-Content-SHA256' not in self.headers:
-            msg = 'Missing required header for this request: ' \
-                  'x-amz-content-sha256'
-            raise InvalidRequest(msg)
-        else:
-            hashed_payload = self.headers['X-Amz-Content-SHA256']
-            if hashed_payload != 'UNSIGNED-PAYLOAD':
-                if self.content_length == 0:
-                    if hashed_payload.lower() != sha256().hexdigest():
-                        raise BadDigest(
-                            'The X-Amz-Content-SHA56 you specified did not '
-                            'match what we received.')
-                elif self.content_length:
-                    self.environ['wsgi.input'] = HashingInput(
-                        self.environ['wsgi.input'],
-                        self.content_length,
-                        sha256,
-                        hashed_payload.lower())
-                # else, length not provided -- Swift will kick out a
-                # 411 Length Required which will get translated back
-                # to a S3-style response in S3Request._swift_error_codes
+        hashed_payload = self.headers.get('X-Amz-Content-SHA256',
+                                          'UNSIGNED-PAYLOAD')
+
         cr.append(swob.wsgi_to_bytes(hashed_payload))
         return b'\n'.join(cr)
 
@@ -810,6 +821,9 @@ class S3Request(swob.Request):
         if delta > self.conf.allowable_clock_skew:
             raise RequestTimeTooSkewed()
 
+    def _validate_sha256(self):
+        return self.headers.get('x-amz-content-sha256')
+
     def _validate_headers(self):
         if 'CONTENT_LENGTH' in self.environ:
             try:
@@ -819,21 +833,6 @@ class S3Request(swob.Request):
             except (ValueError, TypeError):
                 raise InvalidArgument('Content-Length',
                                       self.environ['CONTENT_LENGTH'])
-
-        value = _header_strip(self.headers.get('Content-MD5'))
-        if value is not None:
-            if not re.match('^[A-Za-z0-9+/]+={0,2}$', value):
-                # Non-base64-alphabet characters in value.
-                raise InvalidDigest(content_md5=value)
-            try:
-                self.headers['ETag'] = binascii.b2a_hex(
-                    binascii.a2b_base64(value))
-            except binascii.Error:
-                # incorrect padding, most likely
-                raise InvalidDigest(content_md5=value)
-
-            if len(self.headers['ETag']) != 32:
-                raise InvalidDigest(content_md5=value)
 
         if self.method == 'PUT' and any(h in self.headers for h in (
                 'If-Match', 'If-None-Match',
@@ -880,6 +879,38 @@ class S3Request(swob.Request):
         if 'x-amz-website-redirect-location' in self.headers:
             raise S3NotImplemented('Website redirection is not supported.')
 
+        aws_sha256 = self._validate_sha256()
+        if (aws_sha256
+                and aws_sha256 != 'UNSIGNED-PAYLOAD'
+                and self.content_length is not None):
+            # Even if client-provided SHA doesn't look like a SHA, wrap the
+            # input anyway so we'll send the SHA of what the client sent in
+            # the eventual error
+            self.environ['wsgi.input'] = HashingInput(
+                self.environ['wsgi.input'],
+                self.content_length,
+                sha256,
+                aws_sha256)
+        # If no content-length, either client's trying to do a HTTP chunked
+        # transfer, or a HTTP/1.0-style transfer (in which case swift will
+        # reject with length-required and we'll translate back to
+        # MissingContentLength)
+
+        value = _header_strip(self.headers.get('Content-MD5'))
+        if value is not None:
+            if not re.match('^[A-Za-z0-9+/]+={0,2}$', value):
+                # Non-base64-alphabet characters in value.
+                raise InvalidDigest(content_md5=value)
+            try:
+                self.headers['ETag'] = binascii.b2a_hex(
+                    binascii.a2b_base64(value))
+            except binascii.Error:
+                # incorrect padding, most likely
+                raise InvalidDigest(content_md5=value)
+
+            if len(self.headers['ETag']) != 32:
+                raise InvalidDigest(content_md5=value)
+
         # https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
         # describes some of what would be required to support this
         if any(['aws-chunked' in self.headers.get('content-encoding', ''),
@@ -922,7 +953,10 @@ class S3Request(swob.Request):
             try:
                 body = self.body_file.read(max_length)
             except S3InputSHA256Mismatch as err:
-                raise BadDigest(err.args[0])
+                raise XAmzContentSHA256Mismatch(
+                    client_computed_content_s_h_a256=err.expected,
+                    s3_computed_content_s_h_a256=err.computed,
+                )
         else:
             # No (or zero) Content-Length provided, and not chunked transfer;
             # no body. Assume zero-length, and enforce a required body below.
@@ -1368,6 +1402,16 @@ class S3Request(swob.Request):
                     return NoSuchKey(obj)
                 return NoSuchBucket(container)
 
+            # Since BadDigest ought to plumb in some client-provided values,
+            # defer evaluation until we know they're provided
+            def bad_digest_handler():
+                etag = binascii.hexlify(base64.b64decode(
+                    env['HTTP_CONTENT_MD5']))
+                return BadDigest(
+                    expected_digest=etag,  # yes, really hex
+                    # TODO: plumb in calculated_digest, as b64
+                )
+
             code_map = {
                 'HEAD': {
                     HTTP_NOT_FOUND: not_found_handler,
@@ -1379,7 +1423,7 @@ class S3Request(swob.Request):
                 },
                 'PUT': {
                     HTTP_NOT_FOUND: (NoSuchBucket, container),
-                    HTTP_UNPROCESSABLE_ENTITY: BadDigest,
+                    HTTP_UNPROCESSABLE_ENTITY: bad_digest_handler,
                     HTTP_REQUEST_ENTITY_TOO_LARGE: EntityTooLarge,
                     HTTP_LENGTH_REQUIRED: MissingContentLength,
                     HTTP_REQUEST_TIMEOUT: RequestTimeout,
@@ -1420,7 +1464,10 @@ class S3Request(swob.Request):
             # hopefully by now any modifications to the path (e.g. tenant to
             # account translation) will have been made by auth middleware
             self.environ['s3api.backend_path'] = sw_req.environ['PATH_INFO']
-            raise BadDigest(err.args[0])
+            raise XAmzContentSHA256Mismatch(
+                client_computed_content_s_h_a256=err.expected,
+                s3_computed_content_s_h_a256=err.computed,
+            )
         else:
             # reuse account
             _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],

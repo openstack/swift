@@ -630,8 +630,10 @@ class BaseS3ApiObj(object):
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
-        code = self._test_method_error('PUT', '/bucket/object',
-                                       swob.HTTPUnprocessableEntity)
+        code = self._test_method_error(
+            'PUT', '/bucket/object',
+            swob.HTTPUnprocessableEntity,
+            headers={'Content-MD5': '1B2M2Y8AsgTpgAmY7PhCfg=='})
         self.assertEqual(code, 'BadDigest')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPLengthRequired)
@@ -866,6 +868,31 @@ class BaseS3ApiObj(object):
                         self.get_v4_amz_date_header().split('T', 1)[0]),
                 'x-amz-date': self.get_v4_amz_date_header(),
                 'x-amz-storage-class': 'STANDARD',
+                'x-amz-content-sha256': '0' * 64,
+                'Date': self.get_date_header()},
+            body=self.object_body)
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body),
+                         'XAmzContentSHA256Mismatch')
+        self.assertIn(b'x-amz-content-sha256', body)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ.get('swift.backend_path'))
+
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={
+                'Authorization':
+                    'AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
+                    'SignedHeaders=host;x-amz-date, '
+                    'Signature=hmac' % (
+                        self.get_v4_amz_date_header().split('T', 1)[0]),
+                'x-amz-date': self.get_v4_amz_date_header(),
+                'x-amz-storage-class': 'STANDARD',
                 'x-amz-content-sha256': 'not the hash',
                 'Date': self.get_date_header()},
             body=self.object_body)
@@ -873,10 +900,11 @@ class BaseS3ApiObj(object):
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
-        self.assertEqual(self._get_error_code(body), 'BadDigest')
-        self.assertIn(b'X-Amz-Content-SHA56', body)
-        self.assertEqual('/v1/AUTH_test/bucket/object',
-                         req.environ.get('swift.backend_path'))
+        self.assertEqual(self._get_error_code(body),
+                         'InvalidArgument')
+        self.assertIn(b'<ArgumentName>x-amz-content-sha256</ArgumentName>',
+                      body)
+        self.assertNotIn('swift.backend_path', req.environ)
 
     def test_object_PUT_v4_unsigned_payload(self):
         req = Request.blank(

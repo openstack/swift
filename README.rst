@@ -91,14 +91,13 @@ tests should still pass, but a very large number will be skipped.
 Code Organization
 ~~~~~~~~~~~~~~~~~
 
--  bin/: Executable scripts that are the processes run by the deployer
 -  doc/: Documentation
 -  etc/: Sample config files
 -  examples/: Config snippets used in the docs
 -  swift/: Core code
 
    -  account/: account server
-   -  cli/: code that backs some of the CLI tools in bin/
+   -  cli/: code that backs some of the CLI tools
    -  common/: code shared by different modules
 
       -  middleware/: "standard", officially-supported middleware

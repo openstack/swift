@@ -73,14 +73,14 @@
     --os-project-domain-id default --os-project-name admin
     --os-user-domain-id default --os-username admin
     --os-password secretadmin
-    project create swiftprojecttest5
+    project create --domain default swiftprojecttest5
 - name: Create service user
   shell: >
     openstack --os-auth-url http://localhost/identity
     --os-project-domain-id default --os-project-name admin
     --os-user-domain-id default --os-username admin
     --os-password secretadmin
-    user create --project swiftprojecttest5 swiftusertest5 --password testing5
+    user create --domain default --project swiftprojecttest5 swiftusertest5 --password testing5
 - name: Assign service role
   shell: >
     openstack --os-auth-url http://localhost/identity

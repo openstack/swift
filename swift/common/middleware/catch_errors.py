@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift import gettext_ as _
-
 from swift.common.swob import Request, HTTPServerError
 from swift.common.utils import get_logger, generate_trans_id, close_if_possible
 from swift.common.wsgi import WSGIContext
@@ -74,7 +72,7 @@ class CatchErrorsContext(WSGIContext):
             # catch any errors in the pipeline
             resp = self._app_call(env)
         except:  # noqa
-            self.logger.exception(_('Error: An error occurred'))
+            self.logger.exception('Error: An error occurred')
             resp = HTTPServerError(request=Request(env),
                                    body=b'An error occurred',
                                    content_type='text/plain')

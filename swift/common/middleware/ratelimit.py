@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import time
-from swift import gettext_ as _
 
 import eventlet
 
@@ -261,7 +260,7 @@ class RateLimitMiddleware(object):
 
         if account_name in self.ratelimit_blacklist or \
                 account_global_ratelimit == 'BLACKLIST':
-            self.logger.error(_('Returning 497 because of blacklisting: %s'),
+            self.logger.error('Returning 497 because of blacklisting: %s',
                               account_name)
             eventlet.sleep(self.BLACK_LIST_SLEEP)
             return Response(status='497 Blacklisted',
@@ -276,8 +275,8 @@ class RateLimitMiddleware(object):
                 if self.log_sleep_time_seconds and \
                         need_to_sleep > self.log_sleep_time_seconds:
                     self.logger.warning(
-                        _("Ratelimit sleep log: %(sleep)s for "
-                          "%(account)s/%(container)s/%(object)s"),
+                        "Ratelimit sleep log: %(sleep)s for "
+                        "%(account)s/%(container)s/%(object)s",
                         {'sleep': need_to_sleep, 'account': account_name,
                          'container': container_name, 'object': obj_name})
                 if need_to_sleep > 0:
@@ -288,8 +287,8 @@ class RateLimitMiddleware(object):
                 else:
                     path = '/'.join((account_name, container_name))
                 self.logger.error(
-                    _('Returning 498 for %(meth)s to %(path)s. '
-                      'Ratelimit (Max Sleep) %(e)s'),
+                    'Returning 498 for %(meth)s to %(path)s. '
+                    'Ratelimit (Max Sleep) %(e)s',
                     {'meth': req.method, 'path': path, 'e': str(e)})
                 error_resp = Response(status='498 Rate Limited',
                                       body='Slow down', request=req)
@@ -309,7 +308,7 @@ class RateLimitMiddleware(object):
             self.memcache_client = cache_from_env(env)
         if not self.memcache_client:
             self.logger.warning(
-                _('Warning: Cannot ratelimit without a memcached client'))
+                'Warning: Cannot ratelimit without a memcached client')
             return self.app(env, start_response)
         try:
             version, account, container, obj = req.split_path(1, 4, True)

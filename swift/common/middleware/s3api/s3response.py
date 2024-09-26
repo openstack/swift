@@ -327,6 +327,12 @@ class BadDigest(ErrorResponse):
     _msg = 'The Content-MD5 you specified did not match what we received.'
 
 
+class XAmzContentSHA256Mismatch(ErrorResponse):
+    _status = '400 Bad Request'
+    _msg = "The provided 'x-amz-content-sha256' header does not match what " \
+           "was computed."
+
+
 class BucketAlreadyExists(ErrorResponse):
     _status = '409 Conflict'
     _msg = 'The requested bucket name is not available. The bucket ' \
@@ -443,7 +449,7 @@ class InvalidBucketState(ErrorResponse):
 
 class InvalidDigest(ErrorResponse):
     _status = '400 Bad Request'
-    _msg = 'The Content-MD5 you specified was an invalid.'
+    _msg = 'The Content-MD5 you specified was invalid.'
 
 
 class InvalidLocationConstraint(ErrorResponse):

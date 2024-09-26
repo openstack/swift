@@ -659,11 +659,15 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(ValueError, utils.split_path, '/a', 2)
         self.assertRaises(ValueError, utils.split_path, '/a', 2, 3)
         self.assertRaises(ValueError, utils.split_path, '/a', 2, 3, True)
+        self.assertRaises(ValueError, utils.split_path, '/v/a//o', 1, 4, True)
+        self.assertRaises(ValueError, utils.split_path, '/v/a//o', 2, 4, True)
         self.assertEqual(utils.split_path('/a/c', 2), ['a', 'c'])
         self.assertEqual(utils.split_path('/a/c/o', 3), ['a', 'c', 'o'])
         self.assertRaises(ValueError, utils.split_path, '/a/c/o/r', 3, 3)
         self.assertEqual(utils.split_path('/a/c/o/r', 3, 3, True),
                          ['a', 'c', 'o/r'])
+        self.assertEqual(utils.split_path('/a/c//o', 1, 3, True),
+                         ['a', 'c', '/o'])
         self.assertEqual(utils.split_path('/a/c', 2, 3, True),
                          ['a', 'c', None])
         self.assertRaises(ValueError, utils.split_path, '/a', 5, 4)

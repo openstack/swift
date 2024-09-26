@@ -285,24 +285,47 @@ class TestProxyLogging(unittest.TestCase):
     def test_log_request_statsd_invalid_stats_types(self):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeApp(), {}, logger=self.logger)
-        for url in ['/', '/foo', '/foo/bar', '/v1']:
+        for url in ['/', '/foo', '/foo/bar', '/v1', '/v1.0']:
+            self.logger.clear()
             req = Request.blank(url, environ={'REQUEST_METHOD': 'GET'})
             resp = app(req.environ, start_response)
             # get body
             b''.join(resp)
-            self.assertEqual([], app.access_logger.log_dict['timing'])
-            self.assertEqual([], app.access_logger.log_dict['update_stats'])
+            self.assertEqual(
+                [(('UNKNOWN.GET.200.first-byte.timing', mock.ANY), {}),
+                 (('UNKNOWN.GET.200.timing', mock.ANY), {})],
+                app.access_logger.statsd_client.calls['timing'])
+            self.assertEqual(
+                [(('UNKNOWN.GET.200.xfer', mock.ANY), {})],
+                app.access_logger.statsd_client.calls['update_stats'])
 
     def test_log_request_stat_type_bad(self):
-        for bad_path in ['', '/', '/bad', '/baddy/mc_badderson', '/v1',
-                         '/v1/']:
-            app = proxy_logging.ProxyLoggingMiddleware(
-                FakeApp(), {}, logger=self.logger)
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), {}, logger=self.logger)
+        for bad_path in [
+                '',
+                '/',
+                '/bad',
+                '/baddy/mc_badderson',
+                '/v1',
+                '/v1/',
+                '/v1.0',
+                '/v1.0/',
+                '/v1.0//',
+                '/v1.0//c',
+                '/v1.0/a//',
+                '/v1.0/a//o',
+        ]:
             req = Request.blank(bad_path, environ={'REQUEST_METHOD': 'GET'})
             now = 10000.0
             app.log_request(req, 123, 7, 13, now, now + 2.71828182846)
-            self.assertEqual([], app.access_logger.log_dict['timing'])
-            self.assertEqual([], app.access_logger.log_dict['update_stats'])
+            self.assertEqual(
+                [(('UNKNOWN.GET.123.timing', 2718.2818284600216), {})],
+                app.access_logger.statsd_client.calls['timing'])
+            self.assertEqual(
+                [(('UNKNOWN.GET.123.xfer', 20), {})],
+                app.access_logger.statsd_client.calls['update_stats'])
+            app.access_logger.clear()
 
     def test_log_request_stat_type_good(self):
         """
@@ -326,6 +349,15 @@ class TestProxyLogging(unittest.TestCase):
             '/v1/a/c/o/p': 'object',
             '/v1/a/c/o/p/': 'object',
             '/v1/a/c/o/p/p2': 'object',
+            '/v1.0/a': 'account',
+            '/v1.0/a/': 'account',
+            '/v1.0/a/c': 'container',
+            '/v1.0/a/c/': 'container',
+            '/v1.0/a/c/o': 'object',
+            '/v1.0/a/c/o/': 'object',
+            '/v1.0/a/c/o/p': 'object',
+            '/v1.0/a/c/o/p/': 'object',
+            '/v1.0/a/c/o/p/p2': 'object',
         }
         with mock.patch("time.time", stub_time):
             for path, exp_type in path_types.items():
@@ -396,11 +428,12 @@ class TestProxyLogging(unittest.TestCase):
                 stub_times = [18.0, 20.71828182846]
                 iter_response = app(req.environ, lambda *_: None)
                 self.assertEqual(b'7654321', b''.join(iter_response))
-                self.assertEqual([], app.access_logger.log_dict['timing'])
-                self.assertEqual([],
-                                 app.access_logger.log_dict['timing_since'])
-                self.assertEqual([],
-                                 app.access_logger.log_dict['update_stats'])
+                self.assertEqual(
+                    [], app.access_logger.statsd_client.calls['timing'])
+                self.assertEqual(
+                    [], app.access_logger.statsd_client.calls['timing_since'])
+                self.assertEqual(
+                    [], app.access_logger.statsd_client.calls['update_stats'])
 
                 # PUT (no first-byte timing!)
                 self.logger.clear()

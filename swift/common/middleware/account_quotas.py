@@ -24,11 +24,21 @@ quota
 +---------------------------------------------+-------------------------------+
 |Metadata                                     | Use                           |
 +=============================================+===============================+
-| X-Account-Meta-Quota-Bytes                  | Maximum overall bytes stored  |
+| X-Account-Meta-Quota-Bytes (obsoleted)      | Maximum overall bytes stored  |
 |                                             | in account across containers. |
 +---------------------------------------------+-------------------------------+
-| X-Account-Meta-Quota-Count                  | Maximum object count under    |
+| X-Account-Quota-Bytes                       | Maximum overall bytes stored  |
+|                                             | in account across containers. |
++---------------------------------------------+-------------------------------+
+| X-Account-Quota-Bytes-Policy-<policyname>   | Maximum overall bytes stored  |
+|                                             | in account across containers, |
+|                                             | for the given policy.         |
++---------------------------------------------+-------------------------------+
+| X-Account-Quota-Count                       | Maximum object count under    |
 |                                             | account.                      |
++---------------------------------------------+-------------------------------+
+| X-Account-Quota-Count-Policy-<policyname>   | Maximum object count under    |
+|                                             | account, for the given policy.|
 +---------------------------------------------+-------------------------------+
 
 
@@ -95,15 +105,15 @@ class AccountQuotaMiddleware(object):
     def validate_and_translate_quotas(self, request, quota_type):
         new_quotas = {}
         new_quotas[None] = request.headers.get(
-            'X-Account-Meta-%s' % quota_type)
+            'X-Account-%s' % quota_type)
         if request.headers.get(
-                'X-Remove-Account-Meta-%s' % quota_type):
-            new_quotas[None] = 0  # X-Remove dominates if both are present
+                'X-Remove-Account-%s' % quota_type):
+            new_quotas[None] = ''  # X-Remove dominates if both are present
 
         for policy in POLICIES:
             tail = 'Account-%s-Policy-%s' % (quota_type, policy.name)
             if request.headers.get('X-Remove-' + tail):
-                new_quotas[policy.idx] = 0
+                new_quotas[policy.idx] = ''
             else:
                 quota = request.headers.pop('X-' + tail, None)
                 new_quotas[policy.idx] = quota
@@ -114,8 +124,9 @@ class AccountQuotaMiddleware(object):
                 raise HTTPBadRequest()
             for idx, quota in new_quotas.items():
                 if idx is None:
-                    continue  # For legacy reasons, it's in user meta
-                hdr = 'X-Account-Sysmeta-%s-Policy-%d' % (quota_type, idx)
+                    hdr = 'X-Account-Sysmeta-%s' % quota_type
+                else:
+                    hdr = 'X-Account-Sysmeta-%s-Policy-%d' % (quota_type, idx)
                 request.headers[hdr] = quota
         elif any(quota is not None for quota in new_quotas.values()):
             # deny quota set for non-reseller
@@ -123,11 +134,29 @@ class AccountQuotaMiddleware(object):
 
     def handle_account(self, request):
         if request.method in ("POST", "PUT"):
+            # Support old meta format
+            for legacy_header in [
+                'X-Account-Meta-Quota-Bytes',
+                'X-Remove-Account-Meta-Quota-Bytes',
+            ]:
+                new_header = legacy_header.replace('-Meta-', '-')
+                legacy_value = request.headers.get(legacy_header)
+                if legacy_value is not None and not \
+                        request.headers.get(new_header):
+                    request.headers[new_header] = legacy_value
             # account request, so we pay attention to the quotas
             self.validate_and_translate_quotas(request, "Quota-Bytes")
             self.validate_and_translate_quotas(request, "Quota-Count")
         resp = request.get_response(self.app)
         # Non-resellers can't update quotas, but they *can* see them
+        # Global quotas
+        postfixes = ('Quota-Bytes', 'Quota-Count')
+        for postfix in postfixes:
+            value = resp.headers.get('X-Account-Sysmeta-%s' % postfix)
+            if value:
+                resp.headers['X-Account-%s' % postfix] = value
+
+        # Per policy quotas
         for policy in POLICIES:
             infixes = ('Quota-Bytes-Policy', 'Quota-Count-Policy')
             for infix in infixes:
@@ -170,7 +199,11 @@ class AccountQuotaMiddleware(object):
 
         # Check for quota byte violation
         try:
-            quota = int(account_info['meta'].get('quota-bytes', -1))
+            quota = int(
+                account_info["sysmeta"].get(
+                    "quota-bytes", account_info["meta"].get("quota-bytes", -1)
+                )
+            )
         except ValueError:
             quota = -1
         if quota >= 0:
@@ -191,7 +224,7 @@ class AccountQuotaMiddleware(object):
 
         # Check for quota count violation
         try:
-            quota = int(account_info['meta'].get('quota-count', -1))
+            quota = int(account_info['sysmeta'].get('quota-count', -1))
         except ValueError:
             quota = -1
         if quota >= 0:

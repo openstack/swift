@@ -1,0 +1,117 @@
+---
+features:
+  - |
+    Middleware features:
+
+    * The static large object (SLO) middleware now supports including
+      a ``?part-number=<N>`` query parameter to request just part of a
+      large object. This may be used to enable efficient parallel
+      downloads. For more information, see `the documentation
+      <https://docs.openstack.org/swift/latest/overview_large_objects.html#retrieving-a-large-object>`__.
+
+    * The S3 API middleware now supports the ``?partNumber=<N>`` query
+      parameter, enabling parallel downloads.
+
+    * The KMS keymaster now supports overriding the endpoint returned
+      in the Keystone catalog via the ``barbican_endpoint`` configuration
+      option. This may be useful in multi-region deployments which have
+      multiple endpoints.
+
+    * The backend ratelimiter now supports dynamic reloading of limits.
+      The new configuration options ``backend_ratelimit_conf_path`` and
+      ``config_reload_interval`` control which file is reloaded and how
+      frequently, respectively.
+
+    * The backend ratelimiter now supports per-method, per-device
+      ratelimits. See `etc/backend-ratelimit.conf-sample
+      <https://github.com/openstack/swift/blob/master/etc/backend-ratelimit.conf-sample>`__
+      for more information.
+
+    * The account quota middleware now supports object-count quotas
+      in addition to byte-count quotas, similar to the container
+      quota middleware. For more information, see `the documentation
+      <https://docs.openstack.org/swift/latest/middleware.html#module-swift.common.middleware.account_quotas>`__.
+
+  - |
+    Object expiration improvements:
+
+    * Added per-account and per-container reaping delays. These may be
+      used to offer some grace period in which to recover expired objects.
+
+    * Added a proxy-server configuration option: ``allow_open_expired``.
+      This defaults to false; if true, clients may intereact with expired
+      objects by including an ``X-Open-Expired: true`` header in GET, HEAD,
+      or POST requests.
+
+    * Expiring object queue entries now include the size of the object to
+      be expired in the ``swift_expirer_bytes`` parameter of the queue entry's
+      content-type.
+
+    * Added metrics to count skipped, delayed, and assigned tasks as
+      they're enumerated.
+
+  - |
+    S3 API error response reasons are now logged as part of the ``log_info``
+    field. This can be especially useful when diagnosing HEAD
+    failures, which necessarily have no response body.
+
+  - |
+    Python 3.12 is now supported.
+
+  - |
+    ``swift-account-info`` now supports the ``--sync`` option to display the
+    contents of the incoming and outgoing sync tables, similar to
+    ``swift-container-info``.
+
+  - |
+    The ``swift-drive-audit`` tool now works with ISO timestamps in kernel
+    logs.
+
+upgrade:
+  - |
+    Dependency update: lxml must be at least 4.2.3.
+
+deprecations:
+  - |
+    Overall account byte quotas should now be set with the
+    ``X-Account-Quota-Bytes`` header. The ``X-Account-Meta-Quota-Bytes``
+    header is now deprecated.
+
+fixes:
+  - |
+    S3 API fixes:
+
+    * Fixed a server error when using non-ASCII access key IDs.
+
+    * Fixed several checksum-related error responses to be more AWS-like.
+
+  - |
+    Using an ``X-Remove-Account-Quota-Bytes-Policy-<policy name>`` header
+    now removes the per-policy quota, rather than reducing it to zero.
+
+  - |
+    Proxy-server fixes:
+
+    * Object POSTs now 503 rather than trusting the 404s that might be
+      returned from handoffs when primaries are overloaded.
+
+    * Client disconnects should always be logged within the context of
+      the appropriate client request. Previously, there were some cases
+      where logging would occur during general garbage collection, leading
+      to incorrect or missing transaction IDs in logs.
+
+    * The proxy-logging middleware now emits timing and transfer stats for
+      more requests such as auth requests. These will be labeled ``UNKNOWN``
+      rather than ``account``, ``container``, etc.
+
+    * Fixed a server error when the Swift request path has missing account
+      or container components.
+
+  - |
+    ``EUCLEAN`` errors are better handled on the object server.
+
+  - |
+    The ``swift-recon-cron`` tool now better handles missing directories.
+
+  - |
+    Various other minor bug fixes and improvements.

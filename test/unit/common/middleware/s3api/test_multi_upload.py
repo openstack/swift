@@ -988,14 +988,15 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             method='PUT',
             headers={'Authorization': authz_header,
                      'X-Amz-Date': self.get_v4_amz_date_header(),
-                     'X-Amz-Content-SHA256': 'not_the_hash'},
+                     'X-Amz-Content-SHA256': '0' * 64},
             body=b'test')
         with patch('swift.common.middleware.s3api.s3request.'
                    'get_container_info',
                    lambda env, app, swift_source: {'status': 204}):
             status, headers, body = self.call_s3api(req)
         self.assertEqual(status, '400 Bad Request')
-        self.assertEqual(self._get_error_code(body), 'BadDigest')
+        self.assertEqual(self._get_error_code(body),
+                         'XAmzContentSHA256Mismatch')
         self.assertEqual([
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
             ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
@@ -1717,7 +1718,8 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             body=XML)
         status, headers, body = self.call_s3api(req)
         self.assertEqual('400 Bad Request', status)
-        self.assertEqual(self._get_error_code(body), 'BadDigest')
+        self.assertEqual(self._get_error_code(body),
+                         'XAmzContentSHA256Mismatch')
         self.assertEqual('/v1/AUTH_test/bucket+segments/object/X',
                          req.environ.get('swift.backend_path'))
 

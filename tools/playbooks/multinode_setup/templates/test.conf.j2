@@ -1,6 +1,6 @@
 [func_test]
 # Sample config for Swift with tempauth
-auth_host = {{ hostvars['proxy1'].nodepool.public_ipv4 }}
+auth_host = {{ hostvars['proxy1'].nodepool.private_ipv4 }}
 auth_port = 8080
 auth_ssl = no
 auth_prefix = /auth/

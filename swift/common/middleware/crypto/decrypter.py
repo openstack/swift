@@ -16,7 +16,6 @@
 import base64
 import json
 
-from swift import gettext_ as _
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
@@ -77,10 +76,10 @@ class BaseDecrypterContext(CryptoWSGIContext):
                                           crypto_meta['body_key'])
         except KeyError as err:
             self.logger.error(
-                _('Error decrypting %(resp_type)s: Missing %(key)s'),
+                'Error decrypting %(resp_type)s: Missing %(key)s',
                 {'resp_type': self.server_type, 'key': err})
         except ValueError as err:
-            self.logger.error(_('Error decrypting %(resp_type)s: %(reason)s'),
+            self.logger.error('Error decrypting %(resp_type)s: %(reason)s',
                               {'resp_type': self.server_type, 'reason': err})
         raise HTTPInternalServerError(
             body='Error decrypting %s' % self.server_type,
@@ -178,7 +177,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                 value, key, required, bytes_to_wsgi)
         except EncryptionException as err:
             self.logger.error(
-                _("Error decrypting header %(header)s: %(error)s"),
+                "Error decrypting header %(header)s: %(error)s",
                 {'header': header, 'error': err})
             raise HTTPInternalServerError(
                 body='Error decrypting header',
@@ -313,7 +312,7 @@ class DecrypterObjContext(BaseDecrypterContext):
             try:
                 crypto_meta = self.get_crypto_meta(header, check)
             except EncryptionException as err:
-                self.logger.error(_('Error decrypting object: %s'), err)
+                self.logger.error('Error decrypting object: %s', err)
                 raise HTTPInternalServerError(
                     body='Error decrypting object', content_type='text/plain')
         return crypto_meta

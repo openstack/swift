@@ -1107,6 +1107,18 @@ def is_good_source(status, server_type):
     return is_success(status) or is_redirection(status)
 
 
+def is_useful_response(resp, node):
+    if not resp:
+        return False
+    if ('handoff_index' in node
+            and resp.status == 404
+            and resp.getheader('x-backend-timestamp') is None):
+        # a 404 from a handoff are not considered authoritative unless they
+        # have an x-backend-timestamp that indicates that there is a tombstone
+        return False
+    return True
+
+
 class ByteCountEnforcer(object):
     """
     Enforces that successive calls to file_like.read() give at least
@@ -1191,6 +1203,9 @@ class ResponseData(object):
         self.reason = reason
         self.headers = HeaderKeyDict(headers)
         self.body = body or b''
+
+    def getheader(self, key):
+        return self.headers.get(key)
 
     @classmethod
     def from_http_response(cls, http_response, body=None):
@@ -1984,7 +1999,7 @@ class Controller(object):
     def generate_request_headers(self, orig_req=None, additional=None,
                                  transfer=False):
         """
-        Create a list of headers to be used in backend requests
+        Create a dict of headers to be used in backend requests
 
         :param orig_req: the original request sent by the client to the proxy
         :param additional: additional headers to send to the backend
@@ -2117,13 +2132,14 @@ class Controller(object):
                                                 method, path)
                             and not is_informational(resp.status)):
                         return ResponseData.from_http_response(
-                            resp, resp.read())
+                            resp, resp.read()), node
 
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,
                     'Trying to %(method)s %(path)s' %
                     {'method': method, 'path': path})
+        return None, None
 
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string='', overrides=None, node_count=None,
@@ -2146,6 +2162,8 @@ class Controller(object):
                           the returned status of a request.
         :param node_count: optional number of nodes to send request to.
         :param node_iterator: optional node iterator.
+        :param body: byte string to use as the request body.
+                     Try to keep it small.
         :returns: a swob.Response object
         """
         nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
@@ -2157,16 +2175,16 @@ class Controller(object):
             pile.spawn(self._make_request, nodes, part, method, path,
                        head, query_string, body, self.logger.thread_locals)
         responses = ResponseCollection()
-        for resp in pile:
-            if not resp:
+        for resp, node in pile:
+            if not is_useful_response(resp, node):
                 continue
             responses.append(resp)
             if self.have_quorum(responses.statuses, node_number):
                 break
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
-        for resp in finished_quickly:
-            if not resp:
+        for resp, node in finished_quickly:
+            if not is_useful_response(resp, node):
                 continue
             responses.append(resp)
         while len(responses) < node_number:
