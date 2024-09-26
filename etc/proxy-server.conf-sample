@@ -1128,7 +1128,19 @@ use = egg:swift#proxy_logging
 # will be substituted with the appropriate values. For more information, see
 # https://docs.openstack.org/swift/latest/logs.html
 # log_msg_template = {client_ip} {remote_addr} {end_time.datetime} {method} {path} {protocol} {status_int} {referer} {user_agent} {auth_token} {bytes_recvd} {bytes_sent} {client_etag} {transaction_id} {headers} {request_time} {source} {log_info} {start_time} {end_time} {policy_index} {access_user_id}
-
+# The proxy_logging middleware attempts to translate s3api request paths to
+# swift paths. To do so it needs to know which, if any, storage domains are
+# configured for virtual-hosted style requests. This option should be a
+# comma-separated list of host names, exactly the same as that set for the
+# s3api middleware.
+# storage_domain =
+#
+# A float value in seconds for how often the proxy server should emit statsd
+# real-time buffer transfer bytes counter metrics for WSGI input or output.
+# Negative value for not emitting such metrics. 0 for always emitting such
+# metrics on every input or output call. Default is -1.
+# statsd_emit_buffer_xfer_bytes_seconds = -1
+#
 # Note: Put before both ratelimit and auth in the pipeline.
 [filter:bulk]
 use = egg:swift#bulk

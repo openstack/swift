@@ -1264,6 +1264,18 @@ class TestWSGI(unittest.TestCase):
         newenv = wsgi.make_env(oldenv)
         self.assertIs(newenv.get('swift.infocache'), oldenv['swift.infocache'])
 
+    def test_make_env_keeps_shard_listing_history(self):
+        oldenv = {'swift.shard_listing_history': []}
+        newenv = wsgi.make_env(oldenv)
+        self.assertIs(newenv.get('swift.shard_listing_history'),
+                      oldenv['swift.shard_listing_history'])
+
+    def test_make_env_keeps_base_labels(self):
+        oldenv = {'swift.base_labels': []}
+        newenv = wsgi.make_env(oldenv)
+        self.assertIs(newenv.get('swift.base_labels'),
+                      oldenv['swift.base_labels'])
+
 
 class CommonTestMixin(object):
 

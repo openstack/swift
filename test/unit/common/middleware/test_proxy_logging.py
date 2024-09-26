@@ -12,9 +12,11 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import itertools
 import logging
 
 from unittest import mock
+import email
 import time
 import unittest
 from io import BytesIO
@@ -22,23 +24,28 @@ from logging.handlers import SysLogHandler
 
 from urllib.parse import unquote
 
-from swift.common.utils import get_swift_logger, split_path
+from swift.common.utils import get_swift_logger, split_path, md5
 from swift.common.middleware import proxy_logging
 from swift.common.registry import register_sensitive_header, \
     register_sensitive_param, get_sensitive_headers
-from swift.common.swob import Request, Response, HTTPServiceUnavailable
+from swift.common.swob import Request, Response, HTTPServiceUnavailable, \
+    HTTPCreated, HTTPOk
 from swift.common import constraints, registry, statsd_client
 from swift.common.storage_policy import StoragePolicy
+
 from test.debug_logger import debug_logger, FakeStatsdClient, \
     FakeLabeledStatsdClient, debug_labeled_statsd_client
 from test.unit import patch_policies
-from test.unit.common.middleware.helpers import FakeAppThatExcepts, FakeSwift
+from test.unit.common.middleware.helpers import FakeAppThatExcepts, \
+    FakeSwift
+from test.unit.common.middleware.s3api import FakeAuthApp, filter_factory \
+    as s3api_filter_factory
 
 
 class FakeApp(object):
 
     def __init__(self, body=None, response_str='200 OK', policy_idx='0',
-                 chunked=False, environ_updates=None):
+                 chunked=False, environ_updates=None, read_callback=None):
         if body is None:
             body = [b'FAKE APP']
         elif isinstance(body, bytes):
@@ -49,6 +56,7 @@ class FakeApp(object):
         self.policy_idx = policy_idx
         self.chunked = chunked
         self.environ_updates = environ_updates or {}
+        self.read_callback = read_callback
 
     def __call__(self, env, start_response):
         try:
@@ -67,10 +75,14 @@ class FakeApp(object):
 
         if is_container_or_object_req and self.policy_idx is not None:
             headers.append(('X-Backend-Storage-Policy-Index',
-                           str(self.policy_idx)))
+                            str(self.policy_idx)))
         start_response(self.response_str, headers)
-        while env['wsgi.input'].read(5):
-            pass
+        while True:
+            buf = env['wsgi.input'].read(5)
+            if self.read_callback is not None:
+                self.read_callback(len(buf))
+            if not buf:
+                break
         # N.B. mw can set this anytime before the resp is finished
         env.update(self.environ_updates)
         return self.body
@@ -112,12 +124,287 @@ class FakeAppReadline(object):
         return [b"FAKE APP"]
 
 
+class PathRewritingApp:
+    """
+    Rewrite request path, modifying the container part of the path, to emulate
+    the behavior of, for example, a multipart upload.
+    """
+    # note: tests deliberately use this explicit rewriting middleware rather
+    # than relying on the behavior of other middleware that might change
+    def __init__(self, app, logger):
+        self.app = app
+        self.logger = logger
+
+    def __call__(self, env, start_response):
+        orig_path = env['PATH_INFO']
+        req = Request(env)
+        parts = req.split_path(4, rest_with_last=True)
+        parts[2] += '+segments'
+        env['PATH_INFO'] = '/' + '/'.join(parts)
+        try:
+            resp = req.get_response(self.app)
+        except Exception:
+            self.logger.exception('PathRewritingApp (re-raising)')
+            raise
+        env['PATH_INFO'] = orig_path
+        return resp(self.app, start_response)
+
+
 def start_response(*args):
     pass
 
 
+class BaseTestProxyLogging(unittest.TestCase):
+
+    def assertLabeledUpdateStats(self, exp_metrics_values_labels):
+        statsd_calls = self.statsd.calls['update_stats']
+        for statsd_call in statsd_calls:
+            statsd_call[1]['labels'] = dict(statsd_call[1]['labels'])
+        exp_calls = []
+        for metric, value, labels in exp_metrics_values_labels:
+            exp_calls.append(((metric, value), {'labels': labels}))
+        self.assertEqual(exp_calls, statsd_calls)
+
+    def assertLabeledTimingStats(self, exp_metrics_values_labels):
+        statsd_calls = self.statsd.calls['timing']
+        exp_calls = []
+        for metric, value, labels in exp_metrics_values_labels:
+            exp_calls.append(((metric, mock.ANY), {'labels': labels}))
+        self.assertEqual(exp_calls, statsd_calls)
+        for i, (metric, value, labels) in enumerate(exp_metrics_values_labels):
+            self.assertAlmostEqual(
+                value, statsd_calls[i][0][1], places=4, msg=i)
+
+
+class TestCallbackInputProxy(unittest.TestCase):
+
+    def test_read_all(self):
+        callback = mock.MagicMock(return_value=b'xyz')
+        self.assertEqual(
+            b'xyz', proxy_logging.CallbackInputProxy(
+                BytesIO(b'abc'), callback).read())
+        self.assertEqual([mock.call(b'abc', True)], callback.call_args_list)
+
+        callback = mock.MagicMock(return_value=b'xyz')
+        self.assertEqual(
+            b'xyz', proxy_logging.CallbackInputProxy(
+                BytesIO(b'abc'), callback).read(-1))
+        self.assertEqual([mock.call(b'abc', True)], callback.call_args_list)
+
+        callback = mock.MagicMock(return_value=b'xyz')
+        self.assertEqual(
+            b'xyz', proxy_logging.CallbackInputProxy(
+                BytesIO(b'abc'), callback).read(None))
+        self.assertEqual([mock.call(b'abc', True)], callback.call_args_list)
+
+    def test_read_size(self):
+        callback = mock.MagicMock(side_effect=[b'a', b'bc', b''])
+        cip = proxy_logging.CallbackInputProxy(BytesIO(b'abc'), callback)
+        self.assertEqual(
+            b'a', cip.read(1))
+        self.assertEqual([mock.call(b'a', False)], callback.call_args_list)
+        self.assertEqual(
+            b'bc', cip.read(2))
+        self.assertEqual(
+            [mock.call(b'a', False), mock.call(b'bc', False)],
+            callback.call_args_list)
+        self.assertEqual(
+            b'', cip.read())
+        self.assertEqual([mock.call(b'a', False), mock.call(b'bc', False),
+                          mock.call(b'', True)], callback.call_args_list)
+
+
+class TestBufferXferEmitCallback(BaseTestProxyLogging):
+
+    def setUp(self):
+        self.logger = debug_logger()
+
+    def test_buffer_xfer_emit_callback(self):
+        conf = {
+            'log_headers': 'yes',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 0,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), conf, logger=self.logger)
+        app.statsd = self.statsd
+
+        labels = {
+            'account': 'a',
+            'container': 'c',
+            'method': 'POST',
+            'resource': 'container'}
+        callback = proxy_logging.BufferXferEmitCallback(
+            'swift_proxy_example_metric', labels, app.statsd,
+            app.emit_buffer_xfer_bytes_sec)
+        callback('abcde')
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_example_metric', 5, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+        ])
+        callback('abcdef')
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_example_metric', 5, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+            ('swift_proxy_example_metric', 6, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+        ])
+        callback('abcdefg')
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_example_metric', 5, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+            ('swift_proxy_example_metric', 6, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+            ('swift_proxy_example_metric', 7, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+        ])
+
+    def test_buffer_xfer_emit_callback_negative(self):
+        conf = {
+            'log_headers': 'yes',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': -1,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), conf, logger=self.logger)
+        app.statsd = self.statsd
+
+        labels = {
+            'account': 'a',
+            'container': 'c',
+            'method': 'POST',
+            'resource': 'container'}
+        callback = proxy_logging.BufferXferEmitCallback(
+            'swift_proxy_example_metric', labels, app.statsd,
+            app.emit_buffer_xfer_bytes_sec)
+        callback('abcde')
+        self.assertLabeledUpdateStats([])
+        callback('abcdef')
+        self.assertLabeledUpdateStats([])
+        callback('abcdefg')
+        self.assertLabeledUpdateStats([])
+
+    def test_buffer_xfer_emit_callback_positive(self):
+        conf = {
+            'log_headers': 'yes',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 1000,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), conf, logger=self.logger)
+        app.statsd = self.statsd
+
+        labels = {
+            'account': 'a',
+            'container': 'c',
+            'method': 'POST',
+            'resource': 'container'}
+        callback = proxy_logging.BufferXferEmitCallback(
+            'swift_proxy_example_metric', labels, app.statsd,
+            app.emit_buffer_xfer_bytes_sec)
+        callback('abcde')
+        # gotta wait for that emit delay
+        self.assertLabeledUpdateStats([])
+        callback('abcdef')
+        # still no new stats
+        self.assertLabeledUpdateStats([])
+        callback('abcdefg')
+        # no new stats
+        # eof always emits
+        callback('', eof=True)
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_example_metric', 18, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+        ])
+
+    def test_buffer_eof(self):
+        buffers = 'abcd'
+        buffer_len = len(buffers)
+        conf = {
+            'log_headers': 'yes',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 1,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), conf, logger=self.logger)
+        app.statsd = self.statsd
+        labels = {
+            'account': 'a',
+            'container': 'c',
+            'method': 'POST',
+            'resource': 'container'}
+        callback = proxy_logging.BufferXferEmitCallback(
+            'swift_proxy_example_metric', labels, app.statsd,
+            app.emit_buffer_xfer_bytes_sec)
+        now = time.time()
+        with mock.patch('swift.common.middleware.proxy_logging.time.time',
+                        return_value=now):
+            callback(buffers, eof=False)
+            self.assertLabeledUpdateStats([])
+        with mock.patch('swift.common.middleware.proxy_logging.time.time',
+                        return_value=now + 1):
+            callback(buffers, eof=False)
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_example_metric', buffer_len * 2, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'})])
+
+        with mock.patch('swift.common.middleware.proxy_logging.time.time',
+                        return_value=now + 1.5):
+            callback(buffers, eof=False)
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_example_metric', buffer_len * 2, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'})])
+
+        with mock.patch('swift.common.middleware.proxy_logging.time.time',
+                        return_value=now):
+            callback(buffers[:-1], eof=True)
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_example_metric', buffer_len * 2, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'}),
+            ('swift_proxy_example_metric', buffer_len * 2 - 1, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'POST',
+                'resource': 'container'})
+        ])
+
+
 @patch_policies([StoragePolicy(0, 'zero', False)])
-class TestProxyLogging(unittest.TestCase):
+class TestProxyLogging(BaseTestProxyLogging):
     def setUp(self):
         self.logger = debug_logger()
         # really, this would come by way of base_prefix/tail_prefix in
@@ -214,23 +501,6 @@ class TestProxyLogging(unittest.TestCase):
                 (('proxy-server.%s:%s|c' % (metric, value)).encode(),
                  ('host', 8125)),
                 app.access_logger.statsd_client.sendto_calls)
-
-    def assertLabeledTimingStats(self, exp_metrics_values_labels):
-        statsd_calls = self.statsd.calls['timing']
-        exp_calls = []
-        for metric, value, labels in exp_metrics_values_labels:
-            exp_calls.append(((metric, mock.ANY), {'labels': labels}))
-        self.assertEqual(exp_calls, statsd_calls)
-        for i, (metric, value, labels) in enumerate(exp_metrics_values_labels):
-            self.assertAlmostEqual(
-                value, statsd_calls[i][0][1], places=4, msg=i)
-
-    def assertLabeledUpdateStats(self, exp_metrics_values_labels):
-        statsd_calls = self.statsd.calls['update_stats']
-        exp_calls = []
-        for metric, value, labels in exp_metrics_values_labels:
-            exp_calls.append(((metric, value), {'labels': labels}))
-        self.assertEqual(exp_calls, statsd_calls)
 
     def test_init_logger_and_legacy_statsd_options_log_prefix(self):
         conf = {
@@ -1115,7 +1385,7 @@ class TestProxyLogging(unittest.TestCase):
             req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
             resp = app(req.environ, start_response)
             # exhaust generator
-            [x for x in resp]
+            self.assertEqual(b'FAKE APP', b''.join(resp))
             log_parts = self._log_parts(app)
             headers = unquote(log_parts[14]).split('\n')
             self.assertIn('Host: localhost:80', headers)
@@ -1132,7 +1402,7 @@ class TestProxyLogging(unittest.TestCase):
                                      'Third': '3'})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         headers = unquote(log_parts[14]).split('\n')
         self.assertIn('First: 1', headers)
@@ -1152,7 +1422,7 @@ class TestProxyLogging(unittest.TestCase):
                      'wsgi.input': BytesIO(b'some stuff')})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[11], str(len('FAKE APP')))
         self.assertEqual(log_parts[10], str(len('some stuff')))
@@ -1191,7 +1461,7 @@ class TestProxyLogging(unittest.TestCase):
                      'wsgi.input': BytesIO(b'some stuff')})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[11], str(len('FAKE APP')))
         self.assertEqual(log_parts[10], str(len('some stuff')))
@@ -1225,7 +1495,7 @@ class TestProxyLogging(unittest.TestCase):
                      'wsgi.input': BytesIO(b'some stuff')})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[11], str(len('FAKE APP')))
         self.assertEqual(log_parts[10], str(len('some stuff')))
@@ -1259,7 +1529,7 @@ class TestProxyLogging(unittest.TestCase):
                      'wsgi.input': BytesIO(b'some stuff\nsome other stuff\n')})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[11], str(len('FAKE APP')))
         self.assertEqual(log_parts[10], str(len('some stuff\n')))
@@ -1282,6 +1552,1038 @@ class TestProxyLogging(unittest.TestCase):
                 'container': 'c'})
         ])
 
+    def test_init_storage_domain_default(self):
+        conf = {}
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), conf)
+        self.assertEqual([], app.storage_domains)
+
+    def test_init_storage_domain(self):
+        conf = {'storage_domain': 'domain'}
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), conf)
+        self.assertEqual(['domain'], app.storage_domains)
+
+    def test_init_storage_domain_list(self):
+        conf = {'storage_domain': 'domain,some.other.domain'}
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), conf)
+        self.assertEqual(['domain', 'some.other.domain'], app.storage_domains)
+
+    def _do_test_swift_base_labels(self, mw_conf, path, req_hdrs,
+                                   extra_environ=None):
+        req_environs = []
+
+        def fake_app(env, start_response):
+            req_environs.append(env)
+            return HTTPOk()(env, start_response)
+
+        mw = proxy_logging.ProxyLoggingMiddleware(
+            fake_app, mw_conf, logger=self.logger)
+
+        environ = {
+            'REQUEST_METHOD': 'PUT',
+            'HTTP_HOST': 'foo.domain',
+        }
+        if extra_environ:
+            environ.update(extra_environ)
+        req = Request.blank(path, environ=environ, headers=req_hdrs)
+        req.get_response(mw)
+        self.assertEqual(1, len(req_environs))
+        return req_environs[0].get('swift.base_labels')
+
+    def test_update_swift_base_labels_swift_request(self):
+        mw_conf = {}
+        req_hdrs = {}
+        self.assertEqual(
+            {
+                'resource': 'account',
+                'method': 'PUT',
+                'account': 'a',
+            },
+            self._do_test_swift_base_labels(mw_conf, '/v1/a', req_hdrs))
+
+        self.assertEqual(
+            {
+                'resource': 'container',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c'
+            },
+            self._do_test_swift_base_labels(mw_conf, '/v1/a/c', req_hdrs))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(mw_conf, '/v1/a/c/o', req_hdrs))
+
+    def test_update_swift_base_labels_swift_request_partial_existing(self):
+        # verify that existing container field is not updated
+        mw_conf = {}
+        req_hdrs = {}
+        extra_environ = {
+            'swift.base_labels': {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'c',
+            },
+        }
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/a', req_hdrs, extra_environ=extra_environ))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/a/ccc', req_hdrs, extra_environ=extra_environ))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/a/c/ooo', req_hdrs, extra_environ=extra_environ))
+
+    def test_update_swift_base_labels_swift_request_empty_existing(self):
+        # verify that missing container field is
+        # not set once base_labels exists
+        mw_conf = {}
+        req_hdrs = {}
+        extra_environ = {
+            'swift.base_labels': {
+                'resource': 'object',
+                'method': 'PUT',
+            },
+        }
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/a', req_hdrs, extra_environ=extra_environ))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/a/c', req_hdrs, extra_environ=extra_environ))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/a/c/o', req_hdrs, extra_environ=extra_environ))
+
+    def test_update_swift_base_labels_swift_request_complete_existing(self):
+        # verify that existing account and container fields are not replaced
+        mw_conf = {}
+        req_hdrs = {}
+        extra_environ = {
+            'swift.base_labels': {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c',
+            },
+        }
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/aa', req_hdrs, extra_environ=extra_environ))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'account': 'a',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/v1/aa/cc', req_hdrs, extra_environ=extra_environ))
+
+    def test_update_swift_base_labels_s3_request_partial_existing(self):
+        # verify that existing container field is not replaced by s3 field
+        mw_conf = {}
+        req_hdrs = {
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': email.utils.formatdate(time.time() + 0),
+        }
+        extra_environ = {
+            'swift.base_labels': {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'c',
+            },
+        }
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/bucket', req_hdrs, extra_environ=extra_environ))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'c',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/bucket/obj', req_hdrs, extra_environ=extra_environ))
+
+        extra_environ = {
+            'swift.base_labels': {
+                'resource': 'object',
+                'method': 'PUT',
+            },
+        }
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/bucket', req_hdrs, extra_environ=extra_environ))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/bucket/obj', req_hdrs, extra_environ=extra_environ))
+
+        mw_conf = {'storage_domain': 'domain'}
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+            },
+            self._do_test_swift_base_labels(
+                mw_conf, '/bucket/obj', req_hdrs, extra_environ=extra_environ))
+
+    def test_update_swift_base_labels_s3_request(self):
+        mw_conf = {}
+        req_hdrs = {
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': email.utils.formatdate(time.time() + 0),
+        }
+        self.assertEqual(
+            {
+                'resource': 'container',
+                'method': 'PUT',
+                'container': 'bucket'
+            },
+            self._do_test_swift_base_labels(mw_conf, '/bucket', req_hdrs))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'bucket',
+            },
+            self._do_test_swift_base_labels(mw_conf, '/bucket/obj', req_hdrs))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'bucket',
+            },
+            self._do_test_swift_base_labels(mw_conf, '/bucket/obj/x',
+                                            req_hdrs))
+
+    def test_update_swift_base_labels_s3_request_bucket_in_host(self):
+        mw_conf = {'storage_domain': 'domain'}
+        req_hdrs = {
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': email.utils.formatdate(time.time() + 0),
+        }
+        self.assertEqual(
+            {
+                'resource': 'container',
+                'method': 'PUT',
+                'container': 'foo'
+            },
+            self._do_test_swift_base_labels(mw_conf, '/', req_hdrs))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'foo',
+            },
+            self._do_test_swift_base_labels(mw_conf, '/obj', req_hdrs))
+
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'foo',
+            },
+            self._do_test_swift_base_labels(mw_conf, '/obj/x', req_hdrs))
+
+        mw_conf = {'storage_domain': 'not-domain'}
+        self.assertEqual(
+            {
+                'resource': 'object',
+                'method': 'PUT',
+                'container': 'bucket',
+            },
+            self._do_test_swift_base_labels(mw_conf, '/bucket/obj', req_hdrs))
+
+    def _do_test_base_labels_end_to_end(self, orig_path, new_path=None,
+                                        req_hdrs=None):
+        # if new_path is given then pretend an s3api/auth middleware
+        # combination replaces the request path with new_path
+        mw_conf = {}
+        base_labels = []
+
+        def fake_mw(env, start_response):
+            base_labels.append(dict(env.get('swift.base_labels')))
+            env['PATH_INFO'] = new_path or orig_path
+            return right_mw(env, start_response)
+
+        def fake_app(env, start_response):
+            base_labels.append(dict(env.get('swift.base_labels')))
+            return HTTPOk()(env, start_response)
+
+        left_mw = proxy_logging.ProxyLoggingMiddleware(
+            fake_mw, mw_conf, logger=self.logger)
+        right_mw = proxy_logging.ProxyLoggingMiddleware(
+            fake_app, mw_conf, logger=self.logger)
+
+        req = Request.blank(orig_path, headers=req_hdrs)
+        req.method = 'PUT'
+        req.get_response(left_mw)
+        self.assertEqual(2, len(base_labels))
+
+        return base_labels
+
+    def test_base_labels_end_to_end_info(self):
+        base_labels = self._do_test_base_labels_end_to_end('/info')
+
+        self.assertEqual(
+            [{'method': 'PUT', 'resource': 'UNKNOWN'},
+             {'method': 'PUT', 'resource': 'UNKNOWN'}],
+            base_labels)
+
+    def test_base_labels_end_to_end_account(self):
+        base_labels = self._do_test_base_labels_end_to_end('/v1/a')
+
+        self.assertEqual(
+            [{'account': 'a', 'method': 'PUT', 'resource': 'account'},
+             {'account': 'a', 'method': 'PUT', 'resource': 'account'}],
+            base_labels)
+
+    def test_base_labels_end_to_end_container(self):
+        base_labels = self._do_test_base_labels_end_to_end('/v1/a/c')
+
+        self.assertEqual([{'account': 'a', 'container': 'c', 'method': 'PUT',
+                           'resource': 'container'},
+                          {'account': 'a', 'container': 'c', 'method': 'PUT',
+                           'resource': 'container'}],
+                         base_labels)
+
+    def test_base_labels_end_to_end_object(self):
+        base_labels = self._do_test_base_labels_end_to_end('/v1/a/c/o')
+
+        self.assertEqual(
+            [{'account': 'a', 'container': 'c', 'method': 'PUT',
+              'resource': 'object'},
+             {'account': 'a', 'container': 'c', 'method': 'PUT',
+              'resource': 'object'}],
+            base_labels)
+
+    def test_swift_base_labels_end_to_end_account_s3(self):
+        req_hdrs = {
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': email.utils.formatdate(time.time() + 0),
+        }
+
+        base_labels = self._do_test_base_labels_end_to_end(
+            '/', '/v1/a', req_hdrs)
+        self.assertEqual(
+            [{'method': 'PUT'},
+             {'account': 'a', 'method': 'PUT', 'resource': 'account'}],
+            base_labels)
+
+    def test_base_labels_end_to_end_container_s3(self):
+        req_hdrs = {
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': email.utils.formatdate(time.time() + 0),
+        }
+
+        base_labels = self._do_test_base_labels_end_to_end(
+            '/bucket', '/v1/a/bucket', req_hdrs)
+        self.assertEqual(
+            [{'container': 'bucket', 'method': 'PUT', 'resource': 'container'},
+             {'account': 'a', 'container': 'bucket', 'method': 'PUT',
+              'resource': 'container'}],
+            base_labels)
+
+    def test_base_labels_end_to_end_object_s3(self):
+        req_hdrs = {
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': email.utils.formatdate(time.time() + 0),
+        }
+
+        base_labels = self._do_test_base_labels_end_to_end(
+            '/bucket/o', '/v1/a/bucket/o',
+            req_hdrs)
+        self.assertEqual(
+            [{'container': 'bucket', 'method': 'PUT', 'resource': 'object'},
+             {'account': 'a', 'container': 'bucket',
+              'method': 'PUT', 'resource': 'object'}],
+            base_labels)
+
+    def _do_test_call_app(self, req, app):
+        status, headers, body_iter = req.call_application(app)
+        body = b''.join(body_iter)
+        return status, headers, body
+
+    def test_xfer_stats_put(self):
+        buffer_str = (b'some stuff\n'
+                      b'some other stuff\n'
+                      b'some additional extra stuff\n')
+        buffer_len = len(buffer_str)
+        read_calls = 0
+        read_bytes = 0
+
+        # statsd calls expected while the request body is being read...
+        # (these are in the form expected by assertLabeledUpdateStats)
+        exp_req_stats_per_iter = []
+        nbytes = 0
+        while nbytes + 5 <= buffer_len:
+            iter_stats = [
+                ('swift_proxy_server_request_body_streaming_bytes', 5, {
+                    'account': 'a',
+                    'container': 'c',
+                    'method': 'PUT',
+                    'resource': 'container'})
+            ]
+            exp_req_stats_per_iter.append(iter_stats)
+
+            nbytes += 5
+        if nbytes < buffer_len:
+            iter_stats = [
+                ('swift_proxy_server_request_body_streaming_bytes',
+                 buffer_len - nbytes, {
+                     'account': 'a',
+                     'container': 'c',
+                     'method': 'PUT',
+                     'resource': 'container'})
+            ]
+            exp_req_stats_per_iter.append(iter_stats)
+            # statsd calls expected while the response is being handled...
+        expect_resp_stats = [
+            ('swift_proxy_server_response_body_streaming_bytes',
+             len('FAKE APP'), {
+                 'resource': 'container',
+                 'method': 'PUT',
+                 'status': 200,
+                 'policy': '0',
+                 'account': 'a',
+                 'container': 'c'}),
+            ('swift_proxy_server_request_body_bytes', buffer_len, {
+                'resource': 'container',
+                'method': 'PUT',
+                'status': 200,
+                'account': 'a',
+                'container': 'c'}),
+            ('swift_proxy_server_response_body_bytes',
+             len('FAKE APP'), {
+                 'account': 'a',
+                 'container': 'c',
+                 'method': 'PUT',
+                 'resource': 'container',
+                 'status': 200}),
+        ]
+        captured_req_stats_per_iter = []
+
+        def capture_stats(nbytes):
+            # capture stats emitted while the request body is being read
+            statsd_calls = self.statsd.calls['update_stats']
+            metric_value_labels = []
+            for statsd_call in statsd_calls:
+                metric_value_labels.append(
+                    (statsd_call[0][0], statsd_call[0][1],
+                     statsd_call[1]['labels']))
+            if len(metric_value_labels) > 0:
+                captured_req_stats_per_iter.append(metric_value_labels)
+                nonlocal read_calls
+                nonlocal read_bytes
+                read_calls += 1
+                read_bytes += nbytes
+            self.statsd.clear()
+
+        conf = {
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 0,
+        }
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(read_callback=capture_stats), conf, logger=self.logger)
+        app.statsd = self.statsd
+        req = Request.blank(
+            '/v1/a/c',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'wsgi.input': BytesIO(buffer_str),
+                     })
+        resp = app(req.environ, start_response)
+        self.assertEqual(b'FAKE APP', b''.join(resp))
+        self.assertEqual(read_bytes, buffer_len)
+        self.assertEqual(read_calls, len(captured_req_stats_per_iter))
+
+        self.assertEqual(exp_req_stats_per_iter,
+                         captured_req_stats_per_iter)
+        # note: the fake statsd was cleared after the request body was read so
+        # just has the response handling statsd calls...
+        self.assertLabeledUpdateStats(expect_resp_stats)
+        self.assertUpdateStats([
+            ('container.PUT.200.xfer',
+             buffer_len + len('FAKE APP')),
+        ], app)
+
+    def test_xfer_stats_get(self):
+        buffers = [b'some stuff\n',
+                   b'some other stuff\n',
+                   b'some additional stuff\n']
+        buffer_len = sum(len(b) for b in buffers)
+        conf = {
+            'log_headers': 'yes',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 0,
+        }
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(
+                body=buffers,
+            ), conf, logger=self.logger)
+        app.statsd = self.statsd
+        req = Request.blank(
+            '/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        resp_body = b''.join(resp)
+        expected_resp = b''.join(buffers)
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[3], 'GET')
+        self.assertEqual(log_parts[4], '/v1/a/c')
+        self.assertEqual(log_parts[5], 'HTTP/1.0')
+        self.assertEqual(log_parts[6], '200')
+        self.assertEqual(resp_body, expected_resp)
+        self.assertEqual(log_parts[11], str(buffer_len))
+        self.assertUpdateStats([
+            ('container.GET.200.xfer',
+             buffer_len),
+        ], app)
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_server_response_body_streaming_bytes', 11, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'GET',
+                'policy': '0',
+                'resource': 'container',
+                'status': 200}),
+            ('swift_proxy_server_response_body_streaming_bytes', 17, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'GET',
+                'policy': '0',
+                'resource': 'container',
+                'status': 200}),
+            ('swift_proxy_server_response_body_streaming_bytes', 22, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'GET',
+                'policy': '0',
+                'resource': 'container',
+                'status': 200}),
+            ('swift_proxy_server_request_body_bytes', 0, {
+                'resource': 'container',
+                'method': 'GET',
+                'status': 200,
+                'account': 'a',
+                'container': 'c'}),
+            ('swift_proxy_server_response_body_bytes', buffer_len, {
+                'resource': 'container',
+                'method': 'GET',
+                'status': 200,
+                'account': 'a',
+                'container': 'c'}),
+        ])
+
+    def test_xfer_stats_emit_frequency_put(self):
+
+        conf = {
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 0.005,
+        }
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), conf, logger=self.logger)
+        app.statsd = self.statsd
+        buffer_str = (b'some stuff\n'
+                      b'some other stuff\n'
+                      b'some additional stuff and blah\n')
+        buffer_len = len(buffer_str)
+        req = Request.blank(
+            '/v1/a/c',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'wsgi.input': BytesIO(buffer_str),
+                     })
+        with mock.patch(
+                'time.time',
+                side_effect=(0.001 * i for i in itertools.count())):
+            resp = app(req.environ, start_response)
+            # exhaust generator
+            self.assertEqual(b'FAKE APP', b''.join(resp))
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[11], str(len('FAKE APP')))
+        self.assertEqual(log_parts[10], str(buffer_len))
+        self.assertUpdateStats([
+            ('container.PUT.200.xfer',
+             buffer_len + len('FAKE APP')),
+        ], app)
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_server_request_body_streaming_bytes', 20, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'PUT',
+                'resource': 'container'}),
+            ('swift_proxy_server_request_body_streaming_bytes', 25, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'PUT',
+                'resource': 'container'}),
+            ('swift_proxy_server_request_body_streaming_bytes', 14, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'PUT',
+                'resource': 'container'}),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             len('FAKE APP'), {
+                 'resource': 'container',
+                 'method': 'PUT',
+                 'status': 200,
+                 'policy': '0',
+                 'account': 'a',
+                 'container': 'c'}),
+            ('swift_proxy_server_request_body_bytes', buffer_len, {
+                'resource': 'container',
+                'method': 'PUT',
+                'status': 200,
+                'account': 'a',
+                'container': 'c'}),
+            ('swift_proxy_server_response_body_bytes', 8, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'PUT',
+                'resource': 'container',
+                'status': 200})
+        ])
+
+    def test_xfer_stats_emit_frequency_get(self):
+
+        buffers = [b'some stuff\n',
+                   b'some other stuff\n',
+                   b'some additional stuff and all\n']
+        buffer_len = sum(len(b) for b in buffers)
+        conf = {
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 0.005,
+        }
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(
+                body=buffers,
+            ), conf, logger=self.logger)
+        app.statsd = self.statsd
+        req = Request.blank(
+            '/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+        with mock.patch(
+                'time.time',
+                side_effect=(0.001 * i for i in itertools.count())):
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
+        expected_resp = b''.join(buffers)
+        self.assertEqual(resp_body, expected_resp)
+        self.assertUpdateStats([
+            ('container.GET.200.xfer', buffer_len),
+        ], app
+        )
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_server_response_body_streaming_bytes', 58, {
+                'account': 'a',
+                'container': 'c',
+                'method': 'GET',
+                'policy': '0',
+                'resource': 'container',
+                'status': 200}),
+            ('swift_proxy_server_request_body_bytes', 0, {
+                'resource': 'container',
+                'method': 'GET',
+                'status': 200,
+                'account': 'a',
+                'container': 'c'}),
+            ('swift_proxy_server_response_body_bytes', buffer_len, {
+                'resource': 'container',
+                'method': 'GET',
+                'status': 200,
+                'account': 'a',
+                'container': 'c'}),
+        ])
+
+    def _make_logged_pipeline(self, storage_domain=None, rewrite_path=False):
+        # make a pipeline:
+        # proxy_logging s3api fake_auth [rewrite_path] proxy_logging fake_swift
+        fake_swift = FakeSwift(test_read_size=5)
+        app = proxy_logging.ProxyLoggingMiddleware(fake_swift, {
+            'access_log_route': 'subrequest',
+        }, logger=self.logger)
+        if rewrite_path:
+            app = PathRewritingApp(app, self.logger)
+        app = FakeAuthApp(app)
+        app._pipeline_final_app = fake_swift
+        app = s3api_filter_factory({
+            'force_swift_request_proxy_log': False,
+            'storage_domain': storage_domain,
+        })(app)
+        proxy_logging_conf = {
+            'access_log_route': 'proxy_access',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 0,
+            'storage_domain': storage_domain,
+        }
+        app = proxy_logging.ProxyLoggingMiddleware(
+            app, proxy_logging_conf, logger=self.logger)
+        app.statsd = self.statsd
+        return app, fake_swift
+
+    def test_xfer_stats_put_s3api(self):
+        app, swift = self._make_logged_pipeline(rewrite_path=True)
+        buffer_str = (b'some stuff\n'
+                      b'some other stuff\n'
+                      b'some additional stuff\n')
+        buffer_len = len(buffer_str)
+        etag = md5(buffer_str, usedforsecurity=False).hexdigest()
+        last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
+
+        swift.register('PUT', '/v1/AUTH_test/bucket+segments/object',
+                       HTTPCreated,
+                       {'etag': etag,
+                        'last-modified': last_modified,
+                        'Content-Length': 0},
+                       None)
+
+        date_header = email.utils.formatdate(time.time() + 0)
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'PUT',
+                'wsgi.input': BytesIO(buffer_str),
+            },
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+                'Date': date_header,
+            },
+        )
+
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('200 OK', status)
+
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
+        base_labels = req.environ.get('swift.base_labels')
+        self.assertIsNotNone(base_labels)
+
+        self.assertEqual(swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket+segments/object'),
+        ])
+
+        self.assertUpdateStats([
+            ('object.PUT.200.xfer', buffer_len),
+            ('object.policy.0.PUT.200.xfer', buffer_len)
+        ], app)
+
+        stats = []
+        for i in range(10):
+            stats.append(
+                ('swift_proxy_server_request_body_streaming_bytes', 5, {
+                    'account': 'AUTH_test',
+                    'container': 'bucket',
+                    'method': 'PUT',
+                    'resource': 'object'}))
+        stats += [
+            ('swift_proxy_server_request_body_bytes', buffer_len, {
+                'resource': 'object',
+                'method': 'PUT',
+                'status': 200,
+                'account': 'AUTH_test',
+                'container': 'bucket',
+                'policy': '0'}),
+            ('swift_proxy_server_response_body_bytes', 0, {
+                'resource': 'object',
+                'method': 'PUT',
+                'status': 200,
+                'account': 'AUTH_test',
+                'container': 'bucket',
+                'policy': '0'})]
+        self.assertLabeledUpdateStats(stats)
+
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': date_header})
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual(status.split()[0], '200')
+
+    def test_xfer_stats_get_s3api(self):
+        app, swift = self._make_logged_pipeline()
+        buffers = [b'some stuff\n',
+                   b'some other stuff\n',
+                   b'some additional stuff\n']
+        buffer_len = sum(len(b) for b in buffers)
+        last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
+        date_header = email.utils.formatdate(time.time() + 0)
+
+        swift.register('GET', '/v1/AUTH_test/bucket/object',
+                       HTTPOk,
+                       {'last-modified': last_modified},
+                       buffers)
+
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': date_header},
+        )
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('200 OK', status)
+
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
+        base_labels = req.environ.get('swift.base_labels', None)
+        self.assertEqual(base_labels, {
+            'resource': 'object',
+            'method': 'GET',
+            'account': 'AUTH_test',
+            'container': 'bucket',
+        })
+
+        self.assertEqual(swift.calls, [
+            ('GET', '/v1/AUTH_test/bucket/object'),
+        ])
+
+        self.assertUpdateStats([
+            ('object.GET.200.xfer', buffer_len),
+            ('object.policy.0.GET.200.xfer', buffer_len)
+        ], app)
+
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_server_response_body_streaming_bytes', 11, {
+                'resource': 'object',
+                'method': 'GET',
+                'status': 200,
+                'policy': '0',
+                'account': 'AUTH_test',
+                'container': 'bucket',
+            }),
+            ('swift_proxy_server_response_body_streaming_bytes', 17, {
+                'resource': 'object',
+                'method': 'GET',
+                'status': 200,
+                'policy': '0',
+                'account': 'AUTH_test',
+                'container': 'bucket',
+            }),
+            ('swift_proxy_server_response_body_streaming_bytes', 22, {
+                'resource': 'object',
+                'method': 'GET',
+                'status': 200,
+                'policy': '0',
+                'account': 'AUTH_test',
+                'container': 'bucket',
+            }),
+            ('swift_proxy_server_request_body_bytes', 0, {
+                'resource': 'object',
+                'method': 'GET',
+                'status': 200,
+                'account': 'AUTH_test',
+                'container': 'bucket',
+                'policy': '0'}),
+            ('swift_proxy_server_response_body_bytes', buffer_len, {
+                'resource': 'object',
+                'method': 'GET',
+                'status': 200,
+                'account': 'AUTH_test',
+                'container': 'bucket',
+                'policy': '0'}),
+        ])
+
+    def test_base_labels_put_swift(self):
+        app, swift = self._make_logged_pipeline()
+        buffer_str = (b'some stuff\n'
+                      b'some other stuff\n'
+                      b'some additional stuff\n')
+        etag = md5(buffer_str, usedforsecurity=False).hexdigest()
+        last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
+
+        swift.register('PUT', '/v1/AUTH_test/bucket/object',
+                       HTTPCreated,
+                       {'etag': etag,
+                        'last-modified': last_modified,
+                        'Content-Length': 0},
+                       None)
+
+        date_header = email.utils.formatdate(time.time() + 0)
+        req = Request.blank(
+            '/v1/AUTH_test/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'PUT',
+                'wsgi.input': BytesIO(buffer_str),
+            },
+            headers={
+                'Date': date_header,
+            },
+        )
+
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('201 Created', status)
+
+        base_labels = req.environ.get('swift.base_labels', None)
+        self.assertEqual(base_labels, {
+            'resource': 'object',
+            'method': 'PUT',
+            'account': 'AUTH_test',
+            'container': 'bucket',
+        })
+
+        self.assertEqual(swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket/object'),
+        ])
+
+    def test_base_labels_put_s3api(self):
+        app, swift = self._make_logged_pipeline()
+        buffer_str = (b'some stuff\n'
+                      b'some other stuff\n'
+                      b'some additional stuff\n')
+        etag = md5(buffer_str, usedforsecurity=False).hexdigest()
+        last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
+
+        swift.register('PUT', '/v1/AUTH_test/bucket/object',
+                       HTTPCreated,
+                       {'etag': etag,
+                        'last-modified': last_modified,
+                        'Content-Length': 0},
+                       None)
+
+        date_header = email.utils.formatdate(time.time() + 0)
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'PUT',
+                'wsgi.input': BytesIO(buffer_str),
+            },
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+                'Date': date_header,
+            },
+        )
+
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('200 OK', status)
+
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
+        base_labels = req.environ.get('swift.base_labels', None)
+        self.assertEqual(base_labels, {
+            'resource': 'object',
+            'method': 'PUT',
+            'account': 'AUTH_test',
+            'container': 'bucket',
+        })
+
+        self.assertEqual(swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket/object'),
+        ])
+
+    def test_base_labels_put_s3api_storage_domain(self):
+        app, swift = self._make_logged_pipeline(storage_domain='domain')
+        buffer_str = (b'some stuff\n'
+                      b'some other stuff\n'
+                      b'some additional stuff\n')
+
+        etag = md5(buffer_str, usedforsecurity=False).hexdigest()
+        last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
+
+        swift.register('PUT', '/v1/AUTH_test/ahost/object',
+                       HTTPCreated,
+                       {'etag': etag,
+                        'last-modified': last_modified,
+                        'Content-Length': 0},
+                       None)
+
+        date_header = email.utils.formatdate(time.time() + 0)
+        req = Request.blank(
+            '/object',
+            environ={
+                'REQUEST_METHOD': 'PUT',
+                'HTTP_HOST': 'ahost.domain',
+                'wsgi.input': BytesIO(buffer_str),
+            },
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+                'Date': date_header,
+            },
+        )
+
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('200 OK', status)
+
+        self.assertEqual('/v1/AUTH_test/ahost/object',
+                         req.environ['swift.backend_path'])
+        base_labels = req.environ.get('swift.base_labels', None)
+        self.assertEqual(base_labels, {
+            'resource': 'object',
+            'method': 'PUT',
+            'account': 'AUTH_test',
+            'container': 'ahost',
+        })
+
+        self.assertEqual(swift.calls, [
+            ('PUT', '/v1/AUTH_test/ahost/object'),
+        ])
+
     def test_log_query_string(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
         app.access_logger = debug_logger()
@@ -1289,7 +2591,7 @@ class TestProxyLogging(unittest.TestCase):
                                           'QUERY_STRING': 'x=3'})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(unquote(log_parts[4]), '/?x=3')
 
@@ -1300,7 +2602,7 @@ class TestProxyLogging(unittest.TestCase):
                                           'REMOTE_ADDR': '1.2.3.4'})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[0], '1.2.3.4')  # client ip
         self.assertEqual(log_parts[1], '1.2.3.4')  # remote addr
@@ -1330,7 +2632,7 @@ class TestProxyLogging(unittest.TestCase):
                                           'REMOTE_ADDR': '1.2.3.4'})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'CloseableBody', b''.join(resp))
         self.assertTrue(body.closed)
 
     def test_chunked_response(self):
@@ -1338,7 +2640,7 @@ class TestProxyLogging(unittest.TestCase):
         req = Request.blank('/')
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
 
     def test_proxy_client_logging(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
@@ -1349,7 +2651,7 @@ class TestProxyLogging(unittest.TestCase):
             'HTTP_X_FORWARDED_FOR': '4.5.6.7,8.9.10.11'})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[0], '4.5.6.7')  # client ip
         self.assertEqual(log_parts[1], '1.2.3.4')  # remote addr
@@ -1362,7 +2664,7 @@ class TestProxyLogging(unittest.TestCase):
             'HTTP_X_CLUSTER_CLIENT_IP': '4.5.6.7'})
         resp = app(req.environ, start_response)
         # exhaust generator
-        [x for x in resp]
+        self.assertEqual(b'FAKE APP', b''.join(resp))
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[0], '4.5.6.7')  # client ip
         self.assertEqual(log_parts[1], '1.2.3.4')  # remote addr
