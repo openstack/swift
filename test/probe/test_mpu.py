@@ -353,24 +353,35 @@ class TestNativeMPU(BaseTestMPU):
         with open(part_file, 'rb') as fd:
             part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
-                contents=fd,
+                contents=fd, content_type='ignored',
                 query_string='upload-id=%s&part-number=1' % upload_id)
         self.assertEqual(200, resp.status)
         # TODO: check resp content-length header
         # swiftclient strips the "" from etag!
         self.assertEqual(hash_, part_etag)
+
+        # list parts internal
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertEqual(['\x00%s/%s/1' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in parts])
+        self.assertEqual(
+            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+              'hash': part_etag,
+              'bytes': part_size,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}],
+            [part for part in parts])
 
-        # list parts
+        # list parts via mpu API
         resp_hdrs, resp_body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
             query_string='upload-id=%s' % upload_id)
-        # TODO: assert etag, bytes etc
-        self.assertEqual(['%s/%s/1' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in json.loads(resp_body)])
+        self.assertEqual(
+            [{'name': '%s/%s/000001' % (self.mpu_name, upload_id),
+              'hash': part_etag,
+              'bytes': part_size,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}],
+            json.loads(resp_body))
 
         # complete
         manifest = [{'part_number': 1, 'etag': part_etag}]
@@ -428,7 +439,7 @@ class TestNativeMPU(BaseTestMPU):
                 query_string='multipart-manifest=get')
         self.assertEqual(400, cm.exception.http_status)
 
-        # list parts -> 404
+        # list parts via mpu API -> 404
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
@@ -456,11 +467,18 @@ class TestNativeMPU(BaseTestMPU):
             ['\x00%s/%s' % (self.mpu_name, upload_id),
              '\x00%s/%s/marker-deleted' % (self.mpu_name, upload_id)],
             [o['name'] for o in manifests])
+
         # check we still have the parts
+        # list parts internal
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertEqual(['\x00%s/%s/1' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in parts])
+        self.assertEqual(
+            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+              'hash': part_etag,
+              'bytes': part_size,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}],
+            [part for part in parts])
 
         # async cleanup: once to process manifest markers...
         Manager(['container-auditor']).once()
@@ -470,11 +488,11 @@ class TestNativeMPU(BaseTestMPU):
         # manifest and parts have gone :)
         manifests = self.internal_client.iter_objects(
             self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
-        self.assertEqual([], [o['name'] for o in manifests])
+        self.assertFalse(list(manifests))
 
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertEqual([], [o['name'] for o in parts])
+        self.assertFalse(list(parts))
 
     def test_native_mpu_abort(self):
         # create
@@ -498,12 +516,19 @@ class TestNativeMPU(BaseTestMPU):
                 contents=fd,
                 query_string='upload-id=%s&part-number=1' % upload_id)
         self.assertEqual(200, resp.status)
-        # list parts
+
+        # list parts via mpu API
         resp_hdrs, resp_body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
             query_string='upload-id=%s' % upload_id)
-        self.assertEqual(['%s/%s/1' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in json.loads(resp_body)])
+        self.assertEqual(
+            [{'name': '%s/%s/000001' % (self.mpu_name, upload_id),
+              'hash': part_etag,
+              'bytes': part_size,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}],
+            json.loads(resp_body))
+
         # abort upload
         swiftclient.delete_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
@@ -546,11 +571,18 @@ class TestNativeMPU(BaseTestMPU):
             [o['name'] for o in manifests])
         self.assertEqual(MPU_MARKER_CONTENT_TYPE,
                          manifests[0]['content_type'])
+
         # check we still have the parts
+        # list parts internal
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertEqual(['\x00%s/%s/1' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in parts])
+        self.assertEqual(
+            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+              'hash': part_etag,
+              'bytes': part_size,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}],
+            [part for part in parts])
 
         # async cleanup, once to process the manifests container markers...
         Manager(['container-auditor']).once()
@@ -560,8 +592,8 @@ class TestNativeMPU(BaseTestMPU):
         # manifest and parts have gone :)
         manifests = self.internal_client.iter_objects(
             self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
-        self.assertEqual([], [o['name'] for o in manifests])
+        self.assertFalse(list(manifests))
 
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertEqual([], [o['name'] for o in parts])
+        self.assertFalse(list(parts))

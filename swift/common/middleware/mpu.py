@@ -65,6 +65,11 @@ def strip_mpu_sysmeta_prefix(key):
     return key[len(MPU_SYSMETA_PREFIX):]
 
 
+MPU_SYSMETA_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
+MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
+MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
+
+
 def get_upload_id(req):
     """
     Try to extract an upload id from request params.
@@ -84,18 +89,16 @@ def get_upload_id(req):
         return None
 
 
-MPU_SYSMETA_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
-MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
-MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
+def normalize_part_number(part_number):
+    return '%06d' % int(part_number)
 
 
 def translate_error_response(sub_resp):
-    if sub_resp.status_int == 404:
+    if (sub_resp.status_int not in swob.RESPONSE_REASONS or
+            sub_resp.status_int == 404):
         client_resp_status_int = 503
     else:
         client_resp_status_int = sub_resp.status_int
-    if client_resp_status_int not in swob.RESPONSE_REASONS:
-        client_resp_status_int = 503
     return swob.status_map[client_resp_status_int]()
 
 
@@ -393,14 +396,14 @@ class MPUSloCallbackHandler(object):
         # Note that we need to use the *internal* keys, since we're
         # looking at the manifest that's about to be written.
         errors = []
-        for item in slo_manifest[:-1]:
+        for index, item in enumerate(slo_manifest):
             if not item:
                 continue
             self.total_bytes += item['bytes']
-            if item['bytes'] < self.mw.min_part_size:
+            if (index < len(slo_manifest) - 1 and
+                    item['bytes'] < self.mw.min_part_size):
                 # TODO: add tests coverage
                 errors.append((item['name'], self.too_small_message))
-        self.total_bytes += slo_manifest[-1]['bytes']
         return errors
 
 
@@ -459,19 +462,25 @@ class MPUSessionHandler(BaseMPUHandler):
         if self.session.is_aborted:
             return HTTPNotFound()
         self._authorize_write_request()
-        part_path = self.make_path(self.parts_container, self.reserved_obj,
-                                   self.upload_id, str(part_number))
+        part_path = self.make_path(self.parts_container,
+                                   self.reserved_obj,
+                                   self.upload_id,
+                                   normalize_part_number(part_number))
         self.logger.debug('mpu upload_part %s', part_path)
         part_req = self.make_subrequest(
             path=part_path, method='PUT', body=self.req.body)
         # TODO: support copy part
 
-        resp = part_req.get_response(self.app)
-        # TODO: handle failure
-        headers = HeaderKeyDict(resp.headers)
-        # mpu mw always quotes response header etag for requests it handles
-        headers['Etag'] = quote_etag(resp.headers.get('Etag'))
-        return HTTPOk(headers=headers)
+        sub_resp = part_req.get_response(self.app)
+        drain_and_close(sub_resp)
+        if sub_resp.is_success:
+            headers = HeaderKeyDict(sub_resp.headers)
+            # mpu mw always quotes response header etag for requests it handles
+            headers['Etag'] = quote_etag(sub_resp.headers.get('Etag'))
+            resp = HTTPOk(headers=headers)
+        else:
+            resp = translate_error_response(sub_resp)
+        return resp
 
     def list_parts(self):
         """
@@ -579,8 +588,10 @@ class MPUSessionHandler(BaseMPUHandler):
                 errors.append("Index %d: %s." % (part_index, str(err)))
             if not errors:
                 part_path = self.make_relative_path(
-                    self.parts_container, self.reserved_obj, self.upload_id,
-                    str(part_number))
+                    self.parts_container,
+                    self.reserved_obj,
+                    self.upload_id,
+                    normalize_part_number(part_number))
                 parsed_manifest.append({
                     'path': wsgi_to_str(part_path),
                     'etag': etag})

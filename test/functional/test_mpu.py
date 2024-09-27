@@ -215,39 +215,38 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(404, resp.status)
 
         # upload parts
-        etags = []
-        part_1 = b'a' * part_size
-        part_1_etag = md5(part_1).hexdigest()
-        resp = self._upload_part(name, upload_id, 1, part_1)
+        part_resp_etags = []
+        part_bodies = [b'a' * part_size, b'b' * part_size]
+        part_etags = [md5(part_body, usedforsecurity=False).hexdigest()
+                      for part_body in part_bodies]
+        resp = self._upload_part(name, upload_id, 1, part_bodies[0])
         self.assertEqual(200, resp.status)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
              # NB: part etags are always quoted by MPU middleware
-             'Etag': '"%s"' % part_1_etag,
+             'Etag': '"%s"' % part_etags[0],
              'Last-Modified': mock.ANY,
              'Content-Length': '0',
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
             resp.headers)
-        etags.append(resp.getheader('Etag'))
-        part_2 = b'b' * part_size
-        part_2_etag = md5(part_2).hexdigest()
-        resp = self._upload_part(name, upload_id, 2, part_2)
+        part_resp_etags.append(resp.getheader('Etag'))
+        resp = self._upload_part(name, upload_id, 2, part_bodies[1])
         self.assertEqual(200, resp.status)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
              # NB: part etags are always quoted by MPU middleware
-             'Etag': '"%s"' % part_2_etag,
+             'Etag': '"%s"' % part_etags[1],
              'Last-Modified': mock.ANY,
              'Content-Length': '0',
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
             resp.headers)
-        etags.append(resp.getheader('Etag'))
+        part_resp_etags.append(resp.getheader('Etag'))
         etag_hasher = md5(usedforsecurity=False)
-        for part_etag in etags:
+        for part_etag in part_resp_etags:
             etag_hasher.update(binascii.a2b_hex(normalize_etag(part_etag)))
         exp_mpu_etag = etag_hasher.hexdigest() + '-2'
 
@@ -265,12 +264,17 @@ class TestMPU(BaseTestMPU):
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
             resp.headers)
-        parts = [item['name'] for item in json.loads(resp.content)]
-        self.assertEqual(['%s/%s/%d' % (name, upload_id, i + 1)
-                          for i in range(2)], parts)
+        self.assertEqual(
+            [{'name': '%s/%s/%06d' % (name, upload_id, i + 1),
+              'hash': part_etags[i],
+              'bytes': part_size,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}
+             for i in range(2)],
+            json.loads(resp.content))
 
         # complete mpu
-        resp = self._complete_mpu(name, upload_id, etags)
+        resp = self._complete_mpu(name, upload_id, part_resp_etags)
         self.assertEqual(200, resp.status, resp.content)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
@@ -304,8 +308,8 @@ class TestMPU(BaseTestMPU):
             resp.headers
         )
         self.assertEqual(2 * part_size, len(resp.content))
-        self.assertEqual(part_1, resp.content[:5 * 1024 * 1024])
-        self.assertEqual(part_2, resp.content[-5 * 1024 * 1024:])
+        self.assertEqual(part_bodies[0], resp.content[:5 * 1024 * 1024])
+        self.assertEqual(part_bodies[1], resp.content[-5 * 1024 * 1024:])
 
     def test_make_mpu_no_user_content_type(self):
         name = uuid4().hex
