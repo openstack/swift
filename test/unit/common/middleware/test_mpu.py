@@ -282,7 +282,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPOk,
              {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu', }),
+              'Content-Type': 'application/x-mpu',
+              'X-Object-Transient-Sysmeta-Mpu-State': 'created'}),
             ('PUT',
              '/v1/a/\x00mpu_parts\x00c/\x00o/%s/1' % self.mpu_id,
              HTTPCreated,
@@ -290,17 +291,75 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         for call in registered_calls:
             self.app.register(*call)
         req = Request.blank(
-            '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id)
-        req.method = 'PUT'
-        req.body = b'testing'
-        mw = MPUMiddleware(self.app, {})
-        resp = req.get_response(mw)
+            '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
+            environ={'REQUEST_METHOD': 'PUT'},
+            body=b'testing')
+        resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         self.assertEqual(md5(b'testing', usedforsecurity=False).hexdigest(),
                          resp.headers.get('Etag'))
         self.assertEqual('7', resp.headers['Content-Length'])
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
+
+    def test_upload_part_session_completing(self):
+        ts_session = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {'X-Timestamp': ts_session.internal,
+              'Content-Type': 'application/x-mpu',
+              'X-Object-Transient-Sysmeta-Mpu-State': 'completing'}
+             ),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
+            environ={'REQUEST_METHOD': 'PUT'},
+            body=b'testing')
+        resp = req.get_response(self.mw)
+        self.assertEqual(404, resp.status_int)
+
+    def test_upload_part_session_aborted(self):
+        ts_session = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {'X-Timestamp': ts_session.internal,
+              'Content-Type': 'application/x-mpu-aborted',
+              'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+             ),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
+            environ={'REQUEST_METHOD': 'PUT'},
+            body=b'testing')
+        resp = req.get_response(self.mw)
+        self.assertEqual(404, resp.status_int)
+
+    def test_upload_part_session_not_found(self):
+        # session not created or completed
+        ts_session = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPNotFound,
+             {'X-Backend-Delete-Timestamp': ts_session.internal}
+             ),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
+            environ={'REQUEST_METHOD': 'PUT'},
+            body=b'testing')
+        resp = req.get_response(self.mw)
+        self.assertEqual(404, resp.status_int)
 
     def test_list_parts(self):
         ts_session = next(self.ts_iter)
