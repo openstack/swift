@@ -74,7 +74,7 @@ master_doc = 'index'
 project = 'Swift'
 if 'SOURCE_DATE_EPOCH' in os.environ:
     now = float(os.environ.get('SOURCE_DATE_EPOCH'))
-    now = datetime.datetime.utcfromtimestamp(now)
+    now = datetime.datetime.fromtimestamp(now, tz=datetime.timezone.utc)
 else:
     now = datetime.date.today()
 copyright = '%d, OpenStack Foundation' % now.year
