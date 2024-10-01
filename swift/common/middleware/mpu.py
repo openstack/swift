@@ -138,11 +138,9 @@ class MPUSession(object):
         self.content_type = session_headers.get('content-type',
                                                 MPU_CONTENT_TYPE)
 
+    @property
     def is_aborted(self):
         return self.content_type == MPU_ABORTED_CONTENT_TYPE
-
-    def abort(self):
-        self.content_type = MPU_ABORTED_CONTENT_TYPE
 
     @property
     def state(self):
@@ -454,7 +452,7 @@ class MPUSessionHandler(BaseMPUHandler):
     def upload_part(self, part_number):
         if self.session.state != MPUSession.CREATED_STATE:
             return HTTPNotFound()
-        if self.session.is_aborted():
+        if self.session.is_aborted:
             return HTTPNotFound()
         self._authorize_write_request()
         part_path = self.make_path(self.parts_container, self.reserved_obj,
@@ -706,7 +704,7 @@ class MPUSessionHandler(BaseMPUHandler):
         if self.req.timestamp < self.session.created_timestamp:
             return HTTPConflict()
 
-        if self.session.is_aborted():
+        if self.session.is_aborted:
             # The session has been previously aborted but not yet successfully
             # deleted. Refuse to complete. The abort may be concurrent or may
             # have failed to delete the session. Either way, we refuse to
