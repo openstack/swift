@@ -16,12 +16,15 @@ import binascii
 import contextlib
 import json
 import unittest
+from six.moves import urllib
+
 import mock
 
 from swift.common import swob
 from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
-    HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, HTTPPreconditionFailed
+    HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
+    HTTPPreconditionFailed, HTTPException
 from swift.common.utils import md5, quote, Timestamp
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
@@ -44,19 +47,30 @@ class TestModuleFunctions(unittest.TestCase):
         ts = Timestamp.now()
         mpu_id = MPUId.create(ts)
         req = Request.blank('/v1/a/c', params={'upload-id': str(mpu_id)})
-        self.assertEqual(mpu_id, get_upload_id(req))
+        req_upload_id = get_upload_id(req)
+        self.assertEqual(mpu_id, req_upload_id)
+        self.assertEqual(ts, req_upload_id.timestamp)
 
+        ts = Timestamp.now(offset=123)
+        mpu_id = MPUId.create(ts)
+        req = Request.blank('/v1/a/c', params={'upload-id': str(mpu_id)})
+        req_upload_id = get_upload_id(req)
+        self.assertEqual(mpu_id, req_upload_id)
+        self.assertEqual(ts, req_upload_id.timestamp)
+
+    def test_get_upload_id_invalid(self):
         def do_test_bad_value(value):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(HTTPException) as cm:
                 req = Request.blank('/v1/a/c', params={'upload-id': value})
                 get_upload_id(req)
+            self.assertEqual(400, cm.exception.status_int)
 
         do_test_bad_value('')
         do_test_bad_value(None)
         do_test_bad_value('my-uuid')
-        do_test_bad_value('my-uuid_')
-        do_test_bad_value('_%s' % ts.internal)
-        do_test_bad_value('my-uuid_xyz')
+        do_test_bad_value('my-uuid:')
+        do_test_bad_value(':%s' % Timestamp.now().internal)
+        do_test_bad_value('my-uuid:xyz')
 
 
 class TestMPUId(unittest.TestCase):
@@ -67,7 +81,11 @@ class TestMPUId(unittest.TestCase):
             mpu_id = MPUId.create(timestamp)
         self.assertEqual('my-uuid', mpu_id.uuid)
         self.assertEqual(timestamp, mpu_id.timestamp)
-        self.assertEqual('%s_my-uuid' % timestamp.internal, str(mpu_id))
+        self.assertEqual('%s~my-uuid' % timestamp.internal, str(mpu_id))
+        # Python 3.7 updates from using RFC 2396 to RFC 3986 to quote URL
+        # strings. Now, "~" is included in the set of unreserved characters.
+        self.assertEqual(str(mpu_id),
+                         urllib.parse.quote(str(mpu_id), safe='~'))
 
     def test_unique(self):
         timestamp = Timestamp.now()
@@ -79,10 +97,10 @@ class TestMPUId(unittest.TestCase):
 
     def test_parse(self):
         timestamp = Timestamp.now()
-        mpu_id = MPUId.parse('%s_my-uuid' % timestamp.internal)
+        mpu_id = MPUId.parse('%s~my-uuid' % timestamp.internal)
         self.assertEqual('my-uuid', mpu_id.uuid)
         self.assertEqual(timestamp, mpu_id.timestamp)
-        self.assertEqual('%s_my-uuid' % timestamp.internal, str(mpu_id))
+        self.assertEqual('%s~my-uuid' % timestamp.internal, str(mpu_id))
 
     def test_create_parse(self):
         timestamp = Timestamp.now()
@@ -971,6 +989,27 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
             Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'DELETE'}),
         ]
+
+    def test_api_requests_invalid_upload_id(self):
+        self.app.register('HEAD', '/v1/a/c', HTTPNotFound, {})
+        mpu_id = MPUId.create(next(self.ts_iter))
+        # sanity check - mpu id is valid
+        req = Request.blank('/v1/a/c/o?upload-id=%s&part-number=1' % mpu_id,
+                            environ={'REQUEST_METHOD': 'PUT'})
+        resp = req.get_response(MPUMiddleware(self.app, {}))
+        self.assertEqual(404, resp.status_int)
+
+        def test_bad_mpu_id(bad_id):
+            req = Request.blank(
+                '/v1/a/c/o?upload-id=%s&part-number=1' % bad_id,
+                environ={'REQUEST_METHOD': 'PUT'})
+            resp = req.get_response(MPUMiddleware(self.app, {}))
+            self.assertEqual(400, resp.status_int, bad_id)
+
+        test_bad_mpu_id('')
+        test_bad_mpu_id(str(mpu_id).split('~')[0])
+        test_bad_mpu_id(str(mpu_id) + '~foo')
+        test_bad_mpu_id(reversed(str(mpu_id)))
 
     def test_api_requests_user_container_not_found(self):
         self.app.register('HEAD', '/v1/a/c', HTTPNotFound, {})

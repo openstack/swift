@@ -70,12 +70,18 @@ def get_upload_id(req):
     Try to extract an upload id from request params.
 
     :param req: an instance of swob.Request
-    :raises ValueError: if upload-id exists but is invalid
-    :returns: an instance of MPUId
+    :raises HTTPBadRequest: if the ``upload-id`` parameter is found but is
+        invalid.
+    :returns: an instance of MPUId, or None if the ``upload-id`` parameter is
+        not found.
     """
     if 'upload-id' in req.params:
-        return MPUId.parse(req.params['upload-id'])
-    return
+        try:
+            return MPUId.parse(req.params['upload-id'])
+        except ValueError:
+            raise HTTPBadRequest('Invalid upload-id')
+    else:
+        return None
 
 
 MPU_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
@@ -84,6 +90,9 @@ MPU_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
 
 
 class MPUId(object):
+    # ~ doesn't get url-encoded and isn't in url-safe base64 encoded unique ids
+    ID_DELIMITER = '~'
+
     __slots__ = ('uuid', 'timestamp')
 
     def __init__(self, uuid, timestamp):
@@ -100,7 +109,7 @@ class MPUId(object):
     def __str__(self):
         # MPU listing should be sorted by (<object name>, <creation time>)
         # so we put the timestamp before the uuid.
-        return '_'.join((self.timestamp.internal, self.uuid))
+        return self.ID_DELIMITER.join((self.timestamp.internal, self.uuid))
 
     @classmethod
     def create(cls, timestamp):
@@ -108,13 +117,10 @@ class MPUId(object):
 
     @classmethod
     def parse(cls, value):
-        parts = value.strip().split('_', 1)
-        if not all(parts):
+        parts = value.strip().split(cls.ID_DELIMITER)
+        if not all(parts) or len(parts) != 2:
             raise ValueError
-        try:
-            ts, uuid = parts
-        except IndexError:
-            raise ValueError
+        ts, uuid = parts
         return cls(uuid, Timestamp(ts))
 
 
