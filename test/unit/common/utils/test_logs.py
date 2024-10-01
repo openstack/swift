@@ -47,7 +47,8 @@ else:
 from swift.common import utils
 
 from swift.common.swob import Request, Response
-from swift.common.utils.logs import SwiftLogFormatter
+from swift.common.utils.logs import SwiftLogFormatter, SwiftLogAdapter, \
+    get_prefixed_logger
 
 
 def reset_loggers():
@@ -434,6 +435,38 @@ class TestUtilsLogs(unittest.TestCase):
                 }, 'server', log_route='server')
         self.assertEqual(errno.EPERM, cm.exception.errno)
 
+    def test_get_logger_custom_log_handlers(self):
+        def custom_log_handler(conf, name, log_to_console, log_route, fmt,
+                               logger, adapted_logger):
+            adapted_logger.server = adapted_logger.server.upper()
+
+        sio = StringIO()
+        logger = logging.getLogger('my_logger_name')
+        handler = logging.StreamHandler(sio)
+        logger.addHandler(handler)
+        formatter = logging.Formatter('%(levelname)s: %(server)s %(message)s')
+        handler.setFormatter(formatter)
+
+        # sanity check...
+        conf = {}
+        adapted_logger = utils.get_logger(
+            conf, 'my_server', log_route='my_logger_name')
+        adapted_logger.warning('test')
+        self.assertEqual(sio.getvalue(),
+                         'WARNING: my_server test\n')
+
+        # custom log handler...
+        sio = StringIO()
+        handler.stream = sio
+        patch_target = 'test.unit.common.utils.custom_log_handler'
+        conf = {'log_custom_handlers': patch_target}
+        with mock.patch(patch_target, custom_log_handler, create=True):
+            adapted_logger = utils.get_logger(
+                conf, 'my_server', log_route='my_logger_name')
+            adapted_logger.warning('test')
+        self.assertEqual(sio.getvalue(),
+                         'WARNING: MY_SERVER test\n')
+
     @reset_logger_state
     def test_clean_logger_exception(self):
         # setup stream logging
@@ -695,14 +728,13 @@ class TestUtilsLogs(unittest.TestCase):
             logger.logger.removeHandler(handler)
 
     @reset_logger_state
-    def test_prefixlogger(self):
+    def test_get_prefixed_logger(self):
         # setup stream logging
         sio = StringIO()
         base_logger = utils.get_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
-        logger = utils.PrefixLoggerAdapter(base_logger, {})
-        logger.set_prefix('some prefix: ')
+        logger = get_prefixed_logger(base_logger, 'some prefix: ')
 
         def strip_value(sio):
             sio.seek(0)
@@ -745,16 +777,14 @@ class TestUtilsLogs(unittest.TestCase):
             base_logger.logger.removeHandler(handler)
 
     @reset_logger_state
-    def test_nested_prefixlogger(self):
+    def test_get_prefixed_logger_non_string_values(self):
         # setup stream logging
         sio = StringIO()
         base_logger = utils.get_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
-        inner_logger = utils.PrefixLoggerAdapter(base_logger, {})
-        inner_logger.set_prefix('one: ')
-        outer_logger = utils.PrefixLoggerAdapter(inner_logger, {})
-        outer_logger.set_prefix('two: ')
+        logger = get_prefixed_logger(base_logger, 'some prefix: ')
+        exc = Exception('blah')
 
         def strip_value(sio):
             sio.seek(0)
@@ -763,16 +793,93 @@ class TestUtilsLogs(unittest.TestCase):
             return v
 
         try:
-            # establish base case
+            logger = get_prefixed_logger(logger, 'abc')
+            self.assertEqual('abc', logger.prefix)
+            logger.info('test')
+            self.assertEqual(strip_value(sio), 'abctest\n')
+            logger.info(exc)
+            self.assertEqual(strip_value(sio), 'abcblah\n')
+
+            logger = get_prefixed_logger(logger, '')
+            self.assertEqual('', logger.prefix)
+            logger.info('test')
+            self.assertEqual(strip_value(sio), 'test\n')
+            logger.info(exc)
+            self.assertEqual(strip_value(sio), 'blah\n')
+
+            logger = get_prefixed_logger(logger, 0)
+            self.assertEqual(0, logger.prefix)
+            logger.info('test')
+            self.assertEqual(strip_value(sio), '0test\n')
+            logger.info(exc)
+            self.assertEqual(strip_value(sio), '0blah\n')
+        finally:
+            logger.logger.removeHandler(handler)
+
+    @reset_logger_state
+    def test_get_prefixed_logger_replaces_prefix(self):
+        # setup stream logging
+        sio = StringIO()
+        base_logger = utils.get_logger(None)
+        handler = logging.StreamHandler(sio)
+        base_logger.logger.addHandler(handler)
+        logger1 = get_prefixed_logger(base_logger, 'one: ')
+        logger2 = get_prefixed_logger(logger1, 'two: ')
+
+        def strip_value(sio):
+            sio.seek(0)
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        try:
             self.assertEqual(strip_value(sio), '')
-            inner_logger.info('test')
+            base_logger.info('test')
+            self.assertEqual(strip_value(sio), 'test\n')
+
+            self.assertEqual(strip_value(sio), '')
+            logger1.info('test')
             self.assertEqual(strip_value(sio), 'one: test\n')
 
-            outer_logger.info('test')
-            self.assertEqual(strip_value(sio), 'one: two: test\n')
             self.assertEqual(strip_value(sio), '')
+            logger2.info('test')
+            self.assertEqual(strip_value(sio), 'two: test\n')
         finally:
             base_logger.logger.removeHandler(handler)
+
+    def test_get_prefixed_logger_isolation(self):
+        # verify that the new instance's attributes are copied by value
+        # from the old (except prefix), but the thread_locals are still shared
+        adapted_logger = utils.get_logger(None, name='server')
+        adapted_logger.thread_locals = ('id', 'ip')
+        adapted_logger = get_prefixed_logger(adapted_logger, 'foo')
+        self.assertEqual(adapted_logger.server, 'server')
+        self.assertEqual(adapted_logger.thread_locals, ('id', 'ip'))
+        self.assertEqual(adapted_logger.prefix, 'foo')
+
+        cloned_adapted_logger = get_prefixed_logger(
+            adapted_logger, 'boo')
+        self.assertEqual(cloned_adapted_logger.server, 'server')
+        self.assertEqual(cloned_adapted_logger.thread_locals, ('id', 'ip'))
+        self.assertEqual(cloned_adapted_logger.txn_id, 'id')
+        self.assertEqual(cloned_adapted_logger.client_ip, 'ip')
+        self.assertEqual(adapted_logger.thread_locals, ('id', 'ip'))
+        self.assertEqual(cloned_adapted_logger.prefix, 'boo')
+        self.assertEqual(adapted_logger.prefix, 'foo')
+        self.assertIs(adapted_logger.logger, cloned_adapted_logger.logger)
+
+        cloned_adapted_logger = get_prefixed_logger(
+            adapted_logger, adapted_logger.prefix + 'bar')
+        adapted_logger.server = 'waiter'
+        self.assertEqual(adapted_logger.server, 'waiter')
+        self.assertEqual(cloned_adapted_logger.server, 'server')
+        self.assertEqual(adapted_logger.prefix, 'foo')
+        self.assertEqual(cloned_adapted_logger.prefix, 'foobar')
+
+        adapted_logger.thread_locals = ('x', 'y')
+        self.assertEqual(adapted_logger.thread_locals, ('x', 'y'))
+        self.assertEqual(cloned_adapted_logger.thread_locals, ('x', 'y'))
+        self.assertIs(adapted_logger.logger, cloned_adapted_logger.logger)
 
     @reset_logger_state
     def test_capture_stdio(self):
@@ -1002,46 +1109,113 @@ class TestUtilsLogs(unittest.TestCase):
                                        'md5', '54LT'))
 
 
-class TestSwiftLoggerAdapter(unittest.TestCase):
+class TestSwiftLogAdapter(unittest.TestCase):
+
+    def setUp(self):
+        self.core_logger = logging.getLogger('test')
+        self.core_logger.setLevel(logging.INFO)
+        self.sio = StringIO()
+        self.handler = logging.StreamHandler(self.sio)
+        self.core_logger.addHandler(self.handler)
+
+    def tearDown(self):
+        self.core_logger.removeHandler(self.handler)
+
+    def read_sio(self):
+        self.sio.seek(0)
+        v = self.sio.getvalue()
+        self.sio.truncate(0)
+        return v
+
+    def test_init(self):
+        adapter = SwiftLogAdapter(self.core_logger, 'my-server')
+        self.assertIs(self.core_logger, adapter.logger)
+        self.assertEqual('my-server', adapter.server)
+        self.assertEqual('', adapter.prefix)
+        adapter.info('hello')
+        self.assertEqual('hello\n', self.read_sio())
+
+    def test_init_with_prefix(self):
+        adapter = SwiftLogAdapter(self.core_logger, 'my-server', 'my-prefix: ')
+        self.assertIs(self.core_logger, adapter.logger)
+        self.assertEqual('my-server', adapter.server)
+        self.assertEqual('my-prefix: ', adapter.prefix)
+        adapter.info('hello')
+        self.assertEqual('my-prefix: hello\n', self.read_sio())
+
+    def test_formatter_extras(self):
+        formatter = logging.Formatter(
+            '%(levelname)s: %(server)s %(message)s %(txn_id)s %(client_ip)s')
+        self.handler.setFormatter(formatter)
+        adapter = SwiftLogAdapter(self.core_logger, 'my-server')
+        adapter.txn_id = 'my-txn-id'
+        adapter.client_ip = '1.2.3.4'
+        adapter.info('hello')
+        self.assertEqual('INFO: my-server hello my-txn-id 1.2.3.4\n',
+                         self.read_sio())
+
     @reset_logger_state
     def test_thread_locals(self):
-        logger = utils.get_logger({}, 'foo')
-        adapter1 = utils.SwiftLoggerAdapter(logger, {})
-        adapter2 = utils.SwiftLoggerAdapter(logger, {})
+        adapter1 = SwiftLogAdapter(self.core_logger, 'foo')
+        adapter2 = SwiftLogAdapter(self.core_logger, 'foo')
         locals1 = ('tx_123', '1.2.3.4')
         adapter1.thread_locals = locals1
         self.assertEqual(adapter1.thread_locals, locals1)
         self.assertEqual(adapter2.thread_locals, locals1)
-        self.assertEqual(logger.thread_locals, locals1)
 
         locals2 = ('tx_456', '1.2.3.456')
-        logger.thread_locals = locals2
+        adapter2.thread_locals = locals2
         self.assertEqual(adapter1.thread_locals, locals2)
         self.assertEqual(adapter2.thread_locals, locals2)
-        self.assertEqual(logger.thread_locals, locals2)
-        logger.thread_locals = (None, None)
+
+        adapter1.thread_locals = (None, None)
+        self.assertEqual(adapter1.thread_locals, (None, None))
+        self.assertEqual(adapter2.thread_locals, (None, None))
+
+        adapter1.txn_id = '5678'
+        self.assertEqual('5678', adapter1.txn_id)
+        self.assertEqual('5678', adapter2.txn_id)
+        self.assertIsNone(adapter1.client_ip)
+        self.assertIsNone(adapter2.client_ip)
+        self.assertEqual(('5678', None), adapter1.thread_locals)
+        self.assertEqual(('5678', None), adapter2.thread_locals)
+
+        adapter1.client_ip = '5.6.7.8'
+        self.assertEqual('5678', adapter1.txn_id)
+        self.assertEqual('5678', adapter2.txn_id)
+        self.assertEqual('5.6.7.8', adapter1.client_ip)
+        self.assertEqual('5.6.7.8', adapter2.client_ip)
+        self.assertEqual(('5678', '5.6.7.8'), adapter1.thread_locals)
+        self.assertEqual(('5678', '5.6.7.8'), adapter2.thread_locals)
 
     @reset_logger_state
-    def test_thread_locals_more(self):
-        logger = utils.get_logger(None)
+    def test_thread_locals_stacked_adapter(self):
+        adapter1 = SwiftLogAdapter(self.core_logger, 'foo')
+        # adapter2 is stacked on adapter1
+        adapter2 = SwiftLogAdapter(adapter1, 'foo')
+        self.assertIs(adapter1, adapter2.logger)
         # test the setter
-        logger.thread_locals = ('id', 'ip')
-        self.assertEqual(logger.thread_locals, ('id', 'ip'))
+        adapter1.thread_locals = ('id', 'ip')
+        self.assertEqual(adapter1.thread_locals, ('id', 'ip'))
+        self.assertEqual(adapter2.thread_locals, ('id', 'ip'))
         # reset
-        logger.thread_locals = (None, None)
-        self.assertEqual(logger.thread_locals, (None, None))
-        logger.txn_id = '1234'
-        logger.client_ip = '1.2.3.4'
-        self.assertEqual(logger.thread_locals, ('1234', '1.2.3.4'))
-        logger.txn_id = '5678'
-        logger.client_ip = '5.6.7.8'
-        self.assertEqual(logger.thread_locals, ('5678', '5.6.7.8'))
+        adapter1.thread_locals = (None, None)
+        self.assertEqual(adapter1.thread_locals, (None, None))
+        self.assertEqual(adapter2.thread_locals, (None, None))
+
+        adapter1.txn_id = '1234'
+        adapter1.client_ip = '1.2.3.4'
+        self.assertEqual(adapter1.thread_locals, ('1234', '1.2.3.4'))
+        self.assertEqual(adapter2.thread_locals, ('1234', '1.2.3.4'))
+        adapter2.txn_id = '5678'
+        adapter2.client_ip = '5.6.7.8'
+        self.assertEqual(adapter1.thread_locals, ('5678', '5.6.7.8'))
+        self.assertEqual(adapter2.thread_locals, ('5678', '5.6.7.8'))
 
     def test_exception(self):
-        # verify that the adapter routes exception calls to utils.LogAdapter
+        # verify that the adapter routes exception calls to SwiftLogAdapter
         # for special case handling
-        logger = utils.get_logger({})
-        adapter = utils.SwiftLoggerAdapter(logger, {})
+        adapter = SwiftLogAdapter(self.core_logger, 'foo')
         try:
             raise OSError(errno.ECONNREFUSED, 'oserror')
         except OSError:

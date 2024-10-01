@@ -25,8 +25,7 @@ from textwrap import dedent
 import six
 from six.moves import range, zip_longest
 from six.moves.urllib.parse import quote, parse_qsl
-from swift.common import exceptions, internal_client, request_helpers, swob, \
-    utils
+from swift.common import exceptions, internal_client, request_helpers, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
@@ -528,8 +527,7 @@ class TestInternalClient(unittest.TestCase):
                 self.request_tries = 1
                 self.use_replication_network = False
 
-        fake_logger = debug_logger()
-        logger = utils.LogAdapter(fake_logger, 'test-server')
+        logger = debug_logger()
         # Make sure there's no transaction ID set -- other tests may have
         # polluted the logger
         logger.txn_id = None
@@ -538,7 +536,7 @@ class TestInternalClient(unittest.TestCase):
         client.make_request('GET', '/', {}, (200,))
         logger.debug('After request')
         self.assertEqual([(args[0], kwargs['extra'].get('txn_id'))
-                          for args, kwargs in fake_logger.log_dict['debug']], [
+                          for args, kwargs in logger.log_dict['debug']], [
             ('Before request', None),
             ('Inside of request', 'foo'),
             ('After request', None),

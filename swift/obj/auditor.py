@@ -32,8 +32,8 @@ from swift.common.storage_policy import POLICIES
 from swift.common.utils import (
     config_auto_int_value, dump_recon_cache, get_logger, list_from_csv,
     listdir, load_pkg_resource, parse_prefixed_conf, EventletRateLimiter,
-    readconf, round_robin_iter, unlink_paths_older_than, PrefixLoggerAdapter,
-    parse_options)
+    readconf, round_robin_iter, unlink_paths_older_than, parse_options,
+    get_prefixed_logger)
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 
 
@@ -489,13 +489,16 @@ class WatcherWrapper(object):
     Simple and gets the job done. Note that we aren't doing anything
     to isolate ourselves from hangs or file descriptor leaks
     in the plugins.
+
+    :param logger: an instance of ``SwiftLogAdapter``.
+
     """
 
     def __init__(self, watcher_class, watcher_name, conf, logger):
         self.watcher_name = watcher_name
         self.watcher_in_error = False
-        self.logger = PrefixLoggerAdapter(logger, {})
-        self.logger.set_prefix('[audit-watcher %s] ' % watcher_name)
+        self.logger = get_prefixed_logger(
+            logger, '[audit-watcher %s] ' % watcher_name)
 
         try:
             self.watcher = watcher_class(conf, self.logger)

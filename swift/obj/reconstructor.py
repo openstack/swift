@@ -30,11 +30,11 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
-    dump_recon_cache, mkdirs, config_true_value,
+    dump_recon_cache, mkdirs, config_true_value, parse_options,
     GreenAsyncPile, Timestamp, remove_file, node_to_string,
     load_recon_cache, parse_override_options, distribute_evenly,
-    PrefixLoggerAdapter, remove_directory, config_request_node_count_value,
-    non_negative_int, parse_options)
+    remove_directory, config_request_node_count_value,
+    non_negative_int, get_prefixed_logger)
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon, run_daemon
@@ -158,11 +158,11 @@ class ObjectReconstructor(Daemon):
     def __init__(self, conf, logger=None):
         """
         :param conf: configuration object obtained from ConfigParser
-        :param logger: logging object
+        :param logger: an instance of ``SwiftLogAdapter``.
         """
         self.conf = conf
-        self.logger = PrefixLoggerAdapter(
-            logger or get_logger(conf, log_route='object-reconstructor'), {})
+        self.logger = \
+            logger or get_logger(conf, log_route='object-reconstructor')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -792,10 +792,12 @@ class ObjectReconstructor(Daemon):
                 (time.time() - self.start))
 
     def _emplace_log_prefix(self, worker_index):
-        self.logger.set_prefix("[worker %d/%d pid=%s] " % (
-            worker_index + 1,  # use 1-based indexing for more readable logs
-            self.reconstructor_workers,
-            os.getpid()))
+        self.logger = get_prefixed_logger(
+            self.logger, "[worker %d/%d pid=%s] " % (
+                worker_index + 1,
+                # use 1-based indexing for more readable logs
+                self.reconstructor_workers,
+                os.getpid()))
 
     def kill_coros(self):
         """Utility function that kills all coroutines currently running."""
