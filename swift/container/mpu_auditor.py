@@ -178,6 +178,10 @@ class BaseMpuBrokerAuditor(object):
             return items[0]
         return None
 
+    def _delete_resources(self, marker, upload):
+        # subclasses must implement this method
+        raise NotImplementedError()
+
     def _process_marker(self, marker, upload):
         self._delete_resources(marker, upload)
 
@@ -194,11 +198,11 @@ class BaseMpuBrokerAuditor(object):
             # status, we just need a marker row whose name matches a resource.
             # Note: This deletion will be replicated to other DB replicas which
             # may have not yet had an undeleted marker row. The auditor may
-            # have already passed over the matching resource ro in the other
+            # have already passed over the matching resource row in the other
             # DBs, and so will never detect the marked resource, because the
             # auditor only inspects rows once and does not inspect deleted
             # rows. This is OK because the matching resource was either
-            # detected by the auditor on this cycle of this DB, or it will de
+            # detected by the auditor on this cycle of this DB, or it will be
             # replicated to this DB from the other DBs and detected on a
             # subsequent cycle of this DB.
             # TODO: we could make the auditor process deleted marker rows so

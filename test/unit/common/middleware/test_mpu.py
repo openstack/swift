@@ -19,7 +19,7 @@ import unittest
 import mock
 
 from swift.common import swob
-from swift.common.middleware.mpu import MPUMiddleware
+from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, HTTPPreconditionFailed
 from swift.common.utils import md5, quote, Timestamp
@@ -36,14 +36,84 @@ def mock_generate_unique_id(fake_id):
         yield
 
 
+class TestModuleFunctions(unittest.TestCase):
+    def test_get_upload_id(self):
+        req = Request.blank('/v1/a/c')
+        self.assertIsNone(get_upload_id(req))
+
+        ts = Timestamp.now()
+        mpu_id = MPUId.create(ts)
+        req = Request.blank('/v1/a/c', params={'upload-id': str(mpu_id)})
+        self.assertEqual(mpu_id, get_upload_id(req))
+
+        def do_test_bad_value(value):
+            with self.assertRaises(ValueError):
+                req = Request.blank('/v1/a/c', params={'upload-id': value})
+                get_upload_id(req)
+
+        do_test_bad_value('')
+        do_test_bad_value(None)
+        do_test_bad_value('my-uuid')
+        do_test_bad_value('my-uuid_')
+        do_test_bad_value('_%s' % ts.internal)
+        do_test_bad_value('my-uuid_xyz')
+
+
+class TestMPUId(unittest.TestCase):
+    def test_create(self):
+        timestamp = Timestamp.now()
+        with mock.patch('swift.common.middleware.mpu.generate_unique_id',
+                        return_value='my-uuid'):
+            mpu_id = MPUId.create(timestamp)
+        self.assertEqual('my-uuid', mpu_id.uuid)
+        self.assertEqual(timestamp, mpu_id.timestamp)
+        self.assertEqual('%s_my-uuid' % timestamp.internal, str(mpu_id))
+
+    def test_unique(self):
+        timestamp = Timestamp.now()
+        mpu_id1 = MPUId.create(timestamp)
+        mpu_id2 = MPUId.create(timestamp)
+        self.assertEqual(mpu_id1.timestamp, mpu_id2.timestamp)
+        self.assertNotEqual(mpu_id1, mpu_id2)
+        self.assertNotEqual(mpu_id1.uuid, mpu_id2.uuid)
+
+    def test_parse(self):
+        timestamp = Timestamp.now()
+        mpu_id = MPUId.parse('%s_my-uuid' % timestamp.internal)
+        self.assertEqual('my-uuid', mpu_id.uuid)
+        self.assertEqual(timestamp, mpu_id.timestamp)
+        self.assertEqual('%s_my-uuid' % timestamp.internal, str(mpu_id))
+
+    def test_create_parse(self):
+        timestamp = Timestamp.now()
+        mpu_id1 = MPUId.create(timestamp)
+        mpu_id2 = MPUId.parse(str(mpu_id1))
+        self.assertEqual(timestamp, mpu_id2.timestamp)
+        self.assertEqual(mpu_id1.uuid, mpu_id2.uuid)
+        self.assertEqual(str(mpu_id1), str(mpu_id2))
+
+    def test_eq(self):
+        timestamp = Timestamp.now()
+        mpu_id1a = MPUId.create(timestamp)
+        mpu_id1b = MPUId.parse(str(mpu_id1a))
+        self.assertEqual(mpu_id1a, mpu_id1b)
+        self.assertEqual(mpu_id1a, str(mpu_id1b))
+
+        mpu_id2 = MPUId.create(timestamp)
+        self.assertNotEqual(mpu_id1a, mpu_id2)
+
+
 class BaseTestMPUMiddleware(unittest.TestCase):
     # TODO: assert 'X-Backend-Allow-Reserved-Names' in backend requests
     def setUp(self):
         self.app = FakeSwift()
         self.ts_iter = make_timestamp_iter()
+        self.id_iter = iter(MPUId.create(t) for t in make_timestamp_iter())
+        self.mpu_id = next(self.id_iter)
         self.debug_logger = debug_logger()
         self.exp_calls = []
         self._setup_user_ac_info_requests()
+        self.mw = MPUMiddleware(self.app, {}, logger=self.debug_logger)
 
     def _setup_user_ac_info_requests(self):
         ac_info_calls = [('HEAD', '/v1/a', HTTPOk, {}),
@@ -84,7 +154,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def _setup_mpu_existence_check_call(self, ts_session):
         ts_other = next(self.ts_iter)
-        call = ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk,
+        call = ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+                HTTPOk,
                 {'X-Timestamp': ts_other.internal,
                  'Content-Type': 'application/x-mpu',
                  'X-Backend-Data-Timestamp': ts_session.internal,
@@ -99,14 +170,15 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def _do_test_create_mpu(self, req_headers):
         expected = self._setup_mpu_create_requests()
         self.app.register(
-            'PUT', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
+            'PUT', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
             HTTPCreated, {})
-        expected.append(('PUT', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id'))
+        expected.append(('PUT',
+                         '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id))
         req = Request.blank('/v1/a/c/o?uploads=true', headers=req_headers)
         req.method = 'POST'
-        with mock_generate_unique_id('test-id'):
-            mw = MPUMiddleware(self.app, {})
-            resp = req.get_response(mw)
+        with mock.patch('swift.common.middleware.mpu.MPUId.create',
+                        return_value=self.mpu_id):
+            resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         self.assertIn('X-Upload-Id', resp.headers)
         self.assertEqual(expected, self.app.calls)
@@ -164,42 +236,61 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.app.headers[-1])
 
     def test_list_mpus(self):
-        # TODO: include aborted mpu session in listing
-        listing = [{'name': '\x00o/test-id-%d' % i, 'hash': 'etag',
-                    'bytes': 0,
-                    'content_type': 'application/mpu',
-                    'last_modified': '1970-01-01T00:00:00.000000'}
-                   for i in range(3)]
+        listing = [
+            # in progress
+            {'name': '\x00obj1/%s' % next(self.id_iter),
+             'hash': 'etag',
+             'bytes': 0,
+             'content_type': 'application/x-mpu',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': '\x00obj1/%s' % next(self.id_iter),
+             'hash': 'etag',
+             'bytes': 0,
+             'content_type': 'application/x-mpu',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': '\x00obj2/%s' % next(self.id_iter),
+             'hash': 'etag',
+             'bytes': 0,
+             'content_type': 'application/x-mpu',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            # aborted
+            {'name': '\x00obj3/%s' % next(self.id_iter),
+             'hash': 'etag',
+             'bytes': 0,
+             'content_type': 'application/x-mpu-aborted',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+        ]
+        exp_listing = [dict(item, name=item['name'][1:])
+                       for item in listing]
         registered_calls = [('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
                              json.dumps(listing).encode('ascii'))]
         for call in registered_calls:
             self.app.register(*call)
         req = Request.blank('/v1/a/c?uploads')
         req.method = 'GET'
-        mw = MPUMiddleware(self.app, {}, logger=self.debug_logger)
-        resp = req.get_response(mw)
+        resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
-        exp_listing = [{'name': 'o/test-id-%d' % i, 'hash': 'etag',
-                        'bytes': 0,
-                        'content_type': 'application/mpu',
-                        'last_modified': '1970-01-01T00:00:00.000000'}
-                       for i in range(3)]
         self.assertEqual(exp_listing, json.loads(resp.body))
 
     def test_upload_part(self):
         ts_session = next(self.ts_iter)
         ts_part = next(self.ts_iter)
         registered_calls = [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk,
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
              {'X-Timestamp': ts_session.internal,
               'Content-Type': 'application/x-mpu', }),
-            ('PUT', '/v1/a/\x00mpu_parts\x00c/\x00o/test-id/1', HTTPCreated,
+            ('PUT',
+             '/v1/a/\x00mpu_parts\x00c/\x00o/%s/1' % self.mpu_id,
+             HTTPCreated,
              {'X-Timestamp': ts_part.internal})]
         for call in registered_calls:
             self.app.register(*call)
-        req = Request.blank('/v1/a/c/o?upload-id=test-id&part-number=1')
+        req = Request.blank(
+            '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id)
         req.method = 'PUT'
         req.body = b'testing'
         mw = MPUMiddleware(self.app, {})
@@ -213,32 +304,38 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_parts(self):
         ts_session = next(self.ts_iter)
-        listing = [{'name': '\x00o/test-id/%d' % i, 'hash': 'etag%d' % i,
+        listing = [{'name': '\x00o/%s/%d' % (self.mpu_id, i),
+                    'hash': 'etag%d' % i,
                     'bytes': i,
                     'content_type': 'text/plain',
                     'last_modified': '1970-01-01T00:00:00.000000'}
                    for i in range(3)]
         registered_calls = [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk,
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
              {'X-Timestamp': ts_session.internal,
               'Content-Type': 'application/x-mpu'}),
-            ('GET', '/v1/a/\x00mpu_parts\x00c', HTTPOk, {},
+            ('GET', '/v1/a/\x00mpu_parts\x00c',
+             HTTPOk,
+             {},
              json.dumps(listing).encode('ascii'))
         ]
         for call in registered_calls:
             self.app.register(*call)
-        req = Request.blank('/v1/a/c/o?upload-id=test-id')
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id)
         req.method = 'GET'
         mw = MPUMiddleware(self.app, {}, logger=self.debug_logger)
         resp = req.get_response(mw)
         self.assertEqual(200, resp.status_int)
         expected = [call[:2] for call in self.exp_calls] + [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id'),
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id),
             ('GET', '/v1/a/\x00mpu_parts\x00c?prefix=%s'
-             % quote('\x00o/test-id', safe='')),
+             % quote('\x00o/%s' % self.mpu_id, safe='')),
         ]
         self.assertEqual(expected, self.app.calls)
-        exp_listing = [{'name': 'o/test-id/%d' % i, 'hash': 'etag%d' % i,
+        exp_listing = [{'name': 'o/%s/%d' % (self.mpu_id, i),
+                        'hash': 'etag%d' % i,
                         'bytes': i,
                         'content_type': 'text/plain',
                         'last_modified': '1970-01-01T00:00:00.000000'}
@@ -252,20 +349,29 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         put_slo_resp_body = {'Response Status': '201 Created',
                              'Etag': 'slo-etag'}
         registered_calls = [
-            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk, {}),
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
             # SLO heartbeat response is 202...
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id?'
-                    'heartbeat=on&multipart-manifest=put',
-             HTTPAccepted, {}, json.dumps(put_slo_resp_body).encode('ascii')),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s?'
+             'heartbeat=on&multipart-manifest=put' % self.mpu_id,
+             HTTPAccepted,
+             {},
+             json.dumps(put_slo_resp_body).encode('ascii')),
             ('PUT', '/v1/a/c/o', HTTPCreated, {}),
-            ('DELETE', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
-             HTTPAccepted, {}),
+            ('DELETE',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPAccepted,
+             {}),
         ]
         for call in registered_calls:
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_complete.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         mpu_manifest = [
             {'part_number': 1, 'etag': 'a' * 32},
@@ -298,16 +404,17 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             session_hdrs)
 
         actual_manifest_body = self.app.uploaded.get(
-            '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id')[1]
-        self.assertEqual([{"path": "\x00mpu_parts\x00c/\x00o/test-id/1",
-                           "etag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-                          {"path": "\x00mpu_parts\x00c/\x00o/test-id/2",
-                           "etag": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
-                         json.loads(actual_manifest_body))
+            '/v1/a/\x00mpu_manifests\x00c/\x00o/%s' % self.mpu_id)[1]
+        self.assertEqual(
+            [{"path": "\x00mpu_parts\x00c/\x00o/%s/1" % self.mpu_id,
+              "etag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+             {"path": "\x00mpu_parts\x00c/\x00o/%s/2" % self.mpu_id,
+              "etag": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
+            json.loads(actual_manifest_body))
         manifest_hdrs = self.app.headers[4]
         self.assertEqual(
             {'Accept': 'application/json',
-             'Content-Length': '196',
+             'Content-Length': str(len(actual_manifest_body)),
              'Content-Type': 'application/test',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
@@ -318,7 +425,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
              'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
-             'X-Object-Sysmeta-Mpu-Upload-Id': 'test-id',
+             'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
              'X-Timestamp': ts_session.internal},
             manifest_hdrs)
 
@@ -332,8 +439,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
-             'X-Object-Sysmeta-Mpu-Upload-Id': 'test-id',
-             'X-Symlink-Target': '\x00mpu_manifests\x00c/\x00o/test-id',
+             'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
+             'X-Symlink-Target':
+                 '\x00mpu_manifests\x00c/\x00o/%s' % self.mpu_id,
              # note: FakeApp doesn't call-back to the MPU middleware slo
              # callback handler so mpu_bytes show as 0
              'X-Object-Sysmeta-Container-Update-Override-Etag':
@@ -348,11 +456,15 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         put_resp_body = {'Response Status': '201 Created',
                          'Etag': 'slo-etag'}
         registered_calls = [
-            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk, {}),
+            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
             # SLO heartbeat response is 202...
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id?'
-                    'heartbeat=on&multipart-manifest=put',
-             HTTPAccepted, {}, json.dumps(put_resp_body).encode('ascii')),
+            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/%s?'
+                    'heartbeat=on&multipart-manifest=put' % self.mpu_id,
+             HTTPAccepted,
+             {},
+             json.dumps(put_resp_body).encode('ascii')),
             ('PUT', '/v1/a/c/o', HTTPNotFound, {}),
             # note: no DELETE
         ]
@@ -360,7 +472,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_complete.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         req.body = json.dumps([
             {'part_number': 1, 'etag': 'a' * 32},
@@ -382,10 +495,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._setup_mpu_existence_check_call(ts_session)
         ts_complete = next(self.ts_iter)
         registered_calls = [
-            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk, {}),
+            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
             # SLO heartbeat response is 202...
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id?'
-                    'heartbeat=on&multipart-manifest=put',
+            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/%s?'
+                    'heartbeat=on&multipart-manifest=put' % self.mpu_id,
              HTTPServiceUnavailable, {},
              'Service Unavailable\nThe server is currently unavailable. '
              'Please try again at a later time.'),
@@ -395,7 +510,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_complete.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         req.body = json.dumps([
             {'part_number': 1, 'etag': 'a' * 32},
@@ -430,17 +546,20 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             ]
         }
         registered_calls = [
-            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk, {}),
+            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
             # SLO heartbeat response is 202...
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id?'
-                    'heartbeat=on&multipart-manifest=put',
+            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/%s?'
+                    'heartbeat=on&multipart-manifest=put' % self.mpu_id,
              HTTPAccepted, {}, json.dumps(put_resp_body).encode('ascii')),
         ]
         for call in registered_calls:
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_complete.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         req.body = json.dumps([
             {'part_number': 1, 'etag': 'a' * 32},
@@ -464,17 +583,20 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._setup_mpu_existence_check_call(ts_session)
         ts_complete = next(self.ts_iter)
         registered_calls = [
-            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk, {}),
+            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
             # SLO heartbeat response is 202...
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id?'
-                    'heartbeat=on&multipart-manifest=put',
+            ('PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/%s?'
+                    'heartbeat=on&multipart-manifest=put' % self.mpu_id,
              HTTPAccepted, {}, '{123: "NOT JSON"}'),
         ]
         for call in registered_calls:
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_complete.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         req.body = json.dumps([
             {'part_number': 1, 'etag': 'a' * 32},
@@ -497,7 +619,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_aborted = next(self.ts_iter)
         ts_complete = next(self.ts_iter)
         registered_calls = [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk,
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
              {'X-Timestamp': ts_aborted.internal,
               'Content-Type': 'application/x-mpu-aborted',
               'X-Backend-Data-Timestamp': ts_session.internal,
@@ -508,7 +632,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_complete.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         req.body = json.dumps([
             {'part_number': 1, 'etag': 'a' * 32},
@@ -524,14 +649,15 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def test_complete_mpu_session_deleted(self):
         ts_complete = next(self.ts_iter)
         registered_calls = [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPNotFound, {}),
         ]
         for call in registered_calls:
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_complete.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         req.body = json.dumps([
             {'part_number': 1, 'etag': 'a' * 32},
@@ -560,21 +686,31 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         if extra_session_resp_headers:
             session_resp_headers.update(extra_session_resp_headers)
         registered_calls = [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk,
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
              session_resp_headers),
             ('HEAD', '/v1/a/c/o', HTTPOk, session_resp_headers),
-            ('POST', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id', HTTPOk, {}),
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
             ('PUT',
-             '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-aborted',
-             HTTPCreated, {}),
-            ('DELETE', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
-             HTTPNoContent, {})
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-aborted'
+             % self.mpu_id,
+             HTTPCreated,
+             {}),
+            ('DELETE',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPNoContent,
+             {})
         ]
         for call in registered_calls:
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_abort.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'DELETE'
         mw = MPUMiddleware(self.app, {})
         resp = req.get_response(mw)
@@ -628,14 +764,15 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def test_abort_mpu_session_deleted(self):
         ts_abort = next(self.ts_iter)
         registered_calls = [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/test-id',
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPNotFound, {}),
         ]
         for call in registered_calls:
             self.app.register(*call)
         req_hdrs = {'X-Timestamp': ts_abort.internal,
                     'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=test-id', headers=req_hdrs)
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
         req.method = 'POST'
         req.body = json.dumps([
             {'part_number': 1, 'etag': 'a' * 32},
@@ -650,14 +787,17 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_mpu_async_cleanup_DELETE(self):
         backend_responses = ResponseCollection([ResponseData(
-            204, headers={'x-object-sysmeta-mpu-upload-id': 'test-id'})
+            204, headers={'x-object-sysmeta-mpu-upload-id': self.mpu_id})
         ])
         env_updates = {'swift.backend_responses': backend_responses}
         self.app.register('DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None,
                           env_updates=env_updates)
         self.app.register(
-            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted',
-            HTTPAccepted, {})
+            'PUT',
+            '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+            % self.mpu_id,
+            HTTPAccepted,
+            {})
         req = Request.blank('/v1/a/c/o')
         req.method = 'DELETE'
         mw = MPUMiddleware(self.app, {})
@@ -668,20 +808,24 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         exp_calls = [
             ('DELETE', '/v1/a/c/o'),
             ('PUT',
-             '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted'),
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+             % self.mpu_id),
         ]
         self.assertEqual(exp_calls, self.app.calls)
 
     def test_mpu_async_cleanup_PUT(self):
         backend_responses = ResponseCollection([ResponseData(
-            201, headers={'x-object-sysmeta-mpu-upload-id': 'test-id'})
+            201, headers={'x-object-sysmeta-mpu-upload-id': self.mpu_id})
         ])
         env_updates = {'swift.backend_responses': backend_responses}
         self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None,
                           env_updates=env_updates)
         self.app.register(
-            'PUT', '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted',
-            HTTPAccepted, {})
+            'PUT',
+            '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+            % self.mpu_id,
+            HTTPAccepted,
+            {})
         req = Request.blank('/v1/a/c/o')
         req.method = 'PUT'
         mw = MPUMiddleware(self.app, {})
@@ -692,9 +836,57 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         exp_calls = [
             ('PUT', '/v1/a/c/o'),
             ('PUT',
-             '/v1/a/\x00mpu_manifests\x00c/\x00o/test-id/marker-deleted'),
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+             % self.mpu_id),
         ]
         self.assertEqual(exp_calls, self.app.calls)
+
+    def test_mpu_async_cleanup_PUT_mixed_backend_responses(self):
+        # verify bad resp headers are ignored and multiple mpu's are cleaned up
+        mpu_id_alt = MPUId.create(next(self.ts_iter))
+        backend_responses = ResponseCollection([
+            ResponseData(
+                201, headers={}),  # no upload id
+            ResponseData(
+                201, headers={'x-object-sysmeta-mpu-upload-id': 'bad id'}),
+            ResponseData(
+                201, headers={'x-object-sysmeta-mpu-upload-id': mpu_id_alt}),
+            ResponseData(
+                201, headers={'x-object-sysmeta-mpu-upload-id': self.mpu_id}),
+        ])
+        env_updates = {'swift.backend_responses': backend_responses}
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None,
+                          env_updates=env_updates)
+        self.app.register(
+            'PUT',
+            '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+            % self.mpu_id,
+            HTTPAccepted,
+            {})
+        self.app.register(
+            'PUT',
+            '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+            % mpu_id_alt,
+            HTTPAccepted,
+            {})
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'PUT'
+        mw = MPUMiddleware(self.app, {})
+        resp = req.get_response(mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(201, resp.status_int)
+        self.assertEqual(b'', resp_body)
+        self.assertEqual(3, len(self.app.calls))
+        self.assertEqual(('PUT', '/v1/a/c/o'), self.app.calls[0])
+        exp_calls = sorted([
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+             % self.mpu_id),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+             % mpu_id_alt),
+        ])
+        self.assertEqual(exp_calls, sorted(self.app.calls[1:]))
 
 
 class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
@@ -708,16 +900,16 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
             Request.blank('/v1/a/c/o?uploads=true',
                           environ={'REQUEST_METHOD': 'POST'}),
             # upload part
-            Request.blank('/v1/a/c/o?upload-id=test-id&part-number=1',
+            Request.blank('/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'PUT'}),
             # list parts
-            Request.blank('/v1/a/c/o?upload-id=test-id',
+            Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'GET'}),
             # complete upload
-            Request.blank('/v1/a/c/o?upload-id=test-id',
+            Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'POST'}),
             # abort upload
-            Request.blank('/v1/a/c/o?upload-id=test-id',
+            Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'DELETE'}),
         ]
 

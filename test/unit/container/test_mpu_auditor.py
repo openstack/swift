@@ -23,8 +23,7 @@ import mock
 
 from swift.common.internal_client import InternalClient
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
-    MPU_ABORTED_MARKER_SUFFIX, MPU_MARKER_CONTENT_TYPE
-from swift.common.middleware.s3api.utils import unique_id
+    MPU_ABORTED_MARKER_SUFFIX, MPU_MARKER_CONTENT_TYPE, MPUId
 from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, HTTPOk, HTTPNoContent, HTTPCreated, \
     HTTPNotFound
@@ -101,15 +100,17 @@ class BaseTestMpuAuditor(unittest.TestCase):
             self.assertEqual(204, resp.status_int)
 
     def _create_manifest_spec(self):
-        upload_id = unique_id()
-        manifest_name = '/'.join([get_reserved_name(self.obj_name), upload_id])
+        ts = next(self.ts_iter)
+        upload_id = MPUId.create(ts)
+        manifest_name = '/'.join(
+            [get_reserved_name(self.obj_name), str(upload_id)])
         manifest_spec = {'name': manifest_name,
-                         'created_at': next(self.ts_iter).normal,
+                         'created_at': ts.normal,
                          'content_type': 'text/plain',
                          'etag': 'etag_1',
                          'size': 1024,
                          }
-        return upload_id, manifest_spec
+        return manifest_spec
 
     def _create_marker_spec(self, upload, timestamp,
                             marker_type=MPU_DELETED_MARKER_SUFFIX):
@@ -141,15 +142,16 @@ class BaseTestMpuAuditor(unittest.TestCase):
 
 class TestModuleFunctions(BaseTestMpuAuditor):
     def test_extract_upload_prefix(self):
-        self.assertEqual('obj/upload-id',
-                         extract_upload_prefix('obj/upload-id'))
-        self.assertEqual('obj/upload-id',
-                         extract_upload_prefix('obj/upload-id/manifest'))
-        self.assertEqual('obj/upload-id',
-                         extract_upload_prefix('obj/upload-id/marker-deleted'))
+        prefix = 'obj/' + str(MPUId.create(next(self.ts_iter)))
+        self.assertEqual(prefix,
+                         extract_upload_prefix(prefix))
+        self.assertEqual(prefix,
+                         extract_upload_prefix(prefix + '/manifest'))
+        self.assertEqual(prefix,
+                         extract_upload_prefix(prefix + '/marker-deleted'))
 
     def test_yield_item_batches(self):
-        items = [self._create_manifest_spec()[1] for i in range(123)]
+        items = [self._create_manifest_spec() for _ in range(123)]
         self.put_objects(items, shuffle_order=False)
         self._check_broker_rows(items)
 
@@ -197,8 +199,8 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
             yield fake_swift
 
     def test_audit_cycle_continues_past_error(self):
-        upload_1, manifest_1 = self._create_manifest_spec()
-        upload_2, manifest_2 = self._create_manifest_spec()
+        manifest_1 = self._create_manifest_spec()
+        manifest_2 = self._create_manifest_spec()
         calls = []
 
         def mock_audit_item(auditor, item):
@@ -221,8 +223,8 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
         self.assertIn('boom', warning_lines[0])
 
     def test_audit_delete_marker(self):
-        upload_1, manifest_1 = self._create_manifest_spec()
-        upload_2, manifest_2 = self._create_manifest_spec()
+        manifest_1 = self._create_manifest_spec()
+        manifest_2 = self._create_manifest_spec()
         t_marker = next(self.ts_iter)
         marker = self._create_marker_spec(manifest_1['name'], t_marker)
         items = [manifest_1, manifest_2, marker]
@@ -258,7 +260,7 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
         self._assert_context({'last_audit_row': 3})
 
     def test_audit_abort_marker_linked(self):
-        upload_id, manifest = self._create_manifest_spec()
+        manifest = self._create_manifest_spec()
         t_marker = next(self.ts_iter)
         marker = self._create_marker_spec(
             manifest['name'], t_marker,
@@ -286,7 +288,7 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
         self._assert_context({'last_audit_row': 2})
 
     def test_audit_abort_marker_linked_manifest_delayed(self):
-        upload_id, manifest = self._create_manifest_spec()
+        manifest = self._create_manifest_spec()
         t_marker = next(self.ts_iter)
         marker = self._create_marker_spec(
             manifest['name'], t_marker,
@@ -362,16 +364,16 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
         self._assert_context({'last_audit_row': 1})
 
     def test_audit_abort_marker_obj_not_found(self):
-        upload_id, manifest_spec = self._create_manifest_spec()
+        manifest_spec = self._create_manifest_spec()
         self._do_test_audit_abort_marker_not_linked(manifest_spec,
                                                     HTTPNotFound, {})
 
     def test_audit_abort_marker_obj_exists_not_symlink(self):
-        upload_id, manifest_spec = self._create_manifest_spec()
+        manifest_spec = self._create_manifest_spec()
         self._do_test_audit_abort_marker_not_linked(manifest_spec, HTTPOk, {})
 
     def test_audit_abort_marker_obj_exists_symlink_not_linked(self):
-        upload_id, manifest_spec = self._create_manifest_spec()
+        manifest_spec = self._create_manifest_spec()
         rel_manifest_path = '%s/%s' % (self.audit_container, 'other_manifest')
         headers = {'x-symlink-target': rel_manifest_path}
         self._do_test_audit_abort_marker_not_linked(manifest_spec, HTTPOk,
@@ -383,10 +385,11 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
     audit_container = user_container + '+segments'
 
     def _create_upload_parts(self, num_parts):
-        upload_id = unique_id()
-        upload = 'obj/' + upload_id
+        ts = next(self.ts_iter)
+        upload_id = MPUId.create(ts)
+        upload = 'obj/' + str(upload_id)
         parts = [{'name': '%s/%d' % (upload, i),
-                  'created_at': next(self.ts_iter).normal,
+                  'created_at': ts.normal,
                   'content_type': 'text/plain',
                   'etag': 'etag_1',
                   'size': 1024,

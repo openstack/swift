@@ -66,13 +66,56 @@ def strip_mpu_sysmeta_prefix(key):
 
 
 def get_upload_id(req):
-    # TODO: add some validation
-    return req.params.get('upload-id')
+    """
+    Try to extract an upload id from request params.
+
+    :param req: an instance of swob.Request
+    :raises ValueError: if upload-id exists but is invalid
+    :returns: an instance of MPUId
+    """
+    if 'upload-id' in req.params:
+        return MPUId.parse(req.params['upload-id'])
+    return
 
 
 MPU_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
 MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
 MPU_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
+
+
+class MPUId(object):
+    __slots__ = ('uuid', 'timestamp')
+
+    def __init__(self, uuid, timestamp):
+        # don't call this: use either parse or create
+        self.uuid = uuid
+        self.timestamp = timestamp
+
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(str(self))
+
+    def __str__(self):
+        # MPU listing should be sorted by (<object name>, <creation time>)
+        # so we put the timestamp before the uuid.
+        return '_'.join((self.timestamp.internal, self.uuid))
+
+    @classmethod
+    def create(cls, timestamp):
+        return cls(generate_unique_id(), Timestamp(timestamp))
+
+    @classmethod
+    def parse(cls, value):
+        parts = value.strip().split('_', 1)
+        if not all(parts):
+            raise ValueError
+        try:
+            ts, uuid = parts
+        except IndexError:
+            raise ValueError
+        return cls(uuid, Timestamp(ts))
 
 
 class MPUSession(object):
@@ -304,7 +347,8 @@ class MPUHandler(BaseMPUHandler):
         #     # Note that we can still run into trouble where the MPU is just
         #     # within the limit, which means the segment names will go over
         #     raise KeyTooLongError()
-        upload_id = generate_unique_id()
+
+        upload_id = MPUId.create(self.req.ensure_x_timestamp())
 
         self._ensure_container_exists(self.sessions_container)
         self._ensure_container_exists(self.manifests_container)
@@ -322,7 +366,7 @@ class MPUHandler(BaseMPUHandler):
         session_resp = session_req.get_response(self.app)
         if session_resp.is_success:
             drain_and_close(session_resp)
-            resp_headers = {'X-Upload-Id': upload_id}
+            resp_headers = {'X-Upload-Id': str(upload_id)}
             resp = HTTPOk(headers=resp_headers)
         else:
             self.logger.warning('MPU %s %s', session_resp.status,
@@ -368,13 +412,14 @@ class MPUSessionHandler(BaseMPUHandler):
         super(MPUSessionHandler, self).__init__(mw, req)
         self.user_container_info = self._check_user_container_exists()
         self.upload_id = get_upload_id(req)
-        self.session_name = '/'.join([self.reserved_obj, self.upload_id])
+        self.session_name = self.make_relative_path(
+            self.reserved_obj, self.upload_id)
         self.session_path = self.make_path(self.sessions_container,
                                            self.session_name)
         self.session = self._load_session()
         self.req.headers.setdefault('X-Timestamp', Timestamp.now().internal)
-        self.manifest_relative_path = '/'.join(
-            [self.manifests_container, self.reserved_obj, self.upload_id])
+        self.manifest_relative_path = self.make_relative_path(
+            self.manifests_container, self.reserved_obj, self.upload_id)
         self.manifest_path = self.make_path(self.manifest_relative_path)
 
     def _load_session(self):
@@ -538,7 +583,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # create manifest in hidden container
         manifest_headers = {
             ALLOW_RESERVED_NAMES: 'true',
-            MPU_UPLOAD_ID_KEY: self.upload_id,
+            MPU_UPLOAD_ID_KEY: str(self.upload_id),
             'X-Timestamp': self.session.created_timestamp.internal,
             'Accept': 'application/json',
             MPU_SYSMETA_ETAG_KEY: mpu_etag,
@@ -565,7 +610,7 @@ class MPUSessionHandler(BaseMPUHandler):
         mpu_path = self.make_path(self.container, self.obj)
         mpu_headers = {
             ALLOW_RESERVED_NAMES: 'true',
-            MPU_UPLOAD_ID_KEY: self.upload_id,
+            MPU_UPLOAD_ID_KEY: str(self.upload_id),
             'X-Timestamp': self.session.created_timestamp.internal,
             TGT_OBJ_SYMLINK_HDR: self.manifest_relative_path,
             'Content-Length': '0',
@@ -698,12 +743,17 @@ class MPUObjHandler(BaseMPUHandler):
                                                  []):
             if not is_success(backend_resp.status):
                 continue
-            # TODO: check that backend_resp has x-symlink-target and cross
+            # TODO: maybe add more conditions so we're sure it was MPU manifest
+            #   e.g. check that backend_resp has x-symlink-target and cross
             #   check its value with expected manifest path
-
-            upload_id = backend_resp.headers.get(upload_id_key)
-            if upload_id:
-                deleted_upload_ids[upload_id] = backend_resp
+            upload_id_val = backend_resp.headers.get(upload_id_key)
+            if upload_id_val:
+                try:
+                    upload_id = MPUId.parse(upload_id_val)
+                    deleted_upload_ids[upload_id] = backend_resp
+                except ValueError:
+                    # TODO: log a warning?
+                    pass
         for upload_id, backend_resp in deleted_upload_ids.items():
             # TODO: unit test multiple upload cleanup
             self._put_manifest_delete_marker(upload_id,
