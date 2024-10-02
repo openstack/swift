@@ -529,17 +529,19 @@ class TestRequestHelpers(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', headers={})
         self.assertFalse(rh.is_backend_open_expired(req))
 
-    def test_update_etag_override_header(self):
+    def test_update_etag_override_header_no_override(self):
         headers = {}
         rh.update_etag_override_header(headers)
         self.assertEqual({}, headers)
 
+    def test_update_etag_override_header_default(self):
         headers = {}
         rh.update_etag_override_header(headers, 'my-etag')
         self.assertEqual(
             {'X-Object-Sysmeta-Container-Update-Override-Etag': 'my-etag'},
             headers)
 
+    def test_update_etag_override_header_default_and_none_param(self):
         headers = {}
         rh.update_etag_override_header(headers, 'my-etag', [('x', None)])
         self.assertEqual(
@@ -547,6 +549,7 @@ class TestRequestHelpers(unittest.TestCase):
              'my-etag; x=None'},
             headers)
 
+    def test_update_etag_override_header_default_and_int_param(self):
         headers = {}
         rh.update_etag_override_header(headers, 'my-etag', [('x', 123)])
         self.assertEqual(
@@ -554,6 +557,7 @@ class TestRequestHelpers(unittest.TestCase):
              'my-etag; x=123'},
             headers)
 
+    def test_update_etag_override_header_default_and_multiple_param(self):
         headers = {}
         rh.update_etag_override_header(headers, 'my-etag',
                                        [('x', 123), ('y', 'foo')])
@@ -562,12 +566,32 @@ class TestRequestHelpers(unittest.TestCase):
              'my-etag; x=123; y=foo'},
             headers)
 
+    def test_update_etag_override_header_no_default_and_multiple_param(self):
         headers = {}
         rh.update_etag_override_header(headers, None,
                                        [('x', 123), ('y', 'foo')])
         self.assertEqual(
             {'X-Object-Sysmeta-Container-Update-Override-Etag':
              '; x=123; y=foo'},
+            headers)
+
+    def test_update_etag_override_header_existing_ignore_default(self):
+        headers = {'X-Object-Sysmeta-Container-Update-Override-Etag':
+                   'existing; a=b'}
+        rh.update_etag_override_header(headers, 'ignored')
+        self.assertEqual(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'existing; a=b'},
+            headers)
+
+    def test_update_etag_override_header_existing_append_new_params(self):
+        headers = {'X-Object-Sysmeta-Container-Update-Override-Etag':
+                   'existing; a=b'}
+        rh.update_etag_override_header(headers, 'ignored',
+                                       [('x', 123), ('y', 'foo')])
+        self.assertEqual(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'existing; a=b; x=123; y=foo'},
             headers)
 
 

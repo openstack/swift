@@ -247,7 +247,7 @@ class BaseMPUHandler(object):
         self._authorize_request('write_acl')
 
     def make_relative_path(self, *parts):
-        return '/'.join([str(p) for p in parts])
+        return '/'.join(str(p) for p in parts)
 
     def make_path(self, *parts):
         return '/'.join(
@@ -383,7 +383,7 @@ class MPUSloCallbackHandler(object):
         self.too_small_message = ('MPU part must be at least %d bytes' %
                                   self.mw.min_part_size)
 
-    def part_size_checker(self, slo_manifest):
+    def __call__(self, slo_manifest):
         # Check the size of each segment except the last and make sure
         # they are all more than the minimum upload chunk size.
         # Note that we need to use the *internal* keys, since we're
@@ -607,7 +607,7 @@ class MPUSessionHandler(BaseMPUHandler):
             params={'multipart-manifest': 'put', 'heartbeat': 'on'})
         slo_callback_handler = MPUSloCallbackHandler(self.mw)
         manifest_req.environ['swift.callback.slo_manifest_hook'] = \
-            slo_callback_handler.part_size_checker
+            slo_callback_handler
         return manifest_req.get_response(self.app), slo_callback_handler
 
     def _put_symlink(self, mpu_etag, mpu_bytes):
@@ -627,7 +627,6 @@ class MPUSessionHandler(BaseMPUHandler):
         mpu_req = self.make_subrequest(
             path=mpu_path, method='PUT', headers=mpu_headers)
         mpu_resp = mpu_req.get_response(self.app)
-        drain_and_close(mpu_resp)
         return mpu_resp
 
     def _make_complete_upload_resp_iter(self, manifest, mpu_etag):
@@ -671,6 +670,7 @@ class MPUSessionHandler(BaseMPUHandler):
                 #   symlink before the auditor handles the aborted session.
                 mpu_bytes = slo_callback_handler.total_bytes
                 mpu_resp = self._put_symlink(mpu_etag, mpu_bytes)
+                drain_and_close(mpu_resp)
                 if mpu_resp.status_int == 201:
                     yield manifest_resp_body
                     # TODO: move _delete_session before the yield??
