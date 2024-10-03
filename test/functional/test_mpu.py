@@ -18,6 +18,8 @@ from unittest import SkipTest
 from uuid import uuid4
 
 import test.functional as tf
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import normalize_etag
 from swift.common.utils import md5
 from test.functional import ResponseError
 
@@ -77,10 +79,13 @@ class BaseTestMPU(unittest.TestCase):
                         container=self.user_cont)
         self.assertEqual(resp.status, 204)
 
-    def _create_mpu(self, name, container=None, use_account=1, url_account=1):
+    def _create_mpu(self, name, container=None, use_account=1, url_account=1,
+                    extra_create_headers=None):
         container = container or self.user_cont
+        headers = HeaderKeyDict({'Content-Type': 'application/test'})
+        headers.update(extra_create_headers or {})
         return tf.retry(self._make_request, method='POST',
-                        headers={'Content-Type': 'application/test'},
+                        headers=headers,
                         container=container, obj=name,
                         query_string='uploads', use_account=use_account,
                         url_account=url_account)
@@ -130,9 +135,10 @@ class BaseTestMPU(unittest.TestCase):
                         query_string='upload-id=%s' % upload_id,
                         use_account=use_account, url_account=url_account)
 
-    def _make_mpu(self, name):
+    def _make_mpu(self, name, extra_create_headers=None):
         # create an mpu
-        resp = self._create_mpu(name)
+        resp = self._create_mpu(name,
+                                extra_create_headers=extra_create_headers)
         self.assertEqual(200, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
@@ -146,12 +152,13 @@ class BaseTestMPU(unittest.TestCase):
         hasher = md5(usedforsecurity=False)
         for part_hash in part_hashes:
             hasher.update(part_hash)
-        self.expected_etag = hasher.hexdigest()
+        expected_mpu_etag = hasher.hexdigest()
         resp = self._complete_mpu(name, upload_id, etags)
         self.assertEqual(200, resp.status)
         resp_dict = json.loads(resp.content)
         self.assertIn('Etag', resp_dict)
-        return resp_dict['Etag']
+        self.assertEqual(expected_mpu_etag, normalize_etag(resp_dict['Etag']))
+        return upload_id, expected_mpu_etag
 
 
 class TestMpu(BaseTestMPU):
@@ -234,6 +241,18 @@ class TestMpu(BaseTestMPU):
         self.assertEqual(part_1, resp.content[:5 * 1024 * 1024])
         self.assertEqual(part_2, resp.content[-5 * 1024 * 1024:])
 
+    def test_make_mpu_no_user_content_type(self):
+        name = uuid4().hex
+        upload_id, exp_mpu_etag = self._make_mpu(
+            name, extra_create_headers={'content_type': None})
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(exp_mpu_etag,
+                         normalize_etag(resp.getheader('Etag')))
+        self.assertEqual('application/test',
+                         resp.getheader('Content-Type'))
+
     def test_create_mpu_via_container_acl(self):
         # other account cannot create mpu without acl
         name = uuid4().hex
@@ -314,14 +333,15 @@ class TestExistingMPU(BaseTestMPU):
     # all tests in this class use the same pre-existing MPU, created once
     # during a call to setUp()
     user_cont = uuid4().hex
-    user_obj = user_obj_etag = None
+    user_obj = user_obj_etag = upload_id = None
 
     def setUp(self):
         super(TestExistingMPU, self).setUp()
         # ...but only create an mpu once
         if not TestExistingMPU.user_obj:
             TestExistingMPU.user_obj = uuid4().hex
-            TestExistingMPU.user_obj_etag = self._make_mpu(self.user_obj)
+            TestExistingMPU.upload_id, TestExistingMPU.user_obj_etag = \
+                self._make_mpu(self.user_obj)
 
     def _verify_listing(self, resp):
         self.assertEqual('1', resp.headers['X-Container-Object-Count'])

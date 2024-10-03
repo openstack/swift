@@ -17,6 +17,7 @@ import json
 
 import six
 
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES
@@ -42,15 +43,13 @@ MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
 MPU_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
 MPU_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-mpu-'
-# TODO: application/directory is used in s3api but why?
-MPU_CONTENT_TYPE = 'application/x-mpu'
-MPU_ABORTED_CONTENT_TYPE = 'application/x-mpu-aborted'
+MPU_SESSION_CONTENT_TYPE = 'application/x-mpu-session'
+MPU_SESSION_ABORTED_CONTENT_TYPE = 'application/x-mpu-session-aborted'
+MPU_MANIFEST_DEFAULT_CONTENT_TYPE = 'application/x-mpu'
 MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
 MPU_GENERIC_MARKER_SUFFIX = 'marker'
 MPU_DELETED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-deleted'
 MPU_ABORTED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-aborted'
-
-MPU_SYMLINK_DEFAULT_CONTENT_TYPE = 'application/x-mpu'
 
 
 def get_mpu_sysmeta_key(key):
@@ -127,7 +126,6 @@ class MPUId(object):
 class MPUSession(object):
     CREATED_TIMESTAMP_KEY = 'X-Backend-Data-Timestamp'
     TIMESTAMP_KEY = 'X-Timestamp'
-    HAS_USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('has-content-type')
     USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('content-type')
     STATE_KEY = get_mpu_transient_sysmeta_key('state')
     CREATED_STATE = 'created'
@@ -142,11 +140,11 @@ class MPUSession(object):
         self.timestamp = Timestamp(self.headers.get(self.TIMESTAMP_KEY, 0))
         self._state = session_headers.get(self.STATE_KEY, self.CREATED_STATE)
         self.content_type = session_headers.get('content-type',
-                                                MPU_CONTENT_TYPE)
+                                                MPU_SESSION_CONTENT_TYPE)
 
     @property
     def is_aborted(self):
-        return self.content_type == MPU_ABORTED_CONTENT_TYPE
+        return self.content_type == MPU_SESSION_ABORTED_CONTENT_TYPE
 
     @property
     def state(self):
@@ -164,26 +162,17 @@ class MPUSession(object):
                 self.STATE_KEY: self.state,
                 'Content-Type': self.content_type}
 
-    def get_manifest_headers(self):
-        manifest_headers = {}
+    def get_user_metadata(self):
+        # TODO: add x-delete-at
+        user_metadata = {}
         for key, val in self.headers.items():
             stripped_key = strip_mpu_sysmeta_prefix(key)
             if is_user_meta('object', stripped_key):
-                manifest_headers[stripped_key] = val
-            if (key.lower() == self.HAS_USER_CONTENT_TYPE_KEY and
-                    val == 'yes'):
-                manifest_headers['content-type'] = self.headers.get(
-                    self.USER_CONTENT_TYPE_KEY)
-        return manifest_headers
+                user_metadata[stripped_key] = val
+        return user_metadata
 
-    def get_symlink_headers(self):
-        symlink_headers = {}
-        if self.HAS_USER_CONTENT_TYPE_KEY in self.headers:
-            symlink_headers['content-type'] = self.headers.get(
-                self.USER_CONTENT_TYPE_KEY)
-        else:
-            symlink_headers['content-type'] = MPU_SYMLINK_DEFAULT_CONTENT_TYPE
-        return symlink_headers
+    def get_user_content_type(self, default=None):
+        return self.headers.get(self.USER_CONTENT_TYPE_KEY, default)
 
     @classmethod
     def create(cls, user_headers):
@@ -192,13 +181,11 @@ class MPUSession(object):
         session_headers = {
             'Content-Length': '0',
             cls.STATE_KEY: cls.CREATED_STATE,
-            cls.HAS_USER_CONTENT_TYPE_KEY: 'no',
-            'Content-Type': MPU_CONTENT_TYPE}
+            'Content-Type': MPU_SESSION_CONTENT_TYPE}
         for k, v in user_headers.items():
             if is_user_meta('object', k):
                 session_headers[get_mpu_sysmeta_key(k)] = v
             if k.lower() == 'content-type':
-                session_headers[cls.HAS_USER_CONTENT_TYPE_KEY] = 'yes'
                 session_headers[cls.USER_CONTENT_TYPE_KEY] = v
             if k.lower() == 'x-timestamp':
                 session_headers['x-timestamp'] = v
@@ -318,7 +305,7 @@ class MPUHandler(BaseMPUHandler):
         if resp.is_success:
             listing = []
             for item in json.loads(resp.body):
-                if item['content_type'] != MPU_CONTENT_TYPE:
+                if item['content_type'] != MPU_SESSION_CONTENT_TYPE:
                     continue
                 item['name'] = split_reserved_name(item['name'])[0]
                 listing.append(item)
@@ -503,7 +490,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # Update the session to be marked as aborted. This will prevent any
         # subsequent complete operation from proceeding.
         self.session.timestamp = self.req.timestamp
-        self.session.content_type = MPU_ABORTED_CONTENT_TYPE
+        self.session.content_type = MPU_SESSION_ABORTED_CONTENT_TYPE
         session_req = self.make_subrequest(
             'POST', path=self.session_path,
             headers=self.session.get_post_headers())
@@ -593,17 +580,24 @@ class MPUSessionHandler(BaseMPUHandler):
     def _put_manifest(self, manifest, mpu_etag):
         # create manifest in hidden container
         manifest_headers = {
-            ALLOW_RESERVED_NAMES: 'true',
-            MPU_UPLOAD_ID_KEY: str(self.upload_id),
             'X-Timestamp': self.session.created_timestamp.internal,
             'Accept': 'application/json',
+            'Content-Type': self.session.get_user_content_type(
+                default=MPU_MANIFEST_DEFAULT_CONTENT_TYPE),
+            ALLOW_RESERVED_NAMES: 'true',
+            MPU_UPLOAD_ID_KEY: str(self.upload_id),
             MPU_SYSMETA_ETAG_KEY: mpu_etag,
             MPU_PARTS_COUNT_KEY: len(manifest),
-            # TODO: include max part index in sysmeta to detect "pure" manifest
+            # TODO: include max part index in sysmeta.
+            #   There *may* turn out to be situations where knowing that
+            #   max part index is useful/enable optimisation. For example,
+            #   if parts_count == max part index then we know that the index of
+            #   every part in the manifest is equal to the part number used
+            #   when it was uploaded i.e. we can infer the path to a part
+            #   without a GET for the manifest body.
         }
-        manifest_headers.update(self.session.get_manifest_headers())
-        # append the MPU etag to any existing container override sysmeta for
-        # the manifest; this will be forwarded to the user container
+        manifest_headers.update(self.session.get_user_metadata())
+        # set the MPU etag override to be forwarded to the manifest container
         update_etag_override_header(
             manifest_headers, mpu_etag, [('mpu_etag', mpu_etag)])
 
@@ -618,20 +612,21 @@ class MPUSessionHandler(BaseMPUHandler):
 
     def _put_symlink(self, mpu_etag, mpu_bytes):
         # create symlink in user container pointing to manifest
-        mpu_path = self.make_path(self.container, self.obj)
-        mpu_headers = {
+        symlink_path = self.make_path(self.container, self.obj)
+        symlink_headers = HeaderKeyDict({
+            'X-Timestamp': self.session.created_timestamp.internal,
+            'Content-Length': '0',
+            'Content-Type': self.session.get_user_content_type(default=None),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_UPLOAD_ID_KEY: str(self.upload_id),
-            'X-Timestamp': self.session.created_timestamp.internal,
             TGT_OBJ_SYMLINK_HDR: self.manifest_relative_path,
-            'Content-Length': '0',
-        }
+        })
+        # set the MPU etag override to be forwarded to the user container
         update_etag_override_header(
-            mpu_headers, mpu_etag,
+            symlink_headers, mpu_etag,
             [('mpu_etag', mpu_etag), ('mpu_bytes', mpu_bytes)])
-        mpu_headers.update(self.session.get_symlink_headers())
         mpu_req = self.make_subrequest(
-            path=mpu_path, method='PUT', headers=mpu_headers)
+            path=symlink_path, method='PUT', headers=symlink_headers)
         mpu_resp = mpu_req.get_response(self.app)
         return mpu_resp
 

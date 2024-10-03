@@ -21,6 +21,7 @@ from six.moves import urllib
 import mock
 
 from swift.common import swob
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
@@ -170,18 +171,20 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ]
         return expected
 
-    def _setup_mpu_existence_check_call(self, ts_session):
+    def _setup_mpu_existence_check_call(self, ts_session, extra_headers=None):
         ts_other = next(self.ts_iter)
+        headers = HeaderKeyDict({
+            'X-Timestamp': ts_other.internal,
+            'Content-Type': 'application/x-mpu-session',
+            'X-Backend-Data-Timestamp': ts_session.internal,
+            'X-Object-Transient-Sysmeta-Mpu-State': 'created',
+            'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
+            'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
+        })
+        headers.update(extra_headers or {})
         call = ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
                 HTTPOk,
-                {'X-Timestamp': ts_other.internal,
-                 'Content-Type': 'application/x-mpu',
-                 'X-Backend-Data-Timestamp': ts_session.internal,
-                 'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-                 'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
-                 'X-Object-Sysmeta-Mpu-Has-Content-Type': 'yes',
-                 'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
-                 })
+                headers)
         self.app.register(*call)
         self.exp_calls.append(call)
 
@@ -209,14 +212,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self._do_test_create_mpu(req_headers)
         self.assertEqual(
             {'Content-Length': '0',
-             'Content-Type': 'application/x-mpu',
+             'Content-Type': 'application/x-mpu-session',
              'X-Timestamp': ts_now.internal,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
-             'X-Object-Sysmeta-Mpu-Has-Content-Type': 'no'},
+             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah'},
             self.app.headers[-1])
 
     def test_create_mpu_with_x_timestamp(self):
@@ -226,14 +228,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._do_test_create_mpu(req_headers)
         self.assertEqual(
             {'Content-Length': '0',
-             'Content-Type': 'application/x-mpu',
+             'Content-Type': 'application/x-mpu-session',
              'X-Timestamp': ts_now.internal,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
-             'X-Object-Sysmeta-Mpu-Has-Content-Type': 'no'},
+             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah'},
             self.app.headers[-1])
 
     def test_create_mpu_with_content_type(self):
@@ -242,14 +243,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._do_test_create_mpu(headers)
         self.assertEqual(
             {'Content-Length': '0',
-             'Content-Type': 'application/x-mpu',
+             'Content-Type': 'application/x-mpu-session',
              'X-Timestamp': mock.ANY,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
              'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
-             'X-Object-Sysmeta-Mpu-Has-Content-Type': 'yes',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/test'},
             self.app.headers[-1])
 
@@ -259,23 +259,23 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'name': '\x00obj1/%s' % next(self.id_iter),
              'hash': 'etag',
              'bytes': 0,
-             'content_type': 'application/x-mpu',
+             'content_type': 'application/x-mpu-session',
              'last_modified': '1970-01-01T00:00:00.000000'},
             {'name': '\x00obj1/%s' % next(self.id_iter),
              'hash': 'etag',
              'bytes': 0,
-             'content_type': 'application/x-mpu',
+             'content_type': 'application/x-mpu-session',
              'last_modified': '1970-01-01T00:00:00.000000'},
             {'name': '\x00obj2/%s' % next(self.id_iter),
              'hash': 'etag',
              'bytes': 0,
-             'content_type': 'application/x-mpu',
+             'content_type': 'application/x-mpu-session',
              'last_modified': '1970-01-01T00:00:00.000000'},
             # aborted
             {'name': '\x00obj3/%s' % next(self.id_iter),
              'hash': 'etag',
              'bytes': 0,
-             'content_type': 'application/x-mpu-aborted',
+             'content_type': 'application/x-mpu-session-aborted',
              'last_modified': '1970-01-01T00:00:00.000000'},
         ]
         exp_listing = [dict(item, name=item['name'][1:])
@@ -300,7 +300,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPOk,
              {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu',
+              'Content-Type': 'application/x-mpu-session',
               'X-Object-Transient-Sysmeta-Mpu-State': 'created'}),
             ('PUT',
              '/v1/a/\x00mpu_parts\x00c/\x00o/%s/1' % self.mpu_id,
@@ -327,7 +327,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPOk,
              {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu',
+              'Content-Type': 'application/x-mpu-session',
               'X-Object-Transient-Sysmeta-Mpu-State': 'completing'}
              ),
         ]
@@ -347,7 +347,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPOk,
              {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu-aborted',
+              'Content-Type': 'application/x-mpu-session-aborted',
               'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
              ),
         ]
@@ -392,7 +392,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPOk,
              {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu'}),
+              'Content-Type': 'application/x-mpu-session'}),
             ('GET', '/v1/a/\x00mpu_parts\x00c',
              HTTPOk,
              {},
@@ -472,7 +472,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
         session_hdrs = self.app.headers[3]
         self.assertEqual(
-            {'Content-Type': 'application/x-mpu',
+            {'Content-Type': 'application/x-mpu-session',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
@@ -525,6 +525,64 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  '%s; mpu_etag=%s; mpu_bytes=0' % (exp_mpu_etag, exp_mpu_etag),
              'X-Timestamp': ts_session.internal},
             mpu_hdrs)
+
+    def test_complete_mpu_no_user_content_type(self):
+        # verify that manifest is PUT with default content-type and symlink is
+        # PUT with no content-type (proxy will guess one)
+        ts_session = next(self.ts_iter)
+        # remove user content type sysmeta from session HEAD response...
+        extra_session_headers = {'X-Object-Sysmeta-Mpu-Content-Type': None}
+        self._setup_mpu_existence_check_call(
+            ts_session, extra_headers=extra_session_headers)
+        ts_complete = next(self.ts_iter)
+        put_slo_resp_body = {'Response Status': '201 Created',
+                             'Etag': 'slo-etag'}
+        registered_calls = [
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s?'
+             'heartbeat=on&multipart-manifest=put' % self.mpu_id,
+             HTTPAccepted,
+             {},
+             json.dumps(put_slo_resp_body).encode('ascii')),
+            ('PUT', '/v1/a/c/o', HTTPCreated, {}),
+            ('DELETE',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPAccepted,
+             {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        mpu_manifest = [
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ]
+        mpu_etag_hasher = md5(usedforsecurity=False)
+        for part in mpu_manifest:
+            mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
+        req.body = json.dumps(mpu_manifest)
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(200, resp.status_int)
+        resp_dict = json.loads(resp_body)
+        self.assertEqual(
+            {"Response Status": "201 Created", "Etag": "slo-etag"}, resp_dict)
+        expected = [call[:2]
+                    for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+        manifest_hdrs = self.app.headers[4]
+        self.assertEqual('application/x-mpu',
+                         manifest_hdrs.get('Content-Type'))
+        mpu_hdrs = self.app.headers[5]
+        self.assertNotIn('Content-Type', mpu_hdrs)
 
     def test_complete_mpu_symlink_put_fails(self):
         ts_session = next(self.ts_iter)
@@ -700,7 +758,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPOk,
              {'X-Timestamp': ts_aborted.internal,
-              'Content-Type': 'application/x-mpu-aborted',
+              'Content-Type': 'application/x-mpu-session-aborted',
               'X-Backend-Data-Timestamp': ts_session.internal,
               'X-Object-Transient-Sysmeta-Mpu-State': 'created',
               }),
@@ -753,11 +811,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_abort = next(self.ts_iter)
         session_resp_headers = {
             'X-Timestamp': ts_other.internal,
-            'Content-Type': 'application/x-mpu',
+            'Content-Type': 'application/x-mpu-session',
             'X-Backend-Data-Timestamp': ts_session.internal,
             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
-            'X-Object-Sysmeta-Mpu-Has-Content-Type': 'yes',
             'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
         }
         if extra_session_resp_headers:
@@ -804,7 +861,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         extra_hdrs = {'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
         session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
         self.assertEqual(
-            {'Content-Type': 'application/x-mpu-aborted',
+            {'Content-Type': 'application/x-mpu-session-aborted',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
@@ -817,7 +874,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         extra_hdrs = {'X-Object-Transient-Sysmeta-Mpu-State': 'completing'}
         session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
         self.assertEqual(
-            {'Content-Type': 'application/x-mpu-aborted',
+            {'Content-Type': 'application/x-mpu-session-aborted',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
@@ -827,10 +884,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_abort_mpu_session_aborted(self):
         # verify it's ok to abort an already aborted session
-        extra_hdrs = {'Content-Type': 'application/x-mpu-aborted'}
+        extra_hdrs = {'Content-Type': 'application/x-mpu-session-aborted'}
         session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
         self.assertEqual(
-            {'Content-Type': 'application/x-mpu-aborted',
+            {'Content-Type': 'application/x-mpu-session-aborted',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
