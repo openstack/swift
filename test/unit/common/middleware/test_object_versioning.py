@@ -1828,7 +1828,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         }, '')
         self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)
@@ -1848,7 +1848,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         for k, v in symlink_expected_headers.items():
             self.assertEqual(obj_put_headers[k], v)
 
-    def test_PUT_version_with_body(self):
+    def test_PUT_version_with_non_empty_body(self):
         req = Request.blank(
             '/v1/a/c/o', method='PUT', body='foo',
             environ={'swift.cache': self.cache_version_on},
@@ -1856,13 +1856,30 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '400 Bad Request')
 
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body='foo',
+            environ={'swift.cache': self.cache_version_on,
+                     'HTTP_TRANSFER_ENCODING': 'chunked',
+                     'CONTENT_LENGTH': None},
+            params={'version-id': '1'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '400 Bad Request')
+
+    def test_PUT_version_with_no_length_or_encoding(self):
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT',
+            environ={'swift.cache': self.cache_version_on},
+            params={'version-id': '1'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '411 Length Required')
+
     def test_PUT_version_not_found(self):
         timestamp = next(self.ts)
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)
@@ -1875,7 +1892,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on_but_busted},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)
@@ -2208,7 +2225,7 @@ class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
         }, '')
         self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_off},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)

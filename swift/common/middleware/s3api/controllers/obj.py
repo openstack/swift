@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from io import BytesIO
 import json
 
 from swift.common import constraints
@@ -246,6 +247,11 @@ class ObjectController(Controller):
                 query['symlink'] = 'get'
 
             resp = req.get_response(self.app, query=query)
+            # If we're going to continue using this request, we need to
+            # replace the now-spent body
+            req.environ['wsgi.input'] = BytesIO(b'')
+            req.headers['content-length'] = '0'
+            req.headers.pop('transfer-encoding', None)
             if query.get('multipart-manifest') and resp.status_int == HTTP_OK:
                 for chunk in resp.app_iter:
                     pass  # drain the bulk-deleter response
