@@ -1575,6 +1575,14 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEqual(trans_id[23], '-')
             self.assertEqual(int(trans_id[24:34], 16), int(fake_time))
 
+    def test_generate_unique_id(self):
+        id1 = utils.generate_unique_id()
+        self.assertEqual(24, len(id1))
+        id2 = utils.generate_unique_id()
+        self.assertEqual(24, len(id2))
+        self.assertNotEqual(id1, id2)
+        print(id1)
+
     def test_get_trans_id_time(self):
         ts = utils.get_trans_id_time('tx8c8bc884cdaf499bb29429aa9c46946e')
         self.assertIsNone(ts)
