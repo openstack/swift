@@ -30,10 +30,10 @@ from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
-    RateLimitedIterator, distribute_evenly, \
+    RateLimitedIterator, distribute_evenly, get_prefixed_logger, \
     non_negative_float, non_negative_int, config_auto_int_value, \
     dump_recon_cache, get_partition_from_path, get_hub
-from swift.common.utils.logs import SwiftLogAdapter, get_prefixed_logger
+from swift.common.utils.logs import SwiftLogAdapter
 from swift.obj import diskfile
 from swift.common.recon import RECON_RELINKER_FILE, DEFAULT_RECON_CACHE_PATH
 
