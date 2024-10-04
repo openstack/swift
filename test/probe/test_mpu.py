@@ -505,7 +505,7 @@ class TestNativeMPU(BaseTestMPU):
             self.url, self.token, self.bucket_name, query_string='uploads')
         self.assertEqual(['%s/%s' % (self.mpu_name, upload_id)],
                          [o['name'] for o in listing])
-        self.assertEqual(['application/x-mpu-session'],
+        self.assertEqual(['application/x-mpu-session-created'],
                          [o['content_type'] for o in listing])
         # upload part
         part_size = 5 * 2 ** 20

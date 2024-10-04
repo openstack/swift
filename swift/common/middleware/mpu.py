@@ -44,8 +44,9 @@ MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
 MPU_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
 MPU_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-mpu-'
-MPU_SESSION_CONTENT_TYPE = 'application/x-mpu-session'
+MPU_SESSION_CREATED_CONTENT_TYPE = 'application/x-mpu-session-created'
 MPU_SESSION_ABORTED_CONTENT_TYPE = 'application/x-mpu-session-aborted'
+MPU_SESSION_COMPLETED_CONTENT_TYPE = 'application/x-mpu-session-completed'
 MPU_MANIFEST_DEFAULT_CONTENT_TYPE = 'application/x-mpu'
 MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
 MPU_GENERIC_MARKER_SUFFIX = 'marker'
@@ -138,6 +139,26 @@ class MPUId(object):
 
 
 class MPUSession(object):
+    """
+    Encapsulates the state of an MPU session as it progresses from being
+    created to being either completed or aborted.
+
+    Session state is represented by the session object's content-type so that
+    it appears in both the object's metadata and the container listing.
+
+    A new session is in state 'created'. The state may transition to either
+    'aborted' or 'completed'.
+
+    The 'aborted' state is tentative. A client abortUpload request may cause a
+    session to transition to the 'aborted' state while a concurrent
+    completeUpload is being handled, and the completeUpload will typically
+    continue to succeed. The mpu-auditor is responsible for resolving any
+    ambiguity.
+
+    The 'completed' state is definitive: a session only transitions to the
+    'completed' state at the end of a completeUpload, after the associated
+    user-namespace object has been linked to a manifest object.
+    """
     CREATED_TIMESTAMP_KEY = 'X-Backend-Data-Timestamp'
     TIMESTAMP_KEY = 'X-Timestamp'
     USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('content-type')
@@ -146,19 +167,78 @@ class MPUSession(object):
     COMPLETING_STATE = 'completing'
     STATES = (CREATED_STATE, COMPLETING_STATE)
 
-    def __init__(self, session_headers):
-        self.headers = session_headers
-        # TODO: validate headers
+    def __init__(self, name,
+                 timestamp,
+                 content_type=MPU_SESSION_CREATED_CONTENT_TYPE,
+                 state=CREATED_STATE, headers=None):
+        self.name = name
+        self.timestamp = timestamp
+        self.content_type = content_type
+        # TODO: _state is going to go away in a following patch when the
+        #   mpu-auditor learns to deal with sessions
+        self._state = state
+        self.headers = HeaderKeyDict(headers)
         self.created_timestamp = Timestamp(self.headers.get(
-            self.CREATED_TIMESTAMP_KEY, 0))
-        self.timestamp = Timestamp(self.headers.get(self.TIMESTAMP_KEY, 0))
-        self._state = session_headers.get(self.STATE_KEY, self.CREATED_STATE)
-        self.content_type = session_headers.get('content-type',
-                                                MPU_SESSION_CONTENT_TYPE)
+            self.CREATED_TIMESTAMP_KEY, timestamp))
+
+    @classmethod
+    def from_user_headers(cls, name, headers):
+        """
+        Creates an ``MPUSession`` object for a new session from the headers
+        provided with a client createUpload request. The content-type and any
+        x-object-meta-* headers found in the given ``headers`` are translated
+        to session sysmeta when the session is persisted. These will be used
+        during completeUpload to set the content-type and user metadata of the
+        user-namespace object.
+
+        :param name: the unique name of the session
+        :param headers: a dict of headers
+        """
+        headers = HeaderKeyDict(headers)
+        timestamp = Timestamp(headers.get(cls.TIMESTAMP_KEY, 0))
+        backend_headers = {}
+        for k, v in headers.items():
+            # User metadata is stored as sysmeta on the session because it must
+            # persist when there are subsequent POSTs to the session.
+            k = k.lower()
+            if is_user_meta('object', k):
+                backend_headers[get_mpu_sysmeta_key(k)] = v
+            if k.lower() == 'content-type':
+                backend_headers[cls.USER_CONTENT_TYPE_KEY] = v
+        return cls(name, timestamp, headers=backend_headers)
+
+    @classmethod
+    def from_backend_headers(cls, name, headers):
+        """
+        Creates an ``MPUSession`` object for an existing session from the
+        headers returned with a backend session HEAD request.
+
+        :param name: the unique name of the session
+        :param headers: a dict of headers
+        """
+        timestamp = Timestamp(headers.get(cls.TIMESTAMP_KEY, 0))
+        state = headers.get(cls.STATE_KEY)
+        content_type = headers.get('content-type')
+        return cls(name, timestamp, content_type=content_type, state=state,
+                   headers=headers)
+
+    @property
+    def is_active(self):
+        return self.content_type == MPU_SESSION_CREATED_CONTENT_TYPE
 
     @property
     def is_aborted(self):
         return self.content_type == MPU_SESSION_ABORTED_CONTENT_TYPE
+
+    def set_aborted(self):
+        self.content_type = MPU_SESSION_ABORTED_CONTENT_TYPE
+
+    @property
+    def is_completed(self):
+        return self.content_type == MPU_SESSION_COMPLETED_CONTENT_TYPE
+
+    def set_completed(self):
+        self.content_type = MPU_SESSION_COMPLETED_CONTENT_TYPE
 
     @property
     def state(self):
@@ -171,10 +251,20 @@ class MPUSession(object):
             raise ValueError
         self._state = state
 
+    def get_put_headers(self):
+        headers = HeaderKeyDict({
+            self.TIMESTAMP_KEY: self.timestamp.internal,
+            self.STATE_KEY: self.state,
+            'Content-Type': self.content_type,
+            'Content-Length': '0'})
+        headers.update(self.headers)
+        return headers
+
     def get_post_headers(self):
-        return {self.TIMESTAMP_KEY: self.timestamp.internal,
-                self.STATE_KEY: self.state,
-                'Content-Type': self.content_type}
+        return HeaderKeyDict(
+            {self.TIMESTAMP_KEY: self.timestamp.internal,
+             self.STATE_KEY: self.state,
+             'Content-Type': self.content_type})
 
     def get_user_metadata(self):
         # TODO: add x-delete-at
@@ -187,23 +277,6 @@ class MPUSession(object):
 
     def get_user_content_type(self, default=None):
         return self.headers.get(self.USER_CONTENT_TYPE_KEY, default)
-
-    @classmethod
-    def create(cls, user_headers):
-        # User metadata is stored as sysmeta on the session because it must
-        # persist when there are subsequent POSTs to the session.
-        session_headers = {
-            'Content-Length': '0',
-            cls.STATE_KEY: cls.CREATED_STATE,
-            'Content-Type': MPU_SESSION_CONTENT_TYPE}
-        for k, v in user_headers.items():
-            if is_user_meta('object', k):
-                session_headers[get_mpu_sysmeta_key(k)] = v
-            if k.lower() == 'content-type':
-                session_headers[cls.USER_CONTENT_TYPE_KEY] = v
-            if k.lower() == 'x-timestamp':
-                session_headers['x-timestamp'] = v
-        return MPUSession(session_headers)
 
 
 class BaseMPUHandler(object):
@@ -319,7 +392,7 @@ class MPUHandler(BaseMPUHandler):
         if resp.is_success:
             listing = []
             for item in json.loads(resp.body):
-                if item['content_type'] != MPU_SESSION_CONTENT_TYPE:
+                if item['content_type'] != MPU_SESSION_CREATED_CONTENT_TYPE:
                     continue
                 item['name'] = split_reserved_name(item['name'])[0]
                 listing.append(item)
@@ -356,20 +429,18 @@ class MPUHandler(BaseMPUHandler):
         #     # within the limit, which means the segment names will go over
         #     raise KeyTooLongError()
 
-        upload_id = MPUId.create(self.req.ensure_x_timestamp())
-
         self._ensure_container_exists(self.sessions_container)
         self._ensure_container_exists(self.manifests_container)
         self._ensure_container_exists(self.parts_container)
 
-        self.req.ensure_x_timestamp()
+        upload_id = MPUId.create(self.req.ensure_x_timestamp())
         self.req.headers.pop('Etag', None)
         self.req.headers.pop('Content-Md5', None)
-        path = self.make_path(
-            self.sessions_container, self.reserved_obj, upload_id)
-        session = MPUSession.create(self.req.headers)
+        session_name = self.make_relative_path(self.reserved_obj, upload_id)
+        session_path = self.make_path(self.sessions_container, session_name)
+        session = MPUSession.from_user_headers(session_name, self.req.headers)
         session_req = self.make_subrequest(
-            path=path, method='PUT', headers=session.headers, body=b'')
+            path=session_path, method='PUT', headers=session.get_put_headers())
 
         session_resp = session_req.get_response(self.app)
         if session_resp.is_success:
@@ -438,7 +509,8 @@ class MPUSessionHandler(BaseMPUHandler):
         elif not resp.is_success:
             raise HTTPInternalServerError()
 
-        session = MPUSession(resp.headers)
+        session = MPUSession.from_backend_headers(self.session_name,
+                                                  resp.headers)
         return session
 
     def _delete_session(self):
@@ -524,7 +596,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # Update the session to be marked as aborted. This will prevent any
         # subsequent complete operation from proceeding.
         self.session.timestamp = self.req.timestamp
-        self.session.content_type = MPU_SESSION_ABORTED_CONTENT_TYPE
+        self.session.set_aborted()
         session_req = self.make_subrequest(
             'POST', path=self.session_path,
             headers=self.session.get_post_headers())
