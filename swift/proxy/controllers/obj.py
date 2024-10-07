@@ -1861,10 +1861,10 @@ class MIMEPutter(Putter):
 
     An HTTP PUT request that supports streaming.
     """
-    def __init__(self, conn, node, resp, req, connect_duration, watchdog,
+    def __init__(self, conn, node, resp, path, connect_duration, watchdog,
                  write_timeout, send_exception_handler, logger, mime_boundary,
                  multiphase=False):
-        super(MIMEPutter, self).__init__(conn, node, resp, req,
+        super(MIMEPutter, self).__init__(conn, node, resp, path,
                                          connect_duration, watchdog,
                                          write_timeout, send_exception_handler,
                                          logger)
@@ -1946,7 +1946,7 @@ class MIMEPutter(Putter):
         self.state = COMMIT_SENT
 
     @classmethod
-    def connect(cls, node, part, req, headers, watchdog, conn_timeout,
+    def connect(cls, node, part, path, headers, watchdog, conn_timeout,
                 node_timeout, write_timeout, send_exception_handler,
                 logger=None, need_multiphase=True, **kwargs):
         """
@@ -1985,7 +1985,7 @@ class MIMEPutter(Putter):
             headers['X-Backend-Obj-Multiphase-Commit'] = 'yes'
 
         conn, expect_resp, final_resp, connect_duration = cls._make_connection(
-            node, part, req, headers, conn_timeout, node_timeout)
+            node, part, path, headers, conn_timeout, node_timeout)
 
         if is_informational(expect_resp.status):
             continue_headers = HeaderKeyDict(expect_resp.getheaders())
@@ -2000,7 +2000,7 @@ class MIMEPutter(Putter):
             if need_multiphase and not can_handle_multiphase_put:
                 raise MultiphasePUTNotSupported()
 
-        return cls(conn, node, final_resp, req, connect_duration, watchdog,
+        return cls(conn, node, final_resp, path, connect_duration, watchdog,
                    write_timeout, send_exception_handler, logger,
                    mime_boundary, multiphase=need_multiphase)
 
