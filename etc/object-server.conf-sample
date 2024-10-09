@@ -528,6 +528,12 @@ use = egg:swift#backend_ratelimit
 # Must be an integer value greater than or equal to 0.
 # max_deferred_updates = 10000
 #
+# Maximum number of oldest async pending timestamps to track for each
+# account-container pair.
+# async_tracker_max_entries = 100
+# Maximum number of oldest async pending timestamps to dump to recon cache.
+# async_tracker_dump_count = 5
+#
 # slowdown will sleep that amount between objects. Deprecated; use
 # objects_per_second instead.
 # slowdown = 0.01

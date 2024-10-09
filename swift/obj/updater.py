@@ -22,6 +22,7 @@ import sys
 import time
 import uuid
 from random import random, shuffle
+from bisect import insort
 from collections import deque
 
 from eventlet import spawn, Timeout
@@ -215,6 +216,107 @@ class BucketizedUpdateSkippingLimiter(object):
     __next__ = next
 
 
+class OldestAsyncPendingTracker:
+    """
+    Manages the tracking of the oldest async pending updates for each
+    account-container pair using a sorted list for timestamps. Evicts the
+    newest pairs when t max_entries is reached. Supports retrieving the N
+    oldest async pending updates or calculating the age of the oldest pending
+    update.
+    """
+    def __init__(
+        self,
+        max_entries,
+    ):
+        self.max_entries = max_entries
+        self.sorted_entries = []
+        self.ac_to_timestamp = {}
+
+    def add_update(self, account, container, timestamp):
+        ac = (account, container)
+
+        if ac in self.ac_to_timestamp:
+            old_timestamp = self.ac_to_timestamp[ac]
+            # Only replace the existing timestamp if the new one is older
+            if timestamp < old_timestamp:
+                # Remove the old (timestamp, ac) from the
+                # sorted list
+                self.sorted_entries.remove((old_timestamp, ac))
+                # Insert the new (timestamp, ac) in the sorted order
+                insort(self.sorted_entries, (timestamp, ac))
+                # Update the ac_to_timestamp dictionary
+                self.ac_to_timestamp[ac] = timestamp
+        else:
+            # Insert the new (timestamp, ac) in the sorted order
+            insort(self.sorted_entries, (timestamp, ac))
+            self.ac_to_timestamp[ac] = timestamp
+
+        # Check size and evict the newest ac(s) if necessary
+        if (len(self.ac_to_timestamp) > self.max_entries):
+            # Pop the newest entry (largest timestamp)
+            _, newest_ac = (self.sorted_entries.pop())
+            del self.ac_to_timestamp[newest_ac]
+
+    def get_n_oldest_timestamp_acs(self, n):
+        oldest_entries = self.sorted_entries[:n]
+        return {
+            'oldest_count': len(oldest_entries),
+            'oldest_entries': [
+                {
+                    'timestamp': entry[0],
+                    'account': entry[1][0],
+                    'container': entry[1][1],
+                }
+                for entry in oldest_entries
+            ],
+        }
+
+    def get_oldest_timestamp(self):
+        if self.sorted_entries:
+            return float(self.sorted_entries[0][0])
+        return None
+
+    def get_oldest_timestamp_age(self):
+        current_time = time.time()
+        oldest_timestamp = self.get_oldest_timestamp()
+        if oldest_timestamp is not None:
+            return current_time - oldest_timestamp
+        return None
+
+    def reset(self):
+        self.sorted_entries = []
+        self.ac_to_timestamp = {}
+
+    def get_memory_usage(self):
+        return self._get_size(self)
+
+    def _get_size(self, obj, seen=None):
+        if seen is None:
+            seen = set()
+
+        obj_id = id(obj)
+        if obj_id in seen:
+            return 0
+        seen.add(obj_id)
+
+        size = sys.getsizeof(obj)
+
+        if isinstance(obj, dict):
+            size += sum(
+                self._get_size(k, seen) + self._get_size(v, seen)
+                for k, v in obj.items()
+            )
+        elif hasattr(obj, '__dict__'):
+            size += self._get_size(obj.__dict__, seen)
+        elif (
+            hasattr(obj, '__iter__')
+            and not isinstance(obj, (str, bytes, bytearray))
+        ):
+            size += sum(self._get_size(i, seen) for i in obj)
+
+        return size
+
+
 class SweepStats(object):
     """
     Stats bucket for an update sweep
@@ -333,7 +435,14 @@ class ObjectUpdater(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          DEFAULT_RECON_CACHE_PATH)
         self.rcache = os.path.join(self.recon_cache_path, RECON_OBJECT_FILE)
+        max_entries = config_positive_int_value(
+            conf.get('async_tracker_max_entries', 100)
+        )
+        self.dump_count = config_positive_int_value(
+            conf.get('async_tracker_dump_count', 5)
+        )
         self.stats = SweepStats()
+        self.oldest_async_pendings = OldestAsyncPendingTracker(max_entries)
         self.max_deferred_updates = non_negative_int(
             conf.get('max_deferred_updates', 10000))
         self.begin = time.time()
@@ -384,6 +493,7 @@ class ObjectUpdater(Daemon):
                     os.environ.pop('NOTIFY_SOCKET', None)
                     eventlet_monkey_patch()
                     self.stats.reset()
+                    self.oldest_async_pendings.reset()
                     forkbegin = time.time()
                     self.object_sweep(dev_path)
                     elapsed = time.time() - forkbegin
@@ -398,8 +508,7 @@ class ObjectUpdater(Daemon):
             elapsed = time.time() - self.begin
             self.logger.info('Object update sweep completed: %.02fs',
                              elapsed)
-            dump_recon_cache({'object_updater_sweep': elapsed},
-                             self.rcache, self.logger)
+            self.dump_recon(elapsed)
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
@@ -408,6 +517,7 @@ class ObjectUpdater(Daemon):
         self.logger.info('Begin object update single threaded sweep')
         self.begin = time.time()
         self.stats.reset()
+        self.oldest_async_pendings.reset()
         for device in self._listdir(self.devices):
             try:
                 dev_path = check_drive(self.devices, device, self.mount_check)
@@ -423,8 +533,37 @@ class ObjectUpdater(Daemon):
             ('Object update single-threaded sweep completed: '
              '%(elapsed).02fs, %(stats)s'),
             {'elapsed': elapsed, 'stats': self.stats})
-        dump_recon_cache({'object_updater_sweep': elapsed},
-                         self.rcache, self.logger)
+        self.dump_recon(elapsed)
+
+    def dump_recon(self, elapsed):
+        """Gathers stats and dumps recon cache."""
+        object_updater_stats = {
+            'failures_oldest_timestamp': (
+                self.oldest_async_pendings.get_oldest_timestamp()
+            ),
+            'failures_oldest_timestamp_age': (
+                self.oldest_async_pendings.get_oldest_timestamp_age()
+            ),
+            'failures_account_container_count': (
+                len(self.oldest_async_pendings.ac_to_timestamp)
+            ),
+            'failures_oldest_timestamp_account_containers': (
+                self.oldest_async_pendings.get_n_oldest_timestamp_acs(
+                    self.dump_count
+                )
+            ),
+            'tracker_memory_usage': (
+                self.oldest_async_pendings.get_memory_usage()
+            ),
+        }
+        dump_recon_cache(
+            {
+                'object_updater_sweep': elapsed,
+                'object_updater_stats': object_updater_stats,
+            },
+            self.rcache,
+            self.logger,
+        )
 
     def _load_update(self, device, update_path):
         try:
@@ -683,6 +822,9 @@ class ObjectUpdater(Daemon):
                 self.logger.increment('failures')
                 self.logger.debug('Update failed for %(path)s %(update_path)s',
                                   {'path': path, 'update_path': update_path})
+                self.oldest_async_pendings.add_update(
+                    acct, cont, kwargs['timestamp']
+                )
                 if new_successes:
                     update['successes'] = successes
                     rewrite_pickle = True

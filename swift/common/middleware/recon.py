@@ -189,7 +189,8 @@ class ReconMiddleware(object):
             return self._from_recon_cache(['container_updater_sweep'],
                                           self.container_recon_cache)
         elif recon_type == 'object':
-            return self._from_recon_cache(['object_updater_sweep'],
+            return self._from_recon_cache(['object_updater_sweep',
+                                           'object_updater_stats'],
                                           self.object_recon_cache)
         else:
             return None
