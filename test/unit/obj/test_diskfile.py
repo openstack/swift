@@ -41,7 +41,8 @@ from gzip import GzipFile
 import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool
-from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
+from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status, \
+    EUCLEAN
 from test import BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
@@ -1830,7 +1831,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 mock.patch(self._manager_mock(
                     'quarantine_renamer')) as quarantine_renamer:
             osexc = OSError()
-            osexc.errno = errno.EUCLEAN
+            osexc.errno = EUCLEAN
             cleanup.side_effect = osexc
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
@@ -4922,7 +4923,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
         def my_open(filename, mode, *args, **kwargs):
             if mode == 'rb':
-                raise IOError(errno.EUCLEAN, '-EUCLEAN fool!')
+                raise IOError(EUCLEAN, '-EUCLEAN fool!')
             return open(filename, mode, *args, **kwargs)
 
         with mock.patch('swift.obj.diskfile.open', my_open):
@@ -4930,7 +4931,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 df.open()
             self.assertEqual(
                 'Failed to open %s: [Errno %d] -EUCLEAN fool!'
-                % (df._data_file, errno.EUCLEAN), str(err.exception))
+                % (df._data_file, EUCLEAN), str(err.exception))
 
     def test_quarantine_hashdir_not_a_directory(self):
         df, df_data = self._create_test_file(b'1234567890', account="abc",
@@ -4950,7 +4951,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertTrue(os.path.exists(os.path.dirname(hashdir)))
 
     def test_quarantine_hashdir_not_listable(self):
-        for eno in (errno.ENODATA, errno.EUCLEAN):
+        for eno in (errno.ENODATA, EUCLEAN):
             df, df_data = self._create_test_file(b'1234567890', account="abc",
                                                  container='123', obj='xyz')
             hashdir = df._datadir
@@ -8881,7 +8882,7 @@ class TestSuffixHashes(unittest.TestCase):
             diskfile.clear_auditor_status(tmpdir, 'objects')
             # EUCLEAN too
             with mock.patch('os.listdir', splode_if_endswith(
-                    "b54", errno.EUCLEAN)):
+                    "b54", EUCLEAN)):
                 self.assertEqual(expected, list_locations(tmpdir, 'objects'))
             diskfile.clear_auditor_status(tmpdir, 'objects')
 
@@ -8892,7 +8893,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertEqual(expected, list_locations(tmpdir, 'objects'))
             diskfile.clear_auditor_status(tmpdir, 'objects')
             with mock.patch('os.listdir', splode_if_endswith(
-                    "2809", errno.EUCLEAN)):
+                    "2809", EUCLEAN)):
                 self.assertEqual(expected, list_locations(tmpdir, 'objects'))
             diskfile.clear_auditor_status(tmpdir, 'objects')
             with mock.patch('os.listdir', splode_if_endswith(
@@ -8943,7 +8944,7 @@ class TestSuffixHashes(unittest.TestCase):
 
             def fake_listdir(path):
                 if path == df._datadir:
-                    raise OSError(errno.EUCLEAN, 'nope')
+                    raise OSError(EUCLEAN, 'nope')
                 return orig_listdir(path)
 
             df_mgr = self.df_router[policy]

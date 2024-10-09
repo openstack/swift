@@ -162,6 +162,8 @@ from swift.common.utils.ipaddrs import (  # noqa
 from swift.common.statsd_client import StatsdClient # noqa
 import logging
 
+EUCLEAN = getattr(errno, 'EUCLEAN', 117)  # otherwise not present on osx
+
 # These are lazily pulled from libc elsewhere
 _sys_fallocate = None
 
