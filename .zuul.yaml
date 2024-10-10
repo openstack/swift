@@ -86,12 +86,12 @@
     timeout: 7200
 
 - job:
-    name: swift-tox-py39-arm64
-    parent: swift-tox-py39
-    nodeset: ubuntu-focal-arm64
+    name: swift-tox-py312-arm64
+    parent: swift-tox-py312
+    nodeset: debian-bookworm-arm64
     description: |
       Run unit tests for an OpenStack Python project under cPython
-      version 3.9 on top of arm64 architecture.
+      version 3.12 on top of arm64 architecture.
     timeout: 7200
 
 - job:
@@ -613,7 +613,7 @@
    check-arm64:
      jobs:
        - swift-tox-py38-arm64
-       - swift-tox-py39-arm64
+       - swift-tox-py312-arm64
        - swift-tox-func-encryption-py38-arm64
        - swift-tox-func-py38-arm64
 
