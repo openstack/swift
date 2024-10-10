@@ -83,7 +83,7 @@
     description: |
       Run unit tests for an OpenStack Python project under cPython
       version 3.8 on top of arm64 architecture.
-    timeout: 7200
+    timeout: 10800
 
 - job:
     name: swift-tox-py312-arm64
@@ -92,7 +92,7 @@
     description: |
       Run unit tests for an OpenStack Python project under cPython
       version 3.12 on top of arm64 architecture.
-    timeout: 7200
+    timeout: 10800
 
 - job:
     name: swift-tox-py39
@@ -230,7 +230,7 @@
       Uses tox with the ``func-encryption-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    timeout: 7200
+    timeout: 10800
 
 - job:
     name: swift-tox-func-py38-arm64
@@ -243,7 +243,7 @@
       Uses tox with the ``func-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    timeout: 7200
+    timeout: 10800
 
 - job:
     name: swift-tox-func-ec-py38
