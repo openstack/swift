@@ -14,6 +14,7 @@
 import json
 import numbers
 import shutil
+from functools import partial
 from tempfile import mkdtemp
 
 import mock
@@ -60,7 +61,8 @@ def container_resp_headers(**kwargs):
 class FakeStoragePolicySwift(object):
 
     def __init__(self):
-        self.storage_policy = defaultdict(helpers.FakeSwift)
+        self.storage_policy = defaultdict(
+            partial(helpers.FakeSwift, capture_unexpected_calls=False))
         self._mock_oldest_spi_map = {}
 
     def __getattribute__(self, name):
