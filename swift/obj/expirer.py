@@ -328,6 +328,70 @@ class ObjectExpirer(Daemon):
         return get_delay_reaping(self.delay_reaping_times, target_account,
                                  target_container)
 
+    def _iter_task_container(self, task_account, task_container,
+                             my_index, divisor):
+        """
+        Iterates the input task container, yields a task expire info dict for
+        each delete task if it is assigned to this expirer process.
+
+        :raises UnexpectedResponse: if the task container listing is not
+            successful.
+        """
+        container_empty = True
+        for o in self.swift.iter_objects(task_account,
+                                         task_container,
+                                         acceptable_statuses=[2]):
+            container_empty = False
+            task_object = o['name'].encode('utf8') if six.PY2 else o['name']
+            try:
+                delete_timestamp, target_account, target_container, \
+                    target_object = parse_task_obj(task_object)
+            except ValueError:
+                self.logger.exception('Unexcepted error handling task %r' %
+                                      task_object)
+                self.logger.increment('tasks.parse_errors')
+                continue
+            is_async = o.get('content_type') == ASYNC_DELETE_TYPE
+            delay_reaping = self.get_delay_reaping(target_account,
+                                                   target_container)
+
+            if delete_timestamp > Timestamp.now():
+                # we shouldn't yield ANY more objects that can't reach
+                # the expiration date yet.
+                break
+
+            # Only one expirer daemon assigned for each task
+            if self.hash_mod('%s/%s' % (task_container, task_object),
+                             divisor) != my_index:
+                self.logger.increment('tasks.skipped')
+                continue
+
+            if delete_timestamp > Timestamp(time() - delay_reaping) \
+                    and not is_async:
+                # we shouldn't yield the object during the delay
+                self.logger.increment('tasks.delayed')
+                continue
+
+            self.logger.increment('tasks.assigned')
+            yield {'task_account': task_account,
+                   'task_container': task_container,
+                   'task_object': task_object,
+                   'target_path': '/'.join([
+                       target_account, target_container, target_object]),
+                   'delete_timestamp': delete_timestamp,
+                   'is_async_delete': is_async}
+        if container_empty:
+            try:
+                self.swift.delete_container(
+                    task_account, task_container,
+                    acceptable_statuses=(2, HTTP_NOT_FOUND, HTTP_CONFLICT))
+            except (Exception, Timeout) as err:
+                self.logger.exception(
+                    'Exception while deleting container %(account)s '
+                    '%(container)s %(err)s', {
+                        'account': task_account,
+                        'container': task_container, 'err': str(err)})
+
     def iter_task_to_expire(self, task_account_container_list,
                             my_index, divisor):
         """
@@ -335,61 +399,27 @@ class ObjectExpirer(Daemon):
         task_container, task_object, timestamp_to_delete, and target_path
         """
         for task_account, task_container in task_account_container_list:
-            container_empty = True
-            for o in self.swift.iter_objects(task_account, task_container):
-                container_empty = False
-                if six.PY2:
-                    task_object = o['name'].encode('utf8')
-                else:
-                    task_object = o['name']
-                try:
-                    delete_timestamp, target_account, target_container, \
-                        target_object = parse_task_obj(task_object)
-                except ValueError:
-                    self.logger.exception('Unexcepted error handling task %r' %
-                                          task_object)
-                    self.logger.increment('tasks.parse_errors')
-                    continue
-                is_async = o.get('content_type') == ASYNC_DELETE_TYPE
-                delay_reaping = self.get_delay_reaping(target_account,
-                                                       target_container)
-
-                if delete_timestamp > Timestamp.now():
-                    # we shouldn't yield ANY more objects that can't reach
-                    # the expiration date yet.
-                    break
-
-                # Only one expirer daemon assigned for each task
-                if self.hash_mod('%s/%s' % (task_container, task_object),
-                                 divisor) != my_index:
-                    self.logger.increment('tasks.skipped')
-                    continue
-
-                if delete_timestamp > Timestamp(time() - delay_reaping) \
-                        and not is_async:
-                    # we shouldn't yield the object during the delay
-                    self.logger.increment('tasks.delayed')
-                    continue
-
-                self.logger.increment('tasks.assigned')
-                yield {'task_account': task_account,
-                       'task_container': task_container,
-                       'task_object': task_object,
-                       'target_path': '/'.join([
-                           target_account, target_container, target_object]),
-                       'delete_timestamp': delete_timestamp,
-                       'is_async_delete': is_async}
-            if container_empty:
-                try:
-                    self.swift.delete_container(
-                        task_account, task_container,
-                        acceptable_statuses=(2, HTTP_NOT_FOUND, HTTP_CONFLICT))
-                except (Exception, Timeout) as err:
-                    self.logger.exception(
-                        'Exception while deleting container %(account)s '
-                        '%(container)s %(err)s', {
+            try:
+                for item in self._iter_task_container(
+                        task_account, task_container, my_index, divisor):
+                    yield item
+            except UnexpectedResponse as err:
+                if err.resp.status_int != 404:
+                    self.logger.error(
+                        'Unexpected response while listing objects in '
+                        'container %(account)s %(container)s: %(err)s', {
                             'account': task_account,
-                            'container': task_container, 'err': str(err)})
+                            'container': task_container,
+                            'err': str(err)
+                        })
+            except (Exception, Timeout) as err:
+                self.logger.error(
+                    'Exception while listing objects in container %(account)s '
+                    '%(container)s: %(err)s', {
+                        'account': task_account,
+                        'container': task_container,
+                        'err': str(err)
+                    })
 
     def run_once(self, *args, **kwargs):
         """
