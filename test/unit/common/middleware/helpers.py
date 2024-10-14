@@ -168,7 +168,8 @@ class FakeSwift(object):
     container_existence_skip_cache = 0.0
     account_existence_skip_cache = 0.0
 
-    def __init__(self):
+    def __init__(self, capture_unexpected_calls=True):
+        self.capture_unexpected_calls = capture_unexpected_calls
         self._calls = []
         self.req_bodies = []
         self._unclosed_req_keys = defaultdict(int)
@@ -284,15 +285,20 @@ class FakeSwift(object):
         self.swift_sources.append(env.get('swift.source'))
         self.txn_ids.append(env.get('swift.trans_id'))
 
-        resp_spec = self._select_response(env)
-
         # Capture the request before reading the body, in case the iter raises
         # an exception.
         # note: tests may assume this copy of req_headers is case insensitive
         # so we deliberately use a HeaderKeyDict
         req_headers_copy = HeaderKeyDict(req.headers)
-        self._calls.append(
-            FakeSwiftCall(method, path, req_headers_copy))
+        call = FakeSwiftCall(method, path, req_headers_copy)
+        try:
+            resp_spec = self._select_response(env)
+        except KeyError:
+            if self.capture_unexpected_calls:
+                self._calls.append(call)
+            raise
+        else:
+            self._calls.append(call)
 
         req_body = None  # generally, we don't care and let eventlet discard()
         if (cont and not obj and method == 'UPDATE') or (

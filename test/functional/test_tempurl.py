@@ -494,7 +494,6 @@ class TestContainerTempurl(Base):
             method = method.encode('utf8')
             path = path.encode('utf8')
             key = key.encode('utf8')
-        print(key, method, expires, path)
         return hmac.new(
             key,
             b'%s\n%d\n%s' % (method, expires, path),

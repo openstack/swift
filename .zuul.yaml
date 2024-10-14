@@ -83,16 +83,16 @@
     description: |
       Run unit tests for an OpenStack Python project under cPython
       version 3.8 on top of arm64 architecture.
-    timeout: 7200
+    timeout: 10800
 
 - job:
-    name: swift-tox-py39-arm64
-    parent: swift-tox-py39
-    nodeset: ubuntu-focal-arm64
+    name: swift-tox-py312-arm64
+    parent: swift-tox-py312
+    nodeset: debian-bookworm-arm64
     description: |
       Run unit tests for an OpenStack Python project under cPython
-      version 3.9 on top of arm64 architecture.
-    timeout: 7200
+      version 3.12 on top of arm64 architecture.
+    timeout: 10800
 
 - job:
     name: swift-tox-py39
@@ -230,7 +230,7 @@
       Uses tox with the ``func-encryption-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    timeout: 7200
+    timeout: 10800
 
 - job:
     name: swift-tox-func-py38-arm64
@@ -243,7 +243,7 @@
       Uses tox with the ``func-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    timeout: 7200
+    timeout: 10800
 
 - job:
     name: swift-tox-func-ec-py38
@@ -606,16 +606,18 @@
       enable_fips: true
 
 - project-template:
-   name: swift-jobs-arm64
-   description: |
-     Runs tests for an OpenStack Python project under the CPython
-     version 3 releases designated for testing on top of ARM64 architecture.
-   check-arm64:
-     jobs:
-       - swift-tox-py38-arm64
-       - swift-tox-py39-arm64
-       - swift-tox-func-encryption-py38-arm64
-       - swift-tox-func-py38-arm64
+    name: swift-jobs-arm64
+    description: |
+      Runs tests for an OpenStack Python project under the CPython
+      version 3 releases designated for testing on top of ARM64 architecture.
+    check-arm64:
+      jobs:
+        - swift-tox-py312-arm64
+    experimental:
+      jobs:
+        - swift-tox-py38-arm64
+        - swift-tox-func-encryption-py38-arm64
+        - swift-tox-func-py38-arm64
 
 - project:
     templates:

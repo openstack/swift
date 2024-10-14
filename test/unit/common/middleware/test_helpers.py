@@ -55,6 +55,28 @@ class TestFakeSwift(unittest.TestCase):
         do_test('PUT')
         do_test('DELETE')
 
+    def test_capture_unexpected_calls(self):
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        swift = FakeSwift()
+        with self.assertRaises(KeyError):
+            req.get_response(swift)
+        self.assertEqual([('GET', '/v1/a/c/o')], swift.calls)
+
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        swift = FakeSwift(capture_unexpected_calls=True)
+        with self.assertRaises(KeyError):
+            req.get_response(swift)
+        self.assertEqual([('GET', '/v1/a/c/o')], swift.calls)
+
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        swift = FakeSwift(capture_unexpected_calls=False)
+        with self.assertRaises(KeyError):
+            req.get_response(swift)
+        self.assertEqual([], swift.calls)
+
     def test_GET_registered(self):
         # verify that a single registered GET response is sufficient to handle
         # GETs and HEADS, with and without query strings
@@ -110,16 +132,18 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(('HEAD', '/v1/a/c/o?p=q'), swift.calls[-1])
 
     def test_GET_registered_with_query_string(self):
-        # verify that a single registered GET response is sufficient to handle
-        # GETs and HEADS, with and without query strings
+        # verify that a registered GET response with query string only matches
+        # a request with that query string
         swift = FakeSwift()
         swift.register('GET', '/v1/a/c/o?p=q', HTTPOk,
                        {'X-Foo': 'Bar'}, b'stuff')
 
-        req = Request.blank('/v1/a/c/o')
+        req = Request.blank('/v1/a/c/o')  # no query string
         req.method = 'GET'
         with self.assertRaises(KeyError):
-            resp = req.get_response(swift)
+            req.get_response(swift)
+        self.assertEqual(1, swift.call_count)
+        self.assertEqual([('GET', '/v1/a/c/o')], swift.calls)
 
         req.query_string = 'p=q'
         resp = req.get_response(swift)
@@ -129,8 +153,19 @@ class TestFakeSwift(unittest.TestCase):
                           'X-Foo': 'Bar'},
                          resp.headers)
         self.assertEqual(b'stuff', resp.body)
-        self.assertEqual(1, swift.call_count)
-        self.assertEqual(('GET', '/v1/a/c/o?p=q'), swift.calls[-1])
+        self.assertEqual(2, swift.call_count)
+        self.assertEqual([('GET', '/v1/a/c/o'),
+                          ('GET', '/v1/a/c/o?p=q')],
+                         swift.calls)
+
+        req.query_string = 'p=z'
+        with self.assertRaises(KeyError):
+            req.get_response(swift)
+        self.assertEqual(3, swift.call_count)
+        self.assertEqual([('GET', '/v1/a/c/o'),
+                          ('GET', '/v1/a/c/o?p=q'),
+                          ('GET', '/v1/a/c/o?p=z')],
+                         swift.calls)
 
     def test_GET_and_HEAD_registered(self):
         # verify that a registered HEAD response will be preferred over GET for
