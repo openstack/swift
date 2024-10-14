@@ -523,10 +523,10 @@ class BaseMPUHandler(object):
         else:
             return marker_resp
 
-    def _put_manifest_delete_marker(self, upload_id, marker_type):
+    def _put_manifest_delete_marker(self, upload_id):
         marker_path = self.make_path(
             self.manifests_container, self.reserved_obj, upload_id,
-            marker_type)
+            MPU_DELETED_MARKER_SUFFIX)
         self._put_delete_marker(marker_path)
 
     def _put_parts_delete_marker(self, upload_id):
@@ -1140,8 +1140,7 @@ class MPUObjHandler(BaseMPUHandler):
                     pass
         for upload_id, backend_resp in deleted_upload_ids.items():
             # TODO: unit test multiple upload cleanup
-            self._put_manifest_delete_marker(upload_id,
-                                             MPU_DELETED_MARKER_SUFFIX)
+            self._put_manifest_delete_marker(upload_id)
 
     def _handle_get_head_response(self, resp):
         new_headers = HeaderKeyDict()

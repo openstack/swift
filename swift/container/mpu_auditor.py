@@ -18,8 +18,7 @@ import time
 
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
-    MPU_ABORTED_MARKER_SUFFIX, MPU_MARKER_CONTENT_TYPE, \
-    MPU_GENERIC_MARKER_SUFFIX, MPUSession, MPUItem
+    MPU_MARKER_CONTENT_TYPE, MPU_GENERIC_MARKER_SUFFIX, MPUSession, MPUItem
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR
 from swift.common.request_helpers import split_reserved_name, get_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
@@ -124,7 +123,7 @@ class MpuAuditorConfig(object):
             conf.get('mpu_audit_max_batches', 100))
 
 
-class BaseMpuBrokerAuditor(object):
+class BaseMpuAuditor(object):
     def __init__(self, config, client, logger, broker, resource_type):
         self.config = config
         self.client = client
@@ -154,107 +153,6 @@ class BaseMpuBrokerAuditor(object):
         msg = fmt % args
         self.log(self.logger.debug, msg)
 
-    def _is_manifest_linked(self, upload):
-        """
-        :raises UnexpectedResponse: if it is not possible to reliably confirm
-            if the user object is a symlink to the given upload.
-        :return: True if the user object is a symlink to this target, False if
-            the user object is not a symlink to the given upload.
-        """
-        obj_name = extract_object_name(upload)
-        user_container = split_reserved_name(self.broker.container)[1]
-        metadata = self.client.get_object_metadata(
-            self.broker.account, user_container, obj_name,
-            headers={'X-Newest': 'true'},
-            acceptable_statuses=(2, 404))
-        link = metadata.get(TGT_OBJ_SYMLINK_HDR)
-        manifests_container = get_reserved_name('mpu_manifests',
-                                                user_container)
-        relative_manifest_path = '/'.join([manifests_container, upload])
-        return link == relative_manifest_path
-
-    def _get_items_with_prefix(self, prefix, limit, include_deleted=False):
-        # get results as dicts...
-        # TODO: broker.get_objects doesn't support prefix so working around...
-        transform_func = functools.partial(ContainerBroker._record_to_dict,
-                                           self.broker)
-        rows = self.broker.list_objects_iter(
-            limit, '', '', prefix, None, include_deleted=include_deleted,
-            transform_func=transform_func, allow_reserved=True)
-        self.debug('get_items %s', rows)
-        return [MPUItem.from_db_record(row) for row in rows]
-
-    def _get_item_with_prefix(self, name, include_deleted=False):
-        self.debug('get_item %s', name)
-        items = self._get_items_with_prefix(
-            name, limit=1, include_deleted=include_deleted)
-        if items:
-            return items[0]
-        return None
-
-    def _delete_resources(self, marker, upload):
-        # subclasses must implement this method
-        raise NotImplementedError()
-
-    def _process_marker(self, marker, upload):
-        self._delete_resources(marker, upload)
-
-        if not marker.deleted:
-            # TODO: do we do this even if we didn't find any manifest row yet?
-            # Delete the marker now so that it will eventually be reclaimed. We
-            # can still find the marker row for subsequent checks until it is
-            # reclaimed.
-            # Note: Deleting a marker with timestamp t0 moves it's tombstone
-            # timestamp forwards to t2. There may also be a version of the
-            # marker at t1 which has not yet been merged into this DB. This
-            # delete at t2 will supersede that marker at t1, but that's ok
-            # because we don't care about the marker's timestamp or deleted
-            # status, we just need a marker row whose name matches a resource.
-            # Note: This deletion will be replicated to other DB replicas which
-            # may have not yet had an undeleted marker row. The auditor may
-            # have already passed over the matching resource row in the other
-            # DBs, and so will never detect the marked resource, because the
-            # auditor only inspects rows once and does not inspect deleted
-            # rows. This is OK because the matching resource was either
-            # detected by the auditor on this cycle of this DB, or it will be
-            # replicated to this DB from the other DBs and detected on a
-            # subsequent cycle of this DB.
-            # TODO: we could make the auditor process deleted marker rows so
-            #   that other DBs in the state described in the above note would
-            #   detect the marked resource. That would also mean that auditors
-            #   might process each marker twice in each DB, particularly this
-            #   DB: first as an undeleted row and then in a subsequent cycle as
-            #   a deleted row. Apart from incurring extra work, that would be
-            #   ok. I'm not yet sure if that redundancy is necessary, or
-            #   desirable.
-            self.debug('deleting marker %s/%s',
-                       self.broker.container, marker.name)
-            self.client.delete_object(
-                self.broker.account, self.broker.container, marker.name)
-
-    def _audit_item(self, item, upload):
-        if item.content_type == MPU_MARKER_CONTENT_TYPE:
-            self.debug('found_marker %s %s', item.name, item.content_type)
-            self._process_marker(item, upload)
-        else:
-            # TODO: try to make this more efficient. We need to look for a
-            #   potentially deleted marker of either deleted or aborted type.
-            #   If we find one we'll do another DB query to find all matching
-            #   resources, but for manifest audit we already have the single
-            #   expected manifest item. Also, when we expect multiple matching
-            #   resources, we could just do one query now for all matches and
-            #   look in the results for a marker.
-            self.debug('found_resource %s', item.name)
-            marker_prefix = '/'.join([upload, MPU_GENERIC_MARKER_SUFFIX])
-            # TODO: if there's an aborted *and* deleted marker then it would be
-            #   more efficient to process the more definite deleted marker
-            marker_item = self._get_item_with_prefix(marker_prefix,
-                                                     include_deleted=None)
-            if marker_item:
-                self.debug('found_marker_for_resource %s', marker_item.name)
-                self._process_marker(marker_item, upload)
-        return False
-
     def _bump_item(self, item):
         # bump the item's *meta_timestamp* and merge to db so that the item is
         # moved to a new row; ctype_timestamp is not changed so any subsequent
@@ -265,6 +163,9 @@ class BaseMpuBrokerAuditor(object):
             item.data_timestamp = Timestamp(time.time())
         item.meta_timestamp = Timestamp(time.time())
         self.broker.put_record(item.to_db_record())
+
+    def _audit_item(self, item, upload):
+        raise NotImplementedError
 
     def audit(self):
         self.broker.get_info()
@@ -311,34 +212,105 @@ class BaseMpuBrokerAuditor(object):
         return None
 
 
-class MpuManifestAuditor(BaseMpuBrokerAuditor):
-    def __init__(self, conf, client, logger, broker):
-        super(MpuManifestAuditor, self).__init__(
-            conf, client, logger, broker, 'manifest')
+class BaseMpuMarkerAuditor(BaseMpuAuditor):
+    def __init__(self, conf, client, logger, broker, resource_type):
+        super(BaseMpuMarkerAuditor, self).__init__(
+            conf, client, logger, broker, resource_type)
 
-    def _delete_manifest_parts(self, upload):
-        # TODO: add error handling!
-        # there is no SLO in internal client so we have to fetch the manifest
-        # and delete the parts here
+    def _get_items_with_prefix(self, prefix, limit, include_deleted=False):
+        # get results as dicts...
+        # TODO: broker.get_objects doesn't support prefix so working around...
+        transform_func = functools.partial(ContainerBroker._record_to_dict,
+                                           self.broker)
+        rows = self.broker.list_objects_iter(
+            limit, '', '', prefix, None, include_deleted=include_deleted,
+            transform_func=transform_func, allow_reserved=True)
+        self.debug('get_items %s', rows)
+        return [MPUItem.from_db_record(row) for row in rows]
+
+    def _get_item_with_prefix(self, name, include_deleted=False):
+        self.debug('get_item %s', name)
+        items = self._get_items_with_prefix(
+            name, limit=1, include_deleted=include_deleted)
+        if items:
+            return items[0]
+        return None
+
+    def _delete_resources(self, marker, upload):
+        # subclasses must implement this method
+        raise NotImplementedError()
+
+    def _delete_marker(self, marker):
+        # TODO: do we do this even if we didn't find any manifest row yet?
+        # Delete the marker now so that it will eventually be reclaimed. We
+        # can still find the marker row for subsequent checks until it is
+        # reclaimed.
+        # Note: Deleting a marker with timestamp t0 moves it's tombstone
+        # timestamp forwards to t2. There may also be a version of the
+        # marker at t1 which has not yet been merged into this DB. This
+        # delete at t2 will supersede that marker at t1, but that's ok
+        # because we don't care about the marker's timestamp or deleted
+        # status, we just need a marker row whose name matches a resource.
+        # Note: This deletion will be replicated to other DB replicas which
+        # may have not yet had an undeleted marker row. The auditor may
+        # have already passed over the matching resource row in the other
+        # DBs, and so will never detect the marked resource, because the
+        # auditor only inspects rows once and does not inspect deleted
+        # rows. This is OK because the matching resource was either
+        # detected by the auditor on this cycle of this DB, or it will be
+        # replicated to this DB from the other DBs and detected on a
+        # subsequent cycle of this DB.
+        # TODO: we could make the auditor process deleted marker rows so
+        #   that other DBs in the state described in the above note would
+        #   detect the marked resource. That would also mean that auditors
+        #   might process each marker twice in each DB, particularly this
+        #   DB: first as an undeleted row and then in a subsequent cycle as
+        #   a deleted row. Apart from incurring extra work, that would be
+        #   ok. I'm not yet sure if that redundancy is necessary, or
+        #   desirable.
+        self.debug('deleting item %s/%s',
+                   self.broker.container, marker.name)
+        self.client.delete_object(
+            self.broker.account, self.broker.container, marker.name)
+
+    def _process_marker(self, marker, upload):
         try:
-            status, hdrs, resp_iter = self.client.get_object(
-                self.broker.account, self.broker.container, upload,
-                params={'multipart-manifest': 'get'})
-        except UnexpectedResponse:
-            # it's ok, this was just an optimisation, we'll PUT a delete marker
-            # in the parts container anyway
-            return
+            self._delete_resources(marker, upload)
+        except Exception:  # noqa
+            self._bump_item(marker)
+        else:
+            if not marker.deleted:
+                try:
+                    self._delete_marker(marker)
+                except Exception:  # noqa
+                    self._bump_item()
 
-        # TODO: be defensive - check it is a manifest!
-        manifest = json.loads(b''.join(resp_iter))
-        for item in manifest:
-            self.debug('deleting part %s', item['name'])
-            container, obj = item['name'].lstrip('/').split('/', 1)
-            try:
-                self.client.delete_object(
-                    self.broker.account, container, obj)
-            except UnexpectedResponse:
-                pass
+    def _audit_item(self, item, upload):
+        if item.content_type == MPU_MARKER_CONTENT_TYPE:
+            self.debug('found marker %s %s', item.name, item.content_type)
+            self._process_marker(item, upload)
+        else:
+            self.debug('found resource %s', item.name)
+            # Look for a potentially deleted marker in a previous or later row.
+            # TODO: try to make this more efficient.
+            #   If we find one we'll do another DB query to find all matching
+            #   resources, but for manifest audit we already have the single
+            #   expected manifest item. Also, when we expect multiple matching
+            #   resources, we could just do one query now for all matches and
+            #   look in the results for a marker.
+            marker_prefix = '/'.join([upload, MPU_GENERIC_MARKER_SUFFIX])
+            marker_item = self._get_item_with_prefix(marker_prefix,
+                                                     include_deleted=None)
+            if marker_item:
+                self._process_marker(marker_item, upload)
+
+        return False
+
+
+class MpuManifestMarkerAuditor(BaseMpuMarkerAuditor):
+    def __init__(self, conf, client, logger, broker):
+        super(MpuManifestMarkerAuditor, self).__init__(
+            conf, client, logger, broker, 'manifest')
 
     def _put_parts_marker(self, upload):
         # TODO: share some common helper functions with middleware
@@ -354,36 +326,17 @@ class MpuManifestAuditor(BaseMpuBrokerAuditor):
         )
 
     def _delete_resources(self, marker, upload):
-        # TODO: add a time delay before processing an abort to allow for
-        # concurrent complete
-        # TODO: handle failed requests
-        if (marker.name.endswith(MPU_ABORTED_MARKER_SUFFIX) and
-                self._is_manifest_linked(upload)):
-            # User object is linked -> no action required.
-            # This marker will now be deleted, but may be processed again if
-            # the manifest row is found in a subsequent auditor cycle, but that
-            # should only happen once.
-            # TODO: somehow prevent a repeat processing of this marker,
-            #   possibly by playing tricks with the timestamp offset
-            return
-        # TODO: if the session entered completing state, check that a
-        #   reasonable amount of time has passed since then; if not, re-PUT the
-        #   marker for the next cycle to try again.
-        # Attempt to sync delete the manifest's parts. This is an optional
-        # optimisation; the manifest may not be in the DB yet, and there may
-        # never be a manifest if the upload was aborted.
-        self._delete_manifest_parts(upload)
-        # Also write a delete marker in the parts container so all parts will
-        # eventually be deleted anyway.
+        # Write a delete-marker in the parts container so all parts will
+        # eventually be deleted. Only if that succeeds, delete the manifest.
         self._put_parts_marker(upload)
         self.debug('deleting manifest %s', upload)
         self.client.delete_object(
             self.broker.account, self.broker.container, upload)
 
 
-class MpuPartAuditor(BaseMpuBrokerAuditor):
+class MpuPartMarkerAuditor(BaseMpuMarkerAuditor):
     def __init__(self, conf, client, logger, broker):
-        super(MpuPartAuditor, self).__init__(
+        super(MpuPartMarkerAuditor, self).__init__(
             conf, client, logger, broker, 'part')
 
     def _find_orphans(self, marker, upload):
@@ -396,14 +349,23 @@ class MpuPartAuditor(BaseMpuBrokerAuditor):
 
     def _delete_resources(self, marker, upload):
         orphan_parts = self._find_orphans(marker, upload)
+        err_to_raise = None
         for orphan in orphan_parts:
             self.debug('deleting part %s', orphan.name)
-            self.client.delete_object(self.broker.account,
-                                      self.broker.container,
-                                      orphan.name)
+            try:
+                self.client.delete_object(self.broker.account,
+                                          self.broker.container,
+                                          orphan.name)
+            except UnexpectedResponse as err:
+                # keep going for now...
+                err_to_raise = err
+
+        if err_to_raise:
+            raise err_to_raise
 
 
-class MpuSessionAuditor(BaseMpuBrokerAuditor):
+class MpuSessionAuditor(BaseMpuAuditor):
+
     def __init__(self, conf, client, logger, broker):
         super(MpuSessionAuditor, self).__init__(
             conf, client, logger, broker, 'session')
@@ -412,6 +374,25 @@ class MpuSessionAuditor(BaseMpuBrokerAuditor):
         self.user_container = split_reserved_name(self.broker.container)[1]
         self.manifests_container = get_reserved_name('mpu_manifests',
                                                      self.user_container)
+
+    def _is_manifest_linked(self, upload):
+        """
+        :raises UnexpectedResponse: if it is not possible to reliably confirm
+            if the user object is a symlink to the given upload.
+        :return: True if the user object is a symlink to this target, False if
+            the user object is not a symlink to the given upload.
+        """
+        obj_name = extract_object_name(upload)
+        user_container = split_reserved_name(self.broker.container)[1]
+        metadata = self.client.get_object_metadata(
+            self.broker.account, user_container, obj_name,
+            headers={'X-Newest': 'true'},
+            acceptable_statuses=(2, 404))
+        link = metadata.get(TGT_OBJ_SYMLINK_HDR)
+        manifests_container = get_reserved_name('mpu_manifests',
+                                                user_container)
+        relative_manifest_path = '/'.join([manifests_container, upload])
+        return link == relative_manifest_path
 
     def _delete_session(self, session):
         self.client.delete_object(self.broker.account,
@@ -463,6 +444,7 @@ class MpuSessionAuditor(BaseMpuBrokerAuditor):
             # can't be certain about the symlink so defer and revisit
             self._bump_item(session)
             return
+
         if ctype_age > self.config.purge_delay:
             # time to clean-up everything
             try:
@@ -529,16 +511,15 @@ class MpuAuditor(object):
     def audit(self, broker):
         reserved_prefix, container = safe_split_reserved_name(broker.container)
         if reserved_prefix == 'mpu_parts' or broker.path.endswith('+segments'):
-            mpu_auditor = MpuPartAuditor(
-                self.config, self.client, self.logger, broker)
-            return mpu_auditor.audit()
-        if reserved_prefix == 'mpu_manifests':
-            mpu_auditor = MpuManifestAuditor(
-                self.config, self.client, self.logger, broker)
-            return mpu_auditor.audit()
+            mpu_auditor_class = MpuPartMarkerAuditor
+        elif reserved_prefix == 'mpu_manifests':
+            mpu_auditor_class = MpuManifestMarkerAuditor
         elif reserved_prefix == 'mpu_sessions':
-            mpu_auditor = MpuSessionAuditor(
-                self.config, self.client, self.logger, broker)
-            return mpu_auditor.audit()
+            mpu_auditor_class = MpuSessionAuditor
         else:
-            return None
+            mpu_auditor_class = None
+
+        if mpu_auditor_class:
+            mpu_auditor_class = mpu_auditor_class(
+                self.config, self.client, self.logger, broker)
+            mpu_auditor_class.audit()
