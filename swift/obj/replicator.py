@@ -36,7 +36,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
     rsync_module_interpolation, mkdirs, config_true_value, \
     config_auto_int_value, storage_directory, \
     load_recon_cache, PrefixLoggerAdapter, parse_override_options, \
-    distribute_evenly, listdir, node_to_string, parse_options
+    distribute_evenly, listdir, node_to_string, parse_options, EUCLEAN
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -620,7 +620,7 @@ class ObjectReplicator(Daemon):
             tpool.execute(shutil.rmtree, path)
         except OSError as e:
             if e.errno not in (errno.ENOENT, errno.ENOTEMPTY, errno.ENODATA,
-                               errno.EUCLEAN):
+                               EUCLEAN):
                 # Don't worry if there was a race to create or delete,
                 # or some disk corruption that happened after the sync
                 raise
