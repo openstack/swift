@@ -1029,7 +1029,7 @@ use = egg:swift#proxy_logging
 #
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 # not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
-# log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS
+# log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS,UPDATE
 #
 # Hashing algorithm for log anonymization. Must be one of algorithms supported
 # by Python's hashlib.
