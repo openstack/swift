@@ -324,6 +324,21 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(x.expiring_objects_account, '.expiring_objects')
         self.assertIs(x.swift, self.fake_swift)
 
+    def test_init_default_round_robin_cache_default(self):
+        conf = {}
+        x = expirer.ObjectExpirer(conf, logger=self.logger,
+                                  swift=self.fake_swift)
+        self.assertEqual(x.round_robin_task_cache_size,
+                         expirer.MAX_OBJECTS_TO_CACHE)
+
+    def test_init_large_round_robin_cache(self):
+        conf = {
+            'round_robin_task_cache_size': '1000000',
+        }
+        x = expirer.ObjectExpirer(conf, logger=self.logger,
+                                  swift=self.fake_swift)
+        self.assertEqual(x.round_robin_task_cache_size, 1000000)
+
     def test_init_internal_client_path_from_expirer_conf(self):
         # conf read from object-expirer.conf, no internal_client_conf_path
         conf = {'__file__': '/etc/swift/object-expirer.conf'}
@@ -1874,7 +1889,8 @@ class TestObjectExpirer(TestCase):
 
     def test_success_gets_counted(self):
         self.assertEqual(self.expirer.report_objects, 0)
-        with mock.patch('swift.obj.expirer.MAX_OBJECTS_TO_CACHE', 0), \
+        with mock.patch.object(self.expirer,
+                               'round_robin_task_cache_size', 0), \
                 mock.patch.object(self.expirer, 'delete_actual_object',
                                   lambda o, t, b: None), \
                 mock.patch.object(self.expirer, 'pop_queue',
