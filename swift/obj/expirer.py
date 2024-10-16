@@ -27,10 +27,11 @@ from eventlet.greenpool import GreenPool
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
+from swift.common import utils
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
     Timestamp, config_true_value, normalize_delete_at_timestamp, \
     RateLimitedIterator, md5, non_negative_float, non_negative_int, \
-    parse_content_type, parse_options
+    parse_content_type, parse_options, config_positive_int_value
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
@@ -40,6 +41,117 @@ from swift.container.reconciler import direct_delete_container_entry
 MAX_OBJECTS_TO_CACHE = 100000
 X_DELETE_TYPE = 'text/plain'
 ASYNC_DELETE_TYPE = 'application/async-deleted'
+
+# expiring_objects_account_name used to be a supported configuration across
+# proxy/expirer configs, but AUTO_CREATE_ACCOUNT_PREFIX is configured in
+# swift.conf constraints; neither should be changed
+EXPIRER_ACCOUNT_NAME = AUTO_CREATE_ACCOUNT_PREFIX + 'expiring_objects'
+# Most clusters use the default "expiring_objects_container_divisor" of 86400
+EXPIRER_CONTAINER_DIVISOR = 86400
+EXPIRER_CONTAINER_PER_DIVISOR = 100
+
+
+class ExpirerConfig(object):
+
+    def __init__(self, conf, container_ring=None, logger=None):
+        """
+        Read the configurable object-expirer values consistently and issue
+        warnings appropriately when we encounter deprecated options.
+
+        This class is used in multiple contexts on proxy and object servers.
+
+        :param conf: a config dictionary
+        :param container_ring: optional, required in proxy context to lookup
+                               task container (part, nodes)
+        :param logger: optional, will create one from the conf if not given
+        """
+        logger = logger or get_logger(conf)
+        if 'expiring_objects_container_divisor' in conf:
+            logger.warning(
+                'expiring_objects_container_divisor is deprecated')
+            expirer_divisor = config_positive_int_value(
+                conf['expiring_objects_container_divisor'])
+        else:
+            expirer_divisor = EXPIRER_CONTAINER_DIVISOR
+
+        if 'expiring_objects_account_name' in conf:
+            logger.warning(
+                'expiring_objects_account_name is deprecated; you need '
+                'to migrate to the standard .expiring_objects account')
+            account_name = (AUTO_CREATE_ACCOUNT_PREFIX +
+                            conf['expiring_objects_account_name'])
+        else:
+            account_name = EXPIRER_ACCOUNT_NAME
+        self.account_name = account_name
+        self.expirer_divisor = expirer_divisor
+        self.task_container_per_day = EXPIRER_CONTAINER_PER_DIVISOR
+        if self.task_container_per_day >= self.expirer_divisor:
+            msg = 'expiring_objects_container_divisor MUST be greater than 100'
+            if self.expirer_divisor != 86400:
+                msg += '; expiring_objects_container_divisor (%s) SHOULD be ' \
+                       'default value of %d' \
+                       % (self.expirer_divisor, EXPIRER_CONTAINER_DIVISOR)
+            raise ValueError(msg)
+        self.container_ring = container_ring
+
+    def get_expirer_container(self, x_delete_at, acc, cont, obj):
+        """
+        Returns an expiring object task container name for given X-Delete-At
+        and (native string) a/c/o.
+        """
+        # offset backwards from the expected day is a hash of size "per day"
+        shard_int = (int(utils.hash_path(acc, cont, obj), 16) %
+                     self.task_container_per_day)
+        # even though the attr is named "task_container_per_day" it's actually
+        # "task_container_per_divisor" if for some reason the deprecated config
+        # "expirer_divisor" option doesn't have the default value of 86400
+        return normalize_delete_at_timestamp(
+            int(x_delete_at) // self.expirer_divisor *
+            self.expirer_divisor - shard_int)
+
+    def get_expirer_account_and_container(self, x_delete_at, acc, cont, obj):
+        """
+        Calculates the expected expirer account and container for the target
+        given the current configuration.
+
+        :returns: a tuple, (account_name, task_container)
+        """
+        task_container = self.get_expirer_container(
+            x_delete_at, acc, cont, obj)
+        return self.account_name, task_container
+
+    def is_expected_task_container(self, task_container_int):
+        """
+        Validate the task_container timestamp as an expected value given the
+        current configuration. Changing the expirer configuration will lead to
+        orphaned x-delete-at task objects on overwrite, which may stick around
+        a whole reclaim age.
+
+        :params task_container_int: an int, all task_containers are expected
+                                    to be integer timestamps
+
+        :returns: a boolean, True if name fits with the given config
+        """
+        # calculate seconds offset into previous divisor window
+        r = (task_container_int - 1) % self.expirer_divisor
+        # seconds offset should be no more than task_container_per_day i.e.
+        # given % 86400, r==86359 is ok (because 41 is less than 100), but
+        # 49768 would be unexpected
+        return self.expirer_divisor - r <= self.task_container_per_day
+
+    def get_delete_at_nodes(self, x_delete_at, acc, cont, obj):
+        """
+        Get the task_container part, nodes, and name.
+
+        :returns: a tuple, (part, nodes, task_container_name)
+        """
+        if not self.container_ring:
+            raise RuntimeError('%s was not created with container_ring' % self)
+        account_name, task_container = self.get_expirer_account_and_container(
+            x_delete_at, acc, cont, obj)
+        part, nodes = self.container_ring.get_nodes(
+            account_name, task_container)
+        return part, nodes, task_container
 
 
 def build_task_obj(timestamp, target_account, target_container,
@@ -157,6 +269,7 @@ class ObjectExpirer(Daemon):
         self.logger = logger or get_logger(conf, log_route=self.log_route)
         self.interval = float(conf.get('interval') or 300)
         self.tasks_per_second = float(conf.get('tasks_per_second', 50.0))
+        self.expirer_config = ExpirerConfig(conf, logger=self.logger)
 
         self.conf_path = \
             self.conf.get('__file__') or '/etc/swift/object-expirer.conf'
@@ -301,29 +414,44 @@ class ObjectExpirer(Daemon):
         only one expirer.
         """
         if self.processes > 0:
-            yield self.expiring_objects_account, self.process, self.processes
+            yield (self.expirer_config.account_name,
+                   self.process, self.processes)
         else:
-            yield self.expiring_objects_account, 0, 1
+            yield self.expirer_config.account_name, 0, 1
 
-    def delete_at_time_of_task_container(self, task_container):
+    def get_task_containers_to_expire(self, task_account):
         """
-        get delete_at timestamp from task_container name
-        """
-        # task_container name is timestamp
-        return Timestamp(task_container)
-
-    def iter_task_containers_to_expire(self, task_account):
-        """
-        Yields task_container names under the task_account if the delete at
+        Collects task_container names under the task_account if the delete at
         timestamp of task_container is past.
         """
+        container_list = []
+        unexpected_task_containers = {
+            'examples': [],
+            'count': 0,
+        }
         for c in self.swift.iter_containers(task_account,
                                             prefix=self.task_container_prefix):
-            task_container = str(c['name'])
-            timestamp = self.delete_at_time_of_task_container(task_container)
-            if timestamp > Timestamp.now():
+            try:
+                task_container_int = int(Timestamp(c['name']))
+            except ValueError:
+                self.logger.error('skipping invalid task container: %s/%s',
+                                  task_account, c['name'])
+                continue
+            if not self.expirer_config.is_expected_task_container(
+                    task_container_int):
+                unexpected_task_containers['count'] += 1
+                if unexpected_task_containers['count'] < 5:
+                    unexpected_task_containers['examples'].append(c['name'])
+            if task_container_int > Timestamp.now():
                 break
-            yield task_container
+            container_list.append(str(task_container_int))
+
+        if unexpected_task_containers['count']:
+            self.logger.info(
+                'processing %s unexpected task containers (e.g. %s)',
+                unexpected_task_containers['count'],
+                ' '.join(unexpected_task_containers['examples']))
+        return container_list
 
     def get_delay_reaping(self, target_account, target_container):
         return get_delay_reaping(self.delay_reaping_times, target_account,
@@ -470,7 +598,7 @@ class ObjectExpirer(Daemon):
 
                 task_account_container_list = \
                     [(task_account, task_container) for task_container in
-                     self.iter_task_containers_to_expire(task_account)]
+                     self.get_task_containers_to_expire(task_account)]
 
                 # delete_task_iter is a generator to yield a dict of
                 # task_account, task_container, task_object, delete_timestamp,

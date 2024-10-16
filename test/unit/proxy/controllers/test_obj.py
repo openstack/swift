@@ -191,21 +191,24 @@ class BaseObjectControllerMixin(object):
         self.logger = debug_logger('proxy-server')
         self.logger.thread_locals = ('txn1', '127.0.0.2')
         # increase connection timeout to avoid intermittent failures
-        conf = {'conn_timeout': 1.0}
-        self.app = PatchedObjControllerApp(
-            conf, account_ring=FakeRing(),
-            container_ring=FakeRing(), logger=self.logger)
-        self.logger.clear()  # startup/loading debug msgs not helpful
-
-        # you can over-ride the container_info just by setting it on the app
-        # (see PatchedObjControllerApp for details)
-        self.app.container_info = dict(self.fake_container_info())
+        self.conf = {'conn_timeout': 1.0}
+        self._make_app()
 
         # default policy and ring references
         self.policy = POLICIES.default
         self.obj_ring = self.policy.object_ring
         self._ts_iter = (utils.Timestamp(t) for t in
                          itertools.count(int(time.time())))
+
+    def _make_app(self):
+        self.app = PatchedObjControllerApp(
+            self.conf, account_ring=FakeRing(),
+            container_ring=FakeRing(), logger=self.logger)
+        self.logger.clear()  # startup/loading debug msgs not helpful
+
+        # you can over-ride the container_info just by setting it on the app
+        # (see PatchedObjControllerApp for details)
+        self.app.container_info = dict(self.fake_container_info())
 
     def ts(self):
         return next(self._ts_iter)
@@ -2587,6 +2590,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
     def test_PUT_delete_at(self):
         t = str(int(time.time() + 100))
+        expected_part, expected_nodes, expected_delete_at_container = \
+            self.app.expirer_config.get_delete_at_nodes(t, 'a', 'c', 'o')
         req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-At': t})
@@ -2600,12 +2605,52 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         with set_http_connect(*codes, give_connect=capture_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+        found_host_device = set()
         for given_headers in put_headers:
+            found_host_device.add('%s/%s' % (
+                given_headers['X-Delete-At-Host'],
+                given_headers['X-Delete-At-Device']))
             self.assertEqual(given_headers.get('X-Delete-At'), t)
-            self.assertIn('X-Delete-At-Host', given_headers)
-            self.assertIn('X-Delete-At-Device', given_headers)
-            self.assertIn('X-Delete-At-Partition', given_headers)
-            self.assertIn('X-Delete-At-Container', given_headers)
+            self.assertEqual(str(expected_part),
+                             given_headers['X-Delete-At-Partition'])
+            self.assertEqual(expected_delete_at_container,
+                             given_headers['X-Delete-At-Container'])
+        self.assertEqual({'%(ip)s:%(port)s/%(device)s' % n
+                          for n in expected_nodes},
+                         found_host_device)
+
+    def test_POST_delete_at_configure_task_container_per_day(self):
+        self.assertEqual(100, self.app.expirer_config.task_container_per_day)
+        t = str(int(time.time() + 100))
+        expected_part, expected_nodes, expected_delete_at_container = \
+            self.app.expirer_config.get_delete_at_nodes(t, 'a', 'c', 'o')
+        req = swob.Request.blank('/v1/a/c/o', method='POST', body=b'',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        post_headers = []
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'POST':
+                post_headers.append(headers)
+        codes = [201] * self.obj_ring.replicas
+
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 201)
+        found_host_device = set()
+        for given_headers in post_headers:
+            found_host_device.add('%s/%s' % (
+                given_headers['X-Delete-At-Host'],
+                given_headers['X-Delete-At-Device']))
+            self.assertEqual(given_headers.get('X-Delete-At'), t)
+            self.assertEqual(str(expected_part),
+                             given_headers['X-Delete-At-Partition'])
+            self.assertEqual(expected_delete_at_container,
+                             given_headers['X-Delete-At-Container'])
+        self.assertEqual({'%(ip)s:%(port)s/%(device)s' % n
+                          for n in expected_nodes},
+                         found_host_device)
 
     def test_POST_delete_at_with_x_open_expired(self):
         t_delete = str(int(time.time() + 30))
@@ -2635,11 +2680,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                 self.assertIn('X-Delete-At-Container', given_headers)
 
         # Check when allow_open_expired config is set to true
-        conf = {'allow_open_expired': 'true'}
-        self.app = PatchedObjControllerApp(
-            conf, account_ring=FakeRing(),
-            container_ring=FakeRing(), logger=None)
-        self.app.container_info = dict(self.fake_container_info())
+        self.conf['allow_open_expired'] = 'true'
+        self._make_app()
         self.obj_ring = self.app.get_object_ring(int(self.policy))
 
         post_headers = []

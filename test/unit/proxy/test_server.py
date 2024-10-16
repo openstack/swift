@@ -7575,9 +7575,8 @@ class TestReplicatedObjectController(
         self.app.container_ring.set_replicas(2)
 
         delete_at_timestamp = int(time.time()) + 100000
-        delete_at_container = utils.get_expirer_container(
-            delete_at_timestamp, self.app.expiring_objects_container_divisor,
-            'a', 'c', 'o')
+        delete_at_container = self.app.expirer_config.get_expirer_container(
+            delete_at_timestamp, 'a', 'c', 'o')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
@@ -7608,13 +7607,22 @@ class TestReplicatedObjectController(
     @mock.patch('time.time', new=lambda: STATIC_TIME)
     def test_PUT_x_delete_at_with_more_container_replicas(self):
         self.app.container_ring.set_replicas(4)
-        self.app.expiring_objects_account = 'expires'
-        self.app.expiring_objects_container_divisor = 60
+        self.app.expirer_config = proxy_server.expirer.ExpirerConfig(
+            {
+                'expiring_objects_account_name': 'expires',
+                'expiring_objects_container_divisor': 600,
+            }, logger=self.logger, container_ring=self.app.container_ring)
+        self.assertEqual([
+            'expiring_objects_container_divisor is deprecated',
+            'expiring_objects_account_name is deprecated; you need to migrate '
+            'to the standard .expiring_objects account',
+        ], self.logger.get_lines_for_level('warning'))
+        self.assertIs(self.app.container_ring,
+                      self.app.expirer_config.container_ring)
 
         delete_at_timestamp = int(time.time()) + 100000
-        delete_at_container = utils.get_expirer_container(
-            delete_at_timestamp, self.app.expiring_objects_container_divisor,
-            'a', 'c', 'o')
+        delete_at_container = self.app.expirer_config.get_expirer_container(
+            delete_at_timestamp, 'a', 'c', 'o')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,
