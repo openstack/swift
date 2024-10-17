@@ -618,6 +618,7 @@ class TestFakeSwift(unittest.TestCase):
         exp_env.update(env_updates)
         self.assertEqual(exp_env, req.environ)
         self.assertEqual(exp_env, resp.environ)
+        self.assertIs(req.environ, resp.environ)
 
 
 class TestFakeSwiftMultipleResponses(unittest.TestCase):

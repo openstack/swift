@@ -1391,6 +1391,105 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              }] + listing[1:]
         self.assertEqual(expected, actual)
 
+    def test_post_mpu(self):
+        upload_id = MPUId.create(next(self.ts_iter))
+        manifest_rel_path = '\x00mpu_manifests\x00c/\x00o/%s' % self.mpu_id
+        manifest_path = '/v1/a/' + manifest_rel_path
+        symlink_resp_headers = {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': '101',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+            'X-Object-Sysmeta-Symlink-Target': manifest_rel_path,
+            'Location': manifest_path,
+        }
+        manifest_resp_headers = {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+        }
+        registered_calls = [
+            ('POST', '/v1/a/c/o',
+             swob.HTTPTemporaryRedirect,
+             symlink_resp_headers,
+             b'',
+             # symlink sets this env flag...
+             {'swift.leave_relative_location': True}),
+            ('POST', manifest_path,
+             swob.HTTPAccepted,
+             manifest_resp_headers),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        post_headers = {
+            'X-Object-Meta-Foo': 'Bar',
+            'Content-Type': 'application/test2',
+            'X-Timestamp': '1727184152.29655',
+        }
+        req = Request.blank('/v1/a/c/o', headers=post_headers)
+        req.method = 'POST'
+        resp = req.get_response(self.mw)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(2, len(self.app.calls))
+        expected = [call[:2] for call in registered_calls]
+        self.assertEqual(expected, self.app.calls)
+        exp_body = b'<html><h1>Accepted</h1><p>The request is accepted for ' \
+                   b'processing.</p></html>'
+        self.assertEqual(exp_body, resp.body)
+        exp_resp_headers = {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(exp_body)),
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+
+    def test_post_not_mpu(self):
+        # verify that mpu middleware doesn't mess with a regular symlink POST
+        # redirect
+        symlink_resp_headers = {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': '101',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'X-Object-Sysmeta-Symlink-Target': 'not/an/mpu',
+            'Location': '/v1/a/not/an/mpu',
+        }
+        registered_calls = [
+            ('POST', '/v1/a/c/o',
+             swob.HTTPTemporaryRedirect,
+             symlink_resp_headers,
+             b'',
+             # symlink sets this env flag...
+             {'swift.leave_relative_location': True}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        post_headers = {
+            'X-Object-Meta-Foo': 'Bar',
+            'Content-Type': 'application/test2',
+            'X-Timestamp': '1727184152.29655',
+        }
+        req = Request.blank('/v1/a/c/o', headers=post_headers)
+        req.method = 'POST'
+        resp = req.get_response(self.mw)
+        self.assertEqual(307, resp.status_int)
+        self.assertEqual(1, len(self.app.calls))
+        expected = [call[:2] for call in registered_calls]
+        self.assertEqual(expected, self.app.calls)
+        self.assertEqual(symlink_resp_headers, resp.headers)
+
     def _do_test_get_head_mpu(self, method):
         upload_id = MPUId.create(next(self.ts_iter))
         get_resp_headers = {

@@ -395,6 +395,79 @@ class TestMPU(BaseTestMPU):
                         container=self.user_cont, obj=name)
         self.assertEqual(200, resp.status)
 
+    def test_post_mpu(self):
+        name = uuid4().hex
+        create_headers = {'content-type': 'application/test1',
+                          'x-object-meta-test': 'one'}
+        upload_id, mpu_etag = self._make_mpu(
+            name, extra_create_headers=create_headers)
+        resp = tf.retry(self._make_request, method='HEAD',
+                        container=self.user_cont, obj=name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual({
+            'Content-Type': 'application/test1',
+            'Etag': '"%s"' % mpu_etag,
+            'X-Upload-Id': upload_id,
+            'X-Parts-Count': '2',
+            'Last-Modified': mock.ANY,
+            'X-Timestamp': mock.ANY,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(self.part_size * 2),
+            'X-Trans-Id': mock.ANY,
+            'X-Openstack-Request-Id': mock.ANY,
+            'Date': mock.ANY,
+            'x-object-meta-test': 'one',
+        }, resp.headers)
+
+        # update content-type and metadata
+        post_headers = {'content-type': 'application/test2',
+                        'x-object-meta-test-2': 'two'}
+        resp = tf.retry(self._make_request, method='POST',
+                        container=self.user_cont, obj=name,
+                        headers=post_headers)
+        self.assertEqual(202, resp.status)
+        resp = tf.retry(self._make_request, method='HEAD',
+                        container=self.user_cont, obj=name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual({
+            'Content-Type': 'application/test2',
+            'Etag': '"%s"' % mpu_etag,
+            'X-Upload-Id': upload_id,
+            'X-Parts-Count': '2',
+            'Last-Modified': mock.ANY,
+            'X-Timestamp': mock.ANY,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(self.part_size * 2),
+            'X-Trans-Id': mock.ANY,
+            'X-Openstack-Request-Id': mock.ANY,
+            'Date': mock.ANY,
+            'x-object-meta-test-2': 'two',
+        }, resp.headers)
+
+        # update only metadata
+        post_headers = {'x-object-meta-test-3': 'three'}
+        resp = tf.retry(self._make_request, method='POST',
+                        container=self.user_cont, obj=name,
+                        headers=post_headers)
+        self.assertEqual(202, resp.status)
+        resp = tf.retry(self._make_request, method='HEAD',
+                        container=self.user_cont, obj=name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual({
+            'Content-Type': 'application/test2',
+            'Etag': '"%s"' % mpu_etag,
+            'X-Upload-Id': upload_id,
+            'X-Parts-Count': '2',
+            'Last-Modified': mock.ANY,
+            'X-Timestamp': mock.ANY,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(self.part_size * 2),
+            'X-Trans-Id': mock.ANY,
+            'X-Openstack-Request-Id': mock.ANY,
+            'Date': mock.ANY,
+            'x-object-meta-test-3': 'three',
+        }, resp.headers)
+
 
 class TestExistingMPU(BaseTestMPU):
     # all tests in this class use the same pre-existing MPU, created once

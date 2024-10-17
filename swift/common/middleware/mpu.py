@@ -19,7 +19,8 @@ import six
 
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
+from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND, \
+    HTTP_TEMPORARY_REDIRECT
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES
 from swift.common.storage_policy import POLICIES
@@ -28,7 +29,7 @@ from swift.common.utils import generate_unique_id, drain_and_close, \
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
-    HTTPServiceUnavailable, quote_etag
+    HTTPServiceUnavailable, quote_etag, wsgi_unquote, HTTPAccepted
 from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
@@ -708,7 +709,6 @@ class MPUSessionHandler(BaseMPUHandler):
         # set the MPU etag override to be forwarded to the manifest container
         update_etag_override_header(
             manifest_headers, mpu_etag, [('mpu_etag', mpu_etag)])
-
         manifest_req = self.make_subrequest(
             path=self.manifest_path, method='PUT', headers=manifest_headers,
             body=json.dumps(manifest),
@@ -875,11 +875,7 @@ class MPUObjHandler(BaseMPUHandler):
             self._put_manifest_delete_marker(upload_id,
                                              MPU_DELETED_MARKER_SUFFIX)
 
-    def _cleanup_get_head_resp(self, resp):
-        upload_id = resp.headers.get(MPU_SYSMETA_UPLOAD_ID_KEY)
-        if not upload_id:
-            return
-
+    def _handle_get_head_response(self, resp):
         new_headers = HeaderKeyDict()
         mpu_etag = None
         for key, val in resp.headers.items():
@@ -903,10 +899,31 @@ class MPUObjHandler(BaseMPUHandler):
             new_headers['etag'] = quote_etag(mpu_etag)
         resp.headers = new_headers
 
+    def _handle_post_response(self, resp):
+        if resp.status_int != HTTP_TEMPORARY_REDIRECT:
+            return resp
+
+        drain_and_close(resp)
+        manifest_path = wsgi_unquote(resp.headers.get('location'))
+        marker_req = self.make_subrequest(
+            'POST', path=manifest_path, headers=self.req.headers)
+        sub_resp = marker_req.get_response(self.app)
+        drain_and_close(sub_resp)
+        if sub_resp.is_success:
+            new_resp = HTTPAccepted(request=self.req, headers=sub_resp.headers)
+        else:
+            new_resp = translate_error_response(sub_resp)
+            new_resp.request = self.req
+
+        return new_resp
+
     def handle_request(self):
         resp = self.req.get_response(self.app)
-        if self.req.method in ('GET', 'HEAD'):
-            self._cleanup_get_head_resp(resp)
+        upload_id = resp.headers.get(MPU_SYSMETA_UPLOAD_ID_KEY)
+        if self.req.method in ('GET', 'HEAD') and upload_id:
+            self._handle_get_head_response(resp)
+        elif self.req.method == 'POST' and upload_id:
+            resp = self._handle_post_response(resp)
         elif self.req.method in ('PUT', 'DELETE'):
             # TODO: write down a general maybe-deleted marker in manifests
             #  container *before* forwarding request

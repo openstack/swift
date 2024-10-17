@@ -351,6 +351,9 @@ class FakeSwift(object):
         # Apply conditional etag overrides
         conditional_etag = resolve_etag_is_at_header(req, resp_spec.headers)
 
+        # update the env passed by caller
+        resp_spec.update_environ(env)
+
         if self.can_ignore_range:
             # avoid popping range from original environ
             req = swob.Request(dict(req.environ))
@@ -358,8 +361,6 @@ class FakeSwift(object):
 
         # range requests ought to work, hence conditional_response=True
         wsgi_iter = resp_spec.make_iter(req, start_response, conditional_etag)
-        # update the env passed by caller
-        resp_spec.update_environ(env)
         self.mark_opened((method, path))
         return LeakTrackingIter(wsgi_iter, self.mark_closed,
                                 self.mark_read, (method, path))
