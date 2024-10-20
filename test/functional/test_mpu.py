@@ -1040,16 +1040,31 @@ class TestMPU(BaseTestMPU):
             'x-object-meta-test-3': 'three',
         }, resp.headers)
 
-    def test_container_listing_with_mpu(self):
+    def test_container_head_with_mpu(self):
         container = self._create_container()
-        _, mpu_etag, _ = self._make_mpu(self.mpu_name, container=container)
+        _, mpu_etag, _ = self._make_mpu(
+            self.mpu_name, container=container, num_parts=2)
+        resp = tf.retry(self._make_request, method='HEAD',
+                        container=container,
+                        query_string='format=json')
+        self.assertEqual(204, resp.status)
+        self.assertEqual(b'', resp.content)
+        self.assertEqual('1', resp.headers['X-Container-Object-Count'])
+        self.assertEqual(str(2 * self.part_size),
+                         resp.headers['X-Container-Bytes-Used'])
+
+    def test_container_get_with_mpu(self):
+        container = self._create_container()
+        _, mpu_etag, _ = self._make_mpu(
+            self.mpu_name, container=container, num_parts=2)
         # GET the user container
         resp = tf.retry(self._make_request, method='GET',
                         container=container,
                         query_string='format=json')
         self.assertEqual(200, resp.status)
         self.assertEqual('1', resp.headers['X-Container-Object-Count'])
-        self.assertEqual('0', resp.headers['X-Container-Bytes-Used'])
+        self.assertEqual(str(2 * self.part_size),
+                         resp.headers['X-Container-Bytes-Used'])
         listing = json.loads(resp.content)
         self.assertEqual(1, len(listing))
         expected = {
@@ -1061,9 +1076,10 @@ class TestMPU(BaseTestMPU):
         }
         self.assertEqual(expected, listing[0])
 
-    def test_container_listing_with_mpu_via_container_acl(self):
+    def test_container_get_with_mpu_via_container_acl(self):
         container = self._create_container()
-        _, mpu_etag, _ = self._make_mpu(self.mpu_name, container=container)
+        _, mpu_etag, _ = self._make_mpu(
+            self.mpu_name, container=container, num_parts=2)
         # other account cannot get listing without acl
         resp = tf.retry(self._make_request, method='GET',
                         container=container,
@@ -1090,7 +1106,8 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(200, resp.status)
         self.assertEqual(200, resp.status)
         self.assertEqual('1', resp.headers['X-Container-Object-Count'])
-        self.assertEqual('0', resp.headers['X-Container-Bytes-Used'])
+        self.assertEqual(str(2 * self.part_size),
+                         resp.headers['X-Container-Bytes-Used'])
         listing = json.loads(resp.content)
         self.assertEqual(1, len(listing))
         expected = {

@@ -45,12 +45,14 @@ DEFAULT_MAX_UPLOADS = 1000
 
 MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
-MPU_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
-MPU_SYSMETA_UPLOAD_ID_KEY = MPU_SYSMETA_PREFIX + 'upload-id'
-MPU_SYSMETA_ETAG_KEY = MPU_SYSMETA_PREFIX + 'etag'
-MPU_SYSMETA_PARTS_COUNT_KEY = MPU_SYSMETA_PREFIX + 'parts-count'
-MPU_SYSMETA_USER_CONTENT_TYPE_KEY = MPU_SYSMETA_PREFIX + 'content-type'
-MPU_SYSMETA_USER_PREFIX = MPU_SYSMETA_PREFIX + 'user-'
+
+MPU_OBJECT_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
+MPU_SYSMETA_UPLOAD_ID_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'upload-id'
+MPU_SYSMETA_ETAG_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'etag'
+MPU_SYSMETA_PARTS_COUNT_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'parts-count'
+MPU_SYSMETA_USER_CONTENT_TYPE_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'content-type'
+MPU_SYSMETA_USER_PREFIX = MPU_OBJECT_SYSMETA_PREFIX + 'user-'
+MPU_CONTAINER_SYSMETA_PREFIX = 'x-container-sysmeta-mpu-'
 MPU_SESSION_CREATED_CONTENT_TYPE = 'application/x-mpu-session-created'
 MPU_SESSION_ABORTED_CONTENT_TYPE = 'application/x-mpu-session-aborted'
 MPU_SESSION_COMPLETING_CONTENT_TYPE = 'application/x-mpu-session-completing'
@@ -421,7 +423,7 @@ class MPUSession(MPUItem):
                 headers[key[len(MPU_SYSMETA_USER_PREFIX):]] = val
             elif key_lower == MPU_SYSMETA_USER_CONTENT_TYPE_KEY:
                 headers['Content-Type'] = val
-            elif key_lower.startswith(MPU_SYSMETA_PREFIX):
+            elif key_lower.startswith(MPU_OBJECT_SYSMETA_PREFIX):
                 continue
             elif is_sys_meta('object', key_lower):
                 headers[key] = val
@@ -502,12 +504,17 @@ class BaseMPUHandler(object):
         :param headers: a dict of headers for the sub-request.
         :param params: a dict of query-string parameters for the sub-request.
         """
+        quoted_path = wsgi_quote(path)
         req_headers = {'X-Backend-Allow-Reserved-Names': 'true'}
         if headers:
             req_headers.update(headers)
         sub_req = make_pre_authed_request(
-            self.req.environ, path=wsgi_quote(path), method=method,
-            headers=req_headers, swift_source=MPU_SWIFT_SOURCE, body=body)
+            self.req.environ,
+            path=quoted_path,
+            method=method,
+            headers=req_headers,
+            swift_source=MPU_SWIFT_SOURCE,
+            body=body)
         sub_req.params = params or {}
         return sub_req
 
@@ -546,6 +553,7 @@ class MPUSessionsHandler(BaseMPUHandler):
     def __init__(self, mw, req):
         super(MPUSessionsHandler, self).__init__(mw, req)
         self.user_container_info = self._check_user_container_exists()
+        self.user_container_info.setdefault('sysmeta', {})
 
     @public
     def list_uploads(self):
@@ -591,9 +599,9 @@ class MPUSessionsHandler(BaseMPUHandler):
         resp.body = json.dumps(listing).encode('ascii')
         return resp
 
-    def _ensure_container_exists(self, container):
+    def _ensure_container_exists(self, container, policy_index):
         # TODO: make storage policy specific parts bucket
-        policy_name = POLICIES[self.user_container_info['storage_policy']].name
+        policy_name = POLICIES[policy_index].name
 
         # container_name = wsgi_unquote(wsgi_quote(container_name))
         path = self.make_path(container)
@@ -610,6 +618,21 @@ class MPUSessionsHandler(BaseMPUHandler):
                 raise HTTPInternalServerError(
                     'Error creating MPU resource container')
 
+    def _ensure_parts_container_in_metadata(self, policy_index):
+        parts_container_key = 'mpu-parts-container-%d' % policy_index
+        if parts_container_key not in self.user_container_info['sysmeta']:
+            headers = {'x-container-sysmeta-' + parts_container_key:
+                       wsgi_quote(self.parts_container)}
+            cont_req = self.make_subrequest(
+                path=self.make_path(self.container),
+                method='POST',
+                headers=headers)
+            resp = cont_req.get_response(self.app)
+            drain_and_close(resp)
+            if not resp.is_success or resp.status_int == HTTP_CONFLICT:
+                raise HTTPInternalServerError(
+                    'Error writing MPU parts container metadata')
+
     @public
     def create_upload(self):
         """
@@ -622,9 +645,11 @@ class MPUSessionsHandler(BaseMPUHandler):
         #     # within the limit, which means the segment names will go over
         #     raise KeyTooLongError()
 
-        self._ensure_container_exists(self.sessions_container)
-        self._ensure_container_exists(self.manifests_container)
-        self._ensure_container_exists(self.parts_container)
+        policy_index = self.user_container_info['storage_policy']
+        self._ensure_container_exists(self.sessions_container, policy_index)
+        self._ensure_container_exists(self.manifests_container, policy_index)
+        self._ensure_container_exists(self.parts_container, policy_index)
+        self._ensure_parts_container_in_metadata(policy_index)
 
         upload_id = MPUId.create(self.req.path, self.req.ensure_x_timestamp())
         self.req.headers.pop('Etag', None)
@@ -1161,7 +1186,7 @@ class MPUObjHandler(BaseMPUHandler):
                 new_headers['x-parts-count'] = val
             elif key == MPU_SYSMETA_UPLOAD_ID_KEY:
                 new_headers['x-upload-id'] = val
-            elif key.startswith(MPU_SYSMETA_PREFIX):
+            elif key.startswith(MPU_OBJECT_SYSMETA_PREFIX):
                 continue
             else:
                 new_headers[key] = val
@@ -1210,6 +1235,29 @@ class MPUObjHandler(BaseMPUHandler):
 
 
 class MPUContainerHandler(BaseMPUHandler):
+    def _update_resp_headers(self, resp):
+        # TODO: implement similar in base get_container_info()
+        bytes_used = resp.headers.get('X-Container-Bytes-Used')
+        if not bytes_used:
+            return
+
+        parts_bytes = None
+        for key, value in resp.headers.items():
+            if not key.lower().startswith(
+                    'x-container-sysmeta-mpu-parts-container-'):
+                continue
+            path = self.make_path(wsgi_unquote(value))
+            parts_req = self.make_subrequest('HEAD', path)
+            parts_resp = parts_req.get_response(self.app)
+            if parts_resp.is_success:
+                parts_bytes = (parts_bytes or 0) + int(
+                    parts_resp.headers.get('X-Container-Bytes-Used', 0))
+
+        if parts_bytes is not None:
+            resp.headers['X-Container-Bytes-Used'] = str(
+                int(bytes_used) + parts_bytes)
+            resp.headers['X-Container-Mpu-Parts-Bytes-Used'] = str(parts_bytes)
+
     def _process_json_resp(self, resp):
         body_json = json.loads(resp.body)
         for item in body_json:
@@ -1249,6 +1297,9 @@ class MPUContainerHandler(BaseMPUHandler):
 
         if self.req.method == 'GET':
             self._process_json_resp(resp)
+            self._update_resp_headers(resp)
+        elif self.req.method == 'HEAD':
+            self._update_resp_headers(resp)
         elif self.req.method == 'DELETE':
             pass
             # TODO: implement

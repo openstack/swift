@@ -27,7 +27,7 @@ from swift.common.middleware.mpu import MPUMiddleware, MPUId, \
     MPUSession, BaseMPUHandler, MPUEtagHasher
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPServiceUnavailable, HTTPPreconditionFailed, \
-    HTTPException, HTTPBadRequest
+    HTTPException, HTTPBadRequest, wsgi_quote, HTTPNoContent
 from swift.common.utils import md5, quote, Timestamp, MD5_OF_EMPTY_STRING
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
@@ -455,28 +455,22 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             ]
 
     def _setup_mpu_create_requests(self):
-        self.app.register(
-            'HEAD', '/v1/a/\x00mpu_sessions\x00c', HTTPNotFound, {})
-        self.app.register(
-            'PUT', '/v1/a/\x00mpu_sessions\x00c', HTTPCreated, {})
-        self.app.register(
-            'HEAD', '/v1/a/\x00mpu_manifests\x00c', HTTPNotFound, {})
-        self.app.register(
-            'PUT', '/v1/a/\x00mpu_manifests\x00c', HTTPCreated, {})
-        self.app.register(
-            'HEAD', '/v1/a/\x00mpu_parts\x00c', HTTPNotFound, {})
-        self.app.register(
-            'PUT', '/v1/a/\x00mpu_parts\x00c', HTTPCreated, {})
+        registered = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c', HTTPNotFound, {}),
+            ('PUT', '/v1/a/\x00mpu_sessions\x00c', HTTPCreated, {}),
+            ('HEAD', '/v1/a/\x00mpu_manifests\x00c', HTTPNotFound, {}),
+            ('PUT', '/v1/a/\x00mpu_manifests\x00c', HTTPCreated, {}),
+            ('HEAD', '/v1/a/\x00mpu_parts\x00c', HTTPNotFound, {}),
+            ('PUT', '/v1/a/\x00mpu_parts\x00c', HTTPCreated, {}),
+            ('POST', '/v1/a/c', HTTPAccepted, {}),
+        ]
+        for call in registered:
+            self.app.register(*call)
         expected = [
             ('HEAD', '/v1/a'),
             ('HEAD', '/v1/a/c'),
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c'),
-            ('PUT', '/v1/a/\x00mpu_sessions\x00c'),
-            ('HEAD', '/v1/a/\x00mpu_manifests\x00c'),
-            ('PUT', '/v1/a/\x00mpu_manifests\x00c'),
-            ('HEAD', '/v1/a/\x00mpu_parts\x00c'),
-            ('PUT', '/v1/a/\x00mpu_parts\x00c'),
         ]
+        expected += [call[:2] for call in registered]
         return expected
 
     def _setup_mpu_existence_check_call(self, ts_session, extra_headers=None):
@@ -574,6 +568,32 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'text/html'},
             self.app.headers[-1])
+
+    def test_create_mpu_existing_resource_containers(self):
+        user_container_headers = {
+            'X-Container-Sysmeta-Mpu-Parts-Container-0':
+                wsgi_quote('\x00mpu_parts\x00c')
+        }
+        registered = [
+            ('HEAD', '/v1/a', HTTPOk, {}),
+            ('HEAD', '/v1/a/c', HTTPOk, user_container_headers),
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {}),
+            ('HEAD', '/v1/a/\x00mpu_manifests\x00c', HTTPNoContent, {}),
+            ('HEAD', '/v1/a/\x00mpu_parts\x00c', HTTPNoContent, {}),
+            ('PUT', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPCreated, {})
+        ]
+        for call in registered:
+            self.app.register(*call)
+        expected = [call[:2] for call in registered]
+        req = Request.blank('/v1/a/c/o?uploads=true')
+        req.method = 'POST'
+        with mock.patch('swift.common.middleware.mpu.MPUId.create',
+                        return_value=self.mpu_id):
+            resp = req.get_response(self.mw)
+        self.assertEqual(202, resp.status_int)
+        self.assertIn('X-Upload-Id', resp.headers)
+        self.assertEqual(expected, self.app.calls)
 
     def test_list_uploads(self):
         registered_calls = [
@@ -1852,20 +1872,85 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'last_modified': '1970-01-01T00:00:01.000000'},
         ]
         resp_body = json.dumps(listing).encode('ascii')
-        self.app.register('GET', '/v1/a/cont', swob.HTTPCreated, {}, resp_body)
+        parts_container = '\x00mpu_parts\x00cont'
+        get_resp_hdrs = {
+            'X-Container-Sysmeta-Mpu-Parts-Container-0':
+                wsgi_quote(parts_container),
+            'X-Container-Object-Count': '4',
+            'X-Container-Bytes-Used': '123',
+        }
+        head_resp_hdrs = {
+            'X-Container-Object-Count': '2',
+            'X-Container-Bytes-Used': '12341234',
+        }
+        registered = [
+            ('GET', '/v1/a/cont', swob.HTTPCreated,
+             get_resp_hdrs, resp_body),
+            ('HEAD', '/v1/a/\x00mpu_parts\x00cont', swob.HTTPNoContent,
+             head_resp_hdrs, resp_body),
+        ]
+        for call in registered:
+            self.app.register(*call)
         req = Request.blank('/v1/a/cont')
         req.method = 'GET'
         resp = req.get_response(self.mw)
         self.assertEqual(201, resp.status_int)
         actual = json.loads(b''.join(resp.app_iter))
-        expected = [
+        expected_listing = [
             {'name': 'a-mpu',
              'bytes': 10485760,
              'hash': 'my-mpu-etag; other_mw_etag=banana',
              'content_type': 'application/test',
              'last_modified': '2024-09-10T14:16:00.579190',
              }] + listing[1:]
-        self.assertEqual(expected, actual)
+        self.assertEqual(expected_listing, actual)
+        exp_hdrs = {
+            'Content-Length': str(len(json.dumps(expected_listing))),
+            'Content-Type': 'text/html; charset=UTF-8',
+            'X-Container-Bytes-Used': '12341357',
+            'X-Container-Mpu-Parts-Bytes-Used': '12341234',
+            'X-Container-Object-Count': '4',
+            'X-Container-Sysmeta-Mpu-Parts-Container-0': '%00mpu_parts%00cont'
+        }
+        self.assertEqual(exp_hdrs, resp.headers)
+        exp_calls = [call[:2] for call in registered]
+        self.assertEqual(exp_calls, self.app.calls)
+
+    def test_container_listing_no_mpu(self):
+        listing = [
+            # plain old object
+            {'name': 'd-obj',
+             'hash': 'my-etag',
+             'bytes': 123,
+             'content_type': "text/plain",
+             'last_modified': '1970-01-01T00:00:01.000000'},
+        ]
+        resp_body = json.dumps(listing).encode('ascii')
+        get_resp_hdrs = {
+            'X-Container-Object-Count': '1',
+            'X-Container-Bytes-Used': '123',
+        }
+        registered = [
+            ('GET', '/v1/a/cont', swob.HTTPCreated,
+             get_resp_hdrs, resp_body),
+        ]
+        for call in registered:
+            self.app.register(*call)
+        req = Request.blank('/v1/a/cont')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(201, resp.status_int)
+        exp_hdrs = {
+            'Content-Length': str(len(resp_body)),
+            'Content-Type': 'text/html; charset=UTF-8',
+            'X-Container-Bytes-Used': '123',
+            'X-Container-Object-Count': '1',
+        }
+        self.assertEqual(exp_hdrs, resp.headers)
+        actual = json.loads(b''.join(resp.app_iter))
+        self.assertEqual(listing, actual)
+        exp_calls = [call[:2] for call in registered]
+        self.assertEqual(exp_calls, self.app.calls)
 
     def test_post_mpu(self):
         manifest_rel_path = '\x00mpu_manifests\x00c/%s' % self.sess_name
