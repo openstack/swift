@@ -605,6 +605,15 @@
       nslookup_target: 'opendev.org'
       enable_fips: true
 
+# TODO(gmann): As per the 2025.1 testing runtime, we need to run at least
+# one job on jammy. This job can be removed as per the future testing
+# runtime (whenever we start testing Ubuntu 26.04 as default version).
+- job:
+    name: tempest-integrated-object-storage-ubuntu-jammy
+    description: This is integrated object-storage job testing on Ubuntu jammy(22.04)
+    parent: tempest-integrated-object-storage
+    nodeset: openstack-single-node-jammy
+
 - project-template:
     name: swift-jobs-arm64
     description: |
@@ -723,6 +732,8 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+        - tempest-integrated-object-storage-ubuntu-jammy:
+            irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
             irrelevant-files: *tempest-irrelevant-files
         - openstacksdk-functional-devstack:
@@ -767,6 +778,8 @@
         - swift-multinode-rolling-upgrade:
             irrelevant-files: *functest-irrelevant-files
         - tempest-integrated-object-storage:
+            irrelevant-files: *tempest-irrelevant-files
+        - tempest-integrated-object-storage-ubuntu-jammy:
             irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
             irrelevant-files: *tempest-irrelevant-files
