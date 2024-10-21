@@ -459,7 +459,7 @@ class TestSlo(Base):
             start = end + 1
 
     def test_x_delete_at_with_part_number_and_open_expired(self):
-        cont_name = self.env.account2.container(self.env.container.name)
+        cont_name = self.env.account.container(self.env.container.name)
         allow_open_expired = config_true_value(tf.cluster_info['swift'].get(
             'allow_open_expired', 'false'))
 
