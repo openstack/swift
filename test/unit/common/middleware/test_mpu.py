@@ -1065,6 +1065,39 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': mock.ANY},
             session_hdrs)
 
+    def test_complete_mpu_fails_to_set_completing_state(self):
+        ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
+        ts_complete = next(self.ts_iter)
+        registered_calls = [
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPNotFound,
+             {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        mpu_manifest = [
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ]
+        mpu_etag_hasher = md5(usedforsecurity=False)
+        for part in mpu_manifest:
+            mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
+        req.body = json.dumps(mpu_manifest)
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(503, resp.status_int)
+        self.assertIn(b'Service Unavailable', resp_body)
+        expected = [call[:2]
+                    for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
     def test_complete_mpu_bad_manifest(self):
 
         def do_complete(manifest_body):
@@ -1509,6 +1542,30 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': ts_abort.internal},
             session_post_hdrs)
 
+    def test_abort_mpu_fails_to_update_session(self):
+        ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
+        ts_abort = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD', '/v1/a/c/o', HTTPOk, {}),  # no symlink
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPNotFound,
+             {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_abort.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'DELETE'
+        resp = req.get_response(self.mw)
+        self.assertIn(b'Service Unavailable', b''.join(resp.app_iter))
+        self.assertEqual(503, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
     def test_abort_mpu_session_completing(self):
         ts_session = next(self.ts_iter)
         extra_hdrs = {'Content-Type': 'application/x-mpu-session-completing'}
@@ -1598,8 +1655,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(expected, self.app.calls)
 
     def test_mpu_async_cleanup_DELETE(self):
-        backend_responses = ResponseCollection([ResponseData(
-            204, headers={'x-object-sysmeta-mpu-upload-id': self.mpu_id})
+        backend_headers = {'x-object-sysmeta-mpu-upload-id': self.mpu_id}
+        backend_responses = ResponseCollection([
+            ResponseData(204, headers=backend_headers)
         ])
         env_updates = {'swift.backend_responses': backend_responses}
         self.app.register('DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None,
@@ -1609,7 +1667,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             '/v1/a/\x00mpu_manifests\x00c/%s/marker-deleted'
             % self.sess_name,
             HTTPAccepted,
-            {})
+            backend_headers)
         req = Request.blank('/v1/a/c/o')
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
@@ -1624,13 +1682,45 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ]
         self.assertEqual(exp_calls, self.app.calls)
 
-    def test_mpu_async_cleanup_PUT(self):
-        backend_responses = ResponseCollection([ResponseData(
-            201, headers={'x-object-sysmeta-mpu-upload-id': self.mpu_id})
+    def test_mpu_async_cleanup_DELETE_versioning_enabled(self):
+        # if *any* of the backend responses indicates that a version was
+        # created then none of the uploads are cleaned up :(
+        # TODO: cleanup uploads that were not preserved as a version
+        mpu_id_alt = MPUId.create(self.mpu_path, next(self.ts_iter))
+        backend_headers = {
+            'x-object-sysmeta-mpu-upload-id': self.mpu_id,
+            'x-object-version-id': 'my-version-id',
+        }
+        alt_backend_headers = {
+            'x-object-sysmeta-mpu-upload-id': mpu_id_alt,
+        }
+
+        backend_responses = ResponseCollection([
+            ResponseData(201, headers=backend_headers),
+            ResponseData(201, headers=alt_backend_headers),
         ])
         env_updates = {'swift.backend_responses': backend_responses}
-        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None,
-                          env_updates=env_updates)
+        self.app.register('DELETE', '/v1/a/c/o', swob.HTTPNoContent,
+                          backend_headers, None, env_updates=env_updates)
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'DELETE'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(204, resp.status_int)
+        self.assertEqual(b'', resp_body)
+        exp_calls = [
+            ('DELETE', '/v1/a/c/o'),
+        ]
+        self.assertEqual(exp_calls, self.app.calls)
+
+    def test_mpu_async_cleanup_PUT(self):
+        backend_headers = {'x-object-sysmeta-mpu-upload-id': self.mpu_id}
+        backend_responses = ResponseCollection([
+            ResponseData(201, headers=backend_headers)
+        ])
+        env_updates = {'swift.backend_responses': backend_responses}
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated,
+                          backend_headers, None, env_updates=env_updates)
         self.app.register(
             'PUT',
             '/v1/a/\x00mpu_manifests\x00c/%s/marker-deleted'
