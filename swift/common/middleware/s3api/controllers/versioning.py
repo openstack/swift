@@ -77,6 +77,7 @@ class VersioningController(Controller):
         # Set up versioning
         # NB: object_versioning responsible for ensuring its container exists
         req.headers['X-Versions-Enabled'] = str(status == 'Enabled').lower()
+        req.headers['X-S3-Compatible-Versions'] = 'true'
         req.get_response(self.app, 'POST')
 
         return HTTPOk()

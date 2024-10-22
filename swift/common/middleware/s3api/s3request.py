@@ -62,7 +62,7 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU, \
     XAmzContentSHA256Mismatch, IncompleteBody, InvalidChunkSizeError, \
     InvalidPartNumber, InvalidPartArgument, MalformedTrailerError, \
-    NoSuchUpload
+    NoSuchUpload, NoSuchVersion
 from swift.common.middleware.s3api.exception import NotS3Request, \
     S3InputError, S3InputSizeError, S3InputIncomplete, \
     S3InputChunkSignatureMismatch, S3InputChunkTooSmall, \
@@ -2065,6 +2065,9 @@ class S3Request(swob.Request):
             def not_found_handler():
                 if is_success(get_container_info(
                               env, app, swift_source='S3').get('status')):
+                    version_id = self.params.get('versionId')
+                    if version_id:
+                        return NoSuchVersion(obj, version_id)
                     return NoSuchKey(obj)
                 return NoSuchBucket(container)
 

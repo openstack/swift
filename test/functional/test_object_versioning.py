@@ -138,6 +138,7 @@ class TestObjectVersioningBase(Base):
         # since it gets disabled in tearDown
         self.env.container.update_metadata(
             hdrs={self.env.versions_header_key: 'True'})
+        self.maxDiff = None
 
     def _tear_down_files(self, container):
         try:
@@ -1121,6 +1122,8 @@ class TestObjectVersioning(TestObjectVersioningBase):
             obj.info(parms={'version-id': dm_version_id})
         resp_headers = {
             h.lower(): v for h, v in cm.exception.headers}
+        self.assertIn('x-object-version-id', resp_headers,
+                      (cm.exception.status, cm.exception.details))
         self.assertEqual(dm_version_id,
                          resp_headers['x-object-version-id'])
         self.assertEqual(DELETE_MARKER_CONTENT_TYPE,

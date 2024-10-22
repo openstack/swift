@@ -334,7 +334,7 @@ class ObjectController(Controller):
                     pass  # drain the bulk-deleter response
                 resp.status = HTTP_NO_CONTENT
                 resp.body = b''
-            if resp.sw_headers.get('X-Object-Current-Version-Id') == 'null':
+            if resp.sw_headers.get('X-Object-Current-Version-Id') == 'none':
                 new_resp = self._restore_on_delete(req)
                 if new_resp:
                     resp = new_resp

@@ -177,6 +177,10 @@ DELETE_MARKER_CONTENT_TYPE = 'application/x-deleted;swift_versions_deleted=1'
 CLIENT_VERSIONS_ENABLED = 'x-versions-enabled'
 SYSMETA_VERSIONS_ENABLED = \
     get_sys_meta_prefix('container') + 'versions-enabled'
+S3_COMPATIBLE_VERSIONS = 's3-compatible-versions'
+CLIENT_S3_COMPATIBLE_VERSIONS = 'x-' + S3_COMPATIBLE_VERSIONS
+SYSMETA_S3_COMPATIBLE_VERSIONS = \
+    get_sys_meta_prefix('container') + S3_COMPATIBLE_VERSIONS
 SYSMETA_VERSIONS_CONT = get_sys_meta_prefix('container') + 'versions-container'
 SYSMETA_PARENT_CONT = get_sys_meta_prefix('container') + 'parent-container'
 SYSMETA_VERSIONS_SYMLINK = get_sys_meta_prefix('object') + 'versions-symlink'
@@ -227,8 +231,9 @@ def build_versions_object_name(object_name, version):
     # Drop any offset from ts. Timestamp offsets are never exposed to
     # clients, so Timestamp.normal is sufficient to define a version as
     # perceived by clients.
-    inv = ~Timestamp(Timestamp(version).normal)
-    return get_reserved_name(object_name, inv.internal)
+    if version != 'null':
+        version = (~Timestamp(Timestamp(version).normal)).internal
+    return get_reserved_name(object_name, version)
 
 
 def build_versions_object_marker(object_name):
@@ -251,7 +256,10 @@ def parse_versions_object_name(versioned_name):
     """
     try:
         name, suffix = split_reserved_name(versioned_name)
-        version = (~Timestamp(suffix)).internal
+        if suffix == 'null':
+            version = suffix
+        else:
+            version = (~Timestamp(suffix)).internal
     except ValueError:
         return versioned_name, None
     return name, version
@@ -318,7 +326,7 @@ class ObjectVersioningContext(WSGIContext):
 
 class ObjectContext(ObjectVersioningContext):
     def __init__(self, wsgi_app, logger, api_version, account,
-                 container, obj, versions_cont, is_enabled):
+                 container, obj, versions_cont, is_enabled, s3_compat):
         """
         Note that account, container, obj should be unquoted by caller
         if the url path is under url encoding (e.g. %FF)
@@ -339,6 +347,7 @@ class ObjectContext(ObjectVersioningContext):
         self.obj = obj
         self.versions_cont = versions_cont
         self.is_enabled = is_enabled
+        self.s3_compat = s3_compat
 
     def get_version(self, req):
         """
@@ -404,6 +413,7 @@ class ObjectContext(ObjectVersioningContext):
         put_resp = put_req.get_response(self.app)
         drain_and_close(put_resp)
         # the PUT should have already drained source_resp
+        # TODO: why are we trying to close an *iter*?
         close_if_possible(source_resp.app_iter)
         return put_resp
 
@@ -547,8 +557,12 @@ class ObjectContext(ObjectVersioningContext):
 
         # if there's an existing object, then copy it to
         # X-Versions-Location
-        version = self.get_null_version(get_resp)
-        get_resp.headers.pop('x-timestamp', None)
+        if self.s3_compat:
+            version = 'null'
+        else:
+            version = self.get_null_version(get_resp)
+            get_resp.headers.pop('x-timestamp', None)
+
         vers_obj_name = build_versions_object_name(self.obj, version)
         put_path_info = "/%s/%s/%s/%s" % (
             self.api_version, self.account, self.versions_cont, vers_obj_name)
@@ -574,16 +588,20 @@ class ObjectContext(ObjectVersioningContext):
 
         :param req: original request.
         """
-        # handle object request for a disabled versioned container.
-        if not self.is_enabled:
+        if self.is_enabled:
+            # attempt to copy current object to versions container
+            self._copy_current(req)
+            # then put to versions container
+            req.ensure_x_timestamp()
+            version = self.get_version(req)
+        elif self.s3_compat:
+            # put to versions container while versioning is suspended
+            version = 'null'
+        else:
+            # put to user container while versioning is suspended
             return req.get_response(self.app)
 
-        # attempt to copy current object to versions container
-        self._copy_current(req)
-
         # write client's put directly to versioned container
-        req.ensure_x_timestamp()
-        version = self.get_version(req)
         put_resp, put_vers_obj_name, put_bytes, put_content_type = \
             self._put_versioned_obj_from_client(req, version)
 
@@ -602,13 +620,19 @@ class ObjectContext(ObjectVersioningContext):
         :param req: original request.
         """
         # handle object request for a disabled versioned container.
-        if not self.is_enabled:
+        if self.is_enabled:
+            # attempt to copy current object to versions container
+            self._copy_current(req)
+            # then put to versions container
+            req.ensure_x_timestamp()
+            version = self.get_version(req)
+        elif self.s3_compat:
+            # put to versions container while versioning is suspended
+            version = 'null'
+        else:
+            # put to user container while versioning is suspended
             return req.get_response(self.app)
 
-        self._copy_current(req)
-
-        req.ensure_x_timestamp()
-        version = self.get_version(req)
         marker_name = build_versions_object_name(self.obj, version)
         marker_path = "/%s/%s/%s/%s" % (
             self.api_version, self.account, self.versions_cont, marker_name)
@@ -681,7 +705,6 @@ class ObjectContext(ObjectVersioningContext):
             req.environ, path=wsgi_quote(req.path_info) + '?symlink=get',
             method='HEAD', headers=obj_head_headers, swift_source='OV')
         hresp = head_req.get_response(self.app)
-        head_is_tombstone = False
         symlink_target = None
         if hresp.status_int == HTTP_NOT_FOUND:
             head_is_tombstone = True
@@ -702,8 +725,9 @@ class ObjectContext(ObjectVersioningContext):
         :param req: original request.
         :param version: version to delete.
         """
-        if version == 'null':
-            # let the request go directly through to the is_latest link
+        if version == 'null' and not (self.s3_compat and self.versions_cont):
+            # let the request go directly through to the is_latest link unless
+            # for an s3-compat versioned container
             return req.get_response(self.app)
         auth_token_header = {'X-Auth-Token': req.headers.get('X-Auth-Token')}
         head_is_tombstone, symlink_target = self._check_head(
@@ -711,8 +735,23 @@ class ObjectContext(ObjectVersioningContext):
 
         versions_obj = build_versions_object_name(self.obj, version)
         req_obj_path = '%s/%s' % (self.versions_cont, versions_obj)
-        if head_is_tombstone or not symlink_target or (
-           wsgi_unquote(symlink_target) != wsgi_unquote(req_obj_path)):
+        if head_is_tombstone:
+            version_is_latest = False
+            resp_version_id = None
+        elif symlink_target:
+            symlink_target = wsgi_unquote(symlink_target)
+            if symlink_target == wsgi_unquote(req_obj_path):
+                version_is_latest = True
+                resp_version_id = None
+            else:
+                version_is_latest = False
+                _, vers_obj_name = symlink_target.split('/', 1)
+                resp_version_id = parse_versions_object_name(vers_obj_name)[1]
+        else:
+            # de-facto null version (never been copied to versions container)
+            version_is_latest = version == 'null'
+            resp_version_id = None
+        if not version_is_latest:
             # If there's no current version (i.e., tombstone or unversioned
             # object) or if current version links to another version, then
             # just delete the version requested to be deleted
@@ -720,11 +759,6 @@ class ObjectContext(ObjectVersioningContext):
                 self.api_version, self.account, self.versions_cont,
                 versions_obj)
             req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
-            if head_is_tombstone or not symlink_target:
-                resp_version_id = 'null'
-            else:
-                _, vers_obj_name = wsgi_unquote(symlink_target).split('/', 1)
-                resp_version_id = parse_versions_object_name(vers_obj_name)[1]
         else:
             # if version-id is the latest version, delete the link too
             # First, kill the link...
@@ -738,10 +772,19 @@ class ObjectContext(ObjectVersioningContext):
                 self.api_version, self.account, self.versions_cont,
                 versions_obj)
             req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
-            resp_version_id = 'null'
         resp = req.get_response(self.app)
         resp.headers['X-Object-Version-Id'] = version
-        resp.headers['X-Object-Current-Version-Id'] = resp_version_id
+        if self.s3_compat and (version_is_latest or not resp_version_id):
+            # The only in-tree use for this header is in the s3api object
+            # response handler, which performs a restore-on-delete if the
+            # header is 'none'.
+            resp.headers['X-Object-Current-Version-Id'] = 'none'
+        elif not resp_version_id:
+            # For backwards compatibility with any out-of-tree use case, 'null'
+            # is returned in the non-s3-compat scenario.
+            resp.headers['X-Object-Current-Version-Id'] = 'null'
+        else:
+            resp.headers['X-Object-Current-Version-Id'] = resp_version_id
         return resp
 
     def handle_put_with_version_id(self, req, version):
@@ -752,6 +795,7 @@ class ObjectContext(ObjectVersioningContext):
         :param req: original request.
         :param version: version to make the latest.
         """
+        # this is used by s3api restore-on-delete
         if req.is_chunked:
             has_body = (req.body_file.read(1) != b'')
         elif req.content_length is None:
@@ -829,6 +873,10 @@ class ObjectContext(ObjectVersioningContext):
             if req.method == 'HEAD':
                 drain_and_close(resp)
             return resp
+        elif self.s3_compat and self.versions_cont:
+            # allow the request to be redirected to the versions container
+            close_if_possible(resp.app_iter)
+            return None
         elif is_version_link:
             # Have a latest version, but it's got a real version-id.
             # Since the user specifically asked for null, return 404
@@ -1123,11 +1171,14 @@ class ContainerContext(ObjectVersioningContext):
 
         versions_cont = container_info.get(
             'sysmeta', {}).get('versions-container')
-        is_enabled = config_true_value(
-            req.headers[CLIENT_VERSIONS_ENABLED])
-
+        is_enabled = config_true_value(req.headers[CLIENT_VERSIONS_ENABLED])
         req.headers[SYSMETA_VERSIONS_ENABLED] = is_enabled
-
+        if CLIENT_S3_COMPATIBLE_VERSIONS in req.headers:
+            s3_compat = config_true_value(
+                req.headers[CLIENT_S3_COMPATIBLE_VERSIONS])
+            if not s3_compat:
+                raise HTTPBadRequest('Cannot disable s3 compatible versions')
+            req.headers[SYSMETA_S3_COMPATIBLE_VERSIONS] = s3_compat
         # TODO: a POST request to a primary container that doesn't exist
         # will fail, so we will create and delete the versions container
         # for no reason
@@ -1206,6 +1257,20 @@ class ContainerContext(ObjectVersioningContext):
                        self._response_headers,
                        self._response_exc_info)
         return app_resp
+
+    def _insert_null_item(self, listing, null_item):
+        # TODO: this is ok for tests but obvs won't work for paged or marker
+        #   listing. We'll need to do a prefix listing for the null and then
+        #   insert it in each page of a listing.
+        i = len(listing)
+        for item in reversed(listing):
+            if item['name'] != null_item['name']:
+                break
+            if item['last_modified'] > null_item['last_modified']:
+                break
+            i -= 1
+        listing.insert(i, null_item)
+        return listing
 
     def _list_versions(self, req, start_response, location, primary_listing):
         # Only supports JSON listings
@@ -1314,9 +1379,11 @@ class ContainerContext(ObjectVersioningContext):
             try:
                 listing = json.loads(versions_resp.body)
             except ValueError:
+                # TODO: fix, body unresolved here
                 app_resp = [body]
             else:
                 versions_listing = []
+                null_item = None
                 for item in listing:
                     if 'name' not in item:
                         # remove reserved chars from subdir
@@ -1346,7 +1413,16 @@ class ContainerContext(ObjectVersioningContext):
 
                         item['name'] = name
                         item['version_id'] = version
-                        versions_listing.append(item)
+                        if null_item and null_item['name'] != name:
+                            self._insert_null_item(versions_listing, null_item)
+                            null_item = None
+                        if version == 'null':
+                            null_item = item
+                        else:
+                            versions_listing.append(item)
+
+                if null_item:
+                    self._insert_null_item(versions_listing, null_item)
 
                 subdir_listing = [{'subdir': s} for s in subdir_set]
                 broken_listing = []
@@ -1527,15 +1603,16 @@ class ObjectVersioningMiddleware(object):
         container_info = get_container_info(
             req.environ, self.app, swift_source='OV')
 
-        versions_cont = container_info.get(
-            'sysmeta', {}).get('versions-container', '')
+        sysmeta = container_info.get('sysmeta', {})
+        versions_cont = sysmeta.get('versions-container', '')
         if versions_cont:
             versions_cont = wsgi_unquote(str_to_wsgi(
                 versions_cont)).split('/')[0]
         is_enabled = is_versioning_enabled(container_info)
+        s3_compat = config_true_value(sysmeta.get(S3_COMPATIBLE_VERSIONS))
         object_ctx = ObjectContext(
             self.app, self.logger, api_version, account, container, obj,
-            versions_cont, is_enabled)
+            versions_cont, is_enabled, s3_compat)
         return object_ctx.handle_request(req)
 
     def __call__(self, env, start_response):
