@@ -466,13 +466,10 @@ class TestSlo(Base):
 
         # data for segments
         segments = [b'one', b'two', b'three', b'four']
-        etags = []
-        for segment in segments:
-            etags.append(md5hex(segment))
+        etags = [md5hex(segment) for segment in segments]
 
-        def put_manifest(url, token, parsed, conn, object_segments):
-            now = int(time.time())
-            delete_time = now + 2
+        def put_manifest(url, token, parsed, conn, object_segments,
+                         x_delete_after):
             manifest_data = []
             start = 0
 
@@ -494,7 +491,7 @@ class TestSlo(Base):
                 body=json.dumps(manifest_data),
                 headers={
                     'X-Auth-Token': token,
-                    'X-Delete-At': delete_time,
+                    'X-Delete-After': str(x_delete_after),
                     'X-Static-Large-Object': 'true',
                     'Content-Type': 'application/json'
                 }
@@ -523,7 +520,7 @@ class TestSlo(Base):
                                  "Response status is not 201: %s" % body)
 
         retry(put_segments, segments)
-        retry(put_manifest, segments)
+        retry(put_manifest, segments, 1)
 
         # get the manifest
         def get_manifest(url, token, parsed, conn, extra_headers=None):
@@ -537,17 +534,36 @@ class TestSlo(Base):
                 '', headers)
             return check_response(conn)
 
-        resp = retry(get_manifest)
-        self.assertEqual(resp.status, 200)
-        # wait for the manifest to expire
-        # the objects will also have expired at the same time
-        # since their x-delete-at times are the same
-        time.sleep(3)
+        def get_manifest_still_expired(timeout=10, retry_delay=1):
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                resp = retry(get_manifest)
+                resp.read()
+                if resp.status == 404:
+                    break
+                elif 200 <= resp.status < 300:
+                    time.sleep(retry_delay)
+                else:
+                    self.fail(
+                        f'Unexpected response status {resp.status} for'
+                        f'manifest {resp.url}.')
+            else:
+                self.fail(
+                    f'manifest still returns {resp.status} after '
+                    f'we set x-delete-after to 2s post object '
+                    f'creation')
 
-        resp = retry(get_manifest)
-        resp.read()
-        # check to see manifest has expired
-        self.assertEqual(resp.status, 404, resp.headers.get('x-trans-id'))
+            self.assertEqual(resp.status, 404,
+                             resp.headers.get('x-trans-id'))
+
+        get_manifest_still_expired()
+
+        def get_manifest_with_open_expire():
+            resp = retry(get_manifest, extra_headers={'X-Open-Expired': True})
+            self.assertEqual(resp.status, 200)
+            resp.read()
+
+        get_manifest_with_open_expire()
 
         def get_or_head_part(url, token, parsed, conn,
                              extra_headers=None, method='GET',
@@ -567,37 +583,41 @@ class TestSlo(Base):
         # read the expired object with magic x-open-expired header
         self.assertEqual(resp.status, 200)
 
-        for objnum in range(len(segments)):
-            part_num = str(objnum + 1)
-            resp = retry(get_or_head_part,
-                         extra_headers={'X-Open-Expired': True},
-                         part_number=part_num,)
-            resp.read()
-            self.assertEqual(resp.status, 206)
+        def check_parts_with_open_expire(method='GET'):
+            for objnum in range(len(segments)):
+                part_num = str(objnum + 1)
+                resp = retry(get_or_head_part,
+                             extra_headers={'X-Open-Expired': True},
+                             method=method, part_number=part_num)
+                resp.read()
+                self.assertEqual(resp.status, 206)
 
-        for objnum in range(len(segments)):
-            part_num = str(objnum + 1)
-            resp = retry(get_or_head_part,
-                         extra_headers={'X-Open-Expired': True},
-                         method='HEAD', part_number=part_num)
-            resp.read()
-            self.assertEqual(resp.status, 206)
+        check_parts_with_open_expire()
+        check_parts_with_open_expire('HEAD')
 
-        # no x-open-expired case and it should 404
-        for objnum in range(len(segments)):
-            part_num = str(objnum + 1)
-            resp = retry(get_or_head_part,
-                         method='HEAD', part_number=part_num)
-            resp.read()
-            self.assertEqual(resp.status, 404)
+        def check_part_still_expired(method='GET', timeout=10, retry_delay=1):
+            for objnum, segment in enumerate(segments):
+                part_num = str(objnum + 1)
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    resp = retry(get_or_head_part, method=method,
+                                 part_number=part_num)
+                    resp.read()
+                    if resp.status == 404:
+                        break
+                    elif 200 <= resp.status < 300:
+                        time.sleep(retry_delay)
+                    else:
+                        self.fail(
+                            f'Unexpected response status {resp.status} for'
+                            f' part {part_num}.')
+                else:
+                    self.fail(
+                        f'Part {part_num} did not return 404 within {timeout}'
+                        f' seconds.')
 
-        # same situation here
-        for objnum in range(len(segments)):
-            part_num = str(objnum + 1)
-            resp = retry(get_or_head_part,
-                         method='GET', part_number=part_num)
-            resp.read()
-            self.assertEqual(resp.status, 404)
+        check_part_still_expired()
+        check_part_still_expired('HEAD', 5, 1)
 
         def head_manifest(url, token, parsed, conn, extra_headers=None):
             headers = {'X-Auth-Token': token}
