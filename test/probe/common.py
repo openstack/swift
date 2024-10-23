@@ -187,7 +187,7 @@ def add_ring_devs_to_ipport2server(ring, server_type, ipport2server,
 def store_config_paths(name, configs):
     server_names = [name, '%s-replicator' % name]
     if name == 'container':
-        server_names.append('container-sharder')
+        server_names.extend(['container-sharder', 'container-auditor'])
     elif name == 'object':
         server_names.append('object-reconstructor')
     for server_name in server_names:
@@ -591,18 +591,24 @@ class ProbeTest(unittest.TestCase):
         return async_pendings
 
     def run_custom_daemon(self, klass, conf_section, conf_index,
-                          custom_conf, **kwargs):
+                          custom_conf, capture_logs=False, **kwargs):
         conf_file = self.configs[conf_section][conf_index]
         conf = utils.readconf(conf_file, conf_section)
         conf.update(custom_conf)
         # Use a CaptureLogAdapter in order to preserve the pattern of tests
         # calling the log accessor methods (e.g. get_lines_for_level) directly
         # on the logger instance
-        with capture_logger(conf, conf.get('log_name', conf_section),
-                            log_to_console=kwargs.pop('verbose', False),
-                            log_route=conf_section) as log_adapter:
-            daemon = klass(conf, log_adapter)
+        print('Running custom %s once' % klass.__name__)
+        if capture_logs:
+            with capture_logger(conf, conf.get('log_name', conf_section),
+                                log_to_console=kwargs.pop('verbose', False),
+                                log_route=conf_section) as log_adapter:
+                daemon = klass(conf, log_adapter)
+                daemon.run_once(**kwargs)
+        else:
+            daemon = klass(conf)
             daemon.run_once(**kwargs)
+
         return daemon
 
 

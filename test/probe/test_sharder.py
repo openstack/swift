@@ -476,7 +476,8 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def run_custom_sharder(self, conf_index, custom_conf, **kwargs):
         return self.run_custom_daemon(ContainerSharder, 'container-sharder',
-                                      conf_index, custom_conf, **kwargs)
+                                      conf_index, custom_conf,
+                                      capture_logs=True, **kwargs)
 
     def sharders_once_non_auto(self, **kwargs):
         # inhibit auto_sharding regardless of the config setting
@@ -4360,7 +4361,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # others dont have an epoch and not set it.
         replicator = self.run_custom_daemon(
             ContainerReplicator, 'container-replicator',
-            shard_node_numbers[0], {})
+            shard_node_numbers[0], {}, capture_logs=True)
         warnings = replicator.logger.get_lines_for_level('warning')
 
         self.assertFalse([w for w in warnings

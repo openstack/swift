@@ -425,7 +425,7 @@ class TestReconstructorRebuild(ECProbeTest):
         for conf_index in self.configs['object-reconstructor'].keys():
             reconstructor = self.run_custom_daemon(
                 ObjectReconstructor, 'object-reconstructor', conf_index,
-                {'quarantine_age': '0'})
+                {'quarantine_age': '0'}, capture_logs=True)
             logger = reconstructor.logger.logger
             error_lines.append(logger.get_lines_for_level('error'))
             warning_lines.append(logger.get_lines_for_level('warning'))
@@ -462,7 +462,8 @@ class TestReconstructorRebuild(ECProbeTest):
         for conf_index in self.configs['object-reconstructor'].keys():
             reconstructor = self.run_custom_daemon(
                 ObjectReconstructor, 'object-reconstructor', conf_index,
-                {'quarantine_age': '0', 'quarantine_threshold': '1'})
+                {'quarantine_age': '0', 'quarantine_threshold': '1'},
+                capture_logs=True)
             logger = reconstructor.logger.logger
             error_lines.append(logger.get_lines_for_level('error'))
             warning_lines.append(logger.get_lines_for_level('warning'))
@@ -515,7 +516,8 @@ class TestReconstructorRebuild(ECProbeTest):
         for conf_index in self.configs['object-reconstructor'].keys():
             reconstructor = self.run_custom_daemon(
                 ObjectReconstructor, 'object-reconstructor', conf_index,
-                {'quarantine_age': '0', 'quarantine_threshold': '1'})
+                {'quarantine_age': '0', 'quarantine_threshold': '1'},
+                capture_logs=True)
             logger = reconstructor.logger.logger
             error_lines.append(logger.get_lines_for_level('error'))
             warning_lines.append(logger.get_lines_for_level('warning'))
