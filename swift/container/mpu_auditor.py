@@ -20,7 +20,9 @@ from collections import defaultdict
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_MARKER_CONTENT_TYPE, MPU_GENERIC_MARKER_SUFFIX, MPUSession, MPUItem, \
-    MPU_SYSMETA_UPLOAD_ID_KEY
+    MPU_SYSMETA_UPLOAD_ID_KEY, MPUId
+from swift.common.middleware.versioned_writes.object_versioning import \
+    build_versions_object_name, build_versions_container_name
 from swift.common.request_helpers import split_reserved_name, get_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
     non_negative_int, config_positive_int_value
@@ -49,6 +51,7 @@ def yield_item_batches(broker, start_row, max_batches, batch_size):
             remaining = 0
 
 
+# TODO: this is broken - doesn't support '/' in the obj name!
 def extract_upload_prefix(name):
     """
     Return the upload prefix from a given object name.
@@ -146,7 +149,6 @@ class BaseMpuAuditor(object):
         self.statsd_client = logger.logger.statsd_client
         self.stats = defaultdict(int)
         self.uploads_already_checked = {}
-        self.keep = {}
 
     def _dump_stats(self):
         return ', '.join(
@@ -180,6 +182,14 @@ class BaseMpuAuditor(object):
     def increment(self, key):
         self.stats[key] += 1
         self.statsd_client.increment('%s.%s' % (self.resource_type, key))
+
+    def _is_mpu_in_container(self, upload, container, obj):
+        metadata = self.client.get_object_metadata(
+            self.broker.account, container, obj,
+            headers={'X-Newest': 'true'},
+            acceptable_statuses=(2, 404))
+        upload_id = extract_upload_id(upload)
+        return metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) == upload_id
 
     def _bump_item(self, item):
         # bump the item's *meta_timestamp* and merge to db so that the item is
@@ -265,12 +275,11 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
         # Delete the marker now so that it will eventually be reclaimed. We
         # can still find the marker row for subsequent checks until it is
         # reclaimed.
-        # Note: Deleting a marker with timestamp t0 moves it's tombstone
-        # timestamp forwards to t2. There may also be a version of the
-        # marker at t1 which has not yet been merged into this DB. This
-        # delete at t2 will supersede that marker at t1, but that's ok
-        # because we don't care about the marker's timestamp or deleted
-        # status, we just need a marker row whose name matches a resource.
+        # Note: Delete the marker by applying an offset to its data_timestamp.
+        # There may be a version of the marker at a later data_timestamp which
+        # has not yet been merged into this DB and must be merged and processed
+        # independently, for example a marker due to a version object being
+        # deleted.
         # Note: This deletion will be replicated to other DB replicas which
         # may have not yet had an undeleted marker row. The auditor may
         # have already passed over the matching resource row in the other
@@ -288,10 +297,14 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
         #   a deleted row. Apart from incurring extra work, that would be
         #   ok. I'm not yet sure if that redundancy is necessary, or
         #   desirable.
-        self.debug('deleting item %s/%s',
+        self.debug('deleting marker %s/%s',
                    self.broker.container, marker.name)
+        ts_delete = marker.data_timestamp
+        ts_delete.offset += 1
+        headers = {'X-Timestamp': ts_delete.internal}
         self.client.delete_object(
-            self.broker.account, self.broker.container, marker.name)
+            self.broker.account, self.broker.container, marker.name,
+            headers=headers)
 
     def _find_orphans(self, marker, upload):
         # TODO: prefix query may scoop up some alien objects??
@@ -306,6 +319,7 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
         err_to_raise = None
         for orphan in orphan_parts:
             self.debug('deleting part %s', orphan.name)
+            self.increment('deleted')
             try:
                 self.client.delete_object(self.broker.account,
                                           self.broker.container,
@@ -317,21 +331,46 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
         if err_to_raise:
             raise err_to_raise
 
+    def _is_mpu_in_versions_container(self, upload):
+        """
+        :raises UnexpectedResponse: if it is not possible to reliably confirm
+            if the version object is a manifest for the given upload.
+        :return: True if the version object is a manifest for the given upload,
+            False if the version object is not a manifest for the given upload.
+        """
+        try:
+            obj = extract_object_name(upload)
+        except ValueError:
+            # TODO: legacy SLO upload id's do not have the timestamp embedded
+            #   so cannot be used to infer the version id. We may be able to
+            #   infer it from the marker (data-)timestamp?
+            return False
+        upload_id = MPUId.parse(upload.rsplit('/', 1)[-1])
+        vers_obj = build_versions_object_name(obj, upload_id.timestamp)
+        vers_container = build_versions_container_name(self.user_container)
+        return self._is_mpu_in_container(upload, vers_container, vers_obj)
+
     def _process_marker(self, marker, upload):
         try:
-            self._delete_resources(marker, upload)
-        except Exception:  # noqa
+            if not self._is_mpu_in_versions_container(upload):
+                self._delete_resources(marker, upload)
+        except UnexpectedResponse:
+            self._bump_item(marker)
+        except Exception as err:  # noqa
+            self.warning('Error deleting resources: %s', err)
             self._bump_item(marker)
         else:
             if not marker.deleted:
                 try:
                     self._delete_marker(marker)
-                except Exception:  # noqa
-                    self._bump_item()
+                except Exception as err:  # noqa
+                    self.warning('Error deleting marker: %s', err)
+                    self._bump_item(marker)
 
     def _audit_item(self, item, upload):
         if item.content_type == MPU_MARKER_CONTENT_TYPE:
             self.debug('found marker %s %s', item.name, item.content_type)
+            self.increment('marker')
             self._process_marker(item, upload)
         else:
             self.debug('found resource %s', item.name)
@@ -368,12 +407,7 @@ class MpuSessionAuditor(BaseMpuAuditor):
             False if the user object is not a manifest for the given upload.
         """
         obj_name = extract_object_name(upload)
-        metadata = self.client.get_object_metadata(
-            self.broker.account, self.user_container, obj_name,
-            headers={'X-Newest': 'true'},
-            acceptable_statuses=(2, 404))
-        upload_id = extract_upload_id(upload)
-        return metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) == upload_id
+        return self._is_mpu_in_container(upload, self.user_container, obj_name)
 
     def _delete_session(self, session):
         self.client.delete_object(self.broker.account,
@@ -397,6 +431,7 @@ class MpuSessionAuditor(BaseMpuAuditor):
         ctype_age = now - float(session.ctype_timestamp)
         try:
             if self._is_mpu_in_user_namespace(upload):
+                # TODO: check versions container too
                 session.set_completed(Timestamp(now))
                 return
         except UnexpectedResponse:

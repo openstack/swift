@@ -24,6 +24,7 @@ from six.moves import urllib
 from swift.common import swob, utils
 from swift.common.middleware import versioned_writes, copy, symlink, \
     listing_formats
+from swift.common.middleware.versioned_writes import object_versioning
 from swift.common.swob import Request, wsgi_quote, str_to_wsgi
 from swift.common.middleware.symlink import TGT_OBJ_SYSMETA_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES, SYMLOOP_EXTEND
@@ -1136,8 +1137,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         # data timestamp with offset
         ts_data_existing = next(self.ts)
         ts_meta_existing = next(self.ts)
-        # the meta timestamp without offset is used to construct the version id
-        exp_vers_existing = (~ts_meta_existing).internal
+        # the data timestamp without offset is used to construct the version id
+        exp_vers_existing = (~ts_data_existing).internal
         ts_meta_existing.offset = 123
         ts_put = next(self.ts)
         exp_vers_put = (~ts_put).internal
@@ -3495,6 +3496,38 @@ class ObjectVersioningTestAccountOperations(ObjectVersioningBaseTestCase):
             'last_modified': '1970-01-01T00:00:40.000000',
         }]
         self.assertEqual(expected, json.loads(body))
+
+
+class TestModuleFunctions(unittest.TestCase):
+    def test_build_versions_container_name(self):
+        self.assertEqual(
+            '\x00versions\x00foo',
+            object_versioning.build_versions_container_name('foo'))
+
+    def test_build_versions_object_name(self):
+        ts = utils.Timestamp.now()
+        expected = '\x00foo\x00%s' % (~ts).normal
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_name('foo', ts))
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_name('foo', ts.internal))
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_name('foo', ts.normal))
+
+        ts.offset = 123
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_name('foo', ts))
+        ts.offset = 123
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_name('foo', ts.internal))
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_name('foo', ts.normal))
 
 
 if __name__ == '__main__':

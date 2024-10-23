@@ -184,6 +184,18 @@ SYSMETA_PARENT_CONT = get_sys_meta_prefix('container') + 'parent-container'
 SYSMETA_VERSIONS_SYMLINK = get_sys_meta_prefix('object') + 'versions-symlink'
 
 
+def build_versions_container_name(container_name):
+    return get_reserved_name('versions', container_name)
+
+
+def build_versions_object_name(object_name, ts):
+    # Drop any offset from ts. Timestamp offsets are never exposed to
+    # clients, so Timestamp.normal is sufficient to define a version as
+    # perceived by clients.
+    inv = ~Timestamp(Timestamp(ts).normal)
+    return get_reserved_name(object_name, inv.internal)
+
+
 def build_listing(*to_splice, **kwargs):
     reverse = kwargs.pop('reverse')
     limit = kwargs.pop('limit')
@@ -231,16 +243,6 @@ class ObjectVersioningContext(WSGIContext):
 
     def _build_versions_object_prefix(self, object_name):
         return get_reserved_name(object_name, '')
-
-    def _build_versions_container_name(self, container_name):
-        return get_reserved_name('versions', container_name)
-
-    def _build_versions_object_name(self, object_name, ts):
-        # Drop any offset from ts. Timestamp offsets are never exposed to
-        # clients, so Timestamp.normal is sufficient to define a version as
-        # perceived by clients.
-        inv = ~Timestamp(Timestamp(ts).normal)
-        return get_reserved_name(object_name, inv.internal)
 
     def _split_version_from_name(self, versioned_name):
         try:
@@ -302,7 +304,7 @@ class ObjectContext(ObjectVersioningContext):
 
     def _put_versioned_obj_from_client(self, req, versions_cont, api_version,
                                        account_name, object_name):
-        vers_obj_name = self._build_versions_object_name(
+        vers_obj_name = build_versions_object_name(
             object_name, req.timestamp.internal)
         put_path_info = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, vers_obj_name)
@@ -451,12 +453,13 @@ class ObjectContext(ObjectVersioningContext):
         # if there's an existing object, then copy it to
         # X-Versions-Location
         ts_source = get_resp.headers.get(
-            'x-timestamp',
-            calendar.timegm(time.strptime(
-                get_resp.headers['last-modified'],
-                '%a, %d %b %Y %H:%M:%S GMT')))
-        vers_obj_name = self._build_versions_object_name(
-            object_name, ts_source)
+            'x-backend-data-timestamp',
+            get_resp.headers.get(
+                'x-timestamp',
+                calendar.timegm(time.strptime(
+                    get_resp.headers['last-modified'],
+                    '%a, %d %b %Y %H:%M:%S GMT'))))
+        vers_obj_name = build_versions_object_name(object_name, ts_source)
 
         put_path_info = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, vers_obj_name)
@@ -535,7 +538,7 @@ class ObjectContext(ObjectVersioningContext):
                            account_name, object_name)
 
         req.ensure_x_timestamp()
-        marker_name = self._build_versions_object_name(
+        marker_name = build_versions_object_name(
             object_name, req.timestamp.internal)
         marker_path = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, marker_name)
@@ -635,8 +638,7 @@ class ObjectContext(ObjectVersioningContext):
         head_is_tombstone, symlink_target = self._check_head(
             req, auth_token_header)
 
-        versions_obj = self._build_versions_object_name(
-            object_name, version)
+        versions_obj = build_versions_object_name(object_name, version)
         req_obj_path = '%s/%s' % (versions_cont, versions_obj)
         if head_is_tombstone or not symlink_target or (
            wsgi_unquote(symlink_target) != wsgi_unquote(req_obj_path)):
@@ -685,8 +687,7 @@ class ObjectContext(ObjectVersioningContext):
                 body='PUT version-id requests require a zero byte body',
                 request=req,
                 content_type='text/plain')
-        versions_obj_name = self._build_versions_object_name(
-            object_name, version)
+        versions_obj_name = build_versions_object_name(object_name, version)
         versioned_obj_path = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, versions_obj_name)
         obj_head_headers = {'X-Backend-Allow-Reserved-Names': 'true'}
@@ -781,7 +782,7 @@ class ObjectContext(ObjectVersioningContext):
             # Re-write the path; most everything else goes through normally
             req.path_info = "/%s/%s/%s/%s" % (
                 api_version, account, versions_cont,
-                self._build_versions_object_name(obj, version))
+                build_versions_object_name(obj, version))
             req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
 
             resp = req.get_response(self.app)
@@ -891,7 +892,7 @@ class ContainerContext(ObjectVersioningContext):
 
             # Note that any extra listing request we make will likely 404.
             try:
-                location = self._build_versions_container_name(container)
+                location = build_versions_container_name(container)
             except ValueError:
                 # may be internal listing to a reserved namespace container
                 pass
@@ -1066,7 +1067,7 @@ class ContainerContext(ObjectVersioningContext):
                     hdrs = {}
             hdrs['X-Backend-Allow-Reserved-Names'] = 'true'
 
-            versions_cont = self._build_versions_container_name(container)
+            versions_cont = build_versions_container_name(container)
             versions_cont_path = "/%s/%s/%s" % (
                 version, account, versions_cont)
             ver_cont_req = make_pre_authed_request(
@@ -1128,7 +1129,7 @@ class ContainerContext(ObjectVersioningContext):
                 except ValueError:
                     raise HTTPBadRequest('invalid version_marker param')
 
-                params['marker'] = self._build_versions_object_name(
+                params['marker'] = build_versions_object_name(
                     params['marker'], ts)
         elif 'marker' in params:
             params['marker'] = self._build_versions_object_prefix(
@@ -1162,7 +1163,7 @@ class ContainerContext(ObjectVersioningContext):
             path=wsgi_quote('/v1/%s/%s' % (account, location)),
             headers={'X-Backend-Allow-Reserved-Names': 'true'},
         )
-        # NB: Not using self._build_versions_object_name here because
+        # NB: Not using build_versions_object_name here because
         # we don't want to bookend the prefix with RESERVED_NAME as user
         # could be using just part of object name as the prefix.
         if 'prefix' in params:
@@ -1315,8 +1316,7 @@ class AccountContext(ObjectVersioningContext):
                 if 'prefix' in params:
                     try:
                         params['prefix'] = \
-                            self._build_versions_container_name(
-                                params['prefix'])
+                            build_versions_container_name(params['prefix'])
                     except ValueError:
                         # don't touch params['prefix'],
                         # RESERVED_STR probably came from looping around
@@ -1328,8 +1328,7 @@ class AccountContext(ObjectVersioningContext):
                     if p in params:
                         try:
                             params[p] = \
-                                self._build_versions_container_name(
-                                    params[p])
+                                build_versions_container_name(params[p])
                         except ValueError:
                             # don't touch params[p]
                             pass

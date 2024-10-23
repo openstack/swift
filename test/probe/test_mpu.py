@@ -28,7 +28,7 @@ from swift.common.manager import Manager
 from swift.common.middleware.mpu import MPUSessionHandler
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import normalize_etag
-from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING
+from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING, Timestamp
 from swift.container.auditor import ContainerAuditor
 from swiftclient import client as swiftclient, ClientException
 
@@ -647,7 +647,7 @@ class TestNativeMPU(BaseTestNativeMPU):
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 query_string='upload-id=%s' % upload_id)
-            self.assertEqual(404, cm.exception.http_status)
+        self.assertEqual(404, cm.exception.http_status)
 
         # try (but fail) to complete the upload
         manifest = [{'part_number': 1, 'etag': part_etag}]
@@ -893,12 +893,12 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, obj_name,
                 query_string='version-id=%s' % obj_versions[obj_name][0])
-            self.assertEqual(404, cm.exception.http_status)
+        self.assertEqual(404, cm.exception.http_status)
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 query_string='version-id=%s' % obj_versions[self.mpu_name][0])
-            self.assertEqual(404, cm.exception.http_status)
+        self.assertEqual(404, cm.exception.http_status)
 
         # run auditor
         for i in range(2):
@@ -945,11 +945,11 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, obj_name)
-            self.assertEqual(404, cm.exception.http_status)
+        self.assertEqual(404, cm.exception.http_status)
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name)
-            self.assertEqual(404, cm.exception.http_status)
+        self.assertEqual(404, cm.exception.http_status)
 
         # run auditor
         for i in range(2):
@@ -964,51 +964,65 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         #   * overwrite objects
         #   * disable versioning
         #   * DELETE objects - 2 versions retained
+        brain = BrainSplitter(self.url, self.token, self.bucket_name,
+                              self.mpu_name, server_type='object',
+                              policy=self.policy)
 
         # put an mpu
         self._make_mpu(self.part_size)
 
-        # put an object as a control item
-        obj_name = 'non-mpu-obj'
-        swiftclient.put_object(self.url, self.token, self.bucket_name,
-                               obj_name)
+        # stash the timestamp
+        headers = swiftclient.head_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        ts_data = Timestamp(headers.get('x-timestamp'))
+
+        # post to the mpu so it's x-timestamp is advanced
+        obj_metadata = {'x-object-meta-test': 'foo'}
+        swiftclient.post_object(self.url, self.token, self.bucket_name,
+                                self.mpu_name, headers=obj_metadata)
+        headers = swiftclient.head_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual('foo', headers.get('x-object-meta-test'))
+        ts_meta = Timestamp(headers.get('x-timestamp'))
+        self.assertGreater(float(ts_meta), float(ts_data))
 
         # enable versioning
         swiftclient.post_container(self.url, self.token, self.bucket_name,
                                    headers={'x-versions-enabled': 'true'})
 
-        # put objects again
-        self._make_mpu(self.part_size)
+        # overwrite the mpu
+        brain.stop_handoff_half()
         swiftclient.put_object(self.url, self.token, self.bucket_name,
-                               obj_name)
+                               self.mpu_name, contents='version two')
+        brain.start_handoff_half()
 
         # disable versioning
         swiftclient.post_container(self.url, self.token, self.bucket_name,
-                                   headers={'x-versions-enabled': 'true'})
+                                   headers={'x-versions-enabled': 'false'})
 
-        # delete both objects
-        swiftclient.delete_object(
-            self.url, self.token, self.bucket_name, obj_name)
+        # get listing with versions
+        Manager(['container-replicator']).once()
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual(1, len(obj_versions))
+        self.assertEqual(2, len(obj_versions[self.mpu_name]))
+
+        # delete the obj
         swiftclient.delete_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
 
-        # get listing with versions
-        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual(2, len(obj_versions))
-        self.assertEqual(2, len(obj_versions[obj_name]))
-        self.assertEqual(2, len(obj_versions[self.mpu_name]))
+        # versions still exists
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
 
         # run auditor - nothing should be cleaned up
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        # objects still exist
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, obj_name,
-            query_string='version-id=%s' % obj_versions[obj_name][0])
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, obj_name,
-            query_string='version-id=%s' % obj_versions[obj_name][1])
+        # versions still exists
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
             query_string='version-id=%s' % obj_versions[self.mpu_name][0])
@@ -1030,7 +1044,6 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
                                    headers={'x-versions-enabled': 'true'})
 
         # put an mpu again
-        swiftclient.put_container(self.url, self.token, self.bucket_name)
         upload_id_1, _ = self._make_mpu(self.part_size)
 
         # run auditor - nothing should be cleaned up
@@ -1072,7 +1085,7 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 query_string='version-id=%s' % obj_versions[self.mpu_name][1])
-            self.assertEqual(404, cm.exception.http_status)
+        self.assertEqual(404, cm.exception.http_status)
 
         _, parts = self.get_mpu_resources(
             self.bucket_name, self.mpu_name, upload_id_0)
