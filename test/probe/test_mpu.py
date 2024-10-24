@@ -322,6 +322,30 @@ class TestNativeMPU(BaseTestMPU):
         conn.close()
         return resp, body
 
+    def get_mpu_resources(self, container, mpu_name=None, upload_id=None):
+        prefix = ''
+        if mpu_name:
+            prefix += '\x00' + mpu_name
+            if upload_id:
+                prefix += '/' + str(upload_id)
+
+        def filter_listing(listing):
+            return [item for item in listing
+                    if (not mpu_name or item['name'].startswith(prefix))]
+
+        sessions = self.internal_client.iter_objects(
+            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+
+        manifests = self.internal_client.iter_objects(
+            self.account, '\x00mpu_manifests\x00%s' % container)
+
+        parts = self.internal_client.iter_objects(
+            self.account, '\x00mpu_parts\x00%s' % container)
+
+        return (filter_listing(sessions),
+                filter_listing(manifests),
+                filter_listing(parts))
+
     def test_native_mpu(self):
         # create
         swiftclient.put_container(self.url, self.token, self.bucket_name)
@@ -485,14 +509,9 @@ class TestNativeMPU(BaseTestMPU):
         # ...once more to process any parts markers generated in first cycle
         Manager(['container-auditor']).once()
 
-        # manifest and parts have gone :)
-        manifests = self.internal_client.iter_objects(
-            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
-        self.assertFalse(list(manifests))
-
-        parts = self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertFalse(list(parts))
+        # session, manifest and parts have gone :)
+        self.assertEqual(([], [], []),
+                         self.get_mpu_resources(self.bucket_name))
 
     def test_native_mpu_abort(self):
         # create
@@ -590,10 +609,5 @@ class TestNativeMPU(BaseTestMPU):
         Manager(['container-auditor']).once()
 
         # manifest and parts have gone :)
-        manifests = self.internal_client.iter_objects(
-            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
-        self.assertFalse(list(manifests))
-
-        parts = self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertFalse(list(parts))
+        self.assertEqual(([], [], []),
+                         self.get_mpu_resources(self.bucket_name))
