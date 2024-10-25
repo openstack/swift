@@ -22,9 +22,9 @@ import shutil
 import random
 
 from swift.common.manager import Manager
-from swift.common.middleware.mpu import MPU_MARKER_CONTENT_TYPE
 from swift.common.swob import normalize_etag
-from swift.common.utils import quote, md5
+from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING
+from swift.container.auditor import ContainerAuditor
 from swiftclient import client as swiftclient, ClientException
 
 from test.probe.brain import BrainSplitter
@@ -364,12 +364,19 @@ class TestNativeMPU(BaseTestMPU):
                           '\x00mpu_sessions\x00%s' % self.bucket_name,
                           self.bucket_name],
                          [c['name'] for c in containers])
+
+        # list sessions internal
         sessions = self.internal_client.iter_objects(
             self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
-        self.assertEqual(['\x00%s/%s' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in sessions])
+        self.assertEqual(
+            [{'name': '\x00%s/%s' % (self.mpu_name, upload_id),
+              'content_type': 'application/x-mpu-session-created',
+              'bytes': 0,
+              'hash': MD5_OF_EMPTY_STRING,
+              'last_modified': mock.ANY}],
+            list(sessions))
 
-        # list mpus
+        # list mpus via API
         resp_hdrs, listing = swiftclient.get_container(
             self.url, self.token, self.bucket_name, query_string='uploads')
         self.assertEqual(['%s/%s' % (self.mpu_name, upload_id)],
@@ -466,17 +473,28 @@ class TestNativeMPU(BaseTestMPU):
                 query_string='multipart-manifest=get')
         self.assertEqual(400, cm.exception.http_status)
 
+        # session still exists but is marked completed
+        sessions = self.internal_client.iter_objects(
+            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+        self.assertEqual(
+            [{'name': '\x00%s/%s' % (self.mpu_name, upload_id),
+              'content_type': 'application/x-mpu-session-completed',
+              'bytes': 0,
+              'hash': MD5_OF_EMPTY_STRING,
+              'last_modified': mock.ANY}],
+            list(sessions))
+
+        # list mpu sessions via API - empty list
+        resp_hdrs, listing = swiftclient.get_container(
+            self.url, self.token, self.bucket_name, query_string='uploads')
+        self.assertFalse(listing)
+
         # list parts via mpu API -> 404
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 query_string='upload-id=%s' % upload_id)
         self.assertEqual(404, cm.exception.http_status)
-
-        # list mpus - empty list
-        resp_hdrs, listing = swiftclient.get_container(
-            self.url, self.token, self.bucket_name, query_string='uploads')
-        self.assertFalse(listing)
 
         # delete the mpu
         swiftclient.delete_object(self.url, self.token, self.bucket_name,
@@ -507,9 +525,11 @@ class TestNativeMPU(BaseTestMPU):
               'last_modified': mock.ANY}],
             [part for part in parts])
 
-        # async cleanup: once to process manifest markers...
+        # async cleanup: once to process sessions...
         Manager(['container-auditor']).once()
-        # ...once more to process any parts markers generated in first cycle
+        # ...once to process manifest markers...
+        Manager(['container-auditor']).once()
+        # ...once more to process any parts markers...
         Manager(['container-auditor']).once()
 
         # session, manifest and parts have gone :)
@@ -566,7 +586,7 @@ class TestNativeMPU(BaseTestMPU):
                     query_string='upload-id=%s&part-number=2' % upload_id)
             self.assertEqual(404, cm.exception.http_status)
 
-        # try (but fail) to list parts
+        # try (but fail) to list parts via mpu API
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
@@ -581,31 +601,61 @@ class TestNativeMPU(BaseTestMPU):
                                           'ascii'))
         self.assertEqual(404, resp.status)
 
-        # list mpus - empty list
+        # list mpus via API - empty list
         resp_hdrs, listing = swiftclient.get_container(
             self.url, self.token, self.bucket_name, query_string='uploads')
         self.assertFalse(listing)
 
-        # check we have an audit marker
-        manifests = [o for o in self.internal_client.iter_objects(
-            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)]
-        self.assertEqual(
-            ['\x00%s/%s/marker-aborted' % (self.mpu_name, upload_id)],
-            [o['name'] for o in manifests])
-        self.assertEqual(MPU_MARKER_CONTENT_TYPE,
-                         manifests[0]['content_type'])
-
-        # check we still have the parts
-        # list parts internal
+        # check we still have the parts via internal client
+        exp_parts_internal = [
+            {'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+             'hash': part_etag,
+             'bytes': part_size,
+             'content_type': 'application/octet-stream',
+             'last_modified': mock.ANY}
+        ]
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
-        self.assertEqual(
-            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
-              'hash': part_etag,
-              'bytes': part_size,
-              'content_type': 'application/octet-stream',
-              'last_modified': mock.ANY}],
-            [part for part in parts])
+        self.assertEqual(exp_parts_internal, [part for part in parts])
+
+        # session still exists but is marked aborted
+        exp_aborted_sessions = [
+            {'name': '\x00%s/%s' % (self.mpu_name, upload_id),
+             'content_type': 'application/x-mpu-session-aborted',
+             'bytes': 0,
+             'hash': MD5_OF_EMPTY_STRING,
+             'last_modified': mock.ANY}
+        ]
+        sessions = self.internal_client.iter_objects(
+            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+        self.assertEqual(exp_aborted_sessions, list(sessions))
+
+        # immediate audit(s) will pass over the aborted session
+        Manager(['container-auditor']).once()
+        Manager(['container-auditor']).once()
+        Manager(['container-auditor']).once()
+
+        # ... so session still exists
+        sessions = self.internal_client.iter_objects(
+            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+        self.assertEqual(exp_aborted_sessions, list(sessions))
+
+        # and the parts still exist
+        parts = self.internal_client.iter_objects(
+            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+        self.assertEqual(exp_parts_internal, [part for part in parts])
+
+        # a custom audit with zero purge delay will clean up the session
+        custom_conf = {'mpu_aborted_purge_delay': '0'}
+        for conf_index in self.configs['container-auditor'].keys():
+            self.run_custom_daemon(
+                ContainerAuditor, 'container-auditor',
+                conf_index, custom_conf=custom_conf)
+
+        # now the session is gone
+        sessions = self.internal_client.iter_objects(
+            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+        self.assertFalse(list(sessions))
 
         # async cleanup, once to process the manifests container markers...
         Manager(['container-auditor']).once()

@@ -17,7 +17,7 @@ import json
 
 import six
 
-from swift.common import swob
+from swift.common import swob, constraints
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND, \
     HTTP_TEMPORARY_REDIRECT
@@ -26,7 +26,7 @@ from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import generate_unique_id, drain_and_close, \
     config_positive_int_value, reiterate, parse_content_type, \
-    decode_timestamps, hash_path, split_path
+    decode_timestamps, hash_path, split_path, quote
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
@@ -46,35 +46,20 @@ DEFAULT_MAX_UPLOADS = 1000
 MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
 MPU_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
+MPU_SYSMETA_UPLOAD_ID_KEY = MPU_SYSMETA_PREFIX + 'upload-id'
+MPU_SYSMETA_ETAG_KEY = MPU_SYSMETA_PREFIX + 'etag'
+MPU_SYSMETA_PARTS_COUNT_KEY = MPU_SYSMETA_PREFIX + 'parts-count'
+MPU_SYSMETA_USER_CONTENT_TYPE_KEY = MPU_SYSMETA_PREFIX + 'content-type'
 MPU_SYSMETA_USER_PREFIX = MPU_SYSMETA_PREFIX + 'user-'
-MPU_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-mpu-'
 MPU_SESSION_CREATED_CONTENT_TYPE = 'application/x-mpu-session-created'
 MPU_SESSION_ABORTED_CONTENT_TYPE = 'application/x-mpu-session-aborted'
+MPU_SESSION_COMPLETING_CONTENT_TYPE = 'application/x-mpu-session-completing'
 MPU_SESSION_COMPLETED_CONTENT_TYPE = 'application/x-mpu-session-completed'
 MPU_MANIFEST_DEFAULT_CONTENT_TYPE = 'application/x-mpu'
 MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
 MPU_GENERIC_MARKER_SUFFIX = 'marker'
 MPU_DELETED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-deleted'
 MPU_ABORTED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-aborted'
-
-
-def get_mpu_sysmeta_key(key):
-    return MPU_SYSMETA_PREFIX + key
-
-
-def get_mpu_transient_sysmeta_key(key):
-    return MPU_TRANSIENT_SYSMETA_PREFIX + key
-
-
-def strip_mpu_sysmeta_prefix(key):
-    return key[len(MPU_SYSMETA_PREFIX):]
-
-
-MPU_SYSMETA_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
-MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
-MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
-MPU_SYSMETA_USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('content-type')
-
 MPU_INVALID_UPLOAD_ID_MSG = 'Invalid upload-id'
 MPU_NO_SUCH_UPLOAD_ID_MSG = 'No such upload-id'
 
@@ -270,32 +255,55 @@ class MPUSession(MPUItem):
     created to being either completed or aborted.
 
     Session state is represented by the session object's content-type so that
-    it appears in both the object's metadata and the container listing.
+    it appears in both the object's metadata and the container listing::
 
-    A new session is in state 'created'. The state may transition to either
-    'aborted' or 'completed'.
+       ---------     ------------     -----------
+      | created |-->| completing |-->| completed |
+       ---------     ------------     -----------
+          |               ^                ^
+          |               |                |
+          |               v                |
+          |           ---------            |
+          ---------->| aborted |<-----------
+                      ---------
+
+    A new session is in state 'created'.
+
+    The state transitions to 'completing' when a completeUpload request
+    handling is started, before a manifest is created.
+
+    The state transitions to 'completed' when a completeUpload request handling
+    is finished. The 'completed' state is definitive: a session only
+    transitions to the 'completed' state at the end of a completeUpload, after
+    the associated user-namespace object has been linked to a manifest object.
+
+    The state transitions to 'aborted' when an abortUpload request is handled.
 
     The 'aborted' state is tentative. A client abortUpload request may cause a
-    session to transition to the 'aborted' state while a concurrent
+    session to transition from 'completing' to 'aborted' while a concurrent
     completeUpload is being handled, and the completeUpload will typically
-    continue to succeed. The mpu-auditor is responsible for resolving any
-    ambiguity.
+    continue to succeed. Furthermore, concurrent requests may result in a
+    session transitioning from 'completed' to 'aborted'. The mpu-auditor is
+    responsible for resolving any ambiguity; once a user-namespace object has
+    been created, the mpu-auditor will not remove it regardless of the state of
+    the session.
 
-    The 'completed' state is definitive: a session only transitions to the
-    'completed' state at the end of a completeUpload, after the associated
-    user-namespace object has been linked to a manifest object.
+    :param name: the name of the session object.
+    :param meta_timestamp: the timestamp for the most recent update to the
+        session; this is typically the x-timestamp value of the most recent PUT
+        or POST to the session object.
+    :param data_timestamp: the timestamp at which the session object was PUT.
+    :param ctype_timestamp: the timestamp at which the session object's state
+        (i.e. its ``content_type``) was most recently updated.
+    :param content_type: the session object content-type, which represents the
+        current state of the session.
+    :param headers: a dict of other session metadata
     """
-    STATE_KEY = get_mpu_transient_sysmeta_key('state')
-    CREATED_STATE = 'created'
-    COMPLETING_STATE = 'completing'
-    STATES = (CREATED_STATE, COMPLETING_STATE)
-
     def __init__(self, name,
                  meta_timestamp,
                  data_timestamp=None,
                  ctype_timestamp=None,
                  content_type=MPU_SESSION_CREATED_CONTENT_TYPE,
-                 state=CREATED_STATE,
                  headers=None,
                  **kwargs):
         super(MPUSession, self).__init__(
@@ -306,9 +314,6 @@ class MPUSession(MPUItem):
             content_type=content_type,
             **kwargs)
         self.headers = HeaderKeyDict(headers)
-        # TODO: _state is going to go away in a following patch when the
-        #   mpu-auditor learns to deal with sessions
-        self._state = state
 
     @classmethod
     def from_user_headers(cls, name, headers):
@@ -358,12 +363,15 @@ class MPUSession(MPUItem):
         data_timestamp = Timestamp(
             backend_headers.get('X-Backend-Data-Timestamp', timestamp))
         content_type = backend_headers.get('content-type')
-        state = backend_headers.get(cls.STATE_KEY)
-        return cls(name, timestamp, content_type=content_type, state=state,
+        return cls(name, timestamp, content_type=content_type,
                    headers=backend_headers, data_timestamp=data_timestamp)
 
     @property
     def is_active(self):
+        # Note: a session is still active when its state is 'completing'. If
+        # complete fails the user should still be able to upload and list parts
+        # because it is possible that a missing part caused the complete to
+        # fail.
         return not (self.is_completed or self.is_aborted)
 
     @property
@@ -375,6 +383,14 @@ class MPUSession(MPUItem):
         self.ctype_timestamp = timestamp
 
     @property
+    def is_completing(self):
+        return self.content_type == MPU_SESSION_COMPLETING_CONTENT_TYPE
+
+    def set_completing(self, timestamp):
+        self.content_type = MPU_SESSION_COMPLETING_CONTENT_TYPE
+        self.ctype_timestamp = timestamp
+
+    @property
     def is_completed(self):
         return self.content_type == MPU_SESSION_COMPLETED_CONTENT_TYPE
 
@@ -382,32 +398,19 @@ class MPUSession(MPUItem):
         self.content_type = MPU_SESSION_COMPLETED_CONTENT_TYPE
         self.ctype_timestamp = timestamp
 
-    @property
-    def state(self):
-        return self._state
-
-    @state.setter
-    def state(self, state):
-        if state not in self.STATES:
-            # TODO: test invalid case
-            raise ValueError
-        self._state = state
-
     def get_put_headers(self):
         headers = HeaderKeyDict({
             'X-Timestamp': self.data_timestamp.internal,
             'Content-Type': self.content_type,
             'Content-Length': '0',
-            self.STATE_KEY: self.state,
         })
         headers.update(self.headers)
         return headers
 
     def get_post_headers(self):
         return HeaderKeyDict({
-            'X-Timestamp': self.timestamp.internal,
+            'X-Timestamp': self.ctype_timestamp.internal,
             'Content-Type': self.content_type,
-            self.STATE_KEY: self.state,
         })
 
     def get_manifest_headers(self):
@@ -557,20 +560,35 @@ class MPUSessionsHandler(BaseMPUHandler):
             value = self.req.params.get(key)
             if value:
                 params[key] = get_reserved_name(value)
-        if 'limit' in self.req.params:
-            params['limit'] = self.req.params['limit']
+        limit = int(self.req.params.get(
+            'limit', constraints.CONTAINER_LISTING_LIMIT))
 
-        sub_req = self.make_subrequest(
-            path=path, method='GET', params=params)
-        resp = sub_req.get_response(self.app)
-        if resp.is_success:
-            listing = []
-            for item in json.loads(resp.body):
-                if item['content_type'] != MPU_SESSION_CREATED_CONTENT_TYPE:
-                    continue
-                item['name'] = split_reserved_name(item['name'])[0]
-                listing.append(item)
-            resp.body = json.dumps(listing).encode('ascii')
+        listing = []
+        items = [None]  # dummy value to get us into the while loop
+        while items and len(listing) < limit:
+            # The listing from the backend includes sessions that are aborted
+            # or completed; these are not included in the listing sent to the
+            # client, so we may need more than one backend listing to reach the
+            # desired limit in the client listing.
+            sub_req = self.make_subrequest(
+                path=path, method='GET', params=params)
+            resp = sub_req.get_response(self.app)
+            if resp.is_success:
+                items = json.loads(resp.body)
+                for item in items:
+                    params['marker'] = quote(item['name'])
+                    if item['content_type'] in (
+                            MPU_SESSION_COMPLETED_CONTENT_TYPE,
+                            MPU_SESSION_ABORTED_CONTENT_TYPE):
+                        continue
+                    item['name'] = split_reserved_name(item['name'])[0]
+                    listing.append(item)
+                    if len(listing) >= limit:
+                        break
+            else:
+                return resp
+
+        resp.body = json.dumps(listing).encode('ascii')
         return resp
 
     def _ensure_container_exists(self, container):
@@ -696,11 +714,17 @@ class MPUSessionHandler(BaseMPUHandler):
                                                   resp.headers)
         return session
 
-    def _delete_session(self):
+    def _post_session(self, session):
         session_req = self.make_subrequest(
-            path=self.session_path, method='DELETE')
-        # TODO: check session_resp
+            'POST',
+            path=self.session_path,
+            headers=session.get_post_headers())
         session_resp = session_req.get_response(self.app)
+        # TODO: check the resp status:
+        #   we DO need to let the client know if an abortUpload didn't get
+        #   recorded. Similarly we DO need completing state to be recorded -
+        #   otherwise the auditor won't check to see if the complete ever
+        #   succeeded in writing a symlink.
         drain_and_close(session_resp)
 
     def _get_user_object_metadata(self):
@@ -715,11 +739,9 @@ class MPUSessionHandler(BaseMPUHandler):
     def upload_part(self, part_number):
         self._authorize_write_request()
         session = self._load_session()
-        if session.state not in (MPUSession.CREATED_STATE,
-                                 MPUSession.COMPLETING_STATE):
-            return HTTPNotFound()
-        if session.is_aborted:
-            return HTTPNotFound()
+        if not session.is_active:
+            return HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
+
         part_path = self.make_path(self.parts_container,
                                    self.reserved_obj,
                                    self.upload_id,
@@ -753,12 +775,10 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles List Parts.
         """
         self._authorize_read_request()
-        session = self._load_session()  # verify existence of the upload-id
-        if session.state not in (MPUSession.CREATED_STATE,
-                                 MPUSession.COMPLETING_STATE):
-            return HTTPNotFound()
-        if session.is_aborted:
-            return HTTPNotFound()
+        session = self._load_session()
+        if not session.is_active:
+            return HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
+
         path = self.make_path(self.parts_container)
 
         params = {'prefix': self.session_name}
@@ -813,29 +833,29 @@ class MPUSessionHandler(BaseMPUHandler):
         if self.req.timestamp < session.data_timestamp:
             return HTTPConflict()
 
+        if not session.is_active:
+            return HTTPNoContent()
+
+        #  check if the user object has been linked to the manifest
+        # TODO: checking if the user object is linked is not essential - the
+        #   auditor will check this before taking any abort action
         user_obj_metadata = self._get_user_object_metadata()
         if user_obj_metadata.get(TGT_OBJ_SYMLINK_HDR) == \
                 self.manifest_relative_path:
+            # TODO: should we modify the session to appear completed?
             return HTTPConflict()
 
         # Update the session to be marked as aborted. This will prevent any
         # subsequent complete operation from proceeding.
+        # Note: the session is not deleted yet, but it will no longer appear in
+        # listings of in-progress sessions; the auditor is responsible for
+        # cleaning up session resources.
+        # Note: this may race with a concurrent completeUpload, and win! That's
+        # ok because the auditor will check if a user object is linked to the
+        # MPU resources while handling an aborted session.
         session.timestamp = self.req.timestamp
         session.set_aborted(self.req.timestamp)
-        session_req = self.make_subrequest(
-            'POST',
-            path=self.session_path,
-            headers=session.get_post_headers()
-        )
-        # TODO: check response
-        session_req.get_response(self.app)
-        # Write down an audit-marker in the manifests container that will cause
-        # the auditor to check the status of the mpu and possibly cleanup the
-        # manifest and parts.
-        self._put_manifest_delete_marker(self.upload_id,
-                                         MPU_ABORTED_MARKER_SUFFIX)
-        # delete the session
-        self._delete_session()
+        self._post_session(session)
         return HTTPNoContent()
 
     def _parse_part_number(self, part_dict, previous_part):
@@ -1008,20 +1028,23 @@ class MPUSessionHandler(BaseMPUHandler):
                 mpu_resp = self._put_symlink(session, mpu_etag, mpu_bytes)
                 drain_and_close(mpu_resp)
                 if mpu_resp.status_int == 201:
-                    # NB: etag is response body is not quoted
+                    # Note: the session is not deleted yet, but it will no
+                    # longer appear in listings of in-progress sessions; the
+                    # auditor is responsible for cleaning up session resources.
+                    # Note: this may race with a concurrent abortUpload, and
+                    # lose! That's ok because the auditor will check if a user
+                    # object is linked to the MPU resources while handling an
+                    # aborted session.
+                    # TODO: ideally use req.timestamp for this POST (but we
+                    #   already burnt that for the state=completing POST);
+                    #   figure out timestamp progression
+                    session.set_completed(Timestamp.now())
+                    self._post_session(session)
+                    # report success to the user whatever the result of the
+                    # session POST; the auditor will detect that the user obj
+                    # was linked to the manifest
                     body_dict['Etag'] = normalize_etag(mpu_etag)
                     yield json.dumps(body_dict).encode('ascii')
-                    # TODO: move _delete_session before the yield??
-                    #   pro: we can delete session object before waiting for
-                    #   user to read this response iter; we want to delete the
-                    #   session ASAP just in case it is pending abort cleanup
-                    #   by the auditor.
-                    #   con: we delete session and then fail to yield this
-                    #   response iter. Client will have received a 201 but
-                    #   doesn't get the confirmation of success from the
-                    #   response body.
-                    # clean up the multipart-upload record
-                    self._delete_session()
                 else:
                     yield json.dumps(
                         {'Response Status': mpu_resp.status}
@@ -1043,13 +1066,16 @@ class MPUSessionHandler(BaseMPUHandler):
         manifest, mpu_etag = self._parse_user_manifest(self.req.body)
         try:
             session = self._load_session()
+            if not session.is_active:
+                raise HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
         except HTTPException as err:
             if err.status_int != 404:
-                return
+                return err
             user_obj_metadata = self._get_user_object_metadata()
             if (user_obj_metadata.get(MPU_SYSMETA_ETAG_KEY) == mpu_etag
                     and user_obj_metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) ==
                     self.upload_id):
+                # TODO: for belt-and-braces, check it is a symlink too
                 # session was previously completed, tolerate the retry
                 body_dict = {
                     'Response Status': '201 Created',
@@ -1065,24 +1091,16 @@ class MPUSessionHandler(BaseMPUHandler):
         if self.req.timestamp < session.data_timestamp:
             return HTTPConflict()
 
-        if session.is_aborted:
-            # The session has been previously aborted but not yet successfully
-            # deleted. Refuse to complete. The abort may be concurrent or may
-            # have failed to delete the session. Either way, we refuse to
-            # complete the upload.
-            return HTTPConflict()
-
         # TODO: check if a manifest already exists with same mpu_etag, if it
         #   does then skip to putting the symlink to the manifest
+        # Set session state to completing; this will cause the auditor to
+        # periodically check if the user object has been linked to the mpu
+        # resources, in case the later POST to set session state to completed
+        # fails.
         session.timestamp = self.req.timestamp
-        session.state = MPUSession.COMPLETING_STATE
-        session_req = self.make_subrequest(
-            'POST',
-            path=self.session_path,
-            headers=session.get_post_headers()
-        )
+        session.set_completing(self.req.timestamp)
+        self._post_session(session)
         # TODO: check response
-        session_req.get_response(self.app)
 
         # TODO: replicate the etag handling from s3api
         # Leave base header value blank; SLO will populate
@@ -1104,7 +1122,6 @@ class MPUObjHandler(BaseMPUHandler):
             # existing object became a version -> no cleanup
             return
 
-        upload_id_key = get_mpu_sysmeta_key('upload-id')
         deleted_upload_ids = {}
         for backend_resp in self.req.environ.get('swift.backend_responses',
                                                  []):
@@ -1113,7 +1130,7 @@ class MPUObjHandler(BaseMPUHandler):
             # TODO: maybe add more conditions so we're sure it was MPU manifest
             #   e.g. check that backend_resp has x-symlink-target and cross
             #   check its value with expected manifest path
-            upload_id_val = backend_resp.headers.get(upload_id_key)
+            upload_id_val = backend_resp.headers.get(MPU_SYSMETA_UPLOAD_ID_KEY)
             if upload_id_val:
                 try:
                     upload_id = MPUId.parse(upload_id_val)

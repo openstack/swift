@@ -422,7 +422,8 @@ class TestMPU(BaseTestMPU):
             self.mpu_name, upload_id, part_resp_etags[:2])
         self.assertEqual(202, resp.status, resp.content)
         body = json.loads(resp.content)
-        self.assertEqual('201 Created', body.get('Response Status'), body)
+        self.assertEqual('201 Created', body.get('Response Status'),
+                         '%s %s' % (resp.headers['x-trans-id'], body))
         self.assertEqual(exp_mpu_etag, body.get('Etag'))
         self.assertEqual([], body['Errors'], body)
 

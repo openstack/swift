@@ -26,8 +26,8 @@ from swift.common.middleware.mpu import MPUMiddleware, MPUId, \
     get_req_upload_id, translate_error_response, normalize_part_number, \
     MPUSession, BaseMPUHandler, MPUEtagHasher
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
-    HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
-    HTTPPreconditionFailed, HTTPException, HTTPBadRequest
+    HTTPAccepted, HTTPServiceUnavailable, HTTPPreconditionFailed, \
+    HTTPException, HTTPBadRequest
 from swift.common.utils import md5, quote, Timestamp, MD5_OF_EMPTY_STRING
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
@@ -188,7 +188,6 @@ class TestMPUSession(unittest.TestCase):
         self.assertEqual(Timestamp(123), sess.data_timestamp)
         self.assertEqual('application/x-mpu-session-created',
                          sess.content_type)
-        self.assertEqual('created', sess.state)
         self.assertEqual({}, sess.headers)
         self.assertTrue(sess.is_active)
         self.assertFalse(sess.is_aborted)
@@ -198,14 +197,12 @@ class TestMPUSession(unittest.TestCase):
         headers = {'X-Object-Sysmeta-Mpu-Fruit': 'apple'}
         sess = MPUSession('mysession', Timestamp(123),
                           content_type='application/x-mpu-session-aborted',
-                          state=MPUSession.COMPLETING_STATE,
                           headers=headers)
         self.assertEqual('mysession', sess.name)
         self.assertEqual(Timestamp(123), sess.meta_timestamp)
         self.assertEqual(Timestamp(123), sess.data_timestamp)
         self.assertEqual('application/x-mpu-session-aborted',
                          sess.content_type)
-        self.assertEqual('completing', sess.state)
         self.assertEqual(headers, sess.headers)
         self.assertFalse(sess.is_active)
         self.assertTrue(sess.is_aborted)
@@ -257,7 +254,6 @@ class TestMPUSession(unittest.TestCase):
         self.assertEqual(Timestamp(12345), sess.data_timestamp)
         self.assertEqual('application/x-mpu-session-created',
                          sess.content_type)
-        self.assertEqual('created', sess.state)
         exp_sess_headers = {
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
@@ -284,19 +280,17 @@ class TestMPUSession(unittest.TestCase):
             'X-Object-Sysmeta-Mpu-User-Cache-Control': 'no-cache',
             'X-Object-Sysmeta-Mpu-User-Expires':
                 'Wed, 25 Dec 2024 04:04:04 GMT',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created',
         }
         self.assertEqual(exp_put_headers, sess.get_put_headers())
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-created',
-            'X-Timestamp': '0000012345.00000',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+            'X-Timestamp': '0000012345.00000'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
 
     def test_from_session_headers(self):
         headers = HeaderKeyDict({
             'Content-Length': '0',
-            'Content-Type': 'application/x-mpu-session',
+            'Content-Type': 'application/x-mpu-session-aborted',
             'X-Backend-Data-Timestamp': '0000012345.00000',
             'X-Timestamp': '0000067890.00000',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
@@ -307,25 +301,22 @@ class TestMPUSession(unittest.TestCase):
             'X-Object-Sysmeta-Mpu-User-Cache-Control': 'no-cache',
             'X-Object-Sysmeta-Mpu-User-Expires':
                 'Wed, 25 Dec 2024 04:04:04 GMT',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'})
-        sess = MPUSession.from_session_headers('mysession',
-                                               backend_headers=headers)
+        })
+        sess = MPUSession.from_session_headers('mysession', headers)
         self.assertEqual(Timestamp(67890), sess.meta_timestamp)
         self.assertEqual(Timestamp(12345), sess.data_timestamp)
-        self.assertEqual('application/x-mpu-session', sess.content_type)
-        self.assertEqual('created', sess.state)
+        self.assertEqual('application/x-mpu-session-aborted',
+                         sess.content_type)
         exp_post_headers = {
-            'Content-Type': 'application/x-mpu-session',
-            'X-Timestamp': '0000067890.00000',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+            'Content-Type': 'application/x-mpu-session-aborted',
+            'X-Timestamp': '0000067890.00000'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
 
     def test_set_completed(self):
         sess = MPUSession('mysession', Timestamp(123))
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-created',
-            'X-Timestamp': '0000000123.00000',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+            'X-Timestamp': '0000000123.00000'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
         self.assertTrue(sess.is_active)
         self.assertFalse(sess.is_completed)
@@ -333,26 +324,44 @@ class TestMPUSession(unittest.TestCase):
         sess.set_completed(Timestamp(345))
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-completed',
-            'X-Timestamp': '0000000123.00000',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+            'X-Timestamp': '0000000345.00000'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
         self.assertFalse(sess.is_active)
         self.assertTrue(sess.is_completed)
+
+    def test_set_completing(self):
+        sess = MPUSession('mysession', Timestamp(123))
+        exp_post_headers = {
+            'Content-Type': 'application/x-mpu-session-created',
+            'X-Timestamp': '0000000123.00000'}
+        self.assertEqual(exp_post_headers, sess.get_post_headers())
+        self.assertTrue(sess.is_active)
+        self.assertFalse(sess.is_completing)
+
+        sess.set_completing(Timestamp(345))
+        exp_post_headers = {
+            'Content-Type': 'application/x-mpu-session-completing',
+            'X-Timestamp': '0000000345.00000'}
+        self.assertEqual(exp_post_headers, sess.get_post_headers())
+        self.assertTrue(sess.is_active)
+        self.assertTrue(sess.is_completing)
 
     def test_set_aborted(self):
         sess = MPUSession('mysession', Timestamp(123))
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-created',
-            'X-Timestamp': '0000000123.00000',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+            'X-Timestamp': '0000000123.00000'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
+        self.assertTrue(sess.is_active)
+        self.assertFalse(sess.is_aborted)
 
         sess.set_aborted(Timestamp(345))
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-aborted',
-            'X-Timestamp': '0000000123.00000',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+            'X-Timestamp': '0000000345.00000'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
+        self.assertFalse(sess.is_active)
+        self.assertTrue(sess.is_aborted)
 
 
 class BaseTestMPUMiddleware(unittest.TestCase):
@@ -410,6 +419,40 @@ class TestBaseMpuHandler(BaseTestMPUMiddleware):
 class TestMPUMiddleware(BaseTestMPUMiddleware):
     def setUp(self):
         super(TestMPUMiddleware, self).setUp()
+        self.sample_in_progress_session_listing = [
+            # in progress
+            {'name': '\x00obj1/%s' % self._make_mpu_id('/v1/a/c/obj1'),
+             'hash': 'etag',
+             'bytes': 0,
+             'content_type': 'application/x-mpu-session-created',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': '\x00obj1/%s' % self._make_mpu_id('/v1/a/c/obj1'),
+             'hash': 'etag',
+             'bytes': 0,
+             'content_type': 'application/x-mpu-session-created',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': '\x00obj2\N{SNOWMAN}/%s'
+                     % self._make_mpu_id('/v1/a/c/obj2\N{SNOWMAN}'),
+             'hash': 'etag',
+             'bytes': 0,
+             'content_type': 'application/x-mpu-session-created',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+        ]
+        self.sample_all_session_listing = \
+            self.sample_in_progress_session_listing + [
+                # aborted
+                {'name': '\x00obj3/%s' % self._make_mpu_id('/v1/a/c/obj3'),
+                 'hash': 'etag',
+                 'bytes': 0,
+                 'content_type': 'application/x-mpu-session-aborted',
+                 'last_modified': '1970-01-01T00:00:00.000000'},
+                # completed
+                {'name': '\x00obj3/%s' % self._make_mpu_id('/v1/a/c/obj3'),
+                 'hash': 'etag',
+                 'bytes': 0,
+                 'content_type': 'application/x-mpu-session-completed',
+                 'last_modified': '1970-01-01T00:00:00.000000'},
+            ]
 
     def _setup_mpu_create_requests(self):
         self.app.register(
@@ -442,7 +485,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'X-Timestamp': ts_other.internal,
             'Content-Type': 'application/x-mpu-session-created',
             'X-Backend-Data-Timestamp': ts_session.internal,
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created',
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
             'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
         })
@@ -483,7 +525,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-1])
@@ -500,7 +541,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-1])
@@ -516,7 +556,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/test'},
             self.app.headers[-1])
@@ -532,68 +571,102 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'text/html'},
             self.app.headers[-1])
 
-    def test_list_in_progress_mpus(self):
-        listing = [
-            # in progress
-            {'name': '\x00obj1/%s' % self._make_mpu_id('/v1/a/c/obj1'),
-             'hash': 'etag',
-             'bytes': 0,
-             'content_type': 'application/x-mpu-session-created',
-             'last_modified': '1970-01-01T00:00:00.000000'},
-            {'name': '\x00obj1/%s' % self._make_mpu_id('/v1/a/c/obj1'),
-             'hash': 'etag',
-             'bytes': 0,
-             'content_type': 'application/x-mpu-session-created',
-             'last_modified': '1970-01-01T00:00:00.000000'},
-            {'name': '\x00obj2/%s' % self._make_mpu_id('/v1/a/c/obj2'),
-             'hash': 'etag',
-             'bytes': 0,
-             'content_type': 'application/x-mpu-session-created',
-             'last_modified': '1970-01-01T00:00:00.000000'},
-            # aborted
-            {'name': '\x00obj3/%s' % self._make_mpu_id('/v1/a/c/obj3'),
-             'hash': 'etag',
-             'bytes': 0,
-             'content_type': 'application/x-mpu-session-aborted',
-             'last_modified': '1970-01-01T00:00:00.000000'},
+    def test_list_uploads(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps(self.sample_all_session_listing).encode('ascii')),
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps([]).encode('ascii'))
         ]
-        exp_listing = [dict(item, name=item['name'][1:])
-                       for item in listing[:3]]
-        registered_calls = [('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
-                             json.dumps(listing).encode('ascii'))]
-        for call in registered_calls:
-            self.app.register(*call)
+        self.app.register(*registered_calls[0])
+        self.app.register_next_response(*registered_calls[1])
         req = Request.blank('/v1/a/c?uploads')
         req.method = 'GET'
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
-        expected = [call[:2] for call in self.exp_calls + registered_calls]
-        self.assertEqual(expected, self.app.calls)
-        self.assertEqual(exp_listing, json.loads(resp.body))
 
-    def test_list_in_progress_mpus_forwards_params(self):
-        # this test doesn't care about the listing content, it's just verifying
-        # the request parameter forwarding
-        listing = []
-        registered_calls = [('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
-                             json.dumps(listing).encode('ascii'))]
-        for call in registered_calls:
-            self.app.register(*call)
+        exp_listing = [dict(item, name=item['name'][1:])
+                       for item in self.sample_in_progress_session_listing]
+        self.assertEqual(exp_listing, json.loads(resp.body))
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls[:2])
+        self.assertEqual(4, len(self.app.calls), self.app.calls)
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls[:2])
+
+        # first backend listing
+        self.assertEqual('GET', self.app.calls[2][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual({}, params)
+        # second backend listing
+        self.assertEqual('GET', self.app.calls[3][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual(
+            {'marker': quote(self.sample_all_session_listing[-1]['name'])},
+            params)
+
+    def test_list_uploads_limit(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps(self.sample_all_session_listing).encode('ascii')),
+        ]
+        self.app.register(*registered_calls[0])
+        req = Request.blank('/v1/a/c?uploads&limit=2')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+
+        exp_listing = [dict(item, name=item['name'][1:])
+                       for item in self.sample_in_progress_session_listing[:2]]
+        self.assertEqual(exp_listing, json.loads(resp.body))
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls[:2])
+        self.assertEqual(3, len(self.app.calls), self.app.calls)
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls[:2])
+
+        # first backend listing
+        self.assertEqual('GET', self.app.calls[2][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual({}, params)
+
+    def test_list_uploads_forwards_params(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps(self.sample_all_session_listing).encode('ascii')),
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps([]).encode('ascii'))
+        ]
+        self.app.register(*registered_calls[0])
+        self.app.register_next_response(*registered_calls[1])
         req = Request.blank(
-            '/v1/a/c?uploads&limit=99&marker=foo&prefix=bar&end_marker=baz'
+            '/v1/a/c?uploads&marker=foo&prefix=bar&end_marker=baz'
             '&ignored=x')
         req.method = 'GET'
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
-        self.assertEqual([], json.loads(resp.body))
-        self.assertEqual(3, len(self.app.calls), self.app.calls)
+
+        exp_listing = [dict(item, name=item['name'][1:])
+                       for item in self.sample_in_progress_session_listing]
+        self.assertEqual(exp_listing, json.loads(resp.body))
+        self.assertEqual(4, len(self.app.calls), self.app.calls)
         expected = [call[:2] for call in self.exp_calls]
         self.assertEqual(expected, self.app.calls[:2])
+
+        # first backend listing
         self.assertEqual('GET', self.app.calls[2][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
         self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
@@ -601,21 +674,28 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                       keep_blank_values=True))
         self.assertEqual({'marker': '\x00foo',
                           'prefix': '\x00bar',
-                          'end_marker': '\x00baz',
-                          'limit': '99'},
+                          'end_marker': '\x00baz'},
                          params)
+        # second backend listing
+        self.assertEqual('GET', self.app.calls[3][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual(
+            {'marker': quote(self.sample_all_session_listing[-1]['name']),
+             'prefix': '\x00bar',
+             'end_marker': '\x00baz'},
+            params)
 
-    def _do_test_upload_part(self, part_str, state):
+    def _do_test_upload_part(self, part_str, session_ctype):
         self.app.clear_calls()
         ts_session = next(self.ts_iter)
         ts_part = next(self.ts_iter)
+        extra_hdrs = {'Content-Type': session_ctype}
+        self._setup_mpu_existence_check_call(
+            ts_session, extra_headers=extra_hdrs)
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu-session-created',
-              'X-Object-Transient-Sysmeta-Mpu-State': state}),
             ('PUT',
              '/v1/a/\x00mpu_parts\x00c/%s/000001' % self.sess_name,
              HTTPCreated,
@@ -650,19 +730,19 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(exp_put_hdrs, actual_put_hdrs)
 
     def test_upload_part(self):
-        self._do_test_upload_part('1', 'created')
-        self._do_test_upload_part('000001', 'created')
-        self._do_test_upload_part('1', 'completing')
+        self._do_test_upload_part('1', 'application/x-mpu-session-created')
+
+    def test_upload_part_padded_digits(self):
+        self._do_test_upload_part(
+            '000001', 'application/x-mpu-session-created')
+
+    def test_upload_part_session_completing(self):
+        self._do_test_upload_part('1', 'application/x-mpu-session-completing')
 
     def test_upload_part_subrequest_404(self):
         ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu',
-              'X-Object-Transient-Sysmeta-Mpu-State': 'created'}),
             ('PUT',
              '/v1/a/\x00mpu_parts\x00c/%s/000001' % self.sess_name,
              HTTPNotFound,
@@ -679,13 +759,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_upload_part_subrequest_503(self):
         ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu',
-              'X-Object-Transient-Sysmeta-Mpu-State': 'created'}),
             ('PUT',
              '/v1/a/\x00mpu_parts\x00c/%s/000001' % self.sess_name,
              HTTPServiceUnavailable,
@@ -702,17 +777,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_upload_part_session_aborted(self):
         ts_session = next(self.ts_iter)
-        registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu-session-aborted',
-              'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
-             ),
-        ]
-        for call in registered_calls:
-            self.app.register(*call)
+        extra_hdrs = {'Content-Type': 'application/x-mpu-session-aborted'}
+        self._setup_mpu_existence_check_call(
+            ts_session, extra_headers=extra_hdrs)
         req = Request.blank(
             '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
             environ={'REQUEST_METHOD': 'PUT'},
@@ -739,9 +806,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
 
-    def test_list_parts(self):
+    def _do_test_list_parts(self, session_ctype):
         ts_session = next(self.ts_iter)
-        self._setup_mpu_existence_check_call(ts_session)
+        extra_hdrs = {'Content-Type': session_ctype}
+        self._setup_mpu_existence_check_call(
+            ts_session, extra_headers=extra_hdrs)
         listing = [{'name': '%s/%06d' % (self.sess_name, i),
                     'hash': 'etag%d' % i,
                     'bytes': i,
@@ -779,6 +848,14 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                           'Content-Type': 'application/json; charset=utf-8',
                           'X-Storage-Policy': 'policy-0'},
                          resp.headers)
+
+    def test_list_parts_in_progress(self):
+        self._do_test_list_parts(
+            session_ctype='application/x-mpu-session-created')
+
+    def test_list_parts_completing(self):
+        self._do_test_list_parts(
+            session_ctype='application/x-mpu-session-completing')
 
     def test_list_parts_forwards_params(self):
         # this test doesn't care about the listing content, it's just verifying
@@ -891,7 +968,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              {},
              json.dumps(put_slo_resp_body).encode('ascii')),
             ('PUT', '/v1/a/c/o', HTTPCreated, {}),
-            ('DELETE',
+            ('POST',
              '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
              HTTPAccepted,
              {}),
@@ -926,12 +1003,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
         session_hdrs = self.app.headers[3]
         self.assertEqual(
-            {'Content-Type': 'application/x-mpu-session-created',
+            {'Content-Type': 'application/x-mpu-session-completing',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Timestamp': ts_complete.internal,
-             'X-Object-Transient-Sysmeta-Mpu-State': 'completing'},
+             'X-Timestamp': ts_complete.internal},
             session_hdrs)
 
         actual_manifest_body = self.app.uploaded.get(
@@ -979,6 +1055,15 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  '%s; mpu_etag=%s; mpu_bytes=0' % (exp_mpu_etag, exp_mpu_etag),
              'X-Timestamp': ts_session.internal},
             mpu_hdrs)
+
+        session_hdrs = self.app.headers[6]
+        self.assertEqual(
+            {'Content-Type': 'application/x-mpu-session-completed',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Timestamp': mock.ANY},
+            session_hdrs)
 
     def test_complete_mpu_bad_manifest(self):
 
@@ -1186,22 +1271,17 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_complete_mpu_session_aborted(self):
         ts_session = next(self.ts_iter)
-        ts_aborted = next(self.ts_iter)
-        ts_complete = next(self.ts_iter)
+        extra_hdrs = {'Content-Type': 'application/x-mpu-session-aborted'}
+        self._setup_mpu_existence_check_call(ts_session,
+                                             extra_headers=extra_hdrs)
+        # the mpu was not previously completed...
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_aborted.internal,
-              'Content-Type': 'application/x-mpu-session-aborted',
-              'X-Backend-Data-Timestamp': ts_session.internal,
-              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-              }),
+            ('HEAD', '/v1/a/c/%s' % self.mpu_name, HTTPNotFound, {}),
         ]
         for call in registered_calls:
             self.app.register(*call)
-        req_hdrs = {'X-Timestamp': ts_complete.internal,
-                    'Content-Type': 'ignored'}
+        ts_complete = next(self.ts_iter)
+        req_hdrs = {'X-Timestamp': ts_complete.internal}
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                             headers=req_hdrs)
         req.method = 'POST'
@@ -1211,7 +1291,54 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ])
         resp = req.get_response(self.mw)
         b''.join(resp.app_iter)
-        self.assertEqual(409, resp.status_int)
+        self.assertEqual(404, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+    def test_complete_mpu_session_completed(self):
+        ts_session = next(self.ts_iter)
+        extra_hdrs = {'Content-Type': 'application/x-mpu-session-completed'}
+        self._setup_mpu_existence_check_call(ts_session,
+                                             extra_headers=extra_hdrs)
+        manifest = [
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ]
+        hasher = MPUEtagHasher()
+        for item in manifest:
+            hasher.update(item['etag'])
+        exp_mpu_etag = hasher.etag
+        # the mpu was previously completed...
+        symlink_resp_hdrs = {
+            'X-Symlink-Target': '\x00mpu_manifests\x00c/%s' % self.sess_name,
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.mpu_id,
+            'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a/c/%s' % self.mpu_name, HTTPOk, symlink_resp_hdrs),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        ts_complete = next(self.ts_iter)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps(manifest)
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(202, resp.status_int)
+        resp_dict = json.loads(resp_body)
+        self.assertEqual(
+            {'Response Status': '201 Created',
+             'Etag': exp_mpu_etag,
+             'Response Body': '',
+             'Last Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+             'Errors': [],
+             },
+            resp_dict)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1350,39 +1477,16 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
-    def _do_test_abort_mpu(self, extra_session_resp_headers):
+    def test_abort_mpu(self):
         ts_session = next(self.ts_iter)
-        ts_other = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
         ts_abort = next(self.ts_iter)
-        session_resp_headers = {
-            'X-Timestamp': ts_other.internal,
-            'Content-Type': 'application/x-mpu-session-created',
-            'X-Backend-Data-Timestamp': ts_session.internal,
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
-            'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
-        }
-        if extra_session_resp_headers:
-            session_resp_headers.update(extra_session_resp_headers)
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             session_resp_headers),
-            ('HEAD', '/v1/a/c/o', HTTPOk, session_resp_headers),
+            ('HEAD', '/v1/a/c/o', HTTPOk, {}),  # no symlink
             ('POST',
              '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
              HTTPOk,
              {}),
-            ('PUT',
-             '/v1/a/\x00mpu_manifests\x00c/%s/marker-aborted'
-             % self.sess_name,
-             HTTPCreated,
-             {}),
-            ('DELETE',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPNoContent,
-             {})
         ]
         for call in registered_calls:
             self.app.register(*call)
@@ -1392,52 +1496,87 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                             headers=req_hdrs)
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
-        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(b'', b''.join(resp.app_iter))
         self.assertEqual(204, resp.status_int)
-        self.assertEqual(b'', resp_body)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
-
-        session_hdrs = self.app.headers[4]
-        return session_hdrs, ts_abort
-
-    def test_abort_mpu(self):
-        extra_hdrs = {'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
-        session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
+        session_post_hdrs = self.app.headers[4]
         self.assertEqual(
             {'Content-Type': 'application/x-mpu-session-aborted',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Timestamp': ts_abort.internal,
-             'X-Object-Transient-Sysmeta-Mpu-State': 'created'},
+             'X-Timestamp': ts_abort.internal},
             session_post_hdrs)
 
     def test_abort_mpu_session_completing(self):
+        ts_session = next(self.ts_iter)
+        extra_hdrs = {'Content-Type': 'application/x-mpu-session-completing'}
+        self._setup_mpu_existence_check_call(ts_session,
+                                             extra_headers=extra_hdrs)
+        ts_abort = next(self.ts_iter)
+        registered_calls = [
+            ('HEAD', '/v1/a/c/o', HTTPOk, {}),  # no symlink
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_abort.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'DELETE'
+        resp = req.get_response(self.mw)
+        self.assertEqual(b'', b''.join(resp.app_iter))
+        self.assertEqual(204, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+        session_post_hdrs = self.app.headers[4]
         # verify that state is copied across to new POST
-        extra_hdrs = {'X-Object-Transient-Sysmeta-Mpu-State': 'completing'}
-        session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
         self.assertEqual(
             {'Content-Type': 'application/x-mpu-session-aborted',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Timestamp': ts_abort.internal,
-             'X-Object-Transient-Sysmeta-Mpu-State': 'completing'},
+             'X-Timestamp': ts_abort.internal},
             session_post_hdrs)
 
     def test_abort_mpu_session_aborted(self):
         # verify it's ok to abort an already aborted session
+        ts_session = next(self.ts_iter)
         extra_hdrs = {'Content-Type': 'application/x-mpu-session-aborted'}
-        session_post_hdrs, ts_abort = self._do_test_abort_mpu(extra_hdrs)
-        self.assertEqual(
-            {'Content-Type': 'application/x-mpu-session-aborted',
-             'Host': 'localhost:80',
-             'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Timestamp': ts_abort.internal,
-             'X-Object-Transient-Sysmeta-Mpu-State': 'created'},
-            session_post_hdrs)
+        self._setup_mpu_existence_check_call(ts_session,
+                                             extra_headers=extra_hdrs)
+        ts_abort = next(self.ts_iter)
+        req_hdrs = {'X-Timestamp': ts_abort.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'DELETE'
+        resp = req.get_response(self.mw)
+        self.assertEqual(b'', b''.join(resp.app_iter))
+        self.assertEqual(204, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls)
+
+    def test_abort_mpu_session_completed(self):
+        ts_session = next(self.ts_iter)
+        extra_hdrs = {'Content-Type': 'application/x-mpu-session-completed'}
+        self._setup_mpu_existence_check_call(ts_session,
+                                             extra_headers=extra_hdrs)
+        ts_abort = next(self.ts_iter)
+        req_hdrs = {'X-Timestamp': ts_abort.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'DELETE'
+        resp = req.get_response(self.mw)
+        self.assertEqual(204, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls)
 
     def test_abort_mpu_session_not_found(self):
         ts_abort = next(self.ts_iter)
