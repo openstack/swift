@@ -578,8 +578,8 @@ class SegmentedIterable(object):
                 # object; therefore, its etag is its MD5sum and hence we can
                 # check it.
                 path = quote(seg_path) + '?multipart-manifest=get'
-                headers = {'x-auth-token':
-                           self.req.headers.get('x-auth-token')}
+                headers = {h: self.req.headers.get(h)
+                           for h in ('x-auth-token', 'x-open-expired')}
                 if self.allow_reserved_names:
                     # TODO: see similar logic in symlink _recursive_get_head -
                     #   is this a safe, re-usable pattern? if so, make a helper

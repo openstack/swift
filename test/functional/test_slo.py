@@ -18,6 +18,7 @@ import base64
 import email.parser
 import itertools
 import json
+import time
 from copy import deepcopy
 from unittest import SkipTest
 
@@ -25,8 +26,9 @@ import six
 from six.moves import urllib
 
 from swift.common.swob import normalize_etag
-from swift.common.utils import md5
+from swift.common.utils import md5, config_true_value
 
+from test.functional import check_response, retry
 import test.functional as tf
 from test.functional import cluster_info
 from test.functional.tests import Utils, Base, Base2, BaseEnv
@@ -49,6 +51,12 @@ def group_file_contents(file_contents):
     return [
         (char, sum(1 for _ in grp))
         for char, grp in itertools.groupby(byte_iter)]
+
+
+def md5hex(s):
+    if not isinstance(s, bytes):
+        s = s.encode('ascii')
+    return md5(s, usedforsecurity=False).hexdigest()
 
 
 class TestSloEnv(BaseEnv):
@@ -449,6 +457,163 @@ class TestSlo(Base):
                              'bytes %d-%d/%d' % (start, end, total_size), i)
             self.assertEqual(headers['x-parts-count'], '5')
             start = end + 1
+
+    def test_x_delete_at_with_part_number_and_open_expired(self):
+        cont_name = self.env.account.container(self.env.container.name)
+        allow_open_expired = config_true_value(tf.cluster_info['swift'].get(
+            'allow_open_expired', 'false'))
+
+        if not allow_open_expired:
+            raise SkipTest('allow_open_expired is disabled')
+
+        # data for segments
+        segments = [b'one', b'two', b'three', b'four']
+        etags = []
+        for segment in segments:
+            etags.append(md5hex(segment))
+
+        def put_manifest(url, token, parsed, conn, object_segments):
+            now = int(time.time())
+            delete_time = now + 2
+            manifest_data = []
+            start = 0
+
+            for segment_object in range(len(object_segments)):
+                size = len(object_segments[segment_object])
+                end = start + size - 1
+                manifest_data.append({
+                    'path': '/%s/segments/%s' % (cont_name,
+                                                 str(segment_object)),
+                    'etag': etags[segment_object],
+                    'size_bytes': size,
+                })
+                start = end + 1
+
+            conn.request(
+                'PUT',
+                '%s/%s/manifest?multipart-manifest=put' % (parsed.path,
+                                                           cont_name),
+                body=json.dumps(manifest_data),
+                headers={
+                    'X-Auth-Token': token,
+                    'X-Delete-At': delete_time,
+                    'X-Static-Large-Object': 'true',
+                    'Content-Type': 'application/json'
+                }
+            )
+            resp = check_response(conn)
+            body = resp.read()
+            self.assertEqual(resp.status, 201,
+                             "Response status is not 201: %s" % body)
+
+        def put_segments(url, token, parsed, conn, object_segments):
+            now = int(time.time())
+            delete_time = now + 2
+
+            for objnum in range(len(object_segments)):
+                conn.request('PUT', '%s/%s/segments/%s' % (
+                    parsed.path,
+                    cont_name,
+                    str(objnum)),
+                    body=object_segments[objnum],
+                    headers={
+                        'X-Auth-Token': token,
+                        'X-Delete-At': delete_time})
+                resp = check_response(conn)
+                body = resp.read()
+                self.assertEqual(resp.status, 201,
+                                 "Response status is not 201: %s" % body)
+
+        retry(put_segments, segments)
+        retry(put_manifest, segments)
+
+        # get the manifest
+        def get_manifest(url, token, parsed, conn, extra_headers=None):
+            headers = {'X-Auth-Token': token}
+            if extra_headers:
+                headers.update(extra_headers)
+            conn.request(
+                'GET',
+                '%s/%s/manifest?multipart-manifest=get' %
+                (parsed.path, cont_name),
+                '', headers)
+            return check_response(conn)
+
+        resp = retry(get_manifest)
+        self.assertEqual(resp.status, 200)
+        # wait for the manifest to expire
+        # the objects will also have expired at the same time
+        # since their x-delete-at times are the same
+        time.sleep(3)
+
+        resp = retry(get_manifest)
+        resp.read()
+        # check to see manifest has expired
+        self.assertEqual(resp.status, 404, resp.headers.get('x-trans-id'))
+
+        def get_or_head_part(url, token, parsed, conn,
+                             extra_headers=None, method='GET',
+                             part_number=None):
+            headers = {'X-Auth-Token': token}
+            if extra_headers:
+                headers.update(extra_headers)
+            conn.request(method, '%s/%s/manifest?part-number=%s' % (
+                parsed.path,
+                cont_name,
+                part_number
+            ), '', headers)
+            return check_response(conn)
+
+        resp = retry(get_manifest, extra_headers={'X-Open-Expired': True})
+        resp.read()
+        # read the expired object with magic x-open-expired header
+        self.assertEqual(resp.status, 200)
+
+        for objnum in range(len(segments)):
+            part_num = str(objnum + 1)
+            resp = retry(get_or_head_part,
+                         extra_headers={'X-Open-Expired': True},
+                         part_number=part_num,)
+            resp.read()
+            self.assertEqual(resp.status, 206)
+
+        for objnum in range(len(segments)):
+            part_num = str(objnum + 1)
+            resp = retry(get_or_head_part,
+                         extra_headers={'X-Open-Expired': True},
+                         method='HEAD', part_number=part_num)
+            resp.read()
+            self.assertEqual(resp.status, 206)
+
+        # no x-open-expired case and it should 404
+        for objnum in range(len(segments)):
+            part_num = str(objnum + 1)
+            resp = retry(get_or_head_part,
+                         method='HEAD', part_number=part_num)
+            resp.read()
+            self.assertEqual(resp.status, 404)
+
+        # same situation here
+        for objnum in range(len(segments)):
+            part_num = str(objnum + 1)
+            resp = retry(get_or_head_part,
+                         method='GET', part_number=part_num)
+            resp.read()
+            self.assertEqual(resp.status, 404)
+
+        def head_manifest(url, token, parsed, conn, extra_headers=None):
+            headers = {'X-Auth-Token': token}
+            if extra_headers:
+                headers.update(extra_headers)
+            conn.request('HEAD', '%s/%s/manifest' % (parsed.path,
+                                                     cont_name),
+                         '', headers)
+            return check_response(conn)
+
+        resp = retry(head_manifest, extra_headers={'X-Open-Expired': True})
+        resp.read()
+        # head expired object with magic x-open-expired header
+        self.assertEqual(resp.status, 200)
 
     def test_slo_container_listing(self):
         # the listing object size should equal the sum of the size of the
