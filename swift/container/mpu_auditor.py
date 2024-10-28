@@ -21,7 +21,8 @@ from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_GENERIC_MARKER_SUFFIX
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR
 from swift.common.request_helpers import split_reserved_name, get_reserved_name
-from swift.common.utils import Timestamp, get_logger
+from swift.common.utils import Timestamp, get_logger, non_negative_float, \
+    non_negative_int, config_positive_int_value
 from swift.container.backend import ContainerBroker
 
 
@@ -132,16 +133,35 @@ class MpuAuditorContext(object):
              (json.dumps(dict(self)), Timestamp.now().internal)})
 
 
-class BaseMpuBrokerAuditor(object):
-    ROWS_PER_BATCH = 1000
-    MAX_BATCHES_PER_CYCLE = 10
+class MpuAuditorConfig(object):
+    def __init__(self, conf):
+        # the auditor will not purge an aborted MPU's resources until it has
+        # been in the aborted state for more than mpu_aborted_purge_delay
+        self.purge_delay = non_negative_float(
+            conf.get('mpu_aborted_purge_delay', 86400))
+        # the auditor will check if a completing MPU has in fact been completed
+        # been in the completed state for more than mpu_completing_period
+        self.completing_period = non_negative_float(
+            conf.get('mpu_completing_period', 3600))
+        # the auditor will select up to mpu_audit_batch_size rows with each
+        # container DB query
+        self.batch_size = config_positive_int_value(
+            conf.get('mpu_audit_batch_size', 1000))
+        # the auditor will make up to mpu_audit_max_batches container DB
+        # queries during each visit to a container DB
+        self.max_batches = non_negative_int(
+            conf.get('mpu_audit_max_batches', 100))
 
-    def __init__(self, client, logger, broker):
+
+class BaseMpuBrokerAuditor(object):
+    def __init__(self, config, client, logger, broker, resource_type):
+        self.config = config
         self.client = client
         self.logger = logger
         self.broker = broker
         self.uploads_already_checked = {}
         self.keep = {}
+        self.resource_type = resource_type
 
     def log(self, log_func, msg):
         data = {
@@ -149,7 +169,11 @@ class BaseMpuBrokerAuditor(object):
             'db_file': self.broker.db_file,
             'path': self.broker.path,
         }
-        log_func('mpu_auditor ' + json.dumps(data))
+        log_func('mpu-auditor ' + json.dumps(data))
+
+    def exception(self, fmt, *args):
+        msg = fmt % args
+        self.log(self.logger.exception, msg)
 
     def warning(self, fmt, *args):
         msg = fmt % args
@@ -250,28 +274,41 @@ class BaseMpuBrokerAuditor(object):
 
     def audit(self):
         self.broker.get_info()
-        self.debug('mpu_audit visiting %s', self.broker.path)
+        max_row = self.broker.get_max_row()
+        self.debug('visiting %s container %s',
+                   self.resource_type, self.broker.path)
         context = MpuAuditorContext.load(self.broker)
-        self.debug('auditing from row %s' % context.last_audit_row)
-        num_audited = num_processed = num_errors = 0
+        self.debug('auditing from row %s to row %s' %
+                   (context.last_audit_row, max_row))
+        num_audited = num_processed = num_errors = num_skipped = 0
         for batch in yield_item_batches(self.broker,
                                         context.last_audit_row,
-                                        self.MAX_BATCHES_PER_CYCLE,
-                                        self.ROWS_PER_BATCH):
+                                        self.config.max_batches,
+                                        self.config.batch_size):
             for item_dict in batch:
+                num_processed += 1
                 try:
                     item = Item(**item_dict)
+                    self.debug('auditing %s %s',
+                               self.resource_type, dict(item))
                     if not item.deleted:
                         self._audit_item(item)
                         num_audited += 1
                 except Exception as err:  # noqa
-                    self.warning('%s: %s', item_dict['name'], str(err))
+                    self.exception('Error while auditing %s: %s',
+                                   item_dict['name'], str(err))
                     num_errors += 1
-                num_processed += 1
-                context.last_audit_row = item_dict['ROWID']
+                    # TODO: hmmm, should we revisit?
+                row_id = item_dict['ROWID']
+                context.last_audit_row = row_id
+                if row_id == max_row:
+                    break
+            else:
+                continue
+            break
         context.store(self.broker)
-        self.debug('processed: %d, audited: %d, errors: %d)',
-                   num_processed, num_audited, num_errors)
+        self.debug('processed: %d, audited: %d, skipped: %d, errors: %d)',
+                   num_processed, num_audited, num_skipped, num_errors)
         return None
 
 
@@ -355,7 +392,7 @@ class MpuManifestAuditor(BaseMpuBrokerAuditor):
             self.broker.account, self.broker.container, upload)
 
 
-class MpuPartsAuditor(BaseMpuBrokerAuditor):
+class MpuPartAuditor(BaseMpuBrokerAuditor):
     def _find_orphans(self, marker, upload):
         # TODO: prefix query may scoop up some alien objects??
         #   need to check that each orphan is an MPU manifest
@@ -373,7 +410,7 @@ class MpuPartsAuditor(BaseMpuBrokerAuditor):
                                       orphan.name)
 
 
-class MpuSessionsAuditor(BaseMpuBrokerAuditor):
+class MpuSessionAuditor(BaseMpuBrokerAuditor):
     def _process_item(self, item, upload):
         # if aborted -> abort -> delete
         # elif completed and linked -> delete
@@ -383,6 +420,7 @@ class MpuSessionsAuditor(BaseMpuBrokerAuditor):
 
 class MpuAuditor(object):
     def __init__(self, conf, logger=None):
+        self.config = MpuAuditorConfig(conf)
         self.logger = logger or get_logger({}, 'mpu-auditor')
         internal_client_conf_path = conf.get('internal_client_conf_path',
                                              '/etc/swift/internal-client.conf')
@@ -399,13 +437,16 @@ class MpuAuditor(object):
         self.logger.debug('mpu_audit visiting %s %s',
                           reserved_prefix, container)
         if reserved_prefix == 'mpu_parts' or broker.path.endswith('+segments'):
-            mpu_auditor = MpuPartsAuditor(self.client, self.logger, broker)
+            mpu_auditor = MpuPartAuditor(
+                self.config, self.client, self.logger, broker, 'part')
             return mpu_auditor.audit()
         if reserved_prefix == 'mpu_manifests':
-            mpu_auditor = MpuManifestAuditor(self.client, self.logger, broker)
+            mpu_auditor = MpuManifestAuditor(
+                self.config, self.client, self.logger, broker, 'manifest')
             return mpu_auditor.audit()
         elif reserved_prefix == 'mpu_sessions':
-            mpu_auditor = MpuSessionsAuditor(self.client, self.logger, broker)
+            mpu_auditor = MpuSessionAuditor(
+                self.config, self.client, self.logger, broker, 'session')
             return mpu_auditor.audit()
         else:
             return None

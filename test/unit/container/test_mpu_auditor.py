@@ -218,9 +218,9 @@ class TestMpuAuditorMPU(BaseTestMpuAuditor):
         self.assertEqual(2, len(calls))
         self.assertEqual([manifest_1['name'], manifest_2['name']],
                          [item.name for item in calls])
-        warning_lines = auditor.logger.get_lines_for_level('warning')
-        self.assertEqual(1, len(warning_lines))
-        self.assertIn('boom', warning_lines[0])
+        error_lines = auditor.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('boom', error_lines[0])
 
     def test_audit_delete_marker(self):
         manifest_1 = self._create_manifest_spec()
