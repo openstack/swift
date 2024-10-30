@@ -65,6 +65,17 @@ class BaseTestMPU(unittest.TestCase):
         resp.content
         return resp
 
+    def _upload_obj(self, name, body, headers=None, use_account=1,
+                    url_account=1):
+        return tf.retry(self._make_request,
+                        method='PUT',
+                        container=self.user_cont,
+                        obj=name,
+                        body=body,
+                        headers=headers,
+                        use_account=use_account,
+                        url_account=url_account)
+
     def _create_container(self, name=None, headers=None, use_account=1):
         name = name or uuid4().hex
         headers = headers or {}
@@ -93,16 +104,20 @@ class BaseTestMPU(unittest.TestCase):
                         url_account=url_account)
 
     def _upload_part(self, name, upload_id, part_num, part_body,
-                     use_account=1, url_account=1):
-        return tf.retry(self._make_request, method='PUT',
-                        container=self.user_cont, obj=name,
+                     headers=None, use_account=1, url_account=1):
+        return tf.retry(self._make_request,
+                        method='PUT',
+                        container=self.user_cont,
+                        obj=name,
                         query_string='upload-id=%s&part-number=%d'
                                      % (upload_id, part_num),
-                        body=part_body, use_account=use_account,
+                        body=part_body,
+                        headers=headers,
+                        use_account=use_account,
                         url_account=url_account)
 
     def _upload_parts(self, name, upload_id, num_parts,
-                      use_account=1, url_account=1):
+                      headers=None, use_account=1, url_account=1):
         responses = []
         part_bodies = []
         for part_index in range(num_parts):
@@ -112,8 +127,9 @@ class BaseTestMPU(unittest.TestCase):
                 upload_id,
                 part_index + 1,
                 part_body,
-                use_account,
-                url_account)
+                headers=headers,
+                use_account=use_account,
+                url_account=url_account)
             responses.append(resp)
             part_bodies.append(part_body)
         return responses, part_bodies
@@ -337,6 +353,276 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(200, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
+
+    def test_upload_part(self):
+        name = uuid4().hex
+        resp = self._create_mpu(name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+        part_body = b'a' * self.part_size
+        resp = self._upload_part(name, upload_id, 1, part_body)
+        self.assertEqual(200, resp.status)
+
+    def test_upload_part_copy_using_PUT(self):
+        # upload source object
+        src_name = uuid4().hex
+        src_body = ''.join([chr(i) * 1000 for i in range(ord('a'), ord('z'))])
+        src_body = src_body.encode('utf8')
+        resp = self._upload_obj(src_name, src_body)
+        self.assertEqual(201, resp.status)
+
+        # create mpu session
+        mpu_name = uuid4().hex
+        resp = self._create_mpu(mpu_name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # copy to part from source object
+        headers = {'x-copy-from': '/'.join([self.user_cont, src_name])}
+        resp = self._upload_part(
+            mpu_name, upload_id, 1, b'', headers=headers)
+        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual('%s/%s' % (self.user_cont, src_name),
+                         resp.headers.get('X-Copied-From'))
+        part_etag = resp.headers['Etag']
+
+        # complete session
+        resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
+        self.assertEqual(200, resp.status)
+
+        # verify mpu content
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=mpu_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(
+            len(src_body), int(resp.headers.get('Content-Length')))
+        self.assertEqual(src_body, resp.content)
+
+    def test_upload_part_copy_using_COPY(self):
+        # upload source object
+        src_name = uuid4().hex
+        src_body = ''.join([chr(i) * 1000 for i in range(ord('a'), ord('z'))])
+        src_body = src_body.encode('utf8')
+        resp = self._upload_obj(src_name, src_body)
+        self.assertEqual(201, resp.status)
+
+        # create mpu session
+        mpu_name = uuid4().hex
+        resp = self._create_mpu(mpu_name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # copy to part from source object
+        resp = tf.retry(
+            self._make_request,
+            method='COPY',
+            container=self.user_cont,
+            obj=src_name,
+            query_string='upload-id=%s&part-number=%d' % (upload_id, 1),
+            headers={
+                'destination': '/'.join([self.user_cont, mpu_name]),
+            }
+        )
+        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual('%s/%s' % (self.user_cont, src_name),
+                         resp.headers.get('X-Copied-From'))
+        part_etag = resp.headers['Etag']
+
+        # complete session
+        resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
+        self.assertEqual(200, resp.status)
+
+        # verify mpu content
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=mpu_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(
+            len(src_body), int(resp.headers.get('Content-Length')))
+        self.assertEqual(src_body, resp.content)
+
+    def test_upload_part_copy_with_range_using_PUT(self):
+        # upload source object
+        src_name = uuid4().hex
+        src_body = ''.join([chr(i) * 1000 for i in range(ord('a'), ord('z'))])
+        src_body = src_body.encode('utf8')
+        resp = self._upload_obj(src_name, src_body)
+        self.assertEqual(201, resp.status)
+
+        # create mpu session
+        mpu_name = uuid4().hex
+        resp = self._create_mpu(mpu_name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # copy to part from source object
+        headers = {'x-copy-from': '/'.join([self.user_cont, src_name]),
+                   'range': 'bytes=501-1500'}
+        resp = self._upload_part(
+            mpu_name, upload_id, 1, b'', headers=headers)
+        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual('%s/%s' % (self.user_cont, src_name),
+                         resp.headers.get('X-Copied-From'))
+        part_etag = resp.headers['Etag']
+
+        # complete session
+        resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
+        self.assertEqual(200, resp.status)
+
+        # verify mpu content
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=mpu_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(1000, int(resp.headers.get('Content-Length')))
+        self.assertEqual(src_body[501:1501], resp.content)
+
+    def test_upload_part_copy_with_range_using_COPY(self):
+        # upload source object
+        src_name = uuid4().hex
+        src_body = ''.join([chr(i) * 1000 for i in range(ord('a'), ord('z'))])
+        src_body = src_body.encode('utf8')
+        resp = self._upload_obj(src_name, src_body)
+        self.assertEqual(201, resp.status)
+
+        # create mpu session
+        mpu_name = uuid4().hex
+        resp = self._create_mpu(mpu_name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # copy to part from source object
+        resp = tf.retry(
+            self._make_request,
+            method='COPY',
+            container=self.user_cont,
+            obj=src_name,
+            query_string='upload-id=%s&part-number=%d' % (upload_id, 1),
+            headers={
+                'destination': '/'.join([self.user_cont, mpu_name]),
+                'range': 'bytes=501-1500',
+            }
+        )
+        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual('%s/%s' % (self.user_cont, src_name),
+                         resp.headers.get('X-Copied-From'))
+        part_etag = resp.headers['Etag']
+
+        # complete session
+        resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
+        self.assertEqual(200, resp.status)
+
+        # verify mpu content
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=mpu_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(1000, int(resp.headers.get('Content-Length')))
+        self.assertEqual(src_body[501:1501], resp.content)
+
+    def test_upload_part_copy_from_other_mpu_using_PUT(self):
+        # upload source mpu object
+        src_name = uuid4().hex
+        self._make_mpu(src_name)
+
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=src_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(
+            2 * self.part_size, int(resp.headers.get('Content-Length')))
+        src_body = resp.content
+
+        # create mpu session
+        # note: the part-number applies to the target mpu session, not the
+        # source object
+        mpu_name = uuid4().hex
+        resp = self._create_mpu(mpu_name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # copy new part from source object
+        # note: the part-number applies to the target mpu session, not the
+        # source object
+        resp = tf.retry(
+            self._make_request,
+            method='PUT',
+            container=self.user_cont,
+            obj=mpu_name,
+            query_string='upload-id=%s&part-number=%d' % (upload_id, 1),
+            headers={
+                'x-copy-from': '/'.join([self.user_cont, src_name]),
+            }
+        )
+        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual('%s/%s' % (self.user_cont, src_name),
+                         resp.headers.get('X-Copied-From'))
+        part_etag = resp.headers['Etag']
+
+        # complete session
+        resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
+        self.assertEqual(200, resp.status)
+
+        # verify mpu content - one part copied from entire other mpu
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=mpu_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(1, int(resp.headers.get('x-parts-count')))
+        self.assertEqual(
+            2 * self.part_size, int(resp.headers.get('Content-Length')))
+        self.assertEqual(src_body, resp.content)
+
+    def test_upload_part_copy_from_other_mpu_using_COPY(self):
+        # upload source mpu object
+        src_name = uuid4().hex
+        self._make_mpu(src_name)
+
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=src_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(
+            2 * self.part_size, int(resp.headers.get('Content-Length')))
+        src_body = resp.content
+
+        # create mpu session
+        mpu_name = uuid4().hex
+        resp = self._create_mpu(mpu_name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # copy new part from source object
+        # note: the part-number applies to the target mpu session, not the
+        # source object
+        resp = tf.retry(
+            self._make_request,
+            method='COPY',
+            container=self.user_cont,
+            obj=src_name,
+            query_string='upload-id=%s&part-number=%d' % (upload_id, 1),
+            headers={
+                'destination': '/'.join([self.user_cont, mpu_name]),
+            }
+        )
+        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual('%s/%s' % (self.user_cont, src_name),
+                         resp.headers.get('X-Copied-From'))
+        part_etag = resp.headers['Etag']
+
+        # complete session
+        resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
+        self.assertEqual(200, resp.status)
+
+        # verify mpu content - one part copied from entire other mpu
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=mpu_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(1, int(resp.headers.get('x-parts-count')))
+        self.assertEqual(
+            2 * self.part_size, int(resp.headers.get('Content-Length')))
+        self.assertEqual(src_body, resp.content)
 
     def test_upload_part_via_container_acl(self):
         name = uuid4().hex

@@ -235,6 +235,84 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
 
+    def test_mpu_upload_part_put_with_x_copy_from(self):
+        # verify that mpu-related params are stripped fom the GET request
+        self.app.register('GET',
+                          '/v1/a/c/o?foo=bar',
+                          swob.HTTPOk, {}, 'passed')
+        self.app.register('PUT',
+                          '/v1/a/c/o2?upload-id=my-id&part-number=2&foo=bar',
+                          swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o2?upload-id=my-id&part-number=2&foo=bar',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Length': '0',
+                                     'X-Copy-From': 'c/o'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        self.assertTrue(('X-Copied-From', 'c/o') in headers)
+        self.assertEqual(2, len(self.app.calls))
+
+        self.assertEqual('GET', self.app.calls[0][0])
+        get_path, qs = self.app.calls[0][1].split('?')
+        params = urllib.parse.parse_qs(qs)
+        self.assertDictEqual({'foo': ['bar']}, params)
+        self.assertEqual(get_path, '/v1/a/c/o')
+
+        self.assertEqual('PUT', self.app.calls[1][0])
+        put_path, qs = self.app.calls[1][1].split('?')
+        params = urllib.parse.parse_qs(qs)
+        self.assertDictEqual({'upload-id': ['my-id'],
+                              'part-number': ['2'],
+                              'foo': ['bar']},
+                             params)
+        self.assertEqual(put_path, '/v1/a/c/o2')
+        req_headers = self.app.headers[1]
+        self.assertNotIn('Etag', req_headers)
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/c/o', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
+
+    def test_mpu_upload_part_copy_with_destination(self):
+        # verify that mpu-related params are stripped fom the GET request
+        self.app.register('GET',
+                          '/v1/a/c/o?foo=bar',
+                          swob.HTTPOk, {}, 'passed')
+        self.app.register('PUT',
+                          '/v1/a/c/o2?upload-id=my-id&part-number=2&foo=bar',
+                          swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o?upload-id=my-id&part-number=2&foo=bar',
+                            environ={'REQUEST_METHOD': 'COPY'},
+                            headers={'Content-Length': '0',
+                                     'Destination': 'c/o2'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        self.assertTrue(('X-Copied-From', 'c/o') in headers)
+        self.assertEqual(2, len(self.app.calls))
+
+        self.assertEqual('GET', self.app.calls[0][0])
+        get_path, qs = self.app.calls[0][1].split('?')
+        params = urllib.parse.parse_qs(qs)
+        self.assertDictEqual({'foo': ['bar']}, params)
+        self.assertEqual(get_path, '/v1/a/c/o')
+
+        self.assertEqual('PUT', self.app.calls[1][0])
+        put_path, qs = self.app.calls[1][1].split('?')
+        params = urllib.parse.parse_qs(qs)
+        self.assertDictEqual({'upload-id': ['my-id'],
+                              'part-number': ['2'],
+                              'foo': ['bar']},
+                             params)
+        self.assertEqual(put_path, '/v1/a/c/o2')
+        req_headers = self.app.headers[1]
+        self.assertNotIn('Etag', req_headers)
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/c/o', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
+
     def test_basic_put_with_x_copy_from_across_container(self):
         self.app.register('GET', '/v1/a/c1/o1', swob.HTTPOk, {}, 'passed')
         self.app.register('PUT', '/v1/a/c2/o2', swob.HTTPCreated, {})

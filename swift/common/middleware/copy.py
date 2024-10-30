@@ -262,12 +262,9 @@ class ServerSideCopyMiddleware(object):
             dest_account = wsgi_unquote(req.headers.get('Destination-Account'))
             dest_account = check_account_format(req, dest_account)
             req.headers['X-Copy-From-Account'] = wsgi_quote(account)
-            account = dest_account
             del req.headers['Destination-Account']
         dest_container, dest_object = _check_destination_header(req)
         source = '/%s/%s' % (container, obj)
-        container = dest_container
-        obj = dest_object
         # re-write the existing request as a PUT instead of creating a new one
         req.method = 'PUT'
         # As this the path info is updated with destination container,
@@ -293,8 +290,15 @@ class ServerSideCopyMiddleware(object):
         params = source_req.params
         if params.get('multipart-manifest') == 'get':
             params['format'] = 'raw'
-            source_req.params = params
+        if 'upload-id' in params:
+            # the only copy request that is supported for an in-progress mpu
+            # session is an uploadPartCopy type request where the upload-id and
+            # part-number parameters apply to the target, not the source
+            del params['upload-id']
+            if 'part-number' in params:
+                del params['part-number']
 
+        source_req.params = params
         source_resp = ssc_ctx.get_source_resp(source_req)
 
         if source_resp.content_length is None:
@@ -422,6 +426,7 @@ class ServerSideCopyMiddleware(object):
         # We no longer need these headers
         sink_req.headers.pop('X-Copy-From', None)
         sink_req.headers.pop('X-Copy-From-Account', None)
+        sink_req.headers.pop('Range', None)
 
         # If the copy request does not explicitly override content-type,
         # use the one present in the source object.
