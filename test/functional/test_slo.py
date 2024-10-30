@@ -1031,6 +1031,42 @@ class TestSlo(Base):
         copied_contents = copied.read(parms={'multipart-manifest': 'get'})
         self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
 
+    def test_slo_copy_using_x_copy_from(self):
+        # as per test_slo_copy but using a PUT with x-copy-from
+        file_item = self.env.container.file("manifest-abcde")
+        file_item.copy_using_x_copy_from(
+            self.env.container.name, "copied-abcde")
+
+        copied = self.env.container.file("copied-abcde")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
+
+    def test_slo_copy_part_number(self):
+        file_item = self.env.container.file("manifest-abcde")
+        file_item.copy(self.env.container.name, "copied-abcde",
+                       parms={'part-number': '1'})
+
+        copied = self.env.container.file("copied-abcde")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        # just the first part is copied
+        self.assertEqual(1024 * 1024, len(copied_contents))
+        self.assertEqual(b'a' * 10, copied_contents[:10])
+
+    def test_slo_copy_part_number_using_x_copy_from(self):
+        # as per test_slo_copy_part_number but using a PUT with x-copy-from
+        file_item = self.env.container.file("manifest-abcde")
+        # part-number on the client PUT target is actually applied to the
+        # internal GET source request
+        file_item.copy_using_x_copy_from(
+            self.env.container.name, "copied-abcde",
+            parms={'part-number': '1'})
+
+        copied = self.env.container.file("copied-abcde")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        # just the first part is copied
+        self.assertEqual(1024 * 1024, len(copied_contents))
+        self.assertEqual(b'a' * 10, copied_contents[:10])
+
     def test_slo_copy_account(self):
         acct = urllib.parse.unquote(self.env.conn.account_name)
         # same account copy
@@ -1128,6 +1164,38 @@ class TestSlo(Base):
         self.assertEqual(source_contents, copied_contents)
         self.assertEqual(copied_json[0], {
             'data': base64.b64encode(b'APRE' * 8).decode('ascii')})
+
+    def test_slo_copy_the_manifest_using_x_copy_from(self):
+        # as per test_slo_copy_the_manifest but using a PUT with x-copy-from
+        source = self.env.container.file("manifest-abcde")
+        source.initialize(parms={'multipart-manifest': 'get'})
+        source_contents = source.read(parms={'multipart-manifest': 'get'})
+        source_json = json.loads(source_contents)
+        manifest_etag = md5(source_contents, usedforsecurity=False).hexdigest()
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            manifest_etag = '"%s"' % manifest_etag
+        self.assertEqual(manifest_etag, source.etag)
+
+        source.initialize()
+        self.assertEqual('application/octet-stream', source.content_type)
+        self.assertNotEqual(manifest_etag, source.etag)
+
+        # multipart-manifest=get on the client PUT target request actually
+        # applies to the internal GET source request
+        self.assertTrue(
+            source.copy_using_x_copy_from(self.env.container.name,
+                                          "copied-abcde-manifest-only",
+                                          parms={'multipart-manifest': 'get'}))
+
+        copied = self.env.container.file("copied-abcde-manifest-only")
+        copied.initialize(parms={'multipart-manifest': 'get'})
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        try:
+            copied_json = json.loads(copied_contents)
+        except ValueError:
+            self.fail("COPY didn't copy the manifest (invalid json on GET)")
+        self.assertEqual(source_json, copied_json)
+        self.assertEqual(manifest_etag, copied.etag)
 
     def test_slo_copy_the_manifest_updating_metadata(self):
         source = self.env.container.file("manifest-abcde")

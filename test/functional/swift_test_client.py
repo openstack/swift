@@ -866,6 +866,10 @@ class File(Base):
 
     def copy(self, dest_cont, dest_file, hdrs=None, parms=None, cfg=None,
              return_resp=False):
+        """
+        Make a copy of this object using a COPY request with a Destination
+        header.
+        """
         if hdrs is None:
             hdrs = {}
         if parms is None:
@@ -887,6 +891,29 @@ class File(Base):
                                   cfg=cfg, parms=parms) != 201:
             raise ResponseError(self.conn.response, 'COPY',
                                 self.conn.make_path(self.path))
+        if return_resp:
+            return self.conn.response
+        return True
+
+    def copy_using_x_copy_from(self, dest_cont, dest_file, hdrs=None,
+                               parms=None, cfg=None, return_resp=False):
+        """
+        Make a copy of this object using a PUT request with an X-Copy-From
+        header.
+        """
+        if hdrs is None:
+            hdrs = {}
+        if parms is None:
+            parms = {}
+        if cfg is None:
+            cfg = {}
+        headers = {'X-Copy-From': '/'.join(self.path)}
+        headers.update(hdrs)
+        path = [dest_cont, dest_file]
+        if self.conn.make_request('PUT', path, hdrs=headers,
+                                  cfg=cfg, parms=parms) != 201:
+            raise ResponseError(self.conn.response, 'PUT',
+                                self.conn.make_path(path))
         if return_resp:
             return self.conn.response
         return True
