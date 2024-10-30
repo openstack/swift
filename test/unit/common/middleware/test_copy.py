@@ -235,6 +235,32 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
 
+    def test_native_mpu_copy_drops_etag(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'X-Upload-Id': 'my-upload-id',
+                           'Etag': 'should not be sent'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o2',
+                          swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o2',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Length': '0',
+                                     'X-Copy-From': 'c/o'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        self.assertTrue(('X-Copied-From', 'c/o') in headers)
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o'),
+            ('PUT', '/v1/a/c/o2')])
+        req_headers = self.app.headers[1]
+        # x-upload-id doesn't need to be copied but nor does it hurt
+        self.assertIn('X-Upload-Id', req_headers)
+        self.assertNotIn('Etag', req_headers)
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/c/o', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
+
     def test_mpu_upload_part_put_with_x_copy_from(self):
         # verify that mpu-related params are stripped fom the GET request
         self.app.register('GET',

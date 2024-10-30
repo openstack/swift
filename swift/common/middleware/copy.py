@@ -405,7 +405,11 @@ class ServerSideCopyMiddleware(object):
         sink_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
         sink_req.content_length = source_resp.content_length
         if (source_resp.status_int == HTTP_OK and
+                # TODO: maybe the other middlewares should send a response
+                #   header like x-backend-etag-is-hash: False rather than bleed
+                #   all this into copy middleware?
                 'X-Static-Large-Object' not in source_resp.headers and
+                'X-Upload-Id' not in source_resp.headers and
                 ('X-Object-Manifest' not in source_resp.headers or
                  req.params.get('multipart-manifest') == 'get')):
             # copy source etag so that copied content is verified, unless:
