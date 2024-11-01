@@ -705,6 +705,7 @@ concurrency                   1                               Level of concurren
                                                               this value must be set to at least 1
 expiring_objects_account_name expiring_objects                name for legacy expirer task queue
 dequeue_from_legacy           False                           This service will look for jobs on the legacy expirer task queue.
+round_robin_task_cache_size   100000                          Number of tasks objects to cache before processing.
 processes                     0                               How many parts to divide the legacy work into,
                                                               one part per process that will be doing the work.
                                                               When set 0 means that a single legacy

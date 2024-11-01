@@ -88,6 +88,15 @@ The default is 1.
 The default is 1.
 .IP \fBlog_statsd_metric_prefix\fR
 The default is empty.
+.IP \fBdelay_reaping_account/container\fR
+Normally, the expirer begins reaping expired objects immediately.  You can add
+options prefixed with "delay_reaping_" in the form of
+"delay_reaping_<ACCT>[/<CNTR>]" to cause the expirer to delay processing of
+tasks in those account or account/container.  The <ACCT>[/<CNTR>] part of the
+config option names should url-quote the paths.  The value is in seconds. The
+default is no delay for any tasks.
+.IP \fBround_robin_task_cache_size\fR
+Number of tasks objects to cache before processing.
 .IP \fBnice_priority\fR
 Modify scheduling priority of server processes. Niceness values range from -20
 (most favorable to the process) to 19 (least favorable to the process).

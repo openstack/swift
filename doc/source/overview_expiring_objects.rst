@@ -136,6 +136,11 @@ Upgrading impact: General Task Queue vs Legacy Queue
 The expirer daemon will be moving to a new general task-queue based design that
 will divide the work across all object servers, as such only expirers defined
 in the object-server config will be able to use the new system.
+
+The legacy object expirer config is documented in
+``etc/object-expirer.conf-sample``. The alternative object-server config
+section is documented in ``etc/object-server.conf-sample``.
+
 The parameters in both files are identical except for a new option in the
 object-server ``[object-expirer]`` section, ``dequeue_from_legacy``
 which when set to ``True`` will tell the expirer that in addition to using
@@ -175,83 +180,6 @@ the concurrency level for the legacy queue.
     all legacy tasks are stored in a single hidden account and the same hidden
     containers. On a large cluster one may inadvertently overload the
     acccount/container servers handling the legacy expirer queue.
-
-Here is a quick sample of the ``object-expirer`` section required in the
-``object-server.conf``::
-
-    [object-expirer]
-    # log_name = object-expirer
-    # log_facility = LOG_LOCAL0
-    # log_level = INFO
-    # log_address = /dev/log
-    #
-    interval = 300
-
-    # If this true, expirer execute tasks in legacy expirer task queue
-    dequeue_from_legacy = false
-
-    # processes can only be used in conjunction with `dequeue_from_legacy`.
-    # So this option is ignored if dequeue_from_legacy=false.
-    # processes is how many parts to divide the legacy work into, one part per
-    # process that will be doing the work
-    # processes set 0 means that a single legacy process will be doing all the work
-    # processes can also be specified on the command line and will override the
-    # config value
-    # processes = 0
-
-    # process can only be used in conjunction with `dequeue_from_legacy`.
-    # So this option is ignored if dequeue_from_legacy=false.
-    # process is which of the parts a particular legacy process will work on
-    # process can also be specified on the command line and will override the config
-    # value
-    # process is "zero based", if you want to use 3 processes, you should run
-    # processes with process set to 0, 1, and 2
-    # process = 0
-
-    report_interval = 300
-
-    # request_tries is the number of times the expirer's internal client will
-    # attempt any given request in the event of failure. The default is 3.
-    # request_tries = 3
-
-    # concurrency is the level of concurrency to use to do the work, this value
-    # must be set to at least 1
-    # concurrency = 1
-
-    # The expirer will re-attempt expiring if the source object is not available
-    # up to reclaim_age seconds before it gives up and deletes the entry in the
-    # queue.
-    # reclaim_age = 604800
-
-And for completeness, here is a quick sample of the legacy
-``object-expirer.conf`` file::
-
-    [DEFAULT]
-    # swift_dir = /etc/swift
-    # user = swift
-    # You can specify default log routing here if you want:
-    # log_name = swift
-    # log_facility = LOG_LOCAL0
-    # log_level = INFO
-
-    [object-expirer]
-    interval = 300
-
-    [pipeline:main]
-    pipeline = catch_errors cache proxy-server
-
-    [app:proxy-server]
-    use = egg:swift#proxy
-    # See proxy-server.conf-sample for options
-
-    [filter:cache]
-    use = egg:swift#memcache
-    # See proxy-server.conf-sample for options
-
-    [filter:catch_errors]
-    use = egg:swift#catch_errors
-    # See proxy-server.conf-sample for options
-
 
 .. note::
     When running legacy expirers, the daemon needs to run on a machine with

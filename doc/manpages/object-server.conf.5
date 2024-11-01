@@ -623,6 +623,15 @@ to use 3 processes, you should run processes with process set to 0, 1, and 2. Th
 The expirer will re-attempt expiring if the source object is not available up
 to reclaim_age seconds before it gives up and deletes the task in the queue.
 The default is 604800 seconds (= 1 week).
+.IP \fBdelay_reaping_account/container\fR
+Normally, the expirer begins reaping expired objects immediately.  You can add
+options prefixed with "delay_reaping_" in the form of
+"delay_reaping_<ACCT>[/<CNTR>]" to cause the expirer to delay processing of
+tasks in those account or account/container.  The <ACCT>[/<CNTR>] part of the
+config option names should url-quote the paths.  The value is in seconds. The
+default is no delay for any tasks.
+.IP \fBround_robin_task_cache_size\fR
+Number of tasks objects to cache before processing.
 .IP \fBrecon_cache_path\fR
 Path to recon cache directory. The default is /var/cache/swift
 .IP \fBnice_priority\fR
