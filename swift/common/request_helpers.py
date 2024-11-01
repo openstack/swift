@@ -94,6 +94,19 @@ def get_param(req, name, default=None):
     return value
 
 
+def validate_part_number(value):
+    if value is None:
+        return None
+    try:
+        part_number = int(value)
+        if part_number <= 0:
+            raise ValueError
+    except ValueError:
+        raise ValueError
+
+    return part_number
+
+
 def get_valid_part_num(req):
     """
     Any non-range GET or HEAD request for a SLO object may include a
@@ -109,17 +122,14 @@ def get_valid_part_num(req):
     :raises HTTPBadRequest: if request or part-number param is not valid
     """
     part_number_param = get_param(req, 'part-number')
-    if part_number_param is None:
-        return None
+
     try:
-        part_number = int(part_number_param)
-        if part_number <= 0:
-            raise ValueError
+        part_number = validate_part_number(part_number_param)
     except ValueError:
         raise HTTPBadRequest('Part number must be an integer greater '
                              'than 0')
 
-    if req.range:
+    if part_number is not None and req.range:
         raise HTTPBadRequest(req=req,
                              body='Range requests are not supported '
                                   'with part number queries')

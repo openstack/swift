@@ -23,7 +23,7 @@ import mock
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id, \
-    translate_error_response, normalize_part_number, MPUSession
+    translate_error_response, normalize_part_number, MPUSession, BaseMPUHandler
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
     HTTPPreconditionFailed, HTTPException, HTTPBadRequest
@@ -307,6 +307,29 @@ class BaseTestMPUMiddleware(unittest.TestCase):
         self.exp_calls.extend(ac_info_calls)
 
 
+class TestBaseMpuHandler(BaseTestMPUMiddleware):
+    def test_make_subrequest(self):
+        req = Request.blank(path='/v1/a/c/o?orig=blah',
+                            headers={'Content-Type': 'foo'},)
+        self.assertEqual({'Host': 'localhost:80',
+                          'Content-Type': 'foo'},
+                         dict(req.headers))
+        self.assertEqual({'orig': 'blah'}, req.params)
+
+        handler = BaseMPUHandler(self.mw, req)
+        subreq = handler.make_subrequest(
+            'POST', 'new/path',
+            headers={'X-Extra': 'extra'},
+            params={'added': 'test'})
+
+        self.assertEqual({'Host': 'localhost:80',
+                          'User-Agent': 'Swift',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'X-Extra': 'extra'},
+                         dict(subreq.headers))
+        self.assertEqual({'added': 'test'}, subreq.params)
+
+
 class TestMPUMiddleware(BaseTestMPUMiddleware):
     def setUp(self):
         super(TestMPUMiddleware, self).setUp()
@@ -456,6 +479,35 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
         self.assertEqual(exp_listing, json.loads(resp.body))
+
+    def test_list_in_progress_mpus_forwards_params(self):
+        # this test doesn't care about the listing content, it's just verifying
+        # the request parameter forwarding
+        listing = []
+        registered_calls = [('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+                             json.dumps(listing).encode('ascii'))]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c?uploads&limit=99&marker=foo&prefix=bar&end_marker=baz'
+            '&ignored=x')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual([], json.loads(resp.body))
+        self.assertEqual(3, len(self.app.calls), self.app.calls)
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls[:2])
+        self.assertEqual('GET', self.app.calls[2][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual({'marker': '\x00foo',
+                          'prefix': '\x00bar',
+                          'end_marker': '\x00baz',
+                          'limit': '99'},
+                         params)
 
     def _do_test_upload_part(self, part_str):
         self.app.clear_calls()
@@ -640,6 +692,47 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                           'Content-Type': 'application/json; charset=utf-8',
                           'X-Storage-Policy': 'policy-0'},
                          resp.headers)
+
+    def test_list_parts_forwards_params(self):
+        # this test doesn't care about the listing content, it's just verifying
+        # the request parameter forwarding
+        ts_session = next(self.ts_iter)
+        listing = []
+        registered_calls = [
+            ('HEAD',
+             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPOk,
+             {'X-Timestamp': ts_session.internal,
+              'Content-Type': 'application/x-mpu-session-created'}),
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c',
+             HTTPOk,
+             {'X-Container-Object-Count': '123',
+              'X-Container-Bytes-Used': '999999',
+              'X-Storage-Policy': 'policy-0'},
+             json.dumps(listing).encode('ascii'))
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/o?upload-id=%s&part-number-marker=1&marker=ignored'
+            % self.mpu_id)
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual([], json.loads(resp.body))
+        self.assertEqual(4, len(self.app.calls), self.app.calls)
+        expected = [call[:2] for call in self.exp_calls] + [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id)]
+        self.assertEqual(expected, self.app.calls[:3])
+        self.assertEqual('GET', self.app.calls[3][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
+        self.assertEqual('/v1/a/\x00mpu_parts\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual({'marker': '\x00o/%s/000001' % self.mpu_id,
+                          'prefix': '\x00o/%s' % self.mpu_id},
+                         params)
 
     def test_list_parts_subrequest_404(self):
         ts_session = next(self.ts_iter)

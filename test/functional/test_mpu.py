@@ -202,17 +202,17 @@ class TestMPU(BaseTestMPU):
         super(TestMPU, self).setUp()
         self.mpu_name = uuid4().hex
 
-    def test_list_mpus(self):
+    def test_list_mpu_sessions(self):
         container = self._create_container()
         created = []
-        for obj in ('obj2', 'obj1', 'obj2'):
+        for obj in ('objy2', 'objx1', 'objy2'):
             resp = self._create_mpu(obj, container=container)
             self.assertEqual(200, resp.status, obj)
             created.append('%s/%s' % (obj, resp.headers.get('X-Upload-Id')))
-        resp = self._create_mpu('obj4', container=container)
+        resp = self._create_mpu('objx4', container=container)
         self.assertEqual(200, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
-        resp = self._abort_mpu('obj4', upload_id, container=container)
+        resp = self._abort_mpu('objx4', upload_id, container=container)
         self.assertEqual(204, resp.status)
 
         resp = tf.retry(self._make_request, method='GET',
@@ -221,6 +221,42 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(200, resp.status)
         # expect ordered by (name, created time)
         expected = [created[1], created[0], created[2]]
+        actual = [item['name'] for item in json.loads(resp.content)]
+        self.assertEqual(expected, actual)
+
+        # marker
+        resp = tf.retry(self._make_request, method='GET',
+                        container=container,
+                        query_string='uploads&format=json&marker=objy2')
+        self.assertEqual(200, resp.status)
+        expected = [created[0], created[2]]
+        actual = [item['name'] for item in json.loads(resp.content)]
+        self.assertEqual(expected, actual)
+
+        # end_marker
+        resp = tf.retry(self._make_request, method='GET',
+                        container=container,
+                        query_string='uploads&format=json&end_marker=objy')
+        self.assertEqual(200, resp.status)
+        expected = [created[1]]
+        actual = [item['name'] for item in json.loads(resp.content)]
+        self.assertEqual(expected, actual)
+
+        # prefix
+        resp = tf.retry(self._make_request, method='GET',
+                        container=container,
+                        query_string='uploads&format=json&prefix=objx')
+        self.assertEqual(200, resp.status)
+        expected = [created[1]]
+        actual = [item['name'] for item in json.loads(resp.content)]
+        self.assertEqual(expected, actual)
+
+        # limit
+        resp = tf.retry(self._make_request, method='GET',
+                        container=container,
+                        query_string='uploads&format=json&limit=2')
+        self.assertEqual(200, resp.status)
+        expected = [created[1], created[0]]
         actual = [item['name'] for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
@@ -663,6 +699,48 @@ class TestMPU(BaseTestMPU):
         responses, _ = self._upload_parts(name, upload_id, num_parts=1,
                                           use_account=2, url_account=1)
         self.assertEqual([200], [resp.status for resp in responses])
+
+    def test_list_parts(self):
+        name = uuid4().hex
+        resp = self._create_mpu(name)
+        self.assertEqual(200, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+        part_etags = []
+        for i, part_body in enumerate([b'a' * self.part_size,
+                                       b'b' * self.part_size]):
+            resp = self._upload_part(name, upload_id, i + 1, part_body)
+            self.assertEqual(200, resp.status)
+            part_etags.append(normalize_etag(resp.headers.get('Etag')))
+
+        expected = [{'name': '%s/%s/%06d' % (name, upload_id, i + 1),
+                     'hash': part_etag,
+                     'bytes': self.part_size,
+                     'content_type': 'application/octet-stream',
+                     'last_modified': mock.ANY}
+                    for i, part_etag in enumerate(part_etags)]
+
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=name,
+                        query_string='upload-id=%s' % upload_id)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(expected, json.loads(resp.content))
+
+        # with limit
+        resp = tf.retry(
+            self._make_request, method='GET',
+            container=self.user_cont, obj=name,
+            query_string='upload-id=%s&limit=1' % upload_id)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(expected[:1], json.loads(resp.content))
+
+        # with part-number-marker
+        resp = tf.retry(
+            self._make_request, method='GET',
+            container=self.user_cont, obj=name,
+            query_string='upload-id=%s&part-number-marker=1' % upload_id)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(expected[1:], json.loads(resp.content))
 
     def test_complete_mpu_via_container_acl(self):
         # create an in-progress mpu

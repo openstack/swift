@@ -34,7 +34,7 @@ from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
     get_valid_part_num, is_reserved_name, split_reserved_name, is_user_meta, \
-    update_etag_override_header, update_etag_is_at_header
+    update_etag_override_header, update_etag_is_at_header, validate_part_number
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 
@@ -334,8 +334,23 @@ class BaseMPUHandler(object):
         return '/'.join(
             ['', 'v1', self.account, self.make_relative_path(*parts)])
 
-    def make_subrequest(self, method=None, path=None, body=None, headers=None,
-                        params=None):
+    def make_subrequest(self, method=None, path=None, body=None,
+                        headers=None, params=None):
+        """
+        Make a pre-auth'd sub-request based on ``self.req``.
+
+        The sub-request does *not* inherit headers or query-string parameters
+        from ``self.req``.
+
+        The sub-request will have a truthy 'X-Backend-Allow-Reserved-Names'
+        header that its swift source will be set to 'MPU'.
+
+        :param method: the sub-request method.
+        :param path: the sub-request path.
+        :param body: the sub-request body.
+        :param headers: a dict of headers for the sub-request.
+        :param params: a dict of query-string parameters for the sub-request.
+        """
         req_headers = {'X-Backend-Allow-Reserved-Names': 'true'}
         if headers:
             req_headers.update(headers)
@@ -388,7 +403,17 @@ class MPUSessionsHandler(BaseMPUHandler):
         """
         self._authorize_read_request()
         path = self.make_path(self.sessions_container)
-        sub_req = self.make_subrequest(path=path, method='GET')
+
+        params = {}
+        for key in ('prefix', 'marker', 'end_marker'):
+            value = self.req.params.get(key)
+            if value:
+                params[key] = get_reserved_name(value)
+        if 'limit' in self.req.params:
+            params['limit'] = self.req.params['limit']
+
+        sub_req = self.make_subrequest(
+            path=path, method='GET', params=params)
         resp = sub_req.get_response(self.app)
         if resp.is_success:
             listing = []
@@ -441,7 +466,10 @@ class MPUSessionsHandler(BaseMPUHandler):
         session_path = self.make_path(self.sessions_container, session_name)
         session = MPUSession.from_user_headers(session_name, self.req.headers)
         session_req = self.make_subrequest(
-            path=session_path, method='PUT', headers=session.get_put_headers())
+            path=session_path,
+            method='PUT',
+            headers=session.get_put_headers()
+        )
 
         session_resp = session_req.get_response(self.app)
         if session_resp.is_success:
@@ -561,8 +589,22 @@ class MPUSessionHandler(BaseMPUHandler):
         """
         self._authorize_read_request()
         path = self.make_path(self.parts_container)
+
+        params = {'prefix': self.session_name}
+        try:
+            part_number_marker = validate_part_number(
+                self.req.params.get('part-number-marker'))
+        except ValueError:
+            raise HTTPBadRequest(
+                'part-number-marker must be an integer greater than 0')
+        if part_number_marker is not None:
+            params['marker'] = '%s/%s' % (
+                self.session_name, normalize_part_number(part_number_marker))
+        if 'limit' in self.req.params:
+            params['limit'] = self.req.params['limit']
+
         sub_req = self.make_subrequest(
-            path=path, method='GET', params={'prefix': self.session_name})
+            path=path, method='GET', params=params)
         sub_resp = sub_req.get_response(self.app)
         if sub_resp.is_success:
             listing = json.loads(sub_resp.body)
@@ -599,8 +641,10 @@ class MPUSessionHandler(BaseMPUHandler):
         self.session.timestamp = self.req.timestamp
         self.session.set_aborted()
         session_req = self.make_subrequest(
-            'POST', path=self.session_path,
-            headers=self.session.get_post_headers())
+            'POST',
+            path=self.session_path,
+            headers=self.session.get_post_headers()
+        )
         # TODO: check response
         session_req.get_response(self.app)
         # Write down an audit-marker in the manifests container that will cause
@@ -709,10 +753,12 @@ class MPUSessionHandler(BaseMPUHandler):
         # set the MPU etag override to be forwarded to the manifest container
         update_etag_override_header(
             manifest_headers, mpu_etag, [('mpu_etag', mpu_etag)])
-        manifest_req = self.make_subrequest(
-            path=self.manifest_path, method='PUT', headers=manifest_headers,
-            body=json.dumps(manifest),
-            params={'multipart-manifest': 'put', 'heartbeat': 'on'})
+        params = {'multipart-manifest': 'put', 'heartbeat': 'on'}
+        manifest_req = self.make_subrequest(path=self.manifest_path,
+                                            method='PUT',
+                                            headers=manifest_headers,
+                                            body=json.dumps(manifest),
+                                            params=params)
         slo_callback_handler = MPUSloCallbackHandler(self.mw)
         manifest_req.environ['swift.callback.slo_manifest_hook'] = \
             slo_callback_handler
@@ -823,12 +869,15 @@ class MPUSessionHandler(BaseMPUHandler):
             return HTTPConflict()
 
         manifest, mpu_etag = self._parse_user_manifest(self.req.body)
-
+        # TODO: check if a manifest already exists with same mpu_etag, if it
+        #   does then skip to putting the symlink to the manifest
         self.session.timestamp = self.req.timestamp
         self.session.state = MPUSession.COMPLETING_STATE
         session_req = self.make_subrequest(
-            'POST', path=self.session_path,
-            headers=self.session.get_post_headers())
+            'POST',
+            path=self.session_path,
+            headers=self.session.get_post_headers()
+        )
         # TODO: check response
         session_req.get_response(self.app)
 
