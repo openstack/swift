@@ -370,7 +370,7 @@ class BaseMPUHandler(object):
         self._put_delete_marker(marker_path)
 
 
-class MPUHandler(BaseMPUHandler):
+class MPUSessionsHandler(BaseMPUHandler):
     """
     Handles the following APIs:
 
@@ -378,7 +378,7 @@ class MPUHandler(BaseMPUHandler):
     * Initiate Multipart Upload
     """
     def __init__(self, mw, req):
-        super(MPUHandler, self).__init__(mw, req)
+        super(MPUSessionsHandler, self).__init__(mw, req)
         self.user_container_info = self._check_user_container_exists()
 
     @public
@@ -636,18 +636,18 @@ class MPUSessionHandler(BaseMPUHandler):
 
     def _parse_user_manifest(self, body):
         try:
-            parsed_data = json.loads(body)
+            user_manifest = json.loads(body)
         except ValueError:
             raise HTTPBadRequest("Manifest must be valid JSON.\n")
 
-        if not isinstance(parsed_data, list):
+        if not isinstance(user_manifest, list):
             raise HTTPBadRequest("Manifest must be a list.\n")
 
         errors = []
         parsed_manifest = []
         mpu_etag_hasher = md5(usedforsecurity=False)
         previous_part = 0
-        for part_index, part_dict in enumerate(parsed_data):
+        for part_index, part_dict in enumerate(user_manifest):
             if not isinstance(part_dict, dict):
                 errors.append("Index %d: not a JSON object." % part_index)
                 continue
@@ -674,7 +674,7 @@ class MPUSessionHandler(BaseMPUHandler):
             error_message = b"".join(e.encode('utf8') + b"\n" for e in errors)
             raise HTTPBadRequest(error_message,
                                  headers={"Content-Type": "text/plain"})
-        mpu_etag = '%s-%d' % (mpu_etag_hasher.hexdigest(), len(parsed_data))
+        mpu_etag = '%s-%d' % (mpu_etag_hasher.hexdigest(), len(user_manifest))
         return parsed_manifest, mpu_etag
 
     def _parse_slo_errors(self, slo_resp_dict):
@@ -932,7 +932,7 @@ class MPUObjHandler(BaseMPUHandler):
         return resp
 
 
-class ContainerHandler(BaseMPUHandler):
+class MPUContainerHandler(BaseMPUHandler):
     def _process_json_resp(self, resp):
         body_json = json.loads(resp.body)
         for item in body_json:
@@ -1003,15 +1003,15 @@ class MPUMiddleware(object):
                 resp = None
         elif container and 'uploads' in req.params:
             if req.method == 'GET':
-                resp = MPUHandler(self, req).list_uploads()
+                resp = MPUSessionsHandler(self, req).list_uploads()
             elif obj and req.method == 'POST':
-                resp = MPUHandler(self, req).create_upload()
+                resp = MPUSessionsHandler(self, req).create_upload()
             else:
                 resp = None
         elif obj:
             resp = MPUObjHandler(self, req).handle_request()
         elif container:
-            resp = ContainerHandler(self, req).handle_request()
+            resp = MPUContainerHandler(self, req).handle_request()
         else:
             resp = None
         # TODO: should we return 405 for any unsupported container?uploads
