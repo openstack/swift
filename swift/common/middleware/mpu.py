@@ -29,7 +29,7 @@ from swift.common.utils import generate_unique_id, drain_and_close, \
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
-    HTTPServiceUnavailable, quote_etag, wsgi_unquote, HTTPAccepted
+    HTTPServiceUnavailable, quote_etag, wsgi_unquote, HTTPAccepted, HTTPCreated
 from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
@@ -475,7 +475,7 @@ class MPUSessionsHandler(BaseMPUHandler):
         if session_resp.is_success:
             drain_and_close(session_resp)
             resp_headers = {'X-Upload-Id': str(upload_id)}
-            resp = HTTPOk(headers=resp_headers)
+            resp = HTTPAccepted(headers=resp_headers)
         else:
             self.logger.warning('MPU %s %s', session_resp.status,
                                 session_resp.body)
@@ -578,7 +578,7 @@ class MPUSessionHandler(BaseMPUHandler):
             headers = HeaderKeyDict(sub_resp.headers)
             # mpu mw always quotes response header etag for requests it handles
             headers['Etag'] = quote_etag(sub_resp.headers.get('Etag'))
-            resp = HTTPOk(headers=headers)
+            resp = HTTPCreated(headers=headers)
         else:
             resp = translate_error_response(sub_resp)
         return resp
@@ -885,8 +885,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # Leave base header value blank; SLO will populate
         # c_etag = '; s3_etag=%s' % manifest_etag
         # manifest_headers[get_container_update_override_key('etag')] = c_etag
-        # TODO: change to 202 because we use heartbeat=on with SLO request
-        resp = HTTPOk()  # assume we're good for now...
+        resp = HTTPAccepted()  # assume we're good for now...
         resp.app_iter = self._make_complete_upload_resp_iter(
             manifest, mpu_etag)
         self.logger.debug('mpu complete_upload %s', self.req.path)

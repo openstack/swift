@@ -162,13 +162,13 @@ class BaseTestMPU(unittest.TestCase):
         # create an mpu
         resp = self._create_mpu(name, container=container,
                                 extra_create_headers=extra_create_headers)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         # upload parts
         responses, part_bodies = self._upload_parts(
             name, upload_id, num_parts=num_parts, container=container)
-        self.assertEqual([200, 200], [resp.status for resp in responses])
+        self.assertEqual([201, 201], [resp.status for resp in responses])
         etags = [resp.headers['Etag'] for resp in responses]
         part_hashes = [
             md5(part_body, usedforsecurity=False).hexdigest().encode('ascii')
@@ -179,7 +179,7 @@ class BaseTestMPU(unittest.TestCase):
         expected_mpu_etag = '%s-%d' % (hasher.hexdigest(), num_parts)
         # complete
         resp = self._complete_mpu(name, upload_id, etags, container=container)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         resp_dict = json.loads(resp.content)
         self.assertIn('Etag', resp_dict)
         self.assertEqual(expected_mpu_etag, normalize_etag(resp_dict['Etag']))
@@ -207,10 +207,10 @@ class TestMPU(BaseTestMPU):
         created = []
         for obj in ('objy2', 'objx1', 'objy2'):
             resp = self._create_mpu(obj, container=container)
-            self.assertEqual(200, resp.status, obj)
+            self.assertEqual(202, resp.status, obj)
             created.append('%s/%s' % (obj, resp.headers.get('X-Upload-Id')))
         resp = self._create_mpu('objx4', container=container)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         resp = self._abort_mpu('objx4', upload_id, container=container)
         self.assertEqual(204, resp.status)
@@ -265,11 +265,12 @@ class TestMPU(BaseTestMPU):
         part_size = 5 * 1024 * 1024
         # create upload
         resp = self._create_mpu(name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
+        self.assertIn(b'Accepted', resp.content)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
              'X-Upload-Id': mock.ANY,
-             'Content-Length': '0',
+             'Content-Length': str(len(resp.content)),
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
@@ -288,7 +289,7 @@ class TestMPU(BaseTestMPU):
         part_etags = [md5(part_body, usedforsecurity=False).hexdigest()
                       for part_body in part_bodies]
         resp = self._upload_part(name, upload_id, 1, part_bodies[0])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(201, resp.status)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
              # NB: part etags are always quoted by MPU middleware
@@ -301,7 +302,7 @@ class TestMPU(BaseTestMPU):
             resp.headers)
         part_resp_etags.append(resp.getheader('Etag'))
         resp = self._upload_part(name, upload_id, 2, part_bodies[1])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(201, resp.status)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
              # NB: part etags are always quoted by MPU middleware
@@ -343,7 +344,7 @@ class TestMPU(BaseTestMPU):
 
         # complete mpu
         resp = self._complete_mpu(name, upload_id, part_resp_etags)
-        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(202, resp.status, resp.content)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
              'Transfer-Encoding': 'chunked',
@@ -402,19 +403,19 @@ class TestMPU(BaseTestMPU):
         # other account can create mpu with write acl
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = self._create_mpu(name, use_account=2, url_account=1)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
     def test_upload_part(self):
         name = uuid4().hex
         resp = self._create_mpu(name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         part_body = b'a' * self.part_size
         resp = self._upload_part(name, upload_id, 1, part_body)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(201, resp.status)
 
     def test_upload_part_copy_using_PUT(self):
         # upload source object
@@ -427,7 +428,7 @@ class TestMPU(BaseTestMPU):
         # create mpu session
         mpu_name = uuid4().hex
         resp = self._create_mpu(mpu_name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -435,14 +436,14 @@ class TestMPU(BaseTestMPU):
         headers = {'x-copy-from': '/'.join([self.user_cont, src_name])}
         resp = self._upload_part(
             mpu_name, upload_id, 1, b'', headers=headers)
-        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(201, resp.status, resp.content)
         self.assertEqual('%s/%s' % (self.user_cont, src_name),
                          resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
         resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
 
         # verify mpu content
         resp = tf.retry(self._make_request, method='GET',
@@ -463,7 +464,7 @@ class TestMPU(BaseTestMPU):
         # create mpu session
         mpu_name = uuid4().hex
         resp = self._create_mpu(mpu_name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -478,14 +479,14 @@ class TestMPU(BaseTestMPU):
                 'destination': '/'.join([self.user_cont, mpu_name]),
             }
         )
-        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(201, resp.status, resp.content)
         self.assertEqual('%s/%s' % (self.user_cont, src_name),
                          resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
         resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
 
         # verify mpu content
         resp = tf.retry(self._make_request, method='GET',
@@ -506,7 +507,7 @@ class TestMPU(BaseTestMPU):
         # create mpu session
         mpu_name = uuid4().hex
         resp = self._create_mpu(mpu_name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -515,14 +516,14 @@ class TestMPU(BaseTestMPU):
                    'range': 'bytes=501-1500'}
         resp = self._upload_part(
             mpu_name, upload_id, 1, b'', headers=headers)
-        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(201, resp.status, resp.content)
         self.assertEqual('%s/%s' % (self.user_cont, src_name),
                          resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
         resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
 
         # verify mpu content
         resp = tf.retry(self._make_request, method='GET',
@@ -542,7 +543,7 @@ class TestMPU(BaseTestMPU):
         # create mpu session
         mpu_name = uuid4().hex
         resp = self._create_mpu(mpu_name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -558,14 +559,14 @@ class TestMPU(BaseTestMPU):
                 'range': 'bytes=501-1500',
             }
         )
-        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(201, resp.status, resp.content)
         self.assertEqual('%s/%s' % (self.user_cont, src_name),
                          resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
         resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
 
         # verify mpu content
         resp = tf.retry(self._make_request, method='GET',
@@ -591,7 +592,7 @@ class TestMPU(BaseTestMPU):
         # source object
         mpu_name = uuid4().hex
         resp = self._create_mpu(mpu_name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -608,14 +609,14 @@ class TestMPU(BaseTestMPU):
                 'x-copy-from': '/'.join([self.user_cont, src_name]),
             }
         )
-        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(201, resp.status, resp.content)
         self.assertEqual('%s/%s' % (self.user_cont, src_name),
                          resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
         resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
 
         # verify mpu content - one part copied from entire other mpu
         resp = tf.retry(self._make_request, method='GET',
@@ -641,7 +642,7 @@ class TestMPU(BaseTestMPU):
         # create mpu session
         mpu_name = uuid4().hex
         resp = self._create_mpu(mpu_name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -658,14 +659,14 @@ class TestMPU(BaseTestMPU):
                 'destination': '/'.join([self.user_cont, mpu_name]),
             }
         )
-        self.assertEqual(200, resp.status, resp.content)
+        self.assertEqual(201, resp.status, resp.content)
         self.assertEqual('%s/%s' % (self.user_cont, src_name),
                          resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
         resp = self._complete_mpu(mpu_name, upload_id, [part_etag])
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
 
         # verify mpu content - one part copied from entire other mpu
         resp = tf.retry(self._make_request, method='GET',
@@ -679,7 +680,7 @@ class TestMPU(BaseTestMPU):
     def test_upload_part_via_container_acl(self):
         name = uuid4().hex
         resp = self._create_mpu(name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
 
@@ -698,19 +699,19 @@ class TestMPU(BaseTestMPU):
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
         responses, _ = self._upload_parts(name, upload_id, num_parts=1,
                                           use_account=2, url_account=1)
-        self.assertEqual([200], [resp.status for resp in responses])
+        self.assertEqual([201], [resp.status for resp in responses])
 
     def test_list_parts(self):
         name = uuid4().hex
         resp = self._create_mpu(name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         part_etags = []
         for i, part_body in enumerate([b'a' * self.part_size,
                                        b'b' * self.part_size]):
             resp = self._upload_part(name, upload_id, i + 1, part_body)
-            self.assertEqual(200, resp.status)
+            self.assertEqual(201, resp.status)
             part_etags.append(normalize_etag(resp.headers.get('Etag')))
 
         expected = [{'name': '%s/%s/%06d' % (name, upload_id, i + 1),
@@ -746,11 +747,11 @@ class TestMPU(BaseTestMPU):
         # create an in-progress mpu
         name = uuid4().hex
         resp = self._create_mpu(name)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         responses, _ = self._upload_parts(name, upload_id, num_parts=1)
-        self.assertEqual([200], [resp.status for resp in responses])
+        self.assertEqual([201], [resp.status for resp in responses])
         etags = [resp.headers['Etag'] for resp in responses]
 
         # other account cannot complete mpu without acl
@@ -768,7 +769,7 @@ class TestMPU(BaseTestMPU):
         self._post_acl(write_acl=tf.swift_test_perm[1])  # acl for account '2'
         resp = self._complete_mpu(name, upload_id, etags,
                                   use_account=2, url_account=1)
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
 
         # sanity check - creating account can read completed mpu
         resp = tf.retry(self._make_request, method='GET',

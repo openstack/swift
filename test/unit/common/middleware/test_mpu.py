@@ -388,7 +388,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         with mock.patch('swift.common.middleware.mpu.MPUId.create',
                         return_value=self.mpu_id):
             resp = req.get_response(self.mw)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(202, resp.status_int)
         self.assertIn('X-Upload-Id', resp.headers)
         self.assertEqual(expected, self.app.calls)
 
@@ -531,7 +531,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             environ={'REQUEST_METHOD': 'PUT'},
             body=b'testing')
         resp = req.get_response(self.mw)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(201, resp.status_int)
         exp_etag = md5(b'testing', usedforsecurity=False).hexdigest()
         self.assertEqual('"%s"' % exp_etag, resp.headers.get('Etag'))
         self.assertEqual('7', resp.headers['Content-Length'])
@@ -830,7 +830,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.body = json.dumps(mpu_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
             {"Response Status": "201 Created",
@@ -942,7 +942,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.body = json.dumps(mpu_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
             {"Response Status": "201 Created",
@@ -1034,7 +1034,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ])
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual({"Response Status": "404 Not Found"},
                          resp_dict)
@@ -1071,7 +1071,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ])
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
             {'Response Status': '503 Service Unavailable',
@@ -1118,7 +1118,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ])
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual({
             'Response Status': '400 Bad Request',
@@ -1154,7 +1154,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ])
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
-        self.assertEqual(200, resp.status_int)
+        self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual({
             'Response Status': '503 Service Unavailable',

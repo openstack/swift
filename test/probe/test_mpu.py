@@ -351,9 +351,9 @@ class TestNativeMPU(BaseTestMPU):
         swiftclient.put_container(self.url, self.token, self.bucket_name)
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='uploads=true')
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
-        self.assertEqual(200, resp.status)
         containers = self.internal_client.iter_containers(self.account)
         self.assertEqual(['\x00mpu_manifests\x00%s' % self.bucket_name,
                           '\x00mpu_parts\x00%s' % self.bucket_name,
@@ -379,7 +379,6 @@ class TestNativeMPU(BaseTestMPU):
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 contents=fd, content_type='ignored',
                 query_string='upload-id=%s&part-number=1' % upload_id)
-        self.assertEqual(200, resp.status)
         # TODO: check resp content-length header
         # swiftclient strips the "" from etag!
         self.assertEqual(hash_, part_etag)
@@ -413,7 +412,7 @@ class TestNativeMPU(BaseTestMPU):
                                       query_string='upload-id=%s' % upload_id,
                                       body=json.dumps(manifest).encode(
                                           'ascii'))
-        self.assertEqual(200, resp.status)
+        self.assertEqual(202, resp.status)
         self.assertNotIn('X-Static-Large-Object', resp.headers)
         body_dict = json.loads(body)
         self.assertEqual('201 Created', body_dict['Response Status'])
@@ -518,7 +517,9 @@ class TestNativeMPU(BaseTestMPU):
         swiftclient.put_container(self.url, self.token, self.bucket_name)
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='uploads=true')
+        self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
+
         # list mpus
         resp_hdrs, listing = swiftclient.get_container(
             self.url, self.token, self.bucket_name, query_string='uploads')
@@ -534,7 +535,6 @@ class TestNativeMPU(BaseTestMPU):
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 contents=fd,
                 query_string='upload-id=%s&part-number=1' % upload_id)
-        self.assertEqual(200, resp.status)
 
         # list parts via mpu API
         resp_hdrs, resp_body = swiftclient.get_object(
