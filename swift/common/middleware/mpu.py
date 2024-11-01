@@ -598,6 +598,7 @@ class MPUSessionsHandler(BaseMPUHandler):
         Handles Initiate Multipart Upload.
         """
         self._authorize_write_request()
+        # TODO: can we just call constraints.check_object_creation ?
         # if len(req.object_name) > constraints.MAX_OBJECT_NAME_LENGTH:
         #     # Note that we can still run into trouble where the MPU is just
         #     # within the limit, which means the segment names will go over
@@ -633,11 +634,14 @@ class MPUSessionsHandler(BaseMPUHandler):
 
 
 class MPUSloCallbackHandler(object):
+    ERROR_MSG = 'Upload part too small'
+
     def __init__(self, mw):
         self.total_bytes = 0
         self.mw = mw
-        self.too_small_message = ('MPU part must be at least %d bytes' %
-                                  self.mw.min_part_size)
+        self.too_small_message = (
+            self.ERROR_MSG + ': part must be at least %d bytes'
+            % self.mw.min_part_size)
 
     def __call__(self, slo_manifest):
         # Check the size of each segment except the last and make sure

@@ -23,9 +23,9 @@ from six.moves import urllib, zip, zip_longest
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
-from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, mktime, \
-    S3Timestamp
+from swift.common.middleware.s3api.utils import mktime, S3Timestamp
 from swift.common.utils import md5
+from swift.common import swob
 
 from test.functional.s3api import S3ApiBase, SigV4Mixin, \
     skip_boto2_sort_header_bug
@@ -317,10 +317,10 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue(lines[0].startswith(b'<?xml'), body)
         self.assertTrue(lines[0].endswith(b'?>'), body)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
-        self.assertEqual(
-            '%s/bucket/obj1%%E2%%98%%83' %
-            tf.config['s3_storage_url'].rstrip('/'),
-            elem.find('Location').text)
+        exp_location = '%s/bucket/%s' % \
+                       (tf.config['s3_storage_url'].rstrip('/'),
+                        swob.wsgi_quote(swob.str_to_wsgi(key)))
+        self.assertEqual(exp_location, elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
         concatted_etags = b''.join(
@@ -364,10 +364,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue(lines[0].startswith(b'<?xml'), body)
         self.assertTrue(lines[0].endswith(b'?>'), body)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
-        self.assertEqual(
-            '%s/bucket/obj1%%E2%%98%%83' %
-            tf.config['s3_storage_url'].rstrip('/'),
-            elem.find('Location').text)
+        self.assertEqual(exp_location, elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
         self.assertEqual(elem.find('ETag').text, exp_etag)
@@ -431,11 +428,6 @@ class TestS3ApiMultiUpload(S3ApiBase):
                              'text/html; charset=UTF-8')
             self.assertTrue('content-length' in headers)
             self.assertEqual(headers['content-length'], '0')
-            # Check if all parts have been deleted
-            segments = sw_conn.get_account().container(
-                bucket + MULTIUPLOAD_SUFFIX).files(
-                    parms={'prefix': '%s/%s' % (key, upload_id)})
-            self.assertFalse(segments)
 
         # Check object
         def check_obj(req_headers, exp_status):
@@ -654,6 +646,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         status, headers, body = \
             self.conn.make_request('DELETE', bucket, 'nothing', query=query)
+        self.assertEqual(status, 404)
         self.assertEqual(get_error_code(body), 'NoSuchUpload')
 
         query = 'uploadId=%s' % 'nothing'
@@ -676,6 +669,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, keys[0], query=query)
+            self.assertEqual(status, 200)
             etags.append(headers['etag'])
         xml = self._gen_comp_xml(etags)
 
@@ -750,6 +744,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query)
+            self.assertEqual(status, 200)
             etags.append(headers['etag'])
             xml = self._gen_comp_xml(etags)
 
@@ -766,6 +761,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query,
                                        body='AA')
+            self.assertEqual(status, 200)
             etags.append(headers['etag'])
             xml = self._gen_comp_xml(etags)
 

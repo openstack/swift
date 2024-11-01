@@ -694,13 +694,12 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                          req.environ['swift.backend_path'])
 
     def test_token_generation(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/'
-                                    'object/123456789abcdef',
-                            swob.HTTPOk, {}, None)
-        self.swift.register('PUT', '/v1/AUTH_test/bucket+segments/'
-                                   'object/123456789abcdef/1',
-                            swob.HTTPCreated, {}, None)
-        req = Request.blank('/bucket/object?uploadId=123456789abcdef'
+        self.swift.register(
+            'PUT',
+            '/v1/AUTH_test/bucket/object?'
+            'upload-id=123456789~abcdef~tag&part-number=1',
+            swob.HTTPCreated, {}, None)
+        req = Request.blank('/bucket/object?uploadId=123456789~abcdef~tag'
                             '&partNumber=1',
                             environ={'REQUEST_METHOD': 'PUT'})
         req.headers['Authorization'] = 'AWS test:tester:hmac'
@@ -709,10 +708,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         with mock.patch('swift.common.middleware.s3api.s3request.'
                         'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
+            self.assertEqual('200 OK', status, body)
             self.assertIn('swift.backend_path', req.environ)
-            self.assertEqual(
-                '/v1/AUTH_test/bucket+segments/object/123456789abcdef/1',
-                req.environ['swift.backend_path'])
+            self.assertEqual('/v1/AUTH_test/bucket/object',
+                             req.environ['swift.backend_path'])
 
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['s3api.auth_details'], {
@@ -720,17 +719,16 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'signature': 'hmac',
             'string_to_sign': b'\n'.join([
                 b'PUT', b'', b'', date_header.encode('ascii'),
-                b'/bucket/object?partNumber=1&uploadId=123456789abcdef']),
+                b'/bucket/object?partNumber=1&uploadId=123456789~abcdef~tag']),
             'check_signature': mock_cs})
 
     def test_non_ascii_user(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/'
-                                    'object/123456789abcdef',
-                            swob.HTTPOk, {}, None)
-        self.swift.register('PUT', '/v1/AUTH_test/bucket+segments/'
-                                   'object/123456789abcdef/1',
-                            swob.HTTPCreated, {}, None)
-        req = Request.blank('/bucket/object?uploadId=123456789abcdef'
+        self.swift.register(
+            'PUT',
+            '/v1/AUTH_test/bucket/object?'
+            'upload-id=123456789~abcdef~tag&part-number=1',
+            swob.HTTPCreated, {}, None)
+        req = Request.blank('/bucket/object?uploadId=123456789~abcdef~tag'
                             '&partNumber=1',
                             environ={'REQUEST_METHOD': 'PUT'})
         # NB: WSGI string for a snowman
@@ -741,9 +739,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                         'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
             self.assertIn('swift.backend_path', req.environ)
-            self.assertEqual(
-                '/v1/AUTH_test/bucket+segments/object/123456789abcdef/1',
-                req.environ['swift.backend_path'])
+            self.assertEqual('/v1/AUTH_test/bucket/object',
+                             req.environ['swift.backend_path'])
 
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['s3api.auth_details'], {
@@ -752,7 +749,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'signature': 'sig',
             'string_to_sign': b'\n'.join([
                 b'PUT', b'', b'', date_header.encode('ascii'),
-                b'/bucket/object?partNumber=1&uploadId=123456789abcdef']),
+                b'/bucket/object?partNumber=1&uploadId=123456789~abcdef~tag']),
             'check_signature': mock_cs})
 
     def test_invalid_uri(self):

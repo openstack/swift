@@ -25,6 +25,8 @@ import six
 from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
+from swift.common.middleware.mpu import MPU_INVALID_UPLOAD_ID_MSG, \
+    MPU_NO_SUCH_UPLOAD_ID_MSG
 from swift.common.utils import split_path, json, close_if_possible, md5, \
     streq_const_time, get_policy_index
 from swift.common.registry import get_swift_info
@@ -57,10 +59,11 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, \
     BadDigest, AuthorizationHeaderMalformed, SlowDown, \
     AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU, \
-    InvalidPartNumber, InvalidPartArgument, XAmzContentSHA256Mismatch
+    InvalidPartNumber, InvalidPartArgument, XAmzContentSHA256Mismatch, \
+    NoSuchUpload
 from swift.common.middleware.s3api.exception import NotS3Request
 from swift.common.middleware.s3api.utils import utf8encode, \
-    S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
+    S3Timestamp, mktime
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
     validate_bucket_name, Config
@@ -1396,9 +1399,8 @@ class S3Request(swob.Request):
             # multi-part uploads, and get_container_info should be pulling
             # from the env cache
             def not_found_handler():
-                if container.endswith(MULTIUPLOAD_SUFFIX) or \
-                        is_success(get_container_info(
-                            env, app, swift_source='S3').get('status')):
+                if is_success(get_container_info(
+                              env, app, swift_source='S3').get('status')):
                     return NoSuchKey(obj)
                 return NoSuchBucket(container)
 
@@ -1502,6 +1504,10 @@ class S3Request(swob.Request):
             return resp
 
         err_msg = resp.body
+        err_str = err_msg.decode('utf8')
+
+        if status == HTTP_NOT_FOUND and MPU_NO_SUCH_UPLOAD_ID_MSG in err_str:
+            raise NoSuchUpload()
 
         if status in error_codes:
             err_resp = \
@@ -1514,15 +1520,16 @@ class S3Request(swob.Request):
                 raise err_resp()
 
         if status == HTTP_BAD_REQUEST:
-            err_str = err_msg.decode('utf8')
             if 'X-Delete-At' in err_str:
                 raise InvalidArgument('X-Delete-At',
                                       self.headers['X-Delete-At'],
                                       err_str)
-            if 'X-Delete-After' in err_str:
+            elif 'X-Delete-After' in err_str:
                 raise InvalidArgument('X-Delete-After',
                                       self.headers['X-Delete-After'],
                                       err_str)
+            elif MPU_INVALID_UPLOAD_ID_MSG in err_str:
+                raise NoSuchUpload()
             else:
                 raise InvalidRequest(msg=err_str)
         if status == HTTP_UNAUTHORIZED:

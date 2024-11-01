@@ -54,8 +54,7 @@ from swift.common.middleware.s3api.s3response import MissingSecurityHeader, \
     MalformedACLError, UnexpectedContent, AccessDenied
 from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid
-from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
-    sysmeta_header
+from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX
 
 
 def get_acl_handler(controller_name):
@@ -326,7 +325,7 @@ class MultiUploadAclHandler(BaseAclHandler):
     request to backend Swift at incoming request.
 
     Basic Rules:
-      - BASE container name is always w/o 'MULTIUPLOAD_SUFFIX'
+      - BASE container name is always user-namespace container
       - Any check timing is ok but we should check it as soon as possible.
 
     ========== ====== ============= ==========
@@ -366,13 +365,8 @@ class PartAclHandler(MultiUploadAclHandler):
         super(MultiUploadAclHandler, self).__init__(req, logger, **kwargs)
 
     def HEAD(self, app):
-        if self.container.endswith(MULTIUPLOAD_SUFFIX):
-            # For _check_upload_info
-            container = self.container[:-len(MULTIUPLOAD_SUFFIX)]
-            self._handle_acl(app, 'HEAD', container, '')
-        else:
-            # For check_copy_source
-            return self._handle_acl(app, 'HEAD', self.container, self.obj)
+        # For check_copy_source
+        return self._handle_acl(app, 'HEAD', self.container, self.obj)
 
 
 class UploadsAclHandler(MultiUploadAclHandler):
@@ -390,15 +384,14 @@ class UploadsAclHandler(MultiUploadAclHandler):
         # List Multipart Upload
         self._handle_acl(app, 'GET', self.container, '')
 
-    def PUT(self, app):
+    def POST(self, app):
         if not self.acl_checked:
             resp = self._handle_acl(app, 'HEAD', obj='')
             req_acl = ACL.from_headers(self.req.headers,
                                        resp.bucket_acl.owner,
                                        Owner(self.user_id, self.user_id))
             acl_headers = encode_acl('object', req_acl)
-            self.req.headers[sysmeta_header('object', 'tmpacl')] = \
-                acl_headers[sysmeta_header('object', 'acl')]
+            self.req.headers.update(acl_headers)
             self.acl_checked = True
 
 
@@ -417,13 +410,6 @@ class UploadAclHandler(MultiUploadAclHandler):
         # FIXME: GET HEAD case conflicts with GET service
         method = 'GET' if self.method == 'GET' else 'HEAD'
         self._handle_acl(app, method, self.container, '')
-
-    def PUT(self, app):
-        container = self.req.container_name + MULTIUPLOAD_SUFFIX
-        obj = '%s/%s' % (self.obj, self.req.params['uploadId'])
-        resp = self.req._get_response(app, 'HEAD', container, obj)
-        self.req.headers[sysmeta_header('object', 'acl')] = \
-            resp.sysmeta_headers.get(sysmeta_header('object', 'tmpacl'))
 
 
 """

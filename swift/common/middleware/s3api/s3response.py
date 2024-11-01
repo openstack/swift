@@ -121,6 +121,7 @@ class S3Response(S3ResponseBase, swob.Response):
         sw_headers = swob.HeaderKeyDict()
         headers = HeaderKeyDict()
         self.is_slo = False
+        self.is_mpu = False
 
         def is_swift3_sysmeta(sysmeta_key, server_type):
             swift3_sysmeta_prefix = (
@@ -160,6 +161,9 @@ class S3Response(S3ResponseBase, swob.Response):
 
         self.is_slo = config_true_value(sw_headers.get(
             'x-static-large-object'))
+
+        self.is_mpu = all((sw_headers.get('x-upload-id'),
+                           sw_headers.get('x-parts-count')))
 
         # Check whether we stored the AWS-style etag on upload
         override_etag = s3_sysmeta_headers.get(

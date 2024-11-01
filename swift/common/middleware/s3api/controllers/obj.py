@@ -109,7 +109,7 @@ class ObjectController(Controller):
 
         resp = req.get_response(self.app, query=query)
 
-        if not resp.is_slo:
+        if not (resp.is_slo or resp.is_mpu):
             # SLO ignores part_number for non-slo objects, but s3api only
             # allows the query param for non-MPU if it's exactly 1.
             part_number = req.validate_part_number(parts_count=1)

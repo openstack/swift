@@ -193,7 +193,7 @@ class TestS3ApiXxeInjection(S3ApiBaseBoto3):
    </Part>
 </CompleteMultipartUpload>
 """)  # noqa: E501
-            self.assertEqual(404, resp.status_code)
+            self.assertEqual(400, resp.status_code)
             self.assertNotIn(b'xxe', resp.content)
             self.assertNotIn(b'[swift-hash]', resp.content)
 
@@ -206,7 +206,7 @@ class TestS3ApiXxeInjection(S3ApiBaseBoto3):
    </Part>
 </CompleteMultipartUpload>
 """)  # noqa: E501
-            self.assertEqual(404, resp.status_code)
+            self.assertEqual(400, resp.status_code)
             self.assertNotIn(b'xxe', resp.content)
             self.assertNotIn(b'[swift-hash]', resp.content)
         finally:
