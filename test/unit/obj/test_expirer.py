@@ -61,6 +61,9 @@ class FakeInternalClient(object):
                       'container2: [],
                       },
                   'account2': {},
+                  'account3': {
+                      'some_bad_container': UnexpectedResponse(),
+                  },
                  }
             N.B. the objects entries should be the container-server JSON style
             db rows, but this fake will dynamically detect when names are given
@@ -68,11 +71,16 @@ class FakeInternalClient(object):
         """
         self.aco_dict = defaultdict(dict)
         self.aco_dict.update(aco_dict)
+        self._calls = []
 
     def get_account_info(self, account):
         acc_dict = self.aco_dict[account]
         container_count = len(acc_dict)
-        obj_count = sum(len(objs) for objs in acc_dict.values())
+        obj_count = 0
+        for obj_list_or_err in acc_dict.values():
+            if isinstance(obj_list_or_err, Exception):
+                continue
+            obj_count += len(obj_list_or_err)
         return container_count, obj_count
 
     def iter_containers(self, account, prefix=''):
@@ -81,12 +89,19 @@ class FakeInternalClient(object):
                 for container in sorted(acc_dict)
                 if container.startswith(prefix)]
 
-    def delete_container(*a, **kw):
-        pass
+    def delete_container(self, account, container, **kwargs):
+        self._calls.append(
+            ('delete_container', '/'.join((account, container)), kwargs)
+        )
 
     def iter_objects(self, account, container, **kwargs):
+        self._calls.append(
+            ('iter_objects', '/'.join((account, container)), kwargs)
+        )
         acc_dict = self.aco_dict[account]
         obj_iter = acc_dict.get(container, [])
+        if isinstance(obj_iter, Exception):
+            raise obj_iter
         resp = []
         for obj in obj_iter:
             if not isinstance(obj, dict):
@@ -94,8 +109,10 @@ class FakeInternalClient(object):
             resp.append(obj)
         return resp
 
-    def delete_object(*a, **kw):
-        pass
+    def delete_object(self, account, container, obj, **kwargs):
+        self._calls.append(
+            ('delete_object', '/'.join((account, container, obj)), kwargs)
+        )
 
 
 class TestExpirerHelpers(TestCase):
@@ -231,7 +248,7 @@ class TestObjectExpirer(TestCase):
 
         self.ts = make_timestamp_iter()
 
-        now = int(time())
+        self.now = now = int(time())
 
         self.empty_time = str(now - 864000)
         self.empty_time_container = self.get_expirer_container(self.empty_time)
@@ -1585,38 +1602,34 @@ class TestObjectExpirer(TestCase):
         # Test that object listing on the first container returns 503 and raise
         # UnexpectedResponse, and expect the second task container will
         # continue to be processed.
-        # In this test, all tasks are assigned to the tested expirer.
-        my_index = 0
-        divisor = 1
 
-        # Store reference to the real method before mocking
-        real_iter_objects = self.fake_swift.iter_objects
+        self.expirer.swift.aco_dict['.expiring_objects'][
+            self.just_past_time_container] = \
+            internal_client.UnexpectedResponse(
+                'Mocked error', Response(status=503))
 
-        def mock_iter_objects(account, container, **kwargs):
-            if container == self.just_past_time_container:
-                mock_resp = Response(status=503)
-                raise internal_client.UnexpectedResponse(
-                    'Mocked error', mock_resp)
-            return real_iter_objects(account, container)
-
-        task_account_container_list = [
-            ('.expiring_objects', self.just_past_time_container),
-            ('.expiring_objects', self.past_time_container)
-        ]
-        expected = [
-            self.make_task(self.past_time_container, self.past_time,
-                           target_path)
-            for target_path in self.expired_target_paths[self.past_time]]
-
-        with mock.patch.object(self.expirer.swift, 'iter_objects',
-                               mock_iter_objects):
-            with mock.patch.object(self.expirer.swift, 'delete_container') \
-                    as mock_delete_container:
-                self.assertEqual(
-                    list(self.expirer.iter_task_to_expire(
-                        task_account_container_list, my_index, divisor)),
-                    expected)
-                self.assertEqual(mock_delete_container.mock_calls, [])
+        with mock.patch.object(self.expirer, 'pop_queue'):
+            self.expirer.run_once()
+        # everything but the broken container
+        expected = sorted(
+            p
+            for c, paths in self.expired_target_paths.items()
+            for p in paths
+            if c != self.just_past_time
+        )
+        self.assertEqual(
+            expected, sorted(
+                path
+                for method, path, kwargs in self.expirer.swift._calls
+                if method == 'delete_object'
+            ))
+        self.assertEqual(
+            [('.expiring_objects/%s' % self.empty_time_container,
+              {'acceptable_statuses': (2, 404, 409)})], [
+                (path, kwargs)
+                for method, path, kwargs in self.expirer.swift._calls
+                if method == 'delete_container'
+            ])
 
         log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
@@ -1626,43 +1639,39 @@ class TestObjectExpirer(TestCase):
              % self.just_past_time_container]
         )
         self.assertEqual(
-            {'tasks.assigned': 5},
+            {'tasks.assigned': 5, 'objects': 5},
             self.expirer.logger.statsd_client.get_increment_counts()
         )
 
     def test_iter_task_to_expire_exception(self):
         # Test that object listing on the first container raise Exception, and
         # expect the second task container will continue to be processed.
-        # In this test, all tasks are assigned to the tested expirer.
-        my_index = 0
-        divisor = 1
 
-        # Store reference to the real method before mocking
-        real_iter_objects = self.fake_swift.iter_objects
+        self.expirer.swift.aco_dict['.expiring_objects'][
+            self.just_past_time_container] = Exception('failed to connect')
 
-        def mock_iter_objects(account, container, **kwargs):
-            if container == self.just_past_time_container:
-                raise Exception('failed to connect')
-            return real_iter_objects(account, container)
+        with mock.patch.object(self.expirer, 'pop_queue'):
+            self.expirer.run_once()
 
-        task_account_container_list = [
-            ('.expiring_objects', self.just_past_time_container),
-            ('.expiring_objects', self.past_time_container)
-        ]
-        expected = [
-            self.make_task(self.past_time_container, self.past_time,
-                           target_path)
-            for target_path in self.expired_target_paths[self.past_time]]
-
-        with mock.patch.object(self.expirer.swift, 'iter_objects',
-                               mock_iter_objects):
-            with mock.patch.object(self.expirer.swift, 'delete_container') \
-                    as mock_delete_container:
-                self.assertEqual(
-                    list(self.expirer.iter_task_to_expire(
-                        task_account_container_list, my_index, divisor)),
-                    expected)
-            self.assertEqual(mock_delete_container.mock_calls, [])
+        # everything but the broken container
+        expected = sorted(
+            p
+            for c, paths in self.expired_target_paths.items()
+            for p in paths
+            if c != self.just_past_time
+        )
+        self.assertEqual(expected, sorted(
+            path
+            for method, path, kwargs in self.expirer.swift._calls
+            if method == 'delete_object'
+        ))
+        self.assertEqual(
+            [('.expiring_objects/%s' % self.empty_time_container,
+              {'acceptable_statuses': (2, 404, 409)})], [
+                (path, kwargs)
+                for method, path, kwargs in self.expirer.swift._calls
+                if method == 'delete_container'
+            ])
 
         log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
@@ -1672,80 +1681,116 @@ class TestObjectExpirer(TestCase):
              % self.just_past_time_container]
         )
         self.assertEqual(
-            {'tasks.assigned': 5},
+            {'tasks.assigned': 5, 'objects': 5},
             self.expirer.logger.statsd_client.get_increment_counts()
         )
 
-    def test_iter_task_to_expire_404_response_on_empty_container(self):
-        # Test that object listing on an empty container returns 404 and
+    def test_iter_task_to_expire_404_response_on_missing_container(self):
+        # Test that object listing on a missing container returns 404 and
         # raise UnexpectedResponse, and expect ``iter_task_to_expire`` won't
         # delete this task container.
-        # In this test, all tasks are assigned to the tested expirer.
-        my_index = 0
-        divisor = 1
+        missing_time = str(self.now - 172800)
+        missing_time_container = self.get_expirer_container(missing_time)
+        self.expirer.swift.aco_dict[
+            '.expiring_objects'][missing_time_container] = \
+            internal_client.UnexpectedResponse(
+                'Mocked error', Response(status=404))
 
-        err_resp = Response(status=404)
-        err = internal_client.UnexpectedResponse('Mocked error', err_resp)
+        with mock.patch.object(self.expirer, 'pop_queue'):
+            self.expirer.run_once()
 
-        task_account_container_list = [
-            ('.expiring_objects', self.empty_time_container)
-        ]
+        # all containers iter'd
+        self.assertEqual([
+            ('.expiring_objects/%s' % c, {'acceptable_statuses': [2]})
+            for c in [
+                self.empty_time_container,
+                missing_time_container,
+                self.past_time_container,
+                self.just_past_time_container,
+            ]
+        ], [
+            (path, kwargs) for method, path, kwargs in
+            self.expirer.swift._calls
+            if method == 'iter_objects'
+        ])
+        # everything is still expired
+        expected = sorted(
+            p
+            for c, paths in self.expired_target_paths.items()
+            for p in paths
+        )
+        self.assertEqual(expected, sorted(
+            path
+            for method, path, kwargs in self.expirer.swift._calls
+            if method == 'delete_object'
+        ))
+        # Only the empty task container gets deleted.
+        self.assertEqual(
+            [('.expiring_objects/%s' % self.empty_time_container,
+              {'acceptable_statuses': (2, 404, 409)})], [
+                (path, kwargs)
+                for method, path, kwargs in self.expirer.swift._calls
+                if method == 'delete_container'
+            ])
 
-        with mock.patch.object(self.expirer.swift, 'iter_objects',
-                               side_effect=err) as mock_method:
-            with mock.patch.object(self.expirer.swift, 'delete_container') \
-                    as mock_delete_container:
-                self.assertEqual(
-                    list(self.expirer.iter_task_to_expire(
-                        task_account_container_list, my_index, divisor)),
-                    [])
         log_lines = self.logger.get_lines_for_level('error')
         self.assertFalse(log_lines)
-        # This empty task container won't get deleted.
-        self.assertEqual(mock_delete_container.mock_calls, [])
-        self.assertEqual(
-            {}, self.expirer.logger.statsd_client.get_increment_counts())
-        self.assertEqual(mock_method.call_args_list, [
-            mock.call('.expiring_objects',
-                      self.empty_time_container,
-                      acceptable_statuses=[2])
+
+    def test_iter_task_to_expire_503_response_on_container(self):
+        # Test that object listing on a container returns 503 and raise
+        # UnexpectedResponse, and expect ``iter_task_to_expire`` won't delete
+        # this task container.
+        missing_time = str(self.now - 172800)
+        missing_time_container = self.get_expirer_container(missing_time)
+        self.expirer.swift.aco_dict[
+            '.expiring_objects'][missing_time_container] = \
+            internal_client.UnexpectedResponse(
+                'Mocked error', Response(status=503))
+
+        with mock.patch.object(self.expirer, 'pop_queue'):
+            self.expirer.run_once()
+
+        # all containers iter'd
+        self.assertEqual([
+            ('.expiring_objects/%s' % c, {'acceptable_statuses': [2]})
+            for c in [
+                self.empty_time_container,
+                missing_time_container,
+                self.past_time_container,
+                self.just_past_time_container,
+            ]
+        ], [
+            (path, kwargs) for method, path, kwargs in
+            self.expirer.swift._calls
+            if method == 'iter_objects'
         ])
+        # everything is still expired
+        expected = sorted(
+            path
+            for c, paths in self.expired_target_paths.items()
+            for path in paths
+        )
+        self.assertEqual(expected, sorted(
+            path
+            for method, path, kwargs in self.expirer.swift._calls
+            if method == 'delete_object'
+        ))
+        # Only the empty task container gets deleted.
+        self.assertEqual(
+            [('.expiring_objects/%s' % self.empty_time_container,
+              {'acceptable_statuses': (2, 404, 409)})], [
+                (path, kwargs)
+                for method, path, kwargs in self.expirer.swift._calls
+                if method == 'delete_container'
+            ])
 
-    def test_iter_task_to_expire_503_response_on_empty_container(self):
-        # Test that object listing on an empty container returns 503 and
-        # raise UnexpectedResponse, and expect ``iter_task_to_expire`` won't
-        # delete this task container.
-        # In this test, all tasks are assigned to the tested expirer.
-        my_index = 0
-        divisor = 1
-
-        def mock_iter_objects(account, container, **kwargs):
-            mock_resp = Response(status=503)
-            raise internal_client.UnexpectedResponse('Mocked error', mock_resp)
-
-        task_account_container_list = [
-            ('.expiring_objects', self.empty_time_container)
-        ]
-
-        with mock.patch.object(self.expirer.swift, 'iter_objects',
-                               side_effect=mock_iter_objects):
-            with mock.patch.object(self.expirer.swift, 'delete_container') \
-                    as mock_delete_container:
-                self.assertEqual(
-                    list(self.expirer.iter_task_to_expire(
-                        task_account_container_list, my_index, divisor)),
-                    [])
         log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
             log_lines[0],
             'Unexpected response while listing objects in container '
             '.expiring_objects %s: Mocked error'
-            % self.empty_time_container,
+            % missing_time_container,
         )
-        # This empty task container won't get deleted.
-        self.assertEqual(mock_delete_container.mock_calls, [])
-        self.assertEqual(
-            {}, self.expirer.logger.statsd_client.get_increment_counts())
 
     def test_run_once_unicode_problem(self):
         requests = []
