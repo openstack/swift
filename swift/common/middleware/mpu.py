@@ -34,7 +34,7 @@ from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
     get_valid_part_num, is_reserved_name, split_reserved_name, is_user_meta, \
-    update_etag_override_header
+    update_etag_override_header, update_etag_is_at_header
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 
@@ -918,7 +918,13 @@ class MPUObjHandler(BaseMPUHandler):
         return new_resp
 
     def handle_request(self):
+        if self.req.method in ('GET', 'HEAD'):
+            # instruct the object server to look for an mpu-etag in sysmeta
+            # for evaluating conditional requests
+            update_etag_is_at_header(self.req, MPU_SYSMETA_ETAG_KEY)
+
         resp = self.req.get_response(self.app)
+
         upload_id = resp.headers.get(MPU_SYSMETA_UPLOAD_ID_KEY)
         if self.req.method in ('GET', 'HEAD') and upload_id:
             self._handle_get_head_response(resp)

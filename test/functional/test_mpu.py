@@ -860,12 +860,16 @@ class TestMPU(BaseTestMPU):
                         use_account=2, url_account=1)
         self.assertEqual(200, resp.status)
 
-    def _do_test_get_head_mpu(self, method):
+    def _do_test_get_head_mpu(self, method, conditional=False, headers=None):
         num_parts = 2
         upload_id, mpu_etag, _body = self._make_mpu(
             self.mpu_name, num_parts=num_parts)
+        headers = headers or {}
+        if conditional:
+            headers['If-Match'] = mpu_etag
         resp = tf.retry(self._make_request, method=method,
-                        container=self.user_cont, obj=self.mpu_name)
+                        container=self.user_cont, obj=self.mpu_name,
+                        headers=headers)
         self.assertEqual(200, resp.status)
         self.assertEqual(
             {'Content-Type': 'application/test',
@@ -890,7 +894,88 @@ class TestMPU(BaseTestMPU):
 
     def test_head_mpu(self):
         resp = self._do_test_get_head_mpu('HEAD')
-        self.assertEqual(0, len(resp.content))
+        self.assertEqual(b'', resp.content)
+
+    def test_get_mpu_if_match(self):
+        resp = self._do_test_get_head_mpu('GET', conditional=True)
+        self.assertEqual(2 * self.part_size, len(resp.content))
+
+    def test_head_mpu_if_match(self):
+        resp = self._do_test_get_head_mpu('HEAD', conditional=True)
+        self.assertEqual(b'', resp.content)
+
+    def test_get_mpu_if_none_match_does_not_match(self):
+        resp = self._do_test_get_head_mpu('GET',
+                                          headers={'If-None-Match': 'foo'})
+        self.assertEqual(2 * self.part_size, len(resp.content))
+
+    def test_head_mpu_if_none_match_does_not_match(self):
+        resp = self._do_test_get_head_mpu('HEAD',
+                                          headers={'If-None-Match': 'foo'})
+        self.assertEqual(b'', resp.content)
+
+    def _do_test_get_head_mpu_if_match_does_not_match(self, method):
+        num_parts = 2
+        upload_id, mpu_etag, _body = self._make_mpu(
+            self.mpu_name, num_parts=num_parts)
+        headers = {'If-Match': 'foo'}
+        resp = tf.retry(self._make_request, method=method,
+                        container=self.user_cont, obj=self.mpu_name,
+                        headers=headers)
+        self.assertEqual(412, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'text/html; charset=UTF-8',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % mpu_etag,
+             'X-Upload-Id': upload_id,
+             'X-Parts-Count': str(num_parts),
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Content-Length': '0',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers
+        )
+        self.assertEqual(b'', resp.content)
+
+    def test_get_mpu_if_match_does_not_match_412(self):
+        self._do_test_get_head_mpu_if_match_does_not_match('GET')
+
+    def test_head_mpu_if_match_does_not_match_412(self):
+        self._do_test_get_head_mpu_if_match_does_not_match('HEAD')
+
+    def _do_test_get_head_mpu_if_none_match_does_match(self, method):
+        num_parts = 2
+        upload_id, mpu_etag, _body = self._make_mpu(
+            self.mpu_name, num_parts=num_parts)
+        headers = {'If-None-Match': mpu_etag}
+        resp = tf.retry(self._make_request, method=method,
+                        container=self.user_cont, obj=self.mpu_name,
+                        headers=headers)
+        self.assertEqual(304, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'application/test',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % mpu_etag,
+             'X-Upload-Id': upload_id,
+             'X-Parts-Count': str(num_parts),
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'Content-Length': '0',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers
+        )
+        self.assertEqual(b'', resp.content)
+
+    def test_get_mpu_if_none_match_does_match_304(self):
+        self._do_test_get_head_mpu_if_none_match_does_match('GET')
+
+    def test_head_mpu_if_none_match_does_match_304(self):
+        self._do_test_get_head_mpu_if_none_match_does_match('HEAD')
 
     def test_get_mpu_with_part_number(self):
         num_parts = 2

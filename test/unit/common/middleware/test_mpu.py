@@ -1531,6 +1531,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'X-Upload-Id': str(upload_id),
         }
         self.assertEqual(exp_resp_headers, resp.headers)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
+                         self.app.calls_with_headers[0].headers)
         return resp
 
     def test_get_mpu(self):

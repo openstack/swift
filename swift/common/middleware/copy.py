@@ -420,6 +420,7 @@ class ServerSideCopyMiddleware(object):
             #    generates its own etag value which may differ from source
             #  - SLO: etag in SLO response is not hash of actual content
             #  - DLO: etag in DLO response is not hash of actual content
+            #  - MPU: etag in MPU response is not hash of actual content
             sink_req.headers['Etag'] = source_resp.etag
         else:
             # since we're not copying the source etag, make sure that any
