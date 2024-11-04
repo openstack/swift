@@ -22,6 +22,16 @@ Buffered HTTP
     :members:
     :show-inheritance:
 
+
+.. _config:
+
+Config
+======
+
+.. automodule:: swift.common.utils.config
+    :members:
+    :show-inheritance:
+
 .. _constraints:
 
 Constraints
@@ -80,6 +90,33 @@ Internal Client
     :undoc-members:
     :show-inheritance:
 
+.. _ipaddrs:
+
+IPAddrs
+=======
+
+.. automodule:: swift.common.utils.ipaddrs
+    :members:
+    :show-inheritance:
+
+.. _libc:
+
+Libc
+====
+
+.. automodule:: swift.common.utils.libc
+    :members:
+    :show-inheritance:
+
+.. _logs:
+
+Logs
+====
+
+.. automodule:: swift.common.utils.logs
+    :members:
+    :show-inheritance:
+
 Manager
 =========
 
@@ -114,6 +151,24 @@ Request Helpers
     :undoc-members:
     :show-inheritance:
 
+.. _statsd_client:
+
+StatsdClient
+============
+
+.. automodule:: swift.common.statsd_client
+    :members:
+    :show-inheritance:
+
+.. _storage_policy:
+
+Storage Policy
+==============
+
+.. automodule:: swift.common.storage_policy
+    :members:
+    :show-inheritance:
+
 .. _swob:
 
 Swob
@@ -123,6 +178,24 @@ Swob
     :members:
     :show-inheritance:
     :special-members: __call__
+
+.. _timestamp:
+
+Timestamp
+=========
+
+.. automodule:: swift.common.utils.timestamp
+    :members:
+    :show-inheritance:
+
+.. _base_utils:
+
+Utils Base
+==========
+
+.. automodule:: swift.common.utils.base
+    :members:
+    :show-inheritance:
 
 .. _utils:
 
@@ -139,14 +212,5 @@ WSGI
 ====
 
 .. automodule:: swift.common.wsgi
-    :members:
-    :show-inheritance:
-
-.. _storage_policy:
-
-Storage Policy
-==============
-
-.. automodule:: swift.common.storage_policy
     :members:
     :show-inheritance:
