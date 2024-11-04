@@ -625,9 +625,9 @@ class ObjectUpdater(Daemon):
             headers_out.setdefault('X-Backend-Accept-Quoted-Location', 'true')
             acct, cont = split_update_path(update)
             part, nodes = self.get_container_ring().get_nodes(acct, cont)
-            obj = '/%s/%s/%s' % (acct, cont, update['obj'])
+            path = '/%s/%s/%s' % (acct, cont, update['obj'])
             events = [spawn(self.object_update,
-                            node, part, update['op'], obj, headers_out)
+                            node, part, update['op'], path, headers_out)
                       for node in nodes if node['id'] not in successes]
             success = True
             new_successes = rewrite_pickle = False
@@ -646,8 +646,8 @@ class ObjectUpdater(Daemon):
             if success:
                 self.stats.successes += 1
                 self.logger.increment('successes')
-                self.logger.debug('Update sent for %(obj)s %(path)s',
-                                  {'obj': obj, 'path': update_path})
+                self.logger.debug('Update sent for %(path)s %(update_path)s',
+                                  {'path': path, 'update_path': update_path})
                 self.stats.unlinks += 1
                 self.logger.increment('unlinks')
                 os.unlink(update_path)
@@ -673,15 +673,16 @@ class ObjectUpdater(Daemon):
                 self.stats.redirects += 1
                 self.logger.increment("redirects")
                 self.logger.debug(
-                    'Update redirected for %(obj)s %(path)s to %(shard)s',
-                    {'obj': obj, 'path': update_path,
+                    'Update redirected for %(path)s %(update_path)s to '
+                    '%(shard)s',
+                    {'path': path, 'update_path': update_path,
                      'shard': update['container_path']})
                 rewrite_pickle = True
             else:
                 self.stats.failures += 1
                 self.logger.increment('failures')
-                self.logger.debug('Update failed for %(obj)s %(path)s',
-                                  {'obj': obj, 'path': update_path})
+                self.logger.debug('Update failed for %(path)s %(update_path)s',
+                                  {'path': path, 'update_path': update_path})
                 if new_successes:
                     update['successes'] = successes
                     rewrite_pickle = True
@@ -696,14 +697,14 @@ class ObjectUpdater(Daemon):
             write_pickle(update, update_path, os.path.join(
                 device, get_tmp_dir(policy)))
 
-    def object_update(self, node, part, op, obj, headers_out):
+    def object_update(self, node, part, op, path, headers_out):
         """
         Perform the object update to the container
 
         :param node: node dictionary from the container ring
         :param part: partition that holds the container
         :param op: operation performed (ex: 'PUT' or 'DELETE')
-        :param obj: object name being updated
+        :param path: /<acct>/<cont>/<obj> path being updated
         :param headers_out: headers to send with the update
         :return: a tuple of (``success``, ``node_id``, ``redirect``)
             where ``success`` is True if the update succeeded, ``node_id`` is
@@ -718,7 +719,7 @@ class ObjectUpdater(Daemon):
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(
                     node['replication_ip'], node['replication_port'],
-                    node['device'], part, op, obj, headers_out)
+                    node['device'], part, op, path, headers_out)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
                 resp.read()
@@ -730,7 +731,7 @@ class ObjectUpdater(Daemon):
                 except ValueError as err:
                     self.logger.error(
                         'Container update failed for %r; problem with '
-                        'redirect location: %s' % (obj, err))
+                        'redirect location: %s' % (path, err))
 
             success = is_success(status)
             if not success:

@@ -469,7 +469,7 @@ class SigV4Mixin(object):
         #
 
         # 1. Add verb like: GET
-        cr = [swob.wsgi_to_bytes(self.method.upper())]
+        cr = [swob.wsgi_to_bytes(self.method)]
 
         # 2. Add path like: /
         path = self._canonical_uri()

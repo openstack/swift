@@ -561,6 +561,12 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
                                 _mangle_req_method)
         event_system.register('request-created.s3.CreateBucket',
                               _mangle_req_controller_method)
+
+        try:
+            import awscrt  # noqa: F401
+        except ImportError:
+            raise SkipTest('lower-case request methods require awscrt for '
+                           'proper signing (try `pip install awscrt`)')
         # the method exists in the controller but deny as MethodNotAllowed
         with self.assertRaises(botocore.exceptions.ClientError) as ctx:
             self.conn.create_bucket(Bucket='bucket')

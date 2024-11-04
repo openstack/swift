@@ -93,7 +93,12 @@
 # delay_reaping_AUTH_test/special%0Achars%3Dshould%20be%20quoted
 # N.B. By default no delay_reaping value is configured for any accounts or
 # containers.
-#
+
+# Number of tasks objects to cache before processing.  With many nodes it may
+# take some time to fill a larger cache_size but may also have a better chance
+# to distribute DELETEs to multiple target containers.
+# round_robin_task_cache_size = 100000
+
 # recon_cache_path = /var/cache/swift
 #
 # You can set scheduling priority of processes. Niceness values range from -20

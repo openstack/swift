@@ -184,6 +184,8 @@ class ObjectExpirer(Daemon):
         self.reclaim_age = int(conf.get('reclaim_age', 604800))
 
         self.delay_reaping_times = read_conf_for_delay_reaping_times(conf)
+        self.round_robin_task_cache_size = int(
+            conf.get('round_robin_task_cache_size', MAX_OBJECTS_TO_CACHE))
 
     def _make_internal_client(self, is_legacy_conf):
         default_ic_conf_path = '/etc/swift/internal-client.conf'
@@ -268,7 +270,7 @@ class ObjectExpirer(Daemon):
             obj_cache[cache_key].append(delete_task)
             cnt += 1
 
-            if cnt > MAX_OBJECTS_TO_CACHE:
+            if cnt > self.round_robin_task_cache_size:
                 for task in dump_obj_cache_in_round_robin():
                     yield task
                 cnt = 0

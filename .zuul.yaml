@@ -173,23 +173,23 @@
       python_version: 2.7
 
 - job:
-    name: swift-tox-func-py38
+    name: swift-tox-func-py312
     parent: swift-tox-base
-    nodeset: ubuntu-focal
+    nodeset: ubuntu-noble
     description: |
-      Run functional tests for swift under cPython version 3.8.
+      Run functional tests for swift under cPython version 3.12.
 
       Uses tox with the ``func-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
     vars:
       tox_envlist: func-py3
-      bindep_profile: test py38
-      python_version: 3.8
+      bindep_profile: test py312
+      python_version: 3.12
 
 - job:
     name: swift-tox-func-py39-centos-9-stream
-    parent: swift-tox-func-py38
+    parent: swift-tox-func-py312
     nodeset: centos-9-stream
     vars:
       bindep_profile: test py39
@@ -208,10 +208,10 @@
       tox_envlist: func-ec-py3
 
 - job:
-    name: swift-tox-func-encryption-py38
-    parent: swift-tox-func-py38
+    name: swift-tox-func-encryption-py312
+    parent: swift-tox-func-py312
     description: |
-      Run functional tests for swift under cPython version 3.8.
+      Run functional tests for swift under cPython version 3.12.
 
       Uses tox with the ``func-encryption-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
@@ -220,11 +220,11 @@
       tox_envlist: func-encryption-py3
 
 - job:
-    name: swift-tox-func-encryption-py38-arm64
-    parent: swift-tox-func-encryption-py38
-    nodeset: ubuntu-focal-arm64
+    name: swift-tox-func-encryption-py312-arm64
+    parent: swift-tox-func-encryption-py312
+    nodeset: ubuntu-noble-arm64
     description: |
-      Run functional tests for swift under cPython version 3.8
+      Run functional tests for swift under cPython version 3.12
       on top of arm64 architecture.
 
       Uses tox with the ``func-encryption-py3`` environment.
@@ -233,11 +233,11 @@
     timeout: 10800
 
 - job:
-    name: swift-tox-func-py38-arm64
-    parent: swift-tox-func-py38
-    nodeset: ubuntu-focal-arm64
+    name: swift-tox-func-py312-arm64
+    parent: swift-tox-func-py312
+    nodeset: ubuntu-noble-arm64
     description: |
-      Run functional tests for swift under cPython version 3.8
+      Run functional tests for swift under cPython version 3.12
       on top of arm64 architecture.
 
       Uses tox with the ``func-py3`` environment.
@@ -246,10 +246,10 @@
     timeout: 10800
 
 - job:
-    name: swift-tox-func-ec-py38
-    parent: swift-tox-func-py38
+    name: swift-tox-func-ec-py312
+    parent: swift-tox-func-py312
     description: |
-      Run functional tests for swift under cPython version 3.8.
+      Run functional tests for swift under cPython version 3.12.
 
       Uses tox with the ``func-ec-py3`` environment.
       It sets TMPDIR to an XFS mount point created via
@@ -616,8 +616,8 @@
     experimental:
       jobs:
         - swift-tox-py38-arm64
-        - swift-tox-func-encryption-py38-arm64
-        - swift-tox-func-py38-arm64
+        - swift-tox-func-encryption-py312-arm64
+        - swift-tox-func-py312-arm64
 
 - project:
     templates:
@@ -652,9 +652,7 @@
               - ^test/(cors|functional|probe|s3api)/.*$
         - swift-tox-py36:
             irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py38:
-            irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py311:
+        - swift-tox-py39:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py312:
             irrelevant-files: *unittest-irrelevant-files
@@ -668,11 +666,11 @@
             irrelevant-files: *functest-irrelevant-files
 
         # py3 functional tests
-        - swift-tox-func-py38:
+        - swift-tox-func-py312:
             irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-encryption-py38:
+        - swift-tox-func-encryption-py312:
             irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-ec-py38:
+        - swift-tox-func-ec-py312:
             irrelevant-files: *functest-irrelevant-files
 
         # Other tests
@@ -743,15 +741,14 @@
             irrelevant-files: *docker-irrelevant-files
         - swift-tox-py27
         - swift-tox-py36
-        - swift-tox-py38
-        - swift-tox-py311
+        - swift-tox-py39
         - swift-tox-py312
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
         - swift-tox-func-ec-py27
-        - swift-tox-func-py38
-        - swift-tox-func-encryption-py38
-        - swift-tox-func-ec-py38
+        - swift-tox-func-py312
+        - swift-tox-func-encryption-py312
+        - swift-tox-func-ec-py312
         - swift-func-cors
         - swift-tox-func-s3api-tests-tempauth
         - swift-probetests-centos-9-stream:
@@ -779,8 +776,9 @@
     experimental:
       jobs:
         - swift-tox-py37
-        - swift-tox-py39
+        - swift-tox-py38
         - swift-tox-py310
+        - swift-tox-py311
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
         - swift-tox-func-ec-py39-centos-9-stream

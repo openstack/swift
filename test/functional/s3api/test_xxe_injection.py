@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import requests
+import six
 
 import botocore
 
@@ -56,11 +57,18 @@ class TestS3ApiXxeInjection(S3ApiBaseBoto3):
             # https://github.com/boto/boto3/issues/2192
             self.conn.meta.events.register(
                 'before-sign.s3.*', self._clear_data)
-            return self.conn.generate_presigned_url(
+            url = self.conn.generate_presigned_url(
                 method, Params=params, ExpiresIn=60)
         finally:
             self.conn.meta.events.unregister(
                 'before-sign.s3.*', self._clear_data)
+        if not params.get('Key') and '/?' not in url and not six.PY2:
+            # Some combination of dependencies seems to cause bucket requests
+            # to not get the trailing slash despite signing with it? But only
+            # new-enough versions sign with the trailing slash; py2 is stuck
+            # with old.
+            url = url.replace('?', '/?')
+        return url
 
     def test_put_bucket_acl(self):
         if not tf.cluster_info['s3api'].get('s3_acl'):
