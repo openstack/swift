@@ -23,7 +23,8 @@ import mock
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id, \
-    translate_error_response, normalize_part_number, MPUSession, BaseMPUHandler
+    translate_error_response, normalize_part_number, MPUSession, \
+    BaseMPUHandler, MPUEtagHasher
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
     HTTPPreconditionFailed, HTTPException, HTTPBadRequest
@@ -961,8 +962,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertNotIn('Content-Type', mpu_hdrs)
 
     def test_complete_mpu_bad_manifest(self):
-        ts_session = next(self.ts_iter)
-        self._setup_mpu_existence_check_call(ts_session)
 
         def do_complete(manifest_body):
             self.app.clear_calls()
@@ -1197,11 +1196,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
-    def test_complete_mpu_session_deleted(self):
+    def test_complete_mpu_session_not_found_user_object_not_found(self):
         ts_complete = next(self.ts_iter)
         registered_calls = [
             ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
              HTTPNotFound, {}),
+            ('HEAD', '/v1/a/c/o', HTTPNotFound, {}),
         ]
         for call in registered_calls:
             self.app.register(*call)
@@ -1217,6 +1217,117 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         resp = req.get_response(self.mw)
         b''.join(resp.app_iter)
         self.assertEqual(404, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+    def test_complete_mpu_session_not_found_user_object_not_same_etag(self):
+        ts_complete = next(self.ts_iter)
+        manifest = [
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ]
+        mpu_etag_hasher = MPUEtagHasher()
+        for item in manifest:
+            mpu_etag_hasher.update(item['etag'])
+        user_obj_head_resp_headers = {
+            'Content-Type': 'application/test',
+            'X-Static-Large-Object': 'True',
+            'X-Manifest-Etag': 'slo-manifest-etag',
+            'Etag': '"slo-etag"',
+            'X-Object-Sysmeta-Mpu-Etag': 'not-the-same-mpu-etag',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.mpu_id,
+        }
+
+        registered_calls = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPNotFound, {}),
+            ('HEAD', '/v1/a/c/o', HTTPOk, user_obj_head_resp_headers),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps(manifest)
+        resp = req.get_response(self.mw)
+        b''.join(resp.app_iter)
+        self.assertEqual(404, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+    def test_complete_mpu_session_not_found_user_object_not_same_id(self):
+        ts_complete = next(self.ts_iter)
+        manifest = [
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ]
+        mpu_etag_hasher = MPUEtagHasher()
+        for item in manifest:
+            mpu_etag_hasher.update(item['etag'])
+        user_obj_head_resp_headers = {
+            'Content-Type': 'application/test',
+            'X-Static-Large-Object': 'True',
+            'X-Manifest-Etag': 'slo-manifest-etag',
+            'Etag': '"slo-etag"',
+            'X-Object-Sysmeta-Mpu-Etag': mpu_etag_hasher.etag,
+            'X-Object-Sysmeta-Mpu-Upload-Id': 'not-the-same-upload-id',
+        }
+
+        registered_calls = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPNotFound, {}),
+            ('HEAD', '/v1/a/c/o', HTTPOk, user_obj_head_resp_headers),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps(manifest)
+        resp = req.get_response(self.mw)
+        b''.join(resp.app_iter)
+        self.assertEqual(404, resp.status_int)
+        expected = [call[:2] for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+    def test_complete_mpu_session_not_found_user_object_linked(self):
+        ts_complete = next(self.ts_iter)
+        manifest = [
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 2, 'etag': 'b' * 32},
+        ]
+        mpu_etag_hasher = MPUEtagHasher()
+        for item in manifest:
+            mpu_etag_hasher.update(item['etag'])
+        user_obj_head_resp_headers = {
+            'Content-Type': 'application/test',
+            'X-Static-Large-Object': 'True',
+            'X-Manifest-Etag': 'slo-manifest-etag',
+            'Etag': '"slo-etag"',
+            'X-Object-Sysmeta-Mpu-Etag': mpu_etag_hasher.etag,
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.mpu_id,
+        }
+
+        registered_calls = [
+            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
+             HTTPNotFound, {}),
+            ('HEAD', '/v1/a/c/o', HTTPOk, user_obj_head_resp_headers),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps(manifest)
+        resp = req.get_response(self.mw)
+        b''.join(resp.app_iter)
+        self.assertEqual(202, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1309,7 +1420,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Transient-Sysmeta-Mpu-State': 'created'},
             session_post_hdrs)
 
-    def test_abort_mpu_session_deleted(self):
+    def test_abort_mpu_session_not_found(self):
         ts_abort = next(self.ts_iter)
         registered_calls = [
             ('HEAD', '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
@@ -1321,14 +1432,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                     'Content-Type': 'ignored'}
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                             headers=req_hdrs)
-        req.method = 'POST'
-        req.body = json.dumps([
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ])
+        req.method = 'DELETE'
         resp = req.get_response(self.mw)
         b''.join(resp.app_iter)
-        self.assertEqual(404, resp.status_int)
+        self.assertEqual(204, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 

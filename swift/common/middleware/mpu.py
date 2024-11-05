@@ -105,6 +105,20 @@ def translate_error_response(sub_resp):
     return swob.status_map[client_resp_status_int]()
 
 
+class MPUEtagHasher(object):
+    def __init__(self):
+        self.hasher = md5(usedforsecurity=False)
+        self.part_count = 0
+
+    def update(self, part_etag):
+        self.hasher.update(binascii.a2b_hex(normalize_etag(part_etag)))
+        self.part_count += 1
+
+    @property
+    def etag(self):
+        return '%s-%d' % (self.hasher.hexdigest(), self.part_count)
+
+
 class MPUId(object):
     # ~ doesn't get url-encoded and isn't in url-safe base64 encoded unique ids
     ID_DELIMITER = '~'
@@ -593,13 +607,14 @@ class MPUSessionHandler(BaseMPUHandler):
             self.reserved_obj, self.upload_id)
         self.session_path = self.make_path(self.sessions_container,
                                            self.session_name)
-        self.session = self._load_session()
         self.req.headers.setdefault('X-Timestamp', Timestamp.now().internal)
         self.manifest_relative_path = self.make_relative_path(
             self.manifests_container, self.reserved_obj, self.upload_id)
         self.manifest_path = self.make_path(self.manifest_relative_path)
 
     def _load_session(self):
+        # TODO: check that if the request has a timestamp then it is later than
+        #   the session created time, if not then 409 or 503
         req = self.make_subrequest(method='HEAD', path=self.session_path)
         resp = req.get_response(self.app)
         if resp.status_int == 404:
@@ -619,7 +634,8 @@ class MPUSessionHandler(BaseMPUHandler):
         drain_and_close(session_resp)
 
     def _get_user_object_metadata(self):
-        req = self.make_subrequest(method='HEAD', path=self.req.path)
+        symlink_path = self.make_path(self.container, self.obj)
+        req = self.make_subrequest(method='HEAD', path=symlink_path)
         resp = req.get_response(self.app)
         if resp.is_success:
             return resp.headers
@@ -627,11 +643,12 @@ class MPUSessionHandler(BaseMPUHandler):
             return {}
 
     def upload_part(self, part_number):
-        if self.session.state != MPUSession.CREATED_STATE:
-            return HTTPNotFound()
-        if self.session.is_aborted:
-            return HTTPNotFound()
         self._authorize_write_request()
+        session = self._load_session()
+        if session.state != MPUSession.CREATED_STATE:
+            return HTTPNotFound()
+        if session.is_aborted:
+            return HTTPNotFound()
         part_path = self.make_path(self.parts_container,
                                    self.reserved_obj,
                                    self.upload_id,
@@ -657,6 +674,7 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles List Parts.
         """
         self._authorize_read_request()
+        self._load_session()  # verify existence of the upload-id
         path = self.make_path(self.parts_container)
 
         params = {'prefix': self.session_name}
@@ -697,7 +715,18 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles Abort Multipart Upload.
         """
         self._authorize_write_request()
-        if self.req.timestamp < self.session.data_timestamp:
+        try:
+            session = self._load_session()
+        except HTTPException as err:
+            if err.status_int == 404:
+                # the upload-id has already been parsed so it's valid
+                # TODO: further checks on upload-id to verify that it *ever*
+                #   existed (e.g. we could sign upload-ids that are issued)
+                return HTTPNoContent()
+            else:
+                return err
+
+        if self.req.timestamp < session.data_timestamp:
             return HTTPConflict()
 
         user_obj_metadata = self._get_user_object_metadata()
@@ -707,12 +736,12 @@ class MPUSessionHandler(BaseMPUHandler):
 
         # Update the session to be marked as aborted. This will prevent any
         # subsequent complete operation from proceeding.
-        self.session.timestamp = self.req.timestamp
-        self.session.set_aborted(self.req.timestamp)
+        session.timestamp = self.req.timestamp
+        session.set_aborted(self.req.timestamp)
         session_req = self.make_subrequest(
             'POST',
             path=self.session_path,
-            headers=self.session.get_post_headers()
+            headers=session.get_post_headers()
         )
         # TODO: check response
         session_req.get_response(self.app)
@@ -758,7 +787,7 @@ class MPUSessionHandler(BaseMPUHandler):
 
         errors = []
         parsed_manifest = []
-        mpu_etag_hasher = md5(usedforsecurity=False)
+        mpu_etag_hasher = MPUEtagHasher()
         previous_part = 0
         for part_index, part_dict in enumerate(user_manifest):
             if not isinstance(part_dict, dict):
@@ -781,14 +810,13 @@ class MPUSessionHandler(BaseMPUHandler):
                 parsed_manifest.append({
                     'path': wsgi_to_str(part_path),
                     'etag': etag})
-                mpu_etag_hasher.update(binascii.a2b_hex(etag))
+                mpu_etag_hasher.update(etag)
 
         if errors:
             error_message = b"".join(e.encode('utf8') + b"\n" for e in errors)
             raise HTTPBadRequest(error_message,
                                  headers={"Content-Type": "text/plain"})
-        mpu_etag = '%s-%d' % (mpu_etag_hasher.hexdigest(), len(user_manifest))
-        return parsed_manifest, mpu_etag
+        return parsed_manifest, mpu_etag_hasher.etag
 
     def _parse_slo_errors(self, slo_resp_dict):
         resp_dict = {'Response Status': '400 Bad Request'}
@@ -799,12 +827,12 @@ class MPUSessionHandler(BaseMPUHandler):
         resp_dict['Errors'] = errors
         return resp_dict
 
-    def _put_manifest(self, manifest, mpu_etag):
+    def _put_manifest(self, session, manifest, mpu_etag):
         # create manifest in hidden container
         manifest_headers = {
-            'X-Timestamp': self.session.data_timestamp.internal,
+            'X-Timestamp': session.data_timestamp.internal,
             'Accept': 'application/json',
-            'Content-Type': self.session.get_user_content_type(
+            'Content-Type': session.get_user_content_type(
                 default=MPU_MANIFEST_DEFAULT_CONTENT_TYPE),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
@@ -818,7 +846,7 @@ class MPUSessionHandler(BaseMPUHandler):
             #   when it was uploaded i.e. we can infer the path to a part
             #   without a GET for the manifest body.
         }
-        manifest_headers.update(self.session.get_user_metadata())
+        manifest_headers.update(session.get_user_metadata())
         # set the MPU etag override to be forwarded to the manifest container
         update_etag_override_header(
             manifest_headers, mpu_etag, [('mpu_etag', mpu_etag)])
@@ -833,13 +861,13 @@ class MPUSessionHandler(BaseMPUHandler):
             slo_callback_handler
         return manifest_req.get_response(self.app), slo_callback_handler
 
-    def _put_symlink(self, mpu_etag, mpu_bytes):
+    def _put_symlink(self, session, mpu_etag, mpu_bytes):
         # create symlink in user container pointing to manifest
         symlink_path = self.make_path(self.container, self.obj)
         symlink_headers = HeaderKeyDict({
-            'X-Timestamp': self.session.data_timestamp.internal,
+            'X-Timestamp': session.data_timestamp.internal,
             'Content-Length': '0',
-            'Content-Type': self.session.get_user_content_type(default=None),
+            'Content-Type': session.get_user_content_type(default=None),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             TGT_OBJ_SYMLINK_HDR: self.manifest_relative_path,
@@ -853,11 +881,11 @@ class MPUSessionHandler(BaseMPUHandler):
         mpu_resp = mpu_req.get_response(self.app)
         return mpu_resp
 
-    def _make_complete_upload_resp_iter(self, manifest, mpu_etag):
+    def _make_complete_upload_resp_iter(self, session, manifest, mpu_etag):
         def response_iter():
             # TODO: add support for versioning?? copied from multi_upload.py
             manifest_resp, slo_callback_handler = self._put_manifest(
-                manifest, mpu_etag)
+                session, manifest, mpu_etag)
             if not manifest_resp.is_success:
                 yield json.dumps(
                     {'Response Status': '503 Service Unavailable',
@@ -893,7 +921,7 @@ class MPUSessionHandler(BaseMPUHandler):
                 #   Alternatively, don't check - assume we'll complete the
                 #   symlink before the auditor handles the aborted session.
                 mpu_bytes = slo_callback_handler.total_bytes
-                mpu_resp = self._put_symlink(mpu_etag, mpu_bytes)
+                mpu_resp = self._put_symlink(session, mpu_etag, mpu_bytes)
                 drain_and_close(mpu_resp)
                 if mpu_resp.status_int == 201:
                     # NB: etag is response body is not quoted
@@ -927,25 +955,47 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles Complete Multipart Upload.
         """
         self._authorize_write_request()
-        if self.req.timestamp < self.session.data_timestamp:
+
+        manifest, mpu_etag = self._parse_user_manifest(self.req.body)
+        try:
+            session = self._load_session()
+        except HTTPException as err:
+            if err.status_int != 404:
+                return
+            user_obj_metadata = self._get_user_object_metadata()
+            if (user_obj_metadata.get(MPU_SYSMETA_ETAG_KEY) == mpu_etag
+                    and user_obj_metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) ==
+                    self.upload_id):
+                # session was previously completed, tolerate the retry
+                body_dict = {
+                    'Response Status': '201 Created',
+                    'Etag': mpu_etag,
+                    'Last Modified': user_obj_metadata.get('Last-Modified'),
+                    'Response Body': '',
+                    'Errors': [],
+                }
+                return HTTPAccepted(body=json.dumps(body_dict).encode('ascii'))
+            else:
+                return err
+
+        if self.req.timestamp < session.data_timestamp:
             return HTTPConflict()
 
-        if self.session.is_aborted:
+        if session.is_aborted:
             # The session has been previously aborted but not yet successfully
             # deleted. Refuse to complete. The abort may be concurrent or may
             # have failed to delete the session. Either way, we refuse to
             # complete the upload.
             return HTTPConflict()
 
-        manifest, mpu_etag = self._parse_user_manifest(self.req.body)
         # TODO: check if a manifest already exists with same mpu_etag, if it
         #   does then skip to putting the symlink to the manifest
-        self.session.timestamp = self.req.timestamp
-        self.session.state = MPUSession.COMPLETING_STATE
+        session.timestamp = self.req.timestamp
+        session.state = MPUSession.COMPLETING_STATE
         session_req = self.make_subrequest(
             'POST',
             path=self.session_path,
-            headers=self.session.get_post_headers()
+            headers=session.get_post_headers()
         )
         # TODO: check response
         session_req.get_response(self.app)
@@ -956,7 +1006,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # manifest_headers[get_container_update_override_key('etag')] = c_etag
         resp = HTTPAccepted()  # assume we're good for now...
         resp.app_iter = self._make_complete_upload_resp_iter(
-            manifest, mpu_etag)
+            session, manifest, mpu_etag)
         self.logger.debug('mpu complete_upload %s', self.req.path)
         return resp
 

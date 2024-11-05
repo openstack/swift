@@ -21,7 +21,9 @@ from uuid import uuid4
 
 import test.functional as tf
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.swob import normalize_etag, wsgi_quote, str_to_wsgi
+from swift.common.swob import wsgi_quote, str_to_wsgi
+from swift.common.middleware.mpu import MPUEtagHasher
+from swift.common.swob import normalize_etag
 from swift.common.utils import md5
 from test.functional import ResponseError
 
@@ -378,6 +380,71 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(part_bodies[0], resp.content[:5 * 1024 * 1024])
         self.assertEqual(part_bodies[1], resp.content[-5 * 1024 * 1024:])
 
+    def test_create_upload_complete_mpu_retry_complete(self):
+        part_size = 5 * 1024 * 1024
+        # create upload
+        resp = self._create_mpu(self.mpu_name)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # upload 3 parts
+        part_resp_etags = []
+        for i, x in enumerate([b'a', b'b', b'c']):
+            part_body = x * part_size
+            resp = self._upload_part(
+                self.mpu_name, upload_id, i + 1, part_body)
+            self.assertEqual(201, resp.status)
+            part_resp_etags.append(resp.getheader('Etag'))
+
+        etag_hasher = MPUEtagHasher()
+        for part_etag in part_resp_etags[:2]:
+            etag_hasher.update(part_etag)
+            exp_mpu_etag = etag_hasher.etag
+
+        # complete mpu
+        resp = self._complete_mpu(
+            self.mpu_name, upload_id, part_resp_etags[:2])
+        self.assertEqual(202, resp.status, resp.content)
+        body = json.loads(resp.content)
+        self.assertEqual('201 Created', body.get('Response Status'), body)
+        self.assertEqual(exp_mpu_etag, body.get('Etag'), body)
+        self.assertEqual([], body['Errors'], body)
+
+        # retry complete mpu with same manifest
+        resp = self._complete_mpu(
+            self.mpu_name, upload_id, part_resp_etags[:2])
+        self.assertEqual(202, resp.status, resp.content)
+        body = json.loads(resp.content)
+        self.assertEqual('201 Created', body.get('Response Status'), body)
+        self.assertEqual(exp_mpu_etag, body.get('Etag'))
+        self.assertEqual([], body['Errors'], body)
+
+        # retry complete mpu with different manifest
+        resp = self._complete_mpu(
+            self.mpu_name, upload_id, part_resp_etags[1:])
+        self.assertEqual(404, resp.status, resp.content)
+
+        # GET the user object - check
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=self.mpu_name)
+        self.assertEqual(200, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'application/test',
+             # NB: mpu etags are always quoted by MPU middleware
+             'Etag': '"%s"' % exp_mpu_etag,
+             'X-Upload-Id': upload_id,
+             'X-Parts-Count': '2',
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'Content-Length': '10485760',
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            resp.headers
+        )
+        self.assertEqual(2 * part_size, len(resp.content))
+
     def test_make_mpu_no_user_content_type(self):
         self._make_mpu(
             self.mpu_name, extra_create_headers={'content_type': None})
@@ -403,6 +470,32 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
+
+    def test_create_upload_abort_retry_abort(self):
+        part_size = 5 * 1024 * 1024
+        # create upload
+        resp = self._create_mpu(self.mpu_name)
+        self.assertEqual(202, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        # upload parts
+        part_bodies = [b'a' * part_size]
+        resp = self._upload_part(self.mpu_name, upload_id, 1, part_bodies[0])
+        self.assertEqual(201, resp.status)
+
+        # abort
+        resp = self._abort_mpu(self.mpu_name, upload_id)
+        self.assertEqual(204, resp.status)
+
+        # user object was not created
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont, obj=self.mpu_name)
+        self.assertEqual(404, resp.status)
+
+        # retry abort
+        resp = self._abort_mpu(self.mpu_name, upload_id)
+        self.assertEqual(204, resp.status)
 
     def test_upload_part(self):
         resp = self._create_mpu(self.mpu_name)
