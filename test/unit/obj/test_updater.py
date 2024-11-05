@@ -140,6 +140,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(daemon.max_objects_per_container_per_second, 0.0)
         self.assertEqual(daemon.per_container_ratelimit_buckets, 1000)
         self.assertEqual(daemon.max_deferred_updates, 10000)
+        self.assertEqual(daemon.oldest_async_pendings.max_entries, 100)
+        self.assertEqual(daemon.dump_count, 5)
 
         # non-defaults
         conf = {
@@ -153,6 +155,8 @@ class TestObjectUpdater(unittest.TestCase):
             'max_objects_per_container_per_second': '1.2',
             'per_container_ratelimit_buckets': '100',
             'max_deferred_updates': '0',
+            'async_tracker_max_entries': '200',
+            'async_tracker_dump_count': '10',
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
         self.assertEqual(daemon.devices, '/some/where/else')
@@ -165,6 +169,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(daemon.max_objects_per_container_per_second, 1.2)
         self.assertEqual(daemon.per_container_ratelimit_buckets, 100)
         self.assertEqual(daemon.max_deferred_updates, 0)
+        self.assertEqual(daemon.oldest_async_pendings.max_entries, 200)
+        self.assertEqual(daemon.dump_count, 10)
 
         # check deprecated option
         daemon = object_updater.ObjectUpdater({'slowdown': '0.04'},
@@ -189,6 +195,8 @@ class TestObjectUpdater(unittest.TestCase):
         check_bad({'max_deferred_updates': '-1'})
         check_bad({'max_deferred_updates': '1.1'})
         check_bad({'max_deferred_updates': 'auto'})
+        check_bad({'async_tracker_max_entries': '-10'})
+        check_bad({'async_tracker_dump_count': '-5'})
 
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
@@ -2155,6 +2163,146 @@ class TestRateLimiterBucket(unittest.TestCase):
         buckets.put(b1)
         buckets.put(b2)
         self.assertEqual([b2, b1], [buckets.get_nowait() for _ in range(2)])
+
+
+class TestOldestAsyncPendingTracker(unittest.TestCase):
+    def setUp(self):
+        self.manager = object_updater.OldestAsyncPendingTracker(3)
+
+    def test_add_update_new_pair(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.assertEqual(self.manager.ac_to_timestamp[('a1', 'c1')], 1000.0)
+        self.assertIn((1000.0, ('a1', 'c1')), self.manager.sorted_entries)
+
+    def test_add_update_existing_pair(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.assertIn((1000.0, ('a1', 'c1')), self.manager.sorted_entries)
+        self.manager.add_update('a1', 'c1', 900.0)
+        self.assertEqual(self.manager.ac_to_timestamp[('a1', 'c1')], 900.0)
+        self.assertNotIn((1000.0, ('a1', 'c1')), self.manager.sorted_entries)
+        self.assertIn((900.0, ('a1', 'c1')), self.manager.sorted_entries)
+        self.manager.add_update('a1', 'c1', 1100.0)
+        self.assertEqual(self.manager.ac_to_timestamp[('a1', 'c1')], 900.0)
+        self.assertNotIn((1100.0, ('a1', 'c1')), self.manager.sorted_entries)
+        self.assertIn((900.0, ('a1', 'c1')), self.manager.sorted_entries)
+
+    def test_eviction_when_limit_exceeded(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 2000.0)
+        self.manager.add_update('a3', 'c3', 3000.0)
+
+        self.manager.add_update('a4', 'c4', 2500.0)
+        self.assertIn(('a4', 'c4'), self.manager.ac_to_timestamp)
+        self.assertNotIn(('a3', 'c3'), self.manager.ac_to_timestamp)
+
+    def test_newest_pairs_not_added_when_limit_exceeded(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 2000.0)
+        self.manager.add_update('a3', 'c3', 3000.0)
+
+        self.manager.add_update('a4', 'c4', 4000.0)
+        self.assertNotIn(('a4', 'c4'), self.manager.ac_to_timestamp)
+        self.assertIn(('a3', 'c3'), self.manager.ac_to_timestamp)
+
+    def test_get_n_oldest_timestamp_acs(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 2000.0)
+        self.manager.add_update('a3', 'c3', 3000.0)
+
+        oldest_pairs = self.manager.get_n_oldest_timestamp_acs(2)
+        expected_output = {
+            'oldest_count': 2,
+            'oldest_entries': [
+                {'timestamp': 1000.0, 'account': 'a1', 'container': 'c1'},
+                {'timestamp': 2000.0, 'account': 'a2', 'container': 'c2'},
+            ],
+        }
+        self.assertEqual(oldest_pairs, expected_output)
+
+    def test_get_oldest_timestamp(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 2000.0)
+
+        oldest_timestamp = self.manager.get_oldest_timestamp()
+        self.assertEqual(oldest_timestamp, 1000.0)
+
+        self.manager.add_update('a3', 'c3', 3000.0)
+        oldest_timestamp = self.manager.get_oldest_timestamp()
+        self.assertEqual(oldest_timestamp, 1000.0)
+
+        self.manager.ac_to_timestamp.clear()
+        self.manager.sorted_entries = []
+        oldest_timestamp = self.manager.get_oldest_timestamp()
+        self.assertEqual(oldest_timestamp, None)
+
+    def test_get_oldest_timestamp_age(self):
+        current_time = time()
+        self.manager.add_update('a1', 'c1', current_time - 200.0)
+
+        age = self.manager.get_oldest_timestamp_age()
+        self.assertAlmostEqual(age, 200.0, delta=1)
+
+    def test_get_oldest_timestamp_age_no_updates(self):
+        age = self.manager.get_oldest_timestamp_age()
+        self.assertEqual(age, None)
+
+    def test_eviction_when_multiple_same_timestamps(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 1000.0)
+        self.manager.add_update('a3', 'c3', 1000.0)
+
+        self.manager.add_update('a4', 'c4', 500.0)
+
+        expected_present = [('a1', 'c1'), ('a2', 'c2'), ('a4', 'c4')]
+        expected_absent = [('a3', 'c3')]
+
+        for account_container in expected_present:
+            self.assertIn(account_container, self.manager.ac_to_timestamp)
+
+        for account_container in expected_absent:
+            self.assertNotIn(account_container, self.manager.ac_to_timestamp)
+
+        self.assertEqual(len(self.manager.ac_to_timestamp), 3)
+
+    def test_reset(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 2000.0)
+        self.manager.reset()
+        self.assertEqual(len(self.manager.ac_to_timestamp), 0)
+        self.assertEqual(len(self.manager.sorted_entries), 0)
+
+    def test_memory_usage(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        memory_usage_before_reset = self.manager.get_memory_usage()
+        self.assertGreater(memory_usage_before_reset, 0)
+
+        self.manager.reset()
+        memory_usage_after_reset = self.manager.get_memory_usage()
+        self.assertLess(memory_usage_after_reset, memory_usage_before_reset)
+
+    def test_no_eviction_when_below_max_entries(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 2000.0)
+
+        self.assertIn(('a1', 'c1'), self.manager.ac_to_timestamp)
+        self.assertIn(('a2', 'c2'), self.manager.ac_to_timestamp)
+        self.assertEqual(len(self.manager.ac_to_timestamp), 2)
+
+    def test_get_n_oldest_timestamp_acs_exceeding_dump_count(self):
+        self.manager.add_update('a1', 'c1', 1000.0)
+        self.manager.add_update('a2', 'c2', 2000.0)
+        self.manager.add_update('a3', 'c3', 3000.0)
+
+        oldest_pairs = self.manager.get_n_oldest_timestamp_acs(5)
+        expected_output = {
+            'oldest_count': 3,
+            'oldest_entries': [
+                {'timestamp': 1000.0, 'account': 'a1', 'container': 'c1'},
+                {'timestamp': 2000.0, 'account': 'a2', 'container': 'c2'},
+                {'timestamp': 3000.0, 'account': 'a3', 'container': 'c3'},
+            ],
+        }
+        self.assertEqual(oldest_pairs, expected_output)
 
 
 class TestSweepStats(unittest.TestCase):
