@@ -18,7 +18,7 @@ import json
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_ABORTED_MARKER_SUFFIX, MPU_MARKER_CONTENT_TYPE, \
-    MPU_GENERIC_MARKER_SUFFIX
+    MPU_GENERIC_MARKER_SUFFIX, MPUItem
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR
 from swift.common.request_helpers import split_reserved_name, get_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
@@ -46,36 +46,6 @@ def yield_item_batches(broker, start_row, max_batches, batch_size):
             yield items
         else:
             remaining = 0
-
-
-class Item(object):
-    def __init__(self, name, created_at, size=0, content_type='',
-                 etag='', deleted=0, **kwargs):
-        self._name = name
-        self.timestamp = Timestamp(created_at)
-        self.size = size
-        self.content_type = content_type
-        self.etag = etag
-        self.deleted = deleted
-        self.kwargs = kwargs
-
-    @property
-    def name(self):
-        return str(self._name)
-
-    @property
-    def user_name(self):
-        return self._name.name
-
-    def __iter__(self):
-        yield 'name', str(self.name)
-        yield 'created_at', self.timestamp.internal
-        yield 'size', self.size
-        yield 'etag', self.etag
-        yield 'deleted', self.deleted
-        yield 'content_type', self.content_type
-        for k, v in self.kwargs.items():
-            yield k, v
 
 
 def extract_upload_prefix(name):
@@ -192,7 +162,7 @@ class BaseMpuBrokerAuditor(object):
             limit, '', '', prefix, None, include_deleted=include_deleted,
             transform_func=transform_func, allow_reserved=True)
         self.debug('get_items %s', rows)
-        return [Item(**row) for row in rows]
+        return [MPUItem.from_db_record(row) for row in rows]
 
     def _get_item_with_prefix(self, name, include_deleted=False):
         self.debug('get_item %s', name)
@@ -288,7 +258,7 @@ class BaseMpuBrokerAuditor(object):
             for item_dict in batch:
                 num_processed += 1
                 try:
-                    item = Item(**item_dict)
+                    item = MPUItem.from_db_record(item_dict)
                     self.debug('auditing %s %s',
                                self.resource_type, dict(item))
                     if not item.deleted:

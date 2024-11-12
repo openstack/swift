@@ -25,7 +25,7 @@ from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import generate_unique_id, drain_and_close, \
-    config_positive_int_value, reiterate, parse_content_type
+    config_positive_int_value, reiterate, parse_content_type, decode_timestamps
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
@@ -70,6 +70,7 @@ def strip_mpu_sysmeta_prefix(key):
 MPU_SYSMETA_UPLOAD_ID_KEY = get_mpu_sysmeta_key('upload-id')
 MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
 MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
+MPU_SYSMETA_USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('content-type')
 
 
 def get_upload_id(req):
@@ -139,7 +140,66 @@ class MPUId(object):
         return cls(uuid, Timestamp(ts))
 
 
-class MPUSession(object):
+class MPUItem(object):
+    def __init__(self, name, meta_timestamp, data_timestamp=None,
+                 ctype_timestamp=None,
+                 size=0, content_type='', etag='', deleted=0,
+                 storage_policy_index=0, **kwargs):
+        self._name = name
+        self.timestamp = self.meta_timestamp = meta_timestamp
+        self.data_timestamp = data_timestamp or meta_timestamp
+        self.ctype_timestamp = ctype_timestamp or meta_timestamp
+        self.timestamp = self.meta_timestamp  # for clarity
+        self.size = size
+        self.content_type = content_type
+        self.etag = etag
+        self.deleted = deleted
+        self.storage_policy_index = storage_policy_index
+        self.kwargs = kwargs
+
+    @property
+    def name(self):
+        return str(self._name)
+
+    def __iter__(self):
+        yield 'name', self.name
+        yield 'data_timestamp', self.data_timestamp
+        yield 'ctype_timestamp', self.ctype_timestamp
+        yield 'meta_timestamp', self.meta_timestamp
+        yield 'size', self.size
+        yield 'etag', self.etag
+        yield 'deleted', self.deleted
+        yield 'content_type', self.content_type
+        yield 'storage_policy_index', self.storage_policy_index
+        for k, v in self.kwargs.items():
+            yield k, v
+
+    @classmethod
+    def from_db_record(cls, row):
+        data_timestamp, ctype_timestamp, meta_timestamp = \
+            decode_timestamps(row['created_at'])
+        return cls(data_timestamp=data_timestamp,
+                   ctype_timestamp=ctype_timestamp,
+                   meta_timestamp=meta_timestamp,
+                   **row)
+
+    def to_db_record(self):
+        """
+        Returns a dict representation of the item in the form required by
+        ``ContainerBroker.put_record()``.
+        """
+        return {'name': self.name,
+                'created_at': self.data_timestamp.internal,
+                'size': self.size,
+                'content_type': self.content_type,
+                'etag': self.etag,
+                'deleted': self.deleted,
+                'storage_policy_index': self.storage_policy_index,
+                'ctype_timestamp': self.ctype_timestamp.internal,
+                'meta_timestamp': self.meta_timestamp.internal}
+
+
+class MPUSession(MPUItem):
     """
     Encapsulates the state of an MPU session as it progresses from being
     created to being either completed or aborted.
@@ -160,27 +220,30 @@ class MPUSession(object):
     'completed' state at the end of a completeUpload, after the associated
     user-namespace object has been linked to a manifest object.
     """
-    CREATED_TIMESTAMP_KEY = 'X-Backend-Data-Timestamp'
-    TIMESTAMP_KEY = 'X-Timestamp'
-    USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('content-type')
     STATE_KEY = get_mpu_transient_sysmeta_key('state')
     CREATED_STATE = 'created'
     COMPLETING_STATE = 'completing'
     STATES = (CREATED_STATE, COMPLETING_STATE)
 
     def __init__(self, name,
-                 timestamp,
+                 meta_timestamp,
+                 data_timestamp=None,
+                 ctype_timestamp=None,
                  content_type=MPU_SESSION_CREATED_CONTENT_TYPE,
-                 state=CREATED_STATE, headers=None):
-        self.name = name
-        self.timestamp = timestamp
-        self.content_type = content_type
+                 state=CREATED_STATE,
+                 headers=None,
+                 **kwargs):
+        super(MPUSession, self).__init__(
+            name=name,
+            meta_timestamp=meta_timestamp,
+            data_timestamp=data_timestamp,
+            ctype_timestamp=ctype_timestamp,
+            content_type=content_type,
+            **kwargs)
+        self.headers = HeaderKeyDict(headers)
         # TODO: _state is going to go away in a following patch when the
         #   mpu-auditor learns to deal with sessions
         self._state = state
-        self.headers = HeaderKeyDict(headers)
-        self.created_timestamp = Timestamp(self.headers.get(
-            self.CREATED_TIMESTAMP_KEY, timestamp))
 
     @classmethod
     def from_user_headers(cls, name, headers):
@@ -196,7 +259,7 @@ class MPUSession(object):
         :param headers: a dict of headers
         """
         headers = HeaderKeyDict(headers)
-        timestamp = Timestamp(headers.get(cls.TIMESTAMP_KEY, 0))
+        timestamp = Timestamp(headers.get('X-Timestamp', 0))
         backend_headers = {}
         for k, v in headers.items():
             # User metadata is stored as sysmeta on the session because it must
@@ -205,11 +268,11 @@ class MPUSession(object):
             if is_user_meta('object', k):
                 backend_headers[get_mpu_sysmeta_key(k)] = v
             if k.lower() == 'content-type':
-                backend_headers[cls.USER_CONTENT_TYPE_KEY] = v
+                backend_headers[MPU_SYSMETA_USER_CONTENT_TYPE_KEY] = v
         return cls(name, timestamp, headers=backend_headers)
 
     @classmethod
-    def from_backend_headers(cls, name, headers):
+    def from_backend_headers(cls, name, backend_headers):
         """
         Creates an ``MPUSession`` object for an existing session from the
         headers returned with a backend session HEAD request.
@@ -217,29 +280,33 @@ class MPUSession(object):
         :param name: the unique name of the session
         :param headers: a dict of headers
         """
-        timestamp = Timestamp(headers.get(cls.TIMESTAMP_KEY, 0))
-        state = headers.get(cls.STATE_KEY)
-        content_type = headers.get('content-type')
+        timestamp = Timestamp(backend_headers.get('X-Timestamp', 0))
+        data_timestamp = Timestamp(
+            backend_headers.get('X-Backend-Data-Timestamp', timestamp))
+        content_type = backend_headers.get('content-type')
+        state = backend_headers.get(cls.STATE_KEY)
         return cls(name, timestamp, content_type=content_type, state=state,
-                   headers=headers)
+                   headers=backend_headers, data_timestamp=data_timestamp)
 
     @property
     def is_active(self):
-        return self.content_type == MPU_SESSION_CREATED_CONTENT_TYPE
+        return not (self.is_completed or self.is_aborted)
 
     @property
     def is_aborted(self):
         return self.content_type == MPU_SESSION_ABORTED_CONTENT_TYPE
 
-    def set_aborted(self):
+    def set_aborted(self, timestamp):
         self.content_type = MPU_SESSION_ABORTED_CONTENT_TYPE
+        self.ctype_timestamp = timestamp
 
     @property
     def is_completed(self):
         return self.content_type == MPU_SESSION_COMPLETED_CONTENT_TYPE
 
-    def set_completed(self):
+    def set_completed(self, timestamp):
         self.content_type = MPU_SESSION_COMPLETED_CONTENT_TYPE
+        self.ctype_timestamp = timestamp
 
     @property
     def state(self):
@@ -254,18 +321,20 @@ class MPUSession(object):
 
     def get_put_headers(self):
         headers = HeaderKeyDict({
-            self.TIMESTAMP_KEY: self.timestamp.internal,
-            self.STATE_KEY: self.state,
+            'X-Timestamp': self.data_timestamp.internal,
             'Content-Type': self.content_type,
-            'Content-Length': '0'})
+            'Content-Length': '0',
+            self.STATE_KEY: self.state,
+        })
         headers.update(self.headers)
         return headers
 
     def get_post_headers(self):
-        return HeaderKeyDict(
-            {self.TIMESTAMP_KEY: self.timestamp.internal,
-             self.STATE_KEY: self.state,
-             'Content-Type': self.content_type})
+        return HeaderKeyDict({
+            'X-Timestamp': self.timestamp.internal,
+            'Content-Type': self.content_type,
+            self.STATE_KEY: self.state,
+        })
 
     def get_user_metadata(self):
         # TODO: add x-delete-at
@@ -277,7 +346,7 @@ class MPUSession(object):
         return user_metadata
 
     def get_user_content_type(self, default=None):
-        return self.headers.get(self.USER_CONTENT_TYPE_KEY, default)
+        return self.headers.get(MPU_SYSMETA_USER_CONTENT_TYPE_KEY, default)
 
 
 class BaseMPUHandler(object):
@@ -628,7 +697,7 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles Abort Multipart Upload.
         """
         self._authorize_write_request()
-        if self.req.timestamp < self.session.created_timestamp:
+        if self.req.timestamp < self.session.data_timestamp:
             return HTTPConflict()
 
         user_obj_metadata = self._get_user_object_metadata()
@@ -639,7 +708,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # Update the session to be marked as aborted. This will prevent any
         # subsequent complete operation from proceeding.
         self.session.timestamp = self.req.timestamp
-        self.session.set_aborted()
+        self.session.set_aborted(self.req.timestamp)
         session_req = self.make_subrequest(
             'POST',
             path=self.session_path,
@@ -733,7 +802,7 @@ class MPUSessionHandler(BaseMPUHandler):
     def _put_manifest(self, manifest, mpu_etag):
         # create manifest in hidden container
         manifest_headers = {
-            'X-Timestamp': self.session.created_timestamp.internal,
+            'X-Timestamp': self.session.data_timestamp.internal,
             'Accept': 'application/json',
             'Content-Type': self.session.get_user_content_type(
                 default=MPU_MANIFEST_DEFAULT_CONTENT_TYPE),
@@ -768,7 +837,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # create symlink in user container pointing to manifest
         symlink_path = self.make_path(self.container, self.obj)
         symlink_headers = HeaderKeyDict({
-            'X-Timestamp': self.session.created_timestamp.internal,
+            'X-Timestamp': self.session.data_timestamp.internal,
             'Content-Length': '0',
             'Content-Type': self.session.get_user_content_type(default=None),
             ALLOW_RESERVED_NAMES: 'true',
@@ -858,7 +927,7 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles Complete Multipart Upload.
         """
         self._authorize_write_request()
-        if self.req.timestamp < self.session.created_timestamp:
+        if self.req.timestamp < self.session.data_timestamp:
             return HTTPConflict()
 
         if self.session.is_aborted:
