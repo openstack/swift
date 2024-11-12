@@ -190,24 +190,45 @@ class TestMPUSession(unittest.TestCase):
         self.assertFalse(sess.is_completed)
 
     def test_get_user_metadata(self):
-        headers = {'X-Object-Sysmeta-Mpu-X-Object-Meta-Fruit': 'apple',
-                   'X-Object-Sysmeta-Mpu-Content-Type': 'user/type'}
-        sess = MPUSession('mysession', Timestamp(123),
-                          headers=headers)
-        exp = {'X-Object-Meta-Fruit': 'apple'}
+        headers = {
+            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
+            'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
+            'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
+            'X-Object-Sysmeta-Mpu-User-Content-Encoding': 'none',
+            'X-Object-Sysmeta-Mpu-User-Content-Language': 'en-US',
+            'X-Object-Sysmeta-Mpu-User-Cache-Control': 'no-cache',
+            'X-Object-Sysmeta-Mpu-User-Expires':
+                'Wed, 25 Dec 2024 04:04:04 GMT',
+        }
+        sess = MPUSession('mysession', Timestamp(123), headers=headers)
+        exp = {
+            'X-Object-Meta-Fruit': 'apple',
+            'Content-Disposition': 'attachment',
+            'Content-Encoding': 'none',
+            'Content-Language': 'en-US',
+            'Cache-Control': 'no-cache',
+            'Expires': 'Wed, 25 Dec 2024 04:04:04 GMT',
+        }
         self.assertEqual(exp, sess.get_user_metadata())
 
     def test_get_user_content_type(self):
-        headers = {'X-Object-Sysmeta-Mpu-X-Object-Meta-Fruit': 'apple',
+        headers = {'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
                    'X-Object-Sysmeta-Mpu-Content-Type': 'user/type'}
         sess = MPUSession('mysession', Timestamp(123),
                           headers=headers)
         self.assertEqual('user/type', sess.get_user_content_type())
 
     def test_from_user_headers(self):
-        headers = {'x-object-meta-fruit': 'apple',
-                   'x-timestamp': '12345',
-                   'content-type': 'user/type'}
+        headers = {
+            'x-object-meta-fruit': 'apple',
+            'x-timestamp': '12345',
+            'content-type': 'user/type',
+            'Content-Disposition': 'attachment',
+            'Content-Encoding': 'none',
+            'Content-Language': 'en-US',
+            'Cache-Control': 'no-cache',
+            'Expires': 'Wed, 25 Dec 2024 04:04:04 GMT',
+        }
         sess = MPUSession.from_user_headers('mysession', headers=headers)
         self.assertEqual(Timestamp(12345), sess.meta_timestamp)
         self.assertEqual(Timestamp(12345), sess.data_timestamp)
@@ -216,7 +237,14 @@ class TestMPUSession(unittest.TestCase):
         self.assertEqual('created', sess.state)
         exp_sess_headers = {
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
-            'X-Object-Sysmeta-Mpu-X-Object-Meta-Fruit': 'apple'}
+            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
+            'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
+            'X-Object-Sysmeta-Mpu-User-Content-Encoding': 'none',
+            'X-Object-Sysmeta-Mpu-User-Content-Language': 'en-US',
+            'X-Object-Sysmeta-Mpu-User-Cache-Control': 'no-cache',
+            'X-Object-Sysmeta-Mpu-User-Expires':
+                'Wed, 25 Dec 2024 04:04:04 GMT',
+        }
         self.assertEqual(exp_sess_headers, sess.headers)
         self.assertFalse(sess.is_aborted)
         self.assertFalse(sess.is_completed)
@@ -226,8 +254,15 @@ class TestMPUSession(unittest.TestCase):
             'Content-Type': 'application/x-mpu-session-created',
             'X-Timestamp': '0000012345.00000',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
-            'X-Object-Sysmeta-Mpu-X-Object-Meta-Fruit': 'apple',
-            'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
+            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
+            'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
+            'X-Object-Sysmeta-Mpu-User-Content-Encoding': 'none',
+            'X-Object-Sysmeta-Mpu-User-Content-Language': 'en-US',
+            'X-Object-Sysmeta-Mpu-User-Cache-Control': 'no-cache',
+            'X-Object-Sysmeta-Mpu-User-Expires':
+                'Wed, 25 Dec 2024 04:04:04 GMT',
+            'X-Object-Transient-Sysmeta-Mpu-State': 'created',
+        }
         self.assertEqual(exp_put_headers, sess.get_put_headers())
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-created',
@@ -242,7 +277,13 @@ class TestMPUSession(unittest.TestCase):
             'X-Backend-Data-Timestamp': '0000012345.00000',
             'X-Timestamp': '0000067890.00000',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
-            'X-Object-Sysmeta-Mpu-X-Object-Meta-Fruit': 'apple',
+            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
+            'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
+            'X-Object-Sysmeta-Mpu-User-Content-Encoding': 'none',
+            'X-Object-Sysmeta-Mpu-User-Content-Language': 'en-US',
+            'X-Object-Sysmeta-Mpu-User-Cache-Control': 'no-cache',
+            'X-Object-Sysmeta-Mpu-User-Expires':
+                'Wed, 25 Dec 2024 04:04:04 GMT',
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'})
         sess = MPUSession.from_backend_headers('mysession',
                                                backend_headers=headers)
@@ -370,7 +411,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Content-Type': 'application/x-mpu-session-created',
             'X-Backend-Data-Timestamp': ts_session.internal,
             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-            'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
+            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
             'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
         })
         headers.update(extra_headers or {})
@@ -410,7 +451,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah'},
+             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah'},
             self.app.headers[-1])
 
     def test_create_mpu_with_x_timestamp(self):
@@ -426,7 +467,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah'},
+             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah'},
             self.app.headers[-1])
 
     def test_create_mpu_with_content_type(self):
@@ -441,7 +482,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-             'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
+             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/test'},
             self.app.headers[-1])
 
@@ -1340,7 +1381,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Content-Type': 'application/x-mpu-session-created',
             'X-Backend-Data-Timestamp': ts_session.internal,
             'X-Object-Transient-Sysmeta-Mpu-State': 'created',
-            'X-Object-Sysmeta-Mpu-X-Object-Meta-Foo': 'blah',
+            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
             'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
         }
         if extra_session_resp_headers:

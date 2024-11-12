@@ -264,7 +264,15 @@ class TestMPU(BaseTestMPU):
     def test_create_upload_complete_read_mpu(self):
         part_size = 5 * 1024 * 1024
         # create upload
-        resp = self._create_mpu(self.mpu_name)
+        user_headers = {
+            'Content-Disposition': 'attachment',
+            'Content-Encoding': 'none',
+            'Content-Language': 'en-US',
+            'Cache-Control': 'no-cache',
+            'Expires': 'Wed, 25 Dec 2024 04:04:04 GMT',
+        }
+        resp = self._create_mpu(self.mpu_name,
+                                extra_create_headers=user_headers)
         self.assertEqual(202, resp.status)
         self.assertIn(b'Accepted', resp.content)
         self.assertEqual(
@@ -361,21 +369,22 @@ class TestMPU(BaseTestMPU):
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.mpu_name)
         self.assertEqual(200, resp.status)
-        self.assertEqual(
-            {'Content-Type': 'application/test',
-             # NB: mpu etags are always quoted by MPU middleware
-             'Etag': '"%s"' % exp_mpu_etag,
-             'X-Upload-Id': upload_id,
-             'X-Parts-Count': '2',
-             'Last-Modified': mock.ANY,
-             'X-Timestamp': mock.ANY,
-             'Accept-Ranges': 'bytes',
-             'Content-Length': '10485760',
-             'X-Trans-Id': mock.ANY,
-             'X-Openstack-Request-Id': mock.ANY,
-             'Date': mock.ANY},
-            resp.headers
-        )
+        exp_headers = {
+            'Content-Type': 'application/test',
+            # NB: mpu etags are always quoted by MPU middleware
+            'Etag': '"%s"' % exp_mpu_etag,
+            'X-Upload-Id': upload_id,
+            'X-Parts-Count': '2',
+            'Last-Modified': mock.ANY,
+            'X-Timestamp': mock.ANY,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': '10485760',
+            'X-Trans-Id': mock.ANY,
+            'X-Openstack-Request-Id': mock.ANY,
+            'Date': mock.ANY,
+        }
+        exp_headers.update(user_headers)
+        self.assertEqual(exp_headers, resp.headers)
         self.assertEqual(2 * part_size, len(resp.content))
         self.assertEqual(part_bodies[0], resp.content[:5 * 1024 * 1024])
         self.assertEqual(part_bodies[1], resp.content[-5 * 1024 * 1024:])

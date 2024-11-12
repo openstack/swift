@@ -44,6 +44,7 @@ DEFAULT_MAX_UPLOADS = 1000
 MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
 MPU_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
+MPU_SYSMETA_USER_PREFIX = MPU_SYSMETA_PREFIX + 'user-'
 MPU_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-mpu-'
 MPU_SESSION_CREATED_CONTENT_TYPE = 'application/x-mpu-session-created'
 MPU_SESSION_ABORTED_CONTENT_TYPE = 'application/x-mpu-session-aborted'
@@ -279,9 +280,15 @@ class MPUSession(MPUItem):
             # User metadata is stored as sysmeta on the session because it must
             # persist when there are subsequent POSTs to the session.
             k = k.lower()
-            if is_user_meta('object', k):
-                backend_headers[get_mpu_sysmeta_key(k)] = v
-            if k.lower() == 'content-type':
+            if is_user_meta('object', k) or k in (
+                    'content-disposition',
+                    'content-encoding',
+                    'content-language',
+                    'cache-control',
+                    'expires',
+            ):
+                backend_headers[MPU_SYSMETA_USER_PREFIX + k] = v
+            elif k == 'content-type':
                 backend_headers[MPU_SYSMETA_USER_CONTENT_TYPE_KEY] = v
         return cls(name, timestamp, headers=backend_headers)
 
@@ -351,12 +358,10 @@ class MPUSession(MPUItem):
         })
 
     def get_user_metadata(self):
-        # TODO: add x-delete-at
         user_metadata = {}
         for key, val in self.headers.items():
-            stripped_key = strip_mpu_sysmeta_prefix(key)
-            if is_user_meta('object', stripped_key):
-                user_metadata[stripped_key] = val
+            if key.lower().startswith(MPU_SYSMETA_USER_PREFIX):
+                user_metadata[key[len(MPU_SYSMETA_USER_PREFIX):]] = val
         return user_metadata
 
     def get_user_content_type(self, default=None):
