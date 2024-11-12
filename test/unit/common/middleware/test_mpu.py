@@ -161,8 +161,8 @@ class TestMPUSession(unittest.TestCase):
     def test_init(self):
         sess = MPUSession('mysession', Timestamp(123))
         self.assertEqual('mysession', sess.name)
-        self.assertEqual(Timestamp(123), sess.timestamp)
-        self.assertEqual(Timestamp(123), sess.created_timestamp)
+        self.assertEqual(Timestamp(123), sess.meta_timestamp)
+        self.assertEqual(Timestamp(123), sess.data_timestamp)
         self.assertEqual('application/x-mpu-session-created',
                          sess.content_type)
         self.assertEqual('created', sess.state)
@@ -178,8 +178,8 @@ class TestMPUSession(unittest.TestCase):
                           state=MPUSession.COMPLETING_STATE,
                           headers=headers)
         self.assertEqual('mysession', sess.name)
-        self.assertEqual(Timestamp(123), sess.timestamp)
-        self.assertEqual(Timestamp(123), sess.created_timestamp)
+        self.assertEqual(Timestamp(123), sess.meta_timestamp)
+        self.assertEqual(Timestamp(123), sess.data_timestamp)
         self.assertEqual('application/x-mpu-session-aborted',
                          sess.content_type)
         self.assertEqual('completing', sess.state)
@@ -208,8 +208,8 @@ class TestMPUSession(unittest.TestCase):
                    'x-timestamp': '12345',
                    'content-type': 'user/type'}
         sess = MPUSession.from_user_headers('mysession', headers=headers)
-        self.assertEqual(Timestamp(12345), sess.timestamp)
-        self.assertEqual(Timestamp(12345), sess.created_timestamp)
+        self.assertEqual(Timestamp(12345), sess.meta_timestamp)
+        self.assertEqual(Timestamp(12345), sess.data_timestamp)
         self.assertEqual('application/x-mpu-session-created',
                          sess.content_type)
         self.assertEqual('created', sess.state)
@@ -243,9 +243,10 @@ class TestMPUSession(unittest.TestCase):
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
             'X-Object-Sysmeta-Mpu-X-Object-Meta-Fruit': 'apple',
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'})
-        sess = MPUSession.from_backend_headers('mysession', headers=headers)
-        self.assertEqual(Timestamp(67890), sess.timestamp)
-        self.assertEqual(Timestamp(12345), sess.created_timestamp)
+        sess = MPUSession.from_backend_headers('mysession',
+                                               backend_headers=headers)
+        self.assertEqual(Timestamp(67890), sess.meta_timestamp)
+        self.assertEqual(Timestamp(12345), sess.data_timestamp)
         self.assertEqual('application/x-mpu-session', sess.content_type)
         self.assertEqual('created', sess.state)
         exp_post_headers = {
@@ -261,14 +262,17 @@ class TestMPUSession(unittest.TestCase):
             'X-Timestamp': '0000000123.00000',
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
+        self.assertTrue(sess.is_active)
+        self.assertFalse(sess.is_completed)
 
-        sess.timestamp = Timestamp(345)
-        sess.set_completed()
+        sess.set_completed(Timestamp(345))
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-completed',
-            'X-Timestamp': '0000000345.00000',
+            'X-Timestamp': '0000000123.00000',
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
+        self.assertFalse(sess.is_active)
+        self.assertTrue(sess.is_completed)
 
     def test_set_aborted(self):
         sess = MPUSession('mysession', Timestamp(123))
@@ -278,11 +282,10 @@ class TestMPUSession(unittest.TestCase):
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
 
-        sess.timestamp = Timestamp(345)
-        sess.set_aborted()
+        sess.set_aborted(Timestamp(345))
         exp_post_headers = {
             'Content-Type': 'application/x-mpu-session-aborted',
-            'X-Timestamp': '0000000345.00000',
+            'X-Timestamp': '0000000123.00000',
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
 
