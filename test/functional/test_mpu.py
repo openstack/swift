@@ -515,6 +515,17 @@ class TestMPU(BaseTestMPU):
         resp = self._upload_part(self.mpu_name, upload_id, 1, part_body)
         self.assertEqual(201, resp.status)
 
+    def test_upload_part_bad_etag(self):
+        resp = self._create_mpu(self.mpu_name)
+        self.assertEqual(202, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+        part_body = b'a' * self.part_size
+        headers = {'Etag': 'you must be mistaken'}
+        resp = self._upload_part(self.mpu_name, upload_id, 1, part_body,
+                                 headers=headers)
+        self.assertEqual(422, resp.status)
+
     def test_upload_part_copy_using_PUT(self):
         # upload source object
         src_name = uuid4().hex

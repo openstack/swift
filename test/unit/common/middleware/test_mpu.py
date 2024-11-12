@@ -554,7 +554,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                           'limit': '99'},
                          params)
 
-    def _do_test_upload_part(self, part_str):
+    def _do_test_upload_part(self, part_str, state):
         self.app.clear_calls()
         ts_session = next(self.ts_iter)
         ts_part = next(self.ts_iter)
@@ -564,7 +564,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              HTTPOk,
              {'X-Timestamp': ts_session.internal,
               'Content-Type': 'application/x-mpu-session-created',
-              'X-Object-Transient-Sysmeta-Mpu-State': 'created'}),
+              'X-Object-Transient-Sysmeta-Mpu-State': state}),
             ('PUT',
              '/v1/a/\x00mpu_parts\x00c/\x00o/%s/000001' % self.mpu_id,
              HTTPCreated,
@@ -574,6 +574,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank(
             '/v1/a/c/o?upload-id=%s&part-number=%s' % (self.mpu_id, part_str),
             environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Etag': 'test-etag',
+                     'Transfer-Encoding': 'test-encoding'},
             body=b'testing')
         resp = req.get_response(self.mw)
         self.assertEqual(201, resp.status_int)
@@ -582,10 +584,19 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual('7', resp.headers['Content-Length'])
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
+        actual_put_hdrs = self.app.headers[-1]
+        exp_put_hdrs = {'Content-Length': '7',
+                        'Host': 'localhost:80',
+                        'User-Agent': 'Swift',
+                        'Etag': 'test-etag',
+                        'Transfer-Encoding': 'test-encoding',
+                        'X-Backend-Allow-Reserved-Names': 'true'}
+        self.assertEqual(exp_put_hdrs, actual_put_hdrs)
 
     def test_upload_part(self):
-        self._do_test_upload_part('1')
-        self._do_test_upload_part('000001')
+        self._do_test_upload_part('1', 'created')
+        self._do_test_upload_part('000001', 'created')
+        self._do_test_upload_part('1', 'completing')
 
     def test_upload_part_subrequest_404(self):
         ts_session = next(self.ts_iter)
@@ -632,26 +643,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             body=b'testing')
         resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
-
-    def test_upload_part_session_completing(self):
-        ts_session = next(self.ts_iter)
-        registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/\x00o/%s' % self.mpu_id,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu-session-created',
-              'X-Object-Transient-Sysmeta-Mpu-State': 'completing'}
-             ),
-        ]
-        for call in registered_calls:
-            self.app.register(*call)
-        req = Request.blank(
-            '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
-            environ={'REQUEST_METHOD': 'PUT'},
-            body=b'testing')
-        resp = req.get_response(self.mw)
-        self.assertEqual(404, resp.status_int)
 
     def test_upload_part_session_aborted(self):
         ts_session = next(self.ts_iter)

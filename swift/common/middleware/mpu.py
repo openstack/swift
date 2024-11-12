@@ -650,7 +650,8 @@ class MPUSessionHandler(BaseMPUHandler):
     def upload_part(self, part_number):
         self._authorize_write_request()
         session = self._load_session()
-        if session.state != MPUSession.CREATED_STATE:
+        if session.state not in (MPUSession.CREATED_STATE,
+                                 MPUSession.COMPLETING_STATE):
             return HTTPNotFound()
         if session.is_aborted:
             return HTTPNotFound()
@@ -659,9 +660,14 @@ class MPUSessionHandler(BaseMPUHandler):
                                    self.upload_id,
                                    normalize_part_number(part_number))
         self.logger.debug('mpu upload_part %s', part_path)
+        headers = {}
+        for k, v in self.req.headers.items():
+            # TODO: should we return 400 is client sends x-delete-at with a
+            #   part upload, or just ignore it?
+            if k.lower() in ('content-length', 'transfer-encoding', 'etag'):
+                headers[k] = v
         part_req = self.make_subrequest(
-            path=part_path, method='PUT', body=self.req.body)
-        # TODO: support copy part
+            path=part_path, method='PUT', body=self.req.body, headers=headers)
 
         sub_resp = part_req.get_response(self.app)
         drain_and_close(sub_resp)
