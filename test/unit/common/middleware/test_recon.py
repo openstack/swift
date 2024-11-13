@@ -841,7 +841,7 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_updater_info('object')
         self.assertEqual(self.fakecache.fakeout_calls,
-                         [((['object_updater_sweep'],
+                         [((['object_updater_sweep', 'object_updater_stats'],
                             self._full_recon_path('object')), {})])
         self.assertEqual(rv, {"object_updater_sweep": 0.79848217964172363})
 
