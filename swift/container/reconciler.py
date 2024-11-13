@@ -435,7 +435,7 @@ class ContainerReconciler(Daemon):
         an object was manually re-enqued.
         """
         q_path = '/%s/%s/%s' % (MISPLACED_OBJECTS_ACCOUNT, container, obj)
-        x_timestamp = slightly_later_timestamp(max(q_record, q_ts))
+        x_timestamp = slightly_later_timestamp(max(q_record, q_ts), offset=2)
         self.stats_log('pop_queue', 'remove %r (%f) from the queue (%s)',
                        q_path, q_ts, x_timestamp)
         headers = {'X-Timestamp': x_timestamp}
@@ -623,7 +623,7 @@ class ContainerReconciler(Daemon):
         # optimistically move any source with a timestamp >= q_ts
         ts = max(Timestamp(source_ts), q_ts)
         # move the object
-        put_timestamp = slightly_later_timestamp(ts, offset=2)
+        put_timestamp = slightly_later_timestamp(ts, offset=3)
         self.stats_log('copy_attempt', '%r (%f) in policy_index %s will be '
                        'moved to policy_index %s (%s)', path, source_ts,
                        q_policy_index, container_policy_index, put_timestamp)
@@ -663,7 +663,7 @@ class ContainerReconciler(Daemon):
         Issue a DELETE request against the destination to match the
         misplaced DELETE against the source.
         """
-        delete_timestamp = slightly_later_timestamp(q_ts, offset=2)
+        delete_timestamp = slightly_later_timestamp(q_ts, offset=3)
         self.stats_log('delete_attempt', '%r (%f) in policy_index %s '
                        'will be deleted from policy_index %s (%s)', path,
                        source_ts, q_policy_index, container_policy_index,
