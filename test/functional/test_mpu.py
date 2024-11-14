@@ -452,14 +452,33 @@ class TestMPU(BaseTestMPU):
         )
         self.assertEqual(2 * self.part_size, len(resp.content))
 
-    def test_make_mpu_no_user_content_type(self):
-        self._make_mpu(
-            self.mpu_name, extra_create_headers={'content_type': None})
+    def test_make_mpu_auto_detect_content_type(self):
+        # verify that content-type is detected and set on the manifest
+        mpu_name = self.mpu_name + '.html'
+        upload_id, expected_mpu_etag, content = self._make_mpu(
+            mpu_name, extra_create_headers={'content-type': None})
+
+        # GET the user object
         resp = tf.retry(self._make_request, method='GET',
-                        container=self.user_cont, obj=self.mpu_name)
+                        container=self.user_cont, obj=mpu_name)
         self.assertEqual(200, resp.status)
-        self.assertEqual('application/test',
-                         resp.getheader('Content-Type'))
+        self.assertEqual('text/html', resp.getheader('Content-Type'))
+
+        # GET the user container
+        resp = tf.retry(self._make_request, method='GET',
+                        container=self.user_cont,
+                        query_string='format=json')
+        self.assertEqual(200, resp.status)
+        listing = json.loads(resp.content)
+        self.assertEqual(1, len(listing))
+        expected = {
+            'name': mpu_name,
+            'hash': '%s' % expected_mpu_etag,
+            'bytes': 2 * self.part_size,
+            'content_type': 'text/html',
+            'last_modified': mock.ANY,
+        }
+        self.assertEqual(expected, listing[0])
 
     def test_create_mpu_via_container_acl(self):
         # other account cannot create mpu without acl

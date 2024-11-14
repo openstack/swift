@@ -31,7 +31,6 @@ from six.moves import zip
 import collections
 import itertools
 import json
-import mimetypes
 import time
 import math
 import random
@@ -78,7 +77,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     normalize_etag, str_to_wsgi
 from swift.common.request_helpers import update_etag_is_at_header, \
     resolve_etag_is_at_header, validate_internal_obj, get_ip_port, \
-    is_open_expired, append_log_info
+    is_open_expired, append_log_info, update_content_type
 
 
 def check_content_type(req):
@@ -633,17 +632,6 @@ class BaseObjectController(Controller):
 
         return req, delete_at_container, delete_at_part, delete_at_nodes
 
-    def _update_content_type(self, req):
-        # Sometimes the 'content-type' header exists, but is set to None.
-        detect_content_type = \
-            config_true_value(req.headers.get('x-detect-content-type'))
-        if detect_content_type or not req.headers.get('content-type'):
-            guessed_type, _junk = mimetypes.guess_type(req.path_info)
-            req.headers['Content-Type'] = guessed_type or \
-                'application/octet-stream'
-            if detect_content_type:
-                req.headers.pop('x-detect-content-type')
-
     def _check_failure_put_connections(self, putters, req, min_conns):
         """
         Identify any failed connections and check minimum connection count.
@@ -859,7 +847,7 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
 
         # update content type in case it is missing
-        self._update_content_type(req)
+        update_content_type(req)
 
         req.ensure_x_timestamp()
 

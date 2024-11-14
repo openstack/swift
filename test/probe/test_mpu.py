@@ -136,15 +136,16 @@ class TestS3MPU(BaseTestS3MPU):
         data_filename, md5_hash, chunk_etags = self.make_file(self.chunksize,
                                                               num_chunks)
         expected_size = self.chunksize * num_chunks
+        exp_etag = calc_s3mpu_etag(chunk_etags)
 
         self.s3.upload_file(data_filename, self.bucket_name, self.mpu_name,
                             Config=self.transfer_config)
+
         # s3 mpu request succeeds
         s3_head_resp = self.s3.head_object(Bucket=self.bucket_name,
                                            Key=self.mpu_name)
         self.assertEqual(expected_size, int(s3_head_resp['ContentLength']))
-        self.assertEqual(num_chunks, int(
-            s3_head_resp['ETag'].strip('"').rsplit('-')[-1]))
+        self.assertEqual('"%s"' % exp_etag, s3_head_resp['ETag'])
         # swift response is the same
         swift_obj_headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,

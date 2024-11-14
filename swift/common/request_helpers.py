@@ -21,6 +21,7 @@ from swob in here without creating circular imports.
 """
 
 import itertools
+import mimetypes
 import sys
 import time
 
@@ -57,6 +58,18 @@ if six.PY2:
         return cgi.escape(s, quote=quote)
 else:
     from html import escape as html_escape  # noqa: F401
+
+
+def update_content_type(req):
+    # Sometimes the 'content-type' header exists, but is set to None.
+    detect_content_type = \
+        config_true_value(req.headers.get('x-detect-content-type'))
+    if detect_content_type or not req.headers.get('content-type'):
+        guessed_type, _junk = mimetypes.guess_type(req.path_info)
+        req.headers['Content-Type'] = guessed_type or \
+            'application/octet-stream'
+        if detect_content_type:
+            req.headers.pop('x-detect-content-type')
 
 
 def get_param(req, name, default=None):

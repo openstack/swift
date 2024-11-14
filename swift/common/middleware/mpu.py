@@ -34,7 +34,8 @@ from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
     get_valid_part_num, is_reserved_name, split_reserved_name, is_user_meta, \
-    update_etag_override_header, update_etag_is_at_header, validate_part_number
+    update_etag_override_header, update_etag_is_at_header, \
+    validate_part_number, update_content_type
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 
@@ -364,8 +365,8 @@ class MPUSession(MPUItem):
                 user_metadata[key[len(MPU_SYSMETA_USER_PREFIX):]] = val
         return user_metadata
 
-    def get_user_content_type(self, default=None):
-        return self.headers.get(MPU_SYSMETA_USER_CONTENT_TYPE_KEY, default)
+    def get_user_content_type(self):
+        return self.headers.get(MPU_SYSMETA_USER_CONTENT_TYPE_KEY)
 
 
 class BaseMPUHandler(object):
@@ -550,6 +551,7 @@ class MPUSessionsHandler(BaseMPUHandler):
         upload_id = MPUId.create(self.req.ensure_x_timestamp())
         self.req.headers.pop('Etag', None)
         self.req.headers.pop('Content-Md5', None)
+        update_content_type(self.req)
         session_name = self.make_relative_path(self.reserved_obj, upload_id)
         session_path = self.make_path(self.sessions_container, session_name)
         session = MPUSession.from_user_headers(session_name, self.req.headers)
@@ -843,8 +845,7 @@ class MPUSessionHandler(BaseMPUHandler):
         manifest_headers = {
             'X-Timestamp': session.data_timestamp.internal,
             'Accept': 'application/json',
-            'Content-Type': session.get_user_content_type(
-                default=MPU_MANIFEST_DEFAULT_CONTENT_TYPE),
+            'Content-Type': session.get_user_content_type(),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             MPU_SYSMETA_ETAG_KEY: mpu_etag,
@@ -878,7 +879,7 @@ class MPUSessionHandler(BaseMPUHandler):
         symlink_headers = HeaderKeyDict({
             'X-Timestamp': session.data_timestamp.internal,
             'Content-Length': '0',
-            'Content-Type': session.get_user_content_type(default=None),
+            'Content-Type': session.get_user_content_type(),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             TGT_OBJ_SYMLINK_HDR: self.manifest_relative_path,
