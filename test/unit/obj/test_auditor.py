@@ -41,7 +41,8 @@ from swift.obj.diskfile import (
     get_auditor_status, HASH_FILE, HASH_INVALIDATIONS_FILE)
 from swift.common.exceptions import ClientException
 from swift.common.utils import (
-    mkdirs, normalize_timestamp, Timestamp, readconf, md5, PrefixLoggerAdapter)
+    mkdirs, normalize_timestamp, Timestamp, readconf, md5)
+from swift.common.utils.logs import SwiftLogAdapter
 from swift.common.storage_policy import (
     ECStoragePolicy, StoragePolicy, POLICIES, EC_POLICY)
 
@@ -1696,8 +1697,13 @@ class TestAuditWatchers(TestAuditorBase):
         self.assertEqual(len(calls), 6)
 
         self.assertEqual(calls[0], ["__init__", conf, mock.ANY])
-        self.assertIsInstance(calls[0][2], PrefixLoggerAdapter)
-        self.assertIs(calls[0][2].logger, self.logger)
+        watcher_logger = calls[0][2]
+        self.assertIsInstance(calls[0][2], SwiftLogAdapter)
+        self.assertIs(calls[0][2].logger, self.logger.logger)
+        self.assertEqual(watcher_logger.server, my_auditor.logger.server)
+        self.assertEqual('', my_auditor.logger.prefix)  # sanity check
+        self.assertEqual('[audit-watcher test_watcher1] ',
+                         watcher_logger.prefix)
 
         self.assertEqual(calls[1], ["start", "ZBF"])
 
@@ -1731,9 +1737,14 @@ class TestAuditWatchers(TestAuditorBase):
 
         self.assertEqual(calls[5], ["end"])
 
+        # check that watcher has not mutated the prefix of the auditor logger
+        my_auditor.logger.debug('the auditor has no logger prefix')
         log_lines = self.logger.get_lines_for_level('debug')
         self.assertIn(
             "[audit-watcher test_watcher1] getting started",
+            log_lines)
+        self.assertIn(
+            "the auditor has no logger prefix",
             log_lines)
 
     def test_builtin_watchers(self):
