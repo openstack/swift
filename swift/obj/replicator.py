@@ -32,11 +32,11 @@ from eventlet.green import subprocess
 from swift.common.constraints import check_drive
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
-    compute_eta, get_logger, dump_recon_cache, \
+    compute_eta, get_logger, dump_recon_cache, parse_options, \
     rsync_module_interpolation, mkdirs, config_true_value, \
-    config_auto_int_value, storage_directory, \
-    load_recon_cache, PrefixLoggerAdapter, parse_override_options, \
-    distribute_evenly, listdir, node_to_string, parse_options, EUCLEAN
+    config_auto_int_value, storage_directory, load_recon_cache, EUCLEAN, \
+    parse_override_options, distribute_evenly, listdir, node_to_string, \
+    get_prefixed_logger
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -127,11 +127,11 @@ class ObjectReplicator(Daemon):
     def __init__(self, conf, logger=None):
         """
         :param conf: configuration object obtained from ConfigParser
-        :param logger: logging object
+        :param logger: an instance of ``SwiftLogAdapter``.
         """
         self.conf = conf
-        self.logger = PrefixLoggerAdapter(
-            logger or get_logger(conf, log_route='object-replicator'), {})
+        self.logger = \
+            logger or get_logger(conf, log_route='object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -215,10 +215,12 @@ class ObjectReplicator(Daemon):
         return sum(self.stats_for_dev.values(), Stats())
 
     def _emplace_log_prefix(self, worker_index):
-        self.logger.set_prefix("[worker %d/%d pid=%d] " % (
-            worker_index + 1,  # use 1-based indexing for more readable logs
-            self.replicator_workers,
-            os.getpid()))
+        self.logger = get_prefixed_logger(
+            self.logger, "[worker %d/%d pid=%d] " % (
+                worker_index + 1,
+                # use 1-based indexing for more readable logs
+                self.replicator_workers,
+                os.getpid()))
 
     def _child_process_reaper(self):
         """

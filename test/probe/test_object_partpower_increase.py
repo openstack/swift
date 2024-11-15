@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import subprocess
 
 from errno import EEXIST
 from shutil import copyfile, move
@@ -24,7 +25,6 @@ from uuid import uuid4
 
 from swiftclient import client
 
-from swift.cli.relinker import main as relinker_main
 from swift.common.manager import Manager, Server
 from swift.common.ring import RingBuilder
 from swift.common.utils import replace_partition_in_path, readconf
@@ -114,7 +114,7 @@ class TestPartPowerIncrease(ProbeTest):
 
         # Relink existing objects
         for conf in self.conf_files:
-            self.assertEqual(0, relinker_main(['relink', conf]))
+            subprocess.check_call(['swift-object-relinker', 'relink', conf])
 
         # Create second object after relinking and ensure it is accessible
         client.put_object(self.url, self.token, container, obj2, self.data)
@@ -166,7 +166,7 @@ class TestPartPowerIncrease(ProbeTest):
 
         # Cleanup old objects in the wrong location
         for conf in self.conf_files:
-            self.assertEqual(0, relinker_main(['cleanup', conf]))
+            subprocess.check_call(['swift-object-relinker', 'cleanup', conf])
 
         # Ensure objects are still accessible
         client.head_object(self.url, self.token, container, obj)

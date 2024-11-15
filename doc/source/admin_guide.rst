@@ -1064,8 +1064,8 @@ Custom Log Handlers
 Swift supports setting up custom log handlers for services by specifying a
 comma-separated list of functions to invoke when logging is setup. It does so
 via the ``log_custom_handlers`` configuration option. Logger hooks invoked are
-passed the same arguments as Swift's get_logger function (as well as the
-getLogger and LogAdapter object):
+passed the same arguments as Swift's ``get_logger`` function, as well as the
+``logging.Logger`` and ``SwiftLogAdapter`` objects:
 
 ==============  ===============================================
 Name            Description
@@ -1078,6 +1078,14 @@ fmt             Override log format received
 logger          The logging.getLogger object
 adapted_logger  The LogAdapter object
 ==============  ===============================================
+
+.. note::
+    The instance of ``SwiftLogAdapter`` that wraps the ``logging.Logger``
+    object may be replaced with cloned instances during runtime, for example to
+    use a different log prefix with the same ``logging.Logger``.  Custom log
+    handlers should therefore not modify any attributes of the
+    ``SwiftLogAdapter`` instance other than those that will be copied if it is
+    cloned.
 
 A basic example that sets up a custom logger might look like the
 following:
