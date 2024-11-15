@@ -31,6 +31,7 @@ from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 from boto3.s3.transfer import TransferConfig
+from test.s3api import get_s3_client
 
 import mock
 
@@ -87,8 +88,6 @@ class BaseTestS3MPU(BaseTestMPU):
         if not s3api_info:
             raise unittest.SkipTest('s3api not enabled')
 
-        # lazy import boto only required if cluster supports s3api
-        from test.s3api import get_s3_client
         self.s3 = get_s3_client(1)
 
         self.segment_bucket_name = self.bucket_name + '+segments'
