@@ -344,7 +344,6 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
         self.log(NOTICE, msg, *args, **kwargs)
 
     def _exception(self, msg, *args, **kwargs):
-        msg = '%s%s' % (self.prefix, msg)
         # We up-call to exception() where stdlib uses error() so we can get
         # some of the traceback suppression from LogAdapter, below
         logging.LoggerAdapter.exception(self, msg, *args, **kwargs)

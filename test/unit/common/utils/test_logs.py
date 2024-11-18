@@ -742,16 +742,12 @@ class TestUtilsLogs(unittest.TestCase):
             sio.truncate(0)
             return v
 
-        def log_exception(exc):
-            try:
-                raise exc
-            except (Exception, Timeout):
-                logger.exception('blah')
         try:
             # establish base case
             self.assertEqual(strip_value(sio), '')
             logger.info('test')
             self.assertEqual(strip_value(sio), 'some prefix: test\n')
+
             self.assertEqual(strip_value(sio), '')
             logger.info('test')
             logger.info('test')
@@ -759,20 +755,63 @@ class TestUtilsLogs(unittest.TestCase):
                 strip_value(sio),
                 'some prefix: test\nsome prefix: test\n')
             self.assertEqual(strip_value(sio), '')
+        finally:
+            base_logger.logger.removeHandler(handler)
 
+    @reset_logger_state
+    def test_get_prefixed_logger_exception_method(self):
+        # setup stream logging
+        sio = StringIO()
+        base_logger = utils.get_logger(None)
+        handler = logging.StreamHandler(sio)
+        base_logger.logger.addHandler(handler)
+        logger = get_prefixed_logger(base_logger, 'some prefix: ')
+
+        def strip_value(sio):
+            sio.seek(0)
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        def log_exception(exc):
+            try:
+                raise exc
+            except (Exception, Timeout):
+                logger.exception('blah')
+            msg_lines = strip_value(sio).strip().split('\n')
+            return msg_lines
+
+        try:
             # test OSError
             for en in (errno.EIO, errno.ENOSPC):
-                log_exception(OSError(en, 'my %s error message' % en))
-                log_msg = strip_value(sio)
-                self.assertNotIn('Traceback', log_msg)
-                self.assertEqual('some prefix: ', log_msg[:13])
-                self.assertIn('my %s error message' % en, log_msg)
-            # unfiltered
-            log_exception(OSError())
-            log_msg = strip_value(sio)
-            self.assertIn('Traceback', log_msg)
-            self.assertEqual('some prefix: ', log_msg[:13])
+                exc = OSError(en, 'my %s error message' % en)
+                log_msg_lines = log_exception(exc)
+                self.assertEqual(1, len(log_msg_lines))
+                self.assertEqual('some prefix: blah: %s' % exc,
+                                 log_msg_lines[0])
 
+            # BadStatusLine
+            exc = http_client.BadStatusLine('my error message')
+            log_msg_lines = log_exception(exc)
+            self.assertEqual(1, len(log_msg_lines))
+            self.assertEqual("some prefix: blah: %r" % exc, log_msg_lines[0])
+
+            # Timeout
+            with ConnectionTimeout(99) as exc:
+                log_msg_lines = log_exception(exc)
+            self.assertEqual(1, len(log_msg_lines))
+            self.assertNotIn('Traceback', log_msg_lines[0])
+            self.assertEqual("some prefix: blah: ConnectionTimeout (99s)",
+                             log_msg_lines[0])
+
+            # unfiltered
+            for exc in (OSError(), ValueError()):
+                log_msg_lines = log_exception(exc)
+                self.assertEqual(2, len(log_msg_lines), log_msg_lines)
+                self.assertEqual('some prefix: blah: ', log_msg_lines[0])
+                traceback_lines = log_msg_lines[1].split('#012')
+                self.assertEqual('Traceback (most recent call last):',
+                                 traceback_lines[0])
         finally:
             base_logger.logger.removeHandler(handler)
 
