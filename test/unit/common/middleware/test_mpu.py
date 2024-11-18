@@ -22,9 +22,9 @@ import mock
 
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.middleware.mpu import MPUMiddleware, MPUId, get_upload_id, \
-    translate_error_response, normalize_part_number, MPUSession, \
-    BaseMPUHandler, MPUEtagHasher
+from swift.common.middleware.mpu import MPUMiddleware, MPUId, \
+    get_req_upload_id, translate_error_response, normalize_part_number, \
+    MPUSession, BaseMPUHandler, MPUEtagHasher
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPNoContent, HTTPServiceUnavailable, \
     HTTPPreconditionFailed, HTTPException, HTTPBadRequest
@@ -44,28 +44,28 @@ def mock_generate_unique_id(fake_id):
 
 class TestModuleFunctions(unittest.TestCase):
     def test_get_upload_id(self):
-        req = Request.blank('/v1/a/c')
-        self.assertIsNone(get_upload_id(req))
+        req = Request.blank('/v1/a/c/o')
+        self.assertIsNone(get_req_upload_id(req))
 
         ts = Timestamp.now()
-        mpu_id = MPUId.create(ts)
-        req = Request.blank('/v1/a/c', params={'upload-id': str(mpu_id)})
-        req_upload_id = get_upload_id(req)
+        mpu_id = MPUId.create(req.path, ts)
+        req = Request.blank('/v1/a/c/o', params={'upload-id': str(mpu_id)})
+        req_upload_id = get_req_upload_id(req)
         self.assertEqual(mpu_id, req_upload_id)
         self.assertEqual(ts, req_upload_id.timestamp)
 
         ts = Timestamp.now(offset=123)
-        mpu_id = MPUId.create(ts)
-        req = Request.blank('/v1/a/c', params={'upload-id': str(mpu_id)})
-        req_upload_id = get_upload_id(req)
+        mpu_id = MPUId.create(req.path, ts)
+        req = Request.blank('/v1/a/c/o', params={'upload-id': str(mpu_id)})
+        req_upload_id = get_req_upload_id(req)
         self.assertEqual(mpu_id, req_upload_id)
         self.assertEqual(ts, req_upload_id.timestamp)
 
     def test_get_upload_id_invalid(self):
         def do_test_bad_value(value):
             with self.assertRaises(HTTPException) as cm:
-                req = Request.blank('/v1/a/c', params={'upload-id': value})
-                get_upload_id(req)
+                req = Request.blank('/v1/a/c/o', params={'upload-id': value})
+                get_req_upload_id(req)
             self.assertEqual(400, cm.exception.status_int)
 
         do_test_bad_value('')
@@ -115,10 +115,14 @@ class TestMPUId(unittest.TestCase):
         timestamp = Timestamp.now()
         with mock.patch('swift.common.middleware.mpu.generate_unique_id',
                         return_value='my-uuid'):
-            mpu_id = MPUId.create(timestamp)
+            with mock.patch('swift.common.middleware.mpu.hash_path',
+                            return_value='my-hash-path'):
+                mpu_id = MPUId.create('/v1/a/c/o', timestamp)
         self.assertEqual('my-uuid', mpu_id.uuid)
         self.assertEqual(timestamp, mpu_id.timestamp)
-        self.assertEqual('%s~my-uuid' % timestamp.internal, str(mpu_id))
+        self.assertEqual('my-hash-path', mpu_id.tag)
+        self.assertEqual('%s~my-uuid~my-hash-path' % timestamp.internal,
+                         str(mpu_id))
         # Python 3.7 updates from using RFC 2396 to RFC 3986 to quote URL
         # strings. Now, "~" is included in the set of unreserved characters.
         self.assertEqual(str(mpu_id),
@@ -126,22 +130,40 @@ class TestMPUId(unittest.TestCase):
 
     def test_unique(self):
         timestamp = Timestamp.now()
-        mpu_id1 = MPUId.create(timestamp)
-        mpu_id2 = MPUId.create(timestamp)
+        mpu_id1 = MPUId.create('/v1/a/c/o', timestamp)
+        mpu_id2 = MPUId.create('/v1/a/c/o', timestamp)
         self.assertEqual(mpu_id1.timestamp, mpu_id2.timestamp)
         self.assertNotEqual(mpu_id1, mpu_id2)
         self.assertNotEqual(mpu_id1.uuid, mpu_id2.uuid)
 
     def test_parse(self):
         timestamp = Timestamp.now()
-        mpu_id = MPUId.parse('%s~my-uuid' % timestamp.internal)
+        mpu_id_str = '%s~my-uuid~my-hash-path' % timestamp.internal
+        mpu_id = MPUId.parse(mpu_id_str)
         self.assertEqual('my-uuid', mpu_id.uuid)
         self.assertEqual(timestamp, mpu_id.timestamp)
-        self.assertEqual('%s~my-uuid' % timestamp.internal, str(mpu_id))
+        self.assertEqual('my-hash-path', mpu_id.tag)
+        self.assertEqual(mpu_id_str, str(mpu_id))
+
+    def test_parse_checks_tag(self):
+        timestamp = Timestamp.now()
+        path1 = '/v1/a/c/o1'
+        path2 = '/v1/a/c/o2'
+        mpu_id1 = MPUId.create(path1, timestamp)
+        mpu_id2 = MPUId.create(path2, timestamp)
+        self.assertNotEqual(mpu_id1.tag, mpu_id2.tag)
+
+        self.assertEqual(mpu_id1, MPUId.parse(str(mpu_id1), path=path1))
+        self.assertEqual(mpu_id2, MPUId.parse(str(mpu_id2), path=path2))
+
+        with self.assertRaises(ValueError):
+            MPUId.parse(str(mpu_id1), path=path2)
+        with self.assertRaises(ValueError):
+            MPUId.parse(str(mpu_id2), path=path1)
 
     def test_create_parse(self):
         timestamp = Timestamp.now()
-        mpu_id1 = MPUId.create(timestamp)
+        mpu_id1 = MPUId.create('/v1/a/c/o', timestamp)
         mpu_id2 = MPUId.parse(str(mpu_id1))
         self.assertEqual(timestamp, mpu_id2.timestamp)
         self.assertEqual(mpu_id1.uuid, mpu_id2.uuid)
@@ -149,12 +171,12 @@ class TestMPUId(unittest.TestCase):
 
     def test_eq(self):
         timestamp = Timestamp.now()
-        mpu_id1a = MPUId.create(timestamp)
+        mpu_id1a = MPUId.create('/v1/a/c/o', timestamp)
         mpu_id1b = MPUId.parse(str(mpu_id1a))
         self.assertEqual(mpu_id1a, mpu_id1b)
         self.assertEqual(mpu_id1a, str(mpu_id1b))
 
-        mpu_id2 = MPUId.create(timestamp)
+        mpu_id2 = MPUId.create('/v1/a/c/o', timestamp)
         self.assertNotEqual(mpu_id1a, mpu_id2)
 
 
@@ -337,9 +359,10 @@ class BaseTestMPUMiddleware(unittest.TestCase):
     def setUp(self):
         self.app = FakeSwift()
         self.ts_iter = make_timestamp_iter()
-        self.id_iter = iter(MPUId.create(t) for t in make_timestamp_iter())
         self.mpu_name = 'o'
-        self.mpu_id = next(self.id_iter)
+        self.mpu_name = 'o'
+        self.mpu_path = '/v1/a/c/o'
+        self.mpu_id = self._make_mpu_id(self.mpu_path)
         self.debug_logger = debug_logger()
         self.exp_calls = []
         self._setup_user_ac_info_requests()
@@ -348,6 +371,9 @@ class BaseTestMPUMiddleware(unittest.TestCase):
     @property
     def sess_name(self):
         return '\x00%s/%s' % (self.mpu_name, self.mpu_id)
+
+    def _make_mpu_id(self, path):
+        return MPUId.create(path, next(self.ts_iter))
 
     def _setup_user_ac_info_requests(self):
         ac_info_calls = [('HEAD', '/v1/a', HTTPOk, {}),
@@ -359,7 +385,7 @@ class BaseTestMPUMiddleware(unittest.TestCase):
 
 class TestBaseMpuHandler(BaseTestMPUMiddleware):
     def test_make_subrequest(self):
-        req = Request.blank(path='/v1/a/c/o?orig=blah',
+        req = Request.blank(path='%s?orig=blah' % self.mpu_path,
                             headers={'Content-Type': 'foo'},)
         self.assertEqual({'Host': 'localhost:80',
                           'Content-Type': 'foo'},
@@ -513,23 +539,23 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def test_list_in_progress_mpus(self):
         listing = [
             # in progress
-            {'name': '\x00obj1/%s' % next(self.id_iter),
+            {'name': '\x00obj1/%s' % self._make_mpu_id('/v1/a/c/obj1'),
              'hash': 'etag',
              'bytes': 0,
              'content_type': 'application/x-mpu-session-created',
              'last_modified': '1970-01-01T00:00:00.000000'},
-            {'name': '\x00obj1/%s' % next(self.id_iter),
+            {'name': '\x00obj1/%s' % self._make_mpu_id('/v1/a/c/obj1'),
              'hash': 'etag',
              'bytes': 0,
              'content_type': 'application/x-mpu-session-created',
              'last_modified': '1970-01-01T00:00:00.000000'},
-            {'name': '\x00obj2/%s' % next(self.id_iter),
+            {'name': '\x00obj2/%s' % self._make_mpu_id('/v1/a/c/obj2'),
              'hash': 'etag',
              'bytes': 0,
              'content_type': 'application/x-mpu-session-created',
              'last_modified': '1970-01-01T00:00:00.000000'},
             # aborted
-            {'name': '\x00obj3/%s' % next(self.id_iter),
+            {'name': '\x00obj3/%s' % self._make_mpu_id('/v1/a/c/obj3'),
              'hash': 'etag',
              'bytes': 0,
              'content_type': 'application/x-mpu-session-aborted',
@@ -1490,7 +1516,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_mpu_async_cleanup_PUT_mixed_backend_responses(self):
         # verify bad resp headers are ignored and multiple mpu's are cleaned up
-        mpu_id_alt = MPUId.create(next(self.ts_iter))
+        mpu_id_alt = self._make_mpu_id('/v1/a/c/o')
+        self.assertNotEqual(self.mpu_id, mpu_id_alt)  # sanity check
         backend_responses = ResponseCollection([
             ResponseData(
                 201, headers={}),  # no upload id
@@ -1590,7 +1617,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(expected, actual)
 
     def test_post_mpu(self):
-        upload_id = MPUId.create(next(self.ts_iter))
         manifest_rel_path = '\x00mpu_manifests\x00c/%s' % self.sess_name
         manifest_path = '/v1/a/' + manifest_rel_path
         symlink_resp_headers = {
@@ -1599,7 +1625,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'X-Trans-Id': 'test-txn-id',
             'X-Openstack-Request-Id': 'test-txn-id',
             'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
-            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
             'X-Object-Sysmeta-Symlink-Target': manifest_rel_path,
             'Location': manifest_path,
         }
@@ -1610,10 +1636,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
             'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
             'X-Object-Sysmeta-Mpu-Parts-Count': '2',
-            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
         }
         registered_calls = [
-            ('POST', '/v1/a/c/o',
+            ('POST', self.mpu_path,
              swob.HTTPTemporaryRedirect,
              symlink_resp_headers,
              b'',
@@ -1630,7 +1656,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Content-Type': 'application/test2',
             'X-Timestamp': '1727184152.29655',
         }
-        req = Request.blank('/v1/a/c/o', headers=post_headers)
+        req = Request.blank(self.mpu_path, headers=post_headers)
         req.method = 'POST'
         resp = req.get_response(self.mw)
         self.assertEqual(202, resp.status_int)
@@ -1648,7 +1674,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
             'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
             'X-Object-Sysmeta-Mpu-Parts-Count': '2',
-            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
         }
         self.assertEqual(exp_resp_headers, resp.headers)
 
@@ -1689,7 +1715,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(symlink_resp_headers, resp.headers)
 
     def _do_test_get_head_mpu(self, method):
-        upload_id = MPUId.create(next(self.ts_iter))
         get_resp_headers = {
             'Content-Type': 'application/test',
             'X-Static-Large-Object': 'True',
@@ -1705,16 +1730,16 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
             'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
             'X-Object-Sysmeta-Mpu-Parts-Count': '2',
-            'X-Object-Sysmeta-Mpu-Upload-Id': str(upload_id),
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
         }
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, get_resp_headers,
                           b'test')
-        req = Request.blank('/v1/a/c/o')
+        req = Request.blank(self.mpu_path)
         req.method = method
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         self.assertEqual(1, len(self.app.calls))
-        self.assertEqual((method, '/v1/a/c/o'), self.app.calls[0])
+        self.assertEqual((method, self.mpu_path), self.app.calls[0])
         exp_resp_headers = {
             'Content-Type': 'application/test',
             'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
@@ -1726,7 +1751,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
             'Etag': '"mpu-etag"',
             'X-Parts-Count': '2',
-            'X-Upload-Id': str(upload_id),
+            'X-Upload-Id': str(self.mpu_id),
         }
         self.assertEqual(exp_resp_headers, resp.headers)
         self.assertEqual({'Host': 'localhost:80',
@@ -1807,24 +1832,28 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
 
     def test_api_requests_invalid_upload_id(self):
         self.app.register('HEAD', '/v1/a/c', HTTPNotFound, {})
-        mpu_id = MPUId.create(next(self.ts_iter))
         # sanity check - mpu id is valid
-        req = Request.blank('/v1/a/c/o?upload-id=%s&part-number=1' % mpu_id,
-                            environ={'REQUEST_METHOD': 'PUT'})
+        req = Request.blank(
+            '%s?upload-id=%s&part-number=1' % (self.mpu_path, self.mpu_id),
+            environ={'REQUEST_METHOD': 'PUT'})
         resp = req.get_response(MPUMiddleware(self.app, {}))
         self.assertEqual(404, resp.status_int)
 
         def test_bad_mpu_id(bad_id):
             req = Request.blank(
-                '/v1/a/c/o?upload-id=%s&part-number=1' % bad_id,
+                '%s?upload-id=%s&part-number=1' % (self.mpu_path, bad_id),
                 environ={'REQUEST_METHOD': 'PUT'})
             resp = req.get_response(MPUMiddleware(self.app, {}))
             self.assertEqual(400, resp.status_int, bad_id)
+            self.assertEqual(b'No such upload-id', resp.body)
 
         test_bad_mpu_id('')
-        test_bad_mpu_id(str(mpu_id).split('~')[0])
-        test_bad_mpu_id(str(mpu_id) + '~foo')
-        test_bad_mpu_id(reversed(str(mpu_id)))
+        test_bad_mpu_id(str(self.mpu_id).split('~')[0])
+        test_bad_mpu_id(str(self.mpu_id)[:-1])
+        test_bad_mpu_id(str(self.mpu_id) + '~foo')
+        test_bad_mpu_id(reversed(str(self.mpu_id)))
+        # mpu id belongs to different path
+        test_bad_mpu_id(str(self._make_mpu_id('/v1/a/c/o2')))
 
     def test_api_requests_user_container_not_found(self):
         self.app.register('HEAD', '/v1/a/c', HTTPNotFound, {})

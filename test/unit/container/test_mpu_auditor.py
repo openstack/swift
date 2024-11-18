@@ -46,6 +46,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.ts_iter = make_timestamp_iter()
         self.logger = debug_logger('sharder-test')
         self.obj_name = 'obj'
+        self.obj_path = '/v1/a/c/' + self.obj_name
+        self.mpu_id = self._make_mpu_id(self.obj_path)
         hash_ = md5(self.audit_container.encode('utf-8'),
                     usedforsecurity=False).hexdigest()
         datadir = os.path.join(
@@ -61,6 +63,9 @@ class BaseTestMpuAuditor(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
+
+    def _make_mpu_id(self, path, ts=None):
+        return MPUId.create(path, ts or next(self.ts_iter))
 
     def make_request(self, req):
         with mock.patch.object(self.server, '_get_container_broker',
@@ -101,9 +106,9 @@ class BaseTestMpuAuditor(unittest.TestCase):
 
     def _create_manifest_spec(self):
         ts = next(self.ts_iter)
-        upload_id = MPUId.create(ts)
         manifest_name = '/'.join(
-            [get_reserved_name(self.obj_name), str(upload_id)])
+            [get_reserved_name(self.obj_name),
+             str(self._make_mpu_id(self.obj_path))])
         manifest_spec = {'name': manifest_name,
                          'created_at': ts.normal,
                          'content_type': 'text/plain',
@@ -142,7 +147,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
 
 class TestModuleFunctions(BaseTestMpuAuditor):
     def test_extract_upload_prefix(self):
-        prefix = 'obj/' + str(MPUId.create(next(self.ts_iter)))
+        prefix = 'obj/' + str(self.mpu_id)
         self.assertEqual(prefix,
                          extract_upload_prefix(prefix))
         self.assertEqual(prefix,
@@ -386,8 +391,8 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
 
     def _create_upload_parts(self, num_parts):
         ts = next(self.ts_iter)
-        upload_id = MPUId.create(ts)
-        upload = 'obj/' + str(upload_id)
+        mpu_id = self._make_mpu_id(self.obj_path, ts)
+        upload = '%s/%s' % (self.obj_name, mpu_id)
         parts = [{'name': '%s/%d' % (upload, i),
                   'created_at': ts.normal,
                   'content_type': 'text/plain',

@@ -431,6 +431,12 @@ class TestMPU(BaseTestMPU):
             self.mpu_name, upload_id, part_resp_etags[1:])
         self.assertEqual(404, resp.status, resp.content)
 
+        # retry complete on a different object path
+        resp = self._complete_mpu(
+            self.mpu_name + '-not', upload_id, part_resp_etags[:2])
+        self.assertEqual(400, resp.status)
+        self.assertIn(b'No such upload-id', resp.content)
+
         # GET the user object - check
         resp = tf.retry(self._make_request, method='GET',
                         container=self.user_cont, obj=self.mpu_name)
@@ -521,6 +527,11 @@ class TestMPU(BaseTestMPU):
         # retry abort
         resp = self._abort_mpu(self.mpu_name, upload_id)
         self.assertEqual(204, resp.status)
+
+        # retry abort on a different object path
+        resp = self._abort_mpu(self.mpu_name + '-not', upload_id)
+        self.assertEqual(400, resp.status)
+        self.assertIn(b'No such upload-id', resp.content)
 
     def test_upload_part(self):
         resp = self._create_mpu(self.mpu_name)

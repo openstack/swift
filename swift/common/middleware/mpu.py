@@ -25,7 +25,8 @@ from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import generate_unique_id, drain_and_close, \
-    config_positive_int_value, reiterate, parse_content_type, decode_timestamps
+    config_positive_int_value, reiterate, parse_content_type, \
+    decode_timestamps, hash_path, split_path
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
@@ -74,8 +75,10 @@ MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
 MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
 MPU_SYSMETA_USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('content-type')
 
+MPU_INVALID_UPLOAD_ID_MSG = 'No such upload-id'
 
-def get_upload_id(req):
+
+def get_req_upload_id(req):
     """
     Try to extract an upload id from request params.
 
@@ -87,9 +90,9 @@ def get_upload_id(req):
     """
     if 'upload-id' in req.params:
         try:
-            return MPUId.parse(req.params['upload-id'])
+            return MPUId.parse(req.params['upload-id'], path=req.path)
         except ValueError:
-            raise HTTPBadRequest('Invalid upload-id')
+            raise HTTPBadRequest(MPU_INVALID_UPLOAD_ID_MSG)
     else:
         return None
 
@@ -122,15 +125,28 @@ class MPUEtagHasher(object):
 
 
 class MPUId(object):
+    """
+    Encapsulates properties of an MPU id.
+
+    An MPU id is composed of three parts:
+      * a timestamp
+      * a uuid
+      * a tag
+
+    The tag is a hash of a combination of the uuid and a path passed in when
+    the id is created. This enables a rudimentary check that an MPU id is
+    associated with a path.
+    """
     # ~ doesn't get url-encoded and isn't in url-safe base64 encoded unique ids
     ID_DELIMITER = '~'
 
-    __slots__ = ('uuid', 'timestamp')
+    __slots__ = ('uuid', 'timestamp', 'tag')
 
-    def __init__(self, uuid, timestamp):
+    def __init__(self, uuid, timestamp, tag):
         # don't call this: use either parse or create
         self.uuid = uuid
         self.timestamp = timestamp
+        self.tag = tag
 
     def __eq__(self, other):
         return str(self) == str(other)
@@ -141,19 +157,51 @@ class MPUId(object):
     def __str__(self):
         # MPU listing should be sorted by (<object name>, <creation time>)
         # so we put the timestamp before the uuid.
-        return self.ID_DELIMITER.join((self.timestamp.internal, self.uuid))
+        return self.ID_DELIMITER.join(
+            (self.timestamp.internal, self.uuid, self.tag))
 
     @classmethod
-    def create(cls, timestamp):
-        return cls(generate_unique_id(), Timestamp(timestamp))
+    def create(cls, path, timestamp):
+        """
+        Create a unique MPUId.
+
+        :param timestamp: a timestamp whose value will be embedded in the
+            ``MPUId``.
+        :param path: a path to which the ``MPUId`` will be uniquely associated;
+            a transformation of the ``path`` is embedded in the string
+            representation of the ``MPUId`` so that the ``MPUId`` can be
+            checked for association with a path when parsed.
+        :returns: an instance of ``MPUId``.
+        """
+        uid = generate_unique_id()
+        _, account, container, obj = split_path(path, 4, 4, True)
+        # NB: hash_path is used to obfuscate the actual path; the path that is
+        # hashed is not a path to any actual resource
+        tag = hash_path(account, container, get_reserved_name(obj, uid))
+        return cls(uid, Timestamp(timestamp), tag)
 
     @classmethod
-    def parse(cls, value):
+    def parse(cls, value, path=None):
+        """
+        Parse an ``MPUId`` from the given value.
+
+        :param value: a string representation of an ``MPUId``.
+        :param path: (optional) if ``path`` is given then the parsed ``MPUId``
+            is checked for unique association with the ``path``; if the parsed
+            ``MPUId`` is not associated with the given ``path`` then a
+            ValueError is raised.
+        :returns: an instance of `MPUId``.
+        """
         parts = value.strip().split(cls.ID_DELIMITER)
-        if not all(parts) or len(parts) != 2:
+        if not all(parts) or len(parts) != 3:
             raise ValueError
-        ts, uuid = parts
-        return cls(uuid, Timestamp(ts))
+        ts, uuid, parsed_tag = parts
+        if path:
+            _, account, container, obj = split_path(path, 4, 4, True)
+            tag = hash_path(account, container, get_reserved_name(obj, uuid))
+            if tag != parsed_tag:
+                raise ValueError
+        return cls(uuid, Timestamp(ts), parsed_tag)
 
 
 class MPUItem(object):
@@ -548,7 +596,7 @@ class MPUSessionsHandler(BaseMPUHandler):
         self._ensure_container_exists(self.manifests_container)
         self._ensure_container_exists(self.parts_container)
 
-        upload_id = MPUId.create(self.req.ensure_x_timestamp())
+        upload_id = MPUId.create(self.req.path, self.req.ensure_x_timestamp())
         self.req.headers.pop('Etag', None)
         self.req.headers.pop('Content-Md5', None)
         update_content_type(self.req)
@@ -609,7 +657,7 @@ class MPUSessionHandler(BaseMPUHandler):
     def __init__(self, mw, req):
         super(MPUSessionHandler, self).__init__(mw, req)
         self.user_container_info = self._check_user_container_exists()
-        self.upload_id = get_upload_id(req)
+        self.upload_id = get_req_upload_id(req)
         self.session_name = self.make_relative_path(
             self.reserved_obj, self.upload_id)
         self.session_path = self.make_path(self.sessions_container,
@@ -1181,7 +1229,7 @@ class MPUMiddleware(object):
 
     def handle_request(self, req, container, obj):
         # this defines the MPU API
-        upload_id = get_upload_id(req)
+        upload_id = get_req_upload_id(req)
         part_number = get_valid_part_num(req)
         if obj and upload_id:
             if req.method == 'PUT' and part_number is not None:
