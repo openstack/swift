@@ -243,17 +243,24 @@ class ThreadSafeSysLogHandler(SysLogHandler):
 
 
 # double inheritance to support property with setter
-class LogAdapter(logging.LoggerAdapter, object):
+class SwiftLogAdapter(logging.LoggerAdapter, object):
     """
-    A Logger like object which performs some reformatting on calls to
-    :meth:`exception`.  Can be used to store a threadlocal transaction id and
-    client ip.
+    A LogAdapter that modifies the adapted ``Logger`` instance
+    in the following ways:
+
+    * Performs some reformatting on calls to :meth:`exception`.
+    * Provides threadlocal txn_id and client_ip attributes.
+    * Adds the txn_id, client_ip and server attributes to the ``extras`` dict
+      when a message is processed.
+    * Adds the given prefix to the start of each log message.
+    * Provides a notice method for logging at NOTICE level.
     """
 
     _cls_thread_local = threading.local()
 
-    def __init__(self, logger, server):
+    def __init__(self, logger, server, prefix=''):
         logging.LoggerAdapter.__init__(self, logger, {})
+        self.prefix = prefix
         self.server = server
         self.warn = self.warning
 
@@ -262,6 +269,7 @@ class LogAdapter(logging.LoggerAdapter, object):
     # - https://github.com/python/cpython/commit/1bbd482
     # - https://github.com/python/cpython/commit/0b6a118
     # - https://github.com/python/cpython/commit/ce9e625
+
     def _log(self, level, msg, args, exc_info=None, extra=None,
              stack_info=False):
         """
@@ -323,6 +331,7 @@ class LogAdapter(logging.LoggerAdapter, object):
         """
         kwargs['extra'] = {'server': self.server, 'txn_id': self.txn_id,
                            'client_ip': self.client_ip}
+        msg = '%s%s' % (self.prefix, msg)
         return msg, kwargs
 
     def notice(self, msg, *args, **kwargs):
@@ -335,6 +344,9 @@ class LogAdapter(logging.LoggerAdapter, object):
         self.log(NOTICE, msg, *args, **kwargs)
 
     def _exception(self, msg, *args, **kwargs):
+        msg = '%s%s' % (self.prefix, msg)
+        # We up-call to exception() where stdlib uses error() so we can get
+        # some of the traceback suppression from LogAdapter, below
         logging.LoggerAdapter.exception(self, msg, *args, **kwargs)
 
     def exception(self, msg, *args, **kwargs):
@@ -414,6 +426,7 @@ class LogAdapter(logging.LoggerAdapter, object):
             if getattr(self.logger, 'statsd_client'):
                 func = getattr(self.logger.statsd_client, statsd_func_name)
                 return func(*a, **kw)
+
         return wrapped
 
     update_stats = statsd_delegate('update_stats')
@@ -556,73 +569,6 @@ class LoggerFileObject(object):
         return self
 
 
-class SwiftLoggerAdapter(logging.LoggerAdapter):
-    """
-    A logging.LoggerAdapter subclass that also passes through StatsD method
-    calls.
-
-    Like logging.LoggerAdapter, you have to subclass this and override the
-    process() method to accomplish anything useful.
-    """
-
-    @property
-    def name(self):
-        # py3 does this for us already; add it for py2
-        return self.logger.name
-
-    def update_stats(self, *a, **kw):
-        return self.logger.update_stats(*a, **kw)
-
-    def increment(self, *a, **kw):
-        return self.logger.increment(*a, **kw)
-
-    def decrement(self, *a, **kw):
-        return self.logger.decrement(*a, **kw)
-
-    def timing(self, *a, **kw):
-        return self.logger.timing(*a, **kw)
-
-    def timing_since(self, *a, **kw):
-        return self.logger.timing_since(*a, **kw)
-
-    def transfer_rate(self, *a, **kw):
-        return self.logger.transfer_rate(*a, **kw)
-
-    @property
-    def thread_locals(self):
-        return self.logger.thread_locals
-
-    @thread_locals.setter
-    def thread_locals(self, thread_locals):
-        self.logger.thread_locals = thread_locals
-
-    def exception(self, msg, *a, **kw):
-        # We up-call to exception() where stdlib uses error() so we can get
-        # some of the traceback suppression from LogAdapter, below
-        self.logger.exception(msg, *a, **kw)
-
-
-class PrefixLoggerAdapter(SwiftLoggerAdapter):
-    """
-    Adds an optional prefix to all its log messages. When the prefix has not
-    been set, messages are unchanged.
-    """
-
-    def set_prefix(self, prefix):
-        self.extra['prefix'] = prefix
-
-    def exception(self, msg, *a, **kw):
-        if 'prefix' in self.extra:
-            msg = self.extra['prefix'] + msg
-        super(PrefixLoggerAdapter, self).exception(msg, *a, **kw)
-
-    def process(self, msg, kwargs):
-        msg, kwargs = super(PrefixLoggerAdapter, self).process(msg, kwargs)
-        if 'prefix' in self.extra:
-            msg = self.extra['prefix'] + msg
-        return (msg, kwargs)
-
-
 class LogLevelFilter(object):
     """
     Drop messages for the logger based on level.
@@ -747,7 +693,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     logger.statsd_client = statsd_client.get_statsd_client(
         conf, statsd_tail_prefix, logger)
 
-    adapted_logger = LogAdapter(logger, name)
+    adapted_logger = SwiftLogAdapter(logger, name)
     other_handlers = conf.get('log_custom_handlers', None)
     if other_handlers:
         log_custom_handlers = [s.strip() for s in other_handlers.split(',')
@@ -766,6 +712,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                       file=sys.stderr)
 
     return adapted_logger
+
+
+def get_prefixed_logger(swift_logger, prefix):
+    return SwiftLogAdapter(
+        swift_logger.logger, swift_logger.server, prefix=prefix)
 
 
 class NullLogger(object):

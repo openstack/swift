@@ -258,7 +258,7 @@ class DebugLogger(FakeLogger):
         self.records[record.levelname].append(formatted)
 
 
-class DebugLogAdapter(utils.LogAdapter):
+class DebugLogAdapter(utils.logs.SwiftLogAdapter):
     def __init__(self, *args, **kwargs):
         super(DebugLogAdapter, self).__init__(*args, **kwargs)
         self.txn_id = None
@@ -290,7 +290,7 @@ class ForwardingLogHandler(logging.NullHandler):
         return self.handler_fn(record)
 
 
-class CaptureLogAdapter(utils.LogAdapter, CaptureLog):
+class CaptureLogAdapter(utils.logs.SwiftLogAdapter, CaptureLog):
     """
     A LogAdapter that is capable of capturing logs for inspection via accessor
     methods.
@@ -325,7 +325,8 @@ def capture_logger(conf, *args, **kwargs):
     accessor methods (e.g. get_lines_for_level) directly on the logger
     instance.
     """
-    with mock.patch('swift.common.utils.logs.LogAdapter', CaptureLogAdapter):
+    with mock.patch('swift.common.utils.logs.SwiftLogAdapter',
+                    CaptureLogAdapter):
         log_adapter = utils.logs.get_logger(conf, *args, **kwargs)
     log_adapter.start_capture()
     try:

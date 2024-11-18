@@ -30,9 +30,10 @@ from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
-    RateLimitedIterator, PrefixLoggerAdapter, distribute_evenly, \
+    RateLimitedIterator, distribute_evenly, \
     non_negative_float, non_negative_int, config_auto_int_value, \
     dump_recon_cache, get_partition_from_path, get_hub
+from swift.common.utils.logs import SwiftLogAdapter, get_prefixed_logger
 from swift.obj import diskfile
 from swift.common.recon import RECON_RELINKER_FILE, DEFAULT_RECON_CACHE_PATH
 
@@ -658,8 +659,17 @@ def _reset_recon(recon_cache, logger):
     dump_recon_cache(device_progress_recon, recon_cache, logger)
 
 
-def parallel_process(do_cleanup, conf, logger=None, device_list=None):
-    logger = logger or logging.getLogger()
+def parallel_process(do_cleanup, conf, logger, device_list=None):
+    """
+    Fork Relinker workers based on config and wait for them to finish.
+
+    :param do_cleanup: boolean, if workers should perform cleanup step
+    :param conf: dict, config options
+    :param logger: SwiftLogAdapter instance
+    :kwarg device_list: list of strings, optionally limit to specific devices
+
+    :returns: int, exit code; zero on success
+    """
 
     # initialise recon dump for collection
     # Lets start by always deleting last run's stats
@@ -689,11 +699,10 @@ def parallel_process(do_cleanup, conf, logger=None, device_list=None):
     for worker_devs in distribute_evenly(device_list, workers):
         pid = os.fork()
         if pid == 0:
-            dev_logger = PrefixLoggerAdapter(logger, {})
-            dev_logger.set_prefix('[pid=%s, devs=%s] ' % (
+            logger = get_prefixed_logger(logger, '[pid=%s, devs=%s] ' % (
                 os.getpid(), ','.join(worker_devs)))
             os._exit(Relinker(
-                conf, dev_logger, worker_devs, do_cleanup=do_cleanup).run())
+                conf, logger, worker_devs, do_cleanup=do_cleanup).run())
         else:
             children[pid] = worker_devs
 
@@ -796,16 +805,17 @@ def main(args=None):
             drop_privileges(user)
         logger = get_logger(conf)
     else:
-        conf = {'log_level': 'DEBUG' if args.debug else 'INFO'}
+        level = 'DEBUG' if args.debug else 'INFO'
+        conf = {'log_level': level}
         if args.user:
             # Drop privs before creating log file
             drop_privileges(args.user)
             conf['user'] = args.user
         logging.basicConfig(
             format='%(message)s',
-            level=logging.DEBUG if args.debug else logging.INFO,
+            level=getattr(logging, level),
             filename=args.logfile)
-        logger = logging.getLogger()
+        logger = SwiftLogAdapter(logging.getLogger(), server='relinker')
 
     conf.update({
         'swift_dir': args.swift_dir or conf.get('swift_dir', '/etc/swift'),

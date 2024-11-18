@@ -819,3 +819,39 @@ class TestModuleFunctions(unittest.TestCase):
         self.assertEqual(self.logger, client.logger)
         warn_lines = self.logger.get_lines_for_level('warning')
         self.assertEqual([], warn_lines)
+
+
+class TestSwiftLogAdapterDelegation(unittest.TestCase):
+
+    def setUp(self):
+        self.logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
+                                       'some-name', log_route='some-route')
+        self.mock_socket = MockUdpSocket()
+        self.logger.logger.statsd_client._open_socket = \
+            lambda *_: self.mock_socket
+        self.address = ('some.host.com', 8125)
+
+    def test_setup(self):
+        self.logger.increment('foo')
+        self.assertEqual(self.mock_socket.sent,
+                         [(b'some-name.foo:1|c', self.address)])
+
+    def test_get_prefix_logger(self):
+        prefixed_logger = utils.get_prefixed_logger(self.logger, 'my-prefix')
+        prefixed_logger.increment('bar')
+        self.assertEqual(self.mock_socket.sent,
+                         [(b'some-name.bar:1|c', self.address)])
+
+    def test_adapted_logger(self):
+        adapted_logger = utils.logs.SwiftLogAdapter(
+            self.logger.logger, 'my-adapter')
+        adapted_logger.increment('buz')
+        self.assertEqual(self.mock_socket.sent,
+                         [(b'some-name.buz:1|c', self.address)])
+
+    def test_wrapped_adapter(self):
+        wrapped_adapter = utils.logs.SwiftLogAdapter(
+            self.logger, 'wrapped-adapter')
+        with self.assertRaises(AttributeError) as ctx:
+            wrapped_adapter.increment('baz')
+        self.assertIn("has no attribute 'statsd_client'", str(ctx.exception))
