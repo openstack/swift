@@ -211,7 +211,7 @@ class TestMPUSession(unittest.TestCase):
         self.assertTrue(sess.is_aborted)
         self.assertFalse(sess.is_completed)
 
-    def test_get_user_metadata(self):
+    def test_get_manifest_headers(self):
         headers = {
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
@@ -230,8 +230,9 @@ class TestMPUSession(unittest.TestCase):
             'Content-Language': 'en-US',
             'Cache-Control': 'no-cache',
             'Expires': 'Wed, 25 Dec 2024 04:04:04 GMT',
+            'Content-Type': 'user/type',
         }
-        self.assertEqual(exp, sess.get_user_metadata())
+        self.assertEqual(exp, sess.get_manifest_headers())
 
     def test_get_user_content_type(self):
         headers = {'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
@@ -292,7 +293,7 @@ class TestMPUSession(unittest.TestCase):
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
 
-    def test_from_backend_headers(self):
+    def test_from_session_headers(self):
         headers = HeaderKeyDict({
             'Content-Length': '0',
             'Content-Type': 'application/x-mpu-session',
@@ -307,7 +308,7 @@ class TestMPUSession(unittest.TestCase):
             'X-Object-Sysmeta-Mpu-User-Expires':
                 'Wed, 25 Dec 2024 04:04:04 GMT',
             'X-Object-Transient-Sysmeta-Mpu-State': 'created'})
-        sess = MPUSession.from_backend_headers('mysession',
+        sess = MPUSession.from_session_headers('mysession',
                                                backend_headers=headers)
         self.assertEqual(Timestamp(67890), sess.meta_timestamp)
         self.assertEqual(Timestamp(12345), sess.data_timestamp)

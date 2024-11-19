@@ -36,7 +36,7 @@ from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
     get_valid_part_num, is_reserved_name, split_reserved_name, is_user_meta, \
     update_etag_override_header, update_etag_is_at_header, \
-    validate_part_number, update_content_type
+    validate_part_number, update_content_type, is_sys_meta
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 
@@ -326,23 +326,26 @@ class MPUSession(MPUItem):
         timestamp = Timestamp(headers.get('X-Timestamp', 0))
         backend_headers = {}
         for k, v in headers.items():
-            # User metadata is stored as sysmeta on the session because it must
-            # persist when there are subsequent POSTs to the session.
             k = k.lower()
-            if is_user_meta('object', k) or k in (
+            if is_sys_meta('object', k):
+                backend_headers[k] = v
+            elif is_user_meta('object', k) or k in (
                     'content-disposition',
                     'content-encoding',
                     'content-language',
                     'cache-control',
                     'expires',
             ):
+                # User metadata is stored as sysmeta on the session because it
+                # must persist with the session object until a manifest is PUT,
+                # even when there are subsequent POSTs to the session object.
                 backend_headers[MPU_SYSMETA_USER_PREFIX + k] = v
             elif k == 'content-type':
                 backend_headers[MPU_SYSMETA_USER_CONTENT_TYPE_KEY] = v
         return cls(name, timestamp, headers=backend_headers)
 
     @classmethod
-    def from_backend_headers(cls, name, backend_headers):
+    def from_session_headers(cls, name, backend_headers):
         """
         Creates an ``MPUSession`` object for an existing session from the
         headers returned with a backend session HEAD request.
@@ -406,12 +409,19 @@ class MPUSession(MPUItem):
             self.STATE_KEY: self.state,
         })
 
-    def get_user_metadata(self):
-        user_metadata = {}
+    def get_manifest_headers(self):
+        headers = HeaderKeyDict()
         for key, val in self.headers.items():
-            if key.lower().startswith(MPU_SYSMETA_USER_PREFIX):
-                user_metadata[key[len(MPU_SYSMETA_USER_PREFIX):]] = val
-        return user_metadata
+            key_lower = key.lower()
+            if key_lower.startswith(MPU_SYSMETA_USER_PREFIX):
+                headers[key[len(MPU_SYSMETA_USER_PREFIX):]] = val
+            elif key_lower == MPU_SYSMETA_USER_CONTENT_TYPE_KEY:
+                headers['Content-Type'] = val
+            elif key_lower.startswith(MPU_SYSMETA_PREFIX):
+                continue
+            elif is_sys_meta('object', key_lower):
+                headers[key] = val
+        return headers
 
     def get_user_content_type(self):
         return self.headers.get(MPU_SYSMETA_USER_CONTENT_TYPE_KEY)
@@ -677,7 +687,7 @@ class MPUSessionHandler(BaseMPUHandler):
         elif not resp.is_success:
             raise HTTPInternalServerError()
 
-        session = MPUSession.from_backend_headers(self.session_name,
+        session = MPUSession.from_session_headers(self.session_name,
                                                   resp.headers)
         return session
 
@@ -893,7 +903,6 @@ class MPUSessionHandler(BaseMPUHandler):
         manifest_headers = {
             'X-Timestamp': session.data_timestamp.internal,
             'Accept': 'application/json',
-            'Content-Type': session.get_user_content_type(),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             MPU_SYSMETA_ETAG_KEY: mpu_etag,
@@ -906,7 +915,7 @@ class MPUSessionHandler(BaseMPUHandler):
             #   when it was uploaded i.e. we can infer the path to a part
             #   without a GET for the manifest body.
         }
-        manifest_headers.update(session.get_user_metadata())
+        manifest_headers.update(session.get_manifest_headers())
         # set the MPU etag override to be forwarded to the manifest container
         update_etag_override_header(
             manifest_headers, mpu_etag, [('mpu_etag', mpu_etag)])
@@ -919,6 +928,8 @@ class MPUSessionHandler(BaseMPUHandler):
         slo_callback_handler = MPUSloCallbackHandler(self.mw)
         manifest_req.environ['swift.callback.slo_manifest_hook'] = \
             slo_callback_handler
+        self.logger.debug('mpu manifest PUT %s %s',
+                          manifest_req.path, dict(manifest_req.headers))
         return manifest_req.get_response(self.app), slo_callback_handler
 
     def _put_symlink(self, session, mpu_etag, mpu_bytes):
