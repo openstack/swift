@@ -1087,17 +1087,25 @@ class MPUContainerHandler(BaseMPUHandler):
             # hide the implementation details from the user
             item.pop('symlink_path', None)
         resp.body = json.dumps(body_json).encode('ascii')
-        return resp
 
     def handle_request(self):
-        if self.req.method != 'GET':
-            return None
-
         resp = self.req.get_response(self.app)
         if not resp.is_success:
             return resp
 
-        return self._process_json_resp(resp)
+        if self.req.method == 'GET':
+            self._process_json_resp(resp)
+        elif self.req.method == 'DELETE':
+            pass
+            # TODO: implement
+            #   check these are empty before deleting the user container?
+            #   but they may not be until the mpu-auditor runs, and even then
+            #   there may be undeleted orphans
+            # self._delete_container(self.parts_container)
+            # self._delete_container(self.manifests_container)
+            # self._delete_container(self.sessions_container)
+
+        return resp
 
 
 class MPUMiddleware(object):
