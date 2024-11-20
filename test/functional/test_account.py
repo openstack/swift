@@ -21,7 +21,7 @@ from uuid import uuid4
 from string import ascii_letters
 
 import six
-from six.moves import range
+from six.moves import range, urllib
 from swift.common.middleware.acl import format_acl
 from swift.common.utils import distribute_evenly
 
@@ -98,6 +98,45 @@ class TestAccount(unittest.TestCase):
         # clean up any account user metadata created by test
         new_metadata = self.get_meta().keys()
         self.clear_meta(new_metadata)
+
+    def test_GET_HEAD_content_type(self):
+
+        def send_req(url, token, parsed, conn, method, params):
+            qs = '?%s' % urllib.parse.urlencode(params) if params else ''
+            conn.request(method, parsed.path + qs, '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(send_req, 'GET', {})
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/plain; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
+
+        resp = retry(send_req, 'HEAD', {})
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/plain; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
+
+        resp = retry(send_req, 'GET', {'format': 'json'})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/json; charset=utf-8')
+        resp = retry(send_req, 'HEAD', {'format': 'json'})
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/json; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
+
+        resp = retry(send_req, 'GET', {'format': 'xml'})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/xml; charset=utf-8')
+        resp = retry(send_req, 'HEAD', {'format': 'xml'})
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/xml; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
 
     def test_metadata(self):
         if tf.skip:
