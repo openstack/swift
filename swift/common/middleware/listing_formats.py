@@ -18,6 +18,7 @@ import six
 from xml.etree.cElementTree import Element, SubElement, tostring
 
 from swift.common.constraints import valid_api_version
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_NO_CONTENT
 from swift.common.request_helpers import get_param
 from swift.common.swob import HTTPException, HTTPNotAcceptable, Request, \
@@ -178,52 +179,39 @@ class ListingFilter(object):
             start_response(status, headers)
             return resp_iter
 
-        header_to_index = {}
-        resp_content_type = resp_length = None
-        for i, (header, value) in enumerate(headers):
-            header = header.lower()
-            if header == 'content-type':
-                header_to_index[header] = i
-                resp_content_type = value.partition(';')[0]
-            elif header == 'content-length':
-                header_to_index[header] = i
-                resp_length = int(value)
-            elif header == 'vary':
-                header_to_index[header] = i
-
         if not status.startswith(('200 ', '204 ')):
             start_response(status, headers)
             return resp_iter
 
+        headers_dict = HeaderKeyDict(headers)
+        resp_content_type = headers_dict.get(
+            'content-type', '').partition(';')[0]
+        resp_length = headers_dict.get('content-length')
+
         if can_vary:
-            if 'vary' in header_to_index:
-                value = headers[header_to_index['vary']][1]
+            if 'vary' in headers_dict:
+                value = headers_dict['vary']
                 if 'accept' not in list_from_csv(value.lower()):
-                    headers[header_to_index['vary']] = (
-                        'Vary', value + ', Accept')
+                    headers_dict['vary'] = value + ', Accept'
             else:
-                headers.append(('Vary', 'Accept'))
+                headers_dict['vary'] = 'Accept'
 
         if resp_content_type != 'application/json':
-            start_response(status, headers)
+            start_response(status, list(headers_dict.items()))
+            return resp_iter
+
+        if req.method == 'HEAD':
+            headers_dict['content-type'] = out_content_type + '; charset=utf-8'
+            # proxy logging (and maybe other mw?) seem to be good about
+            # sticking this on HEAD/204 but we do it here to be responsible
+            # and explicit
+            headers_dict['content-length'] = 0
+            start_response(status, list(headers_dict.items()))
             return resp_iter
 
         if resp_length is None or \
-                resp_length > MAX_CONTAINER_LISTING_CONTENT_LENGTH:
-            start_response(status, headers)
-            return resp_iter
-
-        def set_header(header, value):
-            if value is None:
-                del headers[header_to_index[header]]
-            else:
-                headers[header_to_index[header]] = (
-                    headers[header_to_index[header]][0], str(value))
-
-        if req.method == 'HEAD':
-            set_header('content-type', out_content_type + '; charset=utf-8')
-            set_header('content-length', None)  # don't know, can't determine
-            start_response(status, headers)
+                int(resp_length) > MAX_CONTAINER_LISTING_CONTENT_LENGTH:
+            start_response(status, list(headers_dict.items()))
             return resp_iter
 
         body = b''.join(resp_iter)
@@ -237,7 +225,7 @@ class ListingFilter(object):
         except ValueError:
             # Static web listing that's returning invalid JSON?
             # Just pass it straight through; that's about all we *can* do.
-            start_response(status, headers)
+            start_response(status, list(headers_dict.items()))
             return [body]
 
         if not req.allow_reserved_names:
@@ -257,16 +245,16 @@ class ListingFilter(object):
                 body = json.dumps(listing).encode('ascii')
         except KeyError:
             # listing was in a bad format -- funky static web listing??
-            start_response(status, headers)
+            start_response(status, list(headers_dict.items()))
             return [body]
 
         if not body:
             status = '%s %s' % (HTTP_NO_CONTENT,
                                 RESPONSE_REASONS[HTTP_NO_CONTENT][0])
 
-        set_header('content-type', out_content_type + '; charset=utf-8')
-        set_header('content-length', len(body))
-        start_response(status, headers)
+        headers_dict['content-type'] = out_content_type + '; charset=utf-8'
+        headers_dict['content-length'] = len(body)
+        start_response(status, list(headers_dict.items()))
         return [body]
 
 
