@@ -233,6 +233,16 @@ class OldestAsyncPendingTracker:
         self.ac_to_timestamp = {}
 
     def add_update(self, account, container, timestamp):
+        """
+        Add or update a timestamp for a given account and container.
+
+        :param account: (str) The account name.
+        :param container: (str) The container name.
+        :param timestamp: (float) The timestamp to add or update.
+        """
+        # Ensure the timestamp is a float
+        timestamp = float(timestamp)
+
         ac = (account, container)
 
         if ac in self.ac_to_timestamp:
@@ -273,7 +283,7 @@ class OldestAsyncPendingTracker:
 
     def get_oldest_timestamp(self):
         if self.sorted_entries:
-            return float(self.sorted_entries[0][0])
+            return self.sorted_entries[0][0]
         return None
 
     def get_oldest_timestamp_age(self):
