@@ -37,7 +37,7 @@ from six.moves.urllib.parse import quote
 from swift import __version__ as swift_version
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent,
-                               bytes_to_wsgi)
+                               bytes_to_wsgi, Response)
 import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
@@ -202,6 +202,39 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(response.headers.get('x-container-read'), '.r:*')
         self.assertEqual(response.headers.get('x-container-write'),
                          'account:user')
+
+    def test_HEAD_has_content_length(self):
+        # create a container
+        put_timestamp = next(self.ts)
+        expected_last_modified = Response(
+            last_modified=put_timestamp.ceil()).headers['Last-Modified']
+        created_at_timestamp = next(self.ts)
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'x-timestamp': put_timestamp.normal})
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=created_at_timestamp):
+            resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        # do a HEAD
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
+        status, headers, body_iter = req.call_application(self.controller)
+        self.assertEqual('204 No Content', status)
+        self.assertEqual({
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Length': '0',
+            'Last-Modified': expected_last_modified,
+            'X-Backend-Delete-Timestamp': '0000000000.00000',
+            'X-Backend-Put-Timestamp': put_timestamp.normal,
+            'X-Backend-Sharding-State': 'unsharded',
+            'X-Backend-Status-Changed-At': put_timestamp.normal,
+            'X-Backend-Storage-Policy-Index': str(int(POLICIES.default)),
+            'X-Backend-Timestamp': created_at_timestamp.normal,
+            'X-Container-Bytes-Used': '0',
+            'X-Container-Object-Count': '0',
+            'X-Put-Timestamp': put_timestamp.normal,
+            'X-Timestamp': created_at_timestamp.normal,
+        }, dict(headers))
+        self.assertEqual(b'', b''.join(body_iter))
 
     def _test_head(self, start, ts):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
