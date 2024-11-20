@@ -24,7 +24,7 @@ from test.functional import check_response, cluster_info, retry, \
 import test.functional as tf
 
 import six
-from six.moves import range
+from six.moves import range, urllib
 
 
 def setUpModule():
@@ -110,6 +110,70 @@ class TestContainer(unittest.TestCase):
             # has, for either container there may be a failure that trips the
             # retry despite the request having been successfully processed.
             self.assertIn(resp.status, (204, 404))
+
+    def test_GET_HEAD_content_type(self):
+
+        def send_req(url, token, parsed, conn, method, container, params):
+            qs = '?%s' % urllib.parse.urlencode(params) if params else ''
+            conn.request(method, parsed.path + '/' + container + qs, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(send_req, 'GET', self.name, {})
+        # GET is still 204 if there's no objects!?
+        self.assertEqual(resp.status, 204)
+        # we respond text/plain by default
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/plain; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
+
+        resp = retry(send_req, 'HEAD', self.name, {})
+        # HEAD will *always* 204
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/plain; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
+
+        def put_object(url, token, parsed, conn, container, obj_name):
+            conn.request('PUT', '/'.join((parsed.path, container, obj_name)),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(put_object, self.name, 'obj1')
+        self.assertEqual(resp.status, 201)
+
+        resp = retry(send_req, 'GET', self.name, {})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/plain; charset=utf-8')
+
+        resp = retry(send_req, 'HEAD', self.name, {})
+        # HEAD will *always* 204
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/plain; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
+
+        # and we can ask for our preferred encoding format
+        resp = retry(send_req, 'GET', self.name, {'format': 'json'})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/json; charset=utf-8')
+        resp = retry(send_req, 'HEAD', self.name, {'format': 'json'})
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/json; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
+
+        resp = retry(send_req, 'GET', self.name, {'format': 'xml'})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/xml; charset=utf-8')
+        resp = retry(send_req, 'HEAD', self.name, {'format': 'xml'})
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'application/xml; charset=utf-8')
+        self.assertEqual(resp.getheader('Content-Length'), '0')
 
     def test_multi_metadata(self):
         if tf.skip:
