@@ -262,7 +262,6 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(expected, actual)
 
     def test_create_upload_complete_read_mpu(self):
-        part_size = 5 * 1024 * 1024
         # create upload
         user_headers = {
             'Content-Disposition': 'attachment',
@@ -293,7 +292,7 @@ class TestMPU(BaseTestMPU):
 
         # upload parts
         part_resp_etags = []
-        part_bodies = [b'a' * part_size, b'b' * part_size]
+        part_bodies = [b'a' * self.part_size, b'b' * self.part_size]
         part_etags = [md5(part_body, usedforsecurity=False).hexdigest()
                       for part_body in part_bodies]
         resp = self._upload_part(self.mpu_name, upload_id, 1, part_bodies[0])
@@ -344,7 +343,7 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(
             [{'name': '%s/%s/%06d' % (self.mpu_name, upload_id, i + 1),
               'hash': part_etags[i],
-              'bytes': part_size,
+              'bytes': self.part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY}
              for i in range(2)],
@@ -385,12 +384,11 @@ class TestMPU(BaseTestMPU):
         }
         exp_headers.update(user_headers)
         self.assertEqual(exp_headers, resp.headers)
-        self.assertEqual(2 * part_size, len(resp.content))
+        self.assertEqual(2 * self.part_size, len(resp.content))
         self.assertEqual(part_bodies[0], resp.content[:5 * 1024 * 1024])
         self.assertEqual(part_bodies[1], resp.content[-5 * 1024 * 1024:])
 
     def test_create_upload_complete_mpu_retry_complete(self):
-        part_size = 5 * 1024 * 1024
         # create upload
         resp = self._create_mpu(self.mpu_name)
         upload_id = resp.headers.get('X-Upload-Id')
@@ -399,7 +397,7 @@ class TestMPU(BaseTestMPU):
         # upload 3 parts
         part_resp_etags = []
         for i, x in enumerate([b'a', b'b', b'c']):
-            part_body = x * part_size
+            part_body = x * self.part_size
             resp = self._upload_part(
                 self.mpu_name, upload_id, i + 1, part_body)
             self.assertEqual(201, resp.status)
@@ -410,7 +408,7 @@ class TestMPU(BaseTestMPU):
             etag_hasher.update(part_etag)
             exp_mpu_etag = etag_hasher.etag
 
-        # complete mpu
+        # complete mpu using only 2 parts
         resp = self._complete_mpu(
             self.mpu_name, upload_id, part_resp_etags[:2])
         self.assertEqual(202, resp.status, resp.content)
@@ -452,7 +450,7 @@ class TestMPU(BaseTestMPU):
              'Date': mock.ANY},
             resp.headers
         )
-        self.assertEqual(2 * part_size, len(resp.content))
+        self.assertEqual(2 * self.part_size, len(resp.content))
 
     def test_make_mpu_no_user_content_type(self):
         self._make_mpu(
@@ -481,7 +479,6 @@ class TestMPU(BaseTestMPU):
         self.assertIsNotNone(upload_id)
 
     def test_create_upload_abort_retry_abort(self):
-        part_size = 5 * 1024 * 1024
         # create upload
         resp = self._create_mpu(self.mpu_name)
         self.assertEqual(202, resp.status)
@@ -489,7 +486,7 @@ class TestMPU(BaseTestMPU):
         self.assertIsNotNone(upload_id)
 
         # upload parts
-        part_bodies = [b'a' * part_size]
+        part_bodies = [b'a' * self.part_size]
         resp = self._upload_part(self.mpu_name, upload_id, 1, part_bodies[0])
         self.assertEqual(201, resp.status)
 
@@ -525,6 +522,45 @@ class TestMPU(BaseTestMPU):
         resp = self._upload_part(self.mpu_name, upload_id, 1, part_body,
                                  headers=headers)
         self.assertEqual(422, resp.status)
+
+    def test_upload_part_after_failed_complete(self):
+        resp = self._create_mpu(self.mpu_name)
+        self.assertEqual(202, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+
+        part_body = b'a' * self.part_size
+        resp = self._upload_part(self.mpu_name, upload_id, 1, part_body)
+        self.assertEqual(201, resp.status)
+        part_resp_etag_1 = resp.getheader('Etag')
+
+        # try to complete mpu using 2 parts but second part doesn't exist
+        resp = self._complete_mpu(
+            self.mpu_name, upload_id, [part_resp_etag_1] * 2)
+        self.assertEqual(202, resp.status, resp.content)
+        body = json.loads(resp.content)
+        self.assertEqual('400 Bad Request', body.get('Response Status'), body)
+        self.assertEqual([["000002", "404 Not Found"]], body['Errors'], body)
+
+        # upload second part
+        part_body = b'b' * self.part_size
+        resp = self._upload_part(self.mpu_name, upload_id, 2, part_body)
+        self.assertEqual(201, resp.status)
+        part_resp_etag_2 = resp.getheader('Etag')
+
+        etag_hasher = MPUEtagHasher()
+        for part_etag in (part_resp_etag_1, part_resp_etag_2):
+            etag_hasher.update(part_etag)
+            exp_mpu_etag = etag_hasher.etag
+
+        # try to complete mpu again now second part exists
+        resp = self._complete_mpu(
+            self.mpu_name, upload_id, [part_resp_etag_1, part_resp_etag_2])
+        self.assertEqual(202, resp.status, resp.content)
+        body = json.loads(resp.content)
+        self.assertEqual('201 Created', body.get('Response Status'), body)
+        self.assertEqual(exp_mpu_etag, body.get('Etag'), body)
+        self.assertEqual([], body['Errors'], body)
 
     def test_upload_part_copy_using_PUT(self):
         # upload source object
