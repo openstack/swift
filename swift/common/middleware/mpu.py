@@ -75,7 +75,8 @@ MPU_SYSMETA_ETAG_KEY = get_mpu_sysmeta_key('etag')
 MPU_SYSMETA_PARTS_COUNT_KEY = get_mpu_sysmeta_key('parts-count')
 MPU_SYSMETA_USER_CONTENT_TYPE_KEY = get_mpu_sysmeta_key('content-type')
 
-MPU_INVALID_UPLOAD_ID_MSG = 'No such upload-id'
+MPU_INVALID_UPLOAD_ID_MSG = 'Invalid upload-id'
+MPU_NO_SUCH_UPLOAD_ID_MSG = 'No such upload-id'
 
 
 def get_req_upload_id(req):
@@ -683,7 +684,7 @@ class MPUSessionHandler(BaseMPUHandler):
         req = self.make_subrequest(method='HEAD', path=self.session_path)
         resp = req.get_response(self.app)
         if resp.status_int == 404:
-            raise HTTPNotFound()
+            raise HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
         elif not resp.is_success:
             raise HTTPInternalServerError()
 
@@ -745,7 +746,12 @@ class MPUSessionHandler(BaseMPUHandler):
         Handles List Parts.
         """
         self._authorize_read_request()
-        self._load_session()  # verify existence of the upload-id
+        session = self._load_session()  # verify existence of the upload-id
+        if session.state not in (MPUSession.CREATED_STATE,
+                                 MPUSession.COMPLETING_STATE):
+            return HTTPNotFound()
+        if session.is_aborted:
+            return HTTPNotFound()
         path = self.make_path(self.parts_container)
 
         params = {'prefix': self.session_name}

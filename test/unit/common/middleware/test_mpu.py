@@ -736,6 +736,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_parts(self):
         ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
         listing = [{'name': '%s/%06d' % (self.sess_name, i),
                     'hash': 'etag%d' % i,
                     'bytes': i,
@@ -743,11 +744,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                     'last_modified': '1970-01-01T00:00:00.000000'}
                    for i in range(3)]
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu-session-created'}),
             ('GET',
              '/v1/a/\x00mpu_parts\x00c',
              HTTPOk,
@@ -763,7 +759,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         expected = [call[:2] for call in self.exp_calls] + [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name),
             ('GET', '/v1/a/\x00mpu_parts\x00c?prefix=%s'
              % quote('%s' % self.sess_name, safe='')),
         ]
@@ -784,13 +779,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # this test doesn't care about the listing content, it's just verifying
         # the request parameter forwarding
         ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
         listing = []
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu-session-created'}),
             ('GET',
              '/v1/a/\x00mpu_parts\x00c',
              HTTPOk,
@@ -809,8 +800,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(200, resp.status_int)
         self.assertEqual([], json.loads(resp.body))
         self.assertEqual(4, len(self.app.calls), self.app.calls)
-        expected = [call[:2] for call in self.exp_calls] + [
-            ('HEAD', '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name)]
+        expected = [call[:2] for call in self.exp_calls]
         self.assertEqual(expected, self.app.calls[:3])
         self.assertEqual('GET', self.app.calls[3][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
@@ -823,12 +813,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_parts_subrequest_404(self):
         ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu'}),
             ('GET',
              '/v1/a/\x00mpu_parts\x00c',
              HTTPNotFound,
@@ -847,15 +833,16 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual({'Content-Length': str(len(resp.body)),
                           'Content-Type': 'text/html; charset=UTF-8'},
                          resp.headers)
+        expected = [call[:2] for call in self.exp_calls] + [
+            ('GET', '/v1/a/\x00mpu_parts\x00c?prefix=%s'
+             % quote('%s' % self.sess_name, safe='')),
+        ]
+        self.assertEqual(expected, self.app.calls)
 
     def test_list_parts_subrequest_503(self):
         ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
-            ('HEAD',
-             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-             HTTPOk,
-             {'X-Timestamp': ts_session.internal,
-              'Content-Type': 'application/x-mpu'}),
             ('GET',
              '/v1/a/\x00mpu_parts\x00c',
              HTTPServiceUnavailable,
@@ -874,6 +861,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual({'Content-Length': str(len(resp.body)),
                           'Content-Type': 'text/html; charset=UTF-8'},
                          resp.headers)
+        expected = [call[:2] for call in self.exp_calls] + [
+            ('GET', '/v1/a/\x00mpu_parts\x00c?prefix=%s'
+             % quote('%s' % self.sess_name, safe='')),
+        ]
+        self.assertEqual(expected, self.app.calls)
 
     def test_complete_mpu(self):
         ts_session = next(self.ts_iter)
@@ -1846,7 +1838,7 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
                 environ={'REQUEST_METHOD': 'PUT'})
             resp = req.get_response(MPUMiddleware(self.app, {}))
             self.assertEqual(400, resp.status_int, bad_id)
-            self.assertEqual(b'No such upload-id', resp.body)
+            self.assertEqual(b'Invalid upload-id', resp.body)
 
         test_bad_mpu_id('')
         test_bad_mpu_id(str(self.mpu_id).split('~')[0])

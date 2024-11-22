@@ -435,7 +435,7 @@ class TestMPU(BaseTestMPU):
         resp = self._complete_mpu(
             self.mpu_name + '-not', upload_id, part_resp_etags[:2])
         self.assertEqual(400, resp.status)
-        self.assertIn(b'No such upload-id', resp.content)
+        self.assertIn(b'Invalid upload-id', resp.content)
 
         # GET the user object - check
         resp = tf.retry(self._make_request, method='GET',
@@ -531,7 +531,7 @@ class TestMPU(BaseTestMPU):
         # retry abort on a different object path
         resp = self._abort_mpu(self.mpu_name + '-not', upload_id)
         self.assertEqual(400, resp.status)
-        self.assertIn(b'No such upload-id', resp.content)
+        self.assertIn(b'Invalid upload-id', resp.content)
 
     def test_upload_part(self):
         resp = self._create_mpu(self.mpu_name)
@@ -591,6 +591,19 @@ class TestMPU(BaseTestMPU):
         self.assertEqual('201 Created', body.get('Response Status'), body)
         self.assertEqual(exp_mpu_etag, body.get('Etag'), body)
         self.assertEqual([], body['Errors'], body)
+
+    def test_upload_part_after_abort(self):
+        resp = self._create_mpu(self.mpu_name)
+        self.assertEqual(202, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+        resp = self._abort_mpu(self.mpu_name, upload_id)
+        self.assertEqual(204, resp.status)
+
+        part_body = b'a' * self.part_size
+        resp = self._upload_part(self.mpu_name, upload_id, 1, part_body)
+        self.assertEqual(404, resp.status)
+        self.assertEqual(b'No such upload-id', resp.content)
 
     def test_upload_part_copy_using_PUT(self):
         # upload source object
