@@ -34,11 +34,11 @@ from swiftclient import ClientException
 TIMEOUT = 60
 
 
-class TestContainerMergePolicyIndex(ReplProbeTest):
+class BaseTestContainerMergePolicyIndex(ReplProbeTest):
 
     @unittest.skipIf(len(ENABLED_POLICIES) < 2, "Need more than one policy")
     def setUp(self):
-        super(TestContainerMergePolicyIndex, self).setUp()
+        super(BaseTestContainerMergePolicyIndex, self).setUp()
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
@@ -60,16 +60,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                           self.account, self.container_name, self.object_name,
                           int(policy_index), TIMEOUT))
 
-    def test_merge_storage_policy_index(self):
-        # generic split brain
-        self.brain.stop_primary_half()
-        self.brain.put_container()
-        self.brain.start_primary_half()
-        self.brain.stop_handoff_half()
-        self.brain.put_container()
-        self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
-                              contents=b'VERIFY')
-        self.brain.start_handoff_half()
+    def _do_test_merge_storage_policy_index(self):
         # make sure we have some manner of split brain
         container_part, container_nodes = self.container_ring.get_nodes(
             self.account, self.container_name)
@@ -146,6 +137,20 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         headers, data = self._get_object_patiently(expected_policy_index)
         self.assertEqual(b'VERIFY', data)
         self.assertEqual('custom-meta', headers['x-object-meta-test'])
+
+
+class TestContainerMergePolicyIndex(BaseTestContainerMergePolicyIndex):
+    def test_merge_storage_policy_index(self):
+        # generic split brain
+        self.brain.stop_primary_half()
+        self.brain.put_container()
+        self.brain.start_primary_half()
+        self.brain.stop_handoff_half()
+        self.brain.put_container()
+        self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
+                              contents=b'VERIFY')
+        self.brain.start_handoff_half()
+        self._do_test_merge_storage_policy_index()
 
     def test_reconcile_delete(self):
         # generic split brain
@@ -576,6 +581,68 @@ class TestReservedNamespaceMergePolicyIndex(TestContainerMergePolicyIndex):
     def test_reconcile_manifest(self):
         raise unittest.SkipTest(
             'SLO does not allow parts in the reserved namespace')
+
+
+class TestVersioningMergePolicyIndex(BaseTestContainerMergePolicyIndex):
+    def test_merge_storage_policy_index_before_versioning_enabled(self):
+        # reconcile split brain container...
+        self.brain.stop_primary_half()
+        self.brain.put_container()
+        self.brain.start_primary_half()
+        self.brain.stop_handoff_half()
+        self.brain.put_container()
+        self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
+                              contents=b'VERIFY')
+        self.brain.start_handoff_half()
+        self._do_test_merge_storage_policy_index()
+        # .. then enable versioning and overwrite the moved object
+        self.brain.client.post_container(
+            self.container_name, headers={'X-Versions-Enabled': 'True'})
+        self.brain.client.put_object(
+            self.container_name, self.object_name, {}, b'MODIFIED')
+        # check both versions...
+        hdrs, listing = self.brain.client.get_container(
+            self.container_name, query_string='format=json&versions=true')
+        self.assertEqual(2, len(listing), listing)
+        hdrs, content = self.brain.client.get_object(
+            self.container_name,
+            listing[0]['name'],
+            query_string='version-id=%s' % listing[0]['version_id'])
+        self.assertEqual(b'MODIFIED', content)
+        hdrs, content = self.brain.client.get_object(
+            self.container_name,
+            listing[1]['name'],
+            query_string='version-id=%s' % listing[1]['version_id'])
+        self.assertEqual(b'VERIFY', content)
+
+    def test_merge_storage_policy_index_after_versioning_enabled(self):
+        # reconcile split brain versioning container...
+        self.brain.stop_primary_half()
+        self.brain.put_container(extra_headers={'X-Versions-Enabled': 'True'})
+        self.brain.start_primary_half()
+        self.brain.stop_handoff_half()
+        self.brain.put_container(extra_headers={'X-Versions-Enabled': 'True'})
+        self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
+                              contents=b'VERIFY')
+        self.brain.start_handoff_half()
+        self._do_test_merge_storage_policy_index()
+        # .. then overwrite the moved object
+        self.brain.client.put_object(
+            self.container_name, self.object_name, {}, b'MODIFIED')
+        # check both versions...
+        hdrs, listing = self.brain.client.get_container(
+            self.container_name, query_string='format=json&versions=true')
+        self.assertEqual(2, len(listing), listing)
+        hdrs, content = self.brain.client.get_object(
+            self.container_name,
+            listing[0]['name'],
+            query_string='version-id=%s' % listing[0]['version_id'])
+        self.assertEqual(b'MODIFIED', content)
+        hdrs, content = self.brain.client.get_object(
+            self.container_name,
+            listing[1]['name'],
+            query_string='version-id=%s' % listing[1]['version_id'])
+        self.assertEqual(b'VERIFY', content)
 
 
 if __name__ == "__main__":
