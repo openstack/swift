@@ -23,7 +23,7 @@ from logging.handlers import SysLogHandler
 import six
 from six.moves.urllib.parse import unquote
 
-from swift.common.utils import get_logger, split_path
+from swift.common.utils import get_swift_logger, split_path
 from swift.common.statsd_client import StatsdClient
 from swift.common.middleware import proxy_logging
 from swift.common.registry import register_sensitive_header, \
@@ -969,7 +969,7 @@ class TestProxyLogging(unittest.TestCase):
             FakeApp(),
             {'log_headers': 'yes',
              'access_log_facility': 'LOG_LOCAL7'})
-        handler = get_logger.handler4logger[app.access_logger.logger]
+        handler = get_swift_logger.handler4logger[app.access_logger.logger]
         self.assertEqual(SysLogHandler.LOG_LOCAL7, handler.facility)
 
     def test_filter(self):

@@ -16,10 +16,11 @@
 """Tests for swift.common.utils"""
 from __future__ import print_function
 
+import argparse
 import hashlib
 import itertools
 
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, FakeStatsdClient
 from test.unit import temptree, make_timestamp_iter, with_tempdir, \
     mock_timestamp_now, FakeIterable
 
@@ -7367,3 +7368,283 @@ class TestContextPool(unittest.TestCase):
         self.assertEqual(pool.running(), size)
         pool.close()
         self.assertEqual(pool.running(), 0)
+
+
+class TestLoggerStatsdClientDelegation(unittest.TestCase):
+    def setUp(self):
+        self.logger_name = 'server'
+
+    def tearDown(self):
+        # Avoid test coupling by removing any StatsdClient instance
+        # that may have been patched on to a Logger.
+        core_logger = logging.getLogger(self.logger_name)
+        if hasattr(core_logger, 'statsd_client'):
+            del core_logger.statsd_client
+
+    def test_patch_statsd_methods(self):
+        client = FakeStatsdClient('host.com', 1234)
+        source = argparse.Namespace()
+        source.statsd_client = client
+
+        target = argparse.Namespace()
+        utils._patch_statsd_methods(target, source)
+        target.increment('a')
+        target.decrement('b')
+        target.update_stats('c', 4)
+        target.timing('d', 23.4)
+        target.timing_since('e', 23.4)
+        target.transfer_rate('f', 56.7, 1234.5)
+        exp = {
+            'decrement': [(('b',), {})],
+            'increment': [(('a',), {})],
+            'timing': [(('d', 23.4), {}),
+                       (('f', 45929.52612393682, None), {})],
+            'timing_since': [(('e', 23.4), {})],
+            'transfer_rate': [(('f', 56.7, 1234.5), {})],
+            'update_stats': [(('a', 1, None), {}),
+                             (('b', -1, None), {}),
+                             (('c', 4), {})]
+        }
+        self.assertEqual(exp, client.calls)
+
+    def test_patch_statsd_methods_source_is_none(self):
+        with self.assertRaises(ValueError) as cm:
+            utils._patch_statsd_methods(object, None)
+        self.assertEqual(
+            'statsd_client_source must have a statsd_client attribute',
+            str(cm.exception))
+
+    def test_patch_statsd_methods_source_no_statsd_client(self):
+        source = argparse.Namespace()
+        with self.assertRaises(ValueError) as cm:
+            utils._patch_statsd_methods(object, source)
+        self.assertEqual(
+            'statsd_client_source must have a statsd_client attribute',
+            str(cm.exception))
+
+    def test_patch_statsd_methods_source_statsd_client_is_none(self):
+        source = argparse.Namespace()
+        source.statsd_client = None
+        with self.assertRaises(ValueError) as cm:
+            utils._patch_statsd_methods(object, source)
+        self.assertEqual(
+            'statsd_client_source must have a statsd_client attribute',
+            str(cm.exception))
+
+    def test_patch_statsd_methods_client_deleted_from_source(self):
+        client = FakeStatsdClient('host.com', 1234)
+        source = argparse.Namespace()
+        source.statsd_client = client
+        target = argparse.Namespace()
+        utils._patch_statsd_methods(target, source)
+        target.increment('a')
+        exp = {
+            'increment': [(('a',), {})],
+            'update_stats': [(('a', 1, None), {})],
+        }
+        self.assertEqual(exp, client.calls)
+
+        # if the statsd_client is deleted you will blow up...
+        del source.statsd_client
+        try:
+            target.increment('b')
+        except AttributeError as err:
+            self.assertEqual(
+                str(err),
+                "'Namespace' object has no attribute 'statsd_client'")
+
+    def test_get_logger_provides_a_swift_log_adapter(self):
+        orig_get_swift_logger = utils.logs.get_swift_logger
+        calls = []
+
+        def fake_get_swift_logger(*args, **kwargs):
+            result = orig_get_swift_logger(*args, **kwargs)
+            calls.append((args, kwargs, result))
+            return result
+
+        conf = {}
+        fmt = 'test %(message)s'
+        with mock.patch(
+                'swift.common.utils.get_swift_logger', fake_get_swift_logger):
+            logger = utils.get_logger(
+                conf, name=self.logger_name, log_to_console=True,
+                log_route='test', fmt=fmt)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(
+            ((conf, self.logger_name, True, 'test', fmt), {}),
+            calls[0][:2])
+        self.assertIs(calls[0][2], logger)
+
+    def test_get_logger_provides_statsd_client(self):
+        with mock.patch(
+                'swift.common.statsd_client.StatsdClient', FakeStatsdClient):
+            swift_logger = utils.get_logger(None, name=self.logger_name)
+        self.assertTrue(hasattr(swift_logger.logger, 'statsd_client'))
+        self.assertIsInstance(swift_logger.logger.statsd_client,
+                              FakeStatsdClient)
+        swift_logger.increment('a')
+        swift_logger.decrement('b')
+        swift_logger.update_stats('c', 4)
+        swift_logger.timing('d', 23.4)
+        swift_logger.timing_since('e', 23.4)
+        swift_logger.transfer_rate('f', 56.7, 1234.5)
+        exp = {
+            'decrement': [(('b',), {})],
+            'increment': [(('a',), {})],
+            'timing': [(('d', 23.4), {}),
+                       (('f', 45929.52612393682, None), {})],
+            'timing_since': [(('e', 23.4), {})],
+            'transfer_rate': [(('f', 56.7, 1234.5), {})],
+            'update_stats': [(('a', 1, None), {}),
+                             (('b', -1, None), {}),
+                             (('c', 4), {})]
+        }
+        self.assertTrue(hasattr(swift_logger.logger, 'statsd_client'))
+        client = swift_logger.logger.statsd_client
+        self.assertEqual(exp, client.calls)
+
+    def test_get_logger_statsd_client_prefix(self):
+        def call_get_logger(conf, name, statsd_tail_prefix):
+            with mock.patch('swift.common.statsd_client.StatsdClient',
+                            FakeStatsdClient):
+                swift_logger = utils.get_logger(
+                    conf, name=name, statsd_tail_prefix=statsd_tail_prefix)
+            self.assertTrue(hasattr(swift_logger.logger, 'statsd_client'))
+            self.assertIsInstance(swift_logger.logger.statsd_client,
+                                  FakeStatsdClient)
+            return swift_logger.logger.statsd_client
+
+        # tail prefix defaults to swift
+        statsd_client = call_get_logger(None, None, None)
+        self.assertEqual('swift.', statsd_client._prefix)
+
+        # tail prefix defaults to conf log_name
+        conf = {'log_name': 'bar'}
+        statsd_client = call_get_logger(conf, None, None)
+        self.assertEqual('bar.', statsd_client._prefix)
+
+        # tail prefix defaults to name arg which overrides conf log_name
+        statsd_client = call_get_logger(conf, '', None)
+        self.assertEqual('', statsd_client._prefix)
+
+        # tail prefix defaults to name arg which overrides conf log_name
+        statsd_client = call_get_logger(conf, 'baz', None)
+        self.assertEqual('baz.', statsd_client._prefix)
+
+        # tail prefix set to statsd_tail_prefix arg which overrides name arg
+        statsd_client = call_get_logger(conf, 'baz', '')
+        self.assertEqual('', statsd_client._prefix)
+
+        # tail prefix set to statsd_tail_prefix arg which overrides name arg
+        statsd_client = call_get_logger(conf, 'baz', 'boo')
+        self.assertEqual('boo.', statsd_client._prefix)
+
+        # base prefix is configured, tail prefix defaults to swift
+        conf = {'log_statsd_metric_prefix': 'foo'}
+        statsd_client = call_get_logger(conf, None, None)
+        self.assertEqual('foo.swift.', statsd_client._prefix)
+
+        # base prefix is configured, tail prefix defaults to conf log_name
+        conf = {'log_statsd_metric_prefix': 'foo', 'log_name': 'bar'}
+        statsd_client = call_get_logger(conf, None, None)
+        self.assertEqual('foo.bar.', statsd_client._prefix)
+
+        # base prefix is configured, tail prefix defaults to name arg
+        statsd_client = call_get_logger(conf, 'baz', None)
+        self.assertEqual('foo.baz.', statsd_client._prefix)
+
+        # base prefix is configured, tail prefix set to statsd_tail_prefix arg
+        statsd_client = call_get_logger(conf, None, '')
+        self.assertEqual('foo.', statsd_client._prefix)
+
+        # base prefix is configured, tail prefix set to statsd_tail_prefix arg
+        statsd_client = call_get_logger(conf, 'baz', 'boo')
+        self.assertEqual('foo.boo.', statsd_client._prefix)
+
+    def test_get_logger_replaces_statsd_client(self):
+        # Each call to get_logger creates a *new* StatsdClient instance and
+        # sets it as an attribute of the potentially *shared* Logger instance.
+        # This is a questionable pattern but the test at least reminds us.
+        orig_logger = utils.get_logger(
+            {'log_statsd_port': 1234},
+            name=self.logger_name,
+            statsd_tail_prefix='orig')
+        self.assertTrue(hasattr(orig_logger.logger, 'statsd_client'))
+        orig_client = orig_logger.logger.statsd_client
+        self.assertEqual('orig.', orig_client._prefix)
+        self.assertEqual(1234, orig_client._port)
+
+        new_adapted_logger = utils.get_logger(
+            {'log_statsd_port': 5678},
+            name=self.logger_name,
+            statsd_tail_prefix='new')
+        self.assertTrue(hasattr(new_adapted_logger.logger, 'statsd_client'))
+        new_client = new_adapted_logger.logger.statsd_client
+        # same core Logger...
+        self.assertIs(orig_logger.logger, new_adapted_logger.logger)
+        # ... different StatsdClient !
+        self.assertIsNot(new_client, orig_client)
+        self.assertIs(new_client, orig_logger.logger.statsd_client)
+        self.assertEqual('new.', new_client._prefix)
+        self.assertEqual(5678, new_client._port)
+
+    def test_get_prefixed_logger_calls_get_prefixed_swift_logger(self):
+        orig_get_prefixed_swift_logger = utils.logs.get_prefixed_swift_logger
+        base_logger = utils.logs.get_swift_logger(None)
+        calls = []
+
+        def fake_get_prefixed_swift_logger(*args, **kwargs):
+            result = orig_get_prefixed_swift_logger(*args, **kwargs)
+            calls.append((args, kwargs, result))
+            return result
+
+        with mock.patch(
+                'swift.common.utils.get_prefixed_swift_logger',
+                fake_get_prefixed_swift_logger):
+            logger = utils.get_prefixed_logger(base_logger, 'boo')
+        self.assertEqual(1, len(calls))
+        self.assertEqual(((base_logger,), {'prefix': 'boo'}), calls[0][:2])
+        self.assertEqual(calls[0][2], logger)
+        self.assertEqual('boo', logger.prefix)
+
+    def test_get_prefixed_logger_adopts_statsd_client(self):
+        # verify that get_prefixed_logger installs an interface to any existing
+        # StatsdClient that the source logger has
+        with mock.patch(
+                'swift.common.statsd_client.StatsdClient', FakeStatsdClient):
+            adapted_logger = utils.get_logger(None, name=self.logger_name)
+        self.assertTrue(hasattr(adapted_logger.logger, 'statsd_client'))
+        self.assertIsInstance(adapted_logger.logger.statsd_client,
+                              FakeStatsdClient)
+
+        prefixed_logger = utils.get_prefixed_logger(adapted_logger, 'test')
+        self.assertTrue(hasattr(prefixed_logger.logger, 'statsd_client'))
+        self.assertIs(prefixed_logger.logger.statsd_client,
+                      adapted_logger.logger.statsd_client)
+
+        prefixed_logger.increment('foo')
+        prefixed_logger.decrement('boo')
+
+        exp = {
+            'increment': [(('foo',), {})],
+            'decrement': [(('boo',), {})],
+            'update_stats': [(('foo', 1, None), {}),
+                             (('boo', -1, None), {})]
+        }
+        self.assertEqual(exp, prefixed_logger.logger.statsd_client.calls)
+        self.assertEqual(exp, adapted_logger.logger.statsd_client.calls)
+
+    def test_get_prefixed_logger_no_statsd_client(self):
+        # verify get_prefixed_logger can be used to mutate the prefix of a
+        # SwiftLogAdapter that does *not* have a StatsdClient interface
+        adapted_logger = utils.logs.get_swift_logger(
+            None, name=self.logger_name)
+        self.assertFalse(
+            hasattr(adapted_logger.logger, 'statsd_client'))
+        self.assertFalse(hasattr(adapted_logger, 'statsd_client_source'))
+        self.assertFalse(hasattr(adapted_logger, 'increment'))
+
+        prefixed_logger = utils.get_prefixed_logger(adapted_logger, 'test')
+        self.assertFalse(hasattr(prefixed_logger, 'statsd_client_source'))
+        self.assertFalse(hasattr(prefixed_logger.logger, 'statsd_client'))
+        self.assertFalse(hasattr(prefixed_logger, 'increment'))
