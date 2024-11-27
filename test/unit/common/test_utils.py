@@ -7528,60 +7528,79 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         self.assertEqual(logger.logger.statsd_client._prefix, 'some-name.')
 
     def test_get_logger_statsd_client_prefix(self):
-        def call_get_logger(conf, name, statsd_tail_prefix):
+        def call_get_logger(conf, name, statsd_tail_prefix, log_route=None):
             swift_logger = utils.get_logger(
-                conf, name=name, statsd_tail_prefix=statsd_tail_prefix)
+                conf, name=name,
+                log_route=log_route,
+                statsd_tail_prefix=statsd_tail_prefix)
             self.assertTrue(hasattr(swift_logger.logger, 'statsd_client'))
             self.assertIsInstance(swift_logger.logger.statsd_client,
                                   StatsdClient)
-            return swift_logger.logger.statsd_client
+            return swift_logger
 
         # tail prefix defaults to swift
-        statsd_client = call_get_logger(None, None, None)
-        self.assertEqual('swift.', statsd_client._prefix)
+        logger = call_get_logger(None, None, None)
+        self.assertEqual('swift.', logger.logger.statsd_client._prefix)
+        self.assertEqual('swift', logger.name)
+        self.assertEqual('swift', logger.server)
+
+        # tail prefix defaults to swift, log_route is ignored for stats
+        logger = call_get_logger(None, None, None, log_route='route')
+        self.assertEqual('swift.', logger.logger.statsd_client._prefix)
+        self.assertEqual('route', logger.name)
+        self.assertEqual('swift', logger.server)
 
         # tail prefix defaults to conf log_name
         conf = {'log_name': 'bar'}
-        statsd_client = call_get_logger(conf, None, None)
-        self.assertEqual('bar.', statsd_client._prefix)
+        logger = call_get_logger(conf, None, None)
+        self.assertEqual('bar.', logger.logger.statsd_client._prefix)
+        self.assertEqual('bar', logger.name)
+        self.assertEqual('bar', logger.server)
+
+        # tail prefix defaults to conf log_name, log_route is ignored for stats
+        conf = {'log_name': 'bar'}
+        logger = call_get_logger(conf, None, None, log_route='route')
+        self.assertEqual('bar.', logger.logger.statsd_client._prefix)
+        self.assertEqual('route', logger.name)
+        self.assertEqual('bar', logger.server)
 
         # tail prefix defaults to name arg which overrides conf log_name
-        statsd_client = call_get_logger(conf, '', None)
-        self.assertEqual('', statsd_client._prefix)
+        logger = call_get_logger(conf, '', None)
+        self.assertEqual('', logger.logger.statsd_client._prefix)
 
         # tail prefix defaults to name arg which overrides conf log_name
-        statsd_client = call_get_logger(conf, 'baz', None)
-        self.assertEqual('baz.', statsd_client._prefix)
+        logger = call_get_logger(conf, 'baz', None)
+        self.assertEqual('baz.', logger.logger.statsd_client._prefix)
 
         # tail prefix set to statsd_tail_prefix arg which overrides name arg
-        statsd_client = call_get_logger(conf, 'baz', '')
-        self.assertEqual('', statsd_client._prefix)
+        logger = call_get_logger(conf, 'baz', '')
+        self.assertEqual('', logger.logger.statsd_client._prefix)
 
         # tail prefix set to statsd_tail_prefix arg which overrides name arg
-        statsd_client = call_get_logger(conf, 'baz', 'boo')
-        self.assertEqual('boo.', statsd_client._prefix)
+        logger = call_get_logger(conf, 'baz', 'boo')
+        self.assertEqual('boo.', logger.logger.statsd_client._prefix)
 
         # base prefix is configured, tail prefix defaults to swift
         conf = {'log_statsd_metric_prefix': 'foo'}
-        statsd_client = call_get_logger(conf, None, None)
-        self.assertEqual('foo.swift.', statsd_client._prefix)
+        logger = call_get_logger(conf, None, None)
+        self.assertEqual('foo.swift.', logger.logger.statsd_client._prefix)
 
         # base prefix is configured, tail prefix defaults to conf log_name
         conf = {'log_statsd_metric_prefix': 'foo', 'log_name': 'bar'}
-        statsd_client = call_get_logger(conf, None, None)
-        self.assertEqual('foo.bar.', statsd_client._prefix)
+        logger = call_get_logger(conf, None, None)
+        self.assertEqual('foo.bar.', logger.logger.statsd_client._prefix)
 
         # base prefix is configured, tail prefix defaults to name arg
-        statsd_client = call_get_logger(conf, 'baz', None)
-        self.assertEqual('foo.baz.', statsd_client._prefix)
+        logger = call_get_logger(conf, 'baz', None)
+        self.assertEqual('foo.baz.', logger.logger.statsd_client._prefix)
 
         # base prefix is configured, tail prefix set to statsd_tail_prefix arg
-        statsd_client = call_get_logger(conf, None, '')
-        self.assertEqual('foo.', statsd_client._prefix)
+        logger = call_get_logger(conf, None, '')
+        self.assertEqual('foo.', logger.logger.statsd_client._prefix)
 
         # base prefix is configured, tail prefix set to statsd_tail_prefix arg
-        statsd_client = call_get_logger(conf, 'baz', 'boo')
-        self.assertEqual('foo.boo.', statsd_client._prefix)
+        logger = call_get_logger(conf, 'baz', 'boo')
+        self.assertEqual('foo.boo.', logger.logger.statsd_client._prefix)
 
     def test_get_logger_replaces_statsd_client(self):
         # Each call to get_logger creates a *new* StatsdClient instance and
@@ -7655,6 +7674,31 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         }
         self.assertEqual(exp, prefixed_logger.logger.statsd_client.calls)
         self.assertEqual(exp, adapted_logger.logger.statsd_client.calls)
+
+    def test_get_prefixed_logger_with_mutilated_statsd_client(self):
+        with mock.patch(
+                'swift.common.statsd_client.StatsdClient', FakeStatsdClient):
+            adapted_logger = utils.get_logger(None, name=self.logger_name)
+        self.assertTrue(hasattr(adapted_logger, 'statsd_client_source'))
+        self.assertIsInstance(
+            adapted_logger.statsd_client_source.statsd_client,
+            FakeStatsdClient)
+        # sanity
+        adapted_logger.increment('foo')
+        fake_statsd_client = adapted_logger.statsd_client_source.statsd_client
+        self.assertEqual(fake_statsd_client.get_increments(), ['foo'])
+
+        # kill and maim!
+        adapted_logger.statsd_client_source.statsd_client = None
+        # bro, what are you DOING!?  you're crazy!?
+        self.assertEqual(adapted_logger.logger.statsd_client, None)
+        # you can't do that, it *breaks* the statsd_client patch methods
+        with self.assertRaises(AttributeError):
+            adapted_logger.increment('bar')
+
+        # you can't get a prefixed logger from a *broken* adapter
+        with self.assertRaises(ValueError):
+            utils.get_prefixed_logger(adapted_logger, 'test')
 
     def test_get_prefixed_logger_no_statsd_client(self):
         # verify get_prefixed_logger can be used to mutate the prefix of a
