@@ -53,7 +53,7 @@ from six.moves import range
 from six.moves.urllib.parse import quote, parse_qsl
 
 from test import listen_zero
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, FakeStatsdClient
 from test.unit import (
     connect_tcp, readuntil2crlfs, fake_http_connect, FakeRing,
     FakeMemcache, patch_policies, write_fake_ring, mocked_http_conn,
@@ -2295,16 +2295,17 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         use = egg:swift#proxy
         """ % self.tempdir
         conf_path = self._write_conf(dedent(conf_sections))
-        with mock.patch('swift.common.statsd_client.StatsdClient') \
-                as mock_statsd:
+        with mock.patch('swift.common.statsd_client.StatsdClient',
+                        FakeStatsdClient):
             app = loadapp(conf_path, allow_modify_pipeline=False)
         # logger name is hard-wired 'proxy-server'
         self.assertEqual('proxy-server', app.logger.name)
         self.assertEqual('swift', app.logger.server)
-        mock_statsd.assert_called_once_with(
-            'example.com', 8125, base_prefix='', tail_prefix='proxy-server',
-            default_sample_rate=1.0, sample_rate_factor=1.0,
-            logger=app.logger.logger)
+        self.assertIsInstance(app.logger.logger.statsd_client, StatsdClient)
+        self.assertEqual(app.logger.logger.statsd_client._host, 'example.com')
+        self.assertEqual(app.logger.logger.statsd_client._port, 8125)
+        self.assertEqual(app.logger.logger.statsd_client._prefix,
+                         'proxy-server.')
 
         conf_sections = """
         [DEFAULT]
@@ -2320,18 +2321,19 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """ % self.tempdir
         conf_path = self._write_conf(dedent(conf_sections))
 
-        with mock.patch('swift.common.statsd_client.StatsdClient') \
-                as mock_statsd:
+        with mock.patch('swift.common.statsd_client.StatsdClient',
+                        FakeStatsdClient):
             app = loadapp(conf_path, allow_modify_pipeline=False)
         # logger name is hard-wired 'proxy-server'
         self.assertEqual('proxy-server', app.logger.name)
         # server is defined by log_name option
         self.assertEqual('test-name', app.logger.server)
         # statsd tail prefix is hard-wired 'proxy-server'
-        mock_statsd.assert_called_once_with(
-            'example.com', 8125, base_prefix='', tail_prefix='proxy-server',
-            default_sample_rate=1.0, sample_rate_factor=1.0,
-            logger=app.logger.logger)
+        self.assertIsInstance(app.logger.logger.statsd_client, StatsdClient)
+        self.assertEqual(app.logger.logger.statsd_client._host, 'example.com')
+        self.assertEqual(app.logger.logger.statsd_client._port, 8125)
+        self.assertEqual(app.logger.logger.statsd_client._prefix,
+                         'proxy-server.')
 
 
 class TestProxyServerConfigStringLoading(TestProxyServerConfigLoading):

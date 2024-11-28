@@ -24,9 +24,7 @@ import socket
 import stat
 import string
 import sys
-import functools
 import time
-import warnings
 import fcntl
 import eventlet
 import six
@@ -35,7 +33,6 @@ import datetime
 from swift.common.utils.base import md5, quote, split_path
 from swift.common.utils.timestamp import UTC
 from swift.common.utils.config import config_true_value
-from swift.common import statsd_client
 # common.utils imports a fully qualified common.exceptions so that
 # common.exceptions can import common.utils with out a circular import error
 # (if we only make reference to attributes of a module w/i our function/method
@@ -175,13 +172,13 @@ class PipeMutex(object):
 
     def __del__(self):
         # We need this so we don't leak file descriptors. Otherwise, if you
-        # call get_logger() and don't explicitly dispose of it by calling
+        # call get_swift_logger() and don't explicitly dispose of it by calling
         # logger.logger.handlers[0].lock.close() [1], the pipe file
         # descriptors are leaked.
         #
         # This only really comes up in tests. Swift processes tend to call
-        # get_logger() once and then hang on to it until they exit, but the
-        # test suite calls get_logger() a lot.
+        # get_swift_logger() once and then hang on to it until they exit,
+        # but the test suite calls get_swift_logger() a lot.
         #
         # [1] and that's a completely ridiculous thing to expect callers to
         # do, so nobody does it and that's okay.
@@ -294,6 +291,7 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
 
     @property
     def name(self):
+        # py3 does this for us already; add it for py2
         return self.logger.name
 
     @property
@@ -344,7 +342,6 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
         self.log(NOTICE, msg, *args, **kwargs)
 
     def _exception(self, msg, *args, **kwargs):
-        msg = '%s%s' % (self.prefix, msg)
         # We up-call to exception() where stdlib uses error() so we can get
         # some of the traceback suppression from LogAdapter, below
         logging.LoggerAdapter.exception(self, msg, *args, **kwargs)
@@ -389,52 +386,6 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
         else:
             call = self._exception
         call('%s: %s' % (msg, emsg), *args, **kwargs)
-
-    def set_statsd_prefix(self, prefix):
-        """
-        This method is deprecated. Callers should use the
-        ``statsd_tail_prefix`` argument of ``get_logger`` when instantiating a
-        logger.
-
-        The StatsD client prefix defaults to the "name" of the logger.  This
-        method may override that default with a specific value.  Currently used
-        in the proxy-server to differentiate the Account, Container, and Object
-        controllers.
-        """
-        warnings.warn(
-            'set_statsd_prefix() is deprecated; use the '
-            '``statsd_tail_prefix`` argument to ``get_logger`` instead.',
-            DeprecationWarning, stacklevel=2
-        )
-        if self.logger.statsd_client:
-            self.logger.statsd_client._set_prefix(prefix)
-
-    def statsd_delegate(statsd_func_name):
-        """
-        Factory to create methods which delegate to methods on
-        self.logger.statsd_client (an instance of StatsdClient).  The
-        created methods conditionally delegate to a method whose name is given
-        in 'statsd_func_name'.  The created delegate methods are a no-op when
-        StatsD logging is not configured.
-
-        :param statsd_func_name: the name of a method on StatsdClient.
-        """
-        func = getattr(statsd_client.StatsdClient, statsd_func_name)
-
-        @functools.wraps(func)
-        def wrapped(self, *a, **kw):
-            if getattr(self.logger, 'statsd_client'):
-                func = getattr(self.logger.statsd_client, statsd_func_name)
-                return func(*a, **kw)
-
-        return wrapped
-
-    update_stats = statsd_delegate('update_stats')
-    increment = statsd_delegate('increment')
-    decrement = statsd_delegate('decrement')
-    timing = statsd_delegate('timing')
-    timing_since = statsd_delegate('timing_since')
-    transfer_rate = statsd_delegate('transfer_rate')
 
 
 class SwiftLogFormatter(logging.Formatter):
@@ -589,8 +540,8 @@ class LogLevelFilter(object):
         return 1
 
 
-def get_logger(conf, name=None, log_to_console=False, log_route=None,
-               fmt="%(server)s: %(message)s", statsd_tail_prefix=None):
+def get_swift_logger(conf, name=None, log_to_console=False, log_route=None,
+                     fmt="%(server)s: %(message)s"):
     """
     Get the current system logger using config settings.
 
@@ -605,10 +556,10 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_address = /dev/log
 
     :param conf: Configuration dict to read settings from
-    :param name: This value is used to populate the ``server`` field in the log
-                 format, as the prefix for statsd messages, and as the default
-                 value for ``log_route``; defaults to the ``log_name`` value in
-                 ``conf``, if it exists, or to 'swift'.
+    :param name: This value is used to populate the ``server`` field in
+                 the log format, as the default value for ``log_route``;
+                 defaults to the ``log_name`` value in ``conf``, if it exists,
+                 or to 'swift'.
     :param log_to_console: Add handler which writes to console on stderr
     :param log_route: Route for the logging, not emitted to the log, just used
                       to separate logging configurations; defaults to the value
@@ -616,13 +567,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                       is used as the name attribute of the
                       ``logging.LogAdapter`` that is returned.
     :param fmt: Override log format
-    :param statsd_tail_prefix: tail prefix to pass to statsd client; if None
-        then the tail prefix defaults to the value of ``name``.
-    :return: an instance of ``LogAdapter``
+    :return: an instance of ``SwiftLogAdapter``
     """
     # note: log_name is typically specified in conf (i.e. defined by
     # operators), whereas log_route is typically hard-coded in callers of
-    # get_logger (i.e. defined by developers)
+    # get_swift_logger (i.e. defined by developers)
     if not conf:
         conf = {}
     if name is None:
@@ -635,11 +584,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     formatter = SwiftLogFormatter(
         fmt=fmt, max_line_length=int(conf.get('log_max_line_length', 0)))
 
-    # get_logger will only ever add one SysLog Handler to a logger
-    if not hasattr(get_logger, 'handler4logger'):
-        get_logger.handler4logger = {}
-    if logger in get_logger.handler4logger:
-        logger.removeHandler(get_logger.handler4logger[logger])
+    # get_swift_logger will only ever add one SysLog Handler to a logger
+    if not hasattr(get_swift_logger, 'handler4logger'):
+        get_swift_logger.handler4logger = {}
+    if logger in get_swift_logger.handler4logger:
+        logger.removeHandler(get_swift_logger.handler4logger[logger])
 
     # facility for this logger will be set by last call wins
     facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
@@ -668,30 +617,25 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
             handler = ThreadSafeSysLogHandler(facility=facility)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    get_logger.handler4logger[logger] = handler
+    get_swift_logger.handler4logger[logger] = handler
 
     # setup console logging
-    if log_to_console or hasattr(get_logger, 'console_handler4logger'):
+    if log_to_console or hasattr(get_swift_logger, 'console_handler4logger'):
         # remove pre-existing console handler for this logger
-        if not hasattr(get_logger, 'console_handler4logger'):
-            get_logger.console_handler4logger = {}
-        if logger in get_logger.console_handler4logger:
-            logger.removeHandler(get_logger.console_handler4logger[logger])
+        if not hasattr(get_swift_logger, 'console_handler4logger'):
+            get_swift_logger.console_handler4logger = {}
+        if logger in get_swift_logger.console_handler4logger:
+            logger.removeHandler(
+                get_swift_logger.console_handler4logger[logger])
 
         console_handler = logging.StreamHandler(sys.__stderr__)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
-        get_logger.console_handler4logger[logger] = console_handler
+        get_swift_logger.console_handler4logger[logger] = console_handler
 
     # set the level for the logger
     logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
-
-    # Setup logger with a StatsD client if so configured
-    if statsd_tail_prefix is None:
-        statsd_tail_prefix = name
-    logger.statsd_client = statsd_client.get_statsd_client(
-        conf, statsd_tail_prefix, logger)
 
     adapted_logger = SwiftLogAdapter(logger, name)
     other_handlers = conf.get('log_custom_handlers', None)
@@ -714,7 +658,15 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     return adapted_logger
 
 
-def get_prefixed_logger(swift_logger, prefix):
+def get_prefixed_swift_logger(swift_logger, prefix):
+    """
+    Return a clone of the given ``swift_logger`` with a new prefix string
+    that replaces the prefix string of the given ``swift_logger``.
+
+    :param swift_logger: an instance of ``SwiftLogAdapter``.
+    :param prefix: a string prefix.
+    :returns: a new instance of ``SwiftLogAdapter``.
+    """
     return SwiftLogAdapter(
         swift_logger.logger, swift_logger.server, prefix=prefix)
 
@@ -761,7 +713,7 @@ def capture_stdio(logger, **kwargs):
     # collect stdio file desc not in use for logging
     stdio_files = [sys.stdin, sys.stdout, sys.stderr]
     console_fds = [h.stream.fileno() for _junk, h in getattr(
-        get_logger, 'console_handler4logger', {}).items()]
+        get_swift_logger, 'console_handler4logger', {}).items()]
     stdio_files = [f for f in stdio_files if f.fileno() not in console_fds]
 
     with open(os.devnull, 'r+b') as nullfile:

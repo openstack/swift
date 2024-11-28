@@ -140,7 +140,7 @@ class BaseBrain(object):
         tuple(self.servers.stop(number=n) for n in self.handoff_numbers)
 
     @command
-    def put_container(self, policy_index=None):
+    def put_container(self, policy_index=None, extra_headers=None):
         """
         put container with next storage policy
         """
@@ -155,6 +155,8 @@ class BaseBrain(object):
             policy = self.policy
 
         headers = {'X-Storage-Policy': policy.name}
+        if extra_headers:
+            headers.update(extra_headers)
         self.client.put_container(self.container_name, headers=headers)
 
     @command
@@ -200,6 +202,10 @@ class PublicBrainClient(object):
     def post_container(self, container_name, headers):
         return client.post_container(self.url, self.token, container_name,
                                      headers)
+
+    def get_container(self, container_name, headers=None, query_string=None):
+        return client.get_container(self.url, self.token, container_name,
+                                    headers=headers, query_string=query_string)
 
     def delete_container(self, container_name):
         return client.delete_container(self.url, self.token, container_name)

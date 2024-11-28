@@ -324,6 +324,31 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(resp.headers['X-Account-Status'], 'Deleted')
 
+    def test_HEAD_has_content_length(self):
+        # create the account
+        put_timestamp = next(self.ts)
+        req = Request.blank('/sda1/p/a', method='PUT', headers={
+            'x-timestamp': put_timestamp.normal})
+        created_at_timestamp = next(self.ts)
+        with mock.patch('swift.account.backend.Timestamp.now',
+                        return_value=created_at_timestamp):
+            resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        # do a HEAD
+        req = Request.blank('/sda1/p/a', method='HEAD')
+        status, headers, body_iter = req.call_application(self.controller)
+        self.assertEqual('204 No Content', status)
+        self.assertEqual({
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Length': '0',
+            'X-Account-Container-Count': '0',
+            'X-Account-Object-Count': '0',
+            'X-Account-Bytes-Used': '0',
+            'X-Timestamp': created_at_timestamp.normal,
+            'X-Put-Timestamp': put_timestamp.normal,
+        }, dict(headers))
+        self.assertEqual(b'', b''.join(body_iter))
+
     def test_HEAD_empty_account(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})

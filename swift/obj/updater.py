@@ -331,12 +331,14 @@ class SweepStats(object):
         skips / (skips + successes + failures)
     """
     def __init__(self, errors=0, failures=0, quarantines=0, successes=0,
-                 unlinks=0, redirects=0, skips=0, deferrals=0, drains=0):
+                 unlinks=0, outdated_unlinks=0, redirects=0, skips=0,
+                 deferrals=0, drains=0):
         self.errors = errors
         self.failures = failures
         self.quarantines = quarantines
         self.successes = successes
         self.unlinks = unlinks
+        self.outdated_unlinks = outdated_unlinks
         self.redirects = redirects
         self.skips = skips
         self.deferrals = deferrals
@@ -344,8 +346,9 @@ class SweepStats(object):
 
     def copy(self):
         return type(self)(self.errors, self.failures, self.quarantines,
-                          self.successes, self.unlinks, self.redirects,
-                          self.skips, self.deferrals, self.drains)
+                          self.successes, self.unlinks, self.outdated_unlinks,
+                          self.redirects, self.skips, self.deferrals,
+                          self.drains)
 
     def since(self, other):
         return type(self)(self.errors - other.errors,
@@ -353,6 +356,7 @@ class SweepStats(object):
                           self.quarantines - other.quarantines,
                           self.successes - other.successes,
                           self.unlinks - other.unlinks,
+                          self.outdated_unlinks - other.outdated_unlinks,
                           self.redirects - other.redirects,
                           self.skips - other.skips,
                           self.deferrals - other.deferrals,
@@ -364,6 +368,7 @@ class SweepStats(object):
         self.quarantines = 0
         self.successes = 0
         self.unlinks = 0
+        self.outdated_unlinks = 0
         self.redirects = 0
         self.skips = 0
         self.deferrals = 0
@@ -375,6 +380,7 @@ class SweepStats(object):
             (self.failures, 'failures'),
             (self.quarantines, 'quarantines'),
             (self.unlinks, 'unlinks'),
+            (self.outdated_unlinks, 'outdated_unlinks'),
             (self.errors, 'errors'),
             (self.redirects, 'redirects'),
             (self.skips, 'skips'),
@@ -659,8 +665,8 @@ class ObjectUpdater(Daemon):
                     #
                     # This way, our caller only gets useful async_pendings.
                     if obj_hash == last_obj_hash:
-                        self.stats.unlinks += 1
-                        self.logger.increment('unlinks')
+                        self.stats.outdated_unlinks += 1
+                        self.logger.increment('outdated_unlinks')
                         try:
                             os.unlink(update_path)
                         except OSError as e:
@@ -722,7 +728,9 @@ class ObjectUpdater(Daemon):
              'in %(elapsed).02fs seconds:, '
              '%(successes)d successes, %(failures)d failures, '
              '%(quarantines)d quarantines, '
-             '%(unlinks)d unlinks, %(errors)d errors, '
+             '%(unlinks)d unlinks, '
+             '%(outdated_unlinks)d outdated_unlinks, '
+             '%(errors)d errors, '
              '%(redirects)d redirects, '
              '%(skips)d skips, '
              '%(deferrals)d deferrals, '
@@ -735,6 +743,7 @@ class ObjectUpdater(Daemon):
              'failures': sweep_totals.failures,
              'quarantines': sweep_totals.quarantines,
              'unlinks': sweep_totals.unlinks,
+             'outdated_unlinks': sweep_totals.outdated_unlinks,
              'errors': sweep_totals.errors,
              'redirects': sweep_totals.redirects,
              'skips': sweep_totals.skips,

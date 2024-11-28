@@ -87,8 +87,8 @@ from .base import (  # noqa
 from swift.common.utils.logs import (   # noqa
     SysLogHandler,  # t.u.helpers.setup_servers monkey patch is sketch
     logging_monkey_patch,
-    get_logger,
-    get_prefixed_logger,
+    get_swift_logger,
+    get_prefixed_swift_logger,
     LogLevelFilter,
     NullLogger,
     capture_stdio,
@@ -157,7 +157,7 @@ from swift.common.utils.ipaddrs import (  # noqa
     parse_socket_string,
     whataremyips,
 )
-from swift.common.statsd_client import StatsdClient # noqa
+from swift.common.statsd_client import StatsdClient, get_statsd_client
 import logging
 
 EUCLEAN = getattr(errno, 'EUCLEAN', 117)  # otherwise not present on osx
@@ -203,6 +203,140 @@ DEFAULT_LOCK_TIMEOUT = 10
 # the more likely case they've increased the value to optimize high througput
 # transfers this will still cut off the transfer after the first chunk.
 DEFAULT_DRAIN_LIMIT = 65536
+
+
+def _patch_statsd_methods(target, statsd_client_source):
+    """
+    Note: this function is only used to create backwards compatible
+    legacy "hybrid" loggers that also have a StatsdClient interface.
+    It should not otherwise be used to patch arbitrary objects to
+    have a StatsdClient interface.
+
+    Patch the ``target`` object with methods that present an interface to a
+    ``StatsdClient`` instance that is an attribute ``statsd_client`` of
+    ``statsd_client_source``.
+
+    Note: ``statsd_client_source`` is an object that *has a* ``StatsdClient``
+        and not an object that *is a* ``StatsdClient`` instance, because the
+        actual ``StatsdClient`` instance may change. The patched target
+        therefore forwards its methods to whatever instance of ``StatsdClient``
+        the ``statsd_client_source`` currently has.
+
+    :param target: an object that will be patched to present an interface to a
+        ``StatsdClient``.
+    :param statsd_client_source: an object that must have an attribute
+        ``statsd_client`` that must be an instance of a ``StatsdClient``.
+        This is typically a core ``logging.Logger`` that has been patched with
+        a ``StatsdClient`` by ``get_logger()``.
+    """
+    try:
+        if not isinstance(statsd_client_source.statsd_client, StatsdClient):
+            raise ValueError()
+    except (AttributeError, ValueError):
+        raise ValueError(
+            'statsd_client_source must have a statsd_client attribute')
+
+    def set_statsd_prefix(prefix):
+        """
+        This method is deprecated. Callers should use the
+        ``statsd_tail_prefix`` argument of ``get_logger`` when instantiating a
+        logger.
+
+        The StatsD client prefix defaults to the "name" of the logger.  This
+        method may override that default with a specific value.  Currently used
+        in the proxy-server to differentiate the Account, Container, and Object
+        controllers.
+        """
+        warnings.warn(
+            'set_statsd_prefix() is deprecated; use the '
+            '``statsd_tail_prefix`` argument to ``get_logger`` instead.',
+            DeprecationWarning, stacklevel=2
+        )
+        if getattr(statsd_client_source, 'statsd_client'):
+            statsd_client_source.statsd_client._set_prefix(prefix)
+
+    def statsd_delegate(statsd_func_name):
+        """
+        Factory to create methods which delegate to methods on
+        ``statsd_client_source.statsd_client`` (an instance of StatsdClient).
+        The created methods conditionally delegate to a method whose name is
+        given in 'statsd_func_name'.  The created delegate methods are a no-op
+        when StatsD logging is not configured.
+
+        :param statsd_func_name: the name of a method on ``StatsdClient``.
+        """
+        func = getattr(StatsdClient, statsd_func_name)
+
+        @functools.wraps(func)
+        def wrapped(*a, **kw):
+            if getattr(statsd_client_source, 'statsd_client'):
+                func = getattr(statsd_client_source.statsd_client,
+                               statsd_func_name)
+                return func(*a, **kw)
+        return wrapped
+
+    target.update_stats = statsd_delegate('update_stats')
+    target.increment = statsd_delegate('increment')
+    target.decrement = statsd_delegate('decrement')
+    target.timing = statsd_delegate('timing')
+    target.timing_since = statsd_delegate('timing_since')
+    target.transfer_rate = statsd_delegate('transfer_rate')
+    target.set_statsd_prefix = set_statsd_prefix
+    target.statsd_client_source = statsd_client_source
+
+
+def get_logger(conf, name=None, log_to_console=False, log_route=None,
+               fmt="%(server)s: %(message)s", statsd_tail_prefix=None):
+    """
+    Returns a ``SwiftLogAdapter`` that has been patched to also provide an
+        interface to a ``StatsdClient``.
+
+    :param conf: Configuration dict to read settings from
+    :param name: This value is used to populate the ``server`` field in the log
+                 format, as the prefix for statsd messages, and as the default
+                 value for ``log_route``; defaults to the ``log_name`` value in
+                 ``conf``, if it exists, or to 'swift'.
+    :param log_to_console: Add handler which writes to console on stderr.
+    :param log_route: Route for the logging, not emitted to the log, just used
+                      to separate logging configurations; defaults to the value
+                      of ``name`` or whatever ``name`` defaults to. This value
+                      is used as the name attribute of the
+                      ``SwiftLogAdapter`` that is returned.
+    :param fmt: Override log format.
+    :param statsd_tail_prefix: tail prefix to pass to ``StatsdClient``; if None
+        then the tail prefix defaults to the value of ``name``.
+    :return: an instance of ``SwiftLogAdapter``.
+    """
+    conf = conf or {}
+    swift_logger = get_swift_logger(
+        conf, name, log_to_console, log_route, fmt)
+    name = conf.get('log_name', 'swift') if name is None else name
+    tail_prefix = name if statsd_tail_prefix is None else statsd_tail_prefix
+    statsd_client = get_statsd_client(conf, tail_prefix, swift_logger.logger)
+    swift_logger.logger.statsd_client = statsd_client
+    _patch_statsd_methods(swift_logger, swift_logger.logger)
+    return swift_logger
+
+
+def get_prefixed_logger(swift_logger, prefix):
+    """
+    Return a clone of the given ``swift_logger`` with a new prefix string
+    that replaces the prefix string of the given ``swift_logger``
+
+    If the given ``swift_logger`` has been patched with an interface to a
+    ``StatsdClient`` instance then the returned ``SwiftLogAdapter`` will also
+    be patched with an interface to the same ``StatsdClient`` instance.
+
+    :param swift_logger: an instance of ``SwiftLogAdapter``.
+    :param prefix: a string prefix.
+    :returns: a new instance of ``SwiftLogAdapter``.
+    """
+    new_logger = get_prefixed_swift_logger(swift_logger, prefix=prefix)
+    if hasattr(swift_logger, 'statsd_client_source'):
+        if getattr(swift_logger.statsd_client_source, 'statsd_client'):
+            _patch_statsd_methods(
+                new_logger, swift_logger.statsd_client_source)
+    return new_logger
 
 
 class InvalidHashPathConfigError(ValueError):

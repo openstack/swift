@@ -1700,6 +1700,9 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual('400 Bad Request', status)
         self.assertEqual(self._get_error_code(body), 'BadDigest')
+        self.assertEqual(self._get_error_message(body),
+                         'The Content-MD5 you specified did '
+                         'not match what we received.')
 
     def test_object_multipart_upload_invalid_sha256(self):
         bad_sha = hashlib.sha256(

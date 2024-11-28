@@ -16,6 +16,7 @@
 import json
 import unittest
 
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, HTTPOk, HTTPNoContent
 from swift.common.middleware import listing_formats
 from swift.common.request_helpers import get_reserved_name
@@ -108,8 +109,8 @@ class TestListingFormats(unittest.TestCase):
 
     def test_valid_content_type_on_txt_head(self):
         self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
-            'Content-Length': str(len(self.fake_account_listing)),
-            'Content-Type': 'application/json'}, self.fake_account_listing)
+            'Content-Length': '0',
+            'Content-Type': 'application/json'}, b'')
         req = Request.blank('/v1/a', method='HEAD')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'')
@@ -122,10 +123,48 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'HEAD', '/v1/a?format=json'))
 
+    def test_text_content_type_on_invalid_format_qs(self):
+        self.fake_swift.register('HEAD', '/v1/a/c', HTTPNoContent, {
+            'Content-Type': 'application/json'}, b'')
+        req = Request.blank('/v1/a/c?format=foo', method='HEAD')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        self.assertEqual(resp.headers['Content-Length'], '0')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a/c?format=json'))
+
+    def test_accept_content_type_on_missing_qs(self):
+        self.fake_swift.register('HEAD', '/v1/a/c', HTTPNoContent, {
+            'Content-Type': 'application/json'}, b'')
+        req = Request.blank('/v1/a/c', method='HEAD',
+                            headers={'Accept': 'application/xml'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        self.assertEqual(resp.headers['Content-Length'], '0')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/xml; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a/c?format=json'))
+
+    def test_accept_ignored_on_invalid_qs(self):
+        self.fake_swift.register('HEAD', '/v1/a/c', HTTPNoContent, {
+            'Content-Type': 'application/json'}, b'')
+        req = Request.blank('/v1/a/c?format=foo', method='HEAD',
+                            headers={'Accept': 'application/xml'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        self.assertEqual(resp.headers['Content-Length'], '0')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a/c?format=json'))
+
     def test_valid_content_type_on_xml_head(self):
         self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
-            'Content-Length': str(len(self.fake_account_listing)),
-            'Content-Type': 'application/json'}, self.fake_account_listing)
+            'Content-Length': '0',
+            'Content-Type': 'application/json'}, b'')
         req = Request.blank('/v1/a?format=xml', method='HEAD')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'')
@@ -136,11 +175,28 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'HEAD', '/v1/a?format=json'))
 
+    def test_valid_content_type_on_xml_head_with_no_content_length(self):
+        # note: eventlet 0.38.0 stopped including content-length with 204
+        # responses
+        self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
+            'Content-Type': 'application/json'}, b'')
+        req = Request.blank('/v1/a?format=xml', method='HEAD')
+        status, headers, body = req.call_application(self.app)
+        self.assertEqual(b''.join(body), b'')
+        headers_dict = dict(headers)
+        self.assertEqual(headers_dict.get('Content-Length'), '0', headers)
+        self.assertEqual(headers_dict['Content-Type'],
+                         'application/xml; charset=utf-8')
+        # query param overrides header, so it won't vary
+        self.assertNotIn('Vary', HeaderKeyDict(headers_dict))
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a?format=json'))
+
     def test_update_vary_if_present(self):
         self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
-            'Content-Length': str(len(self.fake_account_listing)),
+            'Content-Length': '0',
             'Content-Type': 'application/json',
-            'Vary': 'Origin'}, self.fake_account_listing)
+            'Vary': 'Origin'}, b'')
         req = Request.blank('/v1/a', method='HEAD')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'')
@@ -150,11 +206,28 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'HEAD', '/v1/a?format=json'))
 
+    def test_add_vary_when_content_type_not_json(self):
+        self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
+            'Content-Length': '0',
+            'Content-Type': 'text/plain'}, b'')
+        req = Request.blank('/v1/a', method='HEAD')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        # We actually returned early, we didn't change things in the
+        # request, but added the vary to let the cache know this
+        # request could vary based on Accept as we didn't pass in
+        # a format.
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain')
+        self.assertEqual(resp.headers['Vary'], 'Accept')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a?format=json'))
+
     def test_update_vary_does_not_duplicate(self):
         self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
-            'Content-Length': str(len(self.fake_account_listing)),
+            'Content-Length': '0',
             'Content-Type': 'application/json',
-            'Vary': 'Accept'}, self.fake_account_listing)
+            'Vary': 'Accept'}, b'')
         req = Request.blank('/v1/a', method='HEAD')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'')

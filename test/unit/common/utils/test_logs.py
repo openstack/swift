@@ -36,8 +36,7 @@ from six.moves import http_client
 from test.unit import with_tempdir
 from test.unit import quiet_eventlet_exceptions
 from test.unit.common.test_utils import MockOs, MockSys
-from swift.common.exceptions import Timeout, \
-    MessageTimeout, ConnectionTimeout
+from swift.common.exceptions import Timeout, MessageTimeout, ConnectionTimeout
 
 if six.PY2:
     import eventlet.green.httplib as green_http_client
@@ -48,23 +47,24 @@ from swift.common import utils
 
 from swift.common.swob import Request, Response
 from swift.common.utils.logs import SwiftLogFormatter, SwiftLogAdapter, \
-    get_prefixed_logger
+    get_swift_logger, get_prefixed_swift_logger
 
 
 def reset_loggers():
-    if hasattr(utils.get_logger, 'handler4logger'):
-        for logger, handler in utils.get_logger.handler4logger.items():
+    if hasattr(get_swift_logger, 'handler4logger'):
+        for logger, handler in get_swift_logger.handler4logger.items():
             logger.removeHandler(handler)
-        delattr(utils.get_logger, 'handler4logger')
-    if hasattr(utils.get_logger, 'console_handler4logger'):
-        for logger, h in utils.get_logger.console_handler4logger.items():
+        delattr(get_swift_logger, 'handler4logger')
+    if hasattr(get_swift_logger, 'console_handler4logger'):
+        for logger, h in \
+                get_swift_logger.console_handler4logger.items():
             logger.removeHandler(h)
-        delattr(utils.get_logger, 'console_handler4logger')
-    # Reset the LogAdapter class thread local state. Use get_logger() here
-    # to fetch a LogAdapter instance because the items from
-    # get_logger.handler4logger above are the underlying logger instances,
-    # not the LogAdapter.
-    utils.get_logger(None).thread_locals = (None, None)
+        delattr(get_swift_logger, 'console_handler4logger')
+    # Reset the LogAdapter class thread local state. Use get_swift_logger()
+    # here to fetch a LogAdapter instance because the items from
+    # get_swift_logger.handler4logger above are the underlying logger
+    # instances not the LogAdapter.
+    get_swift_logger(None).thread_locals = (None, None)
 
 
 def reset_logger_state(f):
@@ -192,22 +192,22 @@ class TestUtilsLogs(unittest.TestCase):
 
         logger.removeHandler(handler)
 
-    def test_get_logger(self):
+    def test_get_swift_logger(self):
         sio = StringIO()
         logger = logging.getLogger('server')
         logger.addHandler(logging.StreamHandler(sio))
-        logger = utils.get_logger(None, 'server', log_route='server')
+        logger = get_swift_logger(None, 'server', log_route='server')
         logger.warning('test1')
         self.assertEqual(sio.getvalue(), 'test1\n')
         logger.debug('test2')
         self.assertEqual(sio.getvalue(), 'test1\n')
-        logger = utils.get_logger({'log_level': 'DEBUG'}, 'server',
+        logger = get_swift_logger({'log_level': 'DEBUG'}, 'server',
                                   log_route='server')
         logger.debug('test3')
         self.assertEqual(sio.getvalue(), 'test1\ntest3\n')
         # Doesn't really test that the log facility is truly being used all the
         # way to syslog; but exercises the code.
-        logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server',
+        logger = get_swift_logger({'log_facility': 'LOG_LOCAL3'}, 'server',
                                   log_route='server')
         logger.warning('test4')
         self.assertEqual(sio.getvalue(),
@@ -221,7 +221,7 @@ class TestUtilsLogs(unittest.TestCase):
         self.assertEqual(sio.getvalue(),
                          'test1\ntest3\ntest4\ntest6\n')
 
-    def test_get_logger_name_and_route(self):
+    def test_get_swift_logger_name_and_route(self):
         @contextlib.contextmanager
         def add_log_handler(logger):
             # install a handler to capture log messages formatted as per swift
@@ -234,7 +234,7 @@ class TestUtilsLogs(unittest.TestCase):
             yield sio
             logger.logger.removeHandler(handler)
 
-        logger = utils.get_logger({}, name='name', log_route='route')
+        logger = utils.get_swift_logger({}, name='name', log_route='route')
         # log_route becomes the LogAdapter.name and logging.Logger.name
         self.assertEqual('route', logger.name)
         self.assertEqual('route', logger.logger.name)
@@ -245,36 +245,37 @@ class TestUtilsLogs(unittest.TestCase):
             logger.info('testing')
             self.assertEqual('name: testing\n', sio.getvalue())
 
-        logger = utils.get_logger({'log_name': 'conf-name'}, name='name',
-                                  log_route='route')
+        logger = utils.get_swift_logger({'log_name': 'conf-name'},
+                                        name='name', log_route='route')
         self.assertEqual('route', logger.name)
         self.assertEqual('name', logger.server)
         with add_log_handler(logger) as sio:
             logger.info('testing')
             self.assertEqual('name: testing\n', sio.getvalue())
 
-        logger = utils.get_logger({'log_name': 'conf-name'}, log_route='route')
+        logger = utils.get_swift_logger({'log_name': 'conf-name'},
+                                        log_route='route')
         self.assertEqual('route', logger.name)
         self.assertEqual('conf-name', logger.server)
         with add_log_handler(logger) as sio:
             logger.info('testing')
             self.assertEqual('conf-name: testing\n', sio.getvalue())
 
-        logger = utils.get_logger({'log_name': 'conf-name'})
+        logger = utils.get_swift_logger({'log_name': 'conf-name'})
         self.assertEqual('conf-name', logger.name)
         self.assertEqual('conf-name', logger.server)
         with add_log_handler(logger) as sio:
             logger.info('testing')
             self.assertEqual('conf-name: testing\n', sio.getvalue())
 
-        logger = utils.get_logger({})
+        logger = utils.get_swift_logger({})
         self.assertEqual('swift', logger.name)
         self.assertEqual('swift', logger.server)
         with add_log_handler(logger) as sio:
             logger.info('testing')
             self.assertEqual('swift: testing\n', sio.getvalue())
 
-        logger = utils.get_logger({}, log_route='route')
+        logger = utils.get_swift_logger({}, log_route='route')
         self.assertEqual('route', logger.name)
         self.assertEqual('swift', logger.server)
         with add_log_handler(logger) as sio:
@@ -282,20 +283,16 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertEqual('swift: testing\n', sio.getvalue())
 
         # same log_route, different names...
-        logger1 = utils.get_logger({'log_statsd_host': '1.2.3.4'},
-                                   name='name1', log_route='route')
-        logger2 = utils.get_logger({'log_statsd_host': '1.2.3.5'},
-                                   name='name2', log_route='route')
+        logger1 = utils.get_swift_logger({'log_statsd_host': '1.2.3.4'},
+                                         name='name1', log_route='route')
+        logger2 = utils.get_swift_logger({'log_statsd_host': '1.2.3.5'},
+                                         name='name2', log_route='route')
         self.assertEqual('route', logger1.name)
         self.assertEqual('route', logger1.logger.name)
         self.assertEqual('name1', logger1.server)
-        # oh dear, the statsd client on the common logging.Logger instance got
-        # mutated when logger2 was created
-        self.assertEqual('name2.', logger1.logger.statsd_client._prefix)
         self.assertEqual('route', logger2.name)
         self.assertEqual('route', logger2.logger.name)
         self.assertEqual('name2', logger2.server)
-        self.assertEqual('name2.', logger2.logger.statsd_client._prefix)
         self.assertIs(logger2.logger, logger1.logger)
         with add_log_handler(logger1) as sio:
             logger1.info('testing')
@@ -305,18 +302,16 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertEqual('name2: testing\n', sio.getvalue())
 
         # different log_route, different names...
-        logger1 = utils.get_logger({'log_statsd_host': '1.2.3.4'},
-                                   name='name1', log_route='route1')
-        logger2 = utils.get_logger({'log_statsd_host': '1.2.3.5'},
-                                   name='name2', log_route='route2')
+        logger1 = utils.get_swift_logger({'log_statsd_host': '1.2.3.4'},
+                                         name='name1', log_route='route1')
+        logger2 = utils.get_swift_logger({'log_statsd_host': '1.2.3.5'},
+                                         name='name2', log_route='route2')
         self.assertEqual('route1', logger1.name)
         self.assertEqual('route1', logger1.logger.name)
         self.assertEqual('name1', logger1.server)
-        self.assertEqual('name1.', logger1.logger.statsd_client._prefix)
         self.assertEqual('route2', logger2.name)
         self.assertEqual('route2', logger2.logger.name)
         self.assertEqual('name2', logger2.server)
-        self.assertEqual('name2.', logger2.logger.statsd_client._prefix)
         self.assertIsNot(logger2.logger, logger1.logger)
         with add_log_handler(logger1) as sio:
             logger1.info('testing')
@@ -326,7 +321,7 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertEqual('name2: testing\n', sio.getvalue())
 
     @with_tempdir
-    def test_get_logger_sysloghandler_plumbing(self, tempdir):
+    def test_get_swift_logger_sysloghandler_plumbing(self, tempdir):
         orig_sysloghandler = utils.logs.ThreadSafeSysLogHandler
         syslog_handler_args = []
 
@@ -348,7 +343,7 @@ class TestUtilsLogs(unittest.TestCase):
                                syslog_handler_catcher), \
                 mock.patch.object(socket, 'getaddrinfo', fake_getaddrinfo):
             # default log_address
-            utils.get_logger({
+            get_swift_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
             expected_args = [((), {'address': '/dev/log',
@@ -365,7 +360,7 @@ class TestUtilsLogs(unittest.TestCase):
             # custom log_address - file doesn't exist: fallback to UDP
             log_address = os.path.join(tempdir, 'foo')
             syslog_handler_args = []
-            utils.get_logger({
+            get_swift_logger({
                 'log_facility': 'LOG_LOCAL3',
                 'log_address': log_address,
             }, 'server', log_route='server')
@@ -378,7 +373,7 @@ class TestUtilsLogs(unittest.TestCase):
             with open(log_address, 'w'):
                 pass
             syslog_handler_args = []
-            utils.get_logger({
+            get_swift_logger({
                 'log_facility': 'LOG_LOCAL3',
                 'log_address': log_address,
             }, 'server', log_route='server')
@@ -394,7 +389,7 @@ class TestUtilsLogs(unittest.TestCase):
                 sock.settimeout(5)
                 sock.bind(log_address)
                 syslog_handler_args = []
-                utils.get_logger({
+                get_swift_logger({
                     'log_facility': 'LOG_LOCAL3',
                     'log_address': log_address,
                 }, 'server', log_route='server')
@@ -406,7 +401,7 @@ class TestUtilsLogs(unittest.TestCase):
 
             # Using UDP with default port
             syslog_handler_args = []
-            utils.get_logger({
+            get_swift_logger({
                 'log_udp_host': 'syslog.funtimes.com',
             }, 'server', log_route='server')
             self.assertEqual([
@@ -417,7 +412,7 @@ class TestUtilsLogs(unittest.TestCase):
 
             # Using UDP with non-default port
             syslog_handler_args = []
-            utils.get_logger({
+            get_swift_logger({
                 'log_udp_host': 'syslog.funtimes.com',
                 'log_udp_port': '2123',
             }, 'server', log_route='server')
@@ -429,13 +424,13 @@ class TestUtilsLogs(unittest.TestCase):
         with mock.patch.object(utils.logs, 'ThreadSafeSysLogHandler',
                                side_effect=OSError(errno.EPERM, 'oops')):
             with self.assertRaises(OSError) as cm:
-                utils.get_logger({
+                get_swift_logger({
                     'log_facility': 'LOG_LOCAL3',
                     'log_address': 'log_address',
                 }, 'server', log_route='server')
         self.assertEqual(errno.EPERM, cm.exception.errno)
 
-    def test_get_logger_custom_log_handlers(self):
+    def test_get_swift_logger_custom_log_handlers(self):
         def custom_log_handler(conf, name, log_to_console, log_route, fmt,
                                logger, adapted_logger):
             adapted_logger.server = adapted_logger.server.upper()
@@ -449,7 +444,7 @@ class TestUtilsLogs(unittest.TestCase):
 
         # sanity check...
         conf = {}
-        adapted_logger = utils.get_logger(
+        adapted_logger = get_swift_logger(
             conf, 'my_server', log_route='my_logger_name')
         adapted_logger.warning('test')
         self.assertEqual(sio.getvalue(),
@@ -461,7 +456,7 @@ class TestUtilsLogs(unittest.TestCase):
         patch_target = 'test.unit.common.utils.custom_log_handler'
         conf = {'log_custom_handlers': patch_target}
         with mock.patch(patch_target, custom_log_handler, create=True):
-            adapted_logger = utils.get_logger(
+            adapted_logger = get_swift_logger(
                 conf, 'my_server', log_route='my_logger_name')
             adapted_logger.warning('test')
         self.assertEqual(sio.getvalue(),
@@ -471,7 +466,7 @@ class TestUtilsLogs(unittest.TestCase):
     def test_clean_logger_exception(self):
         # setup stream logging
         sio = StringIO()
-        logger = utils.get_logger(None)
+        logger = get_swift_logger(None)
         handler = logging.StreamHandler(sio)
         logger.logger.addHandler(handler)
 
@@ -610,7 +605,7 @@ class TestUtilsLogs(unittest.TestCase):
     def test_swift_log_formatter_max_line_length(self):
         # setup stream logging
         sio = StringIO()
-        logger = utils.get_logger(None)
+        logger = get_swift_logger(None)
         handler = logging.StreamHandler(sio)
         formatter = utils.SwiftLogFormatter(max_line_length=10)
         handler.setFormatter(formatter)
@@ -666,7 +661,7 @@ class TestUtilsLogs(unittest.TestCase):
     def test_swift_log_formatter(self):
         # setup stream logging
         sio = StringIO()
-        logger = utils.get_logger(None)
+        logger = get_swift_logger(None)
         handler = logging.StreamHandler(sio)
         handler.setFormatter(utils.SwiftLogFormatter())
         logger.logger.addHandler(handler)
@@ -728,13 +723,44 @@ class TestUtilsLogs(unittest.TestCase):
             logger.logger.removeHandler(handler)
 
     @reset_logger_state
-    def test_get_prefixed_logger(self):
+    def test_get_prefixed_swift_logger(self):
         # setup stream logging
         sio = StringIO()
-        base_logger = utils.get_logger(None)
+        base_logger = get_swift_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
-        logger = get_prefixed_logger(base_logger, 'some prefix: ')
+        logger = get_prefixed_swift_logger(base_logger, 'some prefix: ')
+
+        def strip_value(sio):
+            sio.seek(0)
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        try:
+            # establish base case
+            self.assertEqual(strip_value(sio), '')
+            logger.info('test')
+            self.assertEqual(strip_value(sio), 'some prefix: test\n')
+
+            self.assertEqual(strip_value(sio), '')
+            logger.info('test')
+            logger.info('test')
+            self.assertEqual(
+                strip_value(sio),
+                'some prefix: test\nsome prefix: test\n')
+            self.assertEqual(strip_value(sio), '')
+        finally:
+            base_logger.logger.removeHandler(handler)
+
+    @reset_logger_state
+    def test_get_prefixed_swift_logger_exception_method(self):
+        # setup stream logging
+        sio = StringIO()
+        base_logger = get_swift_logger(None)
+        handler = logging.StreamHandler(sio)
+        base_logger.logger.addHandler(handler)
+        logger = get_prefixed_swift_logger(base_logger, 'some prefix: ')
 
         def strip_value(sio):
             sio.seek(0)
@@ -747,43 +773,51 @@ class TestUtilsLogs(unittest.TestCase):
                 raise exc
             except (Exception, Timeout):
                 logger.exception('blah')
-        try:
-            # establish base case
-            self.assertEqual(strip_value(sio), '')
-            logger.info('test')
-            self.assertEqual(strip_value(sio), 'some prefix: test\n')
-            self.assertEqual(strip_value(sio), '')
-            logger.info('test')
-            logger.info('test')
-            self.assertEqual(
-                strip_value(sio),
-                'some prefix: test\nsome prefix: test\n')
-            self.assertEqual(strip_value(sio), '')
+            msg_lines = strip_value(sio).strip().split('\n')
+            return msg_lines
 
+        try:
             # test OSError
             for en in (errno.EIO, errno.ENOSPC):
-                log_exception(OSError(en, 'my %s error message' % en))
-                log_msg = strip_value(sio)
-                self.assertNotIn('Traceback', log_msg)
-                self.assertEqual('some prefix: ', log_msg[:13])
-                self.assertIn('my %s error message' % en, log_msg)
-            # unfiltered
-            log_exception(OSError())
-            log_msg = strip_value(sio)
-            self.assertIn('Traceback', log_msg)
-            self.assertEqual('some prefix: ', log_msg[:13])
+                exc = OSError(en, 'my %s error message' % en)
+                log_msg_lines = log_exception(exc)
+                self.assertEqual(1, len(log_msg_lines))
+                self.assertEqual('some prefix: blah: %s' % exc,
+                                 log_msg_lines[0])
 
+            # BadStatusLine
+            exc = http_client.BadStatusLine('my error message')
+            log_msg_lines = log_exception(exc)
+            self.assertEqual(1, len(log_msg_lines))
+            self.assertEqual("some prefix: blah: %r" % exc, log_msg_lines[0])
+
+            # Timeout
+            with ConnectionTimeout(99) as exc:
+                log_msg_lines = log_exception(exc)
+            self.assertEqual(1, len(log_msg_lines))
+            self.assertNotIn('Traceback', log_msg_lines[0])
+            self.assertEqual("some prefix: blah: ConnectionTimeout (99s)",
+                             log_msg_lines[0])
+
+            # unfiltered
+            for exc in (OSError(), ValueError()):
+                log_msg_lines = log_exception(exc)
+                self.assertEqual(2, len(log_msg_lines), log_msg_lines)
+                self.assertEqual('some prefix: blah: ', log_msg_lines[0])
+                traceback_lines = log_msg_lines[1].split('#012')
+                self.assertEqual('Traceback (most recent call last):',
+                                 traceback_lines[0])
         finally:
             base_logger.logger.removeHandler(handler)
 
     @reset_logger_state
-    def test_get_prefixed_logger_non_string_values(self):
+    def test_get_prefixed_swift_logger_non_string_values(self):
         # setup stream logging
         sio = StringIO()
-        base_logger = utils.get_logger(None)
+        base_logger = get_swift_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
-        logger = get_prefixed_logger(base_logger, 'some prefix: ')
+        logger = get_prefixed_swift_logger(base_logger, 'some prefix: ')
         exc = Exception('blah')
 
         def strip_value(sio):
@@ -793,21 +827,21 @@ class TestUtilsLogs(unittest.TestCase):
             return v
 
         try:
-            logger = get_prefixed_logger(logger, 'abc')
+            logger = get_prefixed_swift_logger(logger, 'abc')
             self.assertEqual('abc', logger.prefix)
             logger.info('test')
             self.assertEqual(strip_value(sio), 'abctest\n')
             logger.info(exc)
             self.assertEqual(strip_value(sio), 'abcblah\n')
 
-            logger = get_prefixed_logger(logger, '')
+            logger = get_prefixed_swift_logger(logger, '')
             self.assertEqual('', logger.prefix)
             logger.info('test')
             self.assertEqual(strip_value(sio), 'test\n')
             logger.info(exc)
             self.assertEqual(strip_value(sio), 'blah\n')
 
-            logger = get_prefixed_logger(logger, 0)
+            logger = get_prefixed_swift_logger(logger, 0)
             self.assertEqual(0, logger.prefix)
             logger.info('test')
             self.assertEqual(strip_value(sio), '0test\n')
@@ -817,14 +851,14 @@ class TestUtilsLogs(unittest.TestCase):
             logger.logger.removeHandler(handler)
 
     @reset_logger_state
-    def test_get_prefixed_logger_replaces_prefix(self):
+    def test_get_prefixed_swift_logger_replaces_prefix(self):
         # setup stream logging
         sio = StringIO()
-        base_logger = utils.get_logger(None)
+        base_logger = get_swift_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
-        logger1 = get_prefixed_logger(base_logger, 'one: ')
-        logger2 = get_prefixed_logger(logger1, 'two: ')
+        logger1 = get_prefixed_swift_logger(base_logger, 'one: ')
+        logger2 = get_prefixed_swift_logger(logger1, 'two: ')
 
         def strip_value(sio):
             sio.seek(0)
@@ -847,17 +881,17 @@ class TestUtilsLogs(unittest.TestCase):
         finally:
             base_logger.logger.removeHandler(handler)
 
-    def test_get_prefixed_logger_isolation(self):
+    def test_get_prefixed_swift_logger_isolation(self):
         # verify that the new instance's attributes are copied by value
         # from the old (except prefix), but the thread_locals are still shared
-        adapted_logger = utils.get_logger(None, name='server')
+        adapted_logger = get_swift_logger(None, name='server')
         adapted_logger.thread_locals = ('id', 'ip')
-        adapted_logger = get_prefixed_logger(adapted_logger, 'foo')
+        adapted_logger = get_prefixed_swift_logger(adapted_logger, 'foo')
         self.assertEqual(adapted_logger.server, 'server')
         self.assertEqual(adapted_logger.thread_locals, ('id', 'ip'))
         self.assertEqual(adapted_logger.prefix, 'foo')
 
-        cloned_adapted_logger = get_prefixed_logger(
+        cloned_adapted_logger = get_prefixed_swift_logger(
             adapted_logger, 'boo')
         self.assertEqual(cloned_adapted_logger.server, 'server')
         self.assertEqual(cloned_adapted_logger.thread_locals, ('id', 'ip'))
@@ -868,7 +902,7 @@ class TestUtilsLogs(unittest.TestCase):
         self.assertEqual(adapted_logger.prefix, 'foo')
         self.assertIs(adapted_logger.logger, cloned_adapted_logger.logger)
 
-        cloned_adapted_logger = get_prefixed_logger(
+        cloned_adapted_logger = get_prefixed_swift_logger(
             adapted_logger, adapted_logger.prefix + 'bar')
         adapted_logger.server = 'waiter'
         self.assertEqual(adapted_logger.server, 'waiter')
@@ -884,7 +918,7 @@ class TestUtilsLogs(unittest.TestCase):
     @reset_logger_state
     def test_capture_stdio(self):
         # stubs
-        logger = utils.logs.get_logger(None, 'dummy')
+        logger = get_swift_logger(None, 'dummy')
 
         # mock utils system modules
         mock_os = MockOs()
@@ -919,7 +953,7 @@ class TestUtilsLogs(unittest.TestCase):
         mock_sys = MockSys()
         with mock.patch.object(utils.logs, 'os', mock_os), \
                 mock.patch.object(utils.logs, 'sys', mock_sys):
-            logger = utils.get_logger(None, log_to_console=True)
+            logger = get_swift_logger(None, log_to_console=True)
 
             # test console log
             utils.logs.capture_stdio(logger, capture_stdout=False,
@@ -937,19 +971,19 @@ class TestUtilsLogs(unittest.TestCase):
                                         utils.logs.LoggerFileObject))
 
     @reset_logger_state
-    def test_get_logger_console(self):
-        logger = utils.get_logger(None)
+    def test_get_swift_logger_console(self):
+        logger = get_swift_logger(None)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
         self.assertFalse(console_handlers)
-        logger = utils.get_logger(None, log_to_console=True)
+        logger = get_swift_logger(None, log_to_console=True)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
         self.assertTrue(console_handlers)
         # make sure you can't have two console handlers
         self.assertEqual(len(console_handlers), 1)
         old_handler = console_handlers[0]
-        logger = utils.get_logger(None, log_to_console=True)
+        logger = get_swift_logger(None, log_to_console=True)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
         self.assertEqual(len(console_handlers), 1)

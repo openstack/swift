@@ -610,6 +610,7 @@ class ContainerController(BaseStorageServer):
             if value != '' and (key.lower() in self.save_headers or
                                 is_sys_or_user_meta('container', key)))
         headers['Content-Type'] = out_content_type
+        headers['Content-Length'] = 0
         resp = HTTPNoContent(request=req, headers=headers, charset='utf-8')
         resp.last_modified = Timestamp(headers['X-PUT-Timestamp']).ceil()
         return resp

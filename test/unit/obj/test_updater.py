@@ -362,22 +362,22 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertIn("sweep progress", info_lines[1])
         # the space ensures it's a positive number
         self.assertIn(
-            "2 successes, 0 failures, 0 quarantines, 2 unlinks, 0 errors, "
-            "0 redirects",
+            "2 successes, 0 failures, 0 quarantines, 2 unlinks, "
+            "0 outdated_unlinks, 0 errors, 0 redirects",
             info_lines[1])
         self.assertIn(self.sda1, info_lines[1])
 
         self.assertIn("sweep progress", info_lines[2])
         self.assertIn(
-            "4 successes, 0 failures, 0 quarantines, 4 unlinks, 0 errors, "
-            "0 redirects",
+            "4 successes, 0 failures, 0 quarantines, 4 unlinks, "
+            "0 outdated_unlinks, 0 errors, 0 redirects",
             info_lines[2])
         self.assertIn(self.sda1, info_lines[2])
 
         self.assertIn("sweep complete", info_lines[3])
         self.assertIn(
-            "5 successes, 0 failures, 0 quarantines, 5 unlinks, 0 errors, "
-            "0 redirects",
+            "5 successes, 0 failures, 0 quarantines, 5 unlinks, "
+            "0 outdated_unlinks, 0 errors, 0 redirects",
             info_lines[3])
         self.assertIn(self.sda1, info_lines[3])
 
@@ -426,8 +426,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(len(completion_lines), 1)
         self.assertIn("sweep complete", completion_lines[0])
         self.assertIn(
-            "6 successes, 0 failures, 0 quarantines, 6 unlinks, 0 errors, "
-            "0 redirects",
+            "6 successes, 0 failures, 0 quarantines, 6 unlinks, "
+            "0 outdated_unlinks, 0 errors, 0 redirects",
             completion_lines[0])
 
     @mock.patch.object(object_updater, 'check_drive')
@@ -533,7 +533,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertTrue(not os.path.exists(older_op_path))
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.statsd_client.get_increment_counts(),
-                         {'failures': 1, 'unlinks': 1})
+                         {'failures': 1, 'outdated_unlinks': 1})
         self.assertIsNone(pickle.load(open(op_path, 'rb')).get('successes'))
         self.assertEqual(
             ['ERROR with remote server 127.0.0.1:67890/sda1: '
@@ -1408,7 +1408,8 @@ class TestObjectUpdater(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertTrue(info_lines)
         self.assertIn('2 successes, 0 failures, 0 quarantines, 2 unlinks, '
-                      '0 errors, 0 redirects, 9 skips, 9 deferrals, 0 drains',
+                      '0 outdated_unlinks, 0 errors, 0 redirects, 9 skips, '
+                      '9 deferrals, 0 drains',
                       info_lines[-1])
         self.assertEqual({'skips': 9, 'successes': 2, 'unlinks': 2,
                           'deferrals': 9},
@@ -1447,7 +1448,8 @@ class TestObjectUpdater(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertTrue(info_lines)
         self.assertIn('11 successes, 0 failures, 0 quarantines, 11 unlinks, '
-                      '0 errors, 0 redirects, 0 skips, 0 deferrals, 0 drains',
+                      '0 outdated_unlinks, 0 errors, 0 redirects, 0 skips, '
+                      '0 deferrals, 0 drains',
                       info_lines[-1])
         self.assertEqual({'successes': 11, 'unlinks': 11},
                          self.logger.statsd_client.get_increment_counts())
@@ -1515,7 +1517,8 @@ class TestObjectUpdater(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertTrue(info_lines)
         self.assertIn('2 successes, 0 failures, 0 quarantines, 2 unlinks, '
-                      '0 errors, 0 redirects, 2 skips, 2 deferrals, 0 drains',
+                      '0 outdated_unlinks, 0 errors, 0 redirects, 2 skips, '
+                      '2 deferrals, 0 drains',
                       info_lines[-1])
         self.assertEqual({'skips': 2, 'successes': 2, 'unlinks': 2,
                           'deferrals': 2},
@@ -1633,7 +1636,8 @@ class TestObjectUpdater(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertTrue(info_lines)
         self.assertIn('3 successes, 0 failures, 0 quarantines, 3 unlinks, '
-                      '0 errors, 0 redirects, 1 skips, 2 deferrals, 1 drains',
+                      '0 outdated_unlinks, 0 errors, 0 redirects, 1 skips, '
+                      '2 deferrals, 1 drains',
                       info_lines[-1])
         self.assertEqual(
             {'skips': 1, 'successes': 3, 'unlinks': 3, 'deferrals': 2,
@@ -1754,7 +1758,8 @@ class TestObjectUpdater(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertTrue(info_lines)
         self.assertIn('4 successes, 0 failures, 0 quarantines, 4 unlinks, '
-                      '0 errors, 0 redirects, 1 skips, 3 deferrals, 2 drains',
+                      '0 outdated_unlinks, 0 errors, 0 redirects, 1 skips, '
+                      '3 deferrals, 2 drains',
                       info_lines[-1])
         self.assertEqual(
             {'skips': 1, 'successes': 4, 'unlinks': 4, 'deferrals': 3,
@@ -1882,7 +1887,8 @@ class TestObjectUpdater(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         self.assertTrue(info_lines)
         self.assertIn('5 successes, 0 failures, 0 quarantines, 5 unlinks, '
-                      '0 errors, 0 redirects, 2 skips, 4 deferrals, 2 drains',
+                      '0 outdated_unlinks, 0 errors, 0 redirects, 2 skips, '
+                      '4 deferrals, 2 drains',
                       info_lines[-1])
         self.assertEqual(
             {'successes': 5, 'unlinks': 5, 'deferrals': 4, 'drains': 2},
@@ -2329,8 +2335,9 @@ class TestSweepStats(unittest.TestCase):
         num_props = len(vars(object_updater.SweepStats()))
         stats = object_updater.SweepStats(*range(1, num_props + 1))
         self.assertEqual(
-            '4 successes, 2 failures, 3 quarantines, 5 unlinks, 1 errors, '
-            '6 redirects, 7 skips, 8 deferrals, 9 drains', str(stats))
+            '4 successes, 2 failures, 3 quarantines, 5 unlinks, '
+            '6 outdated_unlinks, 1 errors, 7 redirects, 8 skips, 9 deferrals, '
+            '10 drains', str(stats))
 
 
 if __name__ == '__main__':

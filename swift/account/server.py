@@ -230,6 +230,7 @@ class AccountController(BaseStorageServer):
             return self._deleted_response(broker, req, HTTPNotFound)
         headers = get_response_headers(broker)
         headers['Content-Type'] = out_content_type
+        headers['Content-Length'] = 0
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
     @public
