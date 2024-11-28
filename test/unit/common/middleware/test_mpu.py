@@ -628,7 +628,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             headers={'Etag': 'test-etag',
                      'Transfer-Encoding': 'test-encoding'},
             body=b'testing')
-        resp = req.get_response(self.mw)
+
+        ts_now = Timestamp.now()
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=ts_now):
+            resp = req.get_response(self.mw)
         self.assertEqual(201, resp.status_int)
         exp_etag = md5(b'testing', usedforsecurity=False).hexdigest()
         self.assertEqual('"%s"' % exp_etag, resp.headers.get('Etag'))
@@ -641,7 +645,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         'User-Agent': 'Swift',
                         'Etag': 'test-etag',
                         'Transfer-Encoding': 'test-encoding',
-                        'X-Backend-Allow-Reserved-Names': 'true'}
+                        'X-Backend-Allow-Reserved-Names': 'true',
+                        'X-Timestamp': ts_now.normal}
         self.assertEqual(exp_put_hdrs, actual_put_hdrs)
 
     def test_upload_part(self):

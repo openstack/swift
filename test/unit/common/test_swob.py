@@ -1208,6 +1208,25 @@ class TestResponse(unittest.TestCase):
         req = swob.Request.blank('/')
         return req.get_response(test_app)
 
+    def test_last_modified(self):
+        resp = self._get_response()
+        self.assertIsNone(resp.last_modified)
+        self.assertNotIn('Last-Modified', resp.headers)
+
+        resp.last_modified = 1234567.12345
+        self.assertEqual(
+            datetime.datetime.fromtimestamp(
+                1234567, tz=utils.timestamp.UTC),
+            resp.last_modified)
+        self.assertEqual('Thu, 15 Jan 1970 06:56:07 GMT',
+                         resp.headers['Last-Modified'])
+
+        resp.headers['Last-Modified'] = 'Fri, 16 Jan 1970 06:56:07 GMT'
+        self.assertEqual(
+            datetime.datetime.fromtimestamp(
+                1320967, tz=utils.timestamp.UTC),
+            resp.last_modified)
+
     def test_properties(self):
         resp = self._get_response()
 

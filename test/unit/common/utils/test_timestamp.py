@@ -148,6 +148,27 @@ class TestTimestamp(unittest.TestCase):
         self.assertIsInstance(ts, timestamp.Timestamp)
         self.assertEqual(ts, timestamp.Timestamp.from_isoformat(ts.isoformat))
 
+    def test_from_http_date(self):
+        ts = timestamp.Timestamp.from_http_date(
+            'Thu, 15 Jan 1970 06:56:07 GMT')
+        self.assertIsInstance(ts, timestamp.Timestamp)
+        self.assertEqual(1234567.0, float(ts))
+
+        ts = timestamp.Timestamp.from_http_date(
+            'Thu, 15 Jan 1970 06:56:07')
+        self.assertIsInstance(ts, timestamp.Timestamp)
+        self.assertEqual(1234567.0, float(ts))
+
+        ts = timestamp.Timestamp.from_http_date(
+            'Thu 15 Jan 1970 06:56:07 GMT')
+        self.assertIsInstance(ts, timestamp.Timestamp)
+        self.assertEqual(1234567.0, float(ts))
+
+        ts = timestamp.Timestamp.from_http_date(
+            'Thursday, 15 Jan 1970 06:56:07 GMT')
+        self.assertIsInstance(ts, timestamp.Timestamp)
+        self.assertEqual(1234567.0, float(ts))
+
     def test_ceil(self):
         self.assertEqual(0.0, timestamp.Timestamp(0).ceil())
         self.assertEqual(1.0, timestamp.Timestamp(0.00001).ceil())

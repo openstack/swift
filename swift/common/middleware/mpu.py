@@ -729,7 +729,10 @@ class MPUSessionHandler(BaseMPUHandler):
         for k, v in self.req.headers.items():
             # TODO: should we return 400 is client sends x-delete-at with a
             #   part upload, or just ignore it?
-            if k.lower() in ('content-length', 'transfer-encoding', 'etag'):
+            if k.lower() in ('content-length',
+                             'transfer-encoding',
+                             'etag',
+                             'x-timestamp'):
                 headers[k] = v
         part_req = self.make_subrequest(
             path=part_path, method='PUT', body=self.req.body, headers=headers)
