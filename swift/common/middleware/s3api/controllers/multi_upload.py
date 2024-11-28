@@ -193,17 +193,14 @@ class PartController(Controller):
 
         part_number = req.validate_part_number()
         upload_id = get_valid_upload_id(req)
-        # TODO: why is timestamp set here?
-        req_timestamp = S3Timestamp.now()
-        req.headers['X-Timestamp'] = req_timestamp.internal
         self._check_copy_source_range(req)
         query = {'upload-id': upload_id,
                  'part-number': part_number}
         resp = req.get_response(self.app, query=query)
 
         if 'X-Amz-Copy-Source' in req.headers:
-            resp.append_copy_resp_body(req.controller_name,
-                                       req_timestamp.s3xmlformat)
+            ts = S3Timestamp.from_http_date(resp.headers['Last-Modified'])
+            resp.append_copy_resp_body(req.controller_name, ts.s3xmlformat)
 
         resp.status = 200
         return resp

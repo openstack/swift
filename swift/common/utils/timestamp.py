@@ -23,6 +23,8 @@ import time
 
 import six
 
+from email.utils import parsedate
+
 
 NORMAL_FORMAT = "%016.05f"
 INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
@@ -218,6 +220,21 @@ class Timestamp(object):
         # function delta_to_microseconds(), but written in Python.
         return cls(delta.total_seconds())
 
+    @classmethod
+    def from_http_date(cls, http_date_string):
+        """
+        Parse an HTTP date header (e.g. 'Fri, 16 Jan 1970 06:56:07 GMT') to
+        a Timestamp. The timezone is assumed to be GMT (UTC).
+
+        :param http_date_string: a string formatted as per an RFC2822 date
+            header.
+        :return: an instance of  this class.
+        """
+        parts = parsedate(http_date_string)
+        # PY2 does not have datetime.timestamp...
+        delta = datetime.datetime(*(parts[:7])) - EPOCH
+        return cls(delta.total_seconds())
+
     def ceil(self):
         """
         Return the 'normal' part of the timestamp rounded up to the nearest
@@ -372,7 +389,7 @@ EPOCH = datetime.datetime(1970, 1, 1)
 def last_modified_date_to_timestamp(last_modified_date_str):
     """
     Convert a last modified date (like you'd get from a container listing,
-    e.g. 2014-02-28T23:22:36.698390) to a float.
+    e.g. 2014-02-28T23:22:36.698390) to a Timestamp.
     """
     return Timestamp.from_isoformat(last_modified_date_str)
 
