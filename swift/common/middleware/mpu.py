@@ -719,13 +719,7 @@ class MPUSessionHandler(BaseMPUHandler):
             'POST',
             path=self.session_path,
             headers=session.get_post_headers())
-        session_resp = session_req.get_response(self.app)
-        # TODO: check the resp status:
-        #   we DO need to let the client know if an abortUpload didn't get
-        #   recorded. Similarly we DO need completing state to be recorded -
-        #   otherwise the auditor won't check to see if the complete ever
-        #   succeeded in writing a symlink.
-        drain_and_close(session_resp)
+        return session_req.get_response(self.app)
 
     def _get_user_object_metadata(self):
         symlink_path = self.make_path(self.container, self.obj)
@@ -855,8 +849,13 @@ class MPUSessionHandler(BaseMPUHandler):
         # MPU resources while handling an aborted session.
         session.timestamp = self.req.timestamp
         session.set_aborted(self.req.timestamp)
-        self._post_session(session)
-        return HTTPNoContent()
+        sess_resp = self._post_session(session)
+        drain_and_close(sess_resp)
+        if sess_resp.is_success:
+            resp = HTTPNoContent()
+        else:
+            resp = translate_error_response(sess_resp)
+        return resp
 
     def _parse_part_number(self, part_dict, previous_part):
         try:
@@ -1099,13 +1098,12 @@ class MPUSessionHandler(BaseMPUHandler):
         # fails.
         session.timestamp = self.req.timestamp
         session.set_completing(self.req.timestamp)
-        self._post_session(session)
-        # TODO: check response
+        sess_resp = self._post_session(session)
+        drain_and_close(sess_resp)
+        if not sess_resp.is_success:
+            return translate_error_response(sess_resp)
 
-        # TODO: replicate the etag handling from s3api
-        # Leave base header value blank; SLO will populate
-        # c_etag = '; s3_etag=%s' % manifest_etag
-        # manifest_headers[get_container_update_override_key('etag')] = c_etag
+        # return 202 to match SLO response with heartbeat=on
         resp = HTTPAccepted()  # assume we're good for now...
         resp.app_iter = self._make_complete_upload_resp_iter(
             session, manifest, mpu_etag)
@@ -1118,8 +1116,14 @@ class MPUObjHandler(BaseMPUHandler):
         # NB: do this even for non-success responses in case any of the
         # backend responses may have succeeded
         if 'x-object-version-id' in resp.headers:
-            # TODO: unit test early return
             # existing object became a version -> no cleanup
+            # TODO: there's a flaw here w.r.t. object-versioning...
+            #   If the backend response collection has more than one upload
+            #   symlink then we don't know which one has been preserved by
+            #   object-versioning. We could infer that the newest was copied to
+            #   the version container, or better, modify object-versioning to
+            #   include what got replaced in it's response headers. For now we
+            #   play it safe and cleanup nothing.
             return
 
         deleted_upload_ids = {}
@@ -1139,7 +1143,6 @@ class MPUObjHandler(BaseMPUHandler):
                     # TODO: log a warning?
                     pass
         for upload_id, backend_resp in deleted_upload_ids.items():
-            # TODO: unit test multiple upload cleanup
             self._put_manifest_delete_marker(upload_id)
 
     def _handle_get_head_response(self, resp):
