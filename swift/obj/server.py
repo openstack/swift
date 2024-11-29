@@ -35,7 +35,7 @@ from swift.common.utils import public, get_logger, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
-    normalize_timestamp, md5, parse_options
+    normalize_timestamp, md5, parse_options, CooperativeIterator
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
@@ -908,13 +908,20 @@ class ObjectController(BaseStorageServer):
         elapsed_time = 0
         upload_expiration = time.time() + self.max_upload_time
         timeout_reader = self._make_timeout_reader(obj_input)
-        for chunk in iter(timeout_reader, b''):
+
+        # Wrap the chunks in CooperativeIterator with specified period
+        cooperative_reader = CooperativeIterator(
+            iter(timeout_reader, b''), period=self.cooperative_period
+        )
+
+        for chunk in cooperative_reader:
             start_time = time.time()
             if start_time > upload_expiration:
                 self.logger.increment('PUT.timeouts')
                 raise HTTPRequestTimeout(request=request)
             writer.write(chunk)
             elapsed_time += time.time() - start_time
+
         upload_size, etag = writer.chunks_finished()
         if fsize is not None and fsize != upload_size:
             raise HTTPClientDisconnect(request=request)

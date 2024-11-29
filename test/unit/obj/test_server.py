@@ -4786,6 +4786,88 @@ class TestObjectController(BaseTestCase):
             self.assertEqual(b' bytes', resp.body)
         self.assertFalse(mock_sleep.called)
 
+    def test_PUT_cooperative_period_config(self):
+        # Test DiskFile writer actually sleeps when writing chunks. When
+        # cooperative_period is 1, disk writer sleeps once.
+        conf = {'devices': self.testdir, 'mount_check': 'false',
+                'container_update_timeout': 0.0,
+                'cooperative_period': '1'}
+        obj_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'7 bytes'
+        with mock.patch('swift.common.utils.sleep') as mock_sleep:
+            resp = req.get_response(obj_controller)
+            self.assertEqual(resp.status_int, 201)
+        self.assertEqual(1, mock_sleep.call_count)
+
+        # Test DiskFile writer actually sleeps when writing chunks. And verify
+        # number of sleeps when 'disk_chunk_size' is set.
+        conf['cooperative_period'] = '2'
+        conf['network_chunk_size'] = 2
+        obj_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'7 bytes'
+        with mock.patch('swift.common.utils.sleep') as mock_sleep:
+            resp = req.get_response(obj_controller)
+            self.assertEqual(resp.status_int, 201)
+        self.assertEqual(2, mock_sleep.call_count)
+
+        conf['cooperative_period'] = '2'
+        conf['network_chunk_size'] = 3
+        obj_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'7 bytes'
+        with mock.patch('swift.common.utils.sleep') as mock_sleep:
+            resp = req.get_response(obj_controller)
+            self.assertEqual(resp.status_int, 201)
+        self.assertEqual(1, mock_sleep.call_count)
+
+        # Test DiskFile reader won't sleep with cooperative_period set as 0.
+        conf['cooperative_period'] = '0'
+        obj_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'7 bytes'
+        with mock.patch('swift.common.utils.sleep') as mock_sleep:
+            resp = req.get_response(obj_controller)
+            self.assertEqual(resp.status_int, 201)
+        self.assertFalse(mock_sleep.called)
+
+        # Test DiskFile reader won't sleep with default cooperative_period
+        # which is also 0.
+        conf.pop('cooperative_period')
+        obj_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'7 bytes'
+        with mock.patch('swift.common.utils.sleep') as mock_sleep:
+            resp = req.get_response(obj_controller)
+            self.assertEqual(resp.status_int, 201)
+        self.assertFalse(mock_sleep.called)
+
     @mock.patch("time.time", mock_time)
     def test_DELETE(self):
         # Test swift.obj.server.ObjectController.DELETE
