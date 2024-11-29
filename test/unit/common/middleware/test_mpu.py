@@ -1660,26 +1660,24 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             ResponseData(204, headers=backend_headers)
         ])
         env_updates = {'swift.backend_responses': backend_responses}
-        self.app.register('DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None,
-                          env_updates=env_updates)
-        self.app.register(
-            'PUT',
-            '/v1/a/\x00mpu_manifests\x00c/%s/marker-deleted'
-            % self.sess_name,
-            HTTPAccepted,
-            backend_headers)
+        registered_calls = [
+            ('DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None,
+             env_updates),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/%s/marker-deleted'
+             % self.sess_name,
+             HTTPAccepted,
+             backend_headers)
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
         req = Request.blank('/v1/a/c/o')
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(204, resp.status_int)
         self.assertEqual(b'', resp_body)
-        exp_calls = [
-            ('DELETE', '/v1/a/c/o'),
-            ('PUT',
-             '/v1/a/\x00mpu_manifests\x00c/%s/marker-deleted'
-             % self.sess_name),
-        ]
+        exp_calls = [call[:2] for call in registered_calls]
         self.assertEqual(exp_calls, self.app.calls)
 
     def test_mpu_async_cleanup_DELETE_versioning_enabled(self):
@@ -1705,12 +1703,38 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o')
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
-        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(b'', b''.join(resp.app_iter))
         self.assertEqual(204, resp.status_int)
-        self.assertEqual(b'', resp_body)
-        exp_calls = [
-            ('DELETE', '/v1/a/c/o'),
+        exp_calls = [('DELETE', '/v1/a/c/o')]
+        self.assertEqual(exp_calls, self.app.calls)
+
+    def test_mpu_async_cleanup_DELETE_specific_version(self):
+        # mpu IS cleaned up after deleting a specific version
+        backend_headers = {
+            'x-object-sysmeta-mpu-upload-id': self.mpu_id,
+            'x-object-version-id': 'my-version-id',
+            'x-object-current-version-id': 'null',
+        }
+
+        backend_responses = ResponseCollection([
+            ResponseData(201, headers=backend_headers),
+        ])
+        env_updates = {'swift.backend_responses': backend_responses}
+        registered_calls = [
+            ('DELETE', '/v1/a/c/o',
+             swob.HTTPNoContent, backend_headers, None, env_updates),
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/\x00o/%s/marker-deleted'
+             % self.mpu_id, HTTPAccepted, {})
         ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'DELETE'
+        resp = req.get_response(self.mw)
+        self.assertEqual(b'', b''.join(resp.app_iter))
+        self.assertEqual(204, resp.status_int)
+        exp_calls = [call[:2] for call in registered_calls]
         self.assertEqual(exp_calls, self.app.calls)
 
     def test_mpu_async_cleanup_PUT(self):

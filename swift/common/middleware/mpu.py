@@ -1115,9 +1115,10 @@ class MPUObjHandler(BaseMPUHandler):
     def _maybe_cleanup_mpu(self, resp):
         # NB: do this even for non-success responses in case any of the
         # backend responses may have succeeded
-        if 'x-object-version-id' in resp.headers:
+        if ('x-object-version-id' in resp.headers and
+                'x-object-current-version-id' not in resp.headers):
             # existing object became a version -> no cleanup
-            # TODO: there's a flaw here w.r.t. object-versioning...
+            # TODO: there's a gap here w.r.t. object-versioning...
             #   If the backend response collection has more than one upload
             #   symlink then we don't know which one has been preserved by
             #   object-versioning. We could infer that the newest was copied to

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import binascii
+import collections
 import json
 import unittest
 import uuid
@@ -284,9 +285,9 @@ class TestS3MPU(BaseTestS3MPU):
         self.assertFalse(part_names, part_names)
 
 
-class TestNativeMPU(BaseTestMPU):
+class BaseTestNativeMPU(BaseTestMPU):
     def setUp(self):
-        super(TestNativeMPU, self).setUp()
+        super(BaseTestNativeMPU, self).setUp()
         mpu_info = self.cluster_info.get('mpu', {})
         if not mpu_info:
             raise unittest.SkipTest('mpu not enabled')
@@ -326,6 +327,17 @@ class TestNativeMPU(BaseTestMPU):
         conn.close()
         return resp, body
 
+    def get_object_versions_from_listing(self, container):
+        resp, body = self.get_container(
+            container, query_string='versions=true')
+        listing = json.loads(body)
+        name_to_versions = collections.defaultdict(list)
+        for item in listing:
+            if item['content_type'].startswith('application/x-deleted'):
+                continue
+            name_to_versions[item['name']].append(item['version_id'])
+        return name_to_versions
+
     def get_mpu_resources(self, container, mpu_name=None, upload_id=None):
         prefix = ''
         if mpu_name:
@@ -350,6 +362,41 @@ class TestNativeMPU(BaseTestMPU):
                 filter_listing(manifests),
                 filter_listing(parts))
 
+    def _make_mpu(self, part_size):
+        # create
+        resp, body = self.post_object(self.bucket_name, self.mpu_name,
+                                      query_string='uploads=true')
+        upload_id = resp.headers.get('X-Upload-Id')
+        self.assertIsNotNone(upload_id)
+        self.assertEqual(202, resp.status)
+        # upload part
+        part_file, hash_, chunk_etags = self.make_file(part_size, 1)
+        with open(part_file, 'rb') as fd:
+            part_etag = swiftclient.put_object(
+                self.url, self.token, self.bucket_name, self.mpu_name,
+                contents=fd, content_type='ignored',
+                query_string='upload-id=%s&part-number=1' % upload_id)
+        self.assertEqual(hash_, part_etag)
+        # complete
+        manifest = [{'part_number': 1, 'etag': part_etag}]
+        resp, body = self.post_object(self.bucket_name, self.mpu_name,
+                                      query_string='upload-id=%s' % upload_id,
+                                      body=json.dumps(manifest).encode(
+                                          'ascii'))
+        self.assertEqual(202, resp.status)
+        self.assertNotIn('X-Static-Large-Object', resp.headers)
+        body_dict = json.loads(body)
+        self.assertEqual('201 Created', body_dict['Response Status'])
+        mpu_etag = calc_s3mpu_etag(chunk_etags)
+        # head mpu
+        headers = swiftclient.head_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual(str(part_size), headers.get('content-length'))
+        self.assertEqual('"%s"' % mpu_etag, headers.get('etag'))
+        return upload_id, mpu_etag
+
+
+class TestNativeMPU(BaseTestNativeMPU):
     def test_native_mpu(self):
         # create
         swiftclient.put_container(self.url, self.token, self.bucket_name)
@@ -665,3 +712,286 @@ class TestNativeMPU(BaseTestMPU):
         # manifest and parts have gone :)
         self.assertEqual(([], [], []),
                          self.get_mpu_resources(self.bucket_name))
+
+
+class TestNativeMPUWithVersioning(BaseTestNativeMPU):
+    def _make_symlink(self, name):
+        # create a symlink pointing to an object in another container
+        other_bucket = self.bucket_name + '+other'
+        swiftclient.put_container(self.url, self.token, other_bucket)
+        tgt_obj_name = name + '-target'
+        swiftclient.put_object(self.url, self.token, other_bucket,
+                               tgt_obj_name, contents='target object')
+        symlink_tgt = '%s/%s' % (other_bucket, tgt_obj_name)
+        obj_headers = {'X-Symlink-Target': symlink_tgt}
+        swiftclient.put_object(self.url, self.token, self.bucket_name,
+                               name, headers=obj_headers)
+
+    def test_native_mpu_delete_during_versioning(self):
+        # verify that mpu behaves same as a plain symlink w.r.t. versioning
+        #   * PUT objects
+        #   * enable versioning
+        #   * DELETE objects - a version is retained
+        #   * DELETE object version - nothing retained
+
+        # put an mpu
+        swiftclient.put_container(self.url, self.token, self.bucket_name)
+        part_size = 5 * 2 ** 20
+        self._make_mpu(part_size)
+
+        # put a symlink to an object in another bucket, as a control item
+        obj_name = 'non-mpu-obj'
+        self._make_symlink(obj_name)
+
+        # enable versioning
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers={'x-versions-enabled': 'true'})
+
+        # delete both objects
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, obj_name)
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+
+        # get listing with versions
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual(2, len(obj_versions))
+        self.assertEqual(1, len(obj_versions[obj_name]))
+        self.assertEqual(1, len(obj_versions[self.mpu_name]))
+
+        # run auditor - nothing should be cleaned up
+        for i in range(2):
+            Manager(['container-auditor']).once()
+
+        # objects still exist
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, obj_name,
+            query_string='version-id=%s' % obj_versions[obj_name][0])
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+
+        # delete one version of each object
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, obj_name,
+            query_string='version-id=%s' % obj_versions[obj_name][0])
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+
+        # objects cannot be read
+        with self.assertRaises(ClientException) as cm:
+            swiftclient.get_object(
+                self.url, self.token, self.bucket_name, obj_name,
+                query_string='version-id=%s' % obj_versions[obj_name][0])
+            self.assertEqual(404, cm.exception.http_status)
+        with self.assertRaises(ClientException) as cm:
+            swiftclient.get_object(
+                self.url, self.token, self.bucket_name, self.mpu_name,
+                query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+            self.assertEqual(404, cm.exception.http_status)
+
+        # run auditor
+        for i in range(2):
+            Manager(['container-auditor']).once()
+
+        self.assertEqual(([], [], []),
+                         self.get_mpu_resources(self.bucket_name))
+
+    def test_native_mpu_no_overwrites_during_versioning(self):
+        # verify that mpu behaves same as a plain symlink w.r.t. versioning
+        #   * PUT objects
+        #   * enable versioning
+        #   * disable versioning
+        #   * DELETE objects - no version is retained
+
+        # put an mpu
+        swiftclient.put_container(self.url, self.token, self.bucket_name)
+        part_size = 5 * 2 ** 20
+        self._make_mpu(part_size)
+
+        # put a symlink to an object in another bucket, as a control item
+        obj_name = 'non-mpu-obj'
+        self._make_symlink(obj_name)
+
+        # enable versioning
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers={'x-versions-enabled': 'true'})
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual(2, len(obj_versions))
+
+        # disable versioning
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers={'x-versions-enabled': 'false'})
+
+        # delete both objects
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, obj_name)
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+
+        # get listing with versions
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertFalse(obj_versions)
+
+        # objects cannot be read
+        with self.assertRaises(ClientException) as cm:
+            swiftclient.get_object(
+                self.url, self.token, self.bucket_name, obj_name)
+            self.assertEqual(404, cm.exception.http_status)
+        with self.assertRaises(ClientException) as cm:
+            swiftclient.get_object(
+                self.url, self.token, self.bucket_name, self.mpu_name)
+            self.assertEqual(404, cm.exception.http_status)
+
+        # run auditor
+        for i in range(2):
+            Manager(['container-auditor']).once()
+
+        self.assertEqual(([], [], []),
+                         self.get_mpu_resources(self.bucket_name))
+
+    def test_native_mpu_overwrite_during_and_delete_after_versioning(self):
+        # verify that mpu behaves same as a plain symlink w.r.t. versioning
+        #   * PUT objects
+        #   * enable versioning
+        #   * overwrite objects
+        #   * disable versioning
+        #   * DELETE objects - 2 versions retained
+
+        # put an mpu
+        swiftclient.put_container(self.url, self.token, self.bucket_name)
+        part_size = 5 * 2 ** 20
+        self._make_mpu(part_size)
+
+        # put a symlink to an object in another bucket, as a control item
+        obj_name = 'non-mpu-obj'
+        self._make_symlink(obj_name)
+
+        # enable versioning
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers={'x-versions-enabled': 'true'})
+
+        # put objects again
+        self._make_mpu(part_size)
+        self._make_symlink(obj_name)
+
+        # disable versioning
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers={'x-versions-enabled': 'true'})
+
+        # delete both objects
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, obj_name)
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+
+        # get listing with versions
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual(2, len(obj_versions))
+        self.assertEqual(2, len(obj_versions[obj_name]))
+        self.assertEqual(2, len(obj_versions[self.mpu_name]))
+
+        # run auditor - nothing should be cleaned up
+        for i in range(2):
+            Manager(['container-auditor']).once()
+
+        # objects still exist
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, obj_name,
+            query_string='version-id=%s' % obj_versions[obj_name][0])
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, obj_name,
+            query_string='version-id=%s' % obj_versions[obj_name][1])
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
+
+    def test_native_mpu_delete_specific_version(self):
+        #   * PUT objects
+        #   * enable versioning
+        #   * PUT objects
+        #   * DELETE object version - nothing retained for that version
+
+        # put an mpu
+        swiftclient.put_container(self.url, self.token, self.bucket_name)
+        part_size = 5 * 2 ** 20
+        upload_id_0, _ = self._make_mpu(part_size)
+
+        # enable versioning
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers={'x-versions-enabled': 'true'})
+
+        # put an mpu again
+        swiftclient.put_container(self.url, self.token, self.bucket_name)
+        part_size = 5 * 2 ** 20
+        upload_id_1, _ = self._make_mpu(part_size)
+
+        # run auditor - nothing should be cleaned up
+        for i in range(2):
+            Manager(['container-auditor']).once()
+
+        _, manifests, parts = self.get_mpu_resources(
+            self.bucket_name, self.mpu_name, upload_id_0)
+        self.assertEqual(1, len(manifests))
+        self.assertEqual(1, len(parts))
+        _, manifests, parts = self.get_mpu_resources(
+            self.bucket_name, self.mpu_name, upload_id_1)
+        self.assertEqual(1, len(manifests))
+        self.assertEqual(1, len(parts))
+
+        # get listing with versions
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual(1, len(obj_versions))
+        self.assertEqual(2, len(obj_versions[self.mpu_name]))
+
+        # objects exist
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
+
+        # delete version [1]
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
+
+        # undeleted version still exists
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+
+        # deleted version cannot be read
+        with self.assertRaises(ClientException) as cm:
+            swiftclient.get_object(
+                self.url, self.token, self.bucket_name, self.mpu_name,
+                query_string='version-id=%s' % obj_versions[self.mpu_name][1])
+            self.assertEqual(404, cm.exception.http_status)
+
+        _, manifests, parts = self.get_mpu_resources(
+            self.bucket_name, self.mpu_name, upload_id_0)
+        # delete-marker has been written in manifests container...
+        self.assertEqual(2, len(manifests), manifests)
+        self.assertEqual(1, len(parts), parts)
+        _, manifests, parts = self.get_mpu_resources(
+            self.bucket_name, self.mpu_name, upload_id_1)
+        self.assertEqual(1, len(manifests))
+        self.assertEqual(1, len(parts))
+
+        # run auditor - deleted version should be cleaned up
+        for i in range(2):
+            Manager(['container-auditor']).once()
+
+        _, manifests, parts = self.get_mpu_resources(
+            self.bucket_name, self.mpu_name, upload_id_0)
+        self.assertFalse(manifests)
+        self.assertFalse(parts)
+        _, manifests, parts = self.get_mpu_resources(
+            self.bucket_name, self.mpu_name, upload_id_1)
+        self.assertEqual(1, len(manifests))
+        self.assertEqual(1, len(parts))
