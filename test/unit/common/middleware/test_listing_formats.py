@@ -73,7 +73,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a?format=json'))
 
-        req = Request.blank('/v1/a?format=txt')
+        req = Request.blank('/v1/a?format=plain')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'bar\nfoo_\n')
         self.assertEqual(resp.headers['Content-Type'],
@@ -198,7 +198,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a\xe2\x98\x83?format=json'))
 
-        req = Request.blank('/v1/a\xe2\x98\x83?format=txt')
+        req = Request.blank('/v1/a\xe2\x98\x83?format=plain')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'bar\nfoo_\n')
         self.assertEqual(resp.headers['Content-Type'],
@@ -206,7 +206,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a\xe2\x98\x83?format=json'))
 
-        req = Request.blank('/v1/a\xe2\x98\x83?format=txt', headers={
+        req = Request.blank('/v1/a\xe2\x98\x83?format=plain', headers={
             'X-Backend-Allow-Reserved-Names': 'true'})
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'bar\n%s\nfoo_\n%s\n' % (
@@ -290,7 +290,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a/c?format=json'))
 
-        req = Request.blank('/v1/a/c?format=txt')
+        req = Request.blank('/v1/a/c?format=plain')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'bar\nfoo/\n')
         self.assertEqual(resp.headers['Content-Type'],
@@ -360,7 +360,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', path + '?format=json'))
 
-        req = Request.blank(path + '?format=txt')
+        req = Request.blank(path + '?format=plain')
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'bar\nfoo/\n')
         self.assertEqual(resp.headers['Content-Type'],
@@ -368,7 +368,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', path + '?format=json'))
 
-        req = Request.blank(path + '?format=txt', headers={
+        req = Request.blank(path + '?format=plain', headers={
             'X-Backend-Allow-Reserved-Names': 'true'})
         resp = req.get_response(self.app)
         self.assertEqual(resp.body, b'bar\n%s\nfoo/\n%s\n' % (
@@ -458,7 +458,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a?format=json'))
 
-        req = Request.blank('/v1/a?format=txt')
+        req = Request.blank('/v1/a?format=plain')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '204 No Content')
         self.assertEqual(resp.body, b'')
@@ -502,7 +502,7 @@ class TestListingFormats(unittest.TestCase):
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a/c?format=json'))
 
-        req = Request.blank('/v1/a/c?format=txt')
+        req = Request.blank('/v1/a/c?format=plain')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '204 No Content')
         self.assertEqual(resp.body, b'')
@@ -624,7 +624,7 @@ class TestListingFormats(unittest.TestCase):
                     'GET', '/v1/staticweb/bad-json?format=json'))
 
             do_sub_test('/v1/staticweb/bad-json')
-            do_sub_test('/v1/staticweb/bad-json?format=txt')
+            do_sub_test('/v1/staticweb/bad-json?format=plain')
             do_sub_test('/v1/staticweb/bad-json?format=xml')
             do_sub_test('/v1/staticweb/bad-json?format=json')
 
@@ -658,7 +658,7 @@ class TestListingFormats(unittest.TestCase):
                 'GET', '/v1/staticweb/bad-json?format=json'))
 
         do_test('/v1/staticweb/bad-json')
-        do_test('/v1/staticweb/bad-json?format=txt')
+        do_test('/v1/staticweb/bad-json?format=plain')
         do_test('/v1/staticweb/bad-json?format=xml')
         # The response we get is *just close enough* to being valid that we
         # assume it is and slap on the missing charset. If you set up staticweb

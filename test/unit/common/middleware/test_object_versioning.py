@@ -2495,7 +2495,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
 
         # But everything else is unacceptable
         req = Request.blank(
-            '/v1/a/c?versions&format=txt',
+            '/v1/a/c?versions&format=plain',
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cache': self.cache_version_on})
         status, headers, body = self.call_ov(req)
