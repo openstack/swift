@@ -28,10 +28,9 @@ from swift.common.middleware.crypto.crypto_utils import (
 from swift.common.swob import (
     Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk, HTTPBadRequest,
     wsgi_to_bytes, bytes_to_wsgi)
-from swift.common.utils import FileLikeIter
+from swift.common.utils import FileLikeIter, MD5_OF_EMPTY_STRING
 
 from test.debug_logger import debug_logger
-from test.unit import EMPTY_ETAG
 from test.unit.common.middleware.crypto.crypto_helpers import (
     fetch_crypto_keys, md5hex, FAKE_IV, encrypt)
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
@@ -184,11 +183,11 @@ class TestEncrypter(unittest.TestCase):
     def test_PUT_zero_size_object(self):
         # object body encryption should be skipped for zero sized object body
         object_key = fetch_crypto_keys()['object']
-        plaintext_etag = EMPTY_ETAG
+        plaintext_etag = MD5_OF_EMPTY_STRING
 
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
-        hdrs = {'etag': EMPTY_ETAG,
+        hdrs = {'etag': MD5_OF_EMPTY_STRING,
                 'content-type': 'text/plain',
                 'content-length': '0',
                 'x-object-meta-etag': 'not to be confused with the Etag!',
@@ -209,7 +208,7 @@ class TestEncrypter(unittest.TestCase):
         # verify that there is no body crypto meta
         self.assertNotIn('X-Object-Sysmeta-Crypto-Meta', req_hdrs)
         # verify etag is md5 of plaintext
-        self.assertEqual(EMPTY_ETAG, req_hdrs['Etag'])
+        self.assertEqual(MD5_OF_EMPTY_STRING, req_hdrs['Etag'])
         # verify there is no etag crypto meta
         self.assertNotIn('X-Object-Sysmeta-Crypto-Etag', req_hdrs)
         # verify there is no container update override for etag
@@ -229,7 +228,7 @@ class TestEncrypter(unittest.TestCase):
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = get_req.get_response(self.app)
         self.assertEqual(b'', resp.body)
-        self.assertEqual(EMPTY_ETAG, resp.headers['Etag'])
+        self.assertEqual(MD5_OF_EMPTY_STRING, resp.headers['Etag'])
 
     def _test_PUT_with_other_footers(self, override_etag):
         # verify handling of another middleware's footer callback
@@ -332,9 +331,9 @@ class TestEncrypter(unittest.TestCase):
         self._test_PUT_with_other_footers('override etag')
 
     def test_PUT_with_other_footers_and_etag_of_empty_body(self):
-        # verify that an override etag value of EMPTY_ETAG will be encrypted
-        # when there was a non-zero body length
-        self._test_PUT_with_other_footers(EMPTY_ETAG)
+        # verify that an override etag value of MD5_OF_EMPTY_STRING will be
+        # encrypted when there was a non-zero body length
+        self._test_PUT_with_other_footers(MD5_OF_EMPTY_STRING)
 
     def _test_PUT_with_etag_override_in_headers(self, override_etag):
         # verify handling of another middleware's
@@ -389,9 +388,9 @@ class TestEncrypter(unittest.TestCase):
         self._test_PUT_with_etag_override_in_headers('override_etag')
 
     def test_PUT_with_etag_of_empty_body_override_in_headers(self):
-        # verify that an override etag value of EMPTY_ETAG will be encrypted
-        # when there was a non-zero body length
-        self._test_PUT_with_etag_override_in_headers(EMPTY_ETAG)
+        # verify that an override etag value of MD5_OF_EMPTY_STRING will be
+        # encrypted when there was a non-zero body length
+        self._test_PUT_with_etag_override_in_headers(MD5_OF_EMPTY_STRING)
 
     def _test_PUT_with_empty_etag_override_in_headers(self, plaintext):
         # verify that an override etag value of '' from other middleware is
@@ -543,7 +542,7 @@ class TestEncrypter(unittest.TestCase):
 
         # check that an upstream footer callback gets called
         other_footers = {
-            'Etag': EMPTY_ETAG,
+            'Etag': MD5_OF_EMPTY_STRING,
             'X-Object-Sysmeta-Other': 'other sysmeta',
             'X-Object-Sysmeta-Container-Update-Override-Etag':
                 'other override'}
@@ -590,8 +589,9 @@ class TestEncrypter(unittest.TestCase):
         # if upstream footer override etag is for an empty body then check that
         # it is not encrypted
         other_footers = {
-            'Etag': EMPTY_ETAG,
-            'X-Object-Sysmeta-Container-Update-Override-Etag': EMPTY_ETAG}
+            'Etag': MD5_OF_EMPTY_STRING,
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+            MD5_OF_EMPTY_STRING}
         env.update({'swift.callback.update_footers':
                     lambda footers: footers.update(other_footers)})
         req = Request.blank('/v1/a/c/o', environ=env, body='', headers=hdrs)
@@ -613,7 +613,7 @@ class TestEncrypter(unittest.TestCase):
         # if upstream footer override etag is an empty string then check that
         # it is not encrypted
         other_footers = {
-            'Etag': EMPTY_ETAG,
+            'Etag': MD5_OF_EMPTY_STRING,
             'X-Object-Sysmeta-Container-Update-Override-Etag': ''}
         env.update({'swift.callback.update_footers':
                     lambda footers: footers.update(other_footers)})
