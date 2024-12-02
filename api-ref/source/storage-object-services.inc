@@ -453,13 +453,13 @@ Delete object
 
 Permanently deletes an object from the object store.
 
-Object deletion occurs immediately at request time. Any subsequent
-GET, HEAD, POST, or DELETE operations will return a ``404 Not Found``
-error code.
+Object deletion occurs as soon as possible. Subsequent GET, HEAD, POST,
+or DELETE operations should return a ``404 Not Found`` error code, but
+may return stale data due to eventual consistency.
 
-For static large object manifests, you can add the ``?multipart-
-manifest=delete`` query parameter. This operation deletes the
-segment objects and, if all deletions succeed, this operation
+For static large object manifests, you can add the
+``?multipart-manifest=delete`` query parameter. This operation deletes
+the segment objects and, if all deletions succeed, this operation
 deletes the manifest object.
 
 A DELETE request made to a symlink path will delete the symlink
