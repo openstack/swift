@@ -66,8 +66,8 @@ const expectedWithDelimiter = [
 ]
 
 runTests('container', [
-  ['GET format=txt',
-    () => MakeRequest('GET', 'public-with-cors', {}, '', {'format': 'txt'})
+  ['GET format=plain',
+    () => MakeRequest('GET', 'public-with-cors', {}, '', {'format': 'plain'})
       .then(HasStatus(200, 'OK'))
       .then(HasCommonResponseHeaders)
       .then(HasHeaders({ 'Content-Type': 'text/plain; charset=utf-8' }))
@@ -130,8 +130,8 @@ runTests('container', [
           throw new Error('Expected response to start with ' + JSON.stringify(prefix) + '; got ' + resp.responseText)
         }
       })],
-  ['HEAD format=txt',
-    () => MakeRequest('HEAD', 'public-with-cors', {}, '', {'format': 'txt'})
+  ['HEAD format=plain',
+    () => MakeRequest('HEAD', 'public-with-cors', {}, '', {'format': 'plain'})
       .then(HasStatus200Or204)
       .then(HasHeaders({ 'Content-Type': 'text/plain; charset=utf-8' }))
       .then(HasNoBody)],
