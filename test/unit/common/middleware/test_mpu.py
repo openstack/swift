@@ -1068,7 +1068,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
              'X-Symlink-Target':
-                 '\x00mpu_manifests\x00c/%s' % self.sess_name,
+                 swob.wsgi_quote('\x00mpu_manifests\x00c/%s' % self.sess_name),
              # note: FakeApp doesn't call-back to the MPU middleware slo
              # callback handler so mpu_bytes show as 0
              'X-Object-Sysmeta-Container-Update-Override-Etag':

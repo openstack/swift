@@ -998,7 +998,7 @@ class MPUSessionHandler(BaseMPUHandler):
             'Content-Type': session.get_user_content_type(),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
-            TGT_OBJ_SYMLINK_HDR: self.manifest_relative_path,
+            TGT_OBJ_SYMLINK_HDR: wsgi_quote(self.manifest_relative_path),
         })
         # set the MPU etag override to be forwarded to the user container
         update_etag_override_header(
