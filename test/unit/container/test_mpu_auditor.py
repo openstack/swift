@@ -31,14 +31,14 @@ from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, HTTPOk, HTTPNoContent, HTTPCreated, \
     HTTPNotFound, HTTPAccepted, HTTPServerError
 from swift.common.utils import md5, Timestamp, decode_timestamps, \
-    encode_timestamps
+    encode_timestamps, MD5_OF_EMPTY_STRING
 from swift.container.backend import ContainerBroker
 from swift.container.mpu_auditor import MpuAuditor, \
     extract_upload_prefix, yield_item_batches, BaseMpuAuditor, \
     MpuAuditorConfig
 from swift.container.server import ContainerController
 from test.debug_logger import debug_logger
-from test.unit import make_timestamp_iter, EMPTY_ETAG
+from test.unit import make_timestamp_iter
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -170,7 +170,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         return self._create_item(marker_name,
                                  ts_data,
                                  ctype=MPU_MARKER_CONTENT_TYPE,
-                                 etag=EMPTY_ETAG)
+                                 etag=MD5_OF_EMPTY_STRING)
 
     def _create_session(
             self, ctype, ts_data=None, ts_ctype=None, ts_meta=None):

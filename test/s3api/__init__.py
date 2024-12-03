@@ -150,6 +150,18 @@ def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):
     )
 
 
+def etag_from_resp(response):
+    return response['ETag']
+
+
+def code_from_error(error):
+    return error.response['Error']['Code']
+
+
+def status_from_error(error):
+    return error.response['ResponseMetadata']['HTTPStatusCode']
+
+
 TEST_PREFIX = 's3api-test-'
 
 

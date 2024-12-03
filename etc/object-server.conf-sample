@@ -148,10 +148,11 @@ use = egg:swift#object
 # 'keep_cache_private' is false.
 # keep_cache_slo_manifest = false
 #
-# cooperative_period defines how frequent object server GET request will
+# cooperative_period defines how frequent object server GET/PUT request will
 # perform the cooperative yielding during iterating the disk chunks. For
 # example, value of '5' will insert one sleep() after every 5 disk_chunk_size
-# chunk reads. A value of '0' (the default) will turn off cooperative yielding.
+# chunk reads/writes. A value of '0' (the default) will turn off cooperative
+# yielding.
 # cooperative_period = 0
 #
 # on PUTs, sync data every n MB

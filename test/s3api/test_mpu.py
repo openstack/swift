@@ -14,20 +14,9 @@
 # limitations under the License.
 import time
 
-from test.s3api import BaseS3TestCase, date_to_datetime
+from test.s3api import BaseS3TestCase, status_from_error, code_from_error, \
+    etag_from_resp, date_to_datetime
 from botocore.exceptions import ClientError
-
-
-def etag_from_resp(response):
-    return response['ETag']
-
-
-def code_from_error(error):
-    return error.response['Error']['Code']
-
-
-def status_from_error(error):
-    return error.response['ResponseMetadata']['HTTPStatusCode']
 
 
 class BaseMultiPartUploadTestCase(BaseS3TestCase):
@@ -203,7 +192,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertEqual(200, list_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
         mpus = list_mpu_resp.get('Uploads', [])
-        return [mpu['UploadId'] for mpu in mpus]
+        return [(mpu['Key'], mpu['UploadId']) for mpu in mpus]
 
     def list_parts(self, key_name, upload_id):
         list_parts_resp = self.client.list_parts(
@@ -264,6 +253,13 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             'ResponseMetadata']['HTTPStatusCode'])
         return resp
 
+    def get_part(self, key_name, part_number):
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=key_name,
+                                      PartNumber=part_number)
+        self.assertEqual(206, resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        return resp
+
     def delete_object(self, key_name):
         delete_resp = self.client.delete_object(
             Bucket=self.bucket_name, Key=key_name)
@@ -275,7 +271,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             self.client.head_object(
                 Bucket=self.bucket_name, Key=key_name,
             )
-        self.assertEqual('404', cm.exception.response['Error']['Code'])
+        self.assertEqual(404, status_from_error(cm.exception))
 
     def test_basic_upload(self):
         key_name = self.create_name('key')
@@ -846,10 +842,13 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
         response = self.head_part(key_name, 1)
         self.assertTrue(etag_from_resp(response).endswith('-2"'))
-        self.head_part(key_name, 2)
+        response2 = self.head_part(key_name, 2)
+        self.assertEqual(etag_from_resp(response), etag_from_resp(response2))
+
         with self.assertRaises(ClientError) as cm:
-            self.head_part(key_name, 3)
+            self.get_part(key_name, 3)
         self.assertEqual(416, status_from_error(cm.exception))
+        self.assertEqual('InvalidPartNumber', code_from_error(cm.exception))
 
     def test_create_upload_complete_subset_of_parts_list_with_gaps(self):
         # only a subset of uploaded parts are referenced in complete
@@ -866,10 +865,13 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.head_part(key_name, 1)
         response = self.head_part(key_name, 1)
         self.assertTrue(etag_from_resp(response).endswith('-2"'))
-        self.head_part(key_name, 2)
+        response2 = self.head_part(key_name, 2)
+        self.assertEqual(etag_from_resp(response), etag_from_resp(response2))
+
         with self.assertRaises(ClientError) as cm:
-            self.head_part(key_name, 3)
+            self.get_part(key_name, 3)
         self.assertEqual(416, status_from_error(cm.exception))
+        self.assertEqual('InvalidPartNumber', code_from_error(cm.exception))
 
     def test_create_upload_complete_parts_list_with_gaps(self):
         # only a subset of part indexes are uploaded
@@ -887,10 +889,13 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.head_part(key_name, 1)
         response = self.head_part(key_name, 1)
         self.assertTrue(etag_from_resp(response).endswith('-2"'))
-        self.head_part(key_name, 2)
+        response2 = self.head_part(key_name, 2)
+        self.assertEqual(etag_from_resp(response), etag_from_resp(response2))
+
         with self.assertRaises(ClientError) as cm:
-            self.head_part(key_name, 3)
+            self.get_part(key_name, 3)
         self.assertEqual(416, status_from_error(cm.exception))
+        self.assertEqual('InvalidPartNumber', code_from_error(cm.exception))
 
     def test_create_upload_complete_misordered_parts(self):
         key_name = self.create_name('key')
@@ -906,7 +911,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         upload_id = self.create_mpu(key_name)
         # our upload is in progress
         found_uploads = self.list_mpus()
-        self.assertEqual([upload_id], found_uploads)
+        self.assertEqual([(key_name, upload_id)], found_uploads)
         self.assertEqual([], self.list_parts(key_name, upload_id))
         self.abort_mpu(key_name, upload_id)
         # no more inprogress uploads
