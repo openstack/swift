@@ -68,8 +68,6 @@ import inspect
 from unittest import SkipTest
 
 
-EMPTY_ETAG = md5(usedforsecurity=False).hexdigest()
-
 # try not to import this module from swift
 if not os.path.basename(sys.argv[0]).startswith('swift'):
     # never patch HASH_PATH_SUFFIX AGAIN!

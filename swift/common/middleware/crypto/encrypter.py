@@ -166,7 +166,7 @@ class EncInputWrapper(object):
                 # value, with the crypto parameters appended. We use the
                 # container key here so that only that key is required to
                 # decrypt all etag values in a container listing when handling
-                # a container GET request. Don't encrypt an EMPTY_ETAG
+                # a container GET request. Don't encrypt an MD5_OF_EMPTY_STRING
                 # unless there actually was some body content, in which case
                 # the container-listing etag is possibly conveying some
                 # non-obvious information.

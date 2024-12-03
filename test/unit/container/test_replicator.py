@@ -30,14 +30,14 @@ from swift.container import replicator, backend, server, sync_store
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
 from swift.common.utils import Timestamp, encode_timestamps, ShardRange, \
-    get_db_files, make_db_file_path
+    get_db_files, make_db_file_path, MD5_OF_EMPTY_STRING
 from swift.common.storage_policy import POLICIES
 from test import annotate_failure
 
 from test.debug_logger import debug_logger
 from test.unit.common import test_db_replicator
 from test.unit import patch_policies, make_timestamp_iter, mock_check_drive, \
-    EMPTY_ETAG, attach_fake_replication_rpc, FakeHTTPResponse
+    attach_fake_replication_rpc, FakeHTTPResponse
 from contextlib import contextmanager
 
 
@@ -1603,7 +1603,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker_ranges = broker.get_all_shard_range_data()
         self.assertShardRangesEqual(shard_ranges, broker_ranges)
         broker.put_object('obj', Timestamp.now().internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
         # sharding not yet enabled so replication not deferred
         daemon = check_replicate(broker_ranges, broker, remote_broker)
         self.assertEqual(0, daemon.stats['deferred'])
@@ -1717,7 +1717,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker.initialize(put_time, POLICIES.default.idx)
         # put an object into local broker
         broker.put_object('obj', Timestamp.now().internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
         # get an own shard range into local broker
         broker.enable_sharding(Timestamp.now())
         self.assertFalse(broker.sharding_initiated())
@@ -1798,7 +1798,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker.initialize(put_time, POLICIES.default.idx)
         # put an object into local broker
         broker.put_object('obj', Timestamp.now().internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
 
         replicate_hook = mock.MagicMock()
         fake_repl_connection = attach_fake_replication_rpc(
@@ -1826,7 +1826,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker.enable_sharding(Timestamp.now())
         # put an object into local broker
         broker.put_object('obj', Timestamp.now().internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
 
         replicate_hook = mock.MagicMock()
         fake_repl_connection = attach_fake_replication_rpc(

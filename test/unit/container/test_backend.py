@@ -42,7 +42,8 @@ from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
     TombstoneReclaimer, GreenDBCursor
 from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
-    ShardRange, make_db_file_path, md5, ShardRangeList, Namespace
+    ShardRange, make_db_file_path, md5, ShardRangeList, Namespace, \
+    MD5_OF_EMPTY_STRING
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -50,7 +51,7 @@ import mock
 from test import annotate_failure
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
-                       EMPTY_ETAG, mock_timestamp_now)
+                       mock_timestamp_now)
 from test.unit.common import test_db
 
 
@@ -263,8 +264,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
         # adding an object makes us unreclaimable
         obj = {'name': 'o', 'created_at': next(self.ts).internal,
-               'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
-               'deleted': 0}
+               'size': 0, 'content_type': 'text/plain',
+               'etag': MD5_OF_EMPTY_STRING, 'deleted': 0}
         broker.merge_items([dict(obj)])
         self.assertFalse(broker.is_reclaimable(float(next(self.ts)), 0))
         # ... and "not deleted"
@@ -301,8 +302,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
         def check_object_counted(broker_to_test, broker_with_object):
             obj = {'name': 'o', 'created_at': next(self.ts).internal,
-                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
-                   'deleted': 0}
+                   'size': 0, 'content_type': 'text/plain',
+                   'etag': MD5_OF_EMPTY_STRING, 'deleted': 0}
             broker_with_object.merge_items([dict(obj)])
             self.assertFalse(broker_to_test.is_deleted())
             info, deleted = broker_to_test.get_info_is_deleted()
@@ -317,8 +318,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
         def check_object_not_counted(broker):
             obj = {'name': 'o', 'created_at': next(self.ts).internal,
-                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
-                   'deleted': 0}
+                   'size': 0, 'content_type': 'text/plain',
+                   'etag': MD5_OF_EMPTY_STRING, 'deleted': 0}
             broker.merge_items([dict(obj)])
             self.assertTrue(broker.is_deleted())
             info, deleted = broker.get_info_is_deleted()
@@ -403,8 +404,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
         def check_object_counted(broker_to_test, broker_with_object):
             obj = {'name': 'o', 'created_at': next(self.ts).internal,
-                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
-                   'deleted': 0}
+                   'size': 0, 'content_type': 'text/plain',
+                   'etag': MD5_OF_EMPTY_STRING, 'deleted': 0}
             broker_with_object.merge_items([dict(obj)])
             self.assertFalse(broker_to_test.empty())
             # and delete it
@@ -438,7 +439,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertTrue(broker.empty())
 
         broker.put_object('o', next(self.ts).internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
         own_sr = broker.get_own_shard_range()
         self.assertEqual(0, own_sr.object_count)
         broker.merge_shard_ranges([own_sr])
@@ -508,8 +509,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
         def check_object_counted(broker_to_test, broker_with_object):
             obj = {'name': 'o', 'created_at': next(self.ts).internal,
-                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
-                   'deleted': 0}
+                   'size': 0, 'content_type': 'text/plain',
+                   'etag': MD5_OF_EMPTY_STRING, 'deleted': 0}
             broker_with_object.merge_items([dict(obj)])
             self.assertFalse(broker_to_test.empty())
             # and delete it
@@ -527,7 +528,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertTrue(broker.empty())
 
         broker.put_object('o', next(self.ts).internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
         own_sr = broker.get_own_shard_range()
         self.assertEqual(0, own_sr.object_count)
         broker.merge_shard_ranges([own_sr])
@@ -589,8 +590,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
         def check_object_counted(broker_to_test, broker_with_object):
             obj = {'name': 'o', 'created_at': next(self.ts).internal,
-                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
-                   'deleted': 0}
+                   'size': 0, 'content_type': 'text/plain',
+                   'etag': MD5_OF_EMPTY_STRING, 'deleted': 0}
             broker_with_object.merge_items([dict(obj)])
             self.assertFalse(broker_to_test.empty())
             # and delete it
@@ -609,7 +610,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertTrue(broker.empty())
 
         broker.put_object('o', next(self.ts).internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
         own_sr = broker.get_own_shard_range()
         self.assertEqual(0, own_sr.object_count)
         broker.merge_shard_ranges([own_sr])
@@ -2626,11 +2627,11 @@ class TestContainerBroker(test_db.TestDbBase):
     @with_tempdir
     def test_remove_objects(self, tempdir):
         objects = (('undeleted', Timestamp.now().internal, 0, 'text/plain',
-                    EMPTY_ETAG, 0, 0),
+                    MD5_OF_EMPTY_STRING, 0, 0),
                    ('other_policy', Timestamp.now().internal, 0, 'text/plain',
-                    EMPTY_ETAG, 0, 1),
+                    MD5_OF_EMPTY_STRING, 0, 1),
                    ('deleted', Timestamp.now().internal, 0, 'text/plain',
-                    EMPTY_ETAG, 1, 0))
+                    MD5_OF_EMPTY_STRING, 1, 0))
         object_names = [o[0] for o in objects]
 
         def get_rows(broker):
@@ -2750,12 +2751,12 @@ class TestContainerBroker(test_db.TestDbBase):
         timestamps = [next(self.ts) for o in obj_names]
         for name, timestamp in zip(obj_names, timestamps):
             broker.put_object(name, timestamp.internal,
-                              0, 'text/plain', EMPTY_ETAG)
+                              0, 'text/plain', MD5_OF_EMPTY_STRING)
             broker._commit_puts()  # ensure predictable row order
         timestamps = [next(self.ts) for o in obj_names[10:]]
         for name, timestamp in zip(obj_names[10:], timestamps):
             broker.put_object(name, timestamp.internal,
-                              0, 'text/plain', EMPTY_ETAG, deleted=1)
+                              0, 'text/plain', MD5_OF_EMPTY_STRING, deleted=1)
             broker._commit_puts()  # ensure predictable row order
 
         # sanity check
@@ -3101,7 +3102,7 @@ class TestContainerBroker(test_db.TestDbBase):
         obj_create_params = {
             'size': 0,
             'content_type': 'application/test',
-            'etag': EMPTY_ETAG,
+            'etag': MD5_OF_EMPTY_STRING,
         }
         failures = []
         for expected in expectations:
@@ -3608,7 +3609,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.initialize(next(ts).internal, 1)
 
         broker.put_object('b', next(ts).internal, 0, 'text/plain',
-                          EMPTY_ETAG)
+                          MD5_OF_EMPTY_STRING)
 
         with mock.patch('swift.container.backend.tpool') as mock_tpool:
             broker.get_info()
