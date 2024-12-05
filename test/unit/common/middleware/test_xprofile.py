@@ -184,6 +184,25 @@ class TestProfileMiddleware(unittest.TestCase):
         new_profiler = self.app.profiler
         self.assertTrue(old_profiler != new_profiler)
 
+    def test_int_values(self):
+        for body in (
+            b"limit=os.system",
+            b"fulldirs=boom",
+        ):
+            environ = {'HTTP_HOST': 'localhost:8080',
+                       'PATH_INFO': '/__profile__',
+                       'REQUEST_METHOD': 'POST',
+                       'wsgi.input': BytesIO(body)}
+            resp = self.app(environ, self.start_response)
+            self.assertEqual(
+                self.got_statuses, ['500 Internal Server Error'], resp)
+            self.assertTrue(
+                resp.startswith(
+                    "Error on render profiling results: invalid literal "
+                    "for int() with base 10: "
+                ),
+                resp)
+
 
 class Test_profile_log(unittest.TestCase):
 
