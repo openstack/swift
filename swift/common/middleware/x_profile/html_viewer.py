@@ -246,7 +246,7 @@ class HTMLViewer(object):
         if multiple:
             return value
         if isinstance(value, list):
-            return eval(value[0]) if isinstance(default, int) else value[0]
+            return int(value[0]) if isinstance(default, int) else value[0]
         else:
             return value
 
