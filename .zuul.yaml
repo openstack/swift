@@ -447,37 +447,37 @@
     name: swift-multinode-rolling-upgrade-wallaby
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/wallaby
+      previous_swift_version: wallaby-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-xena
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/xena
+      previous_swift_version: xena-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-yoga
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/unmaintained/yoga
+      previous_swift_version: yoga-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-zed
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/zed
+      previous_swift_version: zed-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-antelope
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2023.1
+      previous_swift_version: 2023.1-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-bobcat
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2023.2
+      previous_swift_version: 2023.2-eol
 
 - job:
     name: swift-multinode-rolling-upgrade-master
