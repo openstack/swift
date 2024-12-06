@@ -16,6 +16,11 @@
 """
 Profiling middleware for Swift Servers.
 
+.. note::
+    This middleware is intended for development and testing environments only,
+    not production. No authentication is expected or required for the web UI,
+    and profiling may incur noticeable performance penalties.
+
 The current implementation is based on eventlet aware profiler.(For the
 future, more profilers could be added in to collect more data for analysis.)
 Profiling all incoming requests and accumulating cpu timing statistics

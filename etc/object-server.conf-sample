@@ -716,10 +716,11 @@ use = egg:swift#backend_ratelimit
 # N.B. By default no delay_reaping value is configured for any accounts or
 # containers.
 
+# Note: Put it at the beginning of the pipleline to profile all middleware. But
+# it is safer to put this after healthcheck. Not intended for production
+# environments!
 [filter:xprofile]
 use = egg:swift#xprofile
-# Note: Put it at the beginning of the pipleline to profile all middleware. But
-# it is safer to put this after healthcheck.
 # This option enable you to switch profilers which should inherit from python
 # standard profiler. Currently the supported value can be 'cProfile',
 # 'eventlet.green.profile' etc.
