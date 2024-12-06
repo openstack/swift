@@ -14,17 +14,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import shutil
+import time
+import uuid
+
+from datetime import datetime
 from io import BytesIO
 from unittest import main, SkipTest
 from uuid import uuid4
 import random
 
+import mock
+
 from swiftclient import client
 from swiftclient.exceptions import ClientException
 
-from swift.common import direct_client
-from swift.common.manager import Manager
+from six.moves.configparser import ConfigParser
+from swift.common import direct_client, manager
+from swift.common.manager import Manager, Server
 from swift.common.swob import normalize_etag
+from swift.common.utils import readconf
 from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server, ECProbeTest
 
@@ -334,23 +344,28 @@ class TestUpdateOverridesEC(ECProbeTest):
         self.assertEqual('test/ctype', listing[0]['content_type'])
 
 
-class TestObjectUpdaterStats(ReplProbeTest):
+class UpdaterStatsMixIn(object):
 
     def setUp(self):
-        super(TestObjectUpdaterStats, self).setUp()
+        super(UpdaterStatsMixIn, self).setUp()
         self.int_client = self.make_internal_client()
         self.container_servers = Manager(['container-server'])
+        self.object_updater = Manager(['object-updater'])
+        self._post_setup_config()
 
-    def test_lots_of_asyncs(self):
+    def _post_setup_config(self):
+        pass
+
+    def _create_lots_of_asyncs(self):
         # Create some (acct, cont) pairs
         num_accounts = 3
         num_conts_per_a = 4
-        ac_pairs = []
+        self.ac_pairs = ac_pairs = []
         for a in range(num_accounts):
-            acct = 'AUTH_user%03d' % a
+            acct = 'AUTH_user-%s-%03d' % (uuid.uuid4(), a)
             self.int_client.create_account(acct)
             for c in range(num_conts_per_a):
-                cont = 'cont%03d' % c
+                cont = 'cont-%s-%03d' % (uuid.uuid4(), c)
                 self.int_client.create_container(acct, cont)
                 ac_pairs.append((acct, cont))
 
@@ -359,10 +374,10 @@ class TestObjectUpdaterStats(ReplProbeTest):
             self.container_servers.stop(number=n)
 
         # Create a bunch of objects
-        num_objs_per_ac = 5
+        num_objs_per_ac = 10
         for acct, cont in ac_pairs:
             for o in range(num_objs_per_ac):
-                obj = 'obj%03d' % o
+                obj = 'obj-%s-%03d' % (uuid.uuid4(), o)
                 self.int_client.upload_object(BytesIO(b''), acct, cont, obj)
 
         all_asyncs = self.gather_async_pendings()
@@ -371,22 +386,57 @@ class TestObjectUpdaterStats(ReplProbeTest):
         self.assertGreater(len(all_asyncs), total_objs)
         self.assertLess(len(all_asyncs), total_objs * 2)
 
-        # Run the updater and check stats
-        Manager(['object-updater']).once()
-        recons = []
+    def _gather_recon(self):
+        # We'll collect recon only once from each node
+        dev_to_node_dict = {}
         for onode in self.object_ring.devs:
-            recon = direct_client.direct_get_recon(onode, 'updater/object')
-            recons.append(recon)
+            # We can skip any devices that are already covered by one of the
+            # other nodes we found
+            if any(self.is_local_to(node, onode)
+                    for node in dev_to_node_dict.values()):
+                continue
+            dev_to_node_dict[onode["device"]] = onode
+        self.assertEqual(4, len(dev_to_node_dict))  # sanity
 
-        self.assertEqual(4, len(recons))
-        found_counts = []
+        timeout = 20
+        polling_interval = 2
+        recon_data = []
+        start = time.time()
+        while True:
+            for onode in list(dev_to_node_dict.values()):
+                recon = direct_client.direct_get_recon(
+                    onode, 'updater/object')
+                if (recon.get('object_updater_stats') is not None and
+                        recon.get('object_updater_sweep') is not None):
+                    del dev_to_node_dict[onode["device"]]
+                    recon_data.append(recon)
+            if not dev_to_node_dict:
+                break
+            elapsed = time.time() - start
+            if elapsed > timeout:
+                self.fail(
+                    "Updates did not process within {timeout} seconds".format(
+                        timeout=timeout)
+                )
+            time.sleep(polling_interval)
+        self.assertEqual(4, len(recon_data))  # sanity
+        return recon_data
+
+    def run_updater(self):
+        raise NotImplementedError()
+
+    def _check_recon_data(self, recon_data):
+        ac_pairs = self.ac_pairs
         ac_set = set()
-        for recon in recons:
+        for recon in recon_data:
             updater_stats = recon['object_updater_stats']
 
-            found_counts.append(
-                updater_stats['failures_account_container_count']
-            )
+            found_count = updater_stats['failures_account_container_count']
+            # No node should find MORE unique ac than we created
+            self.assertLessEqual(found_count, len(ac_pairs))
+            # and generally we'd expect them to have "at least" one from
+            # significanly MORE than the "majority" of ac_pairs
+            self.assertGreaterEqual(found_count, len(ac_pairs) / 2)
 
             oldest_count = updater_stats[
                 'failures_oldest_timestamp_account_containers'
@@ -403,14 +453,76 @@ class TestObjectUpdaterStats(ReplProbeTest):
                 container = entry['container']
                 timestamp = entry['timestamp']
                 self.assertIsNotNone(timestamp)
-                self.assertIsInstance(timestamp, float)
                 ac_set.add((account, container))
 
+        # All the collected ac_set are from the ac_pairs we created
         for ac in ac_set:
             self.assertIn(ac, set(ac_pairs))
+        # Specifically, the ac_pairs we created failures for *first*
+        # are represented by the oldest ac_set across nodes
+        for ac in ac_pairs[:5]:
+            self.assertIn(ac, ac_set)
+        # Where as the more recent failures are NOT!
+        for ac in ac_pairs[-3:]:
+            self.assertNotIn(ac, ac_set)
 
-        for found_count in found_counts:
-            self.assertLessEqual(found_count, len(ac_pairs))
+    def test_stats(self):
+        self._create_lots_of_asyncs()
+        recon_data = self.run_updater()
+        self._check_recon_data(recon_data)
+
+
+class TestObjectUpdaterStatsRunOnce(UpdaterStatsMixIn, ReplProbeTest):
+
+    def run_updater(self):
+        # Run the updater and check stats
+        Manager(['object-updater']).once()
+        return self._gather_recon()
+
+
+class TestObjectUpdaterStatsRunForever(UpdaterStatsMixIn, ECProbeTest):
+
+    def _post_setup_config(self):
+        CONF_SECTION = 'object-updater'
+        self.conf_dest = os.path.join(
+            '/tmp/',
+            datetime.now().strftime('swift-%Y-%m-%d_%H-%M-%S-%f')
+        )
+        os.mkdir(self.conf_dest)
+        object_server_dir = os.path.join(self.conf_dest, 'object-server')
+        os.mkdir(object_server_dir)
+        for conf_file in Server('object-updater').conf_files():
+            config = readconf(conf_file)
+            if CONF_SECTION not in config:
+                continue  # Ensure the object-updater is set up to run
+            config[CONF_SECTION].update({'interval': '1'})
+
+            parser = ConfigParser()
+            parser.add_section(CONF_SECTION)
+            for option, value in config[CONF_SECTION].items():
+                parser.set(CONF_SECTION, option, value)
+
+            file_name = os.path.basename(conf_file)
+            if file_name.endswith('.d'):
+                # Work around conf.d setups (like you might see with VSAIO)
+                file_name = file_name[:-2]
+            with open(os.path.join(object_server_dir, file_name), 'w') as fp:
+                parser.write(fp)
+
+    def tearDown(self):
+        shutil.rmtree(self.conf_dest)
+
+    def run_updater(self):
+        # Start the updater
+        with mock.patch.object(manager, 'SWIFT_DIR', self.conf_dest):
+            updater_status = self.object_updater.start()
+        self.assertEqual(
+            updater_status, 0, "Object updater failed to start")
+        recon_data = self._gather_recon()
+        # Stop the updater
+        stop_status = self.object_updater.stop()
+        self.assertEqual(stop_status, 0, "Object updater failed to stop")
+        return recon_data
 
 
 if __name__ == '__main__':
