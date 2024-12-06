@@ -487,13 +487,13 @@
     name: swift-multinode-rolling-upgrade-antelope
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2023.1
+      previous_swift_version: 2023.1-eom
 
 - job:
     name: swift-multinode-rolling-upgrade-bobcat
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2023.2
+      previous_swift_version: 2023.2-eol
 
 - job:
     name: swift-multinode-rolling-upgrade-caracal
