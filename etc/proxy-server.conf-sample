@@ -1158,6 +1158,7 @@ use = egg:swift#container_sync
 
 # Note: Put it at the beginning of the pipeline to profile all middleware. But
 # it is safer to put this after catch_errors, gatekeeper and healthcheck.
+# Not intended for production environments!
 [filter:xprofile]
 use = egg:swift#xprofile
 # This option enable you to switch profilers which should inherit from python
