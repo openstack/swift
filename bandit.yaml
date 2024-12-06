@@ -79,10 +79,28 @@
 # B703 : django_mark_safe
 
 # (optional) list included test IDs here, eg '[B101, B406]':
-tests: [B102, B103, B302, B303, B304, B305, B306, B307, B308, B310, B401, B501, B502, B506, B601, B602, B609]
+tests:
 
 # (optional) list skipped test IDs here, eg '[B101, B406]':
 skips:
+  # We default to binding to all interfaces
+  - B104
+  # Yes, we sometimes catch just to quietly swallow an exception
+  - B110
+  # We use insecure randomness all over the place, because
+  # it's exceedingly rare that we need secure randomness
+  - B311
+  # We dynamically build SQL all over the place
+  - B608
+  # We often use subprocesses, and require a lot of trust in our use of them
+  - B404
+  - B603
+  - B607
+  # We parse xml
+  - B320
+  - B405
+  - B410
+  - B603
 
 ### (optional) plugin settings - some test plugins require configuration data
 ### that may be given here, per-plugin. All bandit test plugins have a built in

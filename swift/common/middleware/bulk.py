@@ -197,7 +197,7 @@ payload sent to the proxy (the list of objects/containers to be deleted).
 import json
 import six
 import tarfile
-from xml.sax import saxutils
+from xml.sax.saxutils import escape  # nosec B406
 from time import time
 from eventlet import sleep
 import zlib
@@ -247,14 +247,14 @@ def get_response_body(data_format, data_dict, error_list, root_tag):
             xml_key = key.replace(' ', '_').lower()
             output.extend([
                 '<', xml_key, '>',
-                saxutils.escape(str(data_dict[key])),
+                escape(str(data_dict[key])),
                 '</', xml_key, '>\n',
             ])
         output.append('<errors>\n')
         for name, status in error_list:
             output.extend([
-                '<object><name>', saxutils.escape(name), '</name><status>',
-                saxutils.escape(status), '</status></object>\n',
+                '<object><name>', escape(name), '</name><status>',
+                escape(status), '</status></object>\n',
             ])
         output.extend(['</errors>\n</', root_tag, '>\n'])
         if six.PY2:

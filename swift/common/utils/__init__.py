@@ -2854,7 +2854,7 @@ def friendly_close(resp):
     return drain_and_close(resp, read_limit=DEFAULT_DRAIN_LIMIT)
 
 
-_rfc_token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'
+_rfc_token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'  # nosec B105
 _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
     r'|"(?:[^"\\]|\\.)*"))?)')
