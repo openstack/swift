@@ -694,6 +694,77 @@ class TestObjectUpdater(unittest.TestCase):
                 (('updater.timing.status.201', mock.ANY), {}),
             ]))
 
+    @mock.patch('swift.obj.updater.dump_recon_cache')
+    @mock.patch.object(object_updater, 'check_drive')
+    def test_run_once_recon_dump(self, mock_check_drive, mock_dump_recon):
+        self.maxDiff = None
+
+        def assert_and_reset_recon_dump(exp):
+            recon_dumps = [call[0][0]
+                           for call in mock_dump_recon.call_args_list]
+            self.assertEqual([exp], recon_dumps)
+            mock_dump_recon.reset_mock()
+
+        mock_check_drive.side_effect = lambda r, d, mc: os.path.join(r, d)
+        async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
+        os.mkdir(async_dir)
+
+        ou = object_updater.ObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'TrUe',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15'}, logger=self.logger)
+        with mock.patch.object(ou, 'object_update',
+                               return_value=(False, 'node-id', None)):
+            ou.run_once()
+        exp_recon_dump = {
+            'object_updater_stats': {
+                'failures_account_container_count': 0,
+                'failures_oldest_timestamp': None,
+                'failures_oldest_timestamp_account_containers': {
+                    'oldest_count': 0,
+                    'oldest_entries': []},
+                'failures_oldest_timestamp_age': None,
+                'tracker_memory_usage': mock.ANY},
+            'object_updater_sweep': mock.ANY,
+        }
+        assert_and_reset_recon_dump(exp_recon_dump)
+
+        ts = next(self.ts_iter)
+        ohash = hash_path('a', 'c', 'o')
+        odir = os.path.join(async_dir, ohash[-3:])
+        mkdirs(odir)
+        op_path = os.path.join(odir, '%s-%s' % (ohash, ts.internal))
+        with open(op_path, 'wb') as async_pending:
+            pickle.dump({'op': 'PUT', 'account': 'a',
+                         'container': 'c',
+                         'obj': 'o', 'headers': {
+                             'X-Container-Timestamp':
+                             normalize_timestamp(0)}},
+                        async_pending)
+        now = float(next(self.ts_iter))
+        with mock.patch('swift.obj.updater.time.time', return_value=now):
+            with mock.patch.object(ou, 'object_update',
+                                   return_value=(False, 'node-id', None)):
+                ou.run_once()
+        exp_recon_dump = {
+            'object_updater_stats': {
+                'failures_account_container_count': 1,
+                'failures_oldest_timestamp': float(ts),
+                'failures_oldest_timestamp_account_containers': {
+                    'oldest_count': 1,
+                    'oldest_entries': [{'account': 'a',
+                                        'container': 'c',
+                                        'timestamp': float(ts)}]
+                },
+                'failures_oldest_timestamp_age': now - float(ts),
+                'tracker_memory_usage': mock.ANY},
+            'object_updater_sweep': mock.ANY,
+        }
+        assert_and_reset_recon_dump(exp_recon_dump)
+
     def test_obj_put_legacy_updates(self):
         ts = (normalize_timestamp(t) for t in
               itertools.count(int(time())))
