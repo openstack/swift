@@ -41,18 +41,17 @@ from gzip import GzipFile
 import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool
-from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status, \
-    EUCLEAN
+from swift.obj.diskfile import update_auditor_status, EUCLEAN
 from test import BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
-                       patch_policies, EMPTY_ETAG, make_timestamp_iter,
+                       patch_policies, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE, requires_o_tmpfile_support_in_tmp,
                        encode_frag_archive_bodies, skip_if_no_xattrs)
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, Timestamp, \
-    encode_timestamps, O_TMPFILE, md5 as _md5
+    encode_timestamps, O_TMPFILE, md5 as _md5, MD5_OF_EMPTY_STRING
 from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
@@ -6414,7 +6413,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             meta = {'X-Object-Sysmeta-Ec-Frag-Index': bad_value,
                     'X-Timestamp': ts.internal,
                     'Content-Length': 0,
-                    'Etag': EMPTY_ETAG,
+                    'Etag': MD5_OF_EMPTY_STRING,
                     'Content-Type': 'plain/text'}
             with df.create() as writer:
                 try:
@@ -6431,7 +6430,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             meta = {'X-Object-Sysmeta-Ec-Frag-Index': bad_value,
                     'X-Timestamp': ts.internal,
                     'Content-Length': 0,
-                    'Etag': EMPTY_ETAG,
+                    'Etag': MD5_OF_EMPTY_STRING,
                     'Content-Type': 'plain/text'}
             with df.create() as writer:
                 try:
