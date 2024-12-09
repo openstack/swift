@@ -1106,8 +1106,8 @@ class TestReconCommands(unittest.TestCase):
         cli.sharding_check([('127.0.0.1', 6011), ('127.0.0.1', 6021)])
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @ mock.patch('six.moves.builtins.print')
-    @ mock.patch('time.time')
+    @mock.patch('six.moves.builtins.print')
+    @mock.patch('time.time')
     def test_reconstruction_check(self, mock_now, mock_print):
         now = 1430000000.0
 
