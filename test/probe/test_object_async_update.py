@@ -403,6 +403,7 @@ class TestObjectUpdaterStats(ReplProbeTest):
                 container = entry['container']
                 timestamp = entry['timestamp']
                 self.assertIsNotNone(timestamp)
+                self.assertIsInstance(timestamp, float)
                 ac_set.add((account, container))
 
         for ac in ac_set:
