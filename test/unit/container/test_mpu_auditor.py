@@ -50,6 +50,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.tempdir = mkdtemp()
         self.ts_iter = make_timestamp_iter()
         self.logger = debug_logger('mpu-auditor-test')
+        self.fake_statsd_client = self.logger.logger.statsd_client
         self.account = 'a'
         self.obj_name = 'obj'
         self.obj_path = '/v1/%s/%s/%s' % (self.account,
@@ -253,6 +254,40 @@ class TestModuleFunctions(BaseTestMpuAuditor):
 class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
     # test abstract auditor behavior not specific to the type of resource
     # being audited
+    def test_audit_stats(self):
+        items = [self._create_item('obj/%s' % i, next(self.ts_iter))
+                 for i in range(2)]
+        self.put_objects(items)
+        marker = dict(items[0],
+                      created_at=next(self.ts_iter).internal,
+                      name=items[0]['name'] + '/marker-deleted',
+                      content_type='application/x-mpu-marker')
+        self.put_objects([marker])
+        self.assertEqual(3, self.broker.get_max_row())  # sanity check
+        calls = []
+
+        def mock_audit_item(auditor, item, upload):
+            calls.append(item)
+            if item.name == items[1]['name']:
+                raise ValueError('kaboom')
+            return False
+
+        fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
+        auditor = BaseMpuAuditor(
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
+        with mock.patch(
+                'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
+                mock_audit_item):
+            auditor.audit()
+        exp_stats = {'processed': 3, 'audited': 1, 'skipped': 1, 'errors': 1}
+        log_lines = auditor.logger.get_lines_for_level('info')
+        self.assertEqual(1, len(log_lines), log_lines)
+        self.assertIn('processed=3, audited=1, skipped=1, errors=1',
+                      log_lines[0])
+        exp_metrics = dict(('base.%s' % k, v) for k, v in exp_stats.items())
+        self.assertEqual(exp_metrics,
+                         self.fake_statsd_client.get_increment_counts())
+
     def test_audit_stops_at_max_row_other_items_merged(self):
         items = [self._create_item(i, next(self.ts_iter))
                  for i in range(10)]
@@ -271,7 +306,7 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker, 'items')
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -299,7 +334,7 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker, 'items')
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -336,7 +371,7 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker, 'items')
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -391,7 +426,7 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
         self.assertEqual(2, self.broker.get_max_row())  # sanity check
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker, 'items')
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):

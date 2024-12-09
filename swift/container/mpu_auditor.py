@@ -15,6 +15,7 @@
 import functools
 import json
 import time
+from collections import defaultdict
 
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
@@ -124,14 +125,22 @@ class MpuAuditorConfig(object):
 
 
 class BaseMpuAuditor(object):
-    def __init__(self, config, client, logger, broker, resource_type):
+    resource_type = 'base'
+
+    def __init__(self, config, client, logger, broker):
         self.config = config
         self.client = client
         self.logger = logger
+        self.statsd_client = logger.logger.statsd_client
+        self.stats = defaultdict(int)
         self.broker = broker
         self.uploads_already_checked = {}
         self.keep = {}
-        self.resource_type = resource_type
+
+    def _dump_stats(self):
+        return ', '.join(
+            ['%s=%s' % (key, self.stats[key])
+             for key in ('processed', 'audited', 'skipped', 'errors')])
 
     def log(self, log_func, msg):
         data = {
@@ -149,9 +158,17 @@ class BaseMpuAuditor(object):
         msg = fmt % args
         self.log(self.logger.warning, msg)
 
+    def info(self, fmt, *args):
+        msg = fmt % args
+        self.log(self.logger.info, msg)
+
     def debug(self, fmt, *args):
         msg = fmt % args
         self.log(self.logger.debug, msg)
+
+    def increment(self, key):
+        self.stats[key] += 1
+        self.statsd_client.increment('%s.%s' % (self.resource_type, key))
 
     def _bump_item(self, item):
         # bump the item's *meta_timestamp* and merge to db so that the item is
@@ -175,13 +192,12 @@ class BaseMpuAuditor(object):
         context = MpuAuditorContext.load(self.broker)
         self.debug('auditing from row %s to row %s' %
                    (context.last_audit_row, max_row))
-        num_audited = num_processed = num_errors = num_skipped = 0
         for batch in yield_item_batches(self.broker,
                                         context.last_audit_row,
                                         self.config.max_batches,
                                         self.config.batch_size):
             for item_dict in batch:
-                num_processed += 1
+                self.increment('processed')
                 try:
                     item = MPUItem.from_db_record(item_dict)
                     self.debug('auditing %s %s',
@@ -189,15 +205,15 @@ class BaseMpuAuditor(object):
                     if not item.deleted:
                         upload = extract_upload_prefix(item.name)
                         if upload in self.uploads_already_checked:
-                            num_skipped += 1
+                            self.increment('skipped')
                         else:
                             self._audit_item(item, upload)
                             self.uploads_already_checked[upload] = True
-                            num_audited += 1
+                            self.increment('audited')
                 except Exception as err:  # noqa
                     self.exception('Error while auditing %s: %s',
                                    item_dict['name'], str(err))
-                    num_errors += 1
+                    self.increment('errors')
                     # TODO: hmmm, should we revisit?
                 row_id = item_dict['ROWID']
                 context.last_audit_row = row_id
@@ -207,16 +223,11 @@ class BaseMpuAuditor(object):
                 continue
             break
         context.store(self.broker)
-        self.debug('processed: %d, audited: %d, skipped: %d, errors: %d)',
-                   num_processed, num_audited, num_skipped, num_errors)
+        self.info('%s', self._dump_stats())
         return None
 
 
 class BaseMpuMarkerAuditor(BaseMpuAuditor):
-    def __init__(self, conf, client, logger, broker, resource_type):
-        super(BaseMpuMarkerAuditor, self).__init__(
-            conf, client, logger, broker, resource_type)
-
     def _get_items_with_prefix(self, prefix, limit, include_deleted=False):
         # get results as dicts...
         # TODO: broker.get_objects doesn't support prefix so working around...
@@ -308,9 +319,7 @@ class BaseMpuMarkerAuditor(BaseMpuAuditor):
 
 
 class MpuManifestMarkerAuditor(BaseMpuMarkerAuditor):
-    def __init__(self, conf, client, logger, broker):
-        super(MpuManifestMarkerAuditor, self).__init__(
-            conf, client, logger, broker, 'manifest')
+    resource_type = 'manifest'
 
     def _put_parts_marker(self, upload):
         # TODO: share some common helper functions with middleware
@@ -335,9 +344,7 @@ class MpuManifestMarkerAuditor(BaseMpuMarkerAuditor):
 
 
 class MpuPartMarkerAuditor(BaseMpuMarkerAuditor):
-    def __init__(self, conf, client, logger, broker):
-        super(MpuPartMarkerAuditor, self).__init__(
-            conf, client, logger, broker, 'part')
+    resource_type = 'part'
 
     def _find_orphans(self, marker, upload):
         # TODO: prefix query may scoop up some alien objects??
@@ -365,10 +372,11 @@ class MpuPartMarkerAuditor(BaseMpuMarkerAuditor):
 
 
 class MpuSessionAuditor(BaseMpuAuditor):
+    resource_type = 'session'
 
     def __init__(self, conf, client, logger, broker):
         super(MpuSessionAuditor, self).__init__(
-            conf, client, logger, broker, 'session')
+            conf, client, logger, broker)
         # TODO: move these attributes to super-class, but that will require
         #   superclass to only deal with reserved namespace containers
         self.user_container = split_reserved_name(self.broker.container)[1]
