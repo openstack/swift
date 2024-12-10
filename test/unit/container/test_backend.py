@@ -7198,7 +7198,12 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
 
     def test_in_order_expirer_bytes_ctype(self):
         broker = self._get_broker()
-
+        # The ctype timestamp can be older than the row's data timestamp. For
+        # example, this may be the case with an expirer queue update arising
+        # from an object's x-delete-at being modified by a POST; the data
+        # timestamp is the time at which x-delete-at was modified by the POST;
+        # the content-type holds the object's size so the ctype timestamp is
+        # the time at which the expiring object was originally PUT.
         put1_ts = next(self.ts)
         put2_ts = next(self.ts)
         post_ts = next(self.ts)
