@@ -138,7 +138,7 @@ from swift.common.utils import streq_const_time, parse_content_disposition, \
     parse_mime_headers, iter_multipart_mime_documents, reiterate, \
     closing_if_possible, get_logger
 from swift.common.registry import register_swift_info
-from swift.common.wsgi import make_pre_authed_env
+from swift.common.wsgi import WSGIContext, make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized, wsgi_to_str, str_to_wsgi
 from swift.common.http import is_success
 from swift.proxy.controllers.base import get_account_info, get_container_info
@@ -438,25 +438,14 @@ class FormPost(object):
         if not has_valid_sig:
             raise FormUnauthorized('invalid signature')
         self.logger.increment('formpost.digests.%s' % hash_name)
-
-        substatus = [None]
-        subheaders = [None]
-
+        wsgi_ctx = WSGIContext(self.app)
         wsgi_input = subenv['wsgi.input']
-
-        def _start_response(status, headers, exc_info=None):
-            if wsgi_input.file_size_exceeded:
-                raise EOFError("max_file_size exceeded")
-
-            substatus[0] = status
-            subheaders[0] = headers
-
-        # reiterate to ensure the response started,
-        # but drop any data on the floor
-        resp = self.app(subenv, _start_response)
+        resp = wsgi_ctx._app_call(subenv)
+        if wsgi_input.file_size_exceeded:
+            raise EOFError("max_file_size exceeded")
         with closing_if_possible(reiterate(resp)):
             body = b''.join(resp)
-        return substatus[0], subheaders[0], body
+        return wsgi_ctx._response_status, wsgi_ctx._response_headers, body
 
     def _get_keys(self, env):
         """
