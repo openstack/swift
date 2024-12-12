@@ -187,7 +187,8 @@ def _in_process_setup_swift_conf(swift_conf_src, testdir):
         conf.set(section, 'swift_hash_path_suffix', 'inprocfunctests')
         conf.set(section, 'swift_hash_path_prefix', 'inprocfunctests')
         section = 'swift-constraints'
-        max_file_size = (8 * 1024 * 1024) + 2  # 8 MB + 2
+        # 10 MB + 2 is sufficient for a 2 min_part_size MPU parts
+        max_file_size = (10 * 1024 * 1024) + 2
         conf.set(section, 'max_file_size', str(max_file_size))
 
     return test_conf_file

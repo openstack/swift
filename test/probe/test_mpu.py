@@ -447,7 +447,7 @@ class TestNativeMPU(BaseTestNativeMPU):
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
         self.assertEqual(
             [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
-              'hash': part_etag,
+              'hash': mock.ANY,  # might be encrypted
               'bytes': part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY}],
@@ -567,7 +567,7 @@ class TestNativeMPU(BaseTestNativeMPU):
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
         self.assertEqual(
             [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
-              'hash': part_etag,
+              'hash': mock.ANY,  # might be encrypted
               'bytes': part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY}],
@@ -657,7 +657,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         # check we still have the parts via internal client
         exp_parts_internal = [
             {'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
-             'hash': part_etag,
+             'hash': mock.ANY,  # might be encrypted
              'bytes': part_size,
              'content_type': 'application/octet-stream',
              'last_modified': mock.ANY}
