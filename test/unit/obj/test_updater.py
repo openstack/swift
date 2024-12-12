@@ -921,9 +921,12 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'}, logger=self.logger)
         # There are no asyncs so there are no failures
-        with mock.patch.object(ou, 'object_update',
-                               return_value=(False, 'node-id', None)):
-            ou._process_device_in_child(self.sda1, 'sda1')
+        ts = next(self.ts_iter)
+        now = float(next(self.ts_iter))
+        with mock.patch('swift.obj.updater.time.time', return_value=now):
+            with mock.patch.object(ou, 'object_update',
+                                   return_value=(False, 'node-id', None)):
+                ou._process_device_in_child(self.sda1, 'sda1')
         exp_recon_dump = {
             'object_updater_per_device': {
                 'sda1': {
@@ -940,7 +943,6 @@ class TestObjectUpdater(unittest.TestCase):
         }
         assert_and_reset_recon_dump_per_device(exp_recon_dump)
 
-        ts = next(self.ts_iter)
         ohash = hash_path('a', 'c', 'o')
         odir = os.path.join(async_dir, ohash[-3:])
         mkdirs(odir)
@@ -952,7 +954,6 @@ class TestObjectUpdater(unittest.TestCase):
                              'X-Container-Timestamp':
                              normalize_timestamp(0)}},
                         async_pending)
-        now = float(next(self.ts_iter))
         with mock.patch('swift.obj.updater.time.time', return_value=now):
             with mock.patch.object(ou, 'object_update',
                                    return_value=(False, 'node-id', None)):
@@ -1052,8 +1053,8 @@ class TestObjectUpdater(unittest.TestCase):
             }
         }
         utils.dump_recon_cache(incomplete_recon, ou.rcache, ou.logger)
-
-        ou.aggregate_and_dump_recon(['sda1', 'sda2', 'sda3'], 30)
+        now = float(next(self.ts_iter))
+        ou.aggregate_and_dump_recon(['sda1', 'sda2', 'sda3'], 30, now)
 
         with open(recon_file) as f:
             found_data = json.load(f)
@@ -1072,6 +1073,7 @@ class TestObjectUpdater(unittest.TestCase):
         expected_recon = {
             'object_updater_sweep': 30,
             'object_updater_stats': expected_aggregated_stats,
+            'object_updater_last': now,
         }
         self.assertEqual(expected_recon, found_data)
 
@@ -1098,8 +1100,8 @@ class TestObjectUpdater(unittest.TestCase):
             }
         }
         utils.dump_recon_cache(empty_recon, ou.rcache, ou.logger)
-
-        ou.aggregate_and_dump_recon(['sda1', 'sda2'], 30)
+        now = float(next(self.ts_iter))
+        ou.aggregate_and_dump_recon(['sda1', 'sda2'], 30, now)
 
         with open(recon_file) as f:
             found_data = json.load(f)
@@ -1118,6 +1120,7 @@ class TestObjectUpdater(unittest.TestCase):
         expected_recon = {
             'object_updater_sweep': 30,
             'object_updater_stats': expected_aggregated_stats,
+            'object_updater_last': now
         }
         self.assertEqual(expected_recon, found_data)
 
@@ -1143,7 +1146,8 @@ class TestObjectUpdater(unittest.TestCase):
         utils.dump_recon_cache(malformed_recon, ou.rcache, ou.logger)
 
         with self.assertRaises(TypeError) as cm:
-            ou.aggregate_and_dump_recon(['sda1', 'sda2'], 30)
+            now = float(next(self.ts_iter))
+            ou.aggregate_and_dump_recon(['sda1', 'sda2'], 30, now)
 
         self.assertIn(
             'object_updater_per_device must be a dict', str(cm.exception))
@@ -1178,8 +1182,8 @@ class TestObjectUpdater(unittest.TestCase):
             }
         }
         utils.dump_recon_cache(existing_recon, ou.rcache, ou.logger)
-
-        ou.aggregate_and_dump_recon(['sda1'], 30)
+        now = float(next(self.ts_iter))
+        ou.aggregate_and_dump_recon(['sda1'], 30, now)
 
         with open(recon_file) as f:
             found_data = json.load(f)
@@ -1204,6 +1208,7 @@ class TestObjectUpdater(unittest.TestCase):
             },
             'object_updater_sweep': 30,
             'object_updater_stats': expected_aggregated_stats,
+            'object_updater_last': now,
         }
         self.assertEqual(expected_recon, found_data)
 
@@ -1369,7 +1374,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(existing_recon, found_data)  # sanity
 
         # we're setting this up like sdx is stale/unmounted
-        ou.aggregate_and_dump_recon(['sda1', 'sda2', 'sda3'], 30)
+        now = float(next(self.ts_iter))
+        ou.aggregate_and_dump_recon(['sda1', 'sda2', 'sda3'], 30, now)
         with open(recon_file) as f:
             found_data = json.load(f)
 
@@ -1389,6 +1395,7 @@ class TestObjectUpdater(unittest.TestCase):
         expected_recon = dict(existing_recon, **{
             'object_updater_sweep': 30,
             'object_updater_stats': expected_aggregated_stats,
+            'object_updater_last': now,
         })
         # and sda4 is removed
         del expected_recon['object_updater_per_device']['sdx']

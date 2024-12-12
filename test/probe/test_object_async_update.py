@@ -455,6 +455,11 @@ class UpdaterStatsMixIn(object):
                 self.assertIsNotNone(timestamp)
                 ac_set.add((account, container))
 
+            object_updater_last = recon.get('object_updater_last')
+            self.assertIsNotNone(object_updater_last,
+                                 "object_updater_last is missing")
+            self.assertGreater(object_updater_last, 0,
+                               "Invalid object_updater_last time")
         # All the collected ac_set are from the ac_pairs we created
         for ac in ac_set:
             self.assertIn(ac, set(ac_pairs))

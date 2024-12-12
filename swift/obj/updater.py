@@ -538,12 +538,13 @@ class ObjectUpdater(Daemon):
         self.begin = time.time()
         devices = self._listdir(self.devices)
         self._process_devices(devices)
-        elapsed = time.time() - self.begin
+        now = time.time()
+        elapsed = now - self.begin
         self.logger.info(
             ('Object update sweep of all devices completed: '
              '%(elapsed).02fs'),
             {'elapsed': elapsed})
-        self.aggregate_and_dump_recon(devices, elapsed)
+        self.aggregate_and_dump_recon(devices, elapsed, now)
         return elapsed
 
     def _gather_recon_stats(self):
@@ -572,7 +573,7 @@ class ObjectUpdater(Daemon):
             self.logger,
         )
 
-    def aggregate_and_dump_recon(self, devices, elapsed):
+    def aggregate_and_dump_recon(self, devices, elapsed, now):
         """
         Aggregate recon stats across devices and dump the result to the
         recon cache.
@@ -638,6 +639,7 @@ class ObjectUpdater(Daemon):
                 'object_updater_sweep': elapsed,
                 'object_updater_stats': aggregated_stats,
                 'object_updater_per_device': update_device_stats,
+                'object_updater_last': now
             },
             self.rcache,
             self.logger,
