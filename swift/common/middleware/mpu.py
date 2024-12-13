@@ -1321,6 +1321,8 @@ class MPUMiddleware(object):
 
         self.min_part_size = config_positive_int_value(
             conf.get('min_part_size', 5242880))
+        register_swift_info('mpu',
+                            min_part_size=self.min_part_size)
 
     def handle_request(self, req, container, obj):
         # this defines the MPU API
@@ -1379,8 +1381,6 @@ class MPUMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
-
-    register_swift_info('mpu', enabled=True)
 
     def mpu_filter(app):
         return MPUMiddleware(app, conf,)

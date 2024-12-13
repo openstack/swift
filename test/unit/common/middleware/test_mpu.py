@@ -20,8 +20,9 @@ from six.moves import urllib
 
 import mock
 
-from swift.common import swob
+from swift.common import swob, registry
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.middleware import mpu
 from swift.common.middleware.mpu import MPUMiddleware, MPUId, \
     get_req_upload_id, translate_error_response, normalize_part_number, \
     MPUSession, BaseMPUHandler, MPUEtagHasher
@@ -505,6 +506,37 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(202, resp.status_int)
         self.assertIn('X-Upload-Id', resp.headers)
         self.assertEqual(expected, self.app.calls)
+
+    def test_filter_factory_default_conf(self):
+        app = object()
+        mw = mpu.filter_factory({})(app)
+        self.assertIsInstance(mw, MPUMiddleware)
+        self.assertIs(app, mw.app)
+        self.assertEqual(5242880, mw.min_part_size)
+        self.assertEqual({'min_part_size': 5242880},
+                         registry.get_swift_info().get('mpu'))
+
+    def test_filter_factory_custom_conf(self):
+        def do_test(conf):
+            app = object()
+            mw = mpu.filter_factory(conf)(app)
+            self.assertIsInstance(mw, MPUMiddleware)
+            self.assertIs(app, mw.app)
+            self.assertEqual(1048576, mw.min_part_size)
+            self.assertEqual({'min_part_size': 1048576},
+                             registry.get_swift_info().get('mpu'))
+
+        do_test({'min_part_size': 1048576})
+        do_test({'min_part_size': '1048576'})
+
+    def test_filter_factory_invalid_conf(self):
+        def do_test(conf):
+            with self.assertRaises(ValueError):
+                mpu.filter_factory(conf)(object())
+
+        do_test({'min_part_size': 0})
+        do_test({'min_part_size': '0'})
+        do_test({'min_part_size': '-1'})
 
     def test_create_mpu(self):
         req_headers = {'X-Object-Meta-Foo': 'blah'}
