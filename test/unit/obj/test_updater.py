@@ -184,6 +184,8 @@ class TestObjectUpdater(unittest.TestCase):
         check_bad({'interval': 'foo'})
         check_bad({'concurrency': 'bar'})
         check_bad({'concurrency': '1.0'})
+        check_bad({'updater_workers': '0'})
+        check_bad({'updater_workers': '-1'})
         check_bad({'slowdown': 'baz'})
         check_bad({'objects_per_second': 'quux'})
         check_bad({'max_objects_per_container_per_second': '-0.1'})
