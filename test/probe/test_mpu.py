@@ -426,8 +426,8 @@ class TestNativeMPU(BaseTestNativeMPU):
         # list mpus via API
         resp_hdrs, listing = swiftclient.get_container(
             self.url, self.token, self.bucket_name, query_string='uploads')
-        self.assertEqual(['%s/%s' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in listing])
+        self.assertEqual([(self.mpu_name, upload_id)],
+                         [(o['name'], o['upload_id']) for o in listing])
 
         # upload part
         part_size = 5 * 2 ** 20
@@ -594,8 +594,8 @@ class TestNativeMPU(BaseTestNativeMPU):
         # list mpus
         resp_hdrs, listing = swiftclient.get_container(
             self.url, self.token, self.bucket_name, query_string='uploads')
-        self.assertEqual(['%s/%s' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in listing])
+        self.assertEqual([(self.mpu_name, upload_id)],
+                         [(o['name'], o['upload_id']) for o in listing])
         self.assertEqual(['application/x-mpu-session-created'],
                          [o['content_type'] for o in listing])
         # upload part

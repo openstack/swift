@@ -288,9 +288,8 @@ class UploadsController(Controller):
         prefixes = []
 
         def object_to_upload(object_info):
-            obj, upid = object_info['name'].rsplit('/', 1)
-            obj_dict = {'key': obj,
-                        'upload_id': upid,
+            obj_dict = {'key': object_info['name'],
+                        'upload_id': object_info['upload_id'],
                         'last_modified': object_info['last_modified']}
             return obj_dict
 
@@ -313,10 +312,12 @@ class UploadsController(Controller):
                     new_uploads, prefix, delimiter)
             uploads.extend(new_uploads)
             prefixes.extend(new_prefixes)
+            # TODO: support separate keymarker and upload_id_marker in mpu
+            marker = '%s/%s' % (objects[-1]['name'], objects[-1]['upload_id'])
             if six.PY2:
-                query['marker'] = objects[-1]['name'].encode('utf-8')
+                query['marker'] = marker.encode('utf-8')
             else:
-                query['marker'] = objects[-1]['name']
+                query['marker'] = marker
 
         truncated = len(uploads) >= maxuploads
         if len(uploads) > maxuploads:

@@ -589,7 +589,8 @@ class MPUSessionsHandler(BaseMPUHandler):
                             MPU_SESSION_COMPLETED_CONTENT_TYPE,
                             MPU_SESSION_ABORTED_CONTENT_TYPE):
                         continue
-                    item['name'] = split_reserved_name(item['name'])[0]
+                    parts = split_reserved_name(item['name'])[0].split('/', 1)
+                    item['name'], item['upload_id'] = parts
                     listing.append(item)
                     if len(listing) >= limit:
                         break

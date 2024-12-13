@@ -641,7 +641,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
 
-        exp_listing = [dict(item, name=item['name'][1:])
+        exp_listing = [dict(item,
+                            name=item['name'][1:].split('/', 1)[0],
+                            upload_id=item['name'][1:].split('/', 1)[1])
                        for item in self.sample_in_progress_session_listing]
         self.assertEqual(exp_listing, json.loads(resp.body))
         expected = [call[:2] for call in self.exp_calls]
@@ -678,7 +680,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
 
-        exp_listing = [dict(item, name=item['name'][1:])
+        exp_listing = [dict(item,
+                            name=item['name'][1:].split('/', 1)[0],
+                            upload_id=item['name'][1:].split('/', 1)[1])
                        for item in self.sample_in_progress_session_listing[:2]]
         self.assertEqual(exp_listing, json.loads(resp.body))
         expected = [call[:2] for call in self.exp_calls]
@@ -711,7 +715,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
 
-        exp_listing = [dict(item, name=item['name'][1:])
+        exp_listing = [dict(item,
+                            name=item['name'][1:].split('/', 1)[0],
+                            upload_id=item['name'][1:].split('/', 1)[1])
                        for item in self.sample_in_progress_session_listing]
         self.assertEqual(exp_listing, json.loads(resp.body))
         self.assertEqual(4, len(self.app.calls), self.app.calls)

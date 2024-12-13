@@ -209,7 +209,7 @@ class TestMPU(BaseTestMPU):
         for obj in ('objy2', 'objx1', 'objy2'):
             resp = self._create_mpu(obj, container=container)
             self.assertEqual(202, resp.status, obj)
-            created.append('%s/%s' % (obj, resp.headers.get('X-Upload-Id')))
+            created.append((obj, resp.headers.get('X-Upload-Id')))
         resp = self._create_mpu('objx4', container=container)
         self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
@@ -222,7 +222,8 @@ class TestMPU(BaseTestMPU):
         self.assertEqual(200, resp.status)
         # expect ordered by (name, created time)
         expected = [created[1], created[0], created[2]]
-        actual = [item['name'] for item in json.loads(resp.content)]
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
         # marker
@@ -231,7 +232,8 @@ class TestMPU(BaseTestMPU):
                         query_string='uploads&format=json&marker=objy2')
         self.assertEqual(200, resp.status)
         expected = [created[0], created[2]]
-        actual = [item['name'] for item in json.loads(resp.content)]
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
         # end_marker
@@ -240,7 +242,8 @@ class TestMPU(BaseTestMPU):
                         query_string='uploads&format=json&end_marker=objy')
         self.assertEqual(200, resp.status)
         expected = [created[1]]
-        actual = [item['name'] for item in json.loads(resp.content)]
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
         # prefix
@@ -249,7 +252,8 @@ class TestMPU(BaseTestMPU):
                         query_string='uploads&format=json&prefix=objx')
         self.assertEqual(200, resp.status)
         expected = [created[1]]
-        actual = [item['name'] for item in json.loads(resp.content)]
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
         # limit
@@ -258,7 +262,8 @@ class TestMPU(BaseTestMPU):
                         query_string='uploads&format=json&limit=2')
         self.assertEqual(200, resp.status)
         expected = [created[1], created[0]]
-        actual = [item['name'] for item in json.loads(resp.content)]
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
     def test_create_upload_complete_read_mpu(self):
