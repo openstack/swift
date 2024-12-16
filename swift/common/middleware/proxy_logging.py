@@ -283,7 +283,7 @@ class ProxyLoggingMiddleware(object):
             'method': 'GET',
             'protocol': '',
             'status_int': '0',
-            'auth_token': '1234...',
+            'auth_token': '1234...',  # nosec B105
             'bytes_recvd': '1',
             'bytes_sent': '0',
             'transaction_id': 'tx1234',
@@ -518,6 +518,7 @@ class ProxyLoggingMiddleware(object):
             base_labels = {
                 'method': metric_method,
             }
+            base_labels['api'] = 'S3' if is_s3_req(req) else 'swift'
             if resource_type != 'UNKNOWN' or not is_s3_req(req):
                 base_labels['resource'] = resource_type
             if acc:
@@ -550,6 +551,11 @@ class ProxyLoggingMiddleware(object):
 
     def statsd_metric_labels(self, req, status_int, metric_method, acc=None,
                              cont=None, policy_index=None):
+        # overlay freshly derived labels onto base_labels just in case any
+        # changed w.r.t. base labels while the request was being handled (in
+        # particular, container may be different in swift.backend_path)
+        # TODO: remove unnecessary duplication in the overlay e.g. method,
+        # account
         resource_type = self.get_resource_type(req)
 
         labels = {
@@ -565,7 +571,7 @@ class ProxyLoggingMiddleware(object):
                 policy_index is not None and \
                 POLICIES.get_by_index(policy_index) is not None:
             labels['policy'] = policy_index
-        return labels
+        return ChainMap(labels, req.environ['swift.base_labels'])
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -579,10 +585,10 @@ class ProxyLoggingMiddleware(object):
         start_response_args = [None]
 
         xfer_metric_name = 'swift_proxy_server_request_body_streaming_bytes'
-        xfer_labels = req.environ.get('swift.base_labels')
+        base_labels = req.environ.get('swift.base_labels')
 
         statsd_emit_callback = BufferXferEmitCallback(
-            xfer_metric_name, xfer_labels, self.statsd,
+            xfer_metric_name, base_labels, self.statsd,
             self.emit_buffer_xfer_bytes_sec)
         input_proxy = CallbackInputProxy(env['wsgi.input'],
                                          statsd_emit_callback)
@@ -653,7 +659,7 @@ class ProxyLoggingMiddleware(object):
                 )
 
             resp_xfer_labels = statsd_metric_resp_labels(
-                xfer_labels, status_int=wire_status_int,
+                base_labels, status_int=wire_status_int,
                 policy_index=policy_index)
 
             bytes_sent = 0
