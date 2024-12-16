@@ -1172,7 +1172,14 @@ class MPUObjHandler(BaseMPUHandler):
         for upload_id, backend_resp in deleted_upload_ids.items():
             self._put_manifest_delete_marker(upload_id)
 
-    def _handle_get_head_response(self, resp):
+    def _handle_get_head_request(self):
+        # instruct the object server to look for an mpu-etag in sysmeta
+        # for evaluating conditional requests
+        update_etag_is_at_header(self.req, MPU_SYSMETA_ETAG_KEY)
+        resp = self.req.get_response(self.app)
+        if MPU_SYSMETA_UPLOAD_ID_KEY not in resp.headers:
+            return resp
+
         new_headers = HeaderKeyDict()
         mpu_etag = None
         for key, val in resp.headers.items():
@@ -1195,15 +1202,22 @@ class MPUObjHandler(BaseMPUHandler):
             # mpu mw always quotes response header etag for requests it handles
             new_headers['etag'] = quote_etag(mpu_etag)
         resp.headers = new_headers
+        return resp
 
-    def _handle_post_response(self, resp):
-        if resp.status_int != HTTP_TEMPORARY_REDIRECT:
+    def _handle_post_request(self):
+        # the original request headers may get mutated by encryption, so keep a
+        # copy in case the POST needs to be redirected to an mpu manifest
+        orig_req_headers = HeaderKeyDict(self.req.headers)
+
+        resp = self.req.get_response(self.app)
+        if (resp.status_int != HTTP_TEMPORARY_REDIRECT or
+                MPU_SYSMETA_UPLOAD_ID_KEY not in resp.headers):
             return resp
 
         drain_and_close(resp)
         manifest_path = wsgi_unquote(resp.headers.get('location'))
         marker_req = self.make_subrequest(
-            'POST', path=manifest_path, headers=self.req.headers)
+            'POST', path=manifest_path, headers=orig_req_headers)
         sub_resp = marker_req.get_response(self.app)
         drain_and_close(sub_resp)
         if sub_resp.is_success:
@@ -1218,20 +1232,15 @@ class MPUObjHandler(BaseMPUHandler):
         if self.req.method in ('GET', 'HEAD'):
             # instruct the object server to look for an mpu-etag in sysmeta
             # for evaluating conditional requests
-            update_etag_is_at_header(self.req, MPU_SYSMETA_ETAG_KEY)
-
-        resp = self.req.get_response(self.app)
-
-        upload_id = resp.headers.get(MPU_SYSMETA_UPLOAD_ID_KEY)
-        if self.req.method in ('GET', 'HEAD') and upload_id:
-            self._handle_get_head_response(resp)
-        elif self.req.method == 'POST' and upload_id:
-            resp = self._handle_post_response(resp)
-        elif self.req.method in ('PUT', 'DELETE'):
-            # TODO: write down a general maybe-deleted marker in manifests
-            #  container *before* forwarding request
-            self._maybe_cleanup_mpu(resp)
-
+            resp = self._handle_get_head_request()
+        elif self.req.method == 'POST':
+            resp = self._handle_post_request()
+        else:
+            resp = self.req.get_response(self.app)
+            if self.req.method in ('PUT', 'DELETE'):
+                # TODO: write down a general maybe-deleted marker in manifests
+                #  container *before* forwarding request
+                self._maybe_cleanup_mpu(resp)
         return resp
 
 

@@ -28,7 +28,8 @@ from swift.common.middleware.mpu import MPUMiddleware, MPUId, \
     MPUSession, BaseMPUHandler, MPUEtagHasher
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPServiceUnavailable, HTTPPreconditionFailed, \
-    HTTPException, HTTPBadRequest, wsgi_quote, HTTPNoContent
+    HTTPException, HTTPBadRequest, wsgi_quote, HTTPNoContent, \
+    HeaderEnvironProxy
 from swift.common.utils import md5, quote, Timestamp, MD5_OF_EMPTY_STRING
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
@@ -2030,8 +2031,19 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Content-Type': 'application/test2',
             'X-Timestamp': '1727184152.29655',
         }
-        req = Request.blank(self.mpu_path, headers=post_headers)
+        copy_post_headers = dict(post_headers)
+        req = Request.blank(self.mpu_path, headers=copy_post_headers)
         req.method = 'POST'
+
+        def header_mutating_app(env, start_response):
+            # simulate another middleware, e.g. encryption, mutating the
+            # request user metadata headers
+            if env['PATH_INFO'] == self.mpu_path:
+                hdrs = HeaderEnvironProxy(env)
+                hdrs['X-Object-Meta-Foo'] = 'encrypted-bar'
+            return self.app(env, start_response)
+
+        self.mw.app = header_mutating_app
         resp = req.get_response(self.mw)
         self.assertEqual(202, resp.status_int)
         self.assertEqual(2, len(self.app.calls))
@@ -2051,6 +2063,20 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
         }
         self.assertEqual(exp_resp_headers, resp.headers)
+        self.assertEqual(post_headers, copy_post_headers)
+        self.assertEqual({'Content-Type': 'application/test2',
+                          'Host': 'localhost:80',
+                          'X-Object-Meta-Foo': 'encrypted-bar',
+                          'X-Timestamp': '1727184152.29655'},
+                         self.app.headers[0])
+        # verify no mutation of original headers in POST to manifest
+        self.assertEqual({'Content-Type': 'application/test2',
+                          'Host': 'localhost:80',
+                          'User-Agent': 'Swift',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'X-Object-Meta-Foo': 'Bar',
+                          'X-Timestamp': '1727184152.29655'},
+                         self.app.headers[1])
 
     def test_post_not_mpu(self):
         # verify that mpu middleware doesn't mess with a regular symlink POST

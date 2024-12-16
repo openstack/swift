@@ -398,6 +398,7 @@ class BaseTestNativeMPU(BaseTestMPU):
 
 class TestNativeMPU(BaseTestNativeMPU):
     def test_native_mpu(self):
+        self.maxDiff = None
         # create
         swiftclient.put_container(self.url, self.token, self.bucket_name)
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
