@@ -181,6 +181,14 @@ class TestMPUId(unittest.TestCase):
         mpu_id2 = MPUId.create('/v1/a/c/o', timestamp)
         self.assertNotEqual(mpu_id1a, mpu_id2)
 
+    def test_max(self):
+        self.assertEqual(
+            '9999999999.99999'
+            '~zzzzzzzzzzzzzzzzzzzzzzzz'
+            '~ffffffffffffffffffffffffffffffff', str(MPUId.max()))
+        self.assertLess(str(MPUId.create('/v1/a/c/o', Timestamp.now())),
+                        str(MPUId.max()))
+
 
 class TestMPUSession(unittest.TestCase):
     def test_init(self):
@@ -700,7 +708,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                       keep_blank_values=True))
         self.assertEqual({}, params)
 
-    def test_list_uploads_forwards_params(self):
+    def test_list_uploads_with_prefix(self):
         registered_calls = [
             ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
              json.dumps(self.sample_all_session_listing).encode('ascii')),
@@ -710,17 +718,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.app.register(*registered_calls[0])
         self.app.register_next_response(*registered_calls[1])
         req = Request.blank(
-            '/v1/a/c?uploads&marker=foo&prefix=bar&end_marker=baz'
-            '&ignored=x')
+            '/v1/a/c?uploads&prefix=bar&ignored=x')
         req.method = 'GET'
         resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
-
-        exp_listing = [dict(item,
-                            name=item['name'][1:].split('/', 1)[0],
-                            upload_id=item['name'][1:].split('/', 1)[1])
-                       for item in self.sample_in_progress_session_listing]
-        self.assertEqual(exp_listing, json.loads(resp.body))
         self.assertEqual(4, len(self.app.calls), self.app.calls)
         expected = [call[:2] for call in self.exp_calls]
         self.assertEqual(expected, self.app.calls[:2])
@@ -731,9 +732,46 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
         params = dict(urllib.parse.parse_qsl(parsed_path.query,
                       keep_blank_values=True))
-        self.assertEqual({'marker': '\x00foo',
-                          'prefix': '\x00bar',
-                          'end_marker': '\x00baz'},
+        self.assertEqual({'prefix': '\x00bar'}, params)
+        # second backend listing
+        self.assertEqual('GET', self.app.calls[3][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual(
+            {'marker': quote(self.sample_all_session_listing[-1]['name']),
+             'prefix': '\x00bar'},
+            params)
+
+    def test_list_uploads_with_marker_and_no_upload_id_marker(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps(self.sample_all_session_listing).encode('ascii')),
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps([]).encode('ascii'))
+        ]
+        self.app.register(*registered_calls[0])
+        self.app.register_next_response(*registered_calls[1])
+        req = Request.blank(
+            '/v1/a/c?uploads&marker=foo&prefix=bar&ignored=x')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual(4, len(self.app.calls), self.app.calls)
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls[:2])
+
+        # first backend listing
+        self.assertEqual('GET', self.app.calls[2][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual({'marker': '\x00foo/9999999999.99999'
+                                    '~zzzzzzzzzzzzzzzzzzzzzzzz'
+                                    '~ffffffffffffffffffffffffffffffff',
+                          'prefix': '\x00bar'},
                          params)
         # second backend listing
         self.assertEqual('GET', self.app.calls[3][0])
@@ -743,8 +781,71 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                       keep_blank_values=True))
         self.assertEqual(
             {'marker': quote(self.sample_all_session_listing[-1]['name']),
-             'prefix': '\x00bar',
-             'end_marker': '\x00baz'},
+             'prefix': '\x00bar'},
+            params)
+
+    def test_list_uploads_with_marker_and_upload_id_marker(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps(self.sample_all_session_listing).encode('ascii')),
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps([]).encode('ascii'))
+        ]
+        self.app.register(*registered_calls[0])
+        self.app.register_next_response(*registered_calls[1])
+        req = Request.blank(
+            '/v1/a/c?uploads&marker=foo&upload-id-marker=123&ignored=x')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+
+        # first backend listing
+        self.assertEqual('GET', self.app.calls[2][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual({'marker': '\x00foo/123'}, params)
+        # second backend listing
+        self.assertEqual('GET', self.app.calls[3][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual(
+            {'marker': quote(self.sample_all_session_listing[-1]['name'])},
+            params)
+
+    def test_list_uploads_with_no_marker_and_upload_id_marker(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps(self.sample_all_session_listing).encode('ascii')),
+            ('GET', '/v1/a/\x00mpu_sessions\x00c', HTTPOk, {},
+             json.dumps([]).encode('ascii'))
+        ]
+        self.app.register(*registered_calls[0])
+        self.app.register_next_response(*registered_calls[1])
+        req = Request.blank(
+            '/v1/a/c?uploads&upload-id-marker=123&ignored=x')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+
+        # first backend listing
+        self.assertEqual('GET', self.app.calls[2][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertFalse(params)
+        # second backend listing
+        self.assertEqual('GET', self.app.calls[3][0])
+        parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
+        self.assertEqual('/v1/a/\x00mpu_sessions\x00c', parsed_path.path)
+        params = dict(urllib.parse.parse_qsl(parsed_path.query,
+                      keep_blank_values=True))
+        self.assertEqual(
+            {'marker': quote(self.sample_all_session_listing[-1]['name'])},
             params)
 
     def _do_test_upload_part(self, part_str, session_ctype):

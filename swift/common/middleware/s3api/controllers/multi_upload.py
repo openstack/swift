@@ -266,34 +266,24 @@ class UploadsController(Controller):
             err_msg = 'Invalid Encoding Method specified in Request'
             raise InvalidArgument('encoding-type', encoding_type, err_msg)
 
-        keymarker = get_param(req, 'key-marker', '')
-        uploadid = get_param(req, 'upload-id-marker', '')
-        maxuploads = req.get_validated_param(
-            'max-uploads', DEFAULT_MAX_UPLOADS, DEFAULT_MAX_UPLOADS)
-
         query = {
             'uploads': 'true',
             'format': 'json',
-            'marker': '',
         }
-
-        if uploadid and keymarker:
-            query.update({'marker': '%s/%s' % (keymarker, uploadid)})
-        elif keymarker:
-            query.update({'marker': '%s/~' % (keymarker)})
+        key_marker = get_param(req, 'key-marker', '')
+        upload_id_marker = get_param(req, 'upload-id-marker', '')
+        if key_marker:
+            query['marker'] = key_marker
+            if upload_id_marker:
+                query['upload-id-marker'] = upload_id_marker
         if 'prefix' in req.params:
-            query.update({'prefix': get_param(req, 'prefix')})
+            query['prefix'] = get_param(req, 'prefix')
 
         uploads = []
         prefixes = []
-
-        def object_to_upload(object_info):
-            obj_dict = {'key': object_info['name'],
-                        'upload_id': object_info['upload_id'],
-                        'last_modified': object_info['last_modified']}
-            return obj_dict
-
-        while len(uploads) < maxuploads:
+        max_uploads = req.get_validated_param(
+            'max-uploads', DEFAULT_MAX_UPLOADS, DEFAULT_MAX_UPLOADS)
+        while len(uploads) < max_uploads:
             try:
                 resp = req.get_response(self.app, query=query)
                 objects = json.loads(resp.body)
@@ -303,7 +293,10 @@ class UploadsController(Controller):
             if not objects:
                 break
 
-            new_uploads = [object_to_upload(obj) for obj in objects]
+            new_uploads = [{'key': obj['name'],
+                            'upload_id': obj['upload_id'],
+                            'last_modified': obj['last_modified']}
+                           for obj in objects]
             new_prefixes = []
             if 'delimiter' in req.params:
                 prefix = get_param(req, 'prefix', '')
@@ -312,35 +305,37 @@ class UploadsController(Controller):
                     new_uploads, prefix, delimiter)
             uploads.extend(new_uploads)
             prefixes.extend(new_prefixes)
-            # TODO: support separate keymarker and upload_id_marker in mpu
-            marker = '%s/%s' % (objects[-1]['name'], objects[-1]['upload_id'])
             if six.PY2:
-                query['marker'] = marker.encode('utf-8')
+                query['marker'] = objects[-1]['name'].encode('utf-8')
+                query['upload-id-marker'] = objects[-1]['upload_id'].encode(
+                    'utf-8')
             else:
-                query['marker'] = marker
+                query['marker'] = objects[-1]['name']
+                query['upload-id-marker'] = objects[-1]['upload_id']
 
-        truncated = len(uploads) >= maxuploads
-        if len(uploads) > maxuploads:
-            uploads = uploads[:maxuploads]
+        truncated = len(uploads) >= max_uploads
+        if len(uploads) > max_uploads:
+            uploads = uploads[:max_uploads]
 
-        nextkeymarker = ''
-        nextuploadmarker = ''
+        next_key_marker = ''
+        next_upload_id_marker = ''
         if len(uploads) > 1:
-            nextuploadmarker = uploads[-1]['upload_id']
-            nextkeymarker = uploads[-1]['key']
+            next_upload_id_marker = uploads[-1]['upload_id']
+            next_key_marker = uploads[-1]['key']
 
         result_elem = Element('ListMultipartUploadsResult')
         SubElement(result_elem, 'Bucket').text = req.container_name
-        SubElement(result_elem, 'KeyMarker').text = keymarker
-        SubElement(result_elem, 'UploadIdMarker').text = uploadid
-        SubElement(result_elem, 'NextKeyMarker').text = nextkeymarker
-        SubElement(result_elem, 'NextUploadIdMarker').text = nextuploadmarker
+        SubElement(result_elem, 'KeyMarker').text = key_marker
+        SubElement(result_elem, 'UploadIdMarker').text = upload_id_marker
+        SubElement(result_elem, 'NextKeyMarker').text = next_key_marker
+        SubElement(result_elem,
+                   'NextUploadIdMarker').text = next_upload_id_marker
         if 'delimiter' in req.params:
             SubElement(result_elem, 'Delimiter').text = \
                 get_param(req, 'delimiter')
         if 'prefix' in req.params:
             SubElement(result_elem, 'Prefix').text = get_param(req, 'prefix')
-        SubElement(result_elem, 'MaxUploads').text = str(maxuploads)
+        SubElement(result_elem, 'MaxUploads').text = str(max_uploads)
         if encoding_type is not None:
             SubElement(result_elem, 'EncodingType').text = encoding_type
         SubElement(result_elem, 'IsTruncated').text = \

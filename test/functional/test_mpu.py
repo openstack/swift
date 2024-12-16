@@ -138,7 +138,7 @@ def _abort_mpu(container, name, upload_id, use_account=1, url_account=1):
                     url_account=url_account)
 
 
-def list_mpu_sessions(container):
+def _list_mpu_sessions(container):
     return tf.retry(_make_request, method='GET',
                     container=container,
                     query_string='uploads&format=json')
@@ -306,7 +306,7 @@ class TestMPU(unittest.TestCase):
     def tearDownClass(cls):
         for container in cls.containers:
             _post_acl(container)  # always clear acls
-            resp = list_mpu_sessions(container)
+            resp = _list_mpu_sessions(container)
             if resp.status != 200:
                 continue
             sessions = json.loads(resp.content)
@@ -394,7 +394,7 @@ class TestMPU(unittest.TestCase):
         return cls.singleton_mpu
 
     def test_list_mpu_sessions(self):
-        # do this is a unique container to make listing predictable
+        # do this in a unique container to make listing predictable
         container = self._create_container()
         created = []
         for obj in ('objy2', 'objx1', 'objy2'):
@@ -407,8 +407,7 @@ class TestMPU(unittest.TestCase):
         resp = mpu.abort()
         self.assertEqual(204, resp.status)
 
-        resp = tf.retry(_make_request, method='GET',
-                        container=container,
+        resp = tf.retry(_make_request, method='GET', container=container,
                         query_string='uploads&format=json')
         self.assertEqual(200, resp.status)
         # expect ordered by (name, created time)
@@ -417,29 +416,47 @@ class TestMPU(unittest.TestCase):
                   for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
+        # upload-id alone is ignored
+        resp = tf.retry(
+            _make_request, method='GET', container=container,
+            query_string='uploads&format=json&upload-id-marker=%s'
+                         % created[0][1])
+        self.assertEqual(200, resp.status)
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
+        self.assertEqual(expected, actual)
+
         # marker
-        resp = tf.retry(_make_request, method='GET',
-                        container=container,
+        resp = tf.retry(_make_request, method='GET', container=container,
                         query_string='uploads&format=json&marker=objy2')
+        self.assertEqual(200, resp.status)
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
+        self.assertFalse(actual)
+
+        # marker and upload-id
+        resp = tf.retry(
+            _make_request, method='GET', container=container,
+            query_string='uploads&format=json&marker=objy2&upload-id-marker=%s'
+                         % created[0][1])
+        self.assertEqual(200, resp.status)
+        expected = [created[2]]
+        actual = [(item['name'], item['upload_id'])
+                  for item in json.loads(resp.content)]
+        self.assertEqual(expected, actual)
+
+        resp = tf.retry(
+            _make_request, method='GET', container=container,
+            query_string='uploads&format=json&marker=objx1&upload-id-marker=%s'
+                         % created[1][1])
         self.assertEqual(200, resp.status)
         expected = [created[0], created[2]]
         actual = [(item['name'], item['upload_id'])
                   for item in json.loads(resp.content)]
         self.assertEqual(expected, actual)
 
-        # end_marker
-        resp = tf.retry(_make_request, method='GET',
-                        container=container,
-                        query_string='uploads&format=json&end_marker=objy')
-        self.assertEqual(200, resp.status)
-        expected = [created[1]]
-        actual = [(item['name'], item['upload_id'])
-                  for item in json.loads(resp.content)]
-        self.assertEqual(expected, actual)
-
         # prefix
-        resp = tf.retry(_make_request, method='GET',
-                        container=container,
+        resp = tf.retry(_make_request, method='GET', container=container,
                         query_string='uploads&format=json&prefix=objx')
         self.assertEqual(200, resp.status)
         expected = [created[1]]
@@ -448,8 +465,7 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(expected, actual)
 
         # limit
-        resp = tf.retry(_make_request, method='GET',
-                        container=container,
+        resp = tf.retry(_make_request, method='GET', container=container,
                         query_string='uploads&format=json&limit=2')
         self.assertEqual(200, resp.status)
         expected = [created[1], created[0]]

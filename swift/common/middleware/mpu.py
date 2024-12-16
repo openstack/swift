@@ -127,6 +127,19 @@ class MPUId(object):
     """
     # ~ doesn't get url-encoded and isn't in url-safe base64 encoded unique ids
     ID_DELIMITER = '~'
+    _max = None
+
+    @classmethod
+    def max(cls):
+        """
+        Returns an MPUId whose string representation will sort higher than any
+        MPUId that can realistically be generated.
+        """
+        if cls._max is None:
+            id = ('z' * len(generate_unique_id()))  # max base64 encoded uuid
+            tag = ('f' * len(hash_path('a', 'c', 'o')))  # max hexdigest
+            cls._max = cls(id, ~Timestamp(0), tag)
+        return cls._max
 
     __slots__ = ('uuid', 'timestamp', 'tag')
 
@@ -564,10 +577,13 @@ class MPUSessionsHandler(BaseMPUHandler):
         path = self.make_path(self.sessions_container)
 
         params = {}
-        for key in ('prefix', 'marker', 'end_marker'):
-            value = self.req.params.get(key)
-            if value:
-                params[key] = get_reserved_name(value)
+        if 'marker' in self.req.params:
+            upload_id_marker = self.req.params.get('upload-id-marker',
+                                                   str(MPUId.max()))
+            params['marker'] = get_reserved_name(
+                '%s/%s' % (self.req.params.get('marker'), upload_id_marker))
+        if 'prefix' in self.req.params:
+            params['prefix'] = get_reserved_name(self.req.params['prefix'])
         limit = int(self.req.params.get(
             'limit', constraints.CONTAINER_LISTING_LIMIT))
 
