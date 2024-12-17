@@ -747,14 +747,14 @@ class MPUSessionHandler(BaseMPUHandler):
             self.reserved_obj, self.upload_id)
         self.session_path = self.make_path(self.sessions_container,
                                            self.session_name)
-        self.req.headers.setdefault('X-Timestamp', Timestamp.now().internal)
+        self.req_timestamp = Timestamp(
+            self.req.headers.setdefault('X-Timestamp',
+                                        Timestamp.now().internal))
         self.manifest_relative_path = make_relative_path(
             self.manifests_container, self.reserved_obj, self.upload_id)
         self.manifest_path = self.make_path(self.manifest_relative_path)
 
     def _load_session(self):
-        # TODO: check that if the request has a timestamp then it is later than
-        #   the session created time, if not then 409 or 503
         req = self.make_subrequest(method='HEAD', path=self.session_path)
         resp = req.get_response(self.app)
         if resp.status_int == 404:
@@ -764,6 +764,8 @@ class MPUSessionHandler(BaseMPUHandler):
 
         session = MPUSession.from_session_headers(self.session_name,
                                                   resp.headers)
+        if session.meta_timestamp >= self.req_timestamp:
+            raise HTTPConflict()
         return session
 
     def _post_session(self, session):

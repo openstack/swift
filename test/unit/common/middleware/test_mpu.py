@@ -402,6 +402,23 @@ class BaseTestMPUMiddleware(unittest.TestCase):
             self.app.register(*call)
         self.exp_calls.extend(ac_info_calls)
 
+    def _setup_mpu_existence_check_call(
+            self, ts_session, ts_meta=None, extra_headers=None):
+        ts_meta = ts_meta or next(self.ts_iter)
+        headers = HeaderKeyDict({
+            'X-Timestamp': ts_meta.internal,
+            'Content-Type': 'application/x-mpu-session-created',
+            'X-Backend-Data-Timestamp': ts_session.internal,
+            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
+            'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
+        })
+        headers.update(extra_headers or {})
+        call = ('HEAD', '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
+                HTTPOk,
+                headers)
+        self.app.register(*call)
+        self.exp_calls.append(call)
+
 
 class TestBaseMpuHandler(BaseTestMPUMiddleware):
     def test_make_subrequest(self):
@@ -482,22 +499,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ]
         expected += [call[:2] for call in registered]
         return expected
-
-    def _setup_mpu_existence_check_call(self, ts_session, extra_headers=None):
-        ts_other = next(self.ts_iter)
-        headers = HeaderKeyDict({
-            'X-Timestamp': ts_other.internal,
-            'Content-Type': 'application/x-mpu-session-created',
-            'X-Backend-Data-Timestamp': ts_session.internal,
-            'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
-            'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
-        })
-        headers.update(extra_headers or {})
-        call = ('HEAD', '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-                HTTPOk,
-                headers)
-        self.app.register(*call)
-        self.exp_calls.append(call)
 
     def _do_test_create_mpu(self, req_headers):
         expected = self._setup_mpu_create_requests()
@@ -864,15 +865,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def _do_test_upload_part(self, part_str, session_ctype):
         self.app.clear_calls()
         ts_session = next(self.ts_iter)
-        ts_part = next(self.ts_iter)
         extra_hdrs = {'Content-Type': session_ctype}
         self._setup_mpu_existence_check_call(
             ts_session, extra_headers=extra_hdrs)
         registered_calls = [
             ('PUT',
              '/v1/a/\x00mpu_parts\x00c/%s/000001' % self.sess_name,
-             HTTPCreated,
-             {'X-Timestamp': ts_part.internal})]
+             HTTPCreated, {})]
         for call in registered_calls:
             self.app.register(*call)
         req = Request.blank(
@@ -882,7 +881,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                      'Transfer-Encoding': 'test-encoding'},
             body=b'testing')
 
-        ts_now = Timestamp.now()
+        ts_now = next(self.ts_iter)
         with mock.patch('swift.common.utils.Timestamp.now',
                         return_value=ts_now):
             resp = req.get_response(self.mw)
@@ -927,7 +926,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
             environ={'REQUEST_METHOD': 'PUT'},
             body=b'testing')
-        resp = req.get_response(self.mw)
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=next(self.ts_iter)):
+            resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
 
     def test_upload_part_subrequest_503(self):
@@ -945,7 +946,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
             environ={'REQUEST_METHOD': 'PUT'},
             body=b'testing')
-        resp = req.get_response(self.mw)
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=next(self.ts_iter)):
+            resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
 
     def test_upload_part_session_aborted(self):
@@ -957,7 +960,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             '/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
             environ={'REQUEST_METHOD': 'PUT'},
             body=b'testing')
-        resp = req.get_response(self.mw)
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=next(self.ts_iter)):
+            resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
 
     def test_upload_part_session_not_found(self):
@@ -1002,8 +1007,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         for call in registered_calls:
             self.app.register(*call)
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id)
-        req.method = 'GET'
-        resp = req.get_response(self.mw)
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=next(self.ts_iter)):
+            resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         expected = [call[:2] for call in self.exp_calls] + [
             ('GET', '/v1/a/\x00mpu_parts\x00c?prefix=%s'
@@ -1050,8 +1056,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank(
             '/v1/a/c/o?upload-id=%s&part-number-marker=1&marker=ignored'
             % self.mpu_id)
-        req.method = 'GET'
-        resp = req.get_response(self.mw)
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=next(self.ts_iter)):
+            resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int)
         self.assertEqual([], json.loads(resp.body))
         self.assertEqual(4, len(self.app.calls), self.app.calls)
@@ -1078,8 +1085,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         for call in registered_calls:
             self.app.register(*call)
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id)
-        req.method = 'GET'
-        resp = req.get_response(self.mw)
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=next(self.ts_iter)):
+            resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
         self.assertEqual(
             b'<html><h1>Service Unavailable</h1>'
@@ -1106,8 +1114,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         for call in registered_calls:
             self.app.register(*call)
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id)
-        req.method = 'GET'
-        resp = req.get_response(self.mw)
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        return_value=next(self.ts_iter)):
+            resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
         self.assertEqual(
             b'<html><h1>Service Unavailable</h1>'
@@ -2323,13 +2332,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
     def setUp(self):
         super(TestMpuMiddlewareErrors, self).setUp()
-        self.requests = [
-            # list uploads
-            Request.blank('/v1/a/c?uploads=true',
-                          environ={'REQUEST_METHOD': 'GET'}),
-            # create upload
-            Request.blank('/v1/a/c/o?uploads=true',
-                          environ={'REQUEST_METHOD': 'POST'}),
+        self.session_requests = [
             # upload part
             Request.blank('/v1/a/c/o?upload-id=%s&part-number=1' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'PUT'}),
@@ -2337,11 +2340,23 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
             Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'GET'}),
             # complete upload
-            Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
-                          environ={'REQUEST_METHOD': 'POST'}),
+            Request.blank(
+                '/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                environ={'REQUEST_METHOD': 'POST'},
+                body=json.dumps(
+                    [{'part_number': 1, 'etag': MD5_OF_EMPTY_STRING}]
+                ).encode('ascii')),
             # abort upload
             Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
                           environ={'REQUEST_METHOD': 'DELETE'}),
+        ]
+        self.requests = self.session_requests + [
+            # list uploads
+            Request.blank('/v1/a/c?uploads=true',
+                          environ={'REQUEST_METHOD': 'GET'}),
+            # create upload
+            Request.blank('/v1/a/c/o?uploads=true',
+                          environ={'REQUEST_METHOD': 'POST'}),
         ]
 
     def test_api_requests_invalid_upload_id(self):
@@ -2395,3 +2410,31 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
             self.assertEqual(503, resp.status_int)
             self.assertEqual([call[:2] for call in self.exp_calls],
                              self.app.calls)
+
+    def test_session_requests_with_earlier_timestamp(self):
+        ts_older = next(self.ts_iter)
+        ts_session = next(self.ts_iter)
+        ts_newer = next(self.ts_iter)
+        ts_meta = next(self.ts_iter)
+
+        self._setup_mpu_existence_check_call(ts_session, ts_meta=ts_meta)
+        for req in self.session_requests:
+            req.headers['X-Timestamp'] = ts_older.internal
+            resp = req.get_response(self.mw)
+            self.assertEqual(
+                409, resp.status_int,
+                '%s %s %s %s' % (req.method, req.path, req.params, resp.body))
+
+        for req in self.session_requests:
+            req.headers['X-Timestamp'] = ts_newer.internal
+            resp = req.get_response(self.mw)
+            self.assertEqual(
+                409, resp.status_int,
+                '%s %s %s %s' % (req.method, req.path, req.params, resp.body))
+
+        for req in self.session_requests:
+            req.headers['X-Timestamp'] = ts_meta.internal
+            resp = req.get_response(self.mw)
+            self.assertEqual(
+                409, resp.status_int,
+                '%s %s %s %s' % (req.method, req.path, req.params, resp.body))
