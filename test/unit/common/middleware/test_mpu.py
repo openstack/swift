@@ -522,7 +522,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertIsInstance(mw, MPUMiddleware)
         self.assertIs(app, mw.app)
         self.assertEqual(5242880, mw.min_part_size)
-        self.assertEqual({'min_part_size': 5242880},
+        self.assertEqual(933, mw.max_name_length)
+        self.assertEqual({'min_part_size': 5242880,
+                          'max_name_length': 933},
                          registry.get_swift_info().get('mpu'))
 
     def test_filter_factory_custom_conf(self):
@@ -532,7 +534,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.assertIsInstance(mw, MPUMiddleware)
             self.assertIs(app, mw.app)
             self.assertEqual(1048576, mw.min_part_size)
-            self.assertEqual({'min_part_size': 1048576},
+            self.assertEqual(933, mw.max_name_length)
+            self.assertEqual({'min_part_size': 1048576,
+                              'max_name_length': 933},
                              registry.get_swift_info().get('mpu'))
 
         do_test({'min_part_size': 1048576})
@@ -563,6 +567,15 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-1])
+
+    def test_create_mpu_name_too_long(self):
+        mpu_name = 'x' * 1024
+        req = Request.blank('/v1/a/c/%s?uploads=true' % mpu_name)
+        req.method = 'POST'
+        resp = req.get_response(self.mw)
+        self.assertEqual(400, resp.status_int)
+        self.assertEqual(b'MPU object name length of 1024 longer than 933',
+                         resp.body)
 
     def test_create_mpu_with_x_timestamp(self):
         ts_now = Timestamp(1234567.123)

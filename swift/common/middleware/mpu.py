@@ -98,6 +98,20 @@ def translate_error_response(sub_resp):
     return swob.status_map[client_resp_status_int]()
 
 
+def make_relative_path(*parts):
+    return '/'.join(str(p) for p in parts)
+
+
+def calculate_max_name_length():
+    max_suffix = ''
+    for suffix in (MPU_DELETED_MARKER_SUFFIX, normalize_part_number(0)):
+        if len(suffix) > len(max_suffix):
+            max_suffix = suffix
+    max_name_bloat = make_relative_path(
+        get_reserved_name(''), MPUId.max(), max_suffix)
+    return constraints.MAX_OBJECT_NAME_LENGTH - len(max_name_bloat)
+
+
 class MPUEtagHasher(object):
     def __init__(self):
         self.hasher = md5(usedforsecurity=False)
@@ -493,12 +507,9 @@ class BaseMPUHandler(object):
     def _authorize_write_request(self):
         self._authorize_request('write_acl')
 
-    def make_relative_path(self, *parts):
-        return '/'.join(str(p) for p in parts)
-
     def make_path(self, *parts):
         return '/'.join(
-            ['', 'v1', self.account, self.make_relative_path(*parts)])
+            ['', 'v1', self.account, make_relative_path(*parts)])
 
     def make_subrequest(self, method=None, path=None, body=None,
                         headers=None, params=None):
@@ -655,24 +666,23 @@ class MPUSessionsHandler(BaseMPUHandler):
         """
         Handles Initiate Multipart Upload.
         """
+        upload_id = MPUId.create(self.req.path, self.req.ensure_x_timestamp())
+        if len(self.obj) > self.mw.max_name_length:
+            raise HTTPBadRequest(
+                body='MPU object name length of %d longer than %d' %
+                     (len(self.obj), self.mw.max_name_length),
+                request=self.req, content_type='text/plain')
         self._authorize_write_request()
-        # TODO: can we just call constraints.check_object_creation ?
-        # if len(req.object_name) > constraints.MAX_OBJECT_NAME_LENGTH:
-        #     # Note that we can still run into trouble where the MPU is just
-        #     # within the limit, which means the segment names will go over
-        #     raise KeyTooLongError()
-
         policy_index = self.user_container_info['storage_policy']
         self._ensure_container_exists(self.sessions_container, policy_index)
         self._ensure_container_exists(self.manifests_container, policy_index)
         self._ensure_container_exists(self.parts_container, policy_index)
         self._ensure_parts_container_in_metadata(policy_index)
 
-        upload_id = MPUId.create(self.req.path, self.req.ensure_x_timestamp())
         self.req.headers.pop('Etag', None)
         self.req.headers.pop('Content-Md5', None)
         update_content_type(self.req)
-        session_name = self.make_relative_path(self.reserved_obj, upload_id)
+        session_name = make_relative_path(self.reserved_obj, upload_id)
         session_path = self.make_path(self.sessions_container, session_name)
         session = MPUSession.from_user_headers(session_name, self.req.headers)
         session_req = self.make_subrequest(
@@ -733,12 +743,12 @@ class MPUSessionHandler(BaseMPUHandler):
         super(MPUSessionHandler, self).__init__(mw, req)
         self.user_container_info = self._check_user_container_exists()
         self.upload_id = get_req_upload_id(req)
-        self.session_name = self.make_relative_path(
+        self.session_name = make_relative_path(
             self.reserved_obj, self.upload_id)
         self.session_path = self.make_path(self.sessions_container,
                                            self.session_name)
         self.req.headers.setdefault('X-Timestamp', Timestamp.now().internal)
-        self.manifest_relative_path = self.make_relative_path(
+        self.manifest_relative_path = make_relative_path(
             self.manifests_container, self.reserved_obj, self.upload_id)
         self.manifest_path = self.make_path(self.manifest_relative_path)
 
@@ -947,7 +957,7 @@ class MPUSessionHandler(BaseMPUHandler):
             except ValueError as err:
                 errors.append("Index %d: %s." % (part_index, str(err)))
             if not errors:
-                part_path = self.make_relative_path(
+                part_path = make_relative_path(
                     self.parts_container,
                     self.reserved_obj,
                     self.upload_id,
@@ -1344,11 +1354,12 @@ class MPUMiddleware(object):
         self.conf = conf
         self.app = app
         self.logger = logger or get_logger(conf, log_route='slo')
-
         self.min_part_size = config_positive_int_value(
             conf.get('min_part_size', 5242880))
+        self.max_name_length = calculate_max_name_length()
         register_swift_info('mpu',
-                            min_part_size=self.min_part_size)
+                            min_part_size=self.min_part_size,
+                            max_name_length=self.max_name_length)
 
     def handle_request(self, req, container, obj):
         # this defines the MPU API

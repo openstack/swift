@@ -474,8 +474,6 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(expected, actual)
 
     def test_create_upload_complete_read_mpu(self):
-        if not self.default_policy:
-            self.skipTest('default policy is not known')
         # create upload
         user_headers = {
             'Content-Disposition': 'attachment',
@@ -548,7 +546,7 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(
             {'Content-Type': 'application/json; charset=utf-8',
              'Content-Length': str(len(resp.content)),
-             'X-Storage-Policy': self.default_policy,
+             'X-Storage-Policy': self.default_policy or mock.ANY,
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
@@ -600,6 +598,13 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(2 * self.part_size, len(resp.content))
         self.assertEqual(part_bodies[0][-1], resp.content[self.part_size - 1])
         self.assertEqual(part_bodies[1][0], resp.content[self.part_size])
+
+    def test_create_upload_name_too_long(self):
+        max_name_length = tf.cluster_info.get('mpu', {}).get('max_name_length')
+        mpu_name = 'x' * (max_name_length + 1)
+        mpu = MPUClient(self.user_cont, mpu_name)
+        resp = mpu.create()
+        self.assertEqual(400, resp.status)
 
     def test_create_upload_complete_mpu_retry_complete(self):
         # create upload
