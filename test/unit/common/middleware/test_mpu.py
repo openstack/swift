@@ -878,6 +878,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             '/v1/a/c/o?upload-id=%s&part-number=%s' % (self.mpu_id, part_str),
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'Etag': 'test-etag',
+                     'X-Delete-At': next(self.ts_iter).normal,  # ignored
+                     'X-Delete-After': '345',  # ignored
                      'Transfer-Encoding': 'test-encoding'},
             body=b'testing')
 
@@ -1215,6 +1217,125 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
              'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
+             'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+             'X-Timestamp': ts_session.internal},
+            manifest_hdrs)
+
+        actual_mpu_body = self.app.uploaded.get('/v1/a/c/o')[1]
+        self.assertEqual(b'', actual_mpu_body)
+        mpu_hdrs = self.app.headers[5]
+        self.assertEqual(
+            {'Content-Length': '0',
+             'Content-Type': 'application/test',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
+             'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
+             'X-Symlink-Target':
+                 swob.wsgi_quote('\x00mpu_manifests\x00c/%s' % self.sess_name),
+             # note: FakeApp doesn't call-back to the MPU middleware slo
+             # callback handler so mpu_bytes show as 0
+             'X-Object-Sysmeta-Container-Update-Override-Etag':
+                 '%s; mpu_etag=%s; mpu_bytes=0' % (exp_mpu_etag, exp_mpu_etag),
+             'X-Timestamp': ts_session.internal},
+            mpu_hdrs)
+
+        session_hdrs = self.app.headers[6]
+        self.assertEqual(
+            {'Content-Type': 'application/x-mpu-session-completed',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Timestamp': mock.ANY},
+            session_hdrs)
+
+    def test_complete_mpu_with_gaps_in_parts(self):
+        ts_session = next(self.ts_iter)
+        self._setup_mpu_existence_check_call(ts_session)
+        ts_complete = next(self.ts_iter)
+        put_slo_resp_body = {'Response Status': '201 Created',
+                             'Etag': 'slo-etag'}
+        registered_calls = [
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
+             HTTPOk,
+             {}),
+            # SLO heartbeat response is 202...
+            ('PUT',
+             '/v1/a/\x00mpu_manifests\x00c/%s?'
+             'heartbeat=on&multipart-manifest=put' % self.sess_name,
+             HTTPAccepted,
+             {},
+             json.dumps(put_slo_resp_body).encode('ascii')),
+            ('PUT', '/v1/a/c/o', HTTPCreated, {}),
+            ('POST',
+             '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
+             HTTPAccepted,
+             {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.mpu_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        # referenced part numbers are not contiguous
+        mpu_manifest = [
+            {'part_number': 1, 'etag': 'a' * 32},
+            {'part_number': 3, 'etag': 'b' * 32},
+        ]
+        mpu_etag_hasher = md5(usedforsecurity=False)
+        for part in mpu_manifest:
+            mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
+        exp_mpu_etag = mpu_etag_hasher.hexdigest() + '-2'
+        req.body = json.dumps(mpu_manifest)
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(202, resp.status_int)
+        resp_dict = json.loads(resp_body)
+        self.assertEqual(
+            {"Response Status": "201 Created",
+             "Etag": exp_mpu_etag},
+            resp_dict)
+        expected = [call[:2]
+                    for call in self.exp_calls + registered_calls]
+        self.assertEqual(expected, self.app.calls)
+
+        session_hdrs = self.app.headers[3]
+        self.assertEqual(
+            {'Content-Type': 'application/x-mpu-session-completing',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Timestamp': ts_complete.internal},
+            session_hdrs)
+
+        actual_manifest_body = self.app.uploaded.get(
+            '/v1/a/\x00mpu_manifests\x00c/%s' % self.sess_name)[1]
+        self.assertEqual(
+            [{"path": "\x00mpu_parts\x00c/%s/000001" % self.sess_name,
+              "etag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+             {"path": "\x00mpu_parts\x00c/%s/000003" % self.sess_name,
+              "etag": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
+            json.loads(actual_manifest_body))
+        manifest_hdrs = self.app.headers[4]
+        self.assertEqual(
+            {'Accept': 'application/json',
+             'Content-Length': str(len(actual_manifest_body)),
+             'Content-Type': 'application/test',
+             'Host': 'localhost:80',
+             'User-Agent': 'Swift',
+             'X-Backend-Allow-Reserved-Names': 'true',
+             'X-Object-Meta-Foo': 'blah',
+             'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
+             'X-Object-Sysmeta-Container-Update-Override-Etag':
+                 '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
+             'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
+             'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+             'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
+             'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '3',
              'X-Timestamp': ts_session.internal},
             manifest_hdrs)
 
