@@ -17,7 +17,6 @@
 from __future__ import print_function
 import os
 import sys
-from hashlib import md5
 import getopt
 from itertools import chain
 
@@ -28,6 +27,7 @@ from six.moves.urllib.parse import quote
 
 from swift.common.ring import Ring
 from swift.common.utils import split_path
+from swift.common.utils.base import md5
 from swift.common.bufferedhttp import http_connect
 
 
@@ -91,7 +91,7 @@ class Auditor(object):
                     conn = http_connect(node['ip'], node['port'],
                                         node['device'], part, 'GET', path, {})
                     resp = conn.getresponse()
-                    calc_hash = md5()
+                    calc_hash = md5(usedforsecurity=False)
                     chunk = True
                     while chunk:
                         chunk = resp.read(8192)

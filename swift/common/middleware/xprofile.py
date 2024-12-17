@@ -97,7 +97,7 @@ from swift.common.middleware.x_profile.html_viewer import HTMLViewer
 from swift.common.middleware.x_profile.profile_model import ProfileLog
 
 
-DEFAULT_PROFILE_PREFIX = '/tmp/log/swift/profile/default.profile'
+DEFAULT_PROFILE_PREFIX = '/tmp/log/swift/profile/default.profile'  # nosec B108
 
 # unwind the iterator; it may call start_response, do lots of work, etc
 PROFILE_EXEC_EAGER = """

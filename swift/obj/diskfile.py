@@ -1087,11 +1087,10 @@ class BaseDiskFileManager(object):
             key = info_key[:-5] + '_file'
             results[key] = join(datadir, info['filename']) if info else None
 
-        if verify:
-            assert self._verify_ondisk_files(
-                results, **kwargs), \
-                "On-disk file search algorithm contract is broken: %s" \
-                % str(results)
+        if verify and not self._verify_ondisk_files(results, **kwargs):
+            raise RuntimeError(
+                "On-disk file search algorithm contract is broken: %s"
+                % str(results))
 
         return results
 
