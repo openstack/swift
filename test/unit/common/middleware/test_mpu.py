@@ -522,9 +522,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         mw = mpu.filter_factory({})(app)
         self.assertIsInstance(mw, MPUMiddleware)
         self.assertIs(app, mw.app)
+        self.assertEqual(10000, mw.max_part_number)
         self.assertEqual(5242880, mw.min_part_size)
         self.assertEqual(933, mw.max_name_length)
-        self.assertEqual({'min_part_size': 5242880,
+        self.assertEqual({'max_part_number': 10000,
+                          'min_part_size': 5242880,
                           'max_name_length': 933},
                          registry.get_swift_info().get('mpu'))
 
@@ -534,14 +536,18 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             mw = mpu.filter_factory(conf)(app)
             self.assertIsInstance(mw, MPUMiddleware)
             self.assertIs(app, mw.app)
+            self.assertEqual(999, mw.max_part_number)
             self.assertEqual(1048576, mw.min_part_size)
             self.assertEqual(933, mw.max_name_length)
-            self.assertEqual({'min_part_size': 1048576,
+            self.assertEqual({'max_part_number': 999,
+                              'min_part_size': 1048576,
                               'max_name_length': 933},
                              registry.get_swift_info().get('mpu'))
 
-        do_test({'min_part_size': 1048576})
-        do_test({'min_part_size': '1048576'})
+        do_test({'min_part_size': 1048576,
+                 'max_part_number': 999})
+        do_test({'min_part_size': '1048576',
+                 'max_part_number': '999'})
 
     def test_filter_factory_invalid_conf(self):
         def do_test(conf):
@@ -1417,6 +1423,16 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.assertEqual(expected, self.app.calls)
             self.assertEqual(400, resp.status_int)
             return resp
+
+        resp = do_complete(b"[]")
+        self.assertEqual(b'Manifest must have at least one part.\n',
+                         resp.body)
+
+        resp = do_complete(json.dumps(
+            [{'part_number': i + 1, 'etag': MD5_OF_EMPTY_STRING}
+             for i in range(10001)]))
+        self.assertEqual(b'Manifest must have at most 10000 parts.\n',
+                         resp.body)
 
         resp = do_complete(b"[{123: 'foo'}]")
         self.assertEqual(b'Manifest must be valid JSON.\n',

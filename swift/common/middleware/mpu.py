@@ -41,9 +41,8 @@ from swift.common.request_helpers import get_reserved_name, \
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 
-DEFAULT_MAX_PARTS_LISTING = 1000
-DEFAULT_MAX_UPLOADS = 1000
-
+DEFAULT_MIN_PART_SIZE = 5 * 1024 * 1024
+DEFAULT_MAX_PART_NUMBER = 10000
 MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
 
@@ -918,6 +917,9 @@ class MPUSessionHandler(BaseMPUHandler):
     def _parse_part_number(self, part_dict, previous_part):
         try:
             part_number = part_dict['part_number']
+            if part_number <= 0:
+                raise ValueError(
+                    "part_number %s must be greater than zero" % part_number)
             if part_number <= previous_part:
                 raise ValueError(
                     "part_number %s must be greater than previous %s"
@@ -973,6 +975,13 @@ class MPUSessionHandler(BaseMPUHandler):
                     'path': wsgi_to_str(part_path),
                     'etag': etag})
                 mpu_etag_hasher.update(etag)
+
+        if not manifest and not errors:
+            errors.append('Manifest must have at least one part.')
+
+        if len(manifest) > self.mw.max_part_number:
+            errors.append('Manifest must have at most %s parts.'
+                          % self.mw.max_part_number)
 
         if errors:
             error_message = b"".join(e.encode('utf8') + b"\n" for e in errors)
@@ -1367,9 +1376,12 @@ class MPUMiddleware(object):
         self.app = app
         self.logger = logger or get_logger(conf, log_route='slo')
         self.min_part_size = config_positive_int_value(
-            conf.get('min_part_size', 5242880))
+            conf.get('min_part_size', DEFAULT_MIN_PART_SIZE))
+        self.max_part_number = config_positive_int_value(
+            conf.get('max_part_number', DEFAULT_MAX_PART_NUMBER))
         self.max_name_length = calculate_max_name_length()
         register_swift_info('mpu',
+                            max_part_number=self.max_part_number,
                             min_part_size=self.min_part_size,
                             max_name_length=self.max_name_length)
 
