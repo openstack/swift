@@ -91,15 +91,6 @@ def normalize_part_number(part_number):
     return '%06d' % int(part_number)
 
 
-def translate_error_response(sub_resp):
-    if (sub_resp.status_int not in swob.RESPONSE_REASONS or
-            sub_resp.status_int == 404):
-        client_resp_status_int = 503
-    else:
-        client_resp_status_int = sub_resp.status_int
-    return swob.status_map[client_resp_status_int]()
-
-
 def make_relative_path(*parts):
     return '/'.join(str(p) for p in parts)
 
@@ -548,6 +539,14 @@ class BaseMPUHandler(object):
         sub_req.params = params or {}
         return sub_req
 
+    def translate_error_response(self, sub_resp):
+        if (sub_resp.status_int not in swob.RESPONSE_REASONS or
+                sub_resp.status_int == 404):
+            client_resp_status_int = 503
+        else:
+            client_resp_status_int = sub_resp.status_int
+        return swob.status_map[client_resp_status_int](request=self.req)
+
     def _put_delete_marker(self, marker_path):
         headers = {'Content-Type': MPU_MARKER_CONTENT_TYPE,
                    'Content-Length': '0'}
@@ -613,9 +612,9 @@ class MPUSessionsHandler(BaseMPUHandler):
             # desired limit in the client listing.
             sub_req = self.make_subrequest(
                 path=path, method='GET', params=params)
-            resp = sub_req.get_response(self.app)
-            if resp.is_success:
-                items = json.loads(resp.body)
+            sub_resp = sub_req.get_response(self.app)
+            if sub_resp.is_success:
+                items = json.loads(sub_resp.body)
                 for item in items:
                     params['marker'] = quote(item['name'])
                     if item['content_type'] in (
@@ -628,10 +627,10 @@ class MPUSessionsHandler(BaseMPUHandler):
                     if len(listing) >= limit:
                         break
             else:
-                return resp
+                return sub_resp
 
-        resp.body = json.dumps(listing).encode('ascii')
-        return resp
+        sub_resp.body = json.dumps(listing).encode('ascii')
+        return sub_resp
 
     def _ensure_container_exists(self, container, policy_index):
         # TODO: make storage policy specific parts bucket
@@ -650,7 +649,7 @@ class MPUSessionsHandler(BaseMPUHandler):
             drain_and_close(resp)
             if not resp.is_success or resp.status_int == HTTP_CONFLICT:
                 raise HTTPInternalServerError(
-                    'Error creating MPU resource container')
+                    'Error creating MPU resource container', request=self.req)
 
     def _ensure_parts_container_in_metadata(self, policy_index):
         parts_container_key = 'mpu-parts-container-%d' % policy_index
@@ -665,7 +664,7 @@ class MPUSessionsHandler(BaseMPUHandler):
             drain_and_close(resp)
             if not resp.is_success or resp.status_int == HTTP_CONFLICT:
                 raise HTTPInternalServerError(
-                    'Error writing MPU parts container metadata')
+                    'Error writing MPU resource metadata', request=self.req)
 
     @public
     def create_upload(self):
@@ -703,9 +702,7 @@ class MPUSessionsHandler(BaseMPUHandler):
             resp_headers = {'X-Upload-Id': str(upload_id)}
             resp = HTTPAccepted(headers=resp_headers)
         else:
-            self.logger.warning('MPU %s %s', session_resp.status,
-                                session_resp.body)
-            resp = HTTPInternalServerError()
+            resp = self.translate_error_response(session_resp)
         return resp
 
 
@@ -821,7 +818,7 @@ class MPUSessionHandler(BaseMPUHandler):
             headers['Etag'] = quote_etag(sub_resp.headers.get('Etag'))
             resp = HTTPCreated(headers=headers)
         else:
-            resp = translate_error_response(sub_resp)
+            resp = self.translate_error_response(sub_resp)
         return resp
 
     def list_parts(self):
@@ -865,7 +862,7 @@ class MPUSessionHandler(BaseMPUHandler):
             )
         else:
             drain_and_close(sub_resp)
-            resp = translate_error_response(sub_resp)
+            resp = self.translate_error_response(sub_resp)
         return resp
 
     def abort_upload(self):
@@ -911,7 +908,7 @@ class MPUSessionHandler(BaseMPUHandler):
         if sess_resp.is_success:
             resp = HTTPNoContent()
         else:
-            resp = translate_error_response(sess_resp)
+            resp = self.translate_error_response(sess_resp)
         return resp
 
     def _parse_part_number(self, part_dict, previous_part):
@@ -1056,7 +1053,6 @@ class MPUSessionHandler(BaseMPUHandler):
 
     def _make_complete_upload_resp_iter(self, session, parsed_manifest):
         def response_iter():
-            # TODO: add support for versioning?? copied from multi_upload.py
             manifest_resp, slo_callback_handler = self._put_manifest(
                 session, parsed_manifest)
             if not manifest_resp.is_success:
@@ -1174,7 +1170,7 @@ class MPUSessionHandler(BaseMPUHandler):
         sess_resp = self._post_session(session)
         drain_and_close(sess_resp)
         if not sess_resp.is_success:
-            return translate_error_response(sess_resp)
+            return self.translate_error_response(sess_resp)
 
         # return 202 to match SLO response with heartbeat=on
         resp = HTTPAccepted()  # assume we're good for now...
@@ -1270,8 +1266,7 @@ class MPUObjHandler(BaseMPUHandler):
         if sub_resp.is_success:
             new_resp = HTTPAccepted(request=self.req, headers=sub_resp.headers)
         else:
-            new_resp = translate_error_response(sub_resp)
-            new_resp.request = self.req
+            new_resp = self.translate_error_response(sub_resp)
 
         return new_resp
 

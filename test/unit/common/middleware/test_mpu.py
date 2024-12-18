@@ -24,12 +24,12 @@ from swift.common import swob, registry
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import mpu
 from swift.common.middleware.mpu import MPUMiddleware, MPUId, \
-    get_req_upload_id, translate_error_response, normalize_part_number, \
+    get_req_upload_id, normalize_part_number, \
     MPUSession, BaseMPUHandler, MPUEtagHasher
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPServiceUnavailable, HTTPPreconditionFailed, \
     HTTPException, HTTPBadRequest, wsgi_quote, HTTPNoContent, \
-    HeaderEnvironProxy
+    HeaderEnvironProxy, HTTPInternalServerError
 from swift.common.utils import md5, quote, Timestamp, MD5_OF_EMPTY_STRING
 from test.debug_logger import debug_logger
 from swift.proxy.controllers.base import ResponseCollection, ResponseData
@@ -76,35 +76,6 @@ class TestModuleFunctions(unittest.TestCase):
         do_test_bad_value('my-uuid:')
         do_test_bad_value(':%s' % Timestamp.now().internal)
         do_test_bad_value('my-uuid:xyz')
-
-    def test_translate_error_response_400(self):
-        resp = HTTPBadRequest()
-        actual = translate_error_response(resp)
-        self.assertIsNot(resp, actual)
-        self.assertIsInstance(actual, HTTPException)
-        self.assertEqual(400, actual.status_int)
-
-    def test_translate_error_response_503(self):
-        resp = HTTPServiceUnavailable()
-        actual = translate_error_response(resp)
-        self.assertIsNot(resp, actual)
-        self.assertIsInstance(actual, HTTPException)
-        self.assertEqual(503, actual.status_int)
-
-    def test_translate_error_response_404(self):
-        resp = HTTPNotFound()
-        actual = translate_error_response(resp)
-        self.assertIsNot(resp, actual)
-        self.assertIsInstance(actual, HTTPException)
-        self.assertEqual(503, actual.status_int)
-
-    def test_translate_error_response_567(self):
-        resp = HTTPException()
-        resp.status_int = 567
-        actual = translate_error_response(resp)
-        self.assertIsNot(resp, actual)
-        self.assertIsInstance(actual, HTTPException)
-        self.assertEqual(503, actual.status_int)
 
     def test_normalize_part_number(self):
         self.assertEqual('000001', normalize_part_number(1))
@@ -442,6 +413,47 @@ class TestBaseMpuHandler(BaseTestMPUMiddleware):
                          dict(subreq.headers))
         self.assertEqual({'added': 'test'}, subreq.params)
 
+    def test_translate_error_response_400(self):
+        req = Request.blank('/v1/a/c/o')
+        resp = HTTPBadRequest()
+        handler = BaseMPUHandler(self.mw, req)
+        actual = handler.translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(400, actual.status_int)
+        self.assertIs(req, actual.request)
+
+    def test_translate_error_response_503(self):
+        req = Request.blank('/v1/a/c/o')
+        resp = HTTPServiceUnavailable()
+        handler = BaseMPUHandler(self.mw, req)
+        actual = handler.translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(503, actual.status_int)
+        self.assertIs(req, actual.request)
+
+    def test_translate_error_response_404(self):
+        req = Request.blank('/v1/a/c/o')
+        resp = HTTPNotFound()
+        handler = BaseMPUHandler(self.mw, req)
+        actual = handler.translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(503, actual.status_int)
+        self.assertIs(req, actual.request)
+
+    def test_translate_error_response_567(self):
+        req = Request.blank('/v1/a/c/o')
+        resp = HTTPException()
+        resp.status_int = 567
+        handler = BaseMPUHandler(self.mw, req)
+        actual = handler.translate_error_response(resp)
+        self.assertIsNot(resp, actual)
+        self.assertIsInstance(actual, HTTPException)
+        self.assertEqual(503, actual.status_int)
+        self.assertIs(req, actual.request)
+
 
 class TestMPUMiddleware(BaseTestMPUMiddleware):
     def setUp(self):
@@ -500,23 +512,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         expected += [call[:2] for call in registered]
         return expected
 
-    def _do_test_create_mpu(self, req_headers):
-        expected = self._setup_mpu_create_requests()
-        self.app.register(
-            'PUT', '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
-            HTTPCreated, {})
-        expected.append(('PUT',
-                         '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name))
-        req = Request.blank('/v1/a/c/%s?uploads=true' % self.mpu_name,
-                            headers=req_headers)
-        req.method = 'POST'
-        with mock.patch('swift.common.middleware.mpu.MPUId.create',
-                        return_value=self.mpu_id):
-            resp = req.get_response(self.mw)
-        self.assertEqual(202, resp.status_int)
-        self.assertIn('X-Upload-Id', resp.headers)
-        self.assertEqual(expected, self.app.calls)
-
     def test_filter_factory_default_conf(self):
         app = object()
         mw = mpu.filter_factory({})(app)
@@ -557,6 +552,24 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         do_test({'min_part_size': 0})
         do_test({'min_part_size': '0'})
         do_test({'min_part_size': '-1'})
+
+    def _do_test_create_mpu(self, req_headers):
+        expected = self._setup_mpu_create_requests()
+        self.app.register(
+            'PUT', '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
+            HTTPCreated, {})
+        expected.append(('PUT',
+                         '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name))
+        req = Request.blank('/v1/a/c/%s?uploads=true' % self.mpu_name,
+                            headers=req_headers)
+        req.method = 'POST'
+        with mock.patch('swift.common.middleware.mpu.MPUId.create',
+                        return_value=self.mpu_id):
+            resp = req.get_response(self.mw)
+        self.assertEqual(202, resp.status_int)
+        self.assertIs(req, resp.request)
+        self.assertIn('X-Upload-Id', resp.headers)
+        self.assertEqual(expected, self.app.calls)
 
     def test_create_mpu(self):
         req_headers = {'X-Object-Meta-Foo': 'blah'}
@@ -653,7 +666,78 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         return_value=self.mpu_id):
             resp = req.get_response(self.mw)
         self.assertEqual(202, resp.status_int)
+        self.assertIs(req, resp.request)
         self.assertIn('X-Upload-Id', resp.headers)
+        self.assertEqual(expected, self.app.calls)
+
+    def test_create_mpu_fails_to_create_parts_container(self):
+        expected = self._setup_mpu_create_requests()
+        # replace previously registered call
+        self.app.register(
+            'PUT', '/v1/a/\x00mpu_parts\x00c', HTTPInternalServerError, {})
+        req = Request.blank('/v1/a/c/%s?uploads=true' % self.mpu_name)
+        req.method = 'POST'
+        resp = req.get_response(self.mw)
+        self.assertEqual(500, resp.status_int)
+        self.assertEqual(b'Error creating MPU resource container', resp.body)
+        self.assertIs(req, resp.request)
+        self.assertEqual(expected[:-1], self.app.calls)
+
+    def test_create_mpu_fails_to_create_manifests_container(self):
+        expected = self._setup_mpu_create_requests()
+        # replace previously registered call
+        self.app.register(
+            'PUT', '/v1/a/\x00mpu_manifests\x00c', HTTPInternalServerError, {})
+        req = Request.blank('/v1/a/c/%s?uploads=true' % self.mpu_name)
+        req.method = 'POST'
+        resp = req.get_response(self.mw)
+        self.assertEqual(500, resp.status_int)
+        self.assertEqual(b'Error creating MPU resource container', resp.body)
+        self.assertIs(req, resp.request)
+        self.assertEqual(expected[:-3], self.app.calls)
+
+    def test_create_mpu_fails_to_create_sessions_container(self):
+        expected = self._setup_mpu_create_requests()
+        # replace previously registered call
+        self.app.register(
+            'PUT', '/v1/a/\x00mpu_sessions\x00c', HTTPInternalServerError, {})
+        req = Request.blank('/v1/a/c/%s?uploads=true' % self.mpu_name)
+        req.method = 'POST'
+        resp = req.get_response(self.mw)
+        self.assertEqual(500, resp.status_int)
+        self.assertEqual(b'Error creating MPU resource container', resp.body)
+        self.assertIs(req, resp.request)
+        self.assertEqual(expected[:-5], self.app.calls)
+
+    def test_create_mpu_fails_to_post_to_user_container(self):
+        expected = self._setup_mpu_create_requests()
+        # replace previously registered call
+        self.app.register(
+            'POST', '/v1/a/c', HTTPInternalServerError, {})
+        req = Request.blank('/v1/a/c/%s?uploads=true' % self.mpu_name)
+        req.method = 'POST'
+        resp = req.get_response(self.mw)
+        self.assertEqual(500, resp.status_int)
+        self.assertEqual(b'Error writing MPU resource metadata', resp.body)
+        self.assertIs(req, resp.request)
+        self.assertEqual(expected, self.app.calls)
+
+    def test_create_mpu_fails_to_create_session(self):
+        expected = self._setup_mpu_create_requests()
+        self.app.register(
+            'PUT', '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name,
+            HTTPServiceUnavailable, {})
+        expected.append(('PUT',
+                         '/v1/a/\x00mpu_sessions\x00c/%s' % self.sess_name))
+        req = Request.blank('/v1/a/c/%s?uploads=true' % self.mpu_name)
+        req.method = 'POST'
+        with mock.patch('swift.common.middleware.mpu.MPUId.create',
+                        return_value=self.mpu_id):
+            resp = req.get_response(self.mw)
+        self.assertEqual(503, resp.status_int)
+        self.assertIs(req, resp.request)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
         self.assertEqual(expected, self.app.calls)
 
     def test_list_uploads(self):
@@ -868,6 +952,34 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'marker': quote(self.sample_all_session_listing[-1]['name'])},
             params)
 
+    def test_list_uploads_subrequest_503(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c',
+             HTTPServiceUnavailable, {}, None),
+        ]
+        self.app.register(*registered_calls[0])
+        req = Request.blank('/v1/a/c?uploads')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(503, resp.status_int)
+        self.assertIs(req, resp.request)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
+
+    def test_list_uploads_subrequest_404(self):
+        registered_calls = [
+            ('GET', '/v1/a/\x00mpu_sessions\x00c',
+             HTTPNotFound, {}, None),
+        ]
+        self.app.register(*registered_calls[0])
+        req = Request.blank('/v1/a/c?uploads')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        self.assertEqual(404, resp.status_int)
+        self.assertIs(req, resp.request)
+        exp_body = b''.join(HTTPNotFound()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
+
     def _do_test_upload_part(self, part_str, session_ctype):
         self.app.clear_calls()
         ts_session = next(self.ts_iter)
@@ -894,6 +1006,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         return_value=ts_now):
             resp = req.get_response(self.mw)
         self.assertEqual(201, resp.status_int)
+        self.assertEqual(b'', resp.body)
         exp_etag = md5(b'testing', usedforsecurity=False).hexdigest()
         self.assertEqual('"%s"' % exp_etag, resp.headers.get('Etag'))
         self.assertEqual('7', resp.headers['Content-Length'])
@@ -938,6 +1051,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         return_value=next(self.ts_iter)):
             resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
 
     def test_upload_part_subrequest_503(self):
         ts_session = next(self.ts_iter)
@@ -958,6 +1073,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         return_value=next(self.ts_iter)):
             resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
 
     def test_upload_part_session_aborted(self):
         ts_session = next(self.ts_iter)
@@ -972,6 +1089,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         return_value=next(self.ts_iter)):
             resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
+        self.assertEqual(b'No such upload-id', resp.body)
 
     def test_upload_part_session_not_found(self):
         # session not created or completed
@@ -991,6 +1109,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             body=b'testing')
         resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
+        self.assertEqual(b'No such upload-id', resp.body)
 
     def _do_test_list_parts(self, session_ctype):
         ts_session = next(self.ts_iter)
@@ -1097,10 +1216,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         return_value=next(self.ts_iter)):
             resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
-        self.assertEqual(
-            b'<html><h1>Service Unavailable</h1>'
-            b'<p>The server is currently unavailable. Please try again at a '
-            b'later time.</p></html>', resp.body)
+        self.assertIs(req, resp.request)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
         self.assertEqual({'Content-Length': str(len(resp.body)),
                           'Content-Type': 'text/html; charset=UTF-8'},
                          resp.headers)
@@ -1126,10 +1244,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         return_value=next(self.ts_iter)):
             resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
-        self.assertEqual(
-            b'<html><h1>Service Unavailable</h1>'
-            b'<p>The server is currently unavailable. Please try again at a '
-            b'later time.</p></html>', resp.body)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
         self.assertEqual({'Content-Length': str(len(resp.body)),
                           'Content-Type': 'text/html; charset=UTF-8'},
                          resp.headers)
@@ -1400,9 +1516,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
         req.body = json.dumps(mpu_manifest)
         resp = req.get_response(self.mw)
-        resp_body = b''.join(resp.app_iter)
         self.assertEqual(503, resp.status_int)
-        self.assertIn(b'Service Unavailable', resp_body)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -1511,9 +1627,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             # SLO heartbeat response is 202...
             ('PUT', '/v1/a/\x00mpu_manifests\x00c/%s?'
                     'heartbeat=on&multipart-manifest=put' % self.sess_name,
-             HTTPServiceUnavailable, {},
-             'Service Unavailable\nThe server is currently unavailable. '
-             'Please try again at a later time.'),
+             HTTPServiceUnavailable, {}, None),
             # note: no symlink PUT, no DELETE
         ]
         for call in registered_calls:
@@ -1533,9 +1647,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         resp_dict = json.loads(resp_body)
         self.assertEqual(
             {'Response Status': '503 Service Unavailable',
-             'Response Body': 'Service Unavailable\nThe server is currently '
-                              'unavailable. Please try again at a later time.'
-             }, resp_dict)
+             'Response Body': b''.join(HTTPServiceUnavailable()(
+                 {}, lambda *args: None)).decode('utf8')},
+            resp_dict)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -1642,8 +1756,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 2, 'etag': 'b' * 32},
         ])
         resp = req.get_response(self.mw)
-        b''.join(resp.app_iter)
         self.assertEqual(404, resp.status_int)
+        self.assertEqual(b'No such upload-id', resp.body)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1713,8 +1827,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'part_number': 2, 'etag': 'b' * 32},
         ])
         resp = req.get_response(self.mw)
-        b''.join(resp.app_iter)
         self.assertEqual(404, resp.status_int)
+        self.assertEqual(b'No such upload-id', resp.body)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1750,8 +1864,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.method = 'POST'
         req.body = json.dumps(manifest)
         resp = req.get_response(self.mw)
-        b''.join(resp.app_iter)
         self.assertEqual(404, resp.status_int)
+        self.assertEqual(b'No such upload-id', resp.body)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1787,8 +1901,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.method = 'POST'
         req.body = json.dumps(manifest)
         resp = req.get_response(self.mw)
-        b''.join(resp.app_iter)
         self.assertEqual(404, resp.status_int)
+        self.assertEqual(b'No such upload-id', resp.body)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1808,6 +1922,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Etag': '"slo-etag"',
             'X-Object-Sysmeta-Mpu-Etag': mpu_etag_hasher.etag,
             'X-Object-Sysmeta-Mpu-Upload-Id': self.mpu_id,
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
         }
 
         registered_calls = [
@@ -1824,8 +1939,17 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.method = 'POST'
         req.body = json.dumps(manifest)
         resp = req.get_response(self.mw)
-        b''.join(resp.app_iter)
+        resp_body = b''.join(resp.app_iter)
         self.assertEqual(202, resp.status_int)
+        resp_dict = json.loads(resp_body)
+        self.assertEqual(
+            {'Response Status': '201 Created',
+             'Etag': mpu_etag_hasher.etag,
+             'Response Body': '',
+             'Last Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+             'Errors': [],
+             },
+            resp_dict)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1848,7 +1972,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                             headers=req_hdrs)
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
-        self.assertEqual(b'', b''.join(resp.app_iter))
+        self.assertEqual(b'', resp.body)
         self.assertEqual(204, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -1880,8 +2004,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                             headers=req_hdrs)
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
-        self.assertIn(b'Service Unavailable', b''.join(resp.app_iter))
         self.assertEqual(503, resp.status_int)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1906,7 +2031,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                             headers=req_hdrs)
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
-        self.assertEqual(b'', b''.join(resp.app_iter))
+        self.assertEqual(b'', resp.body)
         self.assertEqual(204, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -1933,7 +2058,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                             headers=req_hdrs)
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
-        self.assertEqual(b'', b''.join(resp.app_iter))
+        self.assertEqual(b'', resp.body)
         self.assertEqual(204, resp.status_int)
         expected = [call[:2] for call in self.exp_calls]
         self.assertEqual(expected, self.app.calls)
@@ -1951,6 +2076,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
         self.assertEqual(204, resp.status_int)
+        self.assertEqual(b'', resp.body)
         expected = [call[:2] for call in self.exp_calls]
         self.assertEqual(expected, self.app.calls)
 
@@ -1968,7 +2094,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                             headers=req_hdrs)
         req.method = 'DELETE'
         resp = req.get_response(self.mw)
-        b''.join(resp.app_iter)
+        self.assertEqual(b'', resp.body)
         self.assertEqual(204, resp.status_int)
         expected = [call[:2] for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
@@ -2338,6 +2464,47 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                           'X-Timestamp': '1727184152.29655'},
                          self.app.headers[1])
 
+    def test_post_mpu_manifest_404(self):
+        manifest_rel_path = '\x00mpu_manifests\x00c/%s' % self.sess_name
+        manifest_path = '/v1/a/' + manifest_rel_path
+        symlink_resp_headers = {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': '101',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
+            'X-Object-Sysmeta-Symlink-Target': manifest_rel_path,
+            'Location': manifest_path,
+        }
+        registered_calls = [
+            ('POST', self.mpu_path,
+             swob.HTTPTemporaryRedirect,
+             symlink_resp_headers,
+             b'',
+             # symlink sets this env flag...
+             {'swift.leave_relative_location': True}),
+            ('POST', manifest_path,
+             swob.HTTPNotFound, b'', {}),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        post_headers = {
+            'X-Object-Meta-Foo': 'Bar',
+            'Content-Type': 'application/test2',
+            'X-Timestamp': '1727184152.29655',
+        }
+        req = Request.blank(self.mpu_path, headers=post_headers)
+        req.method = 'POST'
+
+        resp = req.get_response(self.mw)
+        self.assertEqual(503, resp.status_int)
+        self.assertEqual(2, len(self.app.calls))
+        expected = [call[:2] for call in registered_calls]
+        self.assertEqual(expected, self.app.calls)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp.body)
+
     def test_post_not_mpu(self):
         # verify that mpu middleware doesn't mess with a regular symlink POST
         # redirect
@@ -2421,13 +2588,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_get_mpu(self):
         resp = self._do_test_get_head_mpu('GET')
-        resp_body = b''.join(resp.app_iter)
-        self.assertEqual(b'test', resp_body)
+        self.assertEqual(b'test', resp.body)
 
     def test_head_mpu(self):
         resp = self._do_test_get_head_mpu('HEAD')
-        resp_body = b''.join(resp.app_iter)
-        self.assertEqual(b'', resp_body)
+        self.assertEqual(b'', resp.body)
 
     def _do_test_get_head_not_mpu(self, method):
         get_resp_headers = {
@@ -2457,13 +2622,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_get_not_mpu(self):
         resp = self._do_test_get_head_not_mpu('GET')
-        resp_body = b''.join(resp.app_iter)
-        self.assertEqual(b'test', resp_body)
+        self.assertEqual(b'test', resp.body)
 
     def test_head_not_mpu(self):
         resp = self._do_test_get_head_mpu('HEAD')
-        resp_body = b''.join(resp.app_iter)
-        self.assertEqual(b'', resp_body)
+        self.assertEqual(b'', resp.body)
 
 
 class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
