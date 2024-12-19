@@ -20,10 +20,8 @@ import six
 
 from swift.common import swob, constraints
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND, \
-    HTTP_TEMPORARY_REDIRECT
-from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
-    ALLOW_RESERVED_NAMES
+from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
+from swift.common.middleware.symlink import ALLOW_RESERVED_NAMES
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import generate_unique_id, drain_and_close, \
     config_positive_int_value, reiterate, parse_content_type, \
@@ -37,7 +35,8 @@ from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
     get_valid_part_num, is_reserved_name, split_reserved_name, is_user_meta, \
     update_etag_override_header, update_etag_is_at_header, \
-    validate_part_number, update_content_type, is_sys_meta
+    validate_part_number, update_content_type, is_sys_meta, \
+    get_container_update_override_key
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 
@@ -453,9 +452,6 @@ class MPUSession(MPUItem):
                 headers[key] = val
         return headers
 
-    def get_user_content_type(self):
-        return self.headers.get(MPU_SYSMETA_USER_CONTENT_TYPE_KEY)
-
 
 class BaseMPUHandler(object):
     def __init__(self, mw, req):
@@ -473,9 +469,6 @@ class BaseMPUHandler(object):
 
         self.sessions_container = get_reserved_name('mpu_sessions',
                                                     self.container)
-        # TODO: make this the versions container...
-        self.manifests_container = get_reserved_name('mpu_manifests',
-                                                     self.container)
         self.parts_container = get_reserved_name('mpu_parts', self.container)
 
     def _check_user_container_exists(self):
@@ -517,7 +510,7 @@ class BaseMPUHandler(object):
         from ``self.req``.
 
         The sub-request will have a truthy 'X-Backend-Allow-Reserved-Names'
-        header that its swift source will be set to 'MPU'.
+        header and its swift source will be set to 'MPU'.
 
         :param method: the sub-request method.
         :param path: the sub-request path.
@@ -558,12 +551,6 @@ class BaseMPUHandler(object):
             raise marker_resp
         else:
             return marker_resp
-
-    def _put_manifest_delete_marker(self, upload_id):
-        marker_path = self.make_path(
-            self.manifests_container, self.reserved_obj, upload_id,
-            MPU_DELETED_MARKER_SUFFIX)
-        self._put_delete_marker(marker_path)
 
     def _put_parts_delete_marker(self, upload_id):
         marker_path = self.make_path(
@@ -680,7 +667,6 @@ class MPUSessionsHandler(BaseMPUHandler):
         self._authorize_write_request()
         policy_index = self.user_container_info['storage_policy']
         self._ensure_container_exists(self.sessions_container, policy_index)
-        self._ensure_container_exists(self.manifests_container, policy_index)
         self._ensure_container_exists(self.parts_container, policy_index)
         self._ensure_parts_container_in_metadata(policy_index)
 
@@ -753,9 +739,6 @@ class MPUSessionHandler(BaseMPUHandler):
         self.req_timestamp = Timestamp(
             self.req.headers.setdefault('X-Timestamp',
                                         Timestamp.now().internal))
-        self.manifest_relative_path = make_relative_path(
-            self.manifests_container, self.reserved_obj, self.upload_id)
-        self.manifest_path = self.make_path(self.manifest_relative_path)
 
     def _load_session(self):
         req = self.make_subrequest(method='HEAD', path=self.session_path)
@@ -889,8 +872,8 @@ class MPUSessionHandler(BaseMPUHandler):
         # TODO: checking if the user object is linked is not essential - the
         #   auditor will check this before taking any abort action
         user_obj_metadata = self._get_user_object_metadata()
-        if user_obj_metadata.get(TGT_OBJ_SYMLINK_HDR) == \
-                self.manifest_relative_path:
+        if user_obj_metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) == \
+                self.upload_id:
             return HTTPConflict()
 
         # Update the session to be marked as aborted. This will prevent any
@@ -1001,6 +984,7 @@ class MPUSessionHandler(BaseMPUHandler):
         manifest_headers = {
             'X-Timestamp': session.data_timestamp.internal,
             'Accept': 'application/json',
+            get_container_update_override_key('size'): '0',
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             MPU_SYSMETA_ETAG_KEY: parsed_manifest.mpu_etag,
@@ -1019,7 +1003,7 @@ class MPUSessionHandler(BaseMPUHandler):
             [('mpu_etag', parsed_manifest.mpu_etag)])
         params = {'multipart-manifest': 'put', 'heartbeat': 'on'}
         manifest_req = self.make_subrequest(
-            path=self.manifest_path,
+            path=self.make_path(self.container, self.obj),
             method='PUT',
             headers=manifest_headers,
             body=json.dumps(parsed_manifest.manifest),
@@ -1030,26 +1014,6 @@ class MPUSessionHandler(BaseMPUHandler):
         self.logger.debug('mpu manifest PUT %s %s',
                           manifest_req.path, dict(manifest_req.headers))
         return manifest_req.get_response(self.app), slo_callback_handler
-
-    def _put_symlink(self, session, mpu_etag, mpu_bytes):
-        # create symlink in user container pointing to manifest
-        symlink_path = self.make_path(self.container, self.obj)
-        symlink_headers = HeaderKeyDict({
-            'X-Timestamp': session.data_timestamp.internal,
-            'Content-Length': '0',
-            'Content-Type': session.get_user_content_type(),
-            ALLOW_RESERVED_NAMES: 'true',
-            MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
-            TGT_OBJ_SYMLINK_HDR: wsgi_quote(self.manifest_relative_path),
-        })
-        # set the MPU etag override to be forwarded to the user container
-        update_etag_override_header(
-            symlink_headers, mpu_etag,
-            [('mpu_etag', mpu_etag), ('mpu_bytes', mpu_bytes)])
-        mpu_req = self.make_subrequest(
-            path=symlink_path, method='PUT', headers=symlink_headers)
-        mpu_resp = mpu_req.get_response(self.app)
-        return mpu_resp
 
     def _make_complete_upload_resp_iter(self, session, parsed_manifest):
         def response_iter():
@@ -1084,38 +1048,17 @@ class MPUSessionHandler(BaseMPUHandler):
 
             manifest_resp_status = body_dict.get('Response Status')
             if manifest_resp_status == '201 Created':
-                # TODO: maybe repeat check that session has not been
-                #   aborted? if it has been aborted then stop right here,
-                #   return 409, and leave things for the auditor to clean up.
-                #   Alternatively, don't check - assume we'll complete the
-                #   symlink before the auditor handles the aborted session.
-                mpu_bytes = slo_callback_handler.total_bytes
-                mpu_resp = self._put_symlink(
-                    session, parsed_manifest.mpu_etag, mpu_bytes)
-                drain_and_close(mpu_resp)
-                if mpu_resp.status_int == 201:
-                    # Note: the session is not deleted yet, but it will no
-                    # longer appear in listings of in-progress sessions; the
-                    # auditor is responsible for cleaning up session resources.
-                    # Note: this may race with a concurrent abortUpload, and
-                    # lose! That's ok because the auditor will check if a user
-                    # object is linked to the MPU resources while handling an
-                    # aborted session.
-                    # TODO: ideally use req.timestamp for this POST (but we
-                    #   already burnt that for the state=completing POST);
-                    #   figure out timestamp progression
-                    session.set_completed(Timestamp.now())
-                    self._post_session(session)
-                    # report success to the user whatever the result of the
-                    # session POST; the auditor will detect that the user obj
-                    # was linked to the manifest
-                    body_dict['Etag'] = normalize_etag(
-                        parsed_manifest.mpu_etag)
-                    yield json.dumps(body_dict).encode('ascii')
-                else:
-                    yield json.dumps(
-                        {'Response Status': mpu_resp.status}
-                    ).encode('ascii')
+                # TODO: ideally use req.timestamp for this POST (but we
+                #   already burnt that for the state=completing POST);
+                #   figure out timestamp progression
+                session.set_completed(Timestamp.now())
+                self._post_session(session)
+                # report success to the user whatever the result of the
+                # session POST; the auditor will detect that the user obj
+                # was linked to the manifest
+                body_dict['Etag'] = normalize_etag(
+                    parsed_manifest.mpu_etag)
+                yield json.dumps(body_dict).encode('ascii')
             elif manifest_resp_status == '400 Bad Request':
                 resp_dict = self._parse_slo_errors(body_dict)
                 yield json.dumps(resp_dict).encode('ascii')
@@ -1213,7 +1156,7 @@ class MPUObjHandler(BaseMPUHandler):
                     # TODO: log a warning?
                     pass
         for upload_id, backend_resp in deleted_upload_ids.items():
-            self._put_manifest_delete_marker(upload_id)
+            self._put_parts_delete_marker(upload_id)
 
     def _handle_get_head_request(self):
         # instruct the object server to look for an mpu-etag in sysmeta
@@ -1247,36 +1190,11 @@ class MPUObjHandler(BaseMPUHandler):
         resp.headers = new_headers
         return resp
 
-    def _handle_post_request(self):
-        # the original request headers may get mutated by encryption, so keep a
-        # copy in case the POST needs to be redirected to an mpu manifest
-        orig_req_headers = HeaderKeyDict(self.req.headers)
-
-        resp = self.req.get_response(self.app)
-        if (resp.status_int != HTTP_TEMPORARY_REDIRECT or
-                MPU_SYSMETA_UPLOAD_ID_KEY not in resp.headers):
-            return resp
-
-        drain_and_close(resp)
-        manifest_path = wsgi_unquote(resp.headers.get('location'))
-        marker_req = self.make_subrequest(
-            'POST', path=manifest_path, headers=orig_req_headers)
-        sub_resp = marker_req.get_response(self.app)
-        drain_and_close(sub_resp)
-        if sub_resp.is_success:
-            new_resp = HTTPAccepted(request=self.req, headers=sub_resp.headers)
-        else:
-            new_resp = self.translate_error_response(sub_resp)
-
-        return new_resp
-
     def handle_request(self):
         if self.req.method in ('GET', 'HEAD'):
             # instruct the object server to look for an mpu-etag in sysmeta
             # for evaluating conditional requests
             resp = self._handle_get_head_request()
-        elif self.req.method == 'POST':
-            resp = self._handle_post_request()
         else:
             resp = self.req.get_response(self.app)
             if self.req.method in ('PUT', 'DELETE'):
@@ -1316,17 +1234,13 @@ class MPUContainerHandler(BaseMPUHandler):
             if 'hash' not in item:
                 continue
 
-            # When symlink middleware validates the static symlink to the SLO
-            # manifest it gets the container update override etag params from
-            # the SLO manifest and adds them the symlink's etag params.
+            # SLO will already have extracted the size from swift_bytes
             hash_value, params = parse_content_type(item['hash'])
             new_params = []
-            mpu_etag = mpu_bytes = None
+            mpu_etag = None
             for k, v in params:
                 if k == 'mpu_etag':
                     mpu_etag = v
-                elif k == 'mpu_bytes':
-                    mpu_bytes = int(v)
                 else:
                     new_params.append((k, v))
 
@@ -1334,12 +1248,11 @@ class MPUContainerHandler(BaseMPUHandler):
                 continue
 
             # put back any etag params that may be the responsibility of
-            # other middlwares...
+            # other middlewares...
             item['hash'] = mpu_etag + ''.join('; %s=%s' % kv
                                               for kv in new_params)
-            item['bytes'] = mpu_bytes
             # hide the implementation details from the user
-            item.pop('symlink_path', None)
+            item.pop('slo_etag', None)
         resp.body = json.dumps(body_json).encode('ascii')
 
     def handle_request(self):
@@ -1359,7 +1272,6 @@ class MPUContainerHandler(BaseMPUHandler):
             #   but they may not be until the mpu-auditor runs, and even then
             #   there may be undeleted orphans
             # self._delete_container(self.parts_container)
-            # self._delete_container(self.manifests_container)
             # self._delete_container(self.sessions_container)
 
         return resp

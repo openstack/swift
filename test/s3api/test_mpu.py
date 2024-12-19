@@ -978,13 +978,6 @@ class TestVersionedMultiPartUpload(BaseMultiPartUploadTestCase):
         super(TestVersionedMultiPartUpload, self).tearDown()
 
     def test_get_by_part_number_with_versioning(self):
-        # TODO: fixme
-        #   test fails because the head on each version returns 'null'
-        #   version id, which is because the HEAD is redirected to the mpu
-        #   symlink in the versioned container which in turn redirects to the
-        #   mpu manifest which has no version id
-        self.skipTest(
-            'fixme: versioned mpus do not return x-object-version-id')
         # create 3 version with progressively larger sizes
         parts_counts = [2, 3, 4]
         key_name = self.create_name('part-num-versions')

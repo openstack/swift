@@ -696,7 +696,7 @@ class RespAttrs(object):
             elif header == SYSMETA_SLO_SIZE:
                 slo_size = value
             elif header == ALLOW_RESERVED_NAMES:
-                is_reserved = True
+                is_reserved = config_true_value(value)
         manifest_etag = found_etag if is_slo else None
         return cls(is_slo, timestamp, manifest_etag, slo_etag, slo_size,
                    is_reserved)

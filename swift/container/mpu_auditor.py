@@ -19,8 +19,8 @@ from collections import defaultdict
 
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
-    MPU_MARKER_CONTENT_TYPE, MPU_GENERIC_MARKER_SUFFIX, MPUSession, MPUItem
-from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR
+    MPU_MARKER_CONTENT_TYPE, MPU_GENERIC_MARKER_SUFFIX, MPUSession, MPUItem, \
+    MPU_SYSMETA_UPLOAD_ID_KEY
 from swift.common.request_helpers import split_reserved_name, get_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
     non_negative_int, config_positive_int_value
@@ -52,9 +52,19 @@ def yield_item_batches(broker, start_row, max_batches, batch_size):
 def extract_upload_prefix(name):
     """
     Return the upload prefix from a given object name.
+
+    e.g. <obj>/<upload_id>/<part_number> returns <obj>/<upload_id>
     """
     parts = name.strip('/').rsplit('/', 2)
     return '/'.join(parts[:2])
+
+
+def extract_upload_id(upload):
+    """
+    Return the upload_id from an extracted upload name.
+    """
+    parts = upload.strip('/').rsplit('/', 1)
+    return parts[-1]
 
 
 def extract_object_name(name):
@@ -227,7 +237,9 @@ class BaseMpuAuditor(object):
         return None
 
 
-class BaseMpuMarkerAuditor(BaseMpuAuditor):
+class MpuPartMarkerAuditor(BaseMpuAuditor):
+    resource_type = 'part'
+
     def _get_items_with_prefix(self, prefix, limit, include_deleted=False):
         # get results as dicts...
         # TODO: broker.get_objects doesn't support prefix so working around...
@@ -247,12 +259,8 @@ class BaseMpuMarkerAuditor(BaseMpuAuditor):
             return items[0]
         return None
 
-    def _delete_resources(self, marker, upload):
-        # subclasses must implement this method
-        raise NotImplementedError()
-
     def _delete_marker(self, marker):
-        # TODO: do we do this even if we didn't find any manifest row yet?
+        # TODO: do we do this even if we didn't find any part rows yet?
         # Delete the marker now so that it will eventually be reclaimed. We
         # can still find the marker row for subsequent checks until it is
         # reclaimed.
@@ -283,6 +291,30 @@ class BaseMpuMarkerAuditor(BaseMpuAuditor):
                    self.broker.container, marker.name)
         self.client.delete_object(
             self.broker.account, self.broker.container, marker.name)
+
+    def _find_orphans(self, marker, upload):
+        # TODO: prefix query may scoop up some alien objects??
+        #   need to check that each orphan is an MPU resource
+        return [
+            item for item in
+            self._get_items_with_prefix(upload, limit=1000)
+            if item.name != marker.name]
+
+    def _delete_resources(self, marker, upload):
+        orphan_parts = self._find_orphans(marker, upload)
+        err_to_raise = None
+        for orphan in orphan_parts:
+            self.debug('deleting part %s', orphan.name)
+            try:
+                self.client.delete_object(self.broker.account,
+                                          self.broker.container,
+                                          orphan.name)
+            except UnexpectedResponse as err:
+                # keep going for now...
+                err_to_raise = err
+
+        if err_to_raise:
+            raise err_to_raise
 
     def _process_marker(self, marker, upload):
         try:
@@ -318,59 +350,6 @@ class BaseMpuMarkerAuditor(BaseMpuAuditor):
         return False
 
 
-class MpuManifestMarkerAuditor(BaseMpuMarkerAuditor):
-    resource_type = 'manifest'
-
-    def _put_parts_marker(self, upload):
-        # TODO: share some common helper functions with middleware
-        user_container = split_reserved_name(self.broker.container)[1]
-        parts_container = get_reserved_name('mpu_parts', user_container)
-        marker_name = '/'.join([upload, MPU_DELETED_MARKER_SUFFIX])
-        self.debug('putting marker %s/%s', parts_container, marker_name)
-        self.client.upload_object(
-            None, self.broker.account, parts_container, marker_name,
-            headers={'Content-Type': MPU_DELETED_MARKER_SUFFIX,
-                     'Content-Length': '0',
-                     'X-Backend-Allow-Reserved-Names': 'true'}
-        )
-
-    def _delete_resources(self, marker, upload):
-        # Write a delete-marker in the parts container so all parts will
-        # eventually be deleted. Only if that succeeds, delete the manifest.
-        self._put_parts_marker(upload)
-        self.debug('deleting manifest %s', upload)
-        self.client.delete_object(
-            self.broker.account, self.broker.container, upload)
-
-
-class MpuPartMarkerAuditor(BaseMpuMarkerAuditor):
-    resource_type = 'part'
-
-    def _find_orphans(self, marker, upload):
-        # TODO: prefix query may scoop up some alien objects??
-        #   need to check that each orphan is an MPU manifest
-        return [
-            item for item in
-            self._get_items_with_prefix(upload, limit=1000)
-            if item.name != marker.name]
-
-    def _delete_resources(self, marker, upload):
-        orphan_parts = self._find_orphans(marker, upload)
-        err_to_raise = None
-        for orphan in orphan_parts:
-            self.debug('deleting part %s', orphan.name)
-            try:
-                self.client.delete_object(self.broker.account,
-                                          self.broker.container,
-                                          orphan.name)
-            except UnexpectedResponse as err:
-                # keep going for now...
-                err_to_raise = err
-
-        if err_to_raise:
-            raise err_to_raise
-
-
 class MpuSessionAuditor(BaseMpuAuditor):
     resource_type = 'session'
 
@@ -380,15 +359,15 @@ class MpuSessionAuditor(BaseMpuAuditor):
         # TODO: move these attributes to super-class, but that will require
         #   superclass to only deal with reserved namespace containers
         self.user_container = split_reserved_name(self.broker.container)[1]
-        self.manifests_container = get_reserved_name('mpu_manifests',
-                                                     self.user_container)
+        self.parts_container = get_reserved_name('mpu_parts',
+                                                 self.user_container)
 
-    def _is_manifest_linked(self, upload):
+    def _is_mpu_in_user_namespace(self, upload):
         """
         :raises UnexpectedResponse: if it is not possible to reliably confirm
-            if the user object is a symlink to the given upload.
-        :return: True if the user object is a symlink to this target, False if
-            the user object is not a symlink to the given upload.
+            if the user object is a manifest for the given upload.
+        :return: True if the user object is a manifest for the given upload,
+            False if the user object is not a manifest for the given upload.
         """
         obj_name = extract_object_name(upload)
         user_container = split_reserved_name(self.broker.container)[1]
@@ -396,24 +375,21 @@ class MpuSessionAuditor(BaseMpuAuditor):
             self.broker.account, user_container, obj_name,
             headers={'X-Newest': 'true'},
             acceptable_statuses=(2, 404))
-        link = metadata.get(TGT_OBJ_SYMLINK_HDR)
-        manifests_container = get_reserved_name('mpu_manifests',
-                                                user_container)
-        relative_manifest_path = '/'.join([manifests_container, upload])
-        return link == relative_manifest_path
+        upload_id = extract_upload_id(upload)
+        return metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) == upload_id
 
     def _delete_session(self, session):
         self.client.delete_object(self.broker.account,
                                   self.broker.container,
                                   session.name)
 
-    def _put_manifest_delete_marker(self, upload):
+    def _put_part_delete_marker(self, upload):
         # TODO: maybe share some common helper functions with middleware
         marker_name = '/'.join([upload, MPU_DELETED_MARKER_SUFFIX])
         self.debug('putting marker %s/%s',
-                   self.manifests_container, marker_name)
+                   self.parts_container, marker_name)
         self.client.upload_object(
-            None, self.broker.account, self.manifests_container, marker_name,
+            None, self.broker.account, self.parts_container, marker_name,
             headers={'Content-Type': MPU_DELETED_MARKER_SUFFIX,
                      'Content-Length': '0',
                      'X-Backend-Allow-Reserved-Names': 'true'}
@@ -423,7 +399,7 @@ class MpuSessionAuditor(BaseMpuAuditor):
         now = time.time()
         ctype_age = now - float(session.ctype_timestamp)
         try:
-            if self._is_manifest_linked(upload):
+            if self._is_mpu_in_user_namespace(upload):
                 session.set_completed(Timestamp(now))
                 return
         except UnexpectedResponse:
@@ -444,7 +420,7 @@ class MpuSessionAuditor(BaseMpuAuditor):
         now = time.time()
         ctype_age = now - float(session.ctype_timestamp)
         try:
-            if self._is_manifest_linked(upload):
+            if self._is_mpu_in_user_namespace(upload):
                 self.debug('aborted session appears to have completed')
                 session.set_completed(Timestamp(now))
                 return
@@ -457,14 +433,10 @@ class MpuSessionAuditor(BaseMpuAuditor):
             # time to clean-up everything
             try:
                 self.debug('deleting aborted session %s', session.name)
-                # Write down an audit-marker in the manifests container
+                # Write down an audit-marker in the parts container
                 # that will cause the auditor to check the status of the
-                # mpu and possibly cleanup the manifest and parts.
-                # TODO: maybe just delete the manifest and have the manifest
-                # tombstone act as a "delete marker" that triggers the auditor
-                # to delete parts. Do we need the manifest any more?
-                # TODO: maybe write a parts delete marker here too?
-                self._put_manifest_delete_marker(upload)
+                # mpu and possibly cleanup the parts.
+                self._put_part_delete_marker(upload)
                 self._delete_session(session)
             except Exception as err:  # noqa
                 self.warning('Failed to delete aborted session %s: %s',
@@ -477,9 +449,6 @@ class MpuSessionAuditor(BaseMpuAuditor):
 
     def _audit_completed_session(self, session, upload):
         try:
-            # TODO: There may be parts that were uploaded but not referenced by
-            #   the user's manifest. Figure out a way to mark parts that are
-            #   NOT in the manifest to be deleted.
             self.debug('deleting completed session %s', session.name)
             self._delete_session(session)
         except Exception as err:  # noqa
@@ -520,13 +489,10 @@ class MpuAuditor(object):
         reserved_prefix, container = safe_split_reserved_name(broker.container)
         if reserved_prefix == 'mpu_parts' or broker.path.endswith('+segments'):
             mpu_auditor_class = MpuPartMarkerAuditor
-        elif reserved_prefix == 'mpu_manifests':
-            mpu_auditor_class = MpuManifestMarkerAuditor
         elif reserved_prefix == 'mpu_sessions':
             mpu_auditor_class = MpuSessionAuditor
         else:
             mpu_auditor_class = None
-
         if mpu_auditor_class:
             mpu_auditor_class = mpu_auditor_class(
                 self.config, self.client, self.logger, broker)

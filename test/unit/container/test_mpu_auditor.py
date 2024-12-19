@@ -28,7 +28,7 @@ from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_SESSION_CREATED_CONTENT_TYPE, MPU_SESSION_COMPLETED_CONTENT_TYPE, \
     MPU_SESSION_ABORTED_CONTENT_TYPE, MPU_SESSION_COMPLETING_CONTENT_TYPE
 from swift.common.request_helpers import get_reserved_name
-from swift.common.swob import Request, HTTPOk, HTTPNoContent, HTTPCreated, \
+from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
     HTTPNotFound, HTTPAccepted, HTTPServerError
 from swift.common.utils import md5, Timestamp, decode_timestamps, \
     encode_timestamps, MD5_OF_EMPTY_STRING
@@ -73,7 +73,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.broker.initialize(put_timestamp=float(next(self.ts_iter)))
         self.server = ContainerController({'mount_check': False,
                                            'devices': self.tempdir})
-        self.upload_name = self.session_name = self.manifest_name = '/'.join(
+        self.upload_name = self.session_name = '/'.join(
             [get_reserved_name(self.obj_name),
              str(self.mpu_id)])
 
@@ -155,16 +155,6 @@ class BaseTestMpuAuditor(unittest.TestCase):
         }
         return item
 
-    def _create_manifest_spec(self, ts_data=None):
-        ts_data = ts_data or next(self.ts_iter)
-        manifest_name = '/'.join(
-            [get_reserved_name(self.obj_name),
-             str(self._make_mpu_id(self.obj_path, ts=ts_data))])
-        return self._create_item(manifest_name,
-                                 ts_data,
-                                 ctype='application/json',
-                                 size=12345)
-
     def _create_marker_spec(self, upload, ts_data=None):
         ts_data = ts_data or next(self.ts_iter)
         marker_name = '/'.join([upload, MPU_DELETED_MARKER_SUFFIX])
@@ -207,7 +197,7 @@ class TestModuleFunctions(BaseTestMpuAuditor):
         self.assertEqual(prefix,
                          extract_upload_prefix(prefix))
         self.assertEqual(prefix,
-                         extract_upload_prefix(prefix + '/manifest'))
+                         extract_upload_prefix(prefix + '/000001'))
         self.assertEqual(prefix,
                          extract_upload_prefix(prefix + '/marker-deleted'))
 
@@ -442,241 +432,16 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
         self.assertEqual(2, self.broker.get_max_row())
 
 
-class TestMpuAuditorManifests(BaseTestMpuAuditor):
-    audit_container = get_reserved_name(
-        'mpu_manifests', BaseTestMpuAuditor.user_container)
-    parts_container = get_reserved_name('mpu_parts', 'c')
-
-    def setUp(self):
-        super(TestMpuAuditorManifests, self).setUp()
-        self.manifest = self._create_manifest_spec()
-        self.marker = self._create_marker_spec(self.manifest['name'])
-        manifest_rel_path = '%s/%s' % (
-            self.audit_container, self.manifest['name'])
-        self.manifest_path = '/v1/a/%s' % manifest_rel_path
-        self.manifest_marker_path = self.manifest_path + '/marker-deleted'
-        self.part_marker_path = '%s/%s/marker-deleted' % (
-            self.parts_container, self.manifest['name'])
-
-    def test_audit_delete_marker_before_manifest(self):
-        # manifest and delete-marker rows are in db, delete-marker is found
-        # first
-        manifest_2 = self._create_manifest_spec()  # untouched
-        items = [self.marker, self.manifest, manifest_2]
-        self.put_objects(items, shuffle_order=False)
-        rows = self.broker.get_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in items]),
-                         sorted([row['name'] for row in rows]))
-
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPCreated, {}),
-            ('DELETE', self.manifest_path, HTTPNoContent, {}),
-            ('DELETE', self.manifest_marker_path, HTTPNoContent, {}),
-        ]
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows(items)
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 3})
-
-    def test_audit_delete_marker_after_manifest(self):
-        # manifest and delete-marker rows are in db, manifest is found
-        # first
-        manifest_2 = self._create_manifest_spec()  # untouched
-        items = [self.manifest, manifest_2, self.marker]
-        self.put_objects(items, shuffle_order=False)
-        rows = self.broker.get_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in items]),
-                         sorted([row['name'] for row in rows]))
-
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPCreated, {}),
-            ('DELETE', self.manifest_path, HTTPNoContent, {}),
-            ('DELETE', self.manifest_marker_path, HTTPNoContent, {}),
-        ]
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows(items)
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 3})
-
-    def test_audit_delete_marker_manifest_update_delayed(self):
-        # delete marker row is in db but manifest row is not yet in db;
-        # manifest should be deleted, parts marker is PUT and delete-marker
-        # is deleted
-        # initially only the marker row is in DB
-        self.put_objects([self.marker])
-        self.assertEqual(1, self.broker.get_max_row())  # sanity check
-
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPCreated, {}),
-            ('DELETE', self.manifest_path, HTTPNoContent, {}),
-            ('DELETE', self.manifest_marker_path, HTTPNoContent, {}),
-        ]
-
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows([self.marker])
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
-        self.assertEqual(1, self.broker.get_max_row())
-
-        # insert manifest PUT update and marker DELETE update into container;
-        # pretend the manifest DELETE update from first cycle hasn't arrived
-        # yet
-        self.delete_objects([self.marker])
-        self.put_objects([self.manifest])
-        self.assertEqual(3, self.broker.get_max_row())  # sanity check
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPCreated, {}),
-            ('DELETE', self.manifest_path, HTTPNotFound, {}),
-        ]
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows([self.manifest])
-        self._check_deleted_broker_rows([self.marker])
-        self._assert_context({'last_audit_row': 3})
-        self.assertEqual(3, self.broker.get_max_row())
-
-    def test_audit_delete_marker_part_marker_PUT_fails(self):
-        ts_marker = next(self.ts_iter)
-        marker = self._create_marker_spec(self.manifest['name'],
-                                          ts_data=ts_marker)
-        items = [self.manifest, marker]
-        self.put_objects(items)
-        self.assertEqual(2, self.broker.get_max_row())  # sanity check
-        rows = self.broker.get_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in items]),
-                         sorted([row['name'] for row in rows]))
-
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPServerError, {}),
-        ]
-        ts_now = next(self.ts_iter)
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._assert_context({'last_audit_row': 2})
-        self.assertEqual(3, self.broker.get_max_row())
-        rows = self._check_broker_rows(items)
-        # check that marker was bumped to a new row...
-        exp_marker_created_at = encode_timestamps(ts_marker, ts_marker, ts_now)
-        exp_marker = dict(marker, created_at=exp_marker_created_at)
-        self.assertEqual(exp_marker, rows[-1])
-        self._check_deleted_broker_rows([])
-
-        # next cycle will repeat attempted cleanup and delete marker
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPCreated, {}),
-            ('DELETE', self.manifest_path, HTTPNotFound, {}),
-            ('DELETE', self.manifest_marker_path, HTTPNoContent, {}),
-        ]
-        ts_now = next(self.ts_iter)
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._assert_context({'last_audit_row': 3})
-        self.assertEqual(3, self.broker.get_max_row())  # no new rows
-        self._check_broker_rows(items)
-        self._check_deleted_broker_rows([])
-
-    def test_audit_delete_marker_manifest_DELETE_fails(self):
-        ts_marker = next(self.ts_iter)
-        marker = self._create_marker_spec(
-            self.manifest['name'], ts_data=ts_marker)
-        items = [self.manifest, marker]
-        self.put_objects(items)
-        self.assertEqual(2, self.broker.get_max_row())  # sanity check
-        rows = self.broker.get_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in items]),
-                         sorted([row['name'] for row in rows]))
-
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPCreated, {}),
-            ('DELETE', self.manifest_path, HTTPServerError, {}),
-        ]
-        ts_now = next(self.ts_iter)
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._assert_context({'last_audit_row': 2})
-        self.assertEqual(3, self.broker.get_max_row())
-        rows = self._check_broker_rows(items)
-        # check that marker was bumped to a new row...
-        exp_marker_created_at = encode_timestamps(ts_marker, ts_marker, ts_now)
-        exp_marker = dict(marker, created_at=exp_marker_created_at)
-        self.assertEqual(exp_marker, rows[-1])
-        self._check_deleted_broker_rows([])
-
-        # next cycle will repeat attempted cleanup and delete marker
-        registered_calls = [
-            ('PUT', '/v1/a/' + self.part_marker_path, HTTPCreated, {}),
-            ('DELETE', self.manifest_path, HTTPNotFound, {}),
-            ('DELETE', self.manifest_marker_path, HTTPNoContent, {}),
-        ]
-        ts_now = next(self.ts_iter)
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._assert_context({'last_audit_row': 3})
-        self.assertEqual(3, self.broker.get_max_row())  # no new rows
-        self._check_broker_rows(items)
-        self._check_deleted_broker_rows([])
-
-
 class TestMpuAuditorParts(BaseTestMpuAuditor):
     audit_container = get_reserved_name(
         'mpu_parts', BaseTestMpuAuditor.user_container)
 
     def setUp(self):
         super(TestMpuAuditorParts, self).setUp()
-        part_rel_path = '%s/%s' % (
+        self.part_prefix_path = '/v1/a/%s/%s' % (
             self.audit_container, self.upload_name)
-        self.part_path = '/v1/a/%s' % part_rel_path
-        self.part_marker_path = self.part_path + '/marker-deleted'
-        self.parts = [self._create_part_spec(i) for i in range(5)]
+        self.part_marker_path = self.part_prefix_path + '/marker-deleted'
+        self.parts = [self._create_part_spec(i) for i in range(1, 6)]
         self.ts_marker = next(self.ts_iter)
         self.marker = self._create_marker_spec(
             self.upload_name, ts_data=self.ts_marker)
@@ -822,6 +587,48 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         exp_marker = dict(self.marker, created_at=exp_marker_created_at)
         self.assertEqual(exp_marker, rows[-1])
 
+    def test_audit_delete_marker_part_update_delayed(self):
+        # delete marker row is in db but part row is not yet in db;
+        # initially only the marker row is in DB
+        self.put_objects([self.marker])
+        self.assertEqual(1, self.broker.get_max_row())  # sanity check
+
+        registered_calls = [
+            ('DELETE', self.part_marker_path, HTTPNoContent, {}),
+        ]
+
+        with self._mock_internal_client(registered_calls) as fake_swift:
+            with mock.patch('swift.container.mpu_auditor.time.time',
+                            return_value=float(next(self.ts_iter))):
+                auditor = MpuAuditor({}, self.logger)
+                auditor.audit(self.broker)
+        expected_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(expected_calls, fake_swift.calls)
+        self._check_broker_rows([self.marker])
+        self._check_deleted_broker_rows([])
+        self._assert_context({'last_audit_row': 1})
+        self.assertEqual(1, self.broker.get_max_row())
+
+        # insert parts PUT update and marker DELETE update into container;
+        self.delete_objects([self.marker])
+        self.put_objects(self.parts[:1])
+        self.assertEqual(3, self.broker.get_max_row())  # sanity check
+        registered_calls = [
+            ('DELETE', '%s/%s' % (self.part_prefix_path, '000001'),
+             HTTPNotFound, {}),
+        ]
+        with self._mock_internal_client(registered_calls) as fake_swift:
+            with mock.patch('swift.container.mpu_auditor.time.time',
+                            return_value=float(next(self.ts_iter))):
+                auditor = MpuAuditor({}, self.logger)
+                auditor.audit(self.broker)
+        expected_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(expected_calls, fake_swift.calls)
+        self._check_broker_rows(self.parts[:1])
+        self._check_deleted_broker_rows([self.marker])
+        self._assert_context({'last_audit_row': 3})
+        self.assertEqual(3, self.broker.get_max_row())
+
 
 class TestMpuAuditorSessions(BaseTestMpuAuditor):
     audit_container = get_reserved_name(
@@ -833,13 +640,10 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.session_path = '/'.join(
             [self.audit_container_path,
              self.session_name])
-        self.manifest_path = '/'.join([
-            get_reserved_name('mpu_manifests', self.user_container),
-            self.manifest_name])
-        self.manifest_marker_path = '/'.join([
+        self.part_marker_path = '/'.join([
             '', 'v1', self.account,
-            get_reserved_name('mpu_manifests', self.user_container),
-            self.manifest_name, MPU_DELETED_MARKER_SUFFIX])
+            get_reserved_name('mpu_parts', self.user_container),
+            self.session_name, MPU_DELETED_MARKER_SUFFIX])
 
     def test_audit_in_progress_session(self):
         # verify that an in progress session is passed over
@@ -871,7 +675,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),  # no symlink
+            ('HEAD', self.obj_path, HTTPOk, {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
@@ -902,7 +706,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         items = [session]
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        user_obj_resp_hdrs = {}  # no symlink
+        user_obj_resp_hdrs = {}
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
         ]
@@ -922,9 +726,9 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self._check_deleted_broker_rows([])
         self._assert_context({'last_audit_row': 1})
 
-    def test_audit_completing_session_is_old_error_checking_symlink(self):
+    def test_audit_completing_session_is_old_error_checking_user_obj(self):
         # verify that an old completing session is not passed over if the
-        # symlink check failed
+        # user namespace check failed
         ts_now = Timestamp.now()
         ts_data = Timestamp(float(ts_now) - 3699)
         session = self._create_session(MPU_SESSION_COMPLETING_CONTENT_TYPE,
@@ -932,9 +736,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         items = [session]
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        user_obj_resp_hdrs = {}  # no symlink
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPServerError, user_obj_resp_hdrs),
+            ('HEAD', self.obj_path, HTTPServerError, {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
@@ -950,14 +753,14 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self._check_deleted_broker_rows([])
         self._assert_context({'last_audit_row': 1})
 
-    def test_audit_completing_session_and_mpu_is_linked(self):
+    def test_audit_completing_session_and_user_obj_is_mpu(self):
         # verify that a completing session that is found to be completed is
         # removed
         session = self._create_session(MPU_SESSION_COMPLETING_CONTENT_TYPE)
         items = [session]
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        user_obj_resp_hdrs = {'x-symlink-target': self.manifest_path}
+        user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id': self.mpu_id}
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE', self.session_path, HTTPAccepted, {}),
@@ -973,7 +776,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self._check_deleted_broker_rows([])
         self._assert_context({'last_audit_row': 1})
 
-    def test_audit_completing_session_but_is_completed_delete_fails(self):
+    def test_audit_completing_session_is_completed_but_delete_fails(self):
         # verify that a completing session that is found to be completed
         # is bumped if session delete fails
         ts_data = next(self.ts_iter)
@@ -982,7 +785,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         items = [session]
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        user_obj_resp_hdrs = {'x-symlink-target': self.manifest_path}
+        user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id': self.mpu_id}
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE', self.session_path, HTTPServerError, {}),
@@ -1026,13 +829,13 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self._check_deleted_broker_rows([])
         self._assert_context({'last_audit_row': 1})
 
-    def test_audit_aborted_session_and_mpu_is_linked(self):
-        # verify that an aborted session is converted to completed
+    def test_audit_aborted_session_and_user_obj_is_mpu(self):
+        # verify that an aborted session is cleaned up if mpu exists
         session = self._create_session(MPU_SESSION_ABORTED_CONTENT_TYPE)
         items = [session]
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        user_obj_resp_hdrs = {'x-symlink-target': self.manifest_path}
+        user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id': self.mpu_id}
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE', self.session_path, HTTPAccepted, {})
@@ -1058,7 +861,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),  # no symlink
+            ('HEAD', self.obj_path, HTTPOk, {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
@@ -1076,7 +879,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self._check_deleted_broker_rows([])
         self._assert_context({'last_audit_row': 1})
 
-    def test_audit_aborted_session_error_checking_symlink(self):
+    def test_audit_aborted_session_error_checking_user_obj(self):
         session = self._create_session(MPU_SESSION_ABORTED_CONTENT_TYPE)
         items = [session]
         self.put_objects(items)
@@ -1103,8 +906,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),  # no symlink
-            ('PUT', self.manifest_marker_path, HTTPOk, {}),
+            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('PUT', self.part_marker_path, HTTPOk, {}),
             ('DELETE', self.session_path, HTTPAccepted, {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
@@ -1119,15 +922,15 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self._check_deleted_broker_rows([])
         self._assert_context({'last_audit_row': 1})
 
-    def test_audit_aborted_session_error_putting_manifest_delete_marker(self):
+    def test_audit_aborted_session_error_putting_part_delete_marker(self):
         # verify that an aborted session older than purge_delay is cleaned up
         session = self._create_session(MPU_SESSION_ABORTED_CONTENT_TYPE)
         items = [session]
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),  # no symlink
-            ('PUT', self.manifest_marker_path, HTTPServerError, {}),
+            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('PUT', self.part_marker_path, HTTPServerError, {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             auditor = MpuAuditor({'mpu_aborted_purge_delay': 0},
@@ -1148,8 +951,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),  # no symlink
-            ('PUT', self.manifest_marker_path, HTTPOk, {}),
+            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('PUT', self.part_marker_path, HTTPOk, {}),
             ('DELETE', self.session_path, HTTPServerError, {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
@@ -1176,7 +979,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects(items)
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),  # no symlink
+            ('HEAD', self.obj_path, HTTPOk, {}),
         ]
         exp_max_row = 1
         for audit_time_offset in [0, 1000, 8600]:
@@ -1203,8 +1006,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         audit_time = now + 86400  # purge_delay in the future
         self.assertGreater(audit_time, float(ts_ctype) + 86400)  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),  # no symlink
-            ('PUT', self.manifest_marker_path, HTTPOk, {}),
+            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('PUT', self.part_marker_path, HTTPOk, {}),
             ('DELETE', self.session_path, HTTPAccepted, {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:

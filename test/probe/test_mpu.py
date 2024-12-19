@@ -352,15 +352,10 @@ class BaseTestNativeMPU(BaseTestMPU):
         sessions = self.internal_client.iter_objects(
             self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
 
-        manifests = self.internal_client.iter_objects(
-            self.account, '\x00mpu_manifests\x00%s' % container)
-
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % container)
 
-        return (filter_listing(sessions),
-                filter_listing(manifests),
-                filter_listing(parts))
+        return filter_listing(sessions), filter_listing(parts)
 
     def _make_mpu(self, part_size):
         # create
@@ -407,8 +402,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         containers = self.internal_client.iter_containers(self.account)
-        self.assertEqual(['\x00mpu_manifests\x00%s' % self.bucket_name,
-                          '\x00mpu_parts\x00%s' % self.bucket_name,
+        self.assertEqual(['\x00mpu_parts\x00%s' % self.bucket_name,
                           '\x00mpu_sessions\x00%s' % self.bucket_name,
                           self.bucket_name],
                          [c['name'] for c in containers])
@@ -443,15 +437,15 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(hash_, part_etag)
 
         # list parts internal
-        parts = self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+        parts = [part for part in self.internal_client.iter_objects(
+            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)]
         self.assertEqual(
             [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
               'hash': mock.ANY,  # might be encrypted
               'bytes': part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY}],
-            [part for part in parts])
+            parts)
 
         # list parts via mpu API
         resp_hdrs, resp_body = swiftclient.get_object(
@@ -475,18 +469,6 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertNotIn('X-Static-Large-Object', resp.headers)
         body_dict = json.loads(body)
         self.assertEqual('201 Created', body_dict['Response Status'])
-
-        # check manifest exists
-        manifests = self.internal_client.iter_objects(
-            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
-        self.assertEqual(['\x00%s/%s' % (self.mpu_name, upload_id)],
-                         [o['name'] for o in manifests])
-        manifest_meta = self.internal_client.get_object_metadata(
-            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name,
-            '\x00%s/%s' % (self.mpu_name, upload_id))
-        self.assertEqual(upload_id,
-                         manifest_meta.get('x-object-sysmeta-mpu-upload-id'),
-                         manifest_meta)
 
         # check mpu sysmeta
         mpu_meta = self.internal_client.get_object_metadata(
@@ -514,12 +496,24 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual('"%s"' % calc_s3mpu_etag(chunk_etags),
                          headers.get('etag'))
 
-        # manifest cannot be downloaded
+        # manifest cannot be downloaded by users
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 query_string='multipart-manifest=get')
         self.assertEqual(400, cm.exception.http_status)
+        # but can be downloaded by an internal client with no SLO
+        status, headers, resp_iter = self.internal_client.get_object(
+            self.account, self.bucket_name, self.mpu_name,
+            headers={'X-Object-Sysmeta-Allow-Reserved-Names': 'true'})
+        self.assertEqual(200, status)
+        exp_manifest = [dict(part,
+                             name='/\x00mpu_parts\x00%s/%s'
+                                  % (self.bucket_name, part['name']),
+                             last_modified=mock.ANY)
+                        for part in parts]
+        manifest = json.loads(b''.join(resp_iter))
+        self.assertEqual(exp_manifest, manifest)
 
         # session still exists but is marked completed
         sessions = self.internal_client.iter_objects(
@@ -553,15 +547,7 @@ class TestNativeMPU(BaseTestNativeMPU):
                 self.url, self.token, self.bucket_name, self.mpu_name)
         self.assertEqual(404, cm.exception.http_status)
 
-        # check we still have manifest, and also an audit marker for it
-        manifests = self.internal_client.iter_objects(
-            self.account, '\x00mpu_manifests\x00%s' % self.bucket_name)
-        self.assertEqual(
-            ['\x00%s/%s' % (self.mpu_name, upload_id),
-             '\x00%s/%s/marker-deleted' % (self.mpu_name, upload_id)],
-            [o['name'] for o in manifests])
-
-        # check we still have the parts
+        # check we still have the parts, and also an audit marker for it
         # list parts internal
         parts = self.internal_client.iter_objects(
             self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
@@ -570,19 +556,21 @@ class TestNativeMPU(BaseTestNativeMPU):
               'hash': mock.ANY,  # might be encrypted
               'bytes': part_size,
               'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}] +
+            [{'name': '\x00%s/%s/marker-deleted' % (self.mpu_name, upload_id),
+              'hash': mock.ANY,  # might be encrypted
+              'bytes': 0,
+              'content_type': 'application/x-mpu-marker',
               'last_modified': mock.ANY}],
             [part for part in parts])
 
         # async cleanup: once to process sessions...
         Manager(['container-auditor']).once()
-        # ...once to process manifest markers...
-        Manager(['container-auditor']).once()
         # ...once more to process any parts markers...
         Manager(['container-auditor']).once()
 
         # session, manifest and parts have gone :)
-        self.assertEqual(([], [], []),
-                         self.get_mpu_resources(self.bucket_name))
+        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
 
     def test_native_mpu_abort(self):
         # create
@@ -684,13 +672,9 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-auditor']).once()
 
         # ... so session still exists
-        sessions = self.internal_client.iter_objects(
-            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+        sessions, parts = self.get_mpu_resources(self.bucket_name)
         self.assertEqual(exp_aborted_sessions, list(sessions))
-
         # and the parts still exist
-        parts = self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
         self.assertEqual(exp_parts_internal, [part for part in parts])
 
         # a custom audit with zero purge delay will clean up the session
@@ -701,35 +685,20 @@ class TestNativeMPU(BaseTestNativeMPU):
                 conf_index, custom_conf=custom_conf)
 
         # now the session is gone
-        sessions = self.internal_client.iter_objects(
-            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+        sessions, parts = self.get_mpu_resources(self.bucket_name)
         self.assertFalse(list(sessions))
 
-        # async cleanup, once to process the manifests container markers...
-        Manager(['container-auditor']).once()
-        # ...and again to ensure generated parts markers are processed
+        # async cleanup to ensure generated parts markers are processed
         Manager(['container-auditor']).once()
 
-        # manifest and parts have gone :)
-        self.assertEqual(([], [], []),
-                         self.get_mpu_resources(self.bucket_name))
+        # parts have gone :)
+        sessions, parts = self.get_mpu_resources(self.bucket_name)
+        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
 
 
 class TestNativeMPUWithVersioning(BaseTestNativeMPU):
-    def _make_symlink(self, name):
-        # create a symlink pointing to an object in another container
-        other_bucket = self.bucket_name + '+other'
-        swiftclient.put_container(self.url, self.token, other_bucket)
-        tgt_obj_name = name + '-target'
-        swiftclient.put_object(self.url, self.token, other_bucket,
-                               tgt_obj_name, contents='target object')
-        symlink_tgt = '%s/%s' % (other_bucket, tgt_obj_name)
-        obj_headers = {'X-Symlink-Target': symlink_tgt}
-        swiftclient.put_object(self.url, self.token, self.bucket_name,
-                               name, headers=obj_headers)
-
     def test_native_mpu_delete_during_versioning(self):
-        # verify that mpu behaves same as a plain symlink w.r.t. versioning
+        # verify that mpu behaves same as a plain object w.r.t. versioning
         #   * PUT objects
         #   * enable versioning
         #   * DELETE objects - a version is retained
@@ -740,9 +709,10 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         part_size = 5 * 2 ** 20
         self._make_mpu(part_size)
 
-        # put a symlink to an object in another bucket, as a control item
+        # put an object as a control item
         obj_name = 'non-mpu-obj'
-        self._make_symlink(obj_name)
+        swiftclient.put_object(self.url, self.token, self.bucket_name,
+                               obj_name)
 
         # enable versioning
         swiftclient.post_container(self.url, self.token, self.bucket_name,
@@ -796,11 +766,10 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        self.assertEqual(([], [], []),
-                         self.get_mpu_resources(self.bucket_name))
+        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
 
     def test_native_mpu_no_overwrites_during_versioning(self):
-        # verify that mpu behaves same as a plain symlink w.r.t. versioning
+        # verify that mpu behaves same as a plain object w.r.t. versioning
         #   * PUT objects
         #   * enable versioning
         #   * disable versioning
@@ -811,9 +780,10 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         part_size = 5 * 2 ** 20
         self._make_mpu(part_size)
 
-        # put a symlink to an object in another bucket, as a control item
+        # put an object as a control item
         obj_name = 'non-mpu-obj'
-        self._make_symlink(obj_name)
+        swiftclient.put_object(self.url, self.token, self.bucket_name,
+                               obj_name)
 
         # enable versioning
         swiftclient.post_container(self.url, self.token, self.bucket_name,
@@ -849,11 +819,10 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        self.assertEqual(([], [], []),
-                         self.get_mpu_resources(self.bucket_name))
+        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
 
     def test_native_mpu_overwrite_during_and_delete_after_versioning(self):
-        # verify that mpu behaves same as a plain symlink w.r.t. versioning
+        # verify that mpu behaves same as a plain object w.r.t. versioning
         #   * PUT objects
         #   * enable versioning
         #   * overwrite objects
@@ -865,9 +834,10 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         part_size = 5 * 2 ** 20
         self._make_mpu(part_size)
 
-        # put a symlink to an object in another bucket, as a control item
+        # put an object as a control item
         obj_name = 'non-mpu-obj'
-        self._make_symlink(obj_name)
+        swiftclient.put_object(self.url, self.token, self.bucket_name,
+                               obj_name)
 
         # enable versioning
         swiftclient.post_container(self.url, self.token, self.bucket_name,
@@ -875,7 +845,8 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
 
         # put objects again
         self._make_mpu(part_size)
-        self._make_symlink(obj_name)
+        swiftclient.put_object(self.url, self.token, self.bucket_name,
+                               obj_name)
 
         # disable versioning
         swiftclient.post_container(self.url, self.token, self.bucket_name,
@@ -935,13 +906,11 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        _, manifests, parts = self.get_mpu_resources(
+        _, parts = self.get_mpu_resources(
             self.bucket_name, self.mpu_name, upload_id_0)
-        self.assertEqual(1, len(manifests))
         self.assertEqual(1, len(parts))
-        _, manifests, parts = self.get_mpu_resources(
+        _, parts = self.get_mpu_resources(
             self.bucket_name, self.mpu_name, upload_id_1)
-        self.assertEqual(1, len(manifests))
         self.assertEqual(1, len(parts))
 
         # get listing with versions
@@ -974,25 +943,21 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
                 query_string='version-id=%s' % obj_versions[self.mpu_name][1])
             self.assertEqual(404, cm.exception.http_status)
 
-        _, manifests, parts = self.get_mpu_resources(
+        _, parts = self.get_mpu_resources(
             self.bucket_name, self.mpu_name, upload_id_0)
-        # delete-marker has been written in manifests container...
-        self.assertEqual(2, len(manifests), manifests)
-        self.assertEqual(1, len(parts), parts)
-        _, manifests, parts = self.get_mpu_resources(
+        # delete-marker has been written in parts container...
+        self.assertEqual(2, len(parts), parts)
+        _, parts = self.get_mpu_resources(
             self.bucket_name, self.mpu_name, upload_id_1)
-        self.assertEqual(1, len(manifests))
         self.assertEqual(1, len(parts))
 
         # run auditor - deleted version should be cleaned up
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        _, manifests, parts = self.get_mpu_resources(
+        _, parts = self.get_mpu_resources(
             self.bucket_name, self.mpu_name, upload_id_0)
-        self.assertFalse(manifests)
         self.assertFalse(parts)
-        _, manifests, parts = self.get_mpu_resources(
+        _, parts = self.get_mpu_resources(
             self.bucket_name, self.mpu_name, upload_id_1)
-        self.assertEqual(1, len(manifests))
         self.assertEqual(1, len(parts))
