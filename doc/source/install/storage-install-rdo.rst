@@ -16,7 +16,7 @@ indicate the best performance and reliability on XFS. For
 more information on horizontally scaling your environment, see the
 `Deployment Guide <https://docs.openstack.org/swift/latest/deployment_guide.html>`_.
 
-This section applies to Red Hat Enterprise Linux 7 and CentOS 7.
+This section applies to Red Hat Enterprise Linux 9 and CentOS stream9.
 
 Prerequisites
 -------------
@@ -32,7 +32,7 @@ storage nodes, you must prepare the storage devices.
 
    .. code-block:: console
 
-      # yum install xfsprogs rsync
+      # dnf install xfsprogs rsync
 
 #. Format the ``/dev/sdb`` and ``/dev/sdc`` devices as XFS:
 
@@ -131,7 +131,7 @@ Install and configure components
 
    .. code-block:: console
 
-      # yum install openstack-swift-account openstack-swift-container \
+      # dnf install openstack-swift-account openstack-swift-container \
         openstack-swift-object
 
 2. Obtain the accounting, container, and object service configuration
