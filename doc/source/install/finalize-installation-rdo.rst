@@ -11,7 +11,7 @@ Finalize installation for Red Hat Enterprise Linux and CentOS
    snippets indicates potential default configuration options that you
    should retain.
 
-This section applies to Red Hat Enterprise Linux 7 and CentOS 7.
+This section applies to Red Hat Enterprise Linux 9 and CentOS stream9.
 
 #. Obtain the ``/etc/swift/swift.conf`` file from the Object
    Storage source repository:
