@@ -427,7 +427,8 @@ class ObjectUpdater(Daemon):
         self.interval = float(conf.get('interval', 300))
         self.container_ring = None
         self.concurrency = int(conf.get('concurrency', 8))
-        self.updater_workers = int(conf.get('updater_workers', 1))
+        self.updater_workers = config_positive_int_value(
+            conf.get('updater_workers', 1))
         if 'slowdown' in conf:
             self.logger.warning(
                 'The slowdown option is deprecated in favor of '
