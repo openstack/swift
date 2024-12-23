@@ -219,10 +219,9 @@ class MPUItem(object):
                  size=0, content_type='', etag='', deleted=0,
                  storage_policy_index=0, **kwargs):
         self._name = name
-        self.timestamp = self.meta_timestamp = meta_timestamp
+        self.meta_timestamp = meta_timestamp
         self.data_timestamp = data_timestamp or meta_timestamp
         self.ctype_timestamp = ctype_timestamp or meta_timestamp
-        self.timestamp = self.meta_timestamp  # for clarity
         self.size = size
         self.content_type = content_type
         self.etag = etag
@@ -999,9 +998,14 @@ class MPUSessionHandler(BaseMPUHandler):
         }
         manifest_headers.update(session.get_manifest_headers())
         # set the MPU etag override to be forwarded to the manifest container
+        part_prefix_path = wsgi_quote(make_relative_path(
+            self.parts_container,
+            self.reserved_obj,
+            self.upload_id))
         update_etag_override_header(
             manifest_headers, parsed_manifest.mpu_etag,
-            [('mpu_etag', parsed_manifest.mpu_etag)])
+            [('mpu_etag', parsed_manifest.mpu_etag),
+             ('mpu_link', part_prefix_path)])
         params = {'multipart-manifest': 'put', 'heartbeat': 'on'}
         manifest_req = self.make_subrequest(
             path=self.make_path(self.container, self.obj),
@@ -1252,6 +1256,8 @@ class MPUContainerHandler(BaseMPUHandler):
             for k, v in params:
                 if k == 'mpu_etag':
                     mpu_etag = v
+                elif k == 'mpu_link':
+                    continue
                 else:
                     new_params.append((k, v))
 

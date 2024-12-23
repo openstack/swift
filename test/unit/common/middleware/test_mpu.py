@@ -1304,6 +1304,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # the session timestamp's offset is preserved...
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw + 123)
+        exp_mpu_link = swob.wsgi_quote(
+            '\x00mpu_parts\x00c/%s' % self.sess_name)
         manifest_hdrs = self.app.headers[4]
         self.assertEqual(
             {'Accept': 'application/json',
@@ -1315,7 +1317,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
+                 '%s; mpu_etag=%s; mpu_link=%s'
+                 % (exp_mpu_etag, exp_mpu_etag, exp_mpu_link),
              'X-Object-Sysmeta-Container-Update-Override-Size': '0',
              'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
@@ -1402,6 +1405,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             json.loads(actual_manifest_body))
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw)
+        exp_mpu_link = swob.wsgi_quote(
+            '\x00mpu_parts\x00c/%s' % self.sess_name)
         manifest_hdrs = self.app.headers[4]
         self.assertEqual(
             {'Accept': 'application/json',
@@ -1413,7 +1418,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
+                 '%s; mpu_etag=%s; mpu_link=%s'
+                 % (exp_mpu_etag, exp_mpu_etag, exp_mpu_link),
              'X-Object-Sysmeta-Container-Update-Override-Size': '0',
              'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
@@ -2174,14 +2180,17 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(exp_calls, sorted(self.app.calls[1:]))
 
     def test_container_listing(self):
+        mpu_link = wsgi_quote(
+            '\x00mpu_manifests\x00cont/%s' % self.sess_name)
         listing = [
             # MPU
             {'name': 'a-mpu',
              'bytes': 10485760,  # SLO fixes this up from swift_bytes
              'hash': '%s; '
                      'other_mw_etag=banana; '
-                     'mpu_etag=my-mpu-etag '
-                     % MD5_OF_EMPTY_STRING,
+                     'mpu_etag=my-mpu-etag; '
+                     'mpu_link=%s'
+                     % (MD5_OF_EMPTY_STRING, mpu_link),
              'content_type': 'application/test',
              'last_modified': '2024-09-10T14:16:00.579190',
              'slo_etag': 'my-slo-etag'
