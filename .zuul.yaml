@@ -506,6 +506,12 @@
       previous_swift_version: origin/stable/2024.1
 
 - job:
+    name: swift-multinode-rolling-upgrade-dalmatian
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/2024.2
+
+- job:
     name: swift-multinode-rolling-upgrade-master
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -803,6 +809,7 @@
         - swift-multinode-rolling-upgrade-antelope
         - swift-multinode-rolling-upgrade-bobcat
         - swift-multinode-rolling-upgrade-caracal
+        - swift-multinode-rolling-upgrade-dalmatian
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
