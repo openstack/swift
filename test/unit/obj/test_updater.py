@@ -68,6 +68,10 @@ _mocked_policies = [StoragePolicy(0, 'zero', False),
                     StoragePolicy(1, 'one', True)]
 
 
+def _sorted_listdir(path):
+    return sorted(os.listdir(path))
+
+
 @patch_policies(_mocked_policies)
 class TestObjectUpdater(unittest.TestCase):
 
@@ -440,7 +444,7 @@ class TestObjectUpdater(unittest.TestCase):
             raise ValueError('%s is unmounted' % device)
         mock_check_drive.side_effect = fake_mount_check
         mock_os.path = os.path
-        mock_os.listdir = os.listdir
+        mock_os.listdir = _sorted_listdir
 
         # mount_check False
         ou = object_updater.ObjectUpdater({
@@ -528,7 +532,7 @@ class TestObjectUpdater(unittest.TestCase):
     @mock.patch('swift.obj.updater.os')
     def test_run_once_child(self, mock_os):
         mock_os.path = os.path
-        mock_os.listdir = os.listdir
+        mock_os.listdir = _sorted_listdir
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -538,7 +542,7 @@ class TestObjectUpdater(unittest.TestCase):
             'node_timeout': '15'}, logger=self.logger)
         devices = []
         NUM_DEVICES = 4
-        for i in range(NUM_DEVICES):
+        for i in range(1, NUM_DEVICES + 1):
             device = os.path.join(self.devices_dir, 'sda' + str(i))
             devices.append(device)
             async_dir = os.path.join(device, get_async_dir(POLICIES[0]))
@@ -555,7 +559,7 @@ class TestObjectUpdater(unittest.TestCase):
     @mock.patch('swift.obj.updater.os')
     def test_run_once_subsequent_children(self, mock_os):
         mock_os.path = os.path
-        mock_os.listdir = os.listdir
+        mock_os.listdir = _sorted_listdir
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -580,8 +584,8 @@ class TestObjectUpdater(unittest.TestCase):
                 ou.run_once()
 
         self.assertEqual([
-            mock.call(os.path.join(self.devices_dir, 'sda1'), 'sda1'),
             mock.call(os.path.join(self.devices_dir, 'sda0'), 'sda0'),
+            mock.call(os.path.join(self.devices_dir, 'sda1'), 'sda1'),
             mock.call(os.path.join(self.devices_dir, 'sda2'), 'sda2'),
             mock.call(os.path.join(self.devices_dir, 'sda3'), 'sda3'),
         ], mock_process.mock_calls)
@@ -589,7 +593,7 @@ class TestObjectUpdater(unittest.TestCase):
     @mock.patch('swift.obj.updater.os')
     def test_run_once_child_with_more_workers(self, mock_os):
         mock_os.path = os.path
-        mock_os.listdir = os.listdir
+        mock_os.listdir = _sorted_listdir
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -618,7 +622,7 @@ class TestObjectUpdater(unittest.TestCase):
     @mock.patch('swift.obj.updater.os')
     def test_run_once_parent_default(self, mock_os, mock_check_drive):
         mock_os.path = os.path
-        mock_os.listdir = os.listdir
+        mock_os.listdir = _sorted_listdir
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'on',
@@ -638,8 +642,8 @@ class TestObjectUpdater(unittest.TestCase):
         mock_os.wait.side_effect = [(i, 0) for i in pids]
         ou.run_once()
         self.assertEqual([
-            mock.call(self.devices_dir, 'sda1', True),
             mock.call(self.devices_dir, 'sda0', True),
+            mock.call(self.devices_dir, 'sda1', True),
         ], mock_check_drive.mock_calls)
         self.assertEqual([
             mock.call.fork(),
@@ -654,7 +658,7 @@ class TestObjectUpdater(unittest.TestCase):
                                                   mock_check_drive):
         # unpatch listdir and path
         mock_os.path = os.path
-        mock_os.listdir = os.listdir
+        mock_os.listdir = _sorted_listdir
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': '1',
@@ -674,8 +678,8 @@ class TestObjectUpdater(unittest.TestCase):
         mock_os.wait.side_effect = [(i, 0) for i in pids]
         ou.run_once()
         self.assertEqual([
-            mock.call(self.devices_dir, 'sda1', True),
             mock.call(self.devices_dir, 'sda0', True),
+            mock.call(self.devices_dir, 'sda1', True),
             mock.call(self.devices_dir, 'sda2', True),
             mock.call(self.devices_dir, 'sda3', True),
         ], mock_check_drive.mock_calls)
