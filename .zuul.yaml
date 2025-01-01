@@ -13,22 +13,6 @@
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
 - job:
-    name: swift-tox-py27
-    parent: swift-tox-base
-    nodeset: ubuntu-bionic
-    description: |
-      Run unit-tests for swift under cPython version 2.7.
-
-      Uses tox with the ``py27`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: py27
-      bindep_profile: test py27
-      python_version: 2.7
-    post-run: tools/playbooks/common/cover-post.yaml
-
-- job:
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -158,21 +142,6 @@
       python_version: '3.12'
 
 - job:
-    name: swift-tox-func-py27
-    parent: swift-tox-base
-    nodeset: ubuntu-bionic
-    description: |
-      Run functional tests for swift under cPython version 2.7.
-
-      Uses tox with the ``func`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: func
-      bindep_profile: test py27
-      python_version: 2.7
-
-- job:
     name: swift-tox-func-py312
     parent: swift-tox-base
     nodeset: ubuntu-noble
@@ -183,7 +152,7 @@
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
     vars:
-      tox_envlist: func-py3
+      tox_envlist: func
       bindep_profile: test py312
       python_version: 3.12
 
@@ -199,13 +168,13 @@
     name: swift-tox-func-encryption-py39-centos-9-stream
     parent: swift-tox-func-py39-centos-9-stream
     vars:
-      tox_envlist: func-encryption-py3
+      tox_envlist: func-encryption
 
 - job:
     name: swift-tox-func-ec-py39-centos-9-stream
     parent: swift-tox-func-py39-centos-9-stream
     vars:
-      tox_envlist: func-ec-py3
+      tox_envlist: func-ec
 
 - job:
     name: swift-tox-func-encryption-py312
@@ -217,7 +186,7 @@
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
     vars:
-      tox_envlist: func-encryption-py3
+      tox_envlist: func-encryption
 
 - job:
     name: swift-tox-func-encryption-py312-arm64
@@ -255,30 +224,6 @@
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
     vars:
-      tox_envlist: func-ec-py3
-
-- job:
-    name: swift-tox-func-encryption-py27
-    parent: swift-tox-func-py27
-    description: |
-      Run functional tests for swift under cPython version 2.7.
-
-      Uses tox with the ``func-encryption`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: func-encryption
-
-- job:
-    name: swift-tox-func-ec-py27
-    parent: swift-tox-func-py27
-    description: |
-      Run functional tests for swift under cPython version 2.7.
-
-      Uses tox with the ``func-ec`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
       tox_envlist: func-ec
 
 - job:
@@ -294,7 +239,7 @@
     vars:
       tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
-      tox_envlist: func-py3
+      tox_envlist: func
       devstack_localrc:
         SWIFT_HASH: changeme
         # We don't need multiple replicas to run purely functional tests.
@@ -515,10 +460,10 @@
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
     # This seems defensible for a l-c job
-    nodeset: ubuntu-jammy
+    nodeset: ubuntu-bionic
     vars:
-      bindep_profile: test py27
-      python_version: 2.7
+      bindep_profile: test py36
+      python_version: 3.6
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
@@ -655,26 +600,16 @@
             irrelevant-files: *docker-irrelevant-files
 
         # Unit tests
-        - swift-tox-py27:
+        - swift-tox-py36:
             irrelevant-files: &unittest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(cors|functional|probe|s3api)/.*$
-        - swift-tox-py36:
-            irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py39:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py312:
             irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests
-        - swift-tox-func-py27:
-            irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-encryption-py27:
-            irrelevant-files: *functest-irrelevant-files
-        - swift-tox-func-ec-py27:
-            irrelevant-files: *functest-irrelevant-files
-
-        # py3 functional tests
         - swift-tox-func-py312:
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-encryption-py312:
@@ -750,13 +685,9 @@
             irrelevant-files: *docker-irrelevant-files
         - swift-upload-image-py3:
             irrelevant-files: *docker-irrelevant-files
-        - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py39
         - swift-tox-py312
-        - swift-tox-func-py27
-        - swift-tox-func-encryption-py27
-        - swift-tox-func-ec-py27
         - swift-tox-func-py312
         - swift-tox-func-encryption-py312
         - swift-tox-func-ec-py312

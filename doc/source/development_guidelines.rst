@@ -81,18 +81,18 @@ To run a selected subset of unit tests with ``pytest``:
 * By default ``tox`` will run **all of the unit test** and pep8 checks listed in
   the ``tox.ini`` file ``envlist`` option. A subset of the test environments
   can be specified on the ``tox`` command line or by setting the ``TOXENV``
-  environment variable. For example, to run only the pep8 checks and python2.7
+  environment variable. For example, to run only the pep8 checks and python3
   unit tests use::
 
-    tox -e pep8,py27
+    tox -e pep8,py3
 
   or::
 
-    TOXENV=py27,pep8 tox
+    TOXENV=py3,pep8 tox
 
-  To run unit tests with python3.8::
+  To run unit tests with python3.12 specifically::
 
-    tox -e py38
+    tox -e py312
 
 .. note::
   As of ``tox`` version 2.0.0, most environment variables are not automatically
