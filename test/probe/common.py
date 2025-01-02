@@ -18,12 +18,13 @@ from __future__ import print_function
 import errno
 import gc
 import json
+from configparser import ConfigParser
+
 import mock
 import os
 from subprocess import Popen, PIPE
 import sys
 from tempfile import mkdtemp
-from textwrap import dedent
 from time import sleep, time
 from collections import defaultdict
 import unittest
@@ -51,6 +52,27 @@ ENABLED_POLICIES = [p for p in POLICIES if not p.is_deprecated]
 POLICIES_BY_TYPE = defaultdict(list)
 for p in POLICIES:
     POLICIES_BY_TYPE[p.policy_type].append(p)
+
+DEFAULT_INTERNAL_CLIENT_CONF = {
+    'DEFAULT':
+        {'swift_dir': '/etc/swift'},
+
+    'pipeline:main':
+        {'pipeline': 'catch_errors cache copy proxy-server'},
+
+    'app:proxy-server':
+        {'use': 'egg:swift#proxy',
+         'allow_account_management': True},
+
+    'filter:copy':
+        {'use': 'egg:swift#copy'},
+
+    'filter:cache':
+        {'use': 'egg:swift#memcache'},
+
+    'filter:catch_errors':
+        {'use': 'egg:swift#catch_errors'}
+}
 
 
 def get_server_number(ipport, ipport2server):
@@ -515,32 +537,14 @@ class ProbeTest(unittest.TestCase):
         else:
             os.system('sudo mount %s' % device)
 
-    def make_internal_client(self):
+    def make_internal_client(self, conf=None):
         tempdir = mkdtemp()
         try:
             conf_path = os.path.join(tempdir, 'internal_client.conf')
-            conf_body = """
-            [DEFAULT]
-            swift_dir = /etc/swift
-
-            [pipeline:main]
-            pipeline = catch_errors cache copy proxy-server
-
-            [app:proxy-server]
-            use = egg:swift#proxy
-            allow_account_management = True
-
-            [filter:copy]
-            use = egg:swift#copy
-
-            [filter:cache]
-            use = egg:swift#memcache
-
-            [filter:catch_errors]
-            use = egg:swift#catch_errors
-            """
-            with open(conf_path, 'w') as f:
-                f.write(dedent(conf_body))
+            cp = ConfigParser()
+            cp.read_dict(conf or DEFAULT_INTERNAL_CLIENT_CONF)
+            with open(conf_path, 'w') as fd:
+                cp.write(fd)
             return internal_client.InternalClient(conf_path, 'test', 1)
         finally:
             shutil.rmtree(tempdir)
