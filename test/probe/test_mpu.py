@@ -14,22 +14,27 @@
 # limitations under the License.
 import binascii
 import collections
+import copy
 import json
 import unittest
 import uuid
+from io import BytesIO
 from tempfile import mkdtemp
 import os.path
 import shutil
 import random
 
 from swift.common.manager import Manager
+from swift.common.middleware.mpu import MPUSessionHandler
+from swift.common.storage_policy import POLICIES
 from swift.common.swob import normalize_etag
 from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING
 from swift.container.auditor import ContainerAuditor
 from swiftclient import client as swiftclient, ClientException
 
 from test.probe.brain import BrainSplitter
-from test.probe.common import ReplProbeTest, ENABLED_POLICIES
+from test.probe.common import ReplProbeTest, ENABLED_POLICIES, \
+    DEFAULT_INTERNAL_CLIENT_CONF
 
 from boto3.s3.transfer import TransferConfig
 from test.s3api import get_s3_client
@@ -293,8 +298,29 @@ class BaseTestNativeMPU(BaseTestMPU):
             raise unittest.SkipTest('mpu not enabled')
 
         self.internal_client = self.make_internal_client()
+        self.mpu_internal_client = self.make_mpu_internal_client()
         # TODO: revert to superclass uuid name
         self.mpu_name = 'tempname'
+        self.sessions_container_name = \
+            '\x00mpu_sessions\x00%s' % self.bucket_name
+        self.parts_container_name = '\x00mpu_parts\x00%s' % self.bucket_name
+        self.part_size = 5 * 2 ** 20
+        swiftclient.put_container(self.url, self.token, self.bucket_name)
+
+    def make_mpu_internal_client(self):
+        conf = copy.deepcopy(DEFAULT_INTERNAL_CLIENT_CONF)
+        conf['DEFAULT']['log_name'] = 'mpu-internal-client'
+        conf['DEFAULT']['log_level'] = 'DEBUG'
+        conf['filter:mpu'] = {'use': 'egg:swift#mpu'}
+        conf['filter:slo'] = {'use': 'egg:swift#slo'}
+        conf['filter:proxy-logging'] = {'use': 'egg:swift#proxy_logging'}
+        pipeline = conf['pipeline:main']['pipeline']
+        pipeline = pipeline.split(' ')
+        pipeline.insert(pipeline.index('proxy-server'), 'slo')
+        pipeline.insert(pipeline.index('slo'), 'mpu')
+        pipeline.insert(pipeline.index('catch_errors') + 1, 'proxy-logging')
+        conf['pipeline:main']['pipeline'] = ' '.join(pipeline)
+        return self.make_internal_client(conf=conf)
 
     def post_object(self, container, obj, headers=None, query_string='',
                     body=b''):
@@ -350,10 +376,10 @@ class BaseTestNativeMPU(BaseTestMPU):
                     if (not mpu_name or item['name'].startswith(prefix))]
 
         sessions = self.internal_client.iter_objects(
-            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+            self.account, self.sessions_container_name)
 
         parts = self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % container)
+            self.account, self.parts_container_name)
 
         return filter_listing(sessions), filter_listing(parts)
 
@@ -365,7 +391,7 @@ class BaseTestNativeMPU(BaseTestMPU):
         self.assertIsNotNone(upload_id)
         self.assertEqual(202, resp.status)
         # upload part
-        part_file, hash_, chunk_etags = self.make_file(part_size, 1)
+        part_file, hash_, chunk_etags = self.make_file(self.part_size, 1)
         with open(part_file, 'rb') as fd:
             part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
@@ -386,7 +412,7 @@ class BaseTestNativeMPU(BaseTestMPU):
         # head mpu
         headers = swiftclient.head_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
-        self.assertEqual(str(part_size), headers.get('content-length'))
+        self.assertEqual(str(self.part_size), headers.get('content-length'))
         self.assertEqual('"%s"' % mpu_etag, headers.get('etag'))
         return upload_id, mpu_etag
 
@@ -395,21 +421,20 @@ class TestNativeMPU(BaseTestNativeMPU):
     def test_native_mpu(self):
         self.maxDiff = None
         # create
-        swiftclient.put_container(self.url, self.token, self.bucket_name)
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='uploads=true')
         self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         containers = self.internal_client.iter_containers(self.account)
-        self.assertEqual(['\x00mpu_parts\x00%s' % self.bucket_name,
-                          '\x00mpu_sessions\x00%s' % self.bucket_name,
+        self.assertEqual([self.parts_container_name,
+                          self.sessions_container_name,
                           self.bucket_name],
                          [c['name'] for c in containers])
 
         # list sessions internal
         sessions = self.internal_client.iter_objects(
-            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+            self.account, self.sessions_container_name)
         self.assertEqual(
             [{'name': '\x00%s/%s' % (self.mpu_name, upload_id),
               'content_type': 'application/x-mpu-session-created',
@@ -425,8 +450,7 @@ class TestNativeMPU(BaseTestNativeMPU):
                          [(o['name'], o['upload_id']) for o in listing])
 
         # upload part
-        part_size = 5 * 2 ** 20
-        part_file, hash_, chunk_etags = self.make_file(part_size, 1)
+        part_file, hash_, chunk_etags = self.make_file(self.part_size, 1)
         with open(part_file, 'rb') as fd:
             part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
@@ -438,11 +462,11 @@ class TestNativeMPU(BaseTestNativeMPU):
 
         # list parts internal
         parts = [part for part in self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)]
+            self.account, self.parts_container_name)]
         self.assertEqual(
             [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
               'hash': mock.ANY,  # might be encrypted
-              'bytes': part_size,
+              'bytes': self.part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY}],
             parts)
@@ -454,7 +478,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(
             [{'name': '%s/%s/000001' % (self.mpu_name, upload_id),
               'hash': part_etag,
-              'bytes': part_size,
+              'bytes': self.part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY}],
             json.loads(resp_body))
@@ -486,13 +510,13 @@ class TestNativeMPU(BaseTestNativeMPU):
         # head mpu
         headers = swiftclient.head_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
-        self.assertEqual(str(part_size), headers.get('content-length'))
+        self.assertEqual(str(self.part_size), headers.get('content-length'))
         self.assertEqual('"%s"' % calc_s3mpu_etag(chunk_etags),
                          headers.get('etag'))
         # download mpu
         headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
-        self.assertEqual(str(part_size), headers.get('content-length'))
+        self.assertEqual(str(self.part_size), headers.get('content-length'))
         self.assertEqual('"%s"' % calc_s3mpu_etag(chunk_etags),
                          headers.get('etag'))
 
@@ -517,7 +541,7 @@ class TestNativeMPU(BaseTestNativeMPU):
 
         # session still exists but is marked completed
         sessions = self.internal_client.iter_objects(
-            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+            self.account, self.sessions_container_name)
         self.assertEqual(
             [{'name': '\x00%s/%s' % (self.mpu_name, upload_id),
               'content_type': 'application/x-mpu-session-completed',
@@ -550,14 +574,14 @@ class TestNativeMPU(BaseTestNativeMPU):
         # check we still have the parts, and also an audit marker for it
         # list parts internal
         parts = self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+            self.account, self.parts_container_name)
         self.assertEqual(
             [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
               'hash': mock.ANY,  # might be encrypted
-              'bytes': part_size,
+              'bytes': self.part_size,
               'content_type': 'application/octet-stream',
-              'last_modified': mock.ANY}] +
-            [{'name': '\x00%s/%s/marker-deleted' % (self.mpu_name, upload_id),
+              'last_modified': mock.ANY},
+             {'name': '\x00%s/%s/marker-deleted' % (self.mpu_name, upload_id),
               'hash': mock.ANY,  # might be encrypted
               'bytes': 0,
               'content_type': 'application/x-mpu-marker',
@@ -574,7 +598,6 @@ class TestNativeMPU(BaseTestNativeMPU):
 
     def test_native_mpu_abort(self):
         # create
-        swiftclient.put_container(self.url, self.token, self.bucket_name)
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='uploads=true')
         self.assertEqual(202, resp.status)
@@ -588,8 +611,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(['application/x-mpu-session-created'],
                          [o['content_type'] for o in listing])
         # upload part
-        part_size = 5 * 2 ** 20
-        part_file, hash_, chunk_etags = self.make_file(part_size, 1)
+        part_file, hash_, chunk_etags = self.make_file(self.part_size, 1)
         with open(part_file, 'rb') as fd:
             part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
@@ -603,7 +625,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(
             [{'name': '%s/%s/000001' % (self.mpu_name, upload_id),
               'hash': part_etag,
-              'bytes': part_size,
+              'bytes': self.part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY}],
             json.loads(resp_body))
@@ -646,12 +668,12 @@ class TestNativeMPU(BaseTestNativeMPU):
         exp_parts_internal = [
             {'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
              'hash': mock.ANY,  # might be encrypted
-             'bytes': part_size,
+             'bytes': self.part_size,
              'content_type': 'application/octet-stream',
              'last_modified': mock.ANY}
         ]
         parts = self.internal_client.iter_objects(
-            self.account, '\x00mpu_parts\x00%s' % self.bucket_name)
+            self.account, self.parts_container_name)
         self.assertEqual(exp_parts_internal, [part for part in parts])
 
         # session still exists but is marked aborted
@@ -663,7 +685,7 @@ class TestNativeMPU(BaseTestNativeMPU):
              'last_modified': mock.ANY}
         ]
         sessions = self.internal_client.iter_objects(
-            self.account, '\x00mpu_sessions\x00%s' % self.bucket_name)
+            self.account, self.sessions_container_name)
         self.assertEqual(exp_aborted_sessions, list(sessions))
 
         # immediate audit(s) will pass over the aborted session
@@ -692,8 +714,128 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-auditor']).once()
 
         # parts have gone :)
-        sessions, parts = self.get_mpu_resources(self.bucket_name)
         self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
+
+    def test_native_mpu_concurrent_complete_on_handoff(self):
+        # verify that if two concurrent completeUploads both succeed in writing
+        # different manifests on different nodes then, after replication, the
+        # most recent completeUpload is retained
+        obj_brain = BrainSplitter(
+            self.url, self.token, container_name=self.bucket_name,
+            object_name=self.mpu_name, server_type='object',
+            policy=POLICIES.default)
+        resp, body = self.post_object(self.bucket_name, self.mpu_name,
+                                      query_string='uploads=true')
+        self.assertEqual(202, resp.status)
+        upload_id = resp.headers.get('X-Upload-Id')
+
+        # upload part
+        part_file, hash_, chunk_etags_1 = self.make_file(self.part_size, 1)
+        with open(part_file, 'rb') as fd:
+            part_etag_1 = swiftclient.put_object(
+                self.url, self.token, self.bucket_name, self.mpu_name,
+                contents=fd,
+                query_string='upload-id=%s&part-number=1' % upload_id)
+        part_file, hash_, chunk_etags_2 = self.make_file(99, 1)
+        with open(part_file, 'rb') as fd:
+            part_etag_2 = swiftclient.put_object(
+                self.url, self.token, self.bucket_name, self.mpu_name,
+                contents=fd,
+                query_string='upload-id=%s&part-number=2' % upload_id)
+
+        # concurrent completes
+        mpu_path = self.mpu_internal_client.make_path(
+            self.account, self.bucket_name, self.mpu_name)
+
+        orig_post_session_completed = MPUSessionHandler._post_session_completed
+        orig_put_manifest = MPUSessionHandler._put_manifest
+        completes = 0
+        downloads = []
+
+        def mock_put_manifest(*args, **kwargs):
+            # each completeUpload writes manifest to a different set of nodes
+            if completes == 0:
+                obj_brain.stop_handoff_half()
+            else:
+                obj_brain.stop_primary_half()
+            result = orig_put_manifest(*args, **kwargs)
+            if completes == 0:
+                obj_brain.start_handoff_half()
+            else:
+                obj_brain.start_primary_half()
+            return result
+
+        def mock_post_session_completed(*args, **kwargs):
+            downloads.append(swiftclient.get_object(
+                self.url, self.token, self.bucket_name, self.mpu_name))
+            nonlocal completes
+            completes += 1
+            if completes == 1:
+                # send another completeUpload before the first updates the
+                # session object, with a different manifest
+                manifest = [{'part_number': 2, 'etag': part_etag_2}]
+                resp = self.mpu_internal_client.make_request(
+                    'POST', mpu_path, headers={}, acceptable_statuses=[202],
+                    body_file=BytesIO(json.dumps(manifest).encode('ascii')),
+                    params={'upload-id': upload_id})
+                body_dict = json.loads(resp.body)
+                self.assertEqual('201 Created', body_dict['Response Status'])
+            return orig_post_session_completed(*args, **kwargs)
+
+        with mock.patch(
+                'swift.common.middleware.mpu.MPUSessionHandler.'
+                '_put_manifest', mock_put_manifest), \
+                mock.patch(
+                    'swift.common.middleware.mpu.MPUSessionHandler.'
+                    '_post_session_completed', mock_post_session_completed):
+            manifest = [{'part_number': 1, 'etag': part_etag_1}]
+            resp = self.mpu_internal_client.make_request(
+                'POST', mpu_path, headers={}, acceptable_statuses=[202],
+                body_file=BytesIO(json.dumps(manifest).encode('ascii')),
+                params={'upload-id': upload_id})
+            body_dict = json.loads(resp.body)
+            self.assertEqual('201 Created', body_dict['Response Status'])
+
+        # check the downloads...
+        exp_etags = ['"%s"' % calc_s3mpu_etag(chunk_etags_1),
+                     '"%s"' % calc_s3mpu_etag(chunk_etags_2)]
+        self.assertEqual(
+            [str(self.part_size), '99'],
+            [headers.get('content-length') for headers, body in downloads])
+        self.assertEqual(
+            exp_etags, [headers.get('etag') for headers, body in downloads])
+
+        # list mpus to check the session is completed
+        resp_hdrs, listing = swiftclient.get_container(
+            self.url, self.token, self.bucket_name, query_string='uploads')
+        self.assertFalse(listing)
+
+        # run daemons to check that the mpu parts are *not* cleaned up
+        Manager(['object-replicator']).once()
+        Manager(['object-replicator']).once()
+        Manager(['container-auditor']).once()
+        Manager(['container-auditor']).once()
+
+        sessions, parts = self.get_mpu_resources(self.bucket_name)
+        self.assertFalse(sessions)
+        self.assertEqual(
+            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+              'hash': mock.ANY,  # might be encrypted
+              'bytes': self.part_size,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY},
+             {'name': '\x00%s/%s/000002' % (self.mpu_name, upload_id),
+              'hash': mock.ANY,  # might be encrypted
+              'bytes': 99,
+              'content_type': 'application/octet-stream',
+              'last_modified': mock.ANY}],
+            [part for part in parts])
+
+        # check mpu is still intact
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual('99', headers.get('content-length'))
+        self.assertEqual(exp_etags[1], headers.get('etag'))
 
 
 class TestNativeMPUWithVersioning(BaseTestNativeMPU):
@@ -705,9 +847,7 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         #   * DELETE object version - nothing retained
 
         # put an mpu
-        swiftclient.put_container(self.url, self.token, self.bucket_name)
-        part_size = 5 * 2 ** 20
-        self._make_mpu(part_size)
+        self._make_mpu(self.part_size)
 
         # put an object as a control item
         obj_name = 'non-mpu-obj'
@@ -776,9 +916,7 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         #   * DELETE objects - no version is retained
 
         # put an mpu
-        swiftclient.put_container(self.url, self.token, self.bucket_name)
-        part_size = 5 * 2 ** 20
-        self._make_mpu(part_size)
+        self._make_mpu(self.part_size)
 
         # put an object as a control item
         obj_name = 'non-mpu-obj'
@@ -830,9 +968,7 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         #   * DELETE objects - 2 versions retained
 
         # put an mpu
-        swiftclient.put_container(self.url, self.token, self.bucket_name)
-        part_size = 5 * 2 ** 20
-        self._make_mpu(part_size)
+        self._make_mpu(self.part_size)
 
         # put an object as a control item
         obj_name = 'non-mpu-obj'
@@ -844,7 +980,7 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
                                    headers={'x-versions-enabled': 'true'})
 
         # put objects again
-        self._make_mpu(part_size)
+        self._make_mpu(self.part_size)
         swiftclient.put_object(self.url, self.token, self.bucket_name,
                                obj_name)
 
@@ -889,9 +1025,7 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         #   * DELETE object version - nothing retained for that version
 
         # put an mpu
-        swiftclient.put_container(self.url, self.token, self.bucket_name)
-        part_size = 5 * 2 ** 20
-        upload_id_0, _ = self._make_mpu(part_size)
+        upload_id_0, _ = self._make_mpu(self.part_size)
 
         # enable versioning
         swiftclient.post_container(self.url, self.token, self.bucket_name,
@@ -899,8 +1033,7 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
 
         # put an mpu again
         swiftclient.put_container(self.url, self.token, self.bucket_name)
-        part_size = 5 * 2 ** 20
-        upload_id_1, _ = self._make_mpu(part_size)
+        upload_id_1, _ = self._make_mpu(self.part_size)
 
         # run auditor - nothing should be cleaned up
         for i in range(2):

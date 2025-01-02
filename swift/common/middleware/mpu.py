@@ -981,8 +981,11 @@ class MPUSessionHandler(BaseMPUHandler):
 
     def _put_manifest(self, session, parsed_manifest):
         # create manifest in hidden container
+        offset = self.req.timestamp.raw - session.data_timestamp.raw
+        offset += session.data_timestamp.offset
+        ts_complete = Timestamp(session.data_timestamp, offset=offset)
         manifest_headers = {
-            'X-Timestamp': session.data_timestamp.internal,
+            'X-Timestamp': ts_complete.internal,
             'Accept': 'application/json',
             get_container_update_override_key('size'): '0',
             ALLOW_RESERVED_NAMES: 'true',
@@ -1014,6 +1017,23 @@ class MPUSessionHandler(BaseMPUHandler):
         self.logger.debug('mpu manifest PUT %s %s',
                           manifest_req.path, dict(manifest_req.headers))
         return manifest_req.get_response(self.app), slo_callback_handler
+
+    def _post_session_completing(self, session):
+        # Set session state to completing; this will cause the auditor to
+        # periodically check if the user object has been linked to the mpu
+        # resources, in case the later POST to set session state to completed
+        # fails.
+        session.timestamp = self.req.timestamp
+        session.set_completing(self.req.timestamp)
+        return self._post_session(session)
+
+    def _post_session_completed(self, session):
+        # TODO: ideally use req.timestamp for this POST (but we
+        #   already burnt that for the state=completing POST);
+        #   figure out timestamp progression
+        session.set_completed(Timestamp.now())
+        sess_resp = self._post_session(session)
+        drain_and_close(sess_resp)
 
     def _make_complete_upload_resp_iter(self, session, parsed_manifest):
         def response_iter():
@@ -1048,11 +1068,7 @@ class MPUSessionHandler(BaseMPUHandler):
 
             manifest_resp_status = body_dict.get('Response Status')
             if manifest_resp_status == '201 Created':
-                # TODO: ideally use req.timestamp for this POST (but we
-                #   already burnt that for the state=completing POST);
-                #   figure out timestamp progression
-                session.set_completed(Timestamp.now())
-                self._post_session(session)
+                self._post_session_completed(session)
                 # report success to the user whatever the result of the
                 # session POST; the auditor will detect that the user obj
                 # was linked to the manifest
@@ -1108,9 +1124,7 @@ class MPUSessionHandler(BaseMPUHandler):
         # periodically check if the user object has been linked to the mpu
         # resources, in case the later POST to set session state to completed
         # fails.
-        session.timestamp = self.req.timestamp
-        session.set_completing(self.req.timestamp)
-        sess_resp = self._post_session(session)
+        sess_resp = self._post_session_completing(session)
         drain_and_close(sess_resp)
         if not sess_resp.is_success:
             return self.translate_error_response(sess_resp)

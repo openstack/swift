@@ -236,7 +236,10 @@ class ObjectVersioningContext(WSGIContext):
         return get_reserved_name('versions', container_name)
 
     def _build_versions_object_name(self, object_name, ts):
-        inv = ~Timestamp(ts)
+        # Drop any offset from ts. Timestamp offsets are never exposed to
+        # clients, so Timestamp.normal is sufficient to define a version as
+        # perceived by clients.
+        inv = ~Timestamp(Timestamp(ts).normal)
         return get_reserved_name(object_name, inv.internal)
 
     def _split_version_from_name(self, versioned_name):

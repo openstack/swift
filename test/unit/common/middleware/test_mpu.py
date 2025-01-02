@@ -1234,6 +1234,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_complete_mpu(self):
         ts_session = next(self.ts_iter)
+        ts_session.offset = 123
         self._setup_mpu_existence_check_call(ts_session)
         ts_complete = next(self.ts_iter)
         put_slo_resp_body = {'Response Status': '201 Created',
@@ -1300,6 +1301,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              {"path": "\x00mpu_parts\x00c/%s/000002" % self.sess_name,
               "etag": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
             json.loads(actual_manifest_body))
+        # the session timestamp's offset is preserved...
+        exp_put_ts = Timestamp(ts_session,
+                               offset=ts_complete.raw - ts_session.raw + 123)
         manifest_hdrs = self.app.headers[4]
         self.assertEqual(
             {'Accept': 'application/json',
@@ -1317,7 +1321,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
              'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
              'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
-             'X-Timestamp': ts_session.internal},
+             'X-Timestamp': exp_put_ts.internal},
             manifest_hdrs)
 
         session_hdrs = self.app.headers[5]
@@ -1396,6 +1400,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              {"path": "\x00mpu_parts\x00c/%s/000003" % self.sess_name,
               "etag": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
             json.loads(actual_manifest_body))
+        exp_put_ts = Timestamp(ts_session,
+                               offset=ts_complete.raw - ts_session.raw)
         manifest_hdrs = self.app.headers[4]
         self.assertEqual(
             {'Accept': 'application/json',
@@ -1413,7 +1419,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
              'X-Object-Sysmeta-Mpu-Upload-Id': str(self.mpu_id),
              'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '3',
-             'X-Timestamp': ts_session.internal},
+             'X-Timestamp': exp_put_ts.internal},
             manifest_hdrs)
 
         session_hdrs = self.app.headers[5]

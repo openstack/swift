@@ -635,6 +635,64 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         for k, v in symlink_expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
+    def test_PUT_overwrite_x_timestamp_with_offset(self):
+        ts_put = next(self.ts)
+        exp_version = (~ts_put).internal
+        # make the PUT request with an offset timestamp...
+        ts_put.offset = 123
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {
+            SYSMETA_VERSIONS_SYMLINK: 'true',
+            TGT_OBJ_SYSMETA_SYMLINK_HDR: 'c-unique/whatever'}, '')
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_version),
+            swob.HTTPCreated, {}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'X-Timestamp': ts_put.internal,
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 2)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(['OV', 'OV', 'OV'], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT', self.build_versions_path(
+                obj='o', version=exp_version)),
+            ('PUT', '/v1/a/c/o'),
+        ])
+
+        calls = self.app.calls_with_headers
+        self.assertIn('X-Newest', calls[0].headers)
+        self.assertEqual('True', calls[0].headers['X-Newest'])
+
+        version_put_headers = self.app._calls[-2].headers
+        self.assertEqual(ts_put.internal, version_put_headers['X-Timestamp'])
+        symlink_expected_headers = {
+            'X-Timestamp': utils.Timestamp(ts_put, offset=1).internal,
+            SYMLOOP_EXTEND: 'true',
+            ALLOW_RESERVED_NAMES: 'true',
+            TGT_OBJ_SYSMETA_SYMLINK_HDR:
+            self.build_symlink_path('c', 'o', exp_version),
+            'x-object-sysmeta-symlink-target-etag': md5(
+                put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
+            'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
+        }
+        symlink_put_headers = self.app._calls[-1].headers
+        for k, v in symlink_expected_headers.items():
+            self.assertEqual(symlink_put_headers[k], v)
+
     def test_POST(self):
         self.app.register(
             'POST',
@@ -1065,6 +1123,77 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
             self.build_symlink_path('c', 'o', '9999998765.99999'),
+            'x-object-sysmeta-symlink-target-etag': md5(
+                put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
+            'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
+        }
+        symlink_put_headers = self.app._calls[-1].headers
+        for k, v in expected_headers.items():
+            self.assertEqual(symlink_put_headers[k], v)
+
+    def test_PUT_overwrite_object_with_data_timestamp_offset(self):
+        # existing object that will be copied to versions container has
+        # data timestamp with offset
+        ts_data_existing = next(self.ts)
+        ts_meta_existing = next(self.ts)
+        # the meta timestamp without offset is used to construct the version id
+        exp_vers_existing = (~ts_meta_existing).internal
+        ts_meta_existing.offset = 123
+        ts_put = next(self.ts)
+        exp_vers_put = (~ts_put).internal
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            {'x-backend-data-timestamp': ts_data_existing.internal,
+             'x-backend-timestamp': ts_meta_existing.internal,
+             'x-timestamp': ts_meta_existing.normal,
+             'last-modified': 'Thu, 1 Jan 1970 00:01:00 GMT'},
+            'passed')
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_vers_existing),
+            swob.HTTPCreated, {}, 'passed')
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_vers_put),
+            swob.HTTPCreated, {}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'X-Timestamp': ts_put.internal,
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        # authorized twice because of pre-flight check on PUT
+        self.assertEqual(len(self.authorized), 2)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(['OV', 'OV', 'OV', 'OV'], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
+
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT',
+             self.build_versions_path(obj='o', version=exp_vers_existing)),
+            ('PUT',
+             self.build_versions_path(obj='o', version=exp_vers_put)),
+            ('PUT', '/v1/a/c/o'),
+        ])
+
+        calls = self.app.calls_with_headers
+        self.assertIn('X-Newest', calls[0].headers)
+        self.assertEqual('True', calls[0].headers['X-Newest'])
+
+        expected_headers = {
+            TGT_OBJ_SYSMETA_SYMLINK_HDR:
+            self.build_symlink_path('c', 'o', exp_vers_put),
             'x-object-sysmeta-symlink-target-etag': md5(
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
