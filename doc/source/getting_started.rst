@@ -11,7 +11,7 @@ most Linux platforms.
 
 Swift is written in Python and has these dependencies:
 
-* Python (2.7 or 3.6-3.10)
+* Python (3.6-3.12)
 * rsync 3.x
 * `liberasurecode <https://opendev.org/openstack/liberasurecode/>`__
 * The Python packages listed in `the requirements file <https://github.com/openstack/swift/blob/master/requirements.txt>`__

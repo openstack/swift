@@ -836,14 +836,17 @@ class TestReconSuccess(TestCase):
         self.assertEqual(rv, {"container_updater_sweep": 18.476239919662476})
 
     def test_get_updater_info_object(self):
-        from_cache_response = {"object_updater_sweep": 0.79848217964172363}
+        from_cache_response = {"object_updater_sweep": 0.79848217964172363,
+                               "object_updater_last": 1357969645.25}
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_updater_info('object')
         self.assertEqual(self.fakecache.fakeout_calls,
-                         [((['object_updater_sweep', 'object_updater_stats'],
+                         [((['object_updater_sweep', 'object_updater_stats',
+                             'object_updater_last'],
                             self._full_recon_path('object')), {})])
-        self.assertEqual(rv, {"object_updater_sweep": 0.79848217964172363})
+        self.assertEqual(rv, {"object_updater_sweep": 0.79848217964172363,
+                              "object_updater_last": 1357969645.25})
 
     def test_get_updater_info_unrecognized(self):
         rv = self.app.get_updater_info('unrecognized_recon_type')

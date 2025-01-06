@@ -17,17 +17,13 @@ libxslt-devel [platform:rpm]
 libxslt1-dev [platform:dpkg]
 libxslt-dev [platform:apk]
 memcached
-python-dev [py27 platform:dpkg platform:apk !platform:ubuntu-jammy]
-python-devel [py27 platform:rpm]
 python3-dev [platform:dpkg platform:apk test]
-python3-devel [platform:rpm !py27 test]
+python3-devel [platform:rpm test]
 # python3-devel does not pull in the python3 package on openSUSE so
 # we need to be explicit. The python3 package contains the XML module
-# which is required by a python3 virtualenv. Similarly, in python2,
-# the XML module is located in python-xml which is not pulled in
-# by python-devel as well. See https://bugzilla.suse.com/show_bug.cgi?id=1046990
+# which is required by a python3 virtualenv.
+# See https://bugzilla.suse.com/show_bug.cgi?id=1046990
 python3 [platform:suse platform:apk test]
-python-xml [platform:suse]
 rsync
 xfsprogs
 libssl-dev [platform:dpkg]

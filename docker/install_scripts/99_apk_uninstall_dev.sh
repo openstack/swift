@@ -13,6 +13,5 @@ apk del g++
 apk del libffi-dev
 apk del libxslt-dev
 apk del libxml2-dev
-apk del python2-dev || :
 apk del python3-dev
 rm -rf /var/cache/apk/*

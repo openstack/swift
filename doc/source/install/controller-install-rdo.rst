@@ -12,7 +12,7 @@ Additionally, you can install and configure the proxy service on multiple
 nodes to increase performance and redundancy. For more information, see the
 `Deployment Guide <https://docs.openstack.org/swift/latest/deployment_guide.html>`__.
 
-This section applies to Red Hat Enterprise Linux 7 and CentOS 7.
+This section applies to Red Hat Enterprise Linux 9 and CentOS stream9.
 
 .. include:: controller-common_prerequisites.txt
 
@@ -31,8 +31,8 @@ Install and configure components
 
    .. code-block:: console
 
-      # yum install openstack-swift-proxy python-swiftclient \
-        python-keystoneclient python-keystonemiddleware \
+      # dnf install openstack-swift-proxy python3-swiftclient \
+        python3-keystoneclient python3-keystonemiddleware \
         memcached
 
    .. note::

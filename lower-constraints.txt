@@ -12,11 +12,11 @@ cffi==1.11.5
 chardet==3.0.4
 cliff==2.11.0
 cmd2==0.8.1
-coverage==5.0.4
+coverage==5.2.1
 cryptography==2.0.2
 debtcollector==1.19.0
 dnspython==1.15.0
-docutils==0.11
+docutils==0.15
 dulwich==0.19.0
 enum-compat==0.0.2
 eventlet==0.25.0
@@ -25,11 +25,10 @@ fixtures==3.0.0
 future==0.16.0
 gitdb2==2.0.3
 GitPython==2.1.8
-greenlet==0.3.2
+greenlet==0.3.3
 idna==2.6
 imagesize==1.0.0
 iso8601==0.1.12
-ipaddress==1.0.16
 Jinja2==2.10
 keystoneauth1==3.4.0
 keystonemiddleware==4.17.0
@@ -40,8 +39,8 @@ mock==3.0
 monotonic==1.4
 msgpack==0.5.6
 netaddr==0.7.19
-netifaces==0.8
-oslo.config==4.0.0
+netifaces==0.10.4
+oslo.config==5.2.0
 oslo.i18n==3.20.0
 oslo.log==3.22.0
 oslo.serialization==2.25.0
@@ -57,7 +56,7 @@ pyparsing==2.2.0
 pyperclip==1.6.0
 pytest==4.6.11
 pytest-cov==2.12.1
-python-keystoneclient==2.0.0
+python-keystoneclient==3.19.0
 python-mimeparse==1.6.0
 python-subunit==1.2.0
 python-swiftclient==3.2.0
@@ -77,6 +76,6 @@ unittest2==1.1.0
 urllib3==1.22
 voluptuous==0.11.1
 wrapt==1.10.11
-xattr==0.4
+xattr==0.7.2
 pycadf===2.10.0
 python-dateutil===2.4.2

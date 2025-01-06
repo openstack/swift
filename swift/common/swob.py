@@ -740,7 +740,7 @@ class Accept(object):
     """
 
     # RFC 2616 section 2.2
-    token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'
+    token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'  # nosec B105
     qdtext = r'[^"]'
     quoted_pair = r'(?:\\.)'
     quoted_string = r'"(?:' + qdtext + r'|' + quoted_pair + r')*"'

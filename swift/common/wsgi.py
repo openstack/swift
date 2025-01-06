@@ -1026,7 +1026,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             if hasattr(os, 'set_inheritable'):
                 # See https://www.python.org/dev/peps/pep-0446/
                 os.set_inheritable(write_fd, True)
-            os.execv(myself, sys.argv)
+            os.execv(myself, sys.argv)  # nosec B606
             logger.error('Somehow lived past os.execv()?!')
             exit('Somehow lived past os.execv()?!')
         elif child_pid == 0:
