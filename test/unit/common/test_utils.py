@@ -7692,88 +7692,82 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
 class TestTimingStatsDecorators(unittest.TestCase):
     def test_timing_stats(self):
         class MockController(object):
-            def __init__(self, status):
-                self.status = status
-                with mock.patch(
-                        'swift.common.statsd_client.StatsdClient',
-                        FakeStatsdClient):
-                    self.logger = utils.get_logger({}, 'name')
+            def __init__(mock_self, status):
+                mock_self.status = status
+                mock_self.logger = debug_logger()
 
-        @utils.timing_stats()
-        def METHOD(controller):
-            return Response(status=controller.status)
+            @utils.timing_stats()
+            def METHOD(mock_self):
+                return Response(status=mock_self.status)
 
         now = time.time()
         mock_controller = MockController(200)
         with mock.patch('swift.common.utils.time.time', return_value=now):
-            METHOD(mock_controller)
+            mock_controller.METHOD()
         self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.logger.statsd_client.calls)
+                         mock_controller.logger.statsd_client.calls)
 
         mock_controller = MockController(400)
         with mock.patch('swift.common.utils.time.time', return_value=now):
-            METHOD(mock_controller)
+            mock_controller.METHOD()
         self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.logger.statsd_client.calls)
+                         mock_controller.logger.statsd_client.calls)
 
         mock_controller = MockController(404)
         with mock.patch('swift.common.utils.time.time', return_value=now):
-            METHOD(mock_controller)
+            mock_controller.METHOD()
         self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.logger.statsd_client.calls)
+                         mock_controller.logger.statsd_client.calls)
 
         mock_controller = MockController(412)
         with mock.patch('swift.common.utils.time.time', return_value=now):
-            METHOD(mock_controller)
+            mock_controller.METHOD()
         self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.logger.statsd_client.calls)
+                         mock_controller.logger.statsd_client.calls)
 
         mock_controller = MockController(416)
         with mock.patch('swift.common.utils.time.time', return_value=now):
-            METHOD(mock_controller)
+            mock_controller.METHOD()
         self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.logger.statsd_client.calls)
+                         mock_controller.logger.statsd_client.calls)
 
         mock_controller = MockController(500)
         with mock.patch('swift.common.utils.time.time', return_value=now):
-            METHOD(mock_controller)
+            mock_controller.METHOD()
         self.assertEqual(
             {'timing_since': [(('METHOD.errors.timing', now), {})]},
-            mock_controller.logger.logger.statsd_client.calls)
+            mock_controller.logger.statsd_client.calls)
 
         mock_controller = MockController(507)
         with mock.patch('swift.common.utils.time.time', return_value=now):
-            METHOD(mock_controller)
+            mock_controller.METHOD()
         self.assertEqual(
             {'timing_since': [(('METHOD.errors.timing', now), {})]},
-            mock_controller.logger.logger.statsd_client.calls)
+            mock_controller.logger.statsd_client.calls)
 
     def test_memcached_timing_stats(self):
         class MockMemcached(object):
-            def __init__(self):
-                with mock.patch(
-                        'swift.common.statsd_client.StatsdClient',
-                        FakeStatsdClient):
-                    self.logger = utils.get_logger({}, 'name')
+            def __init__(mock_self):
+                mock_self.logger = debug_logger()
 
-        @utils.memcached_timing_stats()
-        def set(cache):
-            pass
+            @utils.memcached_timing_stats()
+            def set(mock_self):
+                pass
 
-        @utils.memcached_timing_stats()
-        def get(cache):
-            pass
+            @utils.memcached_timing_stats()
+            def get(mock_self):
+                pass
 
         mock_cache = MockMemcached()
         with patch('time.time', return_value=1000.99):
-            set(mock_cache)
-            self.assertEqual(
-                {'timing_since': [(('memcached.set.timing', 1000.99), {})]},
-                mock_cache.logger.logger.statsd_client.calls)
+            mock_cache.set()
+        self.assertEqual(
+            {'timing_since': [(('memcached.set.timing', 1000.99), {})]},
+            mock_cache.logger.statsd_client.calls)
 
         mock_cache = MockMemcached()
         with patch('time.time', return_value=2000.99):
-            get(mock_cache)
-            self.assertEqual(
-                {'timing_since': [(('memcached.get.timing', 2000.99), {})]},
-                mock_cache.logger.logger.statsd_client.calls)
+            mock_cache.get()
+        self.assertEqual(
+            {'timing_since': [(('memcached.get.timing', 2000.99), {})]},
+            mock_cache.logger.statsd_client.calls)
