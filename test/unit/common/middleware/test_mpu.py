@@ -16,7 +16,7 @@ import binascii
 import contextlib
 import json
 import unittest
-from six.moves import urllib
+import urllib
 
 import mock
 

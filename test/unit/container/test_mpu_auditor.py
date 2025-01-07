@@ -114,10 +114,6 @@ class BaseTestMpuAuditor(unittest.TestCase):
             method='PUT', headers=headers)
         resp = self.make_request(req)
         self.assertEqual(201, resp.status_int, resp.body)
-        # On py2 the broker has a nasty habit of re-ordering batches of
-        # pending updates before merging; to make tests more deterministic,
-        # use get_info() to flush the pending file after every PUT
-        self.broker.get_info()
 
     def put_objects(self, objects, shuffle_order=True):
         # PUT object updates to container in random order
@@ -126,6 +122,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
             objects = random.sample(objects, k=len(objects))
         for obj in objects:
             self.put_object(obj)
+        self.broker.get_info()
 
     def delete_object(self, obj):
         ts = next(self.ts_iter)

@@ -16,8 +16,6 @@ import binascii
 import json
 from collections import namedtuple
 
-import six
-
 from swift.common import swob, constraints
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
@@ -1043,8 +1041,7 @@ class MPUSessionHandler(BaseMPUHandler):
                 yield json.dumps(
                     {'Response Status': '503 Service Unavailable',
                      'Response Body':
-                         manifest_resp.body.decode('utf-8', errors='replace')
-                         if six.PY3 else manifest_resp.body}
+                         manifest_resp.body.decode('utf-8', errors='replace')}
                 ).encode('ascii')
                 return
 

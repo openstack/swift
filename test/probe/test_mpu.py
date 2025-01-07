@@ -175,8 +175,6 @@ class TestS3MPU(BaseTestS3MPU):
 
         # s3 listing has correct bytes
         resp = self.s3.list_objects(Bucket=self.bucket_name)
-        # note: with PY2 the args order (expected, actual) is significant for
-        # mock.ANY == datetime(...) to be true
         self.assertEqual([{
             u'ETag': '"%s"' % exp_etag,
             u'Key': self.mpu_name,
