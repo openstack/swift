@@ -137,13 +137,14 @@ class MpuAuditorConfig(object):
 class BaseMpuAuditor(object):
     resource_type = 'base'
 
-    def __init__(self, config, client, logger, broker):
+    def __init__(self, config, client, logger, broker, user_container):
         self.config = config
         self.client = client
         self.logger = logger
+        self.broker = broker
+        self.user_container = user_container
         self.statsd_client = logger.logger.statsd_client
         self.stats = defaultdict(int)
-        self.broker = broker
         self.uploads_already_checked = {}
         self.keep = {}
 
@@ -353,12 +354,9 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
 class MpuSessionAuditor(BaseMpuAuditor):
     resource_type = 'session'
 
-    def __init__(self, conf, client, logger, broker):
+    def __init__(self, conf, client, logger, broker, user_container):
         super(MpuSessionAuditor, self).__init__(
-            conf, client, logger, broker)
-        # TODO: move these attributes to super-class, but that will require
-        #   superclass to only deal with reserved namespace containers
-        self.user_container = split_reserved_name(self.broker.container)[1]
+            conf, client, logger, broker, user_container)
         self.parts_container = get_reserved_name('mpu_parts',
                                                  self.user_container)
 
@@ -370,9 +368,8 @@ class MpuSessionAuditor(BaseMpuAuditor):
             False if the user object is not a manifest for the given upload.
         """
         obj_name = extract_object_name(upload)
-        user_container = split_reserved_name(self.broker.container)[1]
         metadata = self.client.get_object_metadata(
-            self.broker.account, user_container, obj_name,
+            self.broker.account, self.user_container, obj_name,
             headers={'X-Newest': 'true'},
             acceptable_statuses=(2, 404))
         upload_id = extract_upload_id(upload)
@@ -487,13 +484,18 @@ class MpuAuditor(object):
 
     def audit(self, broker):
         reserved_prefix, container = safe_split_reserved_name(broker.container)
-        if reserved_prefix == 'mpu_parts' or broker.path.endswith('+segments'):
+        if reserved_prefix == 'mpu_parts':
             mpu_auditor_class = MpuPartMarkerAuditor
+            user_container = container
         elif reserved_prefix == 'mpu_sessions':
             mpu_auditor_class = MpuSessionAuditor
+            user_container = container
+        elif broker.path.endswith('+segments'):
+            mpu_auditor_class = MpuPartMarkerAuditor
+            user_container = broker.container[:-1 * len('+segments')]
         else:
-            mpu_auditor_class = None
-        if mpu_auditor_class:
-            mpu_auditor_class = mpu_auditor_class(
-                self.config, self.client, self.logger, broker)
-            mpu_auditor_class.audit()
+            return
+
+        mpu_auditor = mpu_auditor_class(
+            self.config, self.client, self.logger, broker, user_container)
+        mpu_auditor.audit()

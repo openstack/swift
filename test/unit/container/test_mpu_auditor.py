@@ -27,6 +27,7 @@ from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_MARKER_CONTENT_TYPE, MPUId, \
     MPU_SESSION_CREATED_CONTENT_TYPE, MPU_SESSION_COMPLETED_CONTENT_TYPE, \
     MPU_SESSION_ABORTED_CONTENT_TYPE, MPU_SESSION_COMPLETING_CONTENT_TYPE
+from swift.common.middleware.s3api.utils import unique_id
 from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
     HTTPNotFound, HTTPAccepted, HTTPServerError
@@ -59,18 +60,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.audit_container_path = '/v1/%s/%s' % (self.account,
                                                    self.audit_container)
         self.mpu_id = self._make_mpu_id(self.obj_path)
-        hash_ = md5(self.audit_container.encode('utf-8'),
-                    usedforsecurity=False).hexdigest()
-        datadir = os.path.join(
-            self.tempdir, 'sda1', 'containers', 'p', hash_[-3:], hash_)
-        filename = hash_ + '.db'
-        self.db_file = os.path.join(datadir, filename)
-        self.broker = ContainerBroker(
-            self.db_file,
-            account=self.account,
-            container=self.audit_container,
-            logger=self.logger)
-        self.broker.initialize(put_timestamp=float(next(self.ts_iter)))
+        self.broker = self._make_broker(self.audit_container)
         self.server = ContainerController({'mount_check': False,
                                            'devices': self.tempdir})
         self.upload_name = self.session_name = '/'.join(
@@ -79,6 +69,21 @@ class BaseTestMpuAuditor(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
+
+    def _make_broker(self, container_name):
+        hash_ = md5(container_name.encode('utf-8'),
+                    usedforsecurity=False).hexdigest()
+        datadir = os.path.join(
+            self.tempdir, 'sda1', 'containers', 'p', hash_[-3:], hash_)
+        filename = hash_ + '.db'
+        db_file = os.path.join(datadir, filename)
+        broker = ContainerBroker(
+            db_file,
+            account=self.account,
+            container=container_name,
+            logger=self.logger)
+        broker.initialize(put_timestamp=float(next(self.ts_iter)))
+        return broker
 
     def _make_mpu_id(self, path, ts=None):
         return MPUId.create(path, ts or next(self.ts_iter))
@@ -238,6 +243,52 @@ class TestModuleFunctions(BaseTestMpuAuditor):
         self.assertEqual(123, actual[-1][-1]['ROWID'])
 
 
+class TestMpuAuditor(BaseTestMpuAuditor):
+    # TODO: add tests covering MpuAuditorConfig
+
+    def setUp(self):
+        super().setUp()
+        with self._mock_internal_client():
+            self.auditor = MpuAuditor({}, self.logger)
+
+    def test_init(self):
+        self.assertIsInstance(self.auditor.config, MpuAuditorConfig)
+        self.assertIs(self.logger, self.auditor.logger)
+
+    def test_audit_slo_segments(self):
+        broker = self._make_broker('test+segments')
+        with mock.patch('swift.container.mpu_auditor.MpuPartMarkerAuditor'
+                        ) as mocked:
+            self.auditor.audit(broker)
+        self.assertEqual([mock.call(self.auditor.config, self.auditor.client,
+                                    self.auditor.logger, broker, 'test')],
+                         mocked.call_args_list)
+        self.assertEqual([mock.call()],
+                         mocked.return_value.audit.call_args_list)
+
+    def test_audit_mpu_parts(self):
+        broker = self._make_broker(get_reserved_name('mpu_parts', 'test'))
+        with mock.patch('swift.container.mpu_auditor.MpuPartMarkerAuditor'
+                        ) as mocked:
+            self.auditor.audit(broker)
+        self.assertEqual([mock.call(self.auditor.config, self.auditor.client,
+                                    self.auditor.logger, broker, 'test')],
+                         mocked.call_args_list)
+        self.assertEqual([mock.call()],
+                         mocked.return_value.audit.call_args_list)
+
+    def test_audit_mpu_sessions(self):
+        broker = self._make_broker(get_reserved_name('mpu_sessions', 'test'))
+        with mock.patch('swift.container.mpu_auditor.MpuSessionAuditor'
+                        ) as mocked:
+            self.auditor.audit(broker)
+        self.assertEqual([mock.call(self.auditor.config, self.auditor.client,
+                                    self.auditor.logger, broker, 'test')],
+                         mocked.call_args_list)
+        self.assertEqual([mock.call()],
+                         mocked.return_value.audit.call_args_list)
+
+
 class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
     # test abstract auditor behavior not specific to the type of resource
     # being audited
@@ -261,7 +312,8 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
+            self.user_container)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -293,7 +345,8 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
+            self.user_container)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -321,7 +374,8 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
+            self.user_container)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -358,7 +412,8 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
+            self.user_container)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -413,7 +468,8 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
         self.assertEqual(2, self.broker.get_max_row())  # sanity check
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker)
+            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
+            self.user_container)
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
                 mock_audit_item):
@@ -1031,8 +1087,8 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
 
     def _create_upload_parts(self, num_parts):
         ts = next(self.ts_iter)
-        mpu_id = self._make_mpu_id(self.obj_path, ts)
-        upload = '%s/%s' % (self.obj_name, mpu_id)
+        upload_id = unique_id()
+        upload = '%s/%s' % (self.obj_name, upload_id)
         parts = [{'name': '%s/%d' % (upload, i),
                   'created_at': ts.normal,
                   'content_type': 'text/plain',
