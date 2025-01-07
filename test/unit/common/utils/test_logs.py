@@ -283,10 +283,8 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertEqual('swift: testing\n', sio.getvalue())
 
         # same log_route, different names...
-        logger1 = utils.get_swift_logger({'log_statsd_host': '1.2.3.4'},
-                                         name='name1', log_route='route')
-        logger2 = utils.get_swift_logger({'log_statsd_host': '1.2.3.5'},
-                                         name='name2', log_route='route')
+        logger1 = utils.get_swift_logger({}, name='name1', log_route='route')
+        logger2 = utils.get_swift_logger({}, name='name2', log_route='route')
         self.assertEqual('route', logger1.name)
         self.assertEqual('route', logger1.logger.name)
         self.assertEqual('name1', logger1.server)
@@ -302,10 +300,8 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertEqual('name2: testing\n', sio.getvalue())
 
         # different log_route, different names...
-        logger1 = utils.get_swift_logger({'log_statsd_host': '1.2.3.4'},
-                                         name='name1', log_route='route1')
-        logger2 = utils.get_swift_logger({'log_statsd_host': '1.2.3.5'},
-                                         name='name2', log_route='route2')
+        logger1 = utils.get_swift_logger({}, name='name1', log_route='route1')
+        logger2 = utils.get_swift_logger({}, name='name2', log_route='route2')
         self.assertEqual('route1', logger1.name)
         self.assertEqual('route1', logger1.logger.name)
         self.assertEqual('name1', logger1.server)

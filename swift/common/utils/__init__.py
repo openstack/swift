@@ -307,6 +307,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         then the tail prefix defaults to the value of ``name``.
     :return: an instance of ``SwiftLogAdapter``.
     """
+
     conf = conf or {}
     swift_logger = get_swift_logger(
         conf, name, log_to_console, log_route, fmt)
@@ -315,6 +316,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     statsd_client = get_statsd_client(conf, tail_prefix, swift_logger.logger)
     swift_logger.logger.statsd_client = statsd_client
     _patch_statsd_methods(swift_logger, swift_logger.logger)
+
     return swift_logger
 
 
