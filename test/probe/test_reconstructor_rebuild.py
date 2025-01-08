@@ -21,7 +21,10 @@ import random
 import time
 
 from swift.common.direct_client import DirectClientException
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.internal_client import UnexpectedResponse
 from swift.common.manager import Manager
+from swift.common.swob import wsgi_to_str, str_to_wsgi
 from swift.common.utils import md5
 from swift.obj.reconstructor import ObjectReconstructor
 from test.probe.common import ECProbeTest
@@ -58,6 +61,7 @@ class TestReconstructorRebuild(ECProbeTest):
 
     def setUp(self):
         super(TestReconstructorRebuild, self).setUp()
+        self.int_client = self.make_internal_client()
         # create EC container
         headers = {'X-Storage-Policy': self.policy.name}
         client.put_container(self.url, self.token, self.container_name,
@@ -81,6 +85,19 @@ class TestReconstructorRebuild(ECProbeTest):
             self.assertIn(
                 'X-Backend-Durable-Timestamp', hdrs,
                 'Missing durable timestamp in %r' % self.frag_headers)
+
+    def proxy_get(self):
+        # Use internal-client instead of python-swiftclient, since we can't
+        # handle UTF-8 headers properly w/ swiftclient.
+        # Still a proxy-server tho!
+        status, headers, body = self.int_client.get_object(
+            self.account,
+            self.container_name.decode('utf-8'),
+            self.object_name.decode('utf-8'))
+        resp_checksum = md5(usedforsecurity=False)
+        for chunk in body:
+            resp_checksum.update(chunk)
+        return HeaderKeyDict(headers), resp_checksum.hexdigest()
 
     def _format_node(self, node):
         return '%s#%s' % (node['device'], node['index'])
@@ -130,8 +147,12 @@ class TestReconstructorRebuild(ECProbeTest):
             headers, etag = self.proxy_get()
             self.assertEqual(self.etag, etag)
             for key in self.headers_post:
-                self.assertIn(key, headers)
-                self.assertEqual(self.headers_post[key], headers[key])
+                # Since we use internal_client for the GET, headers come back
+                # as WSGI strings
+                wsgi_key = str_to_wsgi(key)
+                self.assertIn(wsgi_key, headers)
+                self.assertEqual(self.headers_post[key],
+                                 wsgi_to_str(headers[wsgi_key]))
 
         # fire up reconstructor
         for i in range(reconstructor_cycles):
@@ -142,8 +163,10 @@ class TestReconstructorRebuild(ECProbeTest):
             headers, etag = self.proxy_get()
             self.assertEqual(self.etag, etag)
             for key in self.headers_post:
-                self.assertIn(key, headers)
-                self.assertEqual(self.headers_post[key], headers[key])
+                wsgi_key = str_to_wsgi(key)
+                self.assertIn(wsgi_key, headers)
+                self.assertEqual(self.headers_post[key],
+                                 wsgi_to_str(headers[wsgi_key]))
         # check all frags are intact, durable and have expected metadata
         with self._annotate_failure_with_scenario(failed, non_durable):
             frag_headers, frag_etags = self._assert_all_nodes_have_frag()
@@ -268,8 +291,8 @@ class TestReconstructorRebuild(ECProbeTest):
         while time.time() < timeout:
             try:
                 self.proxy_get()
-            except ClientException as e:
-                if e.http_status == 404:
+            except UnexpectedResponse as e:
+                if e.resp.status_int == 404:
                     break
                 else:
                     raise
@@ -408,12 +431,19 @@ class TestReconstructorRebuild(ECProbeTest):
             client.get_object(self.url, self.token, self.container_name,
                               self.object_name)
         self.assertEqual(503, cm.exception.http_status)
-        # ... but client GET succeeds
-        headers = client.head_object(self.url, self.token, self.container_name,
-                                     self.object_name)
+        # ... but client HEAD succeeds
+
+        path = self.int_client.make_path(
+            self.account,
+            self.container_name.decode('utf-8'),
+            self.object_name.decode('utf-8'))
+        resp = self.int_client.make_request(
+            'HEAD', path, {}, acceptable_statuses=(2,))
         for key in self.headers_post:
-            self.assertIn(key, headers)
-            self.assertEqual(self.headers_post[key], headers[key])
+            wsgi_key = str_to_wsgi(key)
+            self.assertIn(wsgi_key, resp.headers)
+            self.assertEqual(self.headers_post[key],
+                             wsgi_to_str(resp.headers[wsgi_key]))
 
         # run the reconstructor without quarantine_threshold set
         error_lines = []
@@ -525,10 +555,6 @@ class TestReconstructorRebuild(ECProbeTest):
 class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
 
     def _make_name(self, prefix):
-        # The non-ASCII chars in metadata cause test hangs in
-        # _assert_all_nodes_have_frag because of
-        # https://bugs.python.org/issue37093
-        raise unittest.SkipTest('This never got fixed on py3')
         return b'%s\xc3\xa8-%s' % (
             prefix.encode(), str(uuid.uuid4()).encode())
 

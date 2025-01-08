@@ -13,6 +13,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import io
+from http.client import parse_headers
+
 import mock
 import unittest
 import socket
@@ -136,6 +139,57 @@ class TestBufferedHTTP(unittest.TestCase):
             server.wait()
         self.assertEqual(request[0], b'GET /path HTTP/1.1\r\n')
 
+    def test_get_with_non_ascii(self):
+        bindsock = listen_zero()
+        request = []
+
+        def accept():
+            with Timeout(3):
+                sock, addr = bindsock.accept()
+                fp = sock.makefile('rwb')
+                request.append(fp.readline())
+                # Ignore request headers
+                while fp.readline() != b'\r\n':
+                    pass
+                fp.write(b'HTTP/1.1 100 Continue\r\n\r\n')
+                fp.flush()
+                fp.write(b'\r\n'.join([
+                    b'HTTP/1.1 200 OK',
+                    b'X-Non-Ascii-M\xc3\xa9ta: \xe1\x88\xb4',
+                    b'Content-Length: 8',
+                    b'',
+                    b'RESPONSE']))
+                fp.flush()
+                # Server can look for pipelined requests
+                request.append(fp.readline())
+
+        server = spawn(accept)
+        try:
+            address = '%s:%s' % ('127.0.0.1', bindsock.getsockname()[1])
+            conn = bufferedhttp.BufferedHTTPConnection(address)
+            conn.putrequest('GET', '/path')
+            conn.endheaders()
+            resp = conn.getexpect()
+            self.assertIsInstance(resp, bufferedhttp.BufferedHTTPResponse)
+            self.assertEqual(resp.status, 100)
+            self.assertEqual(resp.version, 11)
+            self.assertEqual(resp.reason, 'Continue')
+            # I don't think you're supposed to "read" a continue response
+            self.assertRaises(AssertionError, resp.read)
+
+            resp = conn.getresponse()
+            self.assertIsInstance(resp, bufferedhttp.BufferedHTTPResponse)
+            self.assertEqual(resp.length, 8)
+            self.assertEqual(resp.read(), b'RESPONSE')
+            self.assertEqual(resp.read(), b'')
+            self.assertEqual(resp.headers['X-Non-Ascii-M\xc3\xa9ta'],
+                             '\xe1\x88\xb4')
+            # it's all HTTP/1.1 so we *could* pipeline, but we won't
+            conn.close()
+        finally:
+            server.wait()
+        self.assertEqual(request, [b'GET /path HTTP/1.1\r\n', b''])
+
     def test_closed_response(self):
         resp = bufferedhttp.BufferedHTTPResponse(None)
         self.assertEqual(resp.status, 'UNKNOWN')
@@ -171,6 +225,51 @@ class TestBufferedHTTP(unittest.TestCase):
                             self.fail(
                                 'Exception %r for device=%r path=%r header=%r'
                                 % (e, dev, path, header))
+
+    def test_headers_setter_with_dict(self):
+        resp = bufferedhttp.BufferedHTTPResponse(None)
+        resp.headers = {'a': 'b', 'c': 'd'}
+        self.assertEqual('b', resp.headers.get('a'))
+        self.assertEqual('d', resp.headers.get('c'))
+        resp.headers = {'a': 'b', 'c': 'd'}
+        self.assertEqual('b', resp.headers.get('a'))
+        self.assertEqual('d', resp.headers.get('c'))
+        # XXX: AttributeError: 'dict' object has no attribute 'get_all'
+        # self.assertEqual(['b'], resp.headers.get_all('a'))
+
+    def test_headers_setter_with_message(self):
+        msg = parse_headers(io.BytesIO(b'a: b\na: bb\nc: d\n\n'))
+        self.assertEqual('', msg.get_payload())
+        resp = bufferedhttp.BufferedHTTPResponse(None)
+        resp.headers = msg
+        self.assertEqual('b', resp.headers.get('a'))
+        self.assertEqual(['b', 'bb'], resp.headers.get_all('a'))
+        self.assertEqual('d', resp.headers.get('c'))
+        self.assertEqual([('a', 'b'), ('a', 'bb'), ('c', 'd')],
+                         resp.headers.items())
+        resp.headers = msg
+        self.assertEqual([('a', 'b'), ('a', 'bb'), ('c', 'd')],
+                         resp.headers.items())
+
+    def test_headers_setter_with_message_with_payload(self):
+        msg = parse_headers(io.BytesIO(b'\xc3: b\n\xc3: bb\nc: d\n\n'))
+        self.assertEqual('Ã: b\nÃ: bb\nc: d\n\n', msg.get_payload())
+        resp = bufferedhttp.BufferedHTTPResponse(None)
+        resp.headers = resp.msg = msg
+        self.assertEqual('b', resp.headers.get('\xc3'))
+        self.assertEqual(['b', 'bb'], resp.headers.get_all('\xc3'))
+        self.assertEqual('d', resp.headers.get('c'))
+        self.assertEqual([('\xc3', 'b'), ('\xc3', 'bb'), ('c', 'd')],
+                         resp.headers.items())
+
+        resp.headers = msg
+        self.assertEqual('b', resp.headers.get('\xc3'))
+        self.assertEqual(['b', 'bb'], resp.headers.get_all('\xc3'))
+        self.assertEqual('d', resp.headers.get('c'))
+        self.assertEqual([('\xc3', 'b'), ('\xc3', 'bb'), ('c', 'd')],
+                         resp.headers.items())
+        self.assertIs(resp.headers, resp.msg)
+        self.assertIs(resp._headers, resp.headers)
 
 
 if __name__ == '__main__':
