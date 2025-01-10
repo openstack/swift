@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import itertools
-from contextlib import contextmanager
 import unittest
 import uuid
 import random
@@ -105,28 +104,22 @@ class TestReconstructorRebuild(ECProbeTest):
                                  for (node, exc) in failures]))
         return frag_headers, frag_etags
 
-    @contextmanager
-    def _annotate_failure_with_scenario(self, failed, non_durable):
-        try:
-            yield
-        except (AssertionError, ClientException) as err:
-            self.fail(
-                'Scenario with failed nodes: %r, non-durable nodes: %r\n'
-                ' failed with:\n%s' %
-                ([self._format_node(self.onodes[n]) for n in failed],
-                 [self._format_node(self.onodes[n]) for n in non_durable], err)
-            )
-
     def _test_rebuild_scenario(self, failed, non_durable,
                                reconstructor_cycles):
         # helper method to test a scenario with some nodes missing their
         # fragment and some nodes having non-durable fragments
-        with self._annotate_failure_with_scenario(failed, non_durable):
+        with self.subTest(
+                failed=[self._format_node(self.onodes[n]) for n in failed],
+                non_durable=[self._format_node(self.onodes[n])
+                             for n in non_durable]):
             self.break_nodes(self.onodes, self.opart, failed, non_durable)
 
         # make sure we can still GET the object and it is correct; the
         # proxy is doing decode on remaining fragments to get the obj
-        with self._annotate_failure_with_scenario(failed, non_durable):
+        with self.subTest(
+                failed=[self._format_node(self.onodes[n]) for n in failed],
+                non_durable=[self._format_node(self.onodes[n])
+                             for n in non_durable]):
             headers, etag = self.proxy_get()
             self.assertEqual(self.etag, etag)
             for key in self.headers_post:
@@ -138,14 +131,20 @@ class TestReconstructorRebuild(ECProbeTest):
             self.reconstructor.once()
 
         # check GET via proxy returns expected data and metadata
-        with self._annotate_failure_with_scenario(failed, non_durable):
+        with self.subTest(
+                failed=[self._format_node(self.onodes[n]) for n in failed],
+                non_durable=[self._format_node(self.onodes[n])
+                             for n in non_durable]):
             headers, etag = self.proxy_get()
             self.assertEqual(self.etag, etag)
             for key in self.headers_post:
                 self.assertIn(key, headers)
                 self.assertEqual(self.headers_post[key], headers[key])
         # check all frags are intact, durable and have expected metadata
-        with self._annotate_failure_with_scenario(failed, non_durable):
+        with self.subTest(
+                failed=[self._format_node(self.onodes[n]) for n in failed],
+                non_durable=[self._format_node(self.onodes[n])
+                             for n in non_durable]):
             frag_headers, frag_etags = self._assert_all_nodes_have_frag()
             self.assertEqual(self.frag_etags, frag_etags)
             # self._frag_headers include X-Backend-Durable-Timestamp so this

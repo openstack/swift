@@ -29,7 +29,6 @@ from swift.common.utils import ShardRange, Timestamp, Namespace, \
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, get_container_info, get_cache_key
-from test import annotate_failure
 from test.unit import fake_http_connect, FakeRing, FakeMemcache, \
     make_timestamp_iter
 from swift.common.storage_policy import StoragePolicy
@@ -590,7 +589,7 @@ class TestGetShardedContainer(BaseTestContainerController):
             self.assertEqual(len(expected_requests), len(fake_conn.requests))
         for i, ((exp_path, exp_headers, exp_params), req) in enumerate(
                 zip(expected_requests, fake_conn.requests)):
-            with annotate_failure('Request check at index %d.' % i):
+            with self.subTest(index=i):
                 # strip off /sdx/0/ from path
                 self.assertEqual(exp_path, req['path'][7:])
                 got_params = dict(urllib.parse.parse_qsl(

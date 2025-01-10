@@ -15,7 +15,6 @@
 
 from __future__ import print_function
 import sys
-from contextlib import contextmanager
 
 import os
 
@@ -90,29 +89,6 @@ def listen_zero():
     sock.bind(("127.0.0.1", 0))
     sock.listen(50)
     return sock
-
-
-@contextmanager
-def annotate_failure(msg):
-    """
-    Catch AssertionError and annotate it with a message. Useful when making
-    assertions in a loop where the message can indicate the loop index or
-    richer context about the failure.
-
-    :param msg: A message to be prefixed to the AssertionError message.
-    """
-    try:
-        yield
-    except AssertionError as err:
-        if err.args:
-            msg = '%s Failed with %s' % (msg, err.args[0])
-            err.args = (msg, ) + err.args[1:]
-            raise err
-        else:
-            # workaround for some IDE's raising custom AssertionErrors
-            raise AssertionError(
-                '%s Failed with %s' % (msg, err)
-            ).with_traceback(err.__traceback__) from err.__cause__
 
 
 class BaseTestCase(unittest.TestCase):

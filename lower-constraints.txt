@@ -56,6 +56,7 @@ pyparsing==2.2.0
 pyperclip==1.6.0
 pytest==4.6.11
 pytest-cov==2.12.1
+pytest-subtests==0.3.0
 python-keystoneclient==3.19.0
 python-mimeparse==1.6.0
 python-subunit==1.2.0

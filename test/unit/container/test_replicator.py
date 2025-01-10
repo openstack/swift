@@ -32,7 +32,6 @@ from swift.container.reconciler import (
 from swift.common.utils import Timestamp, encode_timestamps, ShardRange, \
     get_db_files, make_db_file_path, MD5_OF_EMPTY_STRING
 from swift.common.storage_policy import POLICIES
-from test import annotate_failure
 
 from test.debug_logger import debug_logger
 from test.unit.common import test_db_replicator
@@ -1554,7 +1553,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             (default_osr_newer, osr_with_epoch, False, False, True),
         )
         for i, params in enumerate(tests):
-            with annotate_failure((i, params)):
+            with self.subTest(i=i, params=params):
                 do_test(*params)
 
     def test_sync_shard_ranges(self):

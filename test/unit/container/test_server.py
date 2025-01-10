@@ -47,7 +47,7 @@ from test.unit import fake_http_connect, mock_check_drive
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 
-from test import listen_zero, annotate_failure
+from test import listen_zero
 from test.unit import patch_policies, make_timestamp_iter, mock_timestamp_now
 
 
@@ -4289,7 +4289,7 @@ class TestContainerController(unittest.TestCase):
                 sr_happy.update_state(state,
                                       state_timestamp=next(self.ts)))
             self._put_shard_range(sr_happy)
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 obj_name = 'grumpy%s' % state
                 if state in redirect_states:
                     assert_redirected(obj_name, sr_happy, headers=headers)
@@ -4314,7 +4314,7 @@ class TestContainerController(unittest.TestCase):
                 sr_happy.update_state(state,
                                       state_timestamp=next(self.ts)))
             self._put_shard_range(sr_happy)
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 obj_name = 'grumpier%s' % state
                 if state in redirect_states:
                     assert_redirected(obj_name, sr_happy, headers=headers)
@@ -4353,7 +4353,7 @@ class TestContainerController(unittest.TestCase):
                 sr_happy.update_state(state,
                                       state_timestamp=next(self.ts)))
             self._put_shard_range(sr_happy)
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 obj_name = 'dopey%s' % state
                 if state in redirect_states:
                     assert_redirected(obj_name, sr_happy, headers=headers)
@@ -4391,7 +4391,7 @@ class TestContainerController(unittest.TestCase):
                 sr_happy.update_state(state,
                                       state_timestamp=next(self.ts)))
             self._put_shard_range(sr_happy)
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 obj_name = 'grumpiest%s' % state
                 if state in redirect_states:
                     assert_redirected(obj_name, sr_happy, headers=headers)
