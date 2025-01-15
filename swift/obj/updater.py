@@ -583,11 +583,9 @@ class ObjectUpdater(Daemon):
         device_stats = recon_cache.get('object_updater_per_device', {})
         if not isinstance(device_stats, dict):
             raise TypeError('object_updater_per_device must be a dict')
-        device_stats = {k: (v if v is not None else {})
-                        for k, v in device_stats.items()}
-
         devices_to_remove = set(device_stats) - set(devices)
-        update_device_stats = {d: {} for d in devices_to_remove}
+        device_stats = {dev: device_stats.get(dev) or {}
+                        for dev in devices}
 
         aggregated_oldest_entries = []
 
@@ -615,7 +613,7 @@ class ObjectUpdater(Daemon):
                 ))
                 / float(len(device_stats))
             )
-            * max(self.updater_workers, 1)
+            * max(1, min(self.updater_workers, len(device_stats)))
             if device_stats
             else 0,
             'failures_oldest_timestamp': min(
@@ -635,13 +633,17 @@ class ObjectUpdater(Daemon):
                 'oldest_entries': aggregated_oldest_entries,
             },
         }
+
+        recon_dump = {
+            'object_updater_sweep': elapsed,
+            'object_updater_stats': aggregated_stats,
+            'object_updater_last': now
+        }
+        if devices_to_remove:
+            recon_dump['object_updater_per_device'] = {
+                d: {} for d in devices_to_remove}
         dump_recon_cache(
-            {
-                'object_updater_sweep': elapsed,
-                'object_updater_stats': aggregated_stats,
-                'object_updater_per_device': update_device_stats,
-                'object_updater_last': now
-            },
+            recon_dump,
             self.rcache,
             self.logger,
         )
