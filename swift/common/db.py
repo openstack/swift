@@ -21,11 +21,9 @@ import json
 import logging
 import os
 from uuid import uuid4
-import sys
 import time
 import errno
-import six
-import six.moves.cPickle as pickle
+import pickle  # nosec: B403
 from tempfile import mkstemp
 
 from eventlet import sleep, Timeout
@@ -55,28 +53,14 @@ SQLITE_ARG_LIMIT = 999
 RECLAIM_PAGE_SIZE = 10000
 
 
-def utf8encode(*args):
-    return [(s.encode('utf8') if isinstance(s, six.text_type) else s)
-            for s in args]
-
-
 def native_str_keys_and_values(metadata):
-    if six.PY2:
-        uni_keys = [k for k in metadata if isinstance(k, six.text_type)]
-        for k in uni_keys:
-            sv = metadata[k]
-            del metadata[k]
-            metadata[k.encode('utf-8')] = [
-                x.encode('utf-8') if isinstance(x, six.text_type) else x
-                for x in sv]
-    else:
-        bin_keys = [k for k in metadata if isinstance(k, six.binary_type)]
-        for k in bin_keys:
-            sv = metadata[k]
-            del metadata[k]
-            metadata[k.decode('utf-8')] = [
-                x.decode('utf-8') if isinstance(x, six.binary_type) else x
-                for x in sv]
+    bin_keys = [k for k in metadata if isinstance(k, bytes)]
+    for k in bin_keys:
+        sv = metadata[k]
+        del metadata[k]
+        metadata[k.decode('utf-8')] = [
+            x.decode('utf-8') if isinstance(x, bytes) else x
+            for x in sv]
 
 
 ZERO_LIKE_VALUES = {None, '', 0, '0'}
@@ -219,7 +203,7 @@ def get_db_connection(path, timeout=30, logger=None, okay_to_create=False):
         connect_time = time.time()
         conn = sqlite3.connect(path, check_same_thread=False,
                                factory=GreenDBConnection, timeout=timeout)
-        if QUERY_LOGGING and logger and not six.PY2:
+        if QUERY_LOGGING and logger:
             conn.set_trace_callback(logger.debug)
         if not okay_to_create:
             # attempt to detect and fail when connect creates the db file
@@ -380,7 +364,7 @@ class DatabaseBroker(object):
         os.close(fd)
         conn = sqlite3.connect(tmp_db_file, check_same_thread=False,
                                factory=GreenDBConnection, timeout=0)
-        if QUERY_LOGGING and not six.PY2:
+        if QUERY_LOGGING:
             conn.set_trace_callback(self.logger.debug)
         # creating dbs implicitly does a lot of transactions, so we
         # pick fast, unsafe options here and do a big fsync at the end.
@@ -505,25 +489,25 @@ class DatabaseBroker(object):
         self.logger.error(detail)
         raise sqlite3.DatabaseError(detail)
 
-    def possibly_quarantine(self, exc_type, exc_value, exc_traceback):
+    def possibly_quarantine(self, err):
         """
         Checks the exception info to see if it indicates a quarantine situation
         (malformed or corrupted database). If not, the original exception will
         be reraised. If so, the database will be quarantined and a new
         sqlite3.DatabaseError will be raised indicating the action taken.
         """
-        if 'database disk image is malformed' in str(exc_value):
+        if 'database disk image is malformed' in str(err):
             exc_hint = 'malformed database'
-        elif 'malformed database schema' in str(exc_value):
+        elif 'malformed database schema' in str(err):
             exc_hint = 'malformed database'
-        elif ' is not a database' in str(exc_value):
+        elif ' is not a database' in str(err):
             # older versions said 'file is not a database'
             # now 'file is encrypted or is not a database'
             exc_hint = 'corrupted database'
-        elif 'disk I/O error' in str(exc_value):
+        elif 'disk I/O error' in str(err):
             exc_hint = 'disk error while accessing database'
         else:
-            six.reraise(exc_type, exc_value, exc_traceback)
+            raise err
 
         self.quarantine(exc_hint)
 
@@ -557,8 +541,8 @@ class DatabaseBroker(object):
                 try:
                     self.conn = get_db_connection(self.db_file, self.timeout,
                                                   self.logger)
-                except (sqlite3.DatabaseError, DatabaseConnectionError):
-                    self.possibly_quarantine(*sys.exc_info())
+                except (sqlite3.DatabaseError, DatabaseConnectionError) as e:
+                    self.possibly_quarantine(e)
             else:
                 raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         conn = self.conn
@@ -567,12 +551,12 @@ class DatabaseBroker(object):
             yield conn
             conn.rollback()
             self.conn = conn
-        except sqlite3.DatabaseError:
+        except sqlite3.DatabaseError as e:
             try:
                 conn.close()
             except Exception:
                 pass
-            self.possibly_quarantine(*sys.exc_info())
+            self.possibly_quarantine(e)
         except (Exception, Timeout):
             conn.close()
             raise
@@ -848,11 +832,8 @@ class DatabaseBroker(object):
             for entry in fp.read().split(b':'):
                 if entry:
                     try:
-                        if six.PY2:
-                            data = pickle.loads(base64.b64decode(entry))
-                        else:
-                            data = pickle.loads(base64.b64decode(entry),
-                                                encoding='utf8')
+                        data = pickle.loads(base64.b64decode(entry),
+                                            encoding='utf8')  # nosec: B301
                         self._commit_puts_load(item_list, data)
                     except Exception:
                         self.logger.exception(

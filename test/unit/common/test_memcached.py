@@ -20,14 +20,13 @@ from collections import defaultdict
 import errno
 import io
 import logging
-import six
 import socket
 import time
 import unittest
 import os
 
 import mock
-from six.moves.configparser import NoSectionError, NoOptionError
+from configparser import NoSectionError, NoOptionError
 
 from eventlet import GreenPool, sleep, Queue
 from eventlet.pools import Pool
@@ -496,7 +495,7 @@ class TestMemcached(unittest.TestCase):
 
         # Now lets return an empty string, and make sure we aren't logging
         # the error.
-        fake_stdout = six.StringIO()
+        fake_stdout = io.StringIO()
         # force the logging through the DebugLogger instead of the nose
         # handler. This will use stdout, so we can assert that no stack trace
         # is logged.
@@ -542,7 +541,7 @@ class TestMemcached(unittest.TestCase):
 
         # Now lets return an empty string, and make sure we aren't logging
         # the error.
-        fake_stdout = six.StringIO()
+        fake_stdout = io.StringIO()
         # force the logging through the DebugLogger instead of the nose
         # handler. This will use stdout, so we can assert that no stack trace
         # is logged.
@@ -978,7 +977,7 @@ class TestMemcached(unittest.TestCase):
 
         # Now lets simulate a lost connection and make sure we don't get
         # the index out of range stack trace when it does
-        mock_stderr = six.StringIO()
+        mock_stderr = io.StringIO()
         not_expected = "IndexError: list index out of range"
         with patch("sys.stderr", mock_stderr):
             mock.read_return_empty_str = True

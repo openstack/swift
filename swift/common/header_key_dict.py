@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
-
 
 class HeaderKeyDict(dict):
     """
@@ -31,10 +29,7 @@ class HeaderKeyDict(dict):
 
     @staticmethod
     def _title(s):
-        if six.PY2:
-            return s.title()
-        else:
-            return s.encode('latin1').title().decode('latin1')
+        return s.encode('latin1').title().decode('latin1')
 
     def update(self, other):
         if hasattr(other, 'keys'):
@@ -51,9 +46,7 @@ class HeaderKeyDict(dict):
         key = self._title(key)
         if value is None:
             self.pop(key, None)
-        elif six.PY2 and isinstance(value, six.text_type):
-            return dict.__setitem__(self, key, value.encode('utf-8'))
-        elif six.PY3 and isinstance(value, six.binary_type):
+        elif isinstance(value, bytes):
             return dict.__setitem__(self, key, value.decode('latin-1'))
         else:
             return dict.__setitem__(self, key, str(value))

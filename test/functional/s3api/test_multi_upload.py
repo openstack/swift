@@ -17,8 +17,8 @@ import base64
 import binascii
 import unittest
 
-import six
-from six.moves import urllib, zip, zip_longest
+import urllib.parse
+from itertools import zip_longest
 
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
@@ -135,8 +135,6 @@ class TestS3ApiMultiUpload(S3ApiBase):
             elem = fromstring(body, 'InitiateMultipartUploadResult')
             self.assertEqual(elem.find('Bucket').text, bucket)
             key = elem.find('Key').text
-            if six.PY2:
-                expected_key = expected_key.encode('utf-8')
             self.assertEqual(expected_key, key)
             upload_id = elem.find('UploadId').text
             self.assertIsNotNone(upload_id)
@@ -475,10 +473,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         resp_objects = list(elem.findall('./Contents'))
         self.assertEqual(len(resp_objects), 1)
         o = resp_objects[0]
-        if six.PY2:
-            expected_key = keys[0].encode('utf-8')
-        else:
-            expected_key = keys[0]
+        expected_key = keys[0]
         self.assertEqual(o.find('Key').text, expected_key)
         self.assertIsNotNone(o.find('LastModified').text)
         self.assertRegex(

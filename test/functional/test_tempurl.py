@@ -20,8 +20,7 @@ import hmac
 import hashlib
 import json
 from copy import deepcopy
-import six
-from six.moves import urllib
+import urllib.parse
 from time import time, strftime, gmtime
 from unittest import SkipTest
 
@@ -36,13 +35,9 @@ from test.functional.swift_test_client import Account, Connection, \
 
 def tempurl_parms(method, expires, path, key, digest=None):
     path = urllib.parse.unquote(path)
-    if not six.PY2:
-        method = method.encode('utf8')
-        path = path.encode('utf8')
-        key = key.encode('utf8')
     sig = hmac.new(
-        key,
-        b'%s\n%d\n%s' % (method, expires, path),
+        key.encode('utf8'),
+        b'%s\n%d\n%s' % (method.encode('utf8'), expires, path.encode('utf8')),
         digest or hashlib.sha256).hexdigest()
     return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
 
@@ -349,10 +344,7 @@ class TestTempurlPrefix(TestTempurl):
 
         if prefix is None:
             # Choose the first 4 chars of object name as prefix.
-            if six.PY2:
-                prefix = path_parts[4].decode('utf8')[:4].encode('utf8')
-            else:
-                prefix = path_parts[4][:4]
+            prefix = path_parts[4][:4]
         prefix_to_hash = '/'.join(path_parts[0:4]) + '/' + prefix
         parms = tempurl_parms(
             method, expires,
@@ -490,10 +482,9 @@ class TestContainerTempurl(Base):
 
     def tempurl_sig(self, method, expires, path, key):
         path = urllib.parse.unquote(path)
-        if not six.PY2:
-            method = method.encode('utf8')
-            path = path.encode('utf8')
-            key = key.encode('utf8')
+        method = method.encode('utf8')
+        path = path.encode('utf8')
+        key = key.encode('utf8')
         return hmac.new(
             key,
             b'%s\n%d\n%s' % (method, expires, path),
@@ -757,10 +748,9 @@ class TestSloTempurl(Base):
 
     def tempurl_sig(self, method, expires, path, key):
         path = urllib.parse.unquote(path)
-        if not six.PY2:
-            method = method.encode('utf8')
-            path = path.encode('utf8')
-            key = key.encode('utf8')
+        method = method.encode('utf8')
+        path = path.encode('utf8')
+        key = key.encode('utf8')
         return hmac.new(
             key,
             b'%s\n%d\n%s' % (method, expires, path),
@@ -815,11 +805,8 @@ class TestTempurlAlgorithms(Base):
 
     def get_sig(self, expires, digest, encoding):
         path = urllib.parse.unquote(self.env.conn.make_path(self.env.obj.path))
-        if six.PY2:
-            key = self.env.tempurl_key
-        else:
-            path = path.encode('utf8')
-            key = self.env.tempurl_key.encode('utf8')
+        path = path.encode('utf8')
+        key = self.env.tempurl_key.encode('utf8')
         sig = hmac.new(
             key,
             b'GET\n%d\n%s' % (expires, path),

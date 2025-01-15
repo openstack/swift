@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
-
 RECON_RELINKER_FILE = 'relinker.recon'
 RECON_OBJECT_FILE = 'object.recon'
 RECON_CONTAINER_FILE = 'container.recon'
@@ -24,7 +22,7 @@ DEFAULT_RECON_CACHE_PATH = '/var/cache/swift'
 
 
 def server_type_to_recon_file(server_type):
-    if not isinstance(server_type, six.string_types) or \
+    if not isinstance(server_type, str) or \
             server_type.lower() not in ('account', 'container', 'object'):
         raise ValueError('Invalid server_type')
     return "%s.recon" % server_type.lower()

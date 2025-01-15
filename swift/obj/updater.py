@@ -12,9 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from six.moves import queue
+import queue
 
-import six.moves.cPickle as pickle
+import pickle  # nosec: B403
 import errno
 import os
 import signal
@@ -61,8 +61,6 @@ class RateLimiterBucket(EventletRateLimiter):
 
     def __bool__(self):
         return bool(self.deque)
-
-    __nonzero__ = __bool__  # py2
 
     def __lt__(self, other):
         # used to sort RateLimiterBuckets by readiness
@@ -145,7 +143,7 @@ class BucketizedUpdateSkippingLimiter(object):
     def _get_time(self):
         return time.time()
 
-    def next(self):
+    def __next__(self):
         # first iterate over the wrapped iterator...
         for update_ctx in self.iterator:
             bucket = self.buckets[self._bucket_key(update_ctx['update'])]
@@ -212,8 +210,6 @@ class BucketizedUpdateSkippingLimiter(object):
             self.logger.update_stats("skips", len(undrained_elements))
 
         raise StopIteration()
-
-    __next__ = next
 
 
 class OldestAsyncPendingTracker:
@@ -650,7 +646,7 @@ class ObjectUpdater(Daemon):
 
     def _load_update(self, device, update_path):
         try:
-            return pickle.load(open(update_path, 'rb'))
+            return pickle.load(open(update_path, 'rb'))  # nosec: B301
         except Exception as e:
             if getattr(e, 'errno', None) == errno.ENOENT:
                 return

@@ -21,10 +21,8 @@ from swob in here without creating circular imports.
 """
 
 import itertools
-import sys
 import time
 
-import six
 from swift.common.header_key_dict import HeaderKeyDict
 
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX, \
@@ -51,15 +49,6 @@ USE_REPLICATION_NETWORK_HEADER = 'x-backend-use-replication-network'
 MISPLACED_OBJECTS_ACCOUNT = '.misplaced_objects'
 
 
-if six.PY2:
-    import cgi
-
-    def html_escape(s, quote=True):
-        return cgi.escape(s, quote=quote)
-else:
-    from html import escape as html_escape  # noqa: F401
-
-
 def get_param(req, name, default=None):
     """
     Get a parameter from an HTTP request ensuring proper handling UTF-8
@@ -68,30 +57,20 @@ def get_param(req, name, default=None):
     :param req: request object
     :param name: parameter name
     :param default: result to return if the parameter is not found
-    :returns: HTTP request parameter value, as a native string
-              (in py2, as UTF-8 encoded str, not unicode object)
+    :returns: HTTP request parameter value, as a native (not WSGI) string
     :raises HTTPBadRequest: if param not valid UTF-8 byte sequence
     """
     value = req.params.get(name, default)
-    if six.PY2:
-        if value and not isinstance(value, six.text_type):
-            try:
-                value.decode('utf8')    # Ensure UTF8ness
-            except UnicodeDecodeError:
-                raise HTTPBadRequest(
-                    request=req, content_type='text/plain',
-                    body='"%s" parameter not valid UTF-8' % name)
-    else:
-        if value:
-            # req.params is a dict of WSGI strings, so encoding will succeed
-            value = value.encode('latin1')
-            try:
-                # Ensure UTF8ness since we're at it
-                value = value.decode('utf8')
-            except UnicodeDecodeError:
-                raise HTTPBadRequest(
-                    request=req, content_type='text/plain',
-                    body='"%s" parameter not valid UTF-8' % name)
+    if value:
+        # req.params is a dict of WSGI strings, so encoding will succeed
+        value = value.encode('latin1')
+        try:
+            # Ensure UTF8ness since we're at it
+            value = value.decode('utf8')
+        except UnicodeDecodeError:
+            raise HTTPBadRequest(
+                request=req, content_type='text/plain',
+                body='"%s" parameter not valid UTF-8' % name)
     return value
 
 
@@ -606,11 +585,10 @@ class SegmentedIterable(object):
                 pending_etag = seg_etag
                 pending_size = seg_size
 
-        except ListingIterError:
-            e_type, e_value, e_traceback = sys.exc_info()
+        except ListingIterError as e:
             if pending_req:
                 yield pending_req, pending_etag, pending_size
-            six.reraise(e_type, e_value, e_traceback)
+            raise e
 
         if pending_req:
             yield pending_req, pending_etag, pending_size
@@ -629,9 +607,7 @@ class SegmentedIterable(object):
             seg_resp = seg_req.get_response(self.app)
             if not is_success(seg_resp.status_int):
                 # Error body should be short
-                body = seg_resp.body
-                if not six.PY2:
-                    body = body.decode('utf8')
+                body = seg_resp.body.decode('utf8')
                 msg = 'While processing manifest %s, got %d (%s) ' \
                     'while retrieving %s' % (
                         self.name, seg_resp.status_int,

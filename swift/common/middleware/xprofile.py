@@ -85,8 +85,7 @@ import time
 
 from eventlet import greenthread, GreenPool, patcher
 import eventlet.green.profile as eprofile
-import six
-from six.moves import urllib
+import urllib
 
 from swift.common.utils import get_logger, config_true_value
 from swift.common.swob import Request
@@ -112,10 +111,7 @@ PROFILE_EXEC_LAZY = """
 app_iter_ = self.app(environ, start_response)
 """
 
-if six.PY3:
-    thread = patcher.original('_thread')  # non-monkeypatched module needed
-else:
-    thread = patcher.original('thread')  # non-monkeypatched module needed
+thread = patcher.original('_thread')  # non-monkeypatched module needed
 
 
 # This monkey patch code fix the problem of eventlet profile tool
@@ -217,7 +213,7 @@ class ProfileMiddleware(object):
                                                       query_dict,
                                                       self.renew_profile)
                 start_response('200 OK', headers)
-                if isinstance(content, six.text_type):
+                if isinstance(content, str):
                     content = content.encode('utf-8')
                 return [content]
             except MethodNotAllowed as mx:

@@ -20,8 +20,7 @@ import unittest
 from io import BytesIO
 from logging.handlers import SysLogHandler
 
-import six
-from six.moves.urllib.parse import unquote
+from urllib.parse import unquote
 
 from swift.common.utils import get_swift_logger, split_path
 from swift.common.statsd_client import StatsdClient
@@ -42,7 +41,7 @@ class FakeApp(object):
                  chunked=False, environ_updates=None):
         if body is None:
             body = [b'FAKE APP']
-        elif isinstance(body, six.binary_type):
+        elif isinstance(body, bytes):
             body = [body]
 
         self.body = body
@@ -918,8 +917,6 @@ class TestProxyLogging(unittest.TestCase):
                     raise StopIteration
                 result, self.msg = self.msg, b''
                 return result
-
-            next = __next__  # py2
 
         body = CloseableBody()
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(body), {})

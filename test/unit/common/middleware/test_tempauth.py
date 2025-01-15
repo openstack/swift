@@ -19,8 +19,7 @@ import unittest
 from base64 import b64encode as _b64encode
 from time import time
 
-import six
-from six.moves.urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response, bytes_to_wsgi
@@ -311,10 +310,6 @@ class TestAuth(unittest.TestCase):
         local_app = FakeApp()
         conf = {u'user_t\u00e9st_t\u00e9ster': u'p\u00e1ss .admin'}
         access_key = u't\u00e9st:t\u00e9ster'
-        if six.PY2:
-            conf = {k.encode('utf8'): v.encode('utf8')
-                    for k, v in conf.items()}
-            access_key = access_key.encode('utf8')
         local_auth = auth.filter_factory(conf)(local_app)
         req = self._make_request('/v1/t\xc3\xa9st:t\xc3\xa9ster', environ={
             's3api.auth_details': {
@@ -1024,9 +1019,6 @@ class TestAuth(unittest.TestCase):
     def test_successful_token_unicode_user(self):
         app = FakeApp(iter(NO_CONTENT_RESP * 2))
         conf = {u'user_t\u00e9st_t\u00e9ster': u'p\u00e1ss .admin'}
-        if six.PY2:
-            conf = {k.encode('utf8'): v.encode('utf8')
-                    for k, v in conf.items()}
         ath = auth.filter_factory(conf)(app)
         quoted_acct = quote(u'/v1/AUTH_t\u00e9st'.encode('utf8'))
         memcache = FakeMemcache()

@@ -13,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import binascii
-import hashlib
 import hmac
-import six
 
 from swift.common.utils import strict_b64decode
 
@@ -55,16 +53,13 @@ def get_hmac(request_method, path, expires, key, digest="sha1",
         parts.insert(0, ip_range)
         formats.insert(0, b"ip=%s")
 
-    if not isinstance(key, six.binary_type):
+    if isinstance(key, str):
         key = key.encode('utf8')
 
     message = b'\n'.join(
-        fmt % (part if isinstance(part, six.binary_type)
+        fmt % (part if isinstance(part, bytes)
                else part.encode("utf-8"))
         for fmt, part in zip(formats, parts))
-
-    if six.PY2 and isinstance(digest, six.string_types):
-        digest = getattr(hashlib, digest)
 
     return hmac.new(key, message, digest).hexdigest()
 
@@ -132,15 +127,10 @@ def extract_digest_and_algorithm(value):
         if ('-' in value or '_' in value) and not (
                 '+' in value or '/' in value):
             value = value.replace('-', '+').replace('_', '/')
-        value = binascii.hexlify(strict_b64decode(value + '=='))
-        if not six.PY2:
-            value = value.decode('ascii')
+        value = binascii.hexlify(
+            strict_b64decode(value + '==')).decode('ascii')
     else:
-        try:
-            binascii.unhexlify(value)  # make sure it decodes
-        except TypeError:
-            # This is just for py2
-            raise ValueError('Non-hexadecimal digit found')
+        binascii.unhexlify(value)  # make sure it decodes
         algo = {
             40: 'sha1',
             64: 'sha256',

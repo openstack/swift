@@ -15,11 +15,10 @@
 
 import mock
 import signal
-import six
 import subprocess
 import unittest
 
-from six.moves import StringIO
+from io import StringIO
 from swift.cli import reload
 
 
@@ -213,8 +212,5 @@ class TestMain(unittest.TestCase):
         self.assertEqual(caught.exception.args, (reload.EXIT_BAD_PID,))
         msg = 'usage: \nSafely reload WSGI servers'
         self.assertEqual(self.mock_stderr.getvalue()[:len(msg)], msg)
-        if six.PY2:
-            msg = '\n: error: too few arguments\n'
-        else:
-            msg = '\n: error: the following arguments are required: pid\n'
+        msg = '\n: error: the following arguments are required: pid\n'
         self.assertEqual(self.mock_stderr.getvalue()[-len(msg):], msg)

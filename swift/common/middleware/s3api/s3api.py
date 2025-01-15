@@ -144,7 +144,7 @@ https://github.com/swiftstack/s3compat in detail.
 from cgi import parse_header
 import json
 from paste.deploy import loadwsgi
-from six.moves.urllib.parse import parse_qs
+from urllib.parse import parse_qs
 
 from swift.common.constraints import valid_api_version
 from swift.common.middleware.listing_formats import \

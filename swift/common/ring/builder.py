@@ -22,14 +22,12 @@ import math
 import random
 import uuid
 
-import six.moves.cPickle as pickle
+import pickle  # nosec: B403
 from copy import deepcopy
 from contextlib import contextmanager
 
 from array import array
 from collections import defaultdict
-import six
-from six.moves import range
 from time import time
 
 from swift.common import exceptions
@@ -646,8 +644,7 @@ class RingBuilder(object):
 
         dispersion_graph = {}
         # go over all the devices holding each replica part by part
-        for part_id, dev_ids in enumerate(
-                six.moves.zip(*self._replica2part2dev)):
+        for part_id, dev_ids in enumerate(zip(*self._replica2part2dev)):
             # count the number of replicas of this part for each tier of each
             # device, some devices may have overlapping tiers!
             replicas_at_tier = defaultdict(int)
@@ -1741,7 +1738,7 @@ class RingBuilder(object):
         else:
             with fp:
                 try:
-                    builder = pickle.load(fp)
+                    builder = pickle.load(fp)  # nosec: B301
                 except Exception:
                     # raise error during unpickling as UnPicklingError
                     raise exceptions.UnPicklingError(

@@ -27,7 +27,7 @@ import time
 import unittest
 import uuid
 
-from six.moves import cStringIO as StringIO
+from io import StringIO
 
 from swift.cli import relinker
 from swift.common import ring, utils

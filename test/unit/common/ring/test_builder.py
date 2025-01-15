@@ -19,7 +19,7 @@ import mock
 import operator
 import os
 import unittest
-import six.moves.cPickle as pickle
+import pickle
 from array import array
 from collections import Counter, defaultdict
 from math import ceil
@@ -29,8 +29,6 @@ import sys
 import random
 import uuid
 import itertools
-
-from six.moves import range
 
 from swift.common import exceptions
 from swift.common import ring
@@ -2064,7 +2062,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(loaded_rb.to_dict(), rb.to_dict())
         self.assertEqual(loaded_rb.overload, 3.14159)
 
-    @mock.patch('six.moves.builtins.open', autospec=True)
+    @mock.patch('builtins.open', autospec=True)
     @mock.patch('swift.common.ring.builder.pickle.dump', autospec=True)
     def test_save(self, mock_pickle_dump, mock_open):
         mock_open.return_value = mock_fh = mock.MagicMock()

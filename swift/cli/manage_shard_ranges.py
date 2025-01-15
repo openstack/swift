@@ -163,9 +163,6 @@ import sys
 import time
 from contextlib import contextmanager
 
-from six.moves import input
-
-
 from swift.common.utils import Timestamp, get_logger, ShardRange, readconf, \
     ShardRangeList, non_negative_int, config_positive_int_value
 from swift.container.backend import ContainerBroker, UNSHARDED

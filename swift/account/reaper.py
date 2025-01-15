@@ -22,7 +22,6 @@ from time import time
 import itertools
 
 from eventlet import GreenPool, sleep, Timeout
-import six
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
@@ -267,12 +266,9 @@ class AccountReaper(Daemon):
             while containers:
                 try:
                     for (container, _junk, _junk, _junk, _junk) in containers:
-                        if six.PY3:
-                            container_ = container.encode('utf-8')
-                        else:
-                            container_ = container
                         this_shard = (
-                            int(md5(container_, usedforsecurity=False)
+                            int(md5(container.encode('utf-8'),
+                                    usedforsecurity=False)
                                 .hexdigest(), 16) % len(nodes))
                         if container_shard not in (this_shard, None):
                             continue

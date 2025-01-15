@@ -23,9 +23,8 @@ import os
 import socket
 
 from eventlet import sleep, Timeout
-import six
-import six.moves.cPickle as pickle
-from six.moves.http_client import HTTPException
+import pickle  # nosec: B403
+from http.client import HTTPException
 
 from swift.common.bufferedhttp import http_connect, http_connect_raw
 from swift.common.exceptions import ClientException
@@ -44,7 +43,7 @@ class DirectClientException(ClientException):
         # host can be used to override the node ip and port reported in
         # the exception
         host = host if host is not None else node
-        if not isinstance(path, six.text_type):
+        if isinstance(path, bytes):
             path = path.decode("utf-8")
         full_path = quote('/%s/%s%s' % (node['device'], part, path))
         msg = '%s server %s:%s direct %s %r gave status %s' % (
@@ -59,7 +58,7 @@ class DirectClientException(ClientException):
 class DirectClientReconException(ClientException):
 
     def __init__(self, method, node, path, resp):
-        if not isinstance(path, six.text_type):
+        if isinstance(path, bytes):
             path = path.decode("utf-8")
         msg = 'server %s:%s direct %s %r gave status %s' % (
             node['ip'], node['port'], method, path, resp.status)
@@ -72,7 +71,7 @@ class DirectClientReconException(ClientException):
 
 def _make_path(*components):
     return u'/' + u'/'.join(
-        x.decode('utf-8') if isinstance(x, six.binary_type) else x
+        x.decode('utf-8') if isinstance(x, bytes) else x
         for x in components)
 
 
@@ -111,7 +110,7 @@ def _make_req(node, part, method, path, headers, stype,
                     content_length = int(v)
         if not contents:
             headers['Content-Length'] = '0'
-        if isinstance(contents, six.string_types):
+        if isinstance(contents, str):
             contents = [contents]
         if content_length is None:
             headers['Transfer-Encoding'] = 'chunked'
@@ -657,7 +656,7 @@ def direct_get_suffix_hashes(node, part, suffixes, conn_timeout=5,
                                     host={'ip': node['replication_ip'],
                                           'port': node['replication_port']}
                                     )
-    return pickle.loads(resp.read())
+    return pickle.loads(resp.read())  # nosec: B301
 
 
 def retry(func, *args, **kwargs):

@@ -17,7 +17,7 @@
 import os
 import json
 import mock
-from six import StringIO
+from io import StringIO
 import unittest
 from test.unit import with_tempdir
 

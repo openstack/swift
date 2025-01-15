@@ -22,9 +22,8 @@ import os
 from io import BytesIO
 from textwrap import dedent
 
-import six
-from six.moves import range, zip_longest
-from six.moves.urllib.parse import quote, parse_qsl
+from itertools import zip_longest
+from urllib.parse import quote, parse_qsl
 from swift.common import exceptions, internal_client, request_helpers, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
@@ -35,10 +34,8 @@ from test.debug_logger import debug_logger
 from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift, LeakTrackingIter
 
-if six.PY3:
-    from eventlet.green.urllib import request as urllib2
-else:
-    from eventlet.green import urllib2
+from eventlet.green.urllib import request as urllib_request
+from eventlet.green.http import client as http_client
 
 
 class FakeConn(object):
@@ -59,7 +56,7 @@ def not_sleep(seconds):
 
 
 def unicode_string(start, length):
-    return u''.join([six.unichr(x) for x in range(start, start + length)])
+    return u''.join([chr(x) for x in range(start, start + length)])
 
 
 def path_parts():
@@ -653,7 +650,7 @@ class TestInternalClient(unittest.TestCase):
         body = {"some": "content"}
 
         for timeout in (0.0, 42.0, None):
-            mocked_func = 'swift.common.internal_client.urllib2.urlopen'
+            mocked_func = 'swift.common.internal_client.urllib_request.urlopen'
             with mock.patch(mocked_func) as mock_urlopen:
                 mock_urlopen.side_effect = [FakeConn(body)]
                 sc = internal_client.SimpleClient('http://0.0.0.0/')
@@ -667,7 +664,7 @@ class TestInternalClient(unittest.TestCase):
         body2 = [{'name': 'd'}]
         body3 = []
 
-        mocked_func = 'swift.common.internal_client.urllib2.urlopen'
+        mocked_func = 'swift.common.internal_client.urllib_request.urlopen'
         with mock.patch(mocked_func) as mock_urlopen:
             mock_urlopen.side_effect = [
                 FakeConn(body1), FakeConn(body2), FakeConn(body3)]
@@ -676,21 +673,11 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(body1 + body2, resp_body)
         self.assertEqual(3, mock_urlopen.call_count)
         actual_requests = [call[0][0] for call in mock_urlopen.call_args_list]
-        if six.PY2:
-            # The get_selector method was deprecated in favor of a selector
-            # attribute in py31 and removed in py34
-            self.assertEqual(
-                '/?format=json', actual_requests[0].get_selector())
-            self.assertEqual(
-                '/?format=json&marker=c', actual_requests[1].get_selector())
-            self.assertEqual(
-                '/?format=json&marker=d', actual_requests[2].get_selector())
-        else:
-            self.assertEqual('/?format=json', actual_requests[0].selector)
-            self.assertEqual(
-                '/?format=json&marker=c', actual_requests[1].selector)
-            self.assertEqual(
-                '/?format=json&marker=d', actual_requests[2].selector)
+        self.assertEqual('/?format=json', actual_requests[0].selector)
+        self.assertEqual(
+            '/?format=json&marker=c', actual_requests[1].selector)
+        self.assertEqual(
+            '/?format=json&marker=d', actual_requests[2].selector)
 
     def test_make_request_method_path_headers(self):
         class FakeApp(FakeSwift):
@@ -1759,8 +1746,8 @@ class TestInternalClient(unittest.TestCase):
 
 
 class TestGetAuth(unittest.TestCase):
-    @mock.patch.object(urllib2, 'urlopen')
-    @mock.patch.object(urllib2, 'Request')
+    @mock.patch.object(urllib_request, 'urlopen')
+    @mock.patch.object(urllib_request, 'Request')
     def test_ok(self, request, urlopen):
         def getheader(name):
             d = {'X-Storage-Url': 'url', 'X-Auth-Token': 'token'}
@@ -1851,38 +1838,38 @@ class TestSimpleClient(unittest.TestCase):
                                        data=None)
             self.assertEqual([{'content-length': '345'}, {}], retval)
 
-    @mock.patch.object(urllib2, 'urlopen')
-    @mock.patch.object(urllib2, 'Request')
+    @mock.patch.object(urllib_request, 'urlopen')
+    @mock.patch.object(urllib_request, 'Request')
     def test_get(self, request, urlopen):
         self._test_get_head(request, urlopen, 'GET')
 
-    @mock.patch.object(urllib2, 'urlopen')
-    @mock.patch.object(urllib2, 'Request')
+    @mock.patch.object(urllib_request, 'urlopen')
+    @mock.patch.object(urllib_request, 'Request')
     def test_head(self, request, urlopen):
         self._test_get_head(request, urlopen, 'HEAD')
 
-    @mock.patch.object(urllib2, 'urlopen')
-    @mock.patch.object(urllib2, 'Request')
+    @mock.patch.object(urllib_request, 'urlopen')
+    @mock.patch.object(urllib_request, 'Request')
     def test_get_with_retries_all_failed(self, request, urlopen):
         # Simulate a failing request, ensure retries done
         request.return_value.get_type.return_value = "http"
-        urlopen.side_effect = urllib2.URLError('')
+        urlopen.side_effect = urllib_request.URLError('')
         sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1)
         with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
-            self.assertRaises(urllib2.URLError, sc.retry_request, 'GET')
+            self.assertRaises(urllib_request.URLError, sc.retry_request, 'GET')
         self.assertEqual(mock_sleep.call_count, 1)
         self.assertEqual(request.call_count, 2)
         self.assertEqual(urlopen.call_count, 2)
 
-    @mock.patch.object(urllib2, 'urlopen')
-    @mock.patch.object(urllib2, 'Request')
+    @mock.patch.object(urllib_request, 'urlopen')
+    @mock.patch.object(urllib_request, 'Request')
     def test_get_with_retries(self, request, urlopen):
         # First request fails, retry successful
         request.return_value.get_type.return_value = "http"
         mock_resp = mock.MagicMock()
         mock_resp.read.return_value = b''
         mock_resp.info.return_value = {}
-        urlopen.side_effect = [urllib2.URLError(''), mock_resp]
+        urlopen.side_effect = [urllib_request.URLError(''), mock_resp]
         sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1,
                                           token='token')
 
@@ -1896,31 +1883,31 @@ class TestSimpleClient(unittest.TestCase):
         self.assertEqual([{}, None], retval)
         self.assertEqual(sc.attempts, 2)
 
-    @mock.patch.object(urllib2, 'urlopen')
+    @mock.patch.object(urllib_request, 'urlopen')
     def test_get_with_retries_param(self, mock_urlopen):
         mock_response = mock.MagicMock()
         mock_response.read.return_value = b''
         mock_response.info.return_value = {}
-        mock_urlopen.side_effect = internal_client.httplib.BadStatusLine('')
+        mock_urlopen.side_effect = http_client.BadStatusLine('')
         c = internal_client.SimpleClient(url='http://127.0.0.1', token='token')
         self.assertEqual(c.retries, 5)
 
         # first without retries param
         with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
-            self.assertRaises(internal_client.httplib.BadStatusLine,
+            self.assertRaises(http_client.BadStatusLine,
                               c.retry_request, 'GET')
         self.assertEqual(mock_sleep.call_count, 5)
         self.assertEqual(mock_urlopen.call_count, 6)
         # then with retries param
         mock_urlopen.reset_mock()
         with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
-            self.assertRaises(internal_client.httplib.BadStatusLine,
+            self.assertRaises(http_client.BadStatusLine,
                               c.retry_request, 'GET', retries=2)
         self.assertEqual(mock_sleep.call_count, 2)
         self.assertEqual(mock_urlopen.call_count, 3)
         # and this time with a real response
         mock_urlopen.reset_mock()
-        mock_urlopen.side_effect = [internal_client.httplib.BadStatusLine(''),
+        mock_urlopen.side_effect = [http_client.BadStatusLine(''),
                                     mock_response]
         with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
             retval = c.retry_request('GET', retries=1)
@@ -1928,7 +1915,7 @@ class TestSimpleClient(unittest.TestCase):
         self.assertEqual(mock_urlopen.call_count, 2)
         self.assertEqual([{}, None], retval)
 
-    @mock.patch.object(urllib2, 'urlopen')
+    @mock.patch.object(urllib_request, 'urlopen')
     def test_request_with_retries_with_HTTPError(self, mock_urlopen):
         mock_response = mock.MagicMock()
         mock_response.read.return_value = b''
@@ -1937,7 +1924,7 @@ class TestSimpleClient(unittest.TestCase):
 
         for request_method in 'GET PUT POST DELETE HEAD COPY'.split():
             mock_urlopen.reset_mock()
-            mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
+            mock_urlopen.side_effect = urllib_request.HTTPError(*[None] * 5)
             with mock.patch('swift.common.internal_client.sleep') \
                     as mock_sleep:
                 self.assertRaises(exceptions.ClientException,
@@ -1945,7 +1932,7 @@ class TestSimpleClient(unittest.TestCase):
             self.assertEqual(mock_sleep.call_count, 1)
             self.assertEqual(mock_urlopen.call_count, 2)
 
-    @mock.patch.object(urllib2, 'urlopen')
+    @mock.patch.object(urllib_request, 'urlopen')
     def test_request_container_with_retries_with_HTTPError(self,
                                                            mock_urlopen):
         mock_response = mock.MagicMock()
@@ -1955,7 +1942,7 @@ class TestSimpleClient(unittest.TestCase):
 
         for request_method in 'GET PUT POST DELETE HEAD COPY'.split():
             mock_urlopen.reset_mock()
-            mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
+            mock_urlopen.side_effect = urllib_request.HTTPError(*[None] * 5)
             with mock.patch('swift.common.internal_client.sleep') \
                     as mock_sleep:
                 self.assertRaises(exceptions.ClientException,
@@ -1964,7 +1951,7 @@ class TestSimpleClient(unittest.TestCase):
             self.assertEqual(mock_sleep.call_count, 1)
             self.assertEqual(mock_urlopen.call_count, 2)
 
-    @mock.patch.object(urllib2, 'urlopen')
+    @mock.patch.object(urllib_request, 'urlopen')
     def test_request_object_with_retries_with_HTTPError(self,
                                                         mock_urlopen):
         mock_response = mock.MagicMock()
@@ -1974,7 +1961,7 @@ class TestSimpleClient(unittest.TestCase):
 
         for request_method in 'GET PUT POST DELETE HEAD COPY'.split():
             mock_urlopen.reset_mock()
-            mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
+            mock_urlopen.side_effect = urllib_request.HTTPError(*[None] * 5)
             with mock.patch('swift.common.internal_client.sleep') \
                     as mock_sleep:
                 self.assertRaises(exceptions.ClientException,
@@ -1983,12 +1970,12 @@ class TestSimpleClient(unittest.TestCase):
             self.assertEqual(mock_sleep.call_count, 1)
             self.assertEqual(mock_urlopen.call_count, 2)
 
-    @mock.patch.object(urllib2, 'urlopen')
+    @mock.patch.object(urllib_request, 'urlopen')
     def test_delete_object_with_404_no_retry(self, mock_urlopen):
         mock_response = mock.MagicMock()
         mock_response.read.return_value = b''
         err_args = [None, 404, None, None, None]
-        mock_urlopen.side_effect = urllib2.HTTPError(*err_args)
+        mock_urlopen.side_effect = urllib_request.HTTPError(*err_args)
 
         with mock.patch('swift.common.internal_client.sleep') as mock_sleep, \
                 self.assertRaises(exceptions.ClientException) as caught:
@@ -1998,12 +1985,12 @@ class TestSimpleClient(unittest.TestCase):
         self.assertEqual(mock_sleep.call_count, 0)
         self.assertEqual(mock_urlopen.call_count, 1)
 
-    @mock.patch.object(urllib2, 'urlopen')
+    @mock.patch.object(urllib_request, 'urlopen')
     def test_delete_object_with_409_no_retry(self, mock_urlopen):
         mock_response = mock.MagicMock()
         mock_response.read.return_value = b''
         err_args = [None, 409, None, None, None]
-        mock_urlopen.side_effect = urllib2.HTTPError(*err_args)
+        mock_urlopen.side_effect = urllib_request.HTTPError(*err_args)
 
         with mock.patch('swift.common.internal_client.sleep') as mock_sleep, \
                 self.assertRaises(exceptions.ClientException) as caught:
@@ -2020,7 +2007,7 @@ class TestSimpleClient(unittest.TestCase):
         proxy = '%s://%s' % (scheme, proxy_host)
         url = 'https://127.0.0.1:1/a'
 
-        mocked = 'swift.common.internal_client.urllib2.urlopen'
+        mocked = 'swift.common.internal_client.urllib_request.urlopen'
 
         # module level methods
         for func in (internal_client.put_object,
@@ -2034,14 +2021,12 @@ class TestSimpleClient(unittest.TestCase):
                 self.assertEqual(1, len(args))
                 self.assertEqual(1, len(kwargs))
                 self.assertEqual(0.1, kwargs['timeout'])
-                self.assertIsInstance(args[0], urllib2.Request)
+                self.assertIsInstance(args[0], urllib_request.Request)
                 self.assertEqual(proxy_host, args[0].host)
-                if six.PY2:
-                    self.assertEqual(scheme, args[0].type)
-                else:
-                    # TODO: figure out why this happens, whether py2 or py3 is
-                    # messed up, whether we care, and what can be done about it
-                    self.assertEqual('https', args[0].type)
+                # TODO: figure out why this doesn't match `scheme`, whether
+                # py2 (where it did) or py3 is messed up, whether we care,
+                # and what can be done about it
+                self.assertEqual('https', args[0].type)
 
         # class methods
         content = mock.MagicMock()
@@ -2059,13 +2044,10 @@ class TestSimpleClient(unittest.TestCase):
                 self.assertEqual(1, len(args))
                 self.assertEqual(1, len(kwargs))
                 self.assertEqual(0.1, kwargs['timeout'])
-                self.assertIsInstance(args[0], urllib2.Request)
+                self.assertIsInstance(args[0], urllib_request.Request)
                 self.assertEqual(proxy_host, args[0].host)
-                if six.PY2:
-                    self.assertEqual(scheme, args[0].type)
-                else:
-                    # See above
-                    self.assertEqual('https', args[0].type)
+                # See above
+                self.assertEqual('https', args[0].type)
 
 
 if __name__ == '__main__':

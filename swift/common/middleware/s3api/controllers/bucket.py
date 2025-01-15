@@ -16,8 +16,7 @@
 from base64 import standard_b64encode as b64encode
 from base64 import standard_b64decode as b64decode
 
-import six
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 from swift.common import swob
 from swift.common.http import HTTP_OK
@@ -145,9 +144,8 @@ class BucketController(Controller):
                 query['marker'] = swob.wsgi_to_str(req.params['start-after'])
             # continuation-token overrides start-after
             if 'continuation-token' in req.params:
-                decoded = b64decode(req.params['continuation-token'])
-                if not six.PY2:
-                    decoded = decoded.decode('utf8')
+                decoded = b64decode(
+                    req.params['continuation-token']).decode('utf8')
                 query['marker'] = decoded
             if 'fetch-owner' in req.params:
                 fetch_owner = config_true_value(req.params['fetch-owner'])

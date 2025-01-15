@@ -14,7 +14,6 @@
 # limitations under the License.
 import hashlib
 import hmac
-import six
 
 from swift.common.exceptions import UnknownSecretIdError
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
@@ -101,14 +100,9 @@ class KeyMasterContext(WSGIContext):
                 # Older py3 proxies may have written down crypto meta as WSGI
                 # strings; we still need to be able to read that
                 try:
-                    if six.PY2:
-                        alt_path = tuple(
-                            part.decode('utf-8').encode('latin1')
-                            for part in (key_acct, key_cont, key_obj))
-                    else:
-                        alt_path = tuple(
-                            part.encode('latin1').decode('utf-8')
-                            for part in (key_acct, key_cont, key_obj))
+                    alt_path = tuple(
+                        part.encode('latin1').decode('utf-8')
+                        for part in (key_acct, key_cont, key_obj))
                 except UnicodeError:
                     # Well, it was worth a shot
                     pass
@@ -336,8 +330,7 @@ class BaseKeyMaster(object):
             self.logger.warning('Unrecognised secret id: %s' % secret_id)
             raise UnknownSecretIdError(secret_id)
         else:
-            if not six.PY2:
-                path = path.encode('utf-8')
+            path = path.encode('utf-8')
             return hmac.new(key, path, digestmod=hashlib.sha256).digest()
 
 

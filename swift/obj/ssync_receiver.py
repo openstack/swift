@@ -17,7 +17,7 @@
 import eventlet.greenio
 import eventlet.wsgi
 from eventlet import sleep
-from six.moves import urllib
+import urllib
 
 from swift.common import exceptions
 from swift.common import http

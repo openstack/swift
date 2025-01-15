@@ -17,7 +17,7 @@
 from __future__ import print_function
 import json
 from collections import defaultdict
-from six.moves.configparser import ConfigParser
+from configparser import ConfigParser
 from optparse import OptionParser
 from sys import exit, stdout, stderr
 from time import time

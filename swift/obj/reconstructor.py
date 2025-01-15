@@ -21,8 +21,7 @@ from os.path import join
 import random
 import time
 from collections import defaultdict
-import six
-import six.moves.cPickle as pickle
+import pickle  # nosec: B403
 import shutil
 
 from eventlet import (GreenPile, GreenPool, Timeout, sleep, tpool, spawn)
@@ -84,7 +83,7 @@ def _full_path(node, part, relative_path, policy):
                    :class:`~swift.common.storage_policy.BaseStoragePolicy`
     :return: string representation of absolute path on node plus policy index
     """
-    if not isinstance(relative_path, six.text_type):
+    if not isinstance(relative_path, str):
         relative_path = relative_path.decode('utf8')
     return '%(node)s/%(part)s%(path)s policy#%(policy)d' % {
         'node': node_to_string(node, replication=True),
@@ -935,7 +934,7 @@ class ObjectReconstructor(Daemon):
                         "Invalid response %(resp)s from %(full_path)s",
                         {'resp': resp.status, 'full_path': full_path})
                 else:
-                    remote_suffixes = pickle.loads(resp.read())
+                    remote_suffixes = pickle.loads(resp.read())  # nosec: B301
             except (Exception, Timeout):
                 # all exceptions are logged here so that our caller can
                 # safely catch our exception and continue to the next node
@@ -1286,11 +1285,11 @@ class ObjectReconstructor(Daemon):
         policy2devices = {}
         for policy in self.policies:
             self.load_object_ring(policy)
-            local_devices = list(six.moves.filter(
-                lambda dev: dev and is_local_device(
+            local_devices = [
+                dev for dev in policy.object_ring.devs
+                if dev and is_local_device(
                     ips, self.port,
-                    dev['replication_ip'], dev['replication_port']),
-                policy.object_ring.devs))
+                    dev['replication_ip'], dev['replication_port'])]
             policy2devices[policy] = local_devices
         return policy2devices
 

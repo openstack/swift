@@ -24,8 +24,7 @@ from operator import itemgetter
 from random import random
 
 import os
-import six
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 from eventlet import Timeout
 from contextlib import contextmanager
 
@@ -657,18 +656,13 @@ class CleavingContext(object):
         return '%s(%s)' % (self.__class__.__name__, ', '.join(
             '%s=%r' % prop for prop in self))
 
-    def _encode(cls, value):
-        if value is not None and six.PY2 and isinstance(value, six.text_type):
-            return value.encode('utf-8')
-        return value
-
     @property
     def cursor(self):
         return self._cursor
 
     @cursor.setter
     def cursor(self, value):
-        self._cursor = self._encode(value)
+        self._cursor = value
 
     @property
     def marker(self):

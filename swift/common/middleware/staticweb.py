@@ -135,13 +135,12 @@ Example usage of this middleware via ``swift``:
 """
 
 
+import html
 import json
-import six
 import time
 
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 
-from swift.common.request_helpers import html_escape
 from swift.common.utils import human_readable, split_path, config_true_value, \
     quote, get_logger
 from swift.common.registry import register_swift_info
@@ -256,7 +255,7 @@ class _StaticWebContext(WSGIContext):
             body = '<!DOCTYPE html>\n' \
                 '<html>\n' \
                 '<head>\n' \
-                '<title>Listing of %s</title>\n' % html_escape(label)
+                '<title>Listing of %s</title>\n' % html.escape(label)
             if self._listings_css:
                 body += '  <link rel="stylesheet" type="text/css" ' \
                     'href="%s" />\n' % self._build_css_path(prefix or '')
@@ -322,7 +321,7 @@ class _StaticWebContext(WSGIContext):
                '<html>\n' \
                ' <head>\n' \
                '  <title>Listing of %s</title>\n' % \
-               html_escape(label)
+               html.escape(label)
         if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
                     'href="%s" />\n' % (self._build_css_path(prefix))
@@ -341,7 +340,7 @@ class _StaticWebContext(WSGIContext):
                 '    <th class="colname">Name</th>\n' \
                 '    <th class="colsize">Size</th>\n' \
                 '    <th class="coldate">Date</th>\n' \
-                '   </tr>\n' % html_escape(label)
+                '   </tr>\n' % html.escape(label)
         if len(prefix) > len(tempurl_prefix):
             body += '   <tr id="parent" class="item">\n' \
                     '    <td class="colname"><a href="../%s">../</a></td>\n' \
@@ -350,8 +349,7 @@ class _StaticWebContext(WSGIContext):
                     '   </tr>\n' % tempurl_qs
         for item in listing:
             if 'subdir' in item:
-                subdir = item['subdir'] if six.PY3 else  \
-                    item['subdir'].encode('utf-8')
+                subdir = item['subdir']
                 if prefix:
                     subdir = subdir[len(wsgi_to_str(prefix)):]
                 body += '   <tr class="item subdir">\n' \
@@ -359,28 +357,25 @@ class _StaticWebContext(WSGIContext):
                         '    <td class="colsize">&nbsp;</td>\n' \
                         '    <td class="coldate">&nbsp;</td>\n' \
                         '   </tr>\n' % \
-                        (quote(subdir) + tempurl_qs, html_escape(subdir))
+                        (quote(subdir) + tempurl_qs, html.escape(subdir))
         for item in listing:
             if 'name' in item:
-                name = item['name'] if six.PY3 else  \
-                    item['name'].encode('utf-8')
+                name = item['name']
                 if prefix:
                     name = name[len(wsgi_to_str(prefix)):]
-                content_type = item['content_type'] if six.PY3 else  \
-                    item['content_type'].encode('utf-8')
+                content_type = item['content_type']
                 bytes = human_readable(item['bytes'])
                 last_modified = (
-                    html_escape(item['last_modified'] if six.PY3 else
-                                item['last_modified'].encode('utf-8')).
+                    html.escape(item['last_modified']).
                     split('.')[0].replace('T', ' '))
                 body += '   <tr class="item %s">\n' \
                         '    <td class="colname"><a href="%s">%s</a></td>\n' \
                         '    <td class="colsize">%s</td>\n' \
                         '    <td class="coldate">%s</td>\n' \
                         '   </tr>\n' % \
-                        (' '.join('type-' + html_escape(t.lower())
+                        (' '.join('type-' + html.escape(t.lower())
                                   for t in content_type.split('/')),
-                         quote(name) + tempurl_qs, html_escape(name),
+                         quote(name) + tempurl_qs, html.escape(name),
                          bytes, last_modified)
         body += '  </table>\n' \
                 ' </body>\n' \

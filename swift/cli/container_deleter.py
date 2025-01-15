@@ -28,7 +28,6 @@ import argparse
 import io
 import itertools
 import json
-import six
 import time
 
 from swift.common.internal_client import InternalClient
@@ -50,17 +49,11 @@ def make_delete_jobs(account, container, objects, timestamp):
     :returns: list of dicts appropriate for an UPDATE request to an
               expiring-object queue
     '''
-    if six.PY2:
-        if isinstance(account, str):
-            account = account.decode('utf8')
-        if isinstance(container, str):
-            container = container.decode('utf8')
     return [
         {
             'name': build_task_obj(
                 timestamp, account, container,
-                obj.decode('utf8') if six.PY2 and isinstance(obj, str)
-                else obj, high_precision=True),
+                obj, high_precision=True),
             'deleted': 0,
             'created_at': timestamp.internal,
             'etag': MD5_OF_EMPTY_STRING,

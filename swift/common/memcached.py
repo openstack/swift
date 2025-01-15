@@ -45,7 +45,6 @@ http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 """
 
 import os
-import six
 import json
 import logging
 # the name of 'time' module is changed to 'tm', to avoid changing the
@@ -56,8 +55,7 @@ from bisect import bisect
 from eventlet.green import socket, ssl
 from eventlet.pools import Pool
 from eventlet import Timeout
-from six.moves import range
-from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
+from configparser import ConfigParser, NoSectionError, NoOptionError
 from swift.common import utils
 from swift.common.exceptions import MemcacheConnectionError, \
     MemcacheIncrNotFoundError, MemcachePoolTimeout
@@ -91,10 +89,7 @@ EXPTIME_MAXDELTA = 30 * 24 * 60 * 60
 
 def md5hash(key):
     if not isinstance(key, bytes):
-        if six.PY2:
-            key = key.encode('utf-8')
-        else:
-            key = key.encode('utf-8', errors='surrogateescape')
+        key = key.encode('utf-8', errors='surrogateescape')
     return md5(key, usedforsecurity=False).hexdigest().encode('ascii')
 
 
@@ -421,8 +416,7 @@ class MemcacheRing(object):
                     # Wait for the set to complete
                     msg = fp.readline().strip()
                     if msg != b'STORED':
-                        if not six.PY2:
-                            msg = msg.decode('ascii')
+                        msg = msg.decode('ascii')
                         raise MemcacheConnectionError('failed set: %s' % msg)
                     self._return_conn(server, fp, sock)
                     return

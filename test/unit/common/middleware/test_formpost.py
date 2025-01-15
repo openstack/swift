@@ -19,12 +19,8 @@ import hashlib
 import unittest
 from time import time
 
-import six
-if six.PY3:
-    from unittest import mock
-else:
-    import mock
-from io import BytesIO
+from unittest import mock
+from io import BytesIO, StringIO
 
 from swift.common.swob import Request, Response, wsgi_quote
 from swift.common.middleware import tempauth, formpost
@@ -38,9 +34,7 @@ from test.debug_logger import debug_logger
 def hmac_msg(path, redirect, max_file_size, max_file_count, expires):
     msg = '%s\n%s\n%s\n%s\n%s' % (
         path, redirect, max_file_size, max_file_count, expires)
-    if six.PY3:
-        msg = msg.encode('utf-8')
-    return msg
+    return msg.encode('utf-8')
 
 
 class FakeApp(object):
@@ -175,18 +169,13 @@ class TestFormPost(unittest.TestCase):
                            expires, key, user_agent=True, algorithm='sha512',
                            prefix=True):
         alg_name = algorithm
-        if six.PY2:
-            algorithm = getattr(hashlib, algorithm)
         mac = hmac.new(
             key,
             hmac_msg(path, redirect, max_file_size, max_file_count, expires),
             algorithm)
         if prefix:
-            if six.PY2:
-                sig = alg_name + ':' + base64.b64encode(mac.digest())
-            else:
-                sig = alg_name + ':' + base64.b64encode(
-                    mac.digest()).decode('ascii')
+            sig = alg_name + ':' + base64.b64encode(
+                mac.digest()).decode('ascii')
         else:
             sig = mac.hexdigest()
         body = [
@@ -231,9 +220,8 @@ class TestFormPost(unittest.TestCase):
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
         ]
-        if six.PY3:
-            body = [line.encode('utf-8') for line in body]
-        wsgi_errors = six.StringIO()
+        body = [line.encode('utf-8') for line in body]
+        wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
@@ -360,10 +348,8 @@ class TestFormPost(unittest.TestCase):
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
         ])
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
-        wsgi_input = BytesIO(wsgi_input)
-        wsgi_errors = six.StringIO()
+        wsgi_input = BytesIO(wsgi_input.encode('utf-8'))
+        wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
@@ -478,10 +464,8 @@ class TestFormPost(unittest.TestCase):
             '-----------------------------168072824752491622650073--',
             ''
         ])
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
-        wsgi_input = BytesIO(wsgi_input)
-        wsgi_errors = six.StringIO()
+        wsgi_input = BytesIO(wsgi_input.encode('utf-8'))
+        wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=---------------------------168072824752491622650073',
@@ -595,10 +579,8 @@ class TestFormPost(unittest.TestCase):
             '------WebKitFormBoundaryq3CFxUjfsDMu8XsA--',
             ''
         ])
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
-        wsgi_input = BytesIO(wsgi_input)
-        wsgi_errors = six.StringIO()
+        wsgi_input = BytesIO(wsgi_input.encode('utf-8'))
+        wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=----WebKitFormBoundaryq3CFxUjfsDMu8XsA',
@@ -715,10 +697,8 @@ class TestFormPost(unittest.TestCase):
             '-----------------------------7db20d93017c--',
             ''
         ])
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
-        wsgi_input = BytesIO(wsgi_input)
-        wsgi_errors = six.StringIO()
+        wsgi_input = BytesIO(wsgi_input.encode('utf-8'))
+        wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=---------------------------7db20d93017c',
@@ -782,8 +762,6 @@ class TestFormPost(unittest.TestCase):
     def test_curl_with_unicode(self):
         key = b'abc'
         path = u'/v1/AUTH_test/container/let_it_\N{SNOWFLAKE}/'
-        if six.PY2:
-            path = path.encode('utf-8')
         redirect = 'http://brim.net'
         max_file_size = 1024
         max_file_count = 10
@@ -832,11 +810,9 @@ class TestFormPost(unittest.TestCase):
             '',
             '--------------------------dea19ac8502ca805--',
             ''
-        ])
-        if not six.PY2:
-            wsgi_input = wsgi_input.encode('latin1')
+        ]).encode('latin1')
         wsgi_input = BytesIO(wsgi_input)
-        wsgi_errors = six.StringIO()
+        wsgi_errors = StringIO()
         env = {
             'CONTENT_LENGTH': str(len(wsgi_input.getvalue())),
             'CONTENT_TYPE': 'multipart/form-data; '
@@ -1166,9 +1142,7 @@ class TestFormPost(unittest.TestCase):
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
         ])
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
-        env['wsgi.input'] = BytesIO(wsgi_input)
+        env['wsgi.input'] = BytesIO(wsgi_input.encode('utf-8'))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
@@ -1238,9 +1212,7 @@ class TestFormPost(unittest.TestCase):
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
         ])
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
-        env['wsgi.input'] = BytesIO(wsgi_input)
+        env['wsgi.input'] = BytesIO(wsgi_input.encode('utf-8'))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
@@ -1958,9 +1930,8 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_at),
         ]
-        if six.PY3:
-            x_delete_body_part = [line.encode('utf-8')
-                                  for line in x_delete_body_part]
+        x_delete_body_part = [line.encode('utf-8')
+                              for line in x_delete_body_part]
         key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
@@ -2005,9 +1976,8 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_at),
         ]
-        if six.PY3:
-            x_delete_body_part = [line.encode('utf-8')
-                                  for line in x_delete_body_part]
+        x_delete_body_part = [line.encode('utf-8')
+                              for line in x_delete_body_part]
         key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
@@ -2043,9 +2013,8 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_after),
         ]
-        if six.PY3:
-            x_delete_body_part = [line.encode('utf-8')
-                                  for line in x_delete_body_part]
+        x_delete_body_part = [line.encode('utf-8')
+                              for line in x_delete_body_part]
         key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
@@ -2090,9 +2059,8 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_after),
         ]
-        if six.PY3:
-            x_delete_body_part = [line.encode('utf-8')
-                                  for line in x_delete_body_part]
+        x_delete_body_part = [line.encode('utf-8')
+                              for line in x_delete_body_part]
         key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
@@ -2131,8 +2099,7 @@ class TestFormPost(unittest.TestCase):
             '',
             'text/html',
         ]
-        if six.PY3:
-            body_part = [line.encode('utf-8') for line in body_part]
+        body_part = [line.encode('utf-8') for line in body_part]
 
         key = b'abc'
         sig, env, body = self._make_sig_env_body(
@@ -2231,8 +2198,7 @@ class TestFormPost(unittest.TestCase):
             '',
             '{"four": 4}\n',
         ]
-        if six.PY3:
-            body_part = [line.encode('utf-8') for line in body_part]
+        body_part = [line.encode('utf-8') for line in body_part]
 
         key = b'abc'
         sig, env, body = self._make_sig_env_body(

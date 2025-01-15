@@ -19,12 +19,8 @@ import socket
 import unittest
 
 from eventlet import Timeout
-import six
-from six.moves import urllib
-if six.PY2:
-    from itertools import izip_longest as zip_longest
-else:
-    from itertools import zip_longest
+import urllib.parse
+from itertools import zip_longest
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.swob import Request, bytes_to_wsgi, str_to_wsgi, wsgi_quote
@@ -537,18 +533,12 @@ class TestGetShardedContainer(BaseTestContainerController):
         return hdrs
 
     def _make_shard_objects(self, shard_range):
-        if six.PY2:
-            lower = ord(shard_range.lower.decode('utf8')[0]
-                        if shard_range.lower else '@')
-            upper = ord(shard_range.upper.decode('utf8')[0]
-                        if shard_range.upper else u'\U0001ffff')
-        else:
-            lower = ord(shard_range.lower[0] if shard_range.lower else '@')
-            upper = ord(shard_range.upper[0] if shard_range.upper
-                        else '\U0001ffff')
+        lower = ord(shard_range.lower[0] if shard_range.lower else '@')
+        upper = ord(shard_range.upper[0] if shard_range.upper
+                    else '\U0001ffff')
 
-        objects = [{'name': six.unichr(i), 'bytes': i,
-                    'hash': 'hash%s' % six.unichr(i),
+        objects = [{'name': chr(i), 'bytes': i,
+                    'hash': 'hash%s' % chr(i),
                     'content_type': 'text/plain', 'deleted': 0,
                     'last_modified': next(self.ts_iter).isoformat}
                    for i in range(lower + 1, upper + 1)][:1024]
@@ -603,11 +593,8 @@ class TestGetShardedContainer(BaseTestContainerController):
             with annotate_failure('Request check at index %d.' % i):
                 # strip off /sdx/0/ from path
                 self.assertEqual(exp_path, req['path'][7:])
-                if six.PY2:
-                    got_params = dict(urllib.parse.parse_qsl(req['qs'], True))
-                else:
-                    got_params = dict(urllib.parse.parse_qsl(
-                        req['qs'], True, encoding='latin1'))
+                got_params = dict(urllib.parse.parse_qsl(
+                    req['qs'], True, encoding='latin1'))
                 self.assertEqual(dict(exp_params, format='json'), got_params)
                 for k, v in exp_headers.items():
                     self.assertIn(k, req['headers'])
@@ -3126,12 +3113,8 @@ class BaseTestContainerControllerGetPath(BaseTestContainerController):
         expected_params = {'states': 'listing', 'format': 'json'}
         if extra_params:
             expected_params.update(extra_params)
-        if six.PY2:
-            backend_params = dict(urllib.parse.parse_qsl(
-                backend_req['qs'], True))
-        else:
-            backend_params = dict(urllib.parse.parse_qsl(
-                backend_req['qs'], True, encoding='latin1'))
+        backend_params = dict(urllib.parse.parse_qsl(
+            backend_req['qs'], True, encoding='latin1'))
         self.assertEqual(expected_params, backend_params)
 
         backend_hdrs = backend_req['headers']

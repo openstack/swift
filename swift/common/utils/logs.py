@@ -27,7 +27,6 @@ import sys
 import time
 import fcntl
 import eventlet
-import six
 import datetime
 
 from swift.common.utils.base import md5, quote, split_path
@@ -41,11 +40,8 @@ from swift.common.utils.config import config_true_value
 # we do the same here
 import swift.common.exceptions
 
-if six.PY2:
-    from eventlet.green import httplib as green_http_client
-else:
-    from eventlet.green.http import client as green_http_client
-from six.moves import http_client
+from eventlet.green.http import client as green_http_client
+import http.client
 from eventlet.green import threading
 
 
@@ -350,7 +346,7 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
         _junk, exc, _junk = sys.exc_info()
         call = self.error
         emsg = ''
-        if isinstance(exc, (http_client.BadStatusLine,
+        if isinstance(exc, (http.client.BadStatusLine,
                             green_http_client.BadStatusLine)):
             # Use error(); not really exceptional
             emsg = repr(exc)
@@ -503,9 +499,8 @@ class LoggerFileObject(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         raise IOError(errno.EBADF, 'Bad file descriptor')
-    __next__ = next
 
     def read(self, size=-1):
         raise IOError(errno.EBADF, 'Bad file descriptor')
@@ -744,8 +739,7 @@ class StrAnonymizer(str):
 
     def __new__(cls, data, method, salt):
         method = method.lower()
-        if method not in (hashlib.algorithms if six.PY2 else
-                          hashlib.algorithms_guaranteed):
+        if method not in hashlib.algorithms_guaranteed:
             raise ValueError('Unsupported hashing method: %r' % method)
         s = str.__new__(cls, data or '')
         s.method = method
@@ -762,8 +756,8 @@ class StrAnonymizer(str):
             else:
                 h = getattr(hashlib, self.method)()
             if self.salt:
-                h.update(six.b(self.salt))
-            h.update(six.b(self))
+                h.update(self.salt.encode('latin1'))
+            h.update(self.encode('latin1'))
             return '{%s%s}%s' % ('S' if self.salt else '', self.method.upper(),
                                  h.hexdigest())
 
@@ -880,7 +874,7 @@ def get_policy_index(req_headers, res_headers):
     """
     header = 'X-Backend-Storage-Policy-Index'
     policy_index = res_headers.get(header, req_headers.get(header))
-    if isinstance(policy_index, six.binary_type) and not six.PY2:
+    if isinstance(policy_index, bytes):
         policy_index = policy_index.decode('ascii')
     return str(policy_index) if policy_index is not None else None
 

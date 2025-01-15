@@ -16,14 +16,12 @@
 """Tests for swift.common.db"""
 import contextlib
 import os
-import sys
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree, copy
 from uuid import uuid4
-
+import pickle
 import mock
-import six.moves.cPickle as pickle
 
 import base64
 import json
@@ -34,9 +32,6 @@ import random
 from mock import patch, MagicMock
 
 from eventlet.timeout import Timeout
-from six.moves import range
-
-import six
 
 import swift.common.db
 from swift.common.constraints import \
@@ -557,19 +552,8 @@ class TestExampleBroker(TestDbBase):
                           storage_policy_index=int(self.policy))
         self.assertEqual(broker.metadata, {})
         self.assertEqual(broker.get_raw_metadata(), '')
-        # This is not obvious. The actual JSON in the database is the same:
-        #  '{"test\\u062a": ["value\\u062a", "0000000001.00000"]}'
-        # The only difference is what reading it produces on py2 and py3.
-        # We use native strings for metadata (see native_str_keys_and_values),
-        # so types are different.
-        if six.PY2:
-            key = u'test\u062a'.encode('utf-8')
-            value = u'value\u062a'.encode('utf-8')
-        else:
-            key = u'test\u062a'
-            value = u'value\u062a'
         metadata = {
-            key: [value, Timestamp(1).internal]
+            'test\u062a': ['value\u062a', Timestamp(1).internal]
         }
         broker.update_metadata(metadata)
         self.assertEqual(broker.metadata, metadata)
@@ -1492,15 +1476,12 @@ class TestDatabaseBroker(TestDbBase):
             mkdirs(dbpath)
             broker = DatabaseBroker(os.path.join(dbpath, '%d.db' % (i)))
             broker.db_type = 'test'
-            try:
-                raise ex
-            except sqlite3.DatabaseError:
-                with self.assertRaises(sqlite3.DatabaseError) as raised:
-                    broker.possibly_quarantine(*sys.exc_info())
-                self.assertEqual(
-                    str(raised.exception),
-                    'Quarantined %s to %s due to %s database' %
-                    (dbpath, qpath, hint))
+            with self.assertRaises(sqlite3.DatabaseError) as raised:
+                broker.possibly_quarantine(ex)
+            self.assertEqual(
+                str(raised.exception),
+                'Quarantined %s to %s due to %s database' %
+                (dbpath, qpath, hint))
 
     def test_skip_commits(self):
         broker = DatabaseBroker(self.db_path)
@@ -1585,8 +1566,6 @@ class TestDatabaseBroker(TestDbBase):
             broker._commit_puts([])
         expected_name = (u'\u8509\u0902\ub30b\ub30b\u9409\u0901\u5608\u5606'
                          u'\u3706\u0903\u3704\u2603\uf10f\ub30d\ud20e')
-        if six.PY2:
-            expected_name = expected_name.encode('utf8')
         mock_merge_items.assert_called_once_with([
             (expected_name, '1559241846.46601', '0', '0', '0', 0, '0')])
         self.assertEqual(0, os.path.getsize(broker.pending_file))

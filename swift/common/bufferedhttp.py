@@ -27,28 +27,22 @@ BufferedHTTPResponse.
 """
 
 from swift.common import constraints
+import http.client
 import logging
 import time
 import socket
 
-import eventlet
-from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
+from eventlet.green.http.client import CONTINUE, HTTPConnection, \
     HTTPResponse, HTTPSConnection, _UNKNOWN, ImproperConnectionState
-from six.moves.urllib.parse import quote, parse_qsl, urlencode
-import six
+from urllib.parse import quote, parse_qsl, urlencode
 
-if six.PY2:
-    httplib = eventlet.import_patched('httplib')
-    from eventlet.green import httplib as green_httplib
-else:
-    httplib = eventlet.import_patched('http.client')
-    from eventlet.green.http import client as green_httplib
+from eventlet.green.http import client as green_http_client
 
 # Apparently http.server uses this to decide when/whether to send a 431.
 # Give it some slack, so the app is more likely to get the chance to reject
 # with a 400 instead.
-httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
-green_httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
+http.client._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
+green_http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
 
 
 class BufferedHTTPResponse(HTTPResponse):
@@ -65,11 +59,6 @@ class BufferedHTTPResponse(HTTPResponse):
             # No socket means no file-like -- set it to None like in
             # HTTPResponse.close()
             self.fp = None
-        elif six.PY2:
-            # sock.fd is a socket._socketobject
-            # sock.fd._sock is a _socket.socket object, which is what we want.
-            self._real_socket = sock.fd._sock
-            self.fp = sock.makefile('rb')
         else:
             # sock.fd is a socket.socket, which should have a _real_close
             self._real_socket = sock.fd
@@ -91,24 +80,23 @@ class BufferedHTTPResponse(HTTPResponse):
         self.will_close = _UNKNOWN      # conn will close at end of response
         self._readline_buffer = b''
 
-    if not six.PY2:
-        def begin(self):
-            HTTPResponse.begin(self)
-            header_payload = self.headers.get_payload()
-            if isinstance(header_payload, list) and len(header_payload) == 1:
-                header_payload = header_payload[0].get_payload()
-            if header_payload:
-                # This shouldn't be here. We must've bumped up against
-                # https://bugs.python.org/issue37093
-                for line in header_payload.rstrip('\r\n').split('\n'):
-                    if ':' not in line or line[:1] in ' \t':
-                        # Well, we're no more broken than we were before...
-                        # Should we support line folding?
-                        # How can/should we handle a bad header line?
-                        break
-                    header, value = line.split(':', 1)
-                    value = value.strip(' \t\n\r')
-                    self.headers.add_header(header, value)
+    def begin(self):
+        HTTPResponse.begin(self)
+        header_payload = self.headers.get_payload()
+        if isinstance(header_payload, list) and len(header_payload) == 1:
+            header_payload = header_payload[0].get_payload()
+        if header_payload:
+            # This shouldn't be here. We must've bumped up against
+            # https://bugs.python.org/issue37093
+            for line in header_payload.rstrip('\r\n').split('\n'):
+                if ':' not in line or line[:1] in ' \t':
+                    # Well, we're no more broken than we were before...
+                    # Should we support line folding?
+                    # How can/should we handle a bad header line?
+                    break
+                header, value = line.split(':', 1)
+                value = value.strip(' \t\n\r')
+                self.headers.add_header(header, value)
 
     def expect_response(self):
         if self.fp:
@@ -125,15 +113,7 @@ class BufferedHTTPResponse(HTTPResponse):
             self.status = status
             self.reason = reason.strip()
             self.version = 11
-            if six.PY2:
-                # Under py2, HTTPMessage.__init__ reads the headers
-                # which advances fp
-                self.msg = HTTPMessage(self.fp, 0)
-                # immediately kill msg.fp to make sure it isn't read again
-                self.msg.fp = None
-            else:
-                # py3 has a separate helper for it
-                self.headers = self.msg = httplib.parse_headers(self.fp)
+            self.headers = self.msg = http.client.parse_headers(self.fp)
 
     def read(self, amt=None):
         if not self._readline_buffer:
@@ -157,26 +137,6 @@ class BufferedHTTPResponse(HTTPResponse):
             self._readline_buffer = b''
             return buf + HTTPResponse.read(self, smaller_amt)
 
-    def readline(self, size=1024):
-        # You'd think Python's httplib would provide this, but it doesn't.
-        # It does, however, provide a comment in the HTTPResponse class:
-        #
-        #  # XXX It would be nice to have readline and __iter__ for this,
-        #  # too.
-        #
-        # Yes, it certainly would.
-        while (b'\n' not in self._readline_buffer
-               and len(self._readline_buffer) < size):
-            read_size = size - len(self._readline_buffer)
-            chunk = HTTPResponse.read(self, read_size)
-            if not chunk:
-                break
-            self._readline_buffer += chunk
-
-        line, newline, rest = self._readline_buffer.partition(b'\n')
-        self._readline_buffer = rest
-        return line + newline
-
     def nuke_from_orbit(self):
         """
         Terminate the socket with extreme prejudice.
@@ -186,14 +146,9 @@ class BufferedHTTPResponse(HTTPResponse):
         you care about has a reference to this socket.
         """
         if self._real_socket:
-            if six.PY2:
-                # this is idempotent; see sock_close in Modules/socketmodule.c
-                # in the Python source for details.
-                self._real_socket.close()
-            else:
-                # Hopefully this is equivalent?
-                # TODO: verify that this does everything ^^^^ does for py2
-                self._real_socket._real_close()
+            # Hopefully this is equivalent to py2's _real_socket.close()?
+            # TODO: verify that this does everything ^^^^ does for py2
+            self._real_socket._real_close()
         self._real_socket = None
         self.close()
 
@@ -268,13 +223,13 @@ def http_connect(ipaddr, port, device, partition, method, path,
     :param ssl: set True if SSL should be used (default: False)
     :returns: HTTPConnection object
     """
-    if isinstance(path, six.text_type):
+    if isinstance(path, str):
         path = path.encode("utf-8")
-    if isinstance(device, six.text_type):
+    if isinstance(device, str):
         device = device.encode("utf-8")
-    if isinstance(partition, six.text_type):
+    if isinstance(partition, str):
         partition = partition.encode('utf-8')
-    elif isinstance(partition, six.integer_types):
+    elif isinstance(partition, int):
         partition = str(partition).encode('ascii')
     path = quote(b'/' + device + b'/' + partition + path)
     return http_connect_raw(
@@ -305,14 +260,10 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
         conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
     if query_string:
         # Round trip to ensure proper quoting
-        if six.PY2:
-            query_string = urlencode(parse_qsl(
-                query_string, keep_blank_values=True))
-        else:
-            query_string = urlencode(
-                parse_qsl(query_string, keep_blank_values=True,
-                          encoding='latin1'),
-                encoding='latin1')
+        query_string = urlencode(
+            parse_qsl(query_string, keep_blank_values=True,
+                      encoding='latin1'),
+            encoding='latin1')
         path += '?' + query_string
     conn.path = path
     conn.putrequest(method, path, skip_host=(headers and 'Host' in headers))

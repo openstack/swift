@@ -15,8 +15,6 @@
 
 import json
 
-import six
-
 from swift.common import constraints
 from swift.common.middleware import listing_formats
 from swift.common.swob import HTTPOk, HTTPNoContent, str_to_wsgi
@@ -86,12 +84,11 @@ def account_listing_response(account, req, response_content_type, broker=None,
     data = []
     for (name, object_count, bytes_used, put_timestamp, is_subdir) \
             in account_list:
-        name_ = name.decode('utf8') if six.PY2 else name
         if is_subdir:
-            data.append({'subdir': name_})
+            data.append({'subdir': name})
         else:
             data.append(
-                {'name': name_, 'count': object_count, 'bytes': bytes_used,
+                {'name': name, 'count': object_count, 'bytes': bytes_used,
                  'last_modified': Timestamp(put_timestamp).isoformat})
     if response_content_type.endswith('/xml'):
         account_list = listing_formats.account_to_xml(data, account)

@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import json
-import six
 from xml.etree.cElementTree import Element, SubElement, tostring
 
 from swift.common.constraints import valid_api_version
@@ -84,8 +83,7 @@ def account_to_xml(listing, account_name):
         else:
             sub = SubElement(doc, 'container')
             for field in ('name', 'count', 'bytes', 'last_modified'):
-                SubElement(sub, field).text = six.text_type(
-                    record.pop(field))
+                SubElement(sub, field).text = str(record.pop(field))
         sub.tail = '\n'
     return to_xml(doc)
 
@@ -101,8 +99,7 @@ def container_to_xml(listing, base_name):
             sub = SubElement(doc, 'object')
             for field in ('name', 'hash', 'bytes', 'content_type',
                           'last_modified'):
-                SubElement(sub, field).text = six.text_type(
-                    record.pop(field))
+                SubElement(sub, field).text = str(record.pop(field))
     return to_xml(doc)
 
 
@@ -126,8 +123,6 @@ class ListingFilter(object):
         for entry in list(listing):
             for key in ('name', 'subdir'):
                 value = entry.get(key, '')
-                if six.PY2:
-                    value = value.encode('utf-8')
                 if RESERVED in value:
                     if container:
                         self.logger.warning(

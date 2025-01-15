@@ -29,8 +29,7 @@ import json
 
 import mock
 from mock import patch, call
-import six
-from six.moves import reload_module
+from importlib import reload as reload_module
 
 from swift.container.backend import DATADIR
 from swift.common import db_replicator
@@ -164,7 +163,7 @@ def _mock_process(*args):
 
 class ReplHttp(object):
     def __init__(self, response=None, set_status=200):
-        if isinstance(response, six.text_type):
+        if isinstance(response, str):
             response = response.encode('ascii')
         self.response = response
         self.set_status = set_status

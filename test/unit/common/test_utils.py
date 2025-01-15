@@ -46,10 +46,6 @@ import math
 import inspect
 import warnings
 
-import six
-from six import StringIO
-from six.moves import range
-
 import tempfile
 import time
 import unittest
@@ -57,12 +53,12 @@ import fcntl
 import shutil
 
 from getpass import getuser
-from io import BytesIO
+from io import BytesIO, StringIO
 from shutil import rmtree
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from mock import MagicMock, patch
-from six.moves.configparser import NoSectionError, NoOptionError
+from configparser import NoSectionError, NoOptionError
 from uuid import uuid4
 
 from swift.common.exceptions import Timeout, LockTimeout, \
@@ -580,8 +576,6 @@ class TestUtils(unittest.TestCase):
 
             def __next__(self):
                 return next(self._body)
-
-            next = __next__  # py2
 
             def close(self):
                 self.close_calls.append(True)
@@ -1917,7 +1911,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         def do_test(input_value, expected):
             actual = utils.get_valid_utf8_str(input_value)
             self.assertEqual(expected, actual)
-            self.assertIsInstance(actual, six.binary_type)
+            self.assertIsInstance(actual, bytes)
             actual.decode('utf-8')
 
         do_test(b'abc', b'abc')
@@ -2802,8 +2796,6 @@ cluster_dfw1 = http://dfw1.host/v1/
         digest = test_md5.hexdigest()
         self.assertEqual(digest, self.md5_digest)
 
-    @unittest.skipIf(sys.version_info.major == 2,
-                     "hashlib.md5 does not raise TypeError here in py2")
     def test_string_data_raises_type_error(self):
         if not self.fips_enabled:
             self.assertRaises(TypeError, hashlib.md5, u'foo')
@@ -3029,7 +3021,7 @@ class TestFileLikeIter(unittest.TestCase):
         self.assertEqual(next(iter_file), b'a')
         iter_file.close()
         self.assertTrue(iter_file.closed)
-        self.assertRaises(ValueError, iter_file.next)
+        self.assertRaises(ValueError, next, iter_file)
         self.assertRaises(ValueError, iter_file.read)
         self.assertRaises(ValueError, iter_file.readline)
         self.assertRaises(ValueError, iter_file.readlines)
@@ -3084,7 +3076,7 @@ class UnsafeXrange(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         if self.concurrent_calls > 0:
             self.concurrent_call = True
 
@@ -3099,7 +3091,6 @@ class UnsafeXrange(object):
                 return val
         finally:
             self.concurrent_calls -= 1
-    __next__ = next
 
 
 class TestEventletRateLimiter(unittest.TestCase):
@@ -3917,7 +3908,7 @@ class TestGreenAsyncPile(unittest.TestCase):
                 next(pile)
                 self.assertEqual(i, pile._pending)
             # sanity check - the pile is empty
-            self.assertRaises(StopIteration, pile.next)
+            self.assertRaises(StopIteration, next, pile)
             # pending remains 0
             self.assertEqual(0, pile._pending)
 
@@ -4357,8 +4348,6 @@ This is the body
 """)
         headers = utils.parse_mime_headers(doc_file)
         utf8 = u'\u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440'
-        if six.PY2:
-            utf8 = utf8.encode('utf-8')
 
         expected_headers = {
             'Content-Disposition': 'form-data; name="file_size"',
@@ -4807,14 +4796,9 @@ class BaseNamespaceShardRange(object):
     def _check_name_account_container(self, nsr, exp_name):
         # check that the name, account, container properties are consistent
         exp_account, exp_container = exp_name.split('/')
-        if six.PY2:
-            self.assertEqual(exp_name.encode('utf8'), nsr.name)
-            self.assertEqual(exp_account.encode('utf8'), nsr.account)
-            self.assertEqual(exp_container.encode('utf8'), nsr.container)
-        else:
-            self.assertEqual(exp_name, nsr.name)
-            self.assertEqual(exp_account, nsr.account)
-            self.assertEqual(exp_container, nsr.container)
+        self.assertEqual(exp_name, nsr.name)
+        self.assertEqual(exp_account, nsr.account)
+        self.assertEqual(exp_container, nsr.container)
 
 
 class TestNamespace(unittest.TestCase, BaseNamespaceShardRange):
@@ -4841,8 +4825,6 @@ class TestNamespace(unittest.TestCase, BaseNamespaceShardRange):
         do_test(u'y', 'y')
 
         expected = u'\N{SNOWMAN}'
-        if six.PY2:
-            expected = expected.encode('utf-8')
         with warnings.catch_warnings(record=True) as captured_warnings:
             do_test(u'\N{SNOWMAN}', expected)
             do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
@@ -4891,8 +4873,6 @@ class TestNamespace(unittest.TestCase, BaseNamespaceShardRange):
         do_test(u'b', 'b')
 
         expected = u'\N{SNOWMAN}'
-        if six.PY2:
-            expected = expected.encode('utf-8')
         with warnings.catch_warnings(record=True) as captured_warnings:
             do_test(u'\N{SNOWMAN}', expected)
             do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
@@ -4941,9 +4921,6 @@ class TestNamespace(unittest.TestCase, BaseNamespaceShardRange):
         ns = utils.Namespace('a/%s-%s' % (lower, upper), lower, upper)
         exp_lower = lower
         exp_upper = upper
-        if six.PY2:
-            exp_lower = exp_lower.encode('utf-8')
-            exp_upper = exp_upper.encode('utf-8')
         self.assertEqual(exp_lower, ns.lower)
         self.assertEqual(exp_lower, ns.lower_str)
         self.assertEqual(exp_upper, ns.upper)
@@ -4973,14 +4950,10 @@ class TestNamespace(unittest.TestCase, BaseNamespaceShardRange):
 
     def test_unicode_name(self):
         shard_bounds = ('', 'ham', 'pie', u'\N{SNOWMAN}', u'\U0001F334', '')
-        bounds = [(l, u) for l, u in zip(shard_bounds[:-1], shard_bounds[1:])]
+        exp_bounds = [(l, u)
+                      for l, u in zip(shard_bounds[:-1], shard_bounds[1:])]
         namespaces = [utils.Namespace('.shards_a/c_%s' % upper, lower, upper)
-                      for lower, upper in bounds]
-        if six.PY2:
-            exp_bounds = [(l.encode('utf8'), u.encode('utf8'))
-                          for l, u in bounds]
-        else:
-            exp_bounds = bounds
+                      for lower, upper in exp_bounds]
         for i in range(len(exp_bounds)):
             self.assertEqual(namespaces[i].name,
                              '.shards_a/c_%s' % exp_bounds[i][1])
@@ -5534,8 +5507,8 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
             'state': utils.ShardRange.FOUND, 'state_timestamp': ts_3.internal,
             'epoch': ts_4, 'reported': 0, 'tombstones': -1}
         self.assertEqual(expected, sr_dict)
-        self.assertIsInstance(sr_dict['lower'], six.string_types)
-        self.assertIsInstance(sr_dict['upper'], six.string_types)
+        self.assertIsInstance(sr_dict['lower'], str)
+        self.assertIsInstance(sr_dict['upper'], str)
         sr_new = utils.ShardRange.from_dict(sr_dict)
         self.assertEqual(sr, sr_new)
         self.assertEqual(sr_dict, dict(sr_new))

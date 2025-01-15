@@ -19,8 +19,7 @@ import os
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-import six
-from six.moves.urllib import parse as urlparse
+import urllib.parse
 
 from swift.common.exceptions import EncryptionException, UnknownSecretIdError
 from swift.common.swob import HTTPInternalServerError
@@ -225,7 +224,7 @@ def dump_crypto_meta(crypto_meta):
             for name, value in crypto_meta.items()}
 
     # use sort_keys=True to make serialized form predictable for testing
-    return urlparse.quote_plus(
+    return urllib.parse.quote_plus(
         json.dumps(b64_encode_meta(crypto_meta), sort_keys=True))
 
 
@@ -251,13 +250,13 @@ def load_crypto_meta(value, b64decode=True):
             str(name): (
                 base64.b64decode(val) if name in ('iv', 'key') and b64decode
                 else b64_decode_meta(val) if isinstance(val, dict)
-                else val.encode('utf8') if six.PY2 else val)
+                else val)
             for name, val in crypto_meta.items()}
 
     try:
-        if not isinstance(value, six.string_types):
+        if not isinstance(value, str):
             raise ValueError('crypto meta not a string')
-        val = json.loads(urlparse.unquote_plus(value))
+        val = json.loads(urllib.parse.unquote_plus(value))
         if not isinstance(val, dict):
             raise ValueError('crypto meta not a Mapping')
         return b64_decode_meta(val)

@@ -18,8 +18,7 @@ from copy import deepcopy
 import json
 import time
 import unittest
-import six
-from six.moves.urllib.parse import quote, unquote
+from urllib.parse import quote, unquote
 from unittest import SkipTest
 
 import test.functional as tf
@@ -56,13 +55,7 @@ class TestObjectVersioningEnv(BaseEnv):
             cls.conn2 = Connection(config2)
             cls.conn2.authenticate()
 
-        if six.PY2:
-            # avoid getting a prefix that stops halfway through an encoded
-            # character
-            prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
-        else:
-            prefix = Utils.create_name()[:10]
-
+        prefix = Utils.create_name()[:10]
         cls.versions_container = cls.account.container(prefix + "-versions")
         if not cls.versions_container.create():
             raise ResponseError(cls.conn.response)
@@ -148,13 +141,7 @@ class TestCrossPolicyObjectVersioningEnv(BaseEnv):
             cls.conn2 = Connection(config2)
             cls.conn2.authenticate()
 
-        if six.PY2:
-            # avoid getting a prefix that stops halfway through an encoded
-            # character
-            prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
-        else:
-            prefix = Utils.create_name()[:10]
-
+        prefix = Utils.create_name()[:10]
         cls.versions_container = cls.account.container(prefix + "-versions")
         if not cls.versions_container.create(
                 {'X-Storage-Policy': policy['name']}):
@@ -432,7 +419,7 @@ class TestObjectVersioning(Base):
 
     def assert_most_recent_version(self, obj_name, content,
                                    should_be_dlo=False):
-        name_len = len(obj_name if six.PY2 else obj_name.encode('utf8'))
+        name_len = len(obj_name.encode('utf8'))
         archive_versions = self.env.versions_container.files(parms={
             'prefix': '%03x%s/' % (name_len, obj_name),
             'reverse': 'yes'})
@@ -926,7 +913,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
 
         expected = [b'old content', b'112233', b'new content', b'']
 
-        name_len = len(obj_name if six.PY2 else obj_name.encode('utf8'))
+        name_len = len(obj_name.encode('utf8'))
         bodies = [
             self.env.versions_container.file(f).read()
             for f in self.env.versions_container.files(parms={
@@ -1047,12 +1034,8 @@ class TestSloWithVersioning(unittest.TestCase):
         for k_client, k_slo in key_map.items():
             self.assertEqual(self.seg_info[seg_name][k_client],
                              manifest[0][k_slo])
-        if six.PY2:
-            self.assertEqual(self.seg_info[seg_name]['path'].decode('utf8'),
-                             manifest[0]['name'])
-        else:
-            self.assertEqual(self.seg_info[seg_name]['path'],
-                             manifest[0]['name'])
+        self.assertEqual(self.seg_info[seg_name]['path'],
+                         manifest[0]['name'])
 
     def _assert_is_object(self, file_item, seg_data):
         file_contents = file_item.read()

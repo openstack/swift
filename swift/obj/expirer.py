@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
-from six.moves import urllib
+import urllib
 
 from random import random
 from time import time
@@ -344,7 +343,7 @@ class ObjectExpirer(Daemon):
                                          task_container,
                                          acceptable_statuses=[2]):
             container_empty = False
-            task_object = o['name'].encode('utf8') if six.PY2 else o['name']
+            task_object = o['name']
             try:
                 delete_timestamp, target_account, target_container, \
                     target_object = parse_task_obj(task_object)

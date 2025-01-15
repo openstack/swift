@@ -182,7 +182,6 @@ from uuid import uuid4
 import base64
 
 from eventlet import Timeout
-import six
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import (
     Response, Request, wsgi_to_str, str_to_wsgi, wsgi_unquote,
@@ -246,12 +245,9 @@ class TempAuth(object):
                     # Because trailing equal signs would screw up config file
                     # parsing, we auto-pad with '=' chars.
                     account += '=' * (len(account) % 4)
-                    account = base64.b64decode(account)
+                    account = base64.b64decode(account).decode('utf8')
                     username += '=' * (len(username) % 4)
-                    username = base64.b64decode(username)
-                    if not six.PY2:
-                        account = account.decode('utf8')
-                        username = username.decode('utf8')
+                    username = base64.b64decode(username).decode('utf8')
                 values = conf[conf_key].split()
                 if not values:
                     raise ValueError('%s has no key set' % conf_key)
@@ -451,8 +447,6 @@ class TempAuth(object):
             expires, groups = cached_auth_data
             if expires < time():
                 groups = None
-            elif six.PY2:
-                groups = groups.encode('utf8')
 
         s3_auth_details = env.get('s3api.auth_details') or\
             env.get('swift3.auth_details')
@@ -530,7 +524,7 @@ class TempAuth(object):
             if not isinstance(result[key], list):
                 return "Value for key %s must be a list" % json.dumps(key)
             for grantee in result[key]:
-                if not isinstance(grantee, six.string_types):
+                if not isinstance(grantee, str):
                     return "Elements of %s list must be strings" % json.dumps(
                         key)
 
@@ -838,8 +832,7 @@ class TempAuth(object):
             cached_auth_data = memcache_client.get(memcache_token_key)
             if cached_auth_data:
                 expires, old_groups = cached_auth_data
-                old_groups = [group.encode('utf8') if six.PY2 else group
-                              for group in old_groups.split(',')]
+                old_groups = [group for group in old_groups.split(',')]
                 new_groups = self._get_user_groups(account, account_user,
                                                    account_id)
 

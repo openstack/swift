@@ -31,9 +31,6 @@ from datetime import timedelta
 import optparse
 import math
 
-from six.moves import zip as izip
-from six.moves import input
-
 from swift.common import exceptions
 from swift.common.ring import RingBuilder, Ring, RingData
 from swift.common.ring.builder import MAX_BALANCE
@@ -156,8 +153,8 @@ def _parse_add_values(argvish):
             print(Commands.add.__doc__.strip())
             exit(EXIT_ERROR)
 
-        devs_and_weights = izip(islice(args, 0, len(args), 2),
-                                islice(args, 1, len(args), 2))
+        devs_and_weights = zip(islice(args, 0, len(args), 2),
+                               islice(args, 1, len(args), 2))
 
         for devstr, weightstr in devs_and_weights:
             dev_dict = parse_add_value(devstr)
@@ -257,8 +254,8 @@ def _parse_set_weight_values(argvish):
                 print(Commands.set_weight.__doc__.strip())
                 exit(EXIT_ERROR)
 
-            devs_and_weights = izip(islice(argvish, 0, len(argvish), 2),
-                                    islice(argvish, 1, len(argvish), 2))
+            devs_and_weights = zip(islice(argvish, 0, len(argvish), 2),
+                                   islice(argvish, 1, len(argvish), 2))
             for devstr, weightstr in devs_and_weights:
                 devs = (builder.search_devs(
                     parse_search_value(devstr)) or [])
@@ -347,8 +344,8 @@ def _parse_set_region_values(argvish):
                 print(Commands.set_region.__doc__.strip())
                 exit(EXIT_ERROR)
 
-            devs_and_regions = izip(islice(argvish, 0, len(argvish), 2),
-                                    islice(argvish, 1, len(argvish), 2))
+            devs_and_regions = zip(islice(argvish, 0, len(argvish), 2),
+                                   islice(argvish, 1, len(argvish), 2))
             for devstr, regionstr in devs_and_regions:
                 devs.extend(builder.search_devs(
                     parse_search_value(devstr)) or [])
@@ -382,8 +379,8 @@ def _parse_set_zone_values(argvish):
                 print(Commands.set_zone.__doc__.strip())
                 exit(EXIT_ERROR)
 
-            devs_and_zones = izip(islice(argvish, 0, len(argvish), 2),
-                                  islice(argvish, 1, len(argvish), 2))
+            devs_and_zones = zip(islice(argvish, 0, len(argvish), 2),
+                                 islice(argvish, 1, len(argvish), 2))
             for devstr, zonestr in devs_and_zones:
                 devs.extend(builder.search_devs(
                     parse_search_value(devstr)) or [])
@@ -415,8 +412,8 @@ def _parse_set_info_values(argvish):
             print(Commands.search.__doc__.strip())
             exit(EXIT_ERROR)
 
-        searches_and_changes = izip(islice(argvish, 0, len(argvish), 2),
-                                    islice(argvish, 1, len(argvish), 2))
+        searches_and_changes = zip(islice(argvish, 0, len(argvish), 2),
+                                   islice(argvish, 1, len(argvish), 2))
 
         for search_value, change_value in searches_and_changes:
             devs = builder.search_devs(parse_search_value(search_value))

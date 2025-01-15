@@ -45,12 +45,10 @@ import uuid
 
 import mock
 from eventlet import sleep, spawn, wsgi, Timeout, debug
-from eventlet.green import httplib
+from eventlet.green.http import client as http_client
 from io import BytesIO
 
-import six
-from six.moves import range
-from six.moves.urllib.parse import quote, parse_qsl
+from urllib.parse import quote, parse_qsl
 
 from test import listen_zero
 from test.debug_logger import debug_logger, FakeStatsdClient
@@ -147,13 +145,10 @@ def sortHeaderNames(headerNames):
 
 def parse_headers_string(headers_str):
     headers_dict = HeaderKeyDict()
-    for line in headers_str.split(b'\r\n'):
-        if b': ' in line:
-            header, value = line.split(b': ', 1)
-            if six.PY2:
-                headers_dict[header] = value
-            else:
-                headers_dict[header.decode('utf8')] = value.decode('utf8')
+    for line in headers_str.decode('utf8').split('\r\n'):
+        if ': ' in line:
+            header, value = line.split(': ', 1)
+            headers_dict[header] = value
     return headers_dict
 
 
@@ -1190,7 +1185,7 @@ class TestProxyServer(unittest.TestCase):
                                  for node in annotated_nodes]))
 
     def test_exception_occurred(self):
-        def do_test(additional_info):
+        def do_test(expected_info):
             logger = debug_logger('test')
             suppression_limit = 10
             app = proxy_server.Application(
@@ -1202,11 +1197,6 @@ class TestProxyServer(unittest.TestCase):
             node_key = app.error_limiter.node_key(node)
             self.assertNotIn(node_key, app.error_limiter.stats)  # sanity
 
-            if six.PY2:
-                expected_info = additional_info.decode('utf8')
-            else:
-                expected_info = additional_info
-
             incremented_limit_samples = []
             for i in range(suppression_limit + 1):
                 try:
@@ -1214,7 +1204,7 @@ class TestProxyServer(unittest.TestCase):
                 except Exception as err:
                     caught_exc = err
                     app.exception_occurred(
-                        node, 'server-type', additional_info)
+                        node, 'server-type', expected_info)
                 self.assertEqual(i + 1, node_error_count(app, node))
                 line = logger.get_lines_for_level('error')[i]
                 self.assertIn('server-type server', line)
@@ -1251,10 +1241,7 @@ class TestProxyServer(unittest.TestCase):
             node_key = app.error_limiter.node_key(node)
             self.assertNotIn(node_key, app.error_limiter.stats)  # sanity
 
-            if six.PY2:
-                expected_msg = msg.decode('utf8')
-            else:
-                expected_msg = msg
+            expected_msg = msg
             incremented_limit_samples = []
             for i in range(suppression_limit + 1):
                 app.error_occurred(node, msg)
@@ -6978,10 +6965,7 @@ class TestReplicatedObjectController(
             exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
             fd.read(1)
-            if six.PY2:
-                sock.fd._sock.close()
-            else:
-                sock.fd._real_close()
+            sock.fd._real_close()
             # Make sure the GC is run again for pythons without reference
             # counting
             for i in range(4):
@@ -8590,10 +8574,7 @@ class BaseTestECObjectController(BaseTestObjectController):
 
                 # read most of the object, and disconnect
                 fd.read(10)
-                if six.PY2:
-                    sock.fd._sock.close()
-                else:
-                    sock.fd._real_close()
+                sock.fd._real_close()
                 self._sleep_enough(
                     lambda:
                     _test_servers[0].logger.get_lines_for_level('warning'))
@@ -9293,7 +9274,7 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
         proxy_port = _test_sockets[0].getsockname()[1]
 
         def put(path, headers=None, body=None):
-            conn = httplib.HTTPConnection('localhost', proxy_port)
+            conn = http_client.HTTPConnection('localhost', proxy_port)
             try:
                 conn.connect()
                 conn.putrequest('PUT', path)
@@ -9310,10 +9291,7 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
             finally:
                 # seriously - shut this mother down
                 if conn.sock:
-                    if six.PY2:
-                        conn.sock.fd._sock.close()
-                    else:
-                        conn.sock.fd._real_close()
+                    conn.sock.fd._real_close()
             return resp, body
 
         # ensure container
@@ -9509,10 +9487,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         return (status_code, headers, gotten_obj)
 
     def _parse_multipart(self, content_type, body):
-        if six.PY2:
-            parser = email.parser.FeedParser()
-        else:
-            parser = email.parser.BytesFeedParser()
+        parser = email.parser.BytesFeedParser()
         if not isinstance(content_type, bytes):
             content_type = content_type.encode('utf8')
         parser.feed(b"Content-Type: %s\r\n\r\n" % content_type)
@@ -9627,9 +9602,7 @@ class TestObjectECRangedGET(unittest.TestCase):
 
         class LeakTrackingHTTPResponse(BufferedHTTPResponse):
             def begin(self):
-                # no super(); we inherit from an old-style class (it's
-                # httplib's fault; don't try and fix it).
-                retval = BufferedHTTPResponse.begin(self)
+                retval = super(BufferedHTTPResponse, self).begin()
                 if self.status != 204:
                     # This mock is overly broad and catches account and
                     # container HEAD requests too. We don't care about

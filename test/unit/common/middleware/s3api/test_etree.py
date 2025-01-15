@@ -15,8 +15,6 @@
 
 import unittest
 
-import six
-
 from swift.common.middleware.s3api import etree
 
 
@@ -67,10 +65,7 @@ class TestS3ApiEtree(unittest.TestCase):
                     b'<Test><FOO>\xef\xbc\xa1</FOO></Test>'
         elem = etree.fromstring(input_str)
         text = elem.find('FOO').text
-        if six.PY2:
-            self.assertEqual(text, b'\xef\xbc\xa1')
-        else:
-            self.assertEqual(text, b'\xef\xbc\xa1'.decode('utf8'))
+        self.assertEqual(text, b'\xef\xbc\xa1'.decode('utf8'))
         self.assertIsInstance(text, str)
 
 

@@ -22,11 +22,10 @@ from tempfile import mkdtemp
 from shutil import rmtree
 import itertools
 import random
-from io import BytesIO
+from io import BytesIO, StringIO
 
 import json
-from six import StringIO
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 import xml.dom.minidom
 
 from swift import __version__ as swift_version

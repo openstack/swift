@@ -22,9 +22,7 @@ import time
 from copy import deepcopy
 from unittest import SkipTest
 
-import six
-from six.moves import urllib
-
+import urllib
 from swift.common.swob import normalize_etag
 from swift.common.utils import md5, config_true_value
 
@@ -782,10 +780,7 @@ class TestSlo(Base):
             hdrs={"Range": "bytes=1048571-1048580,2097147-2097156"})
 
         # See testMultiRangeGets for explanation
-        if six.PY2:
-            parser = email.parser.FeedParser()
-        else:
-            parser = email.parser.BytesFeedParser()
+        parser = email.parser.BytesFeedParser()
         parser.feed((
             "Content-Type: %s\r\n\r\n" % file_item.content_type).encode())
         parser.feed(file_contents)
@@ -1501,8 +1496,6 @@ class TestSlo(Base):
             value[0]['hash'],
             md5(b'd' * 1024 * 1024, usedforsecurity=False).hexdigest())
         expected_name = '/%s/seg_d' % self.env.container.name
-        if six.PY2:
-            expected_name = expected_name.decode("utf-8")
         self.assertEqual(value[0]['name'], expected_name)
 
         self.assertEqual(value[1]['bytes'], 1024 * 1024)
@@ -1510,8 +1503,6 @@ class TestSlo(Base):
             value[1]['hash'],
             md5(b'b' * 1024 * 1024, usedforsecurity=False).hexdigest())
         expected_name = '/%s/seg_b' % self.env.container.name
-        if six.PY2:
-            expected_name = expected_name.decode("utf-8")
         self.assertEqual(value[1]['name'], expected_name)
 
     def test_slo_get_raw_the_manifest_with_details_from_server(self):
@@ -1537,16 +1528,12 @@ class TestSlo(Base):
             value[0]['etag'],
             md5(b'd' * 1024 * 1024, usedforsecurity=False).hexdigest())
         expected_name = '/%s/seg_d' % self.env.container.name
-        if six.PY2:
-            expected_name = expected_name.decode("utf-8")
         self.assertEqual(value[0]['path'], expected_name)
         self.assertEqual(value[1]['size_bytes'], 1024 * 1024)
         self.assertEqual(
             value[1]['etag'],
             md5(b'b' * 1024 * 1024, usedforsecurity=False).hexdigest())
         expected_name = '/%s/seg_b' % self.env.container.name
-        if six.PY2:
-            expected_name = expected_name.decode("utf-8")
         self.assertEqual(value[1]['path'], expected_name)
 
         file_item = self.env.container.file("manifest-from-get-raw")

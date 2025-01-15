@@ -24,11 +24,10 @@ import unittest
 import shutil
 import string
 import sys
-import six
 
 from eventlet.green import socket
-from six import StringIO
-from six.moves import urllib
+from io import StringIO
+import urllib
 
 from swift.cli import recon
 from swift.common import utils
@@ -37,12 +36,8 @@ from swift.common.ring import utils as ring_utils
 from swift.common.storage_policy import StoragePolicy, POLICIES
 from test.unit import patch_policies
 
-if six.PY3:
-    from eventlet.green.urllib import request as urllib2
-    GREEN_URLLIB_URLOPEN = 'eventlet.green.urllib.request.urlopen'
-else:
-    from eventlet.green import urllib2
-    GREEN_URLLIB_URLOPEN = 'eventlet.green.urllib2.urlopen'
+from eventlet.green.urllib import request as urllib_request
+GREEN_URLLIB_URLOPEN = 'eventlet.green.urllib.request.urlopen'
 
 
 class TestHelpers(unittest.TestCase):
@@ -81,21 +76,21 @@ class TestScout(unittest.TestCase):
 
     @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_url_error(self, mock_urlopen):
-        mock_urlopen.side_effect = urllib2.URLError("")
+        mock_urlopen.side_effect = urllib_request.URLError("")
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
-        self.assertIsInstance(content, urllib2.URLError)
+        self.assertIsInstance(content, urllib_request.URLError)
         self.assertEqual(url, self.url)
         self.assertEqual(status, -1)
 
     @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_http_error(self, mock_urlopen):
-        mock_urlopen.side_effect = urllib2.HTTPError(
+        mock_urlopen.side_effect = urllib_request.HTTPError(
             self.url, 404, "Internal error", None, None)
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.url)
-        self.assertIsInstance(content, urllib2.HTTPError)
+        self.assertIsInstance(content, urllib_request.HTTPError)
         self.assertEqual(status, 404)
 
     @mock.patch(GREEN_URLLIB_URLOPEN)
@@ -121,21 +116,21 @@ class TestScout(unittest.TestCase):
 
     @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_server_type_url_error(self, mock_urlopen):
-        mock_urlopen.side_effect = urllib2.URLError("")
+        mock_urlopen.side_effect = urllib_request.URLError("")
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
-        self.assertIsInstance(content, urllib2.URLError)
+        self.assertIsInstance(content, urllib_request.URLError)
         self.assertEqual(url, self.server_type_url)
         self.assertEqual(status, -1)
 
     @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_server_type_http_error(self, mock_urlopen):
-        mock_urlopen.side_effect = urllib2.HTTPError(
+        mock_urlopen.side_effect = urllib_request.HTTPError(
             self.server_type_url, 404, "Internal error", None, None)
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.server_type_url)
-        self.assertIsInstance(content, urllib2.HTTPError)
+        self.assertIsInstance(content, urllib_request.HTTPError)
         self.assertEqual(status, 404)
 
     @mock.patch(GREEN_URLLIB_URLOPEN)
@@ -711,7 +706,7 @@ class TestReconCommands(unittest.TestCase):
 
             resp = mock.MagicMock()
             resp.read = mock.MagicMock(side_effect=[
-                response_body if six.PY2 else response_body.encode('utf8')])
+                response_body.encode('utf8')])
             return resp
 
         return mock.patch(GREEN_URLLIB_URLOPEN, fake_urlopen)
@@ -912,18 +907,16 @@ class TestReconCommands(unittest.TestCase):
             mock.call(' 90%    1 **********************************'),
             mock.call('Disk usage: space used: 260 of 300'),
             mock.call('Disk usage: space free: 40 of 300'),
-            mock.call('Disk usage: lowest: 85.0%, ' +
-                      'highest: 90.0%%, avg: %s' %
-                      ('86.6666666667%' if six.PY2 else
-                       '86.66666666666667%')),
+            mock.call('Disk usage: lowest: 85.0%, '
+                      'highest: 90.0%, avg: 86.66666666666667%'),
             mock.call('=' * 79),
         ]
 
-        with mock.patch('six.moves.builtins.print') as mock_print:
+        with mock.patch('builtins.print') as mock_print:
             cli.disk_usage([('127.0.0.1', 6010)])
             mock_print.assert_has_calls(default_calls)
 
-        with mock.patch('six.moves.builtins.print') as mock_print:
+        with mock.patch('builtins.print') as mock_print:
             expected_calls = default_calls + [
                 mock.call('LOWEST 5'),
                 mock.call('85.00%  127.0.0.1       sdc1'),
@@ -933,7 +926,7 @@ class TestReconCommands(unittest.TestCase):
             cli.disk_usage([('127.0.0.1', 6010)], 0, 5)
             mock_print.assert_has_calls(expected_calls)
 
-        with mock.patch('six.moves.builtins.print') as mock_print:
+        with mock.patch('builtins.print') as mock_print:
             expected_calls = default_calls + [
                 mock.call('TOP 5'),
                 mock.call('90.00%  127.0.0.1       sdb1'),
@@ -943,7 +936,7 @@ class TestReconCommands(unittest.TestCase):
             cli.disk_usage([('127.0.0.1', 6010)], 5, 0)
             mock_print.assert_has_calls(expected_calls)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_replication_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -998,7 +991,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_sharding_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1106,7 +1099,7 @@ class TestReconCommands(unittest.TestCase):
         cli.sharding_check([('127.0.0.1', 6011), ('127.0.0.1', 6021)])
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_reconstruction_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1141,7 +1134,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_load_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1175,7 +1168,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_time_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1207,7 +1200,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_time_check_mismatch(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1243,7 +1236,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_time_check_jitter(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1275,7 +1268,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     def test_version_check(self, mock_print):
         version = "2.7.1.dev144"
 
@@ -1306,7 +1299,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('time.time')
     def test_time_check_jitter_mismatch(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1344,7 +1337,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     def test_version_check_differs(self, mock_print):
         def dummy_request(*args, **kwargs):
             return [
@@ -1373,7 +1366,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('six.moves.builtins.print')
+    @mock.patch('builtins.print')
     @mock.patch('swift.cli.recon.SwiftRecon.get_hosts')
     def test_multiple_server_types(self, mock_get_hosts, mock_print):
         mock_get_hosts.return_value = set([('127.0.0.1', 10000)])

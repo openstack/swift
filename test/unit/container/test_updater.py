@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
-import six.moves.cPickle as pickle
+import pickle
 import mock
 import os
 import unittest
@@ -313,8 +312,6 @@ class TestContainerUpdater(unittest.TestCase):
                              container='\xce\xa9')
         cb.initialize(normalize_timestamp(1), 0)
         obj_name = u'\N{GREEK CAPITAL LETTER OMEGA}'
-        if six.PY2:
-            obj_name = obj_name.encode('utf-8')
         cb.put_object(obj_name, normalize_timestamp(2), 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
 

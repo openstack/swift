@@ -27,8 +27,6 @@ maximum lookup depth. If a match is found, the environment's Host header is
 rewritten and the request is passed further down the WSGI chain.
 """
 
-import six
-
 try:
     import dns.resolver
     import dns.exception
@@ -149,8 +147,6 @@ class CNAMELookupMiddleware(object):
                 if self.memcache:
                     memcache_key = ''.join(['cname-', a_domain])
                     found_domain = self.memcache.get(memcache_key)
-                    if six.PY2 and found_domain:
-                        found_domain = found_domain.encode('utf-8')
                 if found_domain is None:
                     ttl, found_domain = lookup_cname(a_domain, self.resolver)
                     if self.memcache and ttl > 0:

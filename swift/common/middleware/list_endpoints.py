@@ -80,7 +80,7 @@ environment (everyone can query the locality data using this middleware).
 
 import json
 
-from six.moves.urllib.parse import quote, unquote
+from urllib.parse import quote, unquote
 
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, split_path

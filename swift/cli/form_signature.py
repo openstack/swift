@@ -17,7 +17,6 @@ Script for generating a form signature for use with FormPost middleware.
 """
 from __future__ import print_function
 import hmac
-import six
 from hashlib import sha1
 from os.path import basename
 from time import time
@@ -95,11 +94,9 @@ def main(argv):
         return 1
     data = '%s\n%s\n%s\n%s\n%s' % (path, redirect, max_file_size,
                                    max_file_count, expires)
-    if six.PY3:
-        data = data if isinstance(data, six.binary_type) else \
-            data.encode('utf8')
-        key = key if isinstance(key, six.binary_type) else \
-            key.encode('utf8')
+    data = data.encode('utf8')
+    key = key if isinstance(key, bytes) else \
+        key.encode('utf8')
     sig = hmac.new(key, data,
                    sha1).hexdigest()
     print('  Expires:', expires)

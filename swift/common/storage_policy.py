@@ -17,8 +17,7 @@ import os
 import string
 import sys
 import textwrap
-import six
-from six.moves.configparser import ConfigParser
+from configparser import ConfigParser
 from swift.common.utils import (
     config_true_value, quorum_size, whataremyips, list_from_csv,
     config_positive_int_value, get_zero_indexed_base_string, load_pkg_resource)
@@ -80,8 +79,10 @@ class BindPortsCache(object):
                 # the first one we notice.
 
         # Return the requested set of ports from our (now-freshened) cache
-        return six.moves.reduce(set.union,
-                                self.portsets_by_ring_path.values(), set())
+        res = set()
+        for ports in self.portsets_by_ring_path.values():
+            res.update(ports)
+        return res
 
 
 class PolicyError(ValueError):
@@ -975,12 +976,9 @@ def reload_storage_policies():
     Reload POLICIES from ``swift.conf``.
     """
     global _POLICIES
-    if six.PY2:
-        policy_conf = ConfigParser()
-    else:
-        # Python 3.2 disallows section or option duplicates by default
-        # strict=False allows us to preserve the older behavior
-        policy_conf = ConfigParser(strict=False)
+    # Python disallows section or option duplicates by default
+    # strict=False allows them, which Swift has always done
+    policy_conf = ConfigParser(strict=False)
     policy_conf.read(utils.SWIFT_CONF_FILE)
     try:
         _POLICIES = parse_storage_policies(policy_conf)

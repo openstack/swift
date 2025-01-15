@@ -145,11 +145,10 @@ the option ``allow_object_versioning`` to ``True``.
 import calendar
 import itertools
 import json
-import six
 import time
 
 from cgi import parse_header
-from six.moves.urllib.parse import unquote
+from urllib.parse import unquote
 
 from swift.common.constraints import MAX_FILE_SIZE, valid_api_version, \
     ACCOUNT_LISTING_LIMIT, CONTAINER_LISTING_LIMIT
@@ -1190,7 +1189,6 @@ class ContainerContext(ObjectVersioningContext):
                 name, ts = self._split_version_from_name(linked_name)
                 if ts is None:
                     continue
-                name = name.decode('utf8') if six.PY2 else name
                 is_latest = False
                 if name not in is_latest_set:
                     is_latest_set.add(name)
@@ -1231,8 +1229,7 @@ class ContainerContext(ObjectVersioningContext):
                         path = '/v1/%s/%s/%s' % (
                             wsgi_to_str(account),
                             wsgi_to_str(location),
-                            item['name'].encode('utf8')
-                            if six.PY2 else item['name'])
+                            item['name'])
 
                         if path in current_versions:
                             item['is_latest'] = True
@@ -1260,7 +1257,7 @@ class ContainerContext(ObjectVersioningContext):
                     if ts is None:
                         continue
                     broken_listing.append({
-                        'name': name.decode('utf8') if six.PY2 else name,
+                        'name': name,
                         'is_latest': True,
                         'version_id': ts.internal,
                         'content_type': item['content_type'],

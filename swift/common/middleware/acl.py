@@ -14,8 +14,7 @@
 # limitations under the License.
 
 import json
-import six
-from six.moves.urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse
 
 
 def clean_acl(name, value):
@@ -294,12 +293,8 @@ def acls_from_account_info(info):
     if not any((admin_members, readwrite_members, readonly_members)):
         return None
 
-    acls = {
+    return {
         'admin': admin_members,
         'read-write': readwrite_members,
         'read-only': readonly_members,
     }
-    if six.PY2:
-        for k in ('admin', 'read-write', 'read-only'):
-            acls[k] = [v.encode('utf8') for v in acls[k]]
-    return acls

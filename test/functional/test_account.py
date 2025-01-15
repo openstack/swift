@@ -17,11 +17,10 @@
 
 import unittest
 import json
+import urllib.parse
 from uuid import uuid4
 from string import ascii_letters
 
-import six
-from six.moves import range, urllib
 from swift.common.middleware.acl import format_acl
 from swift.common.utils import distribute_evenly
 
@@ -756,40 +755,18 @@ class TestAccount(unittest.TestCase):
         def head(url, token, parsed, conn):
             conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
             return check_response(conn)
-        uni_key = u'X-Account-Meta-uni\u0E12'
         uni_value = u'uni\u0E12'
         # Note that py3 has issues with non-ascii header names; see
-        # https://bugs.python.org/issue37093
-        if (tf.web_front_end == 'integral' and six.PY2):
-            resp = retry(post, uni_key, '1')
-            resp.read()
-            self.assertIn(resp.status, (201, 204))
-            resp = retry(head)
-            resp.read()
-            self.assertIn(resp.status, (200, 204))
-            self.assertEqual(resp.getheader(uni_key.encode('utf-8')), '1')
+        # https://bugs.python.org/issue37093 -- so we won't test with unicode
+        # header names
         resp = retry(post, 'X-Account-Meta-uni', uni_value)
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assertIn(resp.status, (200, 204))
-        if six.PY2:
-            self.assertEqual(resp.getheader('X-Account-Meta-uni'),
-                             uni_value.encode('utf8'))
-        else:
-            self.assertEqual(resp.getheader('X-Account-Meta-uni'),
-                             uni_value)
-        # See above note about py3 and non-ascii header names
-        if (tf.web_front_end == 'integral' and six.PY2):
-            resp = retry(post, uni_key, uni_value)
-            resp.read()
-            self.assertEqual(resp.status, 204)
-            resp = retry(head)
-            resp.read()
-            self.assertIn(resp.status, (200, 204))
-            self.assertEqual(resp.getheader(uni_key.encode('utf-8')),
-                             uni_value.encode('utf-8'))
+        self.assertEqual(resp.getheader('X-Account-Meta-uni'),
+                         uni_value)
 
     def test_multi_metadata(self):
         if tf.skip:

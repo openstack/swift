@@ -24,8 +24,7 @@ import subprocess
 import sys
 
 
-import six
-from six.moves.configparser import ConfigParser
+from configparser import ConfigParser
 
 from swift.common.utils import backward, get_logger, dump_recon_cache, \
     config_true_value
@@ -128,8 +127,7 @@ def get_errors(error_re, log_file_pattern, minutes, logger,
             print("Unable to open " + path)
             sys.exit(1)
         for line in backward(f):
-            if not six.PY2:
-                line = line.decode(log_file_encoding, 'surrogateescape')
+            line = line.decode(log_file_encoding, 'surrogateescape')
             if '[    0.000000]' in line \
                 or 'KERNEL supported cpus:' in line \
                     or 'BIOS-provided physical RAM map:' in line:
