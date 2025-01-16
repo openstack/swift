@@ -65,7 +65,7 @@ is as follows:
 
 5. Old workers continue servicing any in-progress connections, while new
    connections are picked up by new workers. Once an old worker completes
-   all of its oustanding requests, it exits. Beginning with Swift 2.33.0,
+   all of its oustanding requests, it exits. Beginning with Swift 2.35.0,
    if any workers persist beyond ``stale_worker_timeout``, the new manager
    will clean them up with ``KILL`` signals.
 
