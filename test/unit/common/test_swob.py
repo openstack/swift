@@ -22,7 +22,7 @@ import time
 
 from io import BytesIO
 
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from unittest import mock
 
 import swift.common.swob as swob
@@ -590,6 +590,11 @@ class TestRequest(unittest.TestCase):
         self.assertEqual(req.environ['SERVER_PORT'], '80')
         self.assertEqual(req.environ['PATH_INFO'], 'test.com/')
 
+        req = swob.Request.blank('test.com/a/c/o/x&z=y')
+        self.assertEqual(req.environ['wsgi.url_scheme'], 'http')
+        self.assertEqual(req.environ['SERVER_PORT'], '80')
+        self.assertEqual(req.environ['PATH_INFO'], 'test.com/a/c/o/x&z=y')
+
         self.assertRaises(TypeError, swob.Request.blank,
                           'ftp://test.com/')
 
@@ -662,6 +667,26 @@ class TestRequest(unittest.TestCase):
         self.assertEqual(req.environ['PATH_INFO'], '/test?file')
         # This tests that .path requotes it
         self.assertEqual(req.path, '/test%3Ffile')
+
+    def test_path_unicode(self):
+        path = '/v1/a/c/\N{SNOWMAN}'
+        self.assertEqual('/v1/a/c/%E2%98%83', quote(path))  # sanity check
+        req = swob.Request.blank('/v1/a/c/%E2%98%83')
+        # Request.path is the quoted value passed to Request.blank()
+        self.assertEqual(req.path, '/v1/a/c/%E2%98%83')
+        # PATH_INFO is latin1 encoded unquoted Request.path...
+        self.assertEqual(req.environ['PATH_INFO'],
+                         unquote('/v1/a/c/%E2%98%83', encoding='latin1'))
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/a/c/â\x98\x83')
+        # split_path returns the split of PATH_INFO, not Request.path
+        v, a, c, o = req.split_path(4, 4, True)
+        self.assertEqual(['v1', 'a', 'c', 'â\x98\x83'], [v, a, c, o])
+        self.assertEqual('\N{SNOWMAN}', swob.wsgi_to_str(o))
+
+        # confirm that req.path corresponds to the arg passed to Request.blank
+        req2 = swob.Request.blank(req.path)
+        self.assertEqual(req.path, req2.path)
+        self.assertEqual(req.environ['PATH_INFO'], req2.environ['PATH_INFO'])
 
     def test_path_info_pop(self):
         req = swob.Request.blank('/hi/there')

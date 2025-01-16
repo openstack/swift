@@ -24,8 +24,11 @@ import os.path
 import shutil
 import random
 
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.manager import Manager
-from swift.common.middleware.mpu import MPUSessionHandler
+from swift.common.middleware.mpu import MPUSessionHandler, \
+    externalize_upload_id, internalize_upload_id
+from swift.common.object_ref import ObjectRef, HistoryId
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import normalize_etag
 from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING, Timestamp
@@ -63,7 +66,7 @@ def calc_s3mpu_etag(chunk_etags):
 class BaseTestMPU(ReplProbeTest):
     def setUp(self):
         self.tempdir = mkdtemp()
-        super(BaseTestMPU, self).setUp()
+        super().setUp()
         self.bucket_name = 'bucket-%s' % uuid.uuid4()
         self.mpu_name = 'mpu-%s' % uuid.uuid4()
 
@@ -84,12 +87,12 @@ class BaseTestMPU(ReplProbeTest):
 
     def tearDown(self):
         shutil.rmtree(self.tempdir)
-        super(BaseTestMPU, self).tearDown()
+        super().tearDown()
 
 
 class BaseTestS3MPU(BaseTestMPU):
     def setUp(self):
-        super(BaseTestS3MPU, self).setUp()
+        super().setUp()
         s3api_info = self.cluster_info.get('s3api', {})
         if not s3api_info:
             raise unittest.SkipTest('s3api not enabled')
@@ -108,7 +111,7 @@ class TestS3MPU(BaseTestS3MPU):
 
     @unittest.skipIf(len(ENABLED_POLICIES) < 2, "Need more than one policy")
     def setUp(self):
-        super(TestS3MPU, self).setUp()
+        super().setUp()
         self.other_policy = random.choice([p for p in ENABLED_POLICIES
                                            if p != self.policy])
         # I think boto has a minimum chunksize that matches AWS, when I do this
@@ -290,20 +293,24 @@ class TestS3MPU(BaseTestS3MPU):
 
 class BaseTestNativeMPU(BaseTestMPU):
     def setUp(self):
-        super(BaseTestNativeMPU, self).setUp()
+        super().setUp()
         mpu_info = self.cluster_info.get('mpu', {})
         if not mpu_info:
             raise unittest.SkipTest('mpu not enabled')
 
         self.internal_client = self.make_internal_client()
         self.mpu_internal_client = self.make_mpu_internal_client()
+        self.hidden_account = AUTO_CREATE_ACCOUNT_PREFIX + self.account
         # TODO: revert to superclass uuid name
         self.mpu_name = 'tempname'
         self.sessions_container_name = \
             '\x00mpu_sessions\x00%s' % self.bucket_name
         self.parts_container_name = '\x00mpu_parts\x00%s' % self.bucket_name
+        self.history_container_name = '\x00history\x00%s' % self.bucket_name
         self.part_size = 5 * 2 ** 20
+
         swiftclient.put_container(self.url, self.token, self.bucket_name)
+        self.maxDiff = None
 
     def make_mpu_internal_client(self):
         conf = copy.deepcopy(DEFAULT_INTERNAL_CLIENT_CONF)
@@ -351,53 +358,103 @@ class BaseTestNativeMPU(BaseTestMPU):
         conn.close()
         return resp, body
 
-    def get_object_versions_from_listing(self, container):
+    def list_versions(self, container):
+        resp, body = self.get_container(
+            container, query_string='versions=true')
+        return json.loads(body)
+
+    def get_object_versions_from_listing(self, container,
+                                         include_delete_markers=True):
         resp, body = self.get_container(
             container, query_string='versions=true')
         listing = json.loads(body)
         name_to_versions = collections.defaultdict(list)
         for item in listing:
-            if item['content_type'].startswith('application/x-deleted'):
+            deleted = item['content_type'].startswith('application/x-deleted')
+            if deleted and not include_delete_markers:
                 continue
-            name_to_versions[item['name']].append(item['version_id'])
-        return name_to_versions
+            name_to_versions[item['name']].append(
+                (item['version_id'], deleted))
+        return dict(name_to_versions)
 
-    def get_mpu_resources(self, container, mpu_name=None, upload_id=None):
+    def internalize_upload_id(self, upload_id):
+        # TODO: get signing key from conf file
+        parsed, conn = swiftclient.http_connection(self.url)
+        path = '%s/%s/%s' % (parsed.path,
+                             quote(self.bucket_name),
+                             quote(self.mpu_name))
+        return internalize_upload_id(b'', path, upload_id)
+
+    def externalize_upload_id(self, upload_id):
+        # TODO: get signing key from conf file
+        parsed, conn = swiftclient.http_connection(self.url)
+        path = '%s/%s/%s' % (parsed.path,
+                             quote(self.bucket_name),
+                             quote(self.mpu_name))
+        return externalize_upload_id(b'', path, upload_id)
+
+    def _filter_listing(self, listing, mpu_name, internal_upload_id):
         prefix = ''
         if mpu_name:
             prefix += '\x00' + mpu_name
-            if upload_id:
-                prefix += '/' + str(upload_id)
+            if internal_upload_id:
+                prefix += '\x00' + internal_upload_id
+        return [item for item in listing
+                if (not mpu_name or item['name'].startswith(prefix))]
 
-        def filter_listing(listing):
-            return [item for item in listing
-                    if (not mpu_name or item['name'].startswith(prefix))]
+    def get_mpu_parts(self, mpu_name=None, upload_id=None):
+        if upload_id:
+            upload_id = self.internalize_upload_id(upload_id).serialize()
+        return self._filter_listing(
+            self.internal_client.iter_objects(
+                self.account, self.parts_container_name),
+            mpu_name,
+            upload_id)
 
-        sessions = self.internal_client.iter_objects(
-            self.account, self.sessions_container_name)
+    def get_mpu_sessions(self, mpu_name=None, upload_id=None):
+        if upload_id:
+            upload_id = self.internalize_upload_id(upload_id).serialize()
+        return self._filter_listing(
+            self.internal_client.iter_objects(
+                self.hidden_account, self.sessions_container_name),
+            mpu_name,
+            upload_id)
 
-        parts = self.internal_client.iter_objects(
-            self.account, self.parts_container_name)
+    def get_history(self, mpu_name=None, upload_id=None):
+        if upload_id:
+            upload_id = self.internalize_upload_id(upload_id).serialize()
+        return self._filter_listing(
+            self.internal_client.iter_objects(
+                self.hidden_account, self.history_container_name),
+            mpu_name,
+            upload_id)
 
-        return filter_listing(sessions), filter_listing(parts)
+    def get_mpu_resources(self, mpu_name=None, upload_id=None):
+        return (self.get_mpu_sessions(mpu_name, upload_id),
+                self.get_mpu_parts(mpu_name, upload_id),
+                self.get_history(mpu_name, upload_id))
 
-    def _make_mpu(self, part_size):
+    def _make_mpu(self, num_parts=1):
         # create
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='uploads=true')
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
         self.assertEqual(202, resp.status)
-        # upload part
+        # upload parts
+        manifest = []
         part_file, hash_, chunk_etags = self.make_file(self.part_size, 1)
-        with open(part_file, 'rb') as fd:
-            part_etag = swiftclient.put_object(
-                self.url, self.token, self.bucket_name, self.mpu_name,
-                contents=fd, content_type='ignored',
-                query_string='upload-id=%s&part-number=1' % upload_id)
-        self.assertEqual(hash_, part_etag)
+        for i in range(num_parts):
+            with open(part_file, 'rb') as fd:
+                part_etag = swiftclient.put_object(
+                    self.url, self.token, self.bucket_name, self.mpu_name,
+                    contents=fd, content_type='ignored',
+                    query_string='upload-id=%s&part-number=%d'
+                                 % (upload_id, i + 1)
+                )
+            self.assertEqual(hash_, part_etag)
+            manifest.append({'part_number': i + 1, 'etag': part_etag})
         # complete
-        manifest = [{'part_number': 1, 'etag': part_etag}]
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='upload-id=%s' % upload_id,
                                       body=json.dumps(manifest).encode(
@@ -405,47 +462,72 @@ class BaseTestNativeMPU(BaseTestMPU):
         self.assertEqual(202, resp.status)
         self.assertNotIn('X-Static-Large-Object', resp.headers)
         body_dict = json.loads(body)
-        self.assertEqual('201 Created', body_dict['Response Status'])
-        mpu_etag = calc_s3mpu_etag(chunk_etags)
-        # head mpu
-        headers = swiftclient.head_object(
+        self.assertEqual('201 Created', body_dict['Response Status'], body)
+        mpu_etag = calc_s3mpu_etag(chunk_etags * num_parts)
+        self.assert_etag(mpu_etag, body_dict.get('Etag'))
+        # get mpu
+        headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
-        self.assertEqual(str(self.part_size), headers.get('content-length'))
-        self.assertEqual('"%s"' % mpu_etag, headers.get('etag'))
+        self.assertEqual(str(num_parts * self.part_size),
+                         headers.get('content-length'))
+        self.assert_etag(mpu_etag, headers.get('etag'), rfc_compliant=True)
         return upload_id, mpu_etag
 
 
 class TestNativeMPU(BaseTestNativeMPU):
     def test_native_mpu(self):
-        self.maxDiff = None
-        # create
+        swiftclient.put_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            contents='junk')
+        orig_objs = list(self.internal_client.iter_objects(
+            self.account, self.bucket_name))
+
+        # check history
+        sessions, parts, history = self.get_mpu_resources()
+        history_refs = [ObjectRef.parse(v['name']) for v in history]
+        self.assertEqual([self.mpu_name],
+                         [v.user_name for v in history_refs])
+        self.assertEqual([self.mpu_name],
+                         [o['name'] for o in orig_objs])
+        orig_history_ref = history_refs[0]
+
+        # create mpu
         resp, body = self.post_object(self.bucket_name, self.mpu_name,
                                       query_string='uploads=true')
         self.assertEqual(202, resp.status)
-        upload_id = resp.headers.get('X-Upload-Id')
-        self.assertIsNotNone(upload_id)
+        self.assertIn('X-Upload-Id', resp.headers)
+        ext_upload_id_str = resp.headers.get('X-Upload-Id')
+        int_upload_id = self.internalize_upload_id(ext_upload_id_str)
+        # sanity check ...
+        self.assertEqual(ext_upload_id_str,
+                         self.externalize_upload_id(int_upload_id))
+        sess_name = ObjectRef(self.mpu_name, int_upload_id)
         containers = self.internal_client.iter_containers(self.account)
-        self.assertEqual([self.parts_container_name,
-                          self.sessions_container_name,
-                          self.bucket_name],
-                         [c['name'] for c in containers])
+        # TODO: move parts container to hidden account
+        self.assertEqual(sorted([self.parts_container_name,
+                                 self.bucket_name]),
+                         sorted([c['name'] for c in containers]))
+        containers = self.internal_client.iter_containers(self.hidden_account)
+        self.assertEqual(sorted([self.sessions_container_name,
+                                 self.history_container_name]),
+                         sorted([c['name'] for c in containers]))
 
         # list sessions internal
-        sessions = self.internal_client.iter_objects(
-            self.account, self.sessions_container_name)
+        sessions, parts, history = self.get_mpu_resources()
         self.assertEqual(
-            [{'name': '\x00%s/%s' % (self.mpu_name, upload_id),
+            [{'name': sess_name.serialize(),
               'content_type': 'application/x-mpu-session-created',
               'bytes': 0,
               'hash': MD5_OF_EMPTY_STRING,
               'last_modified': mock.ANY}],
-            list(sessions))
+            sessions)
 
-        # list mpus via API
+        # list sessions via API
         resp_hdrs, listing = swiftclient.get_container(
             self.url, self.token, self.bucket_name, query_string='uploads')
-        self.assertEqual([(self.mpu_name, upload_id)],
-                         [(o['name'], o['upload_id']) for o in listing])
+        self.assertEqual(
+            [(self.mpu_name, ext_upload_id_str)],
+            [(o['name'], o['upload_id']) for o in listing])
 
         # upload part
         part_file, hash_, chunk_etags = self.make_file(self.part_size, 1)
@@ -453,16 +535,16 @@ class TestNativeMPU(BaseTestNativeMPU):
             part_etag = swiftclient.put_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
                 contents=fd, content_type='ignored',
-                query_string='upload-id=%s&part-number=1' % upload_id)
+                query_string='upload-id=%s&part-number=1' % ext_upload_id_str)
         # TODO: check resp content-length header
         # swiftclient strips the "" from etag!
         self.assertEqual(hash_, part_etag)
 
         # list parts internal
-        parts = [part for part in self.internal_client.iter_objects(
-            self.account, self.parts_container_name)]
+        parts = list(self.internal_client.iter_objects(
+            self.account, self.parts_container_name))
         self.assertEqual(
-            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+            [{'name': str(sess_name) + '/000001',
               'hash': mock.ANY,  # might be encrypted
               'bytes': self.part_size,
               'content_type': 'application/octet-stream',
@@ -472,9 +554,10 @@ class TestNativeMPU(BaseTestNativeMPU):
         # list parts via mpu API
         resp_hdrs, resp_body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='upload-id=%s' % upload_id)
+            query_string='upload-id=%s' % ext_upload_id_str
+        )
         self.assertEqual(
-            [{'name': '%s/%s/000001' % (self.mpu_name, upload_id),
+            [{'name': '%s/%s/000001' % (self.mpu_name, ext_upload_id_str),
               'hash': part_etag,
               'bytes': self.part_size,
               'content_type': 'application/octet-stream',
@@ -483,40 +566,52 @@ class TestNativeMPU(BaseTestNativeMPU):
 
         # complete
         manifest = [{'part_number': 1, 'etag': part_etag}]
-        resp, body = self.post_object(self.bucket_name, self.mpu_name,
-                                      query_string='upload-id=%s' % upload_id,
-                                      body=json.dumps(manifest).encode(
-                                          'ascii'))
+        resp, body = self.post_object(
+            self.bucket_name, self.mpu_name,
+            query_string='upload-id=%s' % ext_upload_id_str,
+            body=json.dumps(manifest).encode('ascii'))
         self.assertEqual(202, resp.status)
         self.assertNotIn('X-Static-Large-Object', resp.headers)
         body_dict = json.loads(body)
-        self.assertEqual('201 Created', body_dict['Response Status'])
+        self.assertEqual('201 Created', body_dict['Response Status'],
+                         body_dict)
 
         # check mpu sysmeta
         mpu_meta = self.internal_client.get_object_metadata(
             self.account, self.bucket_name, self.mpu_name)
-        self.assertEqual(upload_id,
+        self.assertEqual(int_upload_id.serialize(),
                          mpu_meta.get('x-object-sysmeta-mpu-upload-id'),
                          mpu_meta)
 
         # check user container listing
         resp_hdrs, user_objs = swiftclient.get_container(
             self.url, self.token, self.bucket_name)
-        # TODO: assert etag, bytes etc
-        self.assertEqual([self.mpu_name], [o['name'] for o in user_objs])
+        exp_etag = calc_s3mpu_etag(chunk_etags)
+        self.assertEqual([exp_etag], [o['hash'] for o in user_objs])
+        self.assertEqual([{'name': self.mpu_name,
+                           'bytes': self.part_size,
+                           'hash': exp_etag,
+                           'content_type': 'application/octet-stream',
+                           'last_modified': mock.ANY}],
+                         user_objs)
+
+        sessions, parts, history = self.get_mpu_resources()
+        self.assertIn(self.mpu_name, sessions[0]['name'])
+        self.assertIn(self.mpu_name, parts[0]['name'])
+        self.assertIn(self.mpu_name, history[0]['name'])
 
         # head mpu
         headers = swiftclient.head_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
         self.assertEqual(str(self.part_size), headers.get('content-length'))
-        self.assertEqual('"%s"' % calc_s3mpu_etag(chunk_etags),
-                         headers.get('etag'))
+        self.assert_etag(calc_s3mpu_etag(chunk_etags), headers.get('etag'),
+                         rfc_compliant=True)
         # download mpu
         headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
         self.assertEqual(str(self.part_size), headers.get('content-length'))
-        self.assertEqual('"%s"' % calc_s3mpu_etag(chunk_etags),
-                         headers.get('etag'))
+        self.assert_etag(calc_s3mpu_etag(chunk_etags), headers.get('etag'),
+                         rfc_compliant=True)
 
         # manifest cannot be downloaded by users
         with self.assertRaises(ClientException) as cm:
@@ -538,15 +633,15 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(exp_manifest, manifest)
 
         # session still exists but is marked completed
-        sessions = self.internal_client.iter_objects(
-            self.account, self.sessions_container_name)
+        sessions = list(self.internal_client.iter_objects(
+            self.hidden_account, self.sessions_container_name))
         self.assertEqual(
-            [{'name': '\x00%s/%s' % (self.mpu_name, upload_id),
+            [{'name': sess_name.serialize(),
               'content_type': 'application/x-mpu-session-completed',
               'bytes': 0,
               'hash': MD5_OF_EMPTY_STRING,
               'last_modified': mock.ANY}],
-            list(sessions))
+            sessions)
 
         # list mpu sessions via API - empty list
         resp_hdrs, listing = swiftclient.get_container(
@@ -557,12 +652,68 @@ class TestNativeMPU(BaseTestNativeMPU):
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
-                query_string='upload-id=%s' % upload_id)
+                query_string='upload-id=%s' % ext_upload_id_str)
         self.assertEqual(404, cm.exception.http_status)
+
+        # list history versions
+        history = list(self.internal_client.iter_objects(
+            self.hidden_account, self.history_container_name))
+        history_refs = [ObjectRef.parse(v['name']) for v in history]
+        self.assertEqual([self.mpu_name] * 2,
+                         [v.user_name for v in history_refs])
+        # latest version is the mpu
+        self.assertEqual('application/x-phony;swift_source=mpu',
+                         history[0]['content_type'])
+        exp_history_ref = ObjectRef(
+            self.mpu_name, HistoryId(int_upload_id.timestamp, null=True),
+            tail='PUT')
+        self.assertEqual(exp_history_ref.serialize(),
+                         history_refs[0].serialize())
+        # ...then the original non-mpu obj
+        self.assertEqual(orig_history_ref.serialize(),
+                         history_refs[1].serialize())
+
+        # list api versions
+        versions = self.list_versions(self.bucket_name)
+        self.assertEqual(1, len(versions))
+        self.assertEqual(self.mpu_name, versions[0]['name'])
+        self.assertEqual('null', versions[0]['version_id'])
+
+        # check account stats
+        Manager(['container-updater']).once()
+        account_hdrs, account_listing = swiftclient.get_account(
+            self.url, self.token)
+        # TODO: move parts to hidden account but add bytes to user account
+        self.assertEqual('2', account_hdrs.get('X-Account-Container-Count'))
+        self.assertEqual('2', account_hdrs.get('X-Account-Object-Count'))
+        # account only reports the sum of part size, not manifest
+        self.assertEqual(str(self.part_size),
+                         account_hdrs.get('X-Account-Bytes-Used'))
 
         # delete the mpu
         swiftclient.delete_object(self.url, self.token, self.bucket_name,
                                   self.mpu_name)
+
+        history = list(self.internal_client.iter_objects(
+            self.hidden_account, self.history_container_name))
+        history_refs = [ObjectRef.parse(v['name']) for v in history]
+        self.assertEqual([self.mpu_name] * 3,
+                         [v.user_name for v in history_refs])
+        # latest version is the delete marker
+        self.assertEqual('DELETE', history_refs[0].tail)
+        self.assertEqual(0, history[0]['bytes'])
+        self.assertEqual('application/x-phony;swift_source=mpu',
+                         history[0]['content_type'])
+        # ... then the mpu
+        self.assertEqual(exp_history_ref.serialize(),
+                         history_refs[1].serialize())
+        self.assertEqual(0, history[1]['bytes'], history)
+        self.assertEqual('application/x-phony;swift_source=mpu',
+                         history[1]['content_type'])
+        # ... then the original non-mpu obj
+        self.assertEqual(orig_history_ref.serialize(),
+                         history_refs[2].serialize())
+
         # check the mpu cannot be downloaded
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
@@ -571,20 +722,15 @@ class TestNativeMPU(BaseTestNativeMPU):
 
         # check we still have the parts, and also an audit marker for it
         # list parts internal
-        parts = self.internal_client.iter_objects(
-            self.account, self.parts_container_name)
+        parts = list(self.internal_client.iter_objects(
+            self.account, self.parts_container_name))
         self.assertEqual(
-            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+            [{'name': str(sess_name) + '/000001',
               'hash': mock.ANY,  # might be encrypted
               'bytes': self.part_size,
               'content_type': 'application/octet-stream',
-              'last_modified': mock.ANY},
-             {'name': '\x00%s/%s/marker-deleted' % (self.mpu_name, upload_id),
-              'hash': mock.ANY,  # might be encrypted
-              'bytes': 0,
-              'content_type': 'application/x-mpu-marker',
               'last_modified': mock.ANY}],
-            [part for part in parts])
+            parts)
 
         # async cleanup: once to process sessions...
         Manager(['container-auditor']).once()
@@ -592,7 +738,144 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-auditor']).once()
 
         # session, manifest and parts have gone :)
-        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
+        self.assertEqual(([], [], []), self.get_mpu_resources())
+
+        # check the account stats
+        Manager(['container-updater']).once()
+        account_hdrs, account_listing = swiftclient.get_account(
+            self.url, self.token)
+        self.assertEqual('2', account_hdrs.get('X-Account-Container-Count'))
+        self.assertEqual('0', account_hdrs.get('X-Account-Object-Count'))
+        self.assertEqual('0', account_hdrs.get('X-Account-Bytes-Used'))
+
+    def test_mpu_overwritten_by_mpu(self):
+        upload_id, etag = self._make_mpu(num_parts=1)
+        mpu_ref_1 = ObjectRef(
+            self.mpu_name, self.internalize_upload_id(upload_id))
+        exp_parts_1 = [
+            {'name': '%s/000001' % mpu_ref_1.serialize(),
+             'hash': mock.ANY,  # might be encrypted
+             'bytes': self.part_size,
+             'content_type': 'application/octet-stream',
+             'last_modified': mock.ANY}
+        ]
+        # overwrite with another mpu
+        upload_id, etag = self._make_mpu(num_parts=2)
+        mpu_ref_2 = ObjectRef(
+            self.mpu_name, self.internalize_upload_id(upload_id))
+        exp_parts_2 = [
+            {'name': '%s/%06d' % (mpu_ref_2.serialize(), i),
+             'hash': mock.ANY,  # might be encrypted
+             'bytes': self.part_size,
+             'content_type': 'application/octet-stream',
+             'last_modified': mock.ANY} for i in range(1, 3)
+        ]
+
+        # check user container listing
+        resp_hdrs, user_objs = swiftclient.get_container(
+            self.url, self.token, self.bucket_name)
+        self.assertEqual([{'name': self.mpu_name,
+                           'bytes': 2 * self.part_size,
+                           'hash': etag,
+                           'content_type': 'application/octet-stream',
+                           'last_modified': mock.ANY}],
+                         user_objs)
+
+        # get user object
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual(str(2 * self.part_size),
+                         headers.get('content-length'))
+        self.assert_etag(etag, headers.get('etag'), rfc_compliant=True)
+        self.assertEqual(2 * self.part_size, len(body))
+
+        # list history versions
+        history = [v for v in self.internal_client.iter_objects(
+            self.hidden_account, self.history_container_name)]
+        self.assertEqual(2, len(history))
+
+        # check we still have the parts for both mpu
+        parts = self.internal_client.iter_objects(
+            self.account, self.parts_container_name)
+        self.assertEqual(exp_parts_1 + exp_parts_2, [part for part in parts])
+
+        # async cleanup: once for sessions and history, once for parts markers
+        Manager(['container-auditor']).once()
+        Manager(['container-auditor']).once()
+
+        # sessions and obsolete parts have gone :)
+        sessions, parts, history = self.get_mpu_resources()
+        self.assertFalse(sessions)
+        self.assertEqual(exp_parts_2, [part for part in parts])
+        self.assertEqual(1, len(history))
+
+        # get user object
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual(str(2 * self.part_size),
+                         headers.get('content-length'))
+        self.assert_etag(etag, headers.get('etag'), rfc_compliant=True)
+        self.assertEqual(2 * self.part_size, len(body))
+
+    def test_mpu_overwritten_by_non_mpu(self):
+        upload_id, etag = self._make_mpu(num_parts=1)
+        mpu_ref_1 = ObjectRef(
+            self.mpu_name, self.internalize_upload_id(upload_id))
+        parts_1 = [
+            {'name': '%s/000001' % mpu_ref_1.serialize(),
+             'hash': mock.ANY,  # might be encrypted
+             'bytes': self.part_size,
+             'content_type': 'application/octet-stream',
+             'last_modified': mock.ANY}
+        ]
+        # overwrite
+        swiftclient.put_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            content_type='text/plain')
+
+        # check user container listing
+        resp_hdrs, user_objs = swiftclient.get_container(
+            self.url, self.token, self.bucket_name)
+        self.assertEqual([{'name': self.mpu_name,
+                           'bytes': 0,
+                           'hash': MD5_OF_EMPTY_STRING,
+                           'content_type': 'text/plain',
+                           'last_modified': mock.ANY}],
+                         user_objs)
+
+        # get user object
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual('0', headers.get('content-length'))
+        self.assert_etag(MD5_OF_EMPTY_STRING, headers.get('etag'))
+        self.assertEqual(b'', body)
+
+        # list history versions
+        history = [v for v in self.internal_client.iter_objects(
+            self.hidden_account, self.history_container_name)]
+        self.assertEqual(2, len(history))
+
+        # check we still have the parts for mpu
+        parts = self.internal_client.iter_objects(
+            self.account, self.parts_container_name)
+        self.assertEqual(parts_1, [part for part in parts])
+
+        # async cleanup: once for sessions and history, once for parts markers
+        Manager(['container-auditor']).once()
+        Manager(['container-auditor']).once()
+
+        # sessions and obsolete parts have gone :)
+        sessions, parts, history = self.get_mpu_resources()
+        self.assertFalse(sessions)
+        self.assertFalse(parts)
+        self.assertEqual(1, len(history))
+
+        # get user object
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assertEqual('0', headers.get('content-length'))
+        self.assert_etag(MD5_OF_EMPTY_STRING, headers.get('etag'))
+        self.assertEqual(b'', body)
 
     def test_native_mpu_abort(self):
         # create
@@ -663,8 +946,10 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertFalse(listing)
 
         # check we still have the parts via internal client
+        mpu_ref = ObjectRef(
+            self.mpu_name, self.internalize_upload_id(upload_id))
         exp_parts_internal = [
-            {'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+            {'name': '%s/000001' % mpu_ref.serialize(),
              'hash': mock.ANY,  # might be encrypted
              'bytes': self.part_size,
              'content_type': 'application/octet-stream',
@@ -674,16 +959,17 @@ class TestNativeMPU(BaseTestNativeMPU):
             self.account, self.parts_container_name)
         self.assertEqual(exp_parts_internal, [part for part in parts])
 
-        # session still exists but is marked aborted
+        # session still exists but is marked aborted; session are named in
+        # chronological order
         exp_aborted_sessions = [
-            {'name': '\x00%s/%s' % (self.mpu_name, upload_id),
+            {'name': '%s' % mpu_ref.serialize(),
              'content_type': 'application/x-mpu-session-aborted',
              'bytes': 0,
              'hash': MD5_OF_EMPTY_STRING,
              'last_modified': mock.ANY}
         ]
         sessions = self.internal_client.iter_objects(
-            self.account, self.sessions_container_name)
+            self.hidden_account, self.sessions_container_name)
         self.assertEqual(exp_aborted_sessions, list(sessions))
 
         # immediate audit(s) will pass over the aborted session
@@ -692,7 +978,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-auditor']).once()
 
         # ... so session still exists
-        sessions, parts = self.get_mpu_resources(self.bucket_name)
+        sessions, parts, history = self.get_mpu_resources()
         self.assertEqual(exp_aborted_sessions, list(sessions))
         # and the parts still exist
         self.assertEqual(exp_parts_internal, [part for part in parts])
@@ -705,14 +991,15 @@ class TestNativeMPU(BaseTestNativeMPU):
                 conf_index, custom_conf=custom_conf)
 
         # now the session is gone
-        sessions, parts = self.get_mpu_resources(self.bucket_name)
+        sessions, parts, history = self.get_mpu_resources()
         self.assertFalse(list(sessions))
 
         # async cleanup to ensure generated parts markers are processed
         Manager(['container-auditor']).once()
 
         # parts have gone :)
-        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
+        sessions, parts, history = self.get_mpu_resources()
+        self.assertEqual(([], []), (sessions, parts))
 
     def test_native_mpu_concurrent_complete_on_handoff(self):
         # verify that if two concurrent completeUploads both succeed in writing
@@ -726,6 +1013,8 @@ class TestNativeMPU(BaseTestNativeMPU):
                                       query_string='uploads=true')
         self.assertEqual(202, resp.status)
         upload_id = resp.headers.get('X-Upload-Id')
+        mpu_ref = ObjectRef(
+            self.mpu_name, self.internalize_upload_id(upload_id))
 
         # upload part
         part_file, hash_, chunk_etags_1 = self.make_file(self.part_size, 1)
@@ -800,8 +1089,10 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(
             [str(self.part_size), '99'],
             [headers.get('content-length') for headers, body in downloads])
-        self.assertEqual(
-            exp_etags, [headers.get('etag') for headers, body in downloads])
+        self.assert_etag(calc_s3mpu_etag(chunk_etags_1),
+                         downloads[0][0].get('etag'), rfc_compliant=True)
+        self.assert_etag(calc_s3mpu_etag(chunk_etags_2),
+                         downloads[1][0].get('etag'), rfc_compliant=True)
 
         # list mpus to check the session is completed
         resp_hdrs, listing = swiftclient.get_container(
@@ -814,15 +1105,15 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-auditor']).once()
         Manager(['container-auditor']).once()
 
-        sessions, parts = self.get_mpu_resources(self.bucket_name)
+        sessions, parts, history = self.get_mpu_resources()
         self.assertFalse(sessions)
         self.assertEqual(
-            [{'name': '\x00%s/%s/000001' % (self.mpu_name, upload_id),
+            [{'name': '%s/000001' % mpu_ref.serialize(),
               'hash': mock.ANY,  # might be encrypted
               'bytes': self.part_size,
               'content_type': 'application/octet-stream',
               'last_modified': mock.ANY},
-             {'name': '\x00%s/%s/000002' % (self.mpu_name, upload_id),
+             {'name': '%s/000002' % mpu_ref.serialize(),
               'hash': mock.ANY,  # might be encrypted
               'bytes': 99,
               'content_type': 'application/octet-stream',
@@ -833,30 +1124,32 @@ class TestNativeMPU(BaseTestNativeMPU):
         headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
         self.assertEqual('99', headers.get('content-length'))
-        self.assertEqual(exp_etags[1], headers.get('etag'))
+        self.assert_etag(exp_etags[1], headers.get('etag'), rfc_compliant=True)
 
 
-class TestNativeMPUWithVersioning(BaseTestNativeMPU):
-    def test_native_mpu_delete_during_versioning(self):
+class TestNativeMPUUTF8(TestNativeMPU):
+    def setUp(self):
+        super().setUp()
+        self.mpu_name = self.mpu_name + '\N{SNOWMAN}'
+
+
+class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
+    def enable_versioning(self):
+        headers = {'x-s3-compatible-versions': 'true',
+                   'x-versions-enabled': 'true'}
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers=headers)
+
+    def disable_versioning(self):
+        headers = {'x-versions-enabled': 'false'}
+        swiftclient.post_container(self.url, self.token, self.bucket_name,
+                                   headers=headers)
+
+    def _do_test_delete_version_while_versioning_enabled(
+            self, obj_name, mpu_name):
         # verify that mpu behaves same as a plain object w.r.t. versioning
-        #   * PUT objects
-        #   * enable versioning
         #   * DELETE objects - a version is retained
         #   * DELETE object version - nothing retained
-
-        # put an mpu
-        self._make_mpu(self.part_size)
-
-        # put an object as a control item
-        obj_name = 'non-mpu-obj'
-        swiftclient.put_object(self.url, self.token, self.bucket_name,
-                               obj_name)
-
-        # enable versioning
-        swiftclient.post_container(self.url, self.token, self.bucket_name,
-                                   headers={'x-versions-enabled': 'true'})
-
-        # delete both objects
         swiftclient.delete_object(
             self.url, self.token, self.bucket_name, obj_name)
         swiftclient.delete_object(
@@ -864,57 +1157,104 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
 
         # get listing with versions
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual(2, len(obj_versions))
-        self.assertEqual(1, len(obj_versions[obj_name]))
-        self.assertEqual(1, len(obj_versions[self.mpu_name]))
+        self.assertEqual({obj_name: [(mock.ANY, True), (mock.ANY, False)],
+                          mpu_name: [(mock.ANY, True), (mock.ANY, False)]},
+                         obj_versions)
 
         # run auditor - nothing should be cleaned up
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        # objects still exist
+        # previous object versions still exist
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, obj_name,
-            query_string='version-id=%s' % obj_versions[obj_name][0])
+            query_string='version-id=%s'
+                         % quote(obj_versions[obj_name][1][0]))
         swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+            self.url, self.token, self.bucket_name, mpu_name,
+            query_string='version-id=%s'
+                         % quote(obj_versions[mpu_name][1][0]))
 
-        # delete one version of each object
+        # delete oldest version of each object
         swiftclient.delete_object(
             self.url, self.token, self.bucket_name, obj_name,
-            query_string='version-id=%s' % obj_versions[obj_name][0])
+            query_string='version-id=%s'
+                         % quote(obj_versions[obj_name][1][0]))
         swiftclient.delete_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+            self.url, self.token, self.bucket_name, mpu_name,
+            query_string='version-id=%s'
+                         % quote(obj_versions[mpu_name][1][0]))
+
+        obj_versions2 = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual({obj_name: obj_versions[obj_name][:1],
+                          mpu_name: obj_versions[mpu_name][:1]},
+                         obj_versions2)
 
         # objects cannot be read
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, obj_name,
-                query_string='version-id=%s' % obj_versions[obj_name][0])
+                query_string='version-id=%s'
+                             % quote(obj_versions[obj_name][1][0]))
         self.assertEqual(404, cm.exception.http_status)
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
-                self.url, self.token, self.bucket_name, self.mpu_name,
-                query_string='version-id=%s' % obj_versions[self.mpu_name][0])
+                self.url, self.token, self.bucket_name, mpu_name,
+                query_string='version-id=%s'
+                             % quote(obj_versions[mpu_name][1][0]))
         self.assertEqual(404, cm.exception.http_status)
+
+        sessions, parts, history = self.get_mpu_resources()
+        self.assertFalse(sessions)
+        self.assertEqual(1, len(parts), parts)
+        # each object has 3 history events:
+        #     PUT v1, PUT v2 delete marker, DELETE v1
+        self.assertEqual(6, len(history), history)
 
         # run auditor
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
+        sessions, parts, history = self.get_mpu_resources()
+        self.assertEqual(([], []), (sessions, parts),
+                         [item['name'] for item in history])
+        self.assertEqual(2, len(history), history)
 
-    def test_native_mpu_no_overwrites_during_versioning(self):
+    def test_delete_retained_version_while_versioning_enabled(self):
+        # enable versioning
+        self.enable_versioning()
+        # put an mpu
+        self._make_mpu()
+        # put an object as a control item
+        obj_name = 'non-mpu-obj'
+        swiftclient.put_object(self.url, self.token, self.bucket_name,
+                               obj_name)
+        # check delete behavior
+        self._do_test_delete_version_while_versioning_enabled(
+            obj_name, self.mpu_name)
+
+    def test_delete_null_version_while_versioning_enabled(self):
+        # put an mpu
+        self._make_mpu()
+        # put an object as a control item
+        obj_name = 'non-mpu-obj'
+        swiftclient.put_object(self.url, self.token, self.bucket_name,
+                               obj_name)
+        # enable versioning
+        self.enable_versioning()
+        # check delete behavior
+        self._do_test_delete_version_while_versioning_enabled(
+            obj_name, self.mpu_name)
+
+    def test_no_overwrites_during_versioning(self):
         # verify that mpu behaves same as a plain object w.r.t. versioning
         #   * PUT objects
         #   * enable versioning
         #   * disable versioning
-        #   * DELETE objects - no version is retained
+        #   * DELETE objects - no version is retained, delete markers written
 
         # put an mpu
-        self._make_mpu(self.part_size)
+        self._make_mpu()
 
         # put an object as a control item
         obj_name = 'non-mpu-obj'
@@ -922,14 +1262,13 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
                                obj_name)
 
         # enable versioning
-        swiftclient.post_container(self.url, self.token, self.bucket_name,
-                                   headers={'x-versions-enabled': 'true'})
+        self.enable_versioning()
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual(2, len(obj_versions))
-
+        self.assertEqual({self.mpu_name: [('null', False)],
+                          obj_name: [('null', False)]},
+                         obj_versions)
         # disable versioning
-        swiftclient.post_container(self.url, self.token, self.bucket_name,
-                                   headers={'x-versions-enabled': 'false'})
+        self.disable_versioning()
 
         # delete both objects
         swiftclient.delete_object(
@@ -938,8 +1277,10 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
             self.url, self.token, self.bucket_name, self.mpu_name)
 
         # get listing with versions
-        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertFalse(obj_versions)
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name,)
+        self.assertEqual({self.mpu_name: [('null', True)],
+                          obj_name: [('null', True)]},
+                         obj_versions)
 
         # objects cannot be read
         with self.assertRaises(ClientException) as cm:
@@ -955,21 +1296,22 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        self.assertEqual(([], []), self.get_mpu_resources(self.bucket_name))
+        sessions, parts, history = self.get_mpu_resources()
+        self.assertEqual(([], []), (sessions, parts))
 
-    def test_native_mpu_overwrite_during_and_delete_after_versioning(self):
+    def test_overwrite_during_and_delete_after_versioning(self):
         # verify that mpu behaves same as a plain object w.r.t. versioning
         #   * PUT objects
         #   * enable versioning
         #   * overwrite objects
         #   * disable versioning
-        #   * DELETE objects - 2 versions retained
+        #   * DELETE objects - 1 version plus null version delete marker
         brain = BrainSplitter(self.url, self.token, self.bucket_name,
                               self.mpu_name, server_type='object',
                               policy=self.policy)
 
         # put an mpu
-        self._make_mpu(self.part_size)
+        self._make_mpu(num_parts=2)
 
         # stash the timestamp
         headers = swiftclient.head_object(
@@ -987,121 +1329,179 @@ class TestNativeMPUWithVersioning(BaseTestNativeMPU):
         self.assertGreater(float(ts_meta), float(ts_data))
 
         # enable versioning
-        swiftclient.post_container(self.url, self.token, self.bucket_name,
-                                   headers={'x-versions-enabled': 'true'})
+        self.enable_versioning()
 
-        # overwrite the mpu
+        # overwrite the mpu with a non-mpu
         brain.stop_handoff_half()
         swiftclient.put_object(self.url, self.token, self.bucket_name,
                                self.mpu_name, contents='version two')
         brain.start_handoff_half()
 
         # disable versioning
-        swiftclient.post_container(self.url, self.token, self.bucket_name,
-                                   headers={'x-versions-enabled': 'false'})
+        self.disable_versioning()
 
         # get listing with versions
         Manager(['container-replicator']).once()
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual(1, len(obj_versions))
-        self.assertEqual(2, len(obj_versions[self.mpu_name]))
+        self.assertEqual({self.mpu_name: [(mock.ANY, False), ('null', False)]},
+                         obj_versions)
+        vers = obj_versions[self.mpu_name][0][0]
 
-        # delete the obj
+        # run the auditor - nothing to clean up
+        for i in range(2):
+            Manager(['container-auditor']).once()
+        parts = self.get_mpu_parts()
+        self.assertEqual(2, len(parts), parts)
+
+        # both versions exist
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=null')
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % quote(vers))
+
+        # delete the obj - null version delete marker should be written
         swiftclient.delete_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
 
-        # versions still exists
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
-
-        # run auditor - nothing should be cleaned up
-        for i in range(2):
-            Manager(['container-auditor']).once()
-
-        # versions still exists
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
-
-    def test_native_mpu_delete_specific_version(self):
-        #   * PUT objects
-        #   * enable versioning
-        #   * PUT objects
-        #   * DELETE object version - nothing retained for that version
-
-        # put an mpu
-        upload_id_0, _ = self._make_mpu(self.part_size)
-
-        # enable versioning
-        swiftclient.post_container(self.url, self.token, self.bucket_name,
-                                   headers={'x-versions-enabled': 'true'})
-
-        # put an mpu again
-        upload_id_1, _ = self._make_mpu(self.part_size)
-
-        # run auditor - nothing should be cleaned up
-        for i in range(2):
-            Manager(['container-auditor']).once()
-
-        _, parts = self.get_mpu_resources(
-            self.bucket_name, self.mpu_name, upload_id_0)
-        self.assertEqual(1, len(parts))
-        _, parts = self.get_mpu_resources(
-            self.bucket_name, self.mpu_name, upload_id_1)
-        self.assertEqual(1, len(parts))
-
-        # get listing with versions
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual(1, len(obj_versions))
-        self.assertEqual(2, len(obj_versions[self.mpu_name]))
+        self.assertEqual({self.mpu_name: [('null', True), (vers, False)]},
+                         obj_versions)
 
-        # objects exist
+        # retained version still exists
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
-
-        # delete version [1]
-        swiftclient.delete_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][1])
-
-        # undeleted version still exists
-        swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % obj_versions[self.mpu_name][0])
-
-        # deleted version cannot be read
+            query_string='version-id=%s' % quote(vers))
+        # but not the deleted null version
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
                 self.url, self.token, self.bucket_name, self.mpu_name,
-                query_string='version-id=%s' % obj_versions[self.mpu_name][1])
+                query_string='version-id=null')
         self.assertEqual(404, cm.exception.http_status)
 
-        _, parts = self.get_mpu_resources(
-            self.bucket_name, self.mpu_name, upload_id_0)
-        # delete-marker has been written in parts container...
-        self.assertEqual(2, len(parts), parts)
-        _, parts = self.get_mpu_resources(
-            self.bucket_name, self.mpu_name, upload_id_1)
-        self.assertEqual(1, len(parts))
-
-        # run auditor - deleted version should be cleaned up
+        # run auditor - original null version parts should be cleaned up
         for i in range(2):
             Manager(['container-auditor']).once()
+        self.assertFalse(self.get_mpu_parts())
 
-        _, parts = self.get_mpu_resources(
-            self.bucket_name, self.mpu_name, upload_id_0)
-        self.assertFalse(parts)
-        _, parts = self.get_mpu_resources(
-            self.bucket_name, self.mpu_name, upload_id_1)
-        self.assertEqual(1, len(parts))
+        # retained version still exists
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % quote(vers))
+
+    def test_null_version_overwritten_while_versioning_suspended(self):
+        #   * PUT mpu (null version)
+        #   * enable versioning
+        #   * PUT mpu (retained version)
+        #   * disable versioning
+        #   * PUT mpu (new null version)
+
+        # put an mpu
+        upload_id1, etag1 = self._make_mpu(num_parts=1)
+        # enable versioning
+        self.enable_versioning()
+        # put an mpu again
+        upload_id2, etag2 = self._make_mpu(num_parts=2)
+        self.assertNotEqual(upload_id1, upload_id2)
+        self.assertNotEqual(etag1, etag2)
+        # run auditor - nothing should be cleaned up
+        self.assertEqual(1, len(self.get_mpu_parts(self.mpu_name, upload_id1)))
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        for i in range(2):
+            Manager(['container-auditor']).once()
+        self.assertEqual(1, len(self.get_mpu_parts(self.mpu_name, upload_id1)))
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        # get listing with versions
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual({self.mpu_name: [(mock.ANY, False),
+                                          ('null', False)]},
+                         obj_versions)
+        vers_1 = obj_versions[self.mpu_name][0][0]
+        # objects exist
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=null')
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % quote(vers_1))
+
+        # suspend versioning
+        self.disable_versioning()
+        # put an mpu again
+        upload_id3, etag3 = self._make_mpu(num_parts=3)
+        self.assertNotEqual(upload_id2, upload_id3)
+        self.assertNotEqual(etag2, etag3)
+        # the earlier null version is not listed
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual({self.mpu_name: [('null', False),
+                                          (vers_1, False)]},
+                         obj_versions)
+        # run auditor and the parts for the earlier null version are cleaned up
+        self.assertEqual(1, len(self.get_mpu_parts(self.mpu_name, upload_id1)))
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        self.assertEqual(3, len(self.get_mpu_parts(self.mpu_name, upload_id3)))
+        for i in range(2):
+            Manager(['container-auditor']).once()
+        self.assertFalse(self.get_mpu_parts(self.mpu_name, upload_id1))
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        self.assertEqual(3, len(self.get_mpu_parts(self.mpu_name, upload_id3)))
+
+        # we can get the latest null version
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=null')
+        self.assert_etag(etag3, headers.get('etag'))
+        # and the retained version
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % quote(vers_1))
+        self.assert_etag(etag2, headers.get('etag'))
+
+        # rinse and repeat...
+        self.enable_versioning()
+        upload_id4, etag4 = self._make_mpu(num_parts=4)
+        self.assertNotEqual(upload_id3, upload_id4)
+        self.assertNotEqual(etag3, etag4)
+        # the null version is replaced by the latest null version
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual({self.mpu_name: [(mock.ANY, False),
+                                          ('null', False),
+                                          (vers_1, False)]},
+                         obj_versions)
+        vers_2 = obj_versions[self.mpu_name][0][0]
+        # nothing to clean up...
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        self.assertEqual(3, len(self.get_mpu_parts(self.mpu_name, upload_id3)))
+        self.assertEqual(4, len(self.get_mpu_parts(self.mpu_name, upload_id4)))
+        for i in range(2):
+            Manager(['container-auditor']).once()
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        self.assertEqual(3, len(self.get_mpu_parts(self.mpu_name, upload_id3)))
+        self.assertEqual(4, len(self.get_mpu_parts(self.mpu_name, upload_id4)))
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=null')
+        self.assert_etag(etag3, headers.get('etag'))
+
+        self.disable_versioning()
+        upload_id5, etag5 = self._make_mpu(num_parts=5)
+        self.assertNotEqual(upload_id4, upload_id5)
+        self.assertNotEqual(etag4, etag5)
+        # the previous null version is replaced by the latest null version
+        obj_versions = self.get_object_versions_from_listing(self.bucket_name)
+        self.assertEqual({self.mpu_name: [('null', False),
+                                          (vers_2, False),
+                                          (vers_1, False)]},
+                         obj_versions)
+        # the previous null version parts are cleaned up...
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        self.assertEqual(3, len(self.get_mpu_parts(self.mpu_name, upload_id3)))
+        self.assertEqual(4, len(self.get_mpu_parts(self.mpu_name, upload_id4)))
+        self.assertEqual(5, len(self.get_mpu_parts(self.mpu_name, upload_id5)))
+        for i in range(2):
+            Manager(['container-auditor']).once()
+        self.assertEqual(2, len(self.get_mpu_parts(self.mpu_name, upload_id2)))
+        self.assertFalse(self.get_mpu_parts(self.mpu_name, upload_id3))
+        self.assertEqual(4, len(self.get_mpu_parts(self.mpu_name, upload_id4)))
+        self.assertEqual(5, len(self.get_mpu_parts(self.mpu_name, upload_id5)))

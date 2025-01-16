@@ -17,6 +17,7 @@
 import errno
 import gc
 import json
+import pickle
 from configparser import ConfigParser
 
 from unittest import mock
@@ -33,9 +34,10 @@ from http.client import HTTPConnection
 from urllib.parse import urlparse
 
 from swiftclient import get_auth, head_account, client
-from swift.common import internal_client, direct_client, utils
+from swift.common import internal_client, direct_client, utils, swob
 from swift.common.direct_client import DirectClientException
 from swift.common.ring import Ring
+from swift.common.swob import normalize_etag
 from swift.common.utils import hash_path, md5, \
     readconf, renamer, rsync_module_interpolation
 from swift.common.manager import Manager
@@ -556,7 +558,7 @@ class ProbeTest(unittest.TestCase):
                 all_obj_nodes[dev['device']] = dev
         return list(all_obj_nodes.values())
 
-    def gather_async_pendings(self, onodes=None):
+    def gather_async_pending_paths(self, onodes=None):
         """
         Returns a list of paths to async pending files found on given nodes.
 
@@ -589,6 +591,13 @@ class ProbeTest(unittest.TestCase):
                             for ent in os.listdir(ap_dir_fullpath)])
         return async_pendings
 
+    def gather_async_pending_data(self, onodes=None):
+        async_pending_data = []
+        for async_path in self.gather_async_pending_paths(onodes):
+            with open(async_path, 'rb') as fd:
+                async_pending_data.append(pickle.load(fd))
+        return async_pending_data
+
     def run_custom_daemon(self, klass, conf_section, conf_index,
                           custom_conf, capture_logs=False, **kwargs):
         conf_file = self.configs[conf_section][conf_index]
@@ -609,6 +618,16 @@ class ProbeTest(unittest.TestCase):
             daemon.run_once(**kwargs)
 
         return daemon
+
+    def assert_etag(self, expected, actual, rfc_compliant=False):
+        # clusters may or may not enable etag quoting, so assertions may need
+        # to allow for either quoted or unquoted values.
+        if rfc_compliant:
+            expected = swob.quote_etag(expected)
+        else:
+            expected = normalize_etag(expected)
+            actual = normalize_etag(actual)
+        self.assertEqual(expected, actual)
 
 
 def _get_db_file_path(obj_dir):

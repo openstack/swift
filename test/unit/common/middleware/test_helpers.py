@@ -22,7 +22,18 @@ from swift.common.swob import Request, HTTPOk, HTTPNotFound, \
     HTTPCreated, HeaderKeyDict
 from swift.common import request_helpers as rh
 from swift.common.middleware.s3api.utils import sysmeta_header
-from test.unit.common.middleware.helpers import FakeSwift, FakeSwiftCall
+from test.unit.common.middleware.helpers import FakeSwift, FakeSwiftCall, \
+    normalize_path
+
+
+class TestModuleFunctions(unittest.TestCase):
+    def test_normalize_path(self):
+        self.assertEqual('/v1/a/c/o&x=y', normalize_path('/v1/a/c/o&x=y'))
+        self.assertEqual('/v1/a/c/o', normalize_path('/v1/a/c/o'))
+        self.assertEqual('/v1/a/c/o?x=y', normalize_path('/v1/a/c/o?x=y'))
+        # query string params are sorted
+        self.assertEqual('/v1/a/c/o&a=b?x=y&z=y',
+                         normalize_path('/v1/a/c/o&a=b?z=y&x=y'))
 
 
 class TestFakeSwiftCall(unittest.TestCase):

@@ -482,6 +482,23 @@ class TestRequestHelpers(unittest.TestCase):
         if failures:
             self.fail('Unexpected reults:\n' + '\n'.join(failures))
 
+    def test_split_reserved_name_maxsplit(self):
+        self.assertEqual([''], rh.split_reserved_name('\x00'))
+        self.assertEqual([''], rh.split_reserved_name('\x00', -1))
+        self.assertEqual([''], rh.split_reserved_name('\x00', 0))
+        self.assertEqual([''], rh.split_reserved_name('\x00', 1))
+
+        self.assertEqual(['a', 'b', 'c'],
+                         rh.split_reserved_name('\x00a\x00b\x00c'))
+        self.assertEqual(['a', 'b', 'c'],
+                         rh.split_reserved_name('\x00a\x00b\x00c', -1))
+        self.assertEqual(['a\x00b\x00c'],
+                         rh.split_reserved_name('\x00a\x00b\x00c', 0))
+        self.assertEqual(['a', 'b\x00c'],
+                         rh.split_reserved_name('\x00a\x00b\x00c', 1))
+        self.assertEqual(['a', 'b', 'c'],
+                         rh.split_reserved_name('\x00a\x00b\x00c', 2))
+
     def test_invalid_split_reserved_name(self):
         self.assertRaises(ValueError)
         with self.assertRaises(ValueError) as ctx:

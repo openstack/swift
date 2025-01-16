@@ -437,15 +437,17 @@ def get_reserved_name(*parts):
     return RESERVED + RESERVED.join(parts)
 
 
-def split_reserved_name(name):
+def split_reserved_name(name, maxsplit=-1):
     """
     Separate a valid reserved name into the component parts.
 
+    :param maxsplit: limit the number of splits; if negative then the number of
+        splits is unlimited.
     :returns: a list of strings
     """
     if not name.startswith(RESERVED):
         raise ValueError('Invalid reserved name')
-    return name.split(RESERVED)[1:]
+    return name[1:].split(RESERVED, maxsplit=maxsplit)
 
 
 def remove_items(headers, condition):

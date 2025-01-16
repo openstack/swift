@@ -3545,11 +3545,11 @@ class TestModuleFunctions(unittest.TestCase):
         expected = '\x00foo\x00:'
         self.assertEqual(
             expected,
-            object_versioning.build_versions_object_marker('foo'))
+            object_versioning.build_versions_object_max_name('foo'))
         expected = '\x00bar\x00:'
         self.assertEqual(
             expected,
-            object_versioning.build_versions_object_marker('bar'))
+            object_versioning.build_versions_object_max_name('bar'))
 
     def test_parse_versions_object_name(self):
         ts = utils.Timestamp.now()

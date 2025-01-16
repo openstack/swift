@@ -34,7 +34,8 @@ from swift.common.utils import public, get_logger, \
     get_log_line, Timestamp, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
-    normalize_timestamp, md5, parse_options, CooperativeIterator
+    normalize_timestamp, md5, parse_options, CooperativeIterator, \
+    MD5_OF_EMPTY_STRING
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
@@ -275,6 +276,108 @@ class ObjectController(BaseStorageServer):
         return self._diskfile_router[policy].get_diskfile(
             device, partition, account, container, obj, policy, **kwargs)
 
+    def _make_common_update_headers(self, request, policy):
+        return HeaderKeyDict({
+            'x-trans-id': request.headers.get('x-trans-id', '-'),
+            'referer': request.as_referer(),
+            'X-Backend-Storage-Policy-Index': int(policy),
+        })
+
+    def _handle_custom_container_updates(
+            self, request, objdevice, account, container, obj, policy,
+            orig_update_headers):
+        updates_str = request.headers.get('X-Backend-Container-Updates')
+        if not updates_str:
+            return
+
+        try:
+            custom_updates = json.loads(updates_str)
+        except json.JSONDecodeError:
+            self.logger.error(
+                'Invalid X-Container-Updates value with %s %s: %s',
+                request.method, request.path, updates_str)
+            return
+
+        for custom_update in custom_updates:
+            # TODO: combine updates that are going to the same host/a/c
+            # ensure default update parameters
+            update = {
+                'op': 'PUT',
+                'account': account,
+                'container': container,
+                'obj': obj,
+                'headers': None,
+                'db_state': None,
+                'hosts': [],
+                'devices': [],
+                'partition': None,
+            }
+            # override with custom update parameters
+            update.update(custom_update)
+            # ensure default container update headers
+            update_headers = HeaderKeyDict({
+                'x-timestamp': request.timestamp.internal
+            })
+            if update['op'] != 'DELETE':
+                update_headers.update({
+                    'x-etag': MD5_OF_EMPTY_STRING,
+                    'x-size': 0,
+                    'x-content-type': 'application/octet-stream',
+                })
+            # override with user container update headers
+            update_headers.update(orig_update_headers)
+            update_headers.update(
+                self._make_common_update_headers(request, policy))
+            # override with custom update headers
+            update_headers.update(custom_update.get('headers', {}))
+            update['headers'] = update_headers
+            self.logger.debug('Custom container update: %s, %s',
+                              custom_update, update)
+            # TODO: refactor to combine spawning these updates with the user
+            #   namespace update, all within a single timeout
+            update_targets = list(zip(update['hosts'], update['devices']))
+            update_greenthreads = []
+            for host, device in update_targets:
+                gt = spawn(self.async_update,
+                           update['op'],
+                           update['account'],
+                           update['container'],
+                           update['obj'],
+                           host,
+                           update['partition'],
+                           device,
+                           update['headers'],
+                           objdevice,
+                           policy,
+                           logger_thread_locals=self.logger.thread_locals,
+                           db_state=update['db_state'])
+                update_greenthreads.append(gt)
+            try:
+                with Timeout(self.container_update_timeout):
+                    for gt in update_greenthreads:
+                        gt.wait()
+            except Timeout:
+                # updates didn't go through, log it and return
+                self.logger.debug(
+                    'Custom container update timeout (%.4fs) waiting for %s',
+                    self.container_update_timeout, update_targets)
+            if not update_targets:
+                self.logger.warning(
+                    'Custom container update without target, falling back to '
+                    'async update: %s', update)
+                update.pop('hosts')
+                update.pop('devices')
+                update.pop('partition')
+                # note: the async pending file location is based on the update
+                # a/c/o, not the original request a/c/o, unlike the user
+                # namespace update whose async pending file location is based
+                # on the request a/c/o even if the update is redirected to a
+                # shard.
+                self._diskfile_router[policy].pickle_async_update(
+                    objdevice, update['account'], update['container'],
+                    update['obj'], update, update['headers']['x-timestamp'],
+                    policy)
+
     def async_update(self, op, account, container, obj, host, partition,
                      contdevice, headers_out, objdevice, policy,
                      logger_thread_locals=None, container_path=None,
@@ -421,9 +524,7 @@ class ObjectController(BaseStorageServer):
         else:
             updates = []
 
-        headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
-        headers_out['referer'] = request.as_referer()
-        headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
+        headers_out.update(self._make_common_update_headers(request, policy))
         update_greenthreads = []
         for conthost, contdevice in updates:
             gt = spawn(self.async_update, op, account, container, obj,
@@ -1056,6 +1157,8 @@ class ObjectController(BaseStorageServer):
         self.container_update(
             'PUT', account, container, obj, request,
             update_headers, device, policy)
+        self._handle_custom_container_updates(
+            request, device, account, container, obj, policy, update_headers)
 
     @public
     @timing_stats()
@@ -1349,10 +1452,14 @@ class ObjectController(BaseStorageServer):
                 disk_file.delete(req_timestamp)
             except DiskFileNoSpace:
                 return HTTPInsufficientStorage(drive=device, request=request)
+            update_headers = HeaderKeyDict(
+                {'x-timestamp': req_timestamp.internal})
             self.container_update(
-                'DELETE', account, container, obj, request,
-                HeaderKeyDict({'x-timestamp': req_timestamp.internal}),
+                'DELETE', account, container, obj, request, update_headers,
                 device, policy)
+            self._handle_custom_container_updates(
+                request, device, account, container, obj, policy,
+                update_headers)
         response = response_class(
             request=request,
             headers={'X-Backend-Timestamp': response_timestamp.internal,

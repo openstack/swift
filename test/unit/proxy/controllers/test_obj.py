@@ -1337,6 +1337,111 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                     all([h.get('X-Delete-At-Container')
                          for h in backend_headers[-n_expected_updates:]]))
 
+    def test_custom_container_update_backend_requests(self):
+        custom_updates = [
+            {'account': '.a',
+             'container': 'c',
+             'obj': 'obj',
+             'headers': {
+                 'x-size': '123',
+                 'x-content-type': 'my/type'}
+             },
+            {'account': '.a',
+             'container': 'c-\N{SNOWMAN}',
+             'obj': 'obj-\N{SNOWMAN}',
+             'headers': {
+                 'x-size': '99',
+                 'x-content-type': 'custom-type'}
+             },
+        ]
+        for policy in POLICIES:
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT',
+                environ={'swift.container_updates': custom_updates},
+                headers={'Content-Length': '0',
+                         'X-Backend-Storage-Policy-Index': int(policy)})
+            controller = self.controller_cls(self.app, 'a', 'c', 'o')
+
+            num_containers = 3
+            containers = [
+                {'ip': '1.0.0.%s' % i,
+                 'port': '60%s' % str(i).zfill(2),
+                 'device': 'sdb'} for i in range(num_containers)
+            ]
+            other_containers = [
+                {'ip': '1.0.1.%s' % i,
+                 'port': '60%s' % str(i).zfill(2),
+                 'device': 'sdc'} for i in range(num_containers)
+            ]
+
+            container_info = self.fake_container_info(
+                {'nodes': containers})
+            other_container_info = self.fake_container_info(
+                {'nodes': other_containers})
+            with mock.patch.object(
+                    controller, 'container_info',
+                    return_value=other_container_info) as mock_info:
+                backend_headers = controller._backend_requests(
+                    req, self.replicas(policy), container_info)
+
+            self.assertEqual([mock.call('.a', 'c', mock.ANY),
+                              mock.call('.a', 'c-☃', mock.ANY)],
+                             mock_info.call_args_list)
+            # how many of the backend headers have a container update
+            n_actual_updates = len(
+                [headers for headers in backend_headers
+                 if 'X-Backend-Container-Updates' in headers])
+
+            # how many object-server PUTs can fail and still let the
+            # client PUT succeed
+            n_can_fail = self.replicas(policy) - self.quorum(policy)
+            n_expected_updates = (
+                n_can_fail + utils.quorum_size(num_containers))
+
+            # you get at least one update per container no matter what
+            n_expected_updates = max(
+                n_expected_updates, num_containers)
+
+            # you can't have more object requests with updates than you
+            # have object requests (the container stuff gets doubled up,
+            # but that's not important for purposes of durability)
+            n_expected_updates = min(
+                n_expected_updates, self.replicas(policy))
+            self.assertEqual(n_expected_updates, n_actual_updates)
+
+            # TODO: this assertion is a little narrow and brittle in that it
+            #   only applies to the first set of backend_headers
+            # if there's only one object replica then it has to update all of
+            # the container replicas; if there's more object replicas than
+            # container replicas then each object replica only updates one of
+            # the container replicas...
+            exp_targets_per_update = math.ceil(
+                num_containers / n_expected_updates)
+            actual = json.loads(
+                backend_headers[0].get('X-Backend-Container-Updates'))
+            self.assertEqual([
+                {'db_state': 'unsharded',
+                 'devices': ['sdc'] * exp_targets_per_update,
+                 'headers': {'x-content-type': 'my/type',
+                             'x-size': '123'},
+                 'hosts': ['1.0.1.%d:%d' % (i, 6000 + i)
+                           for i in range(exp_targets_per_update)],
+                 'obj': 'obj',
+                 'partition': 50,
+                 'account': '.a',
+                 'container': 'c'},
+                {'db_state': 'unsharded',
+                 'devices': ['sdc'] * exp_targets_per_update,
+                 'headers': {'x-content-type': 'custom-type',
+                             'x-size': '99'},
+                 'hosts': ['1.0.1.%d:%d' % (i, 6000 + i)
+                           for i in range(exp_targets_per_update)],
+                 'obj': 'obj-☃',
+                 'partition': 50,
+                 'account': '.a',
+                 'container': 'c-\N{SNOWMAN}'}],
+                actual)
+
     def _check_write_affinity(
             self, conf, policy_conf, policy, affinity_regions, affinity_count):
         conf['policy_config'] = policy_conf

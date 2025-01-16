@@ -361,6 +361,7 @@ class UpdaterStatsMixIn(object):
         num_accounts = 3
         num_conts_per_a = 4
         self.ac_pairs = ac_pairs = []
+        containers = []
         for a in range(num_accounts):
             acct = 'AUTH_user-%s-%03d' % (uuid.uuid4(), a)
             self.int_client.create_account(acct)
@@ -368,6 +369,7 @@ class UpdaterStatsMixIn(object):
                 cont = 'cont-%s-%03d' % (uuid.uuid4(), c)
                 self.int_client.create_container(acct, cont)
                 ac_pairs.append((acct, cont))
+                containers.append(cont)
 
         # Shut down a couple container servers
         for n in random.sample([1, 2, 3, 4], 2):
@@ -380,7 +382,8 @@ class UpdaterStatsMixIn(object):
                 obj = 'obj-%s-%03d' % (uuid.uuid4(), o)
                 self.int_client.upload_object(BytesIO(b''), acct, cont, obj)
 
-        all_asyncs = self.gather_async_pendings()
+        all_asyncs = [data for data in self.gather_async_pending_data()
+                      if data['container'] in containers]
         # Between 1-2 asyncs per object
         total_objs = num_objs_per_ac * len(ac_pairs)
         self.assertGreater(len(all_asyncs), total_objs)

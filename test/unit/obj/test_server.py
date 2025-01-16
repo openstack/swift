@@ -23,6 +23,8 @@ import errno
 import operator
 import os
 from unittest import mock
+from urllib.parse import quote
+
 from io import StringIO
 import unittest
 import math
@@ -39,6 +41,8 @@ from eventlet.green.http import client as http_client
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
+from swift.common.middleware.mpu import ObjectRef
+from swift.common.object_ref import HistoryId
 from swift.obj.expirer import ExpirerConfig
 from test import listen_zero, BaseTestCase
 from test.debug_logger import debug_logger, FakeStatsdClient, \
@@ -1733,6 +1737,218 @@ class TestObjectController(BaseTestCase):
     def test_PUT_redirected_async_pending_with_old_style_container_path(self):
         self._check_PUT_redirected_async_pending(
             container_path='.another/c', old_style=True)
+
+    def test_PUT_custom_async_update(self):
+        policy = POLICIES[0]
+        device_dir = os.path.join(self.testdir, 'sda1')
+        t_put = next(self.ts)
+        account = 'a'
+        container = 'c'
+        obj = 'o'
+        body = b'test'
+        etag = md5(body).hexdigest()
+        updates = [
+            {'account': '.a',
+             'container': '\x00versions\x00cont-\N{SNOWMAN}',
+             'obj': ObjectRef(obj, HistoryId(t_put, null=True)).serialize(),
+             'headers': {'x-size': '0',
+                         'x-content-type': 'application/x-phony'},
+             'hosts': ['1.0.1.0:6000', '1.0.1.1:6001'],
+             'devices': ['sdb', 'sdc'],
+             'partition': 99
+             },
+            {'account': 'other-account',
+             'container': '\x00other\x00container',
+             'obj': ObjectRef(obj, HistoryId(t_put, null=True)).serialize(),
+             'headers': {'x-size': '0',
+                         'x-content-type': 'application/x-phony'},
+             'hosts': ['1.0.1.2:6002'],
+             'devices': ['sdd'],
+             'partition': 1234
+             },
+        ]
+        put_headers = {
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'Content-Length': '4',
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'X-Container-Root-Db-State': 'unsharded',
+            'X-Backend-Container-Updates': json.dumps(updates),
+            'Etag': etag,
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'alt-2; foo=bar'
+        }
+
+        path = '/'.join([account, container, obj])
+        req = Request.blank('/sda1/p/' + path,
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=put_headers, body=b'test')
+        with mock.patch(
+                'swift.obj.server.ObjectController.container_update'
+        ) as mock_container_update:
+            with mocked_http_conn(201, 201, 201) as conn:
+                resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual([], mock_container_update.requests.call_args_list)
+
+        async_pending_dir = os.path.join(
+            device_dir, diskfile.get_async_dir(policy))
+        self.assertFalse(os.path.exists(async_pending_dir))
+        # note: referer, x-trans-id, policy are carried over from original
+        # PUT request
+        exp_update_headers = {'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+                              'User-Agent': mock.ANY,
+                              'X-Backend-Storage-Policy-Index': '0',
+                              'X-Content-Type': 'application/x-phony',
+                              'X-Etag': 'alt-2; foo=bar',
+                              'X-Size': '0',
+                              'X-Timestamp': t_put.internal,
+                              'X-Trans-Id': 'put_trans_id'}
+        exp_update_requests = [
+            {'headers': exp_update_headers,
+             'ip': '1.0.1.0',
+             'method': 'PUT',
+             'path': '/sdb/99/%s' % quote(
+                 '/'.join([updates[0]['account'], updates[0]['container'],
+                           updates[0]['obj']])),
+             'port': '6000',
+             'qs': None,
+             'ssl': False},
+            {'headers': exp_update_headers,
+             'ip': '1.0.1.1',
+             'method': 'PUT',
+             'path': '/sdc/99/%s' % quote(
+                 '/'.join([updates[0]['account'], updates[0]['container'],
+                           updates[0]['obj']])),
+             'port': '6001',
+             'qs': None,
+             'ssl': False},
+            {'headers': exp_update_headers,
+             'ip': '1.0.1.2',
+             'method': 'PUT',
+             'path': '/sdd/1234/%s' % quote(
+                 '/'.join([updates[1]['account'], updates[1]['container'],
+                           updates[1]['obj']])),
+             'port': '6002',
+             'qs': None,
+             'ssl': False},
+        ]
+        self.assertEqual(exp_update_requests, conn.requests)
+
+    def test_PUT_custom_container_update_without_hosts(self):
+        policy = POLICIES[0]
+        device_dir = os.path.join(self.testdir, 'sda1')
+        t_put = next(self.ts)
+        account = 'a'
+        container = 'c'
+        obj = 'o'
+        update_account = '.a'
+        update_container = '\x00versions\x00cont-\N{SNOWMAN}'
+        update_obj = '\x00obj-\N{SNOWMAN}\x00%s' % (~t_put).normal
+        body = b'test'
+        etag = md5(body).hexdigest()
+        updates = [
+            {'account': update_account,
+             'container': update_container,
+             'obj': update_obj,
+             'headers': {'x-size': '0',
+                         'x-content-type': 'application/x-phony'},
+             }
+        ]
+        put_headers = {
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'Content-Length': '4',
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'X-Container-Root-Db-State': 'unsharded',
+            'X-Backend-Container-Updates': json.dumps(updates),
+            'Etag': etag,
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'alt-2; foo=bar'
+        }
+
+        path = '/'.join([account, container, obj])
+        req = Request.blank('/sda1/p/' + path,
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=put_headers, body=b'test')
+        with mock.patch(
+                'swift.obj.server.ObjectController.container_update'
+        ) as mock_container_update:
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual([], mock_container_update.requests.call_args_list)
+
+        # check async pending file exists...
+        o_hash = hash_path(update_account, update_container, update_obj)
+        async_pending_dir = os.path.join(
+            device_dir, diskfile.get_async_dir(policy))
+        async_pending_suffixes = os.listdir(async_pending_dir)
+        self.assertEqual([o_hash[-3:]], async_pending_suffixes)
+        async_pending_suffix_dir = os.path.join(async_pending_dir, o_hash[-3:])
+        async_pending_files = os.listdir(async_pending_suffix_dir)
+        exp_async_pending_file = '%s-%s' % (o_hash, t_put.internal)
+        self.assertEqual([exp_async_pending_file], async_pending_files)
+        exp_async_pending_path = os.path.join(
+            async_pending_suffix_dir, exp_async_pending_file)
+        self.assertTrue(os.path.isfile(exp_async_pending_path))
+
+        # check async pending file content...
+        # note: referer, x-trans-id, policy are carried over from original
+        # PUT request
+        exp_update_headers = {
+            'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'X-Content-Type': 'application/x-phony',
+            'X-Size': '0',
+            'X-Etag': 'alt-2; foo=bar',
+            'X-Backend-Storage-Policy-Index': '%d' % int(policy)}
+        expected_update = {'headers': exp_update_headers,
+                           'account': update_account,
+                           'container': update_container,
+                           'obj': update_obj,
+                           'op': 'PUT',
+                           'db_state': None}
+        self.assertEqual(expected_update,
+                         pickle.load(open(exp_async_pending_path, 'rb')))
+        warnings = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warnings))
+        self.assertIn("Custom container update without target", warnings[0])
+
+        # run the updater to check the async is ok...
+        with mocked_http_conn(201) as conn:
+            with mock.patch('swift.obj.updater.dump_recon_cache',
+                            lambda *args: None):
+                object_updater = updater.ObjectUpdater(
+                    {'devices': self.testdir,
+                     'mount_check': 'false'}, logger=debug_logger())
+                node = {'id': 1, 'ip': '1.0.0.0', 'port': 3200,
+                        'replication_ip': '1.0.1.0',
+                        'replication_port': 6200,
+                        'device': 'sdb'}
+                mock_ring = mock.MagicMock()
+                mock_ring.get_nodes.return_value = (99, [node])
+                object_updater.container_ring = mock_ring
+                object_updater.object_sweep(self.sda1)
+
+        exp_update_headers.update({
+            'X-Backend-Accept-Quoted-Location': 'true',
+            'X-Backend-Accept-Redirect': 'true',
+            'User-Agent': mock.ANY,
+        })
+        exp_update_requests = [
+            {'headers': exp_update_headers,
+             'ip': '1.0.1.0',
+             'method': 'PUT',
+             'path': '/sdb/99/%s' % quote(
+                 '/'.join([update_account, update_container, update_obj])),
+             'port': 6200,
+             'qs': None,
+             'ssl': False}
+        ]
+        self.assertEqual(exp_update_requests, conn.requests)
 
     def test_POST_quarantine_zbyte(self):
         timestamp = normalize_timestamp(time())

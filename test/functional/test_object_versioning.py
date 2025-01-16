@@ -2431,7 +2431,7 @@ class TestSloWithVersioning(TestObjectVersioningBase):
         body = file_item.conn.response.read()
         self.assertEqual(status, 200, body)
         resp = json.loads(body)
-        self.assertEqual(resp['Response Status'], '200 OK')
+        self.assertEqual(resp['Response Status'], '200 OK', resp)
         self.assertEqual(resp['Errors'], [])
         self.assertEqual(resp['Number Deleted'], 2)
 

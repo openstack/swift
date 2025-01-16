@@ -28,15 +28,17 @@ from paste.deploy import loadwsgi
 from urllib.parse import unquote, quote
 
 import swift.common.middleware.s3api
+from swift.common.middleware.mpu import externalize_upload_id
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 from swift.common.middleware.s3api.s3response import ErrorResponse, \
     AccessDenied
 from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.keystoneauth import KeystoneAuth
 from swift.common import swob, registry
+from swift.common.object_ref import UploadId
 from swift.common.request_helpers import get_log_info
 from swift.common.swob import Request
-from swift.common.utils import md5, get_logger
+from swift.common.utils import md5, get_logger, Timestamp
 
 from keystonemiddleware.auth_token import AuthProtocol
 from keystoneauth1.access import AccessInfoV2
@@ -725,14 +727,16 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                          req.environ['swift.backend_path'])
 
     def test_token_generation(self):
+        upload_id = externalize_upload_id(
+            b'key', '/v1/AUTH_test/bucket/object',
+            UploadId(Timestamp.now()))
         self.swift.register(
             'PUT',
-            '/v1/AUTH_test/bucket/object?'
-            'upload-id=123456789~abcdef~tag&part-number=1',
+            '/v1/AUTH_test/bucket/object?upload-id=%s' % upload_id,
             swob.HTTPCreated, {}, None)
-        req = Request.blank('/bucket/object?uploadId=123456789~abcdef~tag'
-                            '&partNumber=1',
-                            environ={'REQUEST_METHOD': 'PUT'})
+        req = Request.blank(
+            '/bucket/object?uploadId=%s&partNumber=1' % upload_id,
+            environ={'REQUEST_METHOD': 'PUT'})
         req.headers['Authorization'] = 'AWS test:tester:hmac'
         date_header = self.get_date_header()
         req.headers['Date'] = date_header
@@ -750,18 +754,21 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'signature': 'hmac',
             'string_to_sign': b'\n'.join([
                 b'PUT', b'', b'', date_header.encode('ascii'),
-                b'/bucket/object?partNumber=1&uploadId=123456789~abcdef~tag']),
+                b'/bucket/object?partNumber=1&uploadId=%s'
+                % upload_id.encode('utf8')]),
             'check_signature': mock_cs})
 
     def test_non_ascii_user(self):
+        upload_id = externalize_upload_id(
+            b'key', '/v1/AUTH_test/bucket/object',
+            UploadId(Timestamp.now()))
         self.swift.register(
             'PUT',
-            '/v1/AUTH_test/bucket/object?'
-            'upload-id=123456789~abcdef~tag&part-number=1',
+            '/v1/AUTH_test/bucket/object?upload-id=%s' % upload_id,
             swob.HTTPCreated, {}, None)
-        req = Request.blank('/bucket/object?uploadId=123456789~abcdef~tag'
-                            '&partNumber=1',
-                            environ={'REQUEST_METHOD': 'PUT'})
+        req = Request.blank(
+            '/bucket/object?uploadId=%s&partNumber=1' % upload_id,
+            environ={'REQUEST_METHOD': 'PUT'})
         # NB: WSGI string for a snowman
         req.headers['Authorization'] = 'AWS test:\xe2\x98\x83:sig'
         date_header = self.get_date_header()
@@ -769,6 +776,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         with mock.patch('swift.common.middleware.s3api.s3request.'
                         'SigCheckerV2.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
+            self.assertEqual('200 OK', status, body)
             self.assertIn('swift.backend_path', req.environ)
             self.assertEqual('/v1/AUTH_test/bucket/object',
                              req.environ['swift.backend_path'])
@@ -779,7 +787,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'signature': 'sig',
             'string_to_sign': b'\n'.join([
                 b'PUT', b'', b'', date_header.encode('ascii'),
-                b'/bucket/object?partNumber=1&uploadId=123456789~abcdef~tag']),
+                b'/bucket/object?partNumber=1&uploadId=%s'
+                % upload_id.encode('utf8')]),
             'check_signature': mock_cs})
 
     def test_invalid_uri(self):

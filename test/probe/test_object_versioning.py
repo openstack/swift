@@ -16,6 +16,8 @@
 
 from unittest import main
 import random
+import urllib
+
 
 from swiftclient import client
 
@@ -135,9 +137,12 @@ class TestObjectVersioning(ReplProbeTest):
         with self.assertRaises(client.ClientException) as caught:
             client.get_object(
                 self.url, self.token, container_name, all_versions[1]['name'],
-                query_string='version-id=%s' % all_versions[1]['version_id'])
+                query_string='version-id=%s' % urllib.parse.quote(
+                    all_versions[1]['version_id']))
         # A little funny -- maybe this should 404 instead?
         self.assertEqual(caught.exception.http_status, 400)
+        self.assertIn(b'version-aware operations require',
+                      caught.exception.http_response_content)
 
         # Fix isn't too bad -- just make the container again!
         client.put_container(self.url, self.token, container_name)
@@ -153,7 +158,8 @@ class TestObjectVersioning(ReplProbeTest):
         with self.assertRaises(client.ClientException) as caught:
             client.get_object(
                 self.url, self.token, container_name, all_versions[1]['name'],
-                query_string='version-id=%s' % all_versions[1]['version_id'])
+                query_string='version-id=%s' % urllib.parse.quote(
+                    all_versions[1]['version_id']))
         self.assertEqual(caught.exception.http_status, 400)
         self.assertIn(b'version-aware operations require',
                       caught.exception.http_response_content)
@@ -161,7 +167,8 @@ class TestObjectVersioning(ReplProbeTest):
                               headers={'X-Versions-Enabled': 'true'})
         client.get_object(
             self.url, self.token, container_name, all_versions[1]['name'],
-            query_string='version-id=%s' % all_versions[1]['version_id'])
+            query_string='version-id=%s' % urllib.parse.quote(
+                all_versions[1]['version_id']))
 
     def test_missing_versions_container(self):
         versions_header_key = 'X-Versions-Enabled'

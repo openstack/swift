@@ -846,7 +846,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         key_name = self.create_name('key')
         upload_id = self.create_mpu(key_name)
         with self.assertRaises(ClientError) as cm:
-            self.abort_mpu(key_name, upload_id + 'x')
+            self.abort_mpu(key_name, 'garbage' + upload_id)
         self.assertEqual(404, status_from_error(cm.exception))
         self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
 

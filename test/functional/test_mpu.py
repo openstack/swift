@@ -16,6 +16,7 @@ import binascii
 import json
 import unittest
 from unittest import mock, SkipTest
+from urllib.parse import quote
 from uuid import uuid4
 
 import test.functional as tf
@@ -62,8 +63,7 @@ def _make_request(env, token, parsed, conn, method,
     return resp
 
 
-def _create_container(name=None, headers=None, use_account=1):
-    name = name or uuid4().hex
+def _create_container(name, headers=None, use_account=1):
     headers = headers or {}
     resp = tf.retry(_make_request, method='PUT', container=name,
                     headers=headers, use_account=use_account)
@@ -150,7 +150,7 @@ def _post_acl(container, read_acl='', write_acl=''):
                     container=container)
 
 
-class ObjectClient(object):
+class ObjectClient:
     def __init__(self, container, name=None):
         self.container = container
         self.name = name or uuid4().hex
@@ -170,7 +170,7 @@ class ObjectClient(object):
 
 class MPUClient(ObjectClient):
     def __init__(self, container, name=None, use_account=1, url_account=1):
-        super(MPUClient, self).__init__(container, name)
+        super().__init__(container, name)
         self.use_account = use_account
         self.url_account = url_account
         self.upload_id = None
@@ -258,6 +258,8 @@ class MPUClient(ObjectClient):
 
 
 class TestMPU(unittest.TestCase):
+    USER_CONTAINER_NAME_PREFIX = 'test-mpu-'
+
     def _assert_dict_equal_piecemeal(self, expected, actual):
         errors = []
         for k, v in expected.items():
@@ -277,9 +279,20 @@ class TestMPU(unittest.TestCase):
             self.fail(str(errors))
 
     @classmethod
+    def _create_container(cls, name_slug, headers=None, use_account=1):
+        name = cls.USER_CONTAINER_NAME_PREFIX + name_slug
+        container = _create_container(
+            name=name,
+            headers=headers,
+            use_account=use_account)
+        # keep a record of containers for class teardown...
+        cls.containers.add(container)
+        return container
+
+    @classmethod
     def _get_user_container(cls):
         if not cls.user_cont:
-            cls.user_cont = cls._create_container()
+            cls.user_cont = cls._create_container(uuid4().hex)
         return cls.user_cont
 
     @classmethod
@@ -312,13 +325,6 @@ class TestMPU(unittest.TestCase):
             for session in sessions:
                 _abort_mpu(container, session['name'], session['upload_id'])
 
-    @classmethod
-    def _create_container(cls, name=None, headers=None, use_account=1):
-        container = _create_container(
-            name=name, headers=headers, use_account=use_account)
-        cls.containers.add(container)
-        return container
-
     def setUp(self):
         if tf.skip or tf.skip2:
             raise SkipTest
@@ -329,8 +335,9 @@ class TestMPU(unittest.TestCase):
         self.part_size = mpu_info.get('min_part_size')
         self._get_user_container()
         self.containers_with_acl = set()
-        self.mpu_name = uuid4().hex
+        self.mpu_name = 'mpu-test-' + uuid4().hex
         self.default_policy = _get_default_policy()
+        self.maxDiff = None
 
     def tearDown(self):
         for container in self.containers_with_acl:
@@ -386,7 +393,7 @@ class TestMPU(unittest.TestCase):
         # Don't modify this mpu.
         cls = self.__class__
         if not cls.singleton_mpu:
-            container = self._create_container()
+            container = self._create_container(uuid4().hex)
             name = uuid4().hex
             cls.singleton_mpu, _body = self._make_mpu(
                 container, name, num_parts=2)
@@ -394,13 +401,15 @@ class TestMPU(unittest.TestCase):
 
     def test_list_mpu_sessions(self):
         # do this in a unique container to make listing predictable
-        container = self._create_container()
+        container = self._create_container(uuid4().hex)
         created = []
-        for obj in ('objy2', 'objx1', 'objy2'):
+        for obj in (self.mpu_name + 'y2',
+                    self.mpu_name + 'x1',
+                    self.mpu_name + 'y2'):
             resp = MPUClient(container, obj).create()
             self.assertEqual(202, resp.status, obj)
             created.append((obj, resp.headers.get('X-Upload-Id')))
-        mpu = MPUClient(container, 'objx4')
+        mpu = MPUClient(container, self.mpu_name + 'x4')
         resp = mpu.create()
         self.assertEqual(202, resp.status)
         resp = mpu.abort()
@@ -426,8 +435,9 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(expected, actual)
 
         # marker
-        resp = tf.retry(_make_request, method='GET', container=container,
-                        query_string='uploads&format=json&marker=objy2')
+        resp = tf.retry(
+            _make_request, method='GET', container=container,
+            query_string='uploads&format=json&marker=%sy2' % self.mpu_name)
         self.assertEqual(200, resp.status)
         actual = [(item['name'], item['upload_id'])
                   for item in json.loads(resp.content)]
@@ -436,8 +446,8 @@ class TestMPU(unittest.TestCase):
         # marker and upload-id
         resp = tf.retry(
             _make_request, method='GET', container=container,
-            query_string='uploads&format=json&marker=objy2&upload-id-marker=%s'
-                         % created[0][1])
+            query_string='uploads&format=json&marker=%sy2&upload-id-marker=%s'
+                         % (self.mpu_name, created[0][1]))
         self.assertEqual(200, resp.status)
         expected = [created[2]]
         actual = [(item['name'], item['upload_id'])
@@ -446,8 +456,8 @@ class TestMPU(unittest.TestCase):
 
         resp = tf.retry(
             _make_request, method='GET', container=container,
-            query_string='uploads&format=json&marker=objx1&upload-id-marker=%s'
-                         % created[1][1])
+            query_string='uploads&format=json&marker=%sx1&upload-id-marker=%s'
+                         % (self.mpu_name, created[1][1]))
         self.assertEqual(200, resp.status)
         expected = [created[0], created[2]]
         actual = [(item['name'], item['upload_id'])
@@ -455,8 +465,9 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(expected, actual)
 
         # prefix
-        resp = tf.retry(_make_request, method='GET', container=container,
-                        query_string='uploads&format=json&prefix=objx')
+        resp = tf.retry(
+            _make_request, method='GET', container=container,
+            query_string='uploads&format=json&prefix=%sx' % self.mpu_name)
         self.assertEqual(200, resp.status)
         expected = [created[1]]
         actual = [(item['name'], item['upload_id'])
@@ -507,7 +518,7 @@ class TestMPU(unittest.TestCase):
         part_etags = [md5(part_body, usedforsecurity=False).hexdigest()
                       for part_body in part_bodies]
         resp = mpu.upload_part(1, part_bodies[0])
-        self.assertEqual(201, resp.status)
+        self.assertEqual(201, resp.status, resp.content)
         self.assertEqual(
             {'Content-Type': 'text/html; charset=UTF-8',
              # NB: part etags are always quoted by MPU middleware
@@ -593,7 +604,7 @@ class TestMPU(unittest.TestCase):
             'Date': mock.ANY,
         }
         exp_headers.update(user_headers)
-        self.assertEqual(exp_headers, resp.headers)
+        self.assertEqual(exp_headers, dict(resp.headers))
         self.assertEqual(2 * self.part_size, len(resp.content))
         self.assertEqual(part_bodies[0][-1], resp.content[self.part_size - 1])
         self.assertEqual(part_bodies[1][0], resp.content[self.part_size])
@@ -823,7 +834,8 @@ class TestMPU(unittest.TestCase):
         headers = {'x-copy-from': src.rel_path}
         resp = mpu.upload_part(1, b'', headers=headers)
         self.assertEqual(201, resp.status, resp.content)
-        self.assertEqual(src.rel_path, resp.headers.get('X-Copied-From'))
+        self.assertEqual(quote(src.rel_path),
+                         resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
@@ -852,7 +864,8 @@ class TestMPU(unittest.TestCase):
             headers={'destination': mpu.rel_path}
         )
         self.assertEqual(201, resp.status, resp.content)
-        self.assertEqual(src.rel_path, resp.headers.get('X-Copied-From'))
+        self.assertEqual(quote(src.rel_path),
+                         resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
@@ -877,7 +890,8 @@ class TestMPU(unittest.TestCase):
         headers = {'x-copy-from': src.rel_path, 'range': 'bytes=501-1500'}
         resp = mpu.upload_part(1, b'', headers=headers)
         self.assertEqual(201, resp.status, resp.content)
-        self.assertEqual(src.rel_path, resp.headers.get('X-Copied-From'))
+        self.assertEqual(quote(src.rel_path),
+                         resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
@@ -908,7 +922,8 @@ class TestMPU(unittest.TestCase):
             headers={'destination': mpu.rel_path, 'range': 'bytes=501-1500'}
         )
         self.assertEqual(201, resp.status, resp.content)
-        self.assertEqual(src.rel_path, resp.headers.get('X-Copied-From'))
+        self.assertEqual(quote(src.rel_path),
+                         resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
@@ -938,7 +953,8 @@ class TestMPU(unittest.TestCase):
         resp = mpu.upload_part(part_num=1, part_body=b'',
                                headers={'x-copy-from': src.rel_path})
         self.assertEqual(201, resp.status, resp.content)
-        self.assertEqual(src.rel_path, resp.headers.get('X-Copied-From'))
+        self.assertEqual(quote(src.rel_path),
+                         resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
@@ -973,7 +989,8 @@ class TestMPU(unittest.TestCase):
             headers={'destination': mpu.rel_path}
         )
         self.assertEqual(201, resp.status, resp.content)
-        self.assertEqual(src.rel_path, resp.headers.get('X-Copied-From'))
+        self.assertEqual(quote(src.rel_path),
+                         resp.headers.get('X-Copied-From'))
         part_etag = resp.headers['Etag']
 
         # complete session
@@ -1169,9 +1186,10 @@ class TestMPU(unittest.TestCase):
                         container=mpu.container,
                         query_string='format=json')
         self.assertEqual(200, resp.status)
-        self.assertEqual('1', resp.headers['X-Container-Object-Count'])
+        self.assertEqual('1', resp.headers['X-Container-Object-Count'],
+                         resp.content)
         self.assertEqual(str(2 * self.part_size),
-                         resp.headers['X-Container-Bytes-Used'])
+                         resp.headers['X-Container-Bytes-Used'], resp.content)
         listing = json.loads(resp.content)
         self.assertEqual(1, len(listing))
         expected = {
@@ -1452,7 +1470,8 @@ class TestMPU(unittest.TestCase):
 
 
 class TestMPUUTF8(TestMPU):
+    USER_CONTAINER_NAME_PREFIX = 'test-mpu-\N{SNOWMAN}-'
 
     def setUp(self):
-        super(TestMPUUTF8, self).setUp()
-        self.mpu_name = uuid4().hex + u'\N{SNOWMAN}'
+        super().setUp()
+        self.mpu_name = 'mpu-test-' + uuid4().hex + u'\N{SNOWMAN}'

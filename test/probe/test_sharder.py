@@ -14,7 +14,6 @@
 # limitations under the License.
 import json
 import os
-import pickle
 import shutil
 import subprocess
 import unittest
@@ -130,6 +129,7 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.logger = debug_logger('sharder-test')
         self.memcache = MemcacheRing(['127.0.0.1:11211'], logger=self.logger)
         self.container_replicators = Manager(['container-replicator'])
+        self.maxDiff = None
 
     def init_brain(self, container_name):
         self.container_to_shard = container_name
@@ -297,11 +297,16 @@ class BaseTestContainerSharding(ReplProbeTest):
                       '\n  '.join(result['other']))
         return result
 
-    def assert_dict_contains(self, expected_items, actual_dict):
+    def assert_in_dict(self, expected_items, actual_dict):
         ignored = set(expected_items) ^ set(actual_dict)
         filtered_actual = {k: actual_dict[k]
                            for k in actual_dict if k not in ignored}
         self.assertEqual(expected_items, filtered_actual)
+
+    def assert_not_in_dict(self, unexpected_keys, actual_dict):
+        unexpected_items = {k: actual_dict[k]
+                            for k in actual_dict if k in unexpected_keys}
+        self.assertFalse(unexpected_items)
 
     def assert_shard_ranges_contiguous(self, expected_number, shard_ranges,
                                        first_lower='', last_upper=''):
@@ -1439,37 +1444,6 @@ class TestContainerSharding(BaseAutoContainerSharding):
                            additional_args='--partitions=%s' % self.brain.part)
         self.assert_container_listing(obj_names, req_hdrs={'x-newest': 'true'})
 
-    def assertInAsyncFile(self, async_path, expected):
-        with open(async_path, 'rb') as fd:
-            async_data = pickle.load(fd)
-
-        errors = []
-        for k, v in expected.items():
-            if k not in async_data:
-                errors.append("Key '%s' does not exist" % k)
-                continue
-            if async_data[k] != v:
-                errors.append(
-                    "Exp value %s != %s" % (str(v), str(async_data[k])))
-                continue
-
-        if errors:
-            self.fail('\n'.join(errors))
-
-    def assertNotInAsyncFile(self, async_path, not_expect_keys):
-        with open(async_path, 'rb') as fd:
-            async_data = pickle.load(fd)
-
-        errors = []
-        for k in not_expect_keys:
-            if k in async_data:
-                errors.append(
-                    "Key '%s' exists with value '%s'" % (k, async_data[k]))
-                continue
-
-        if errors:
-            self.fail('\n'.join(errors))
-
     def test_async_pendings(self):
         obj_names = self._make_object_names(self.max_shard_size * 2)
 
@@ -1484,11 +1458,11 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.brain.servers.start(number=n)
 
         # Check the async pendings, they are unsharded so that's the db_state
-        async_files = self.gather_async_pendings()
-        self.assertTrue(async_files)
-        for af in async_files:
-            self.assertInAsyncFile(af, {'db_state': 'unsharded'})
-            self.assertNotInAsyncFile(af, ['container_path'])
+        async_data = self.gather_async_pending_data()
+        self.assertTrue(async_data)
+        for af in async_data:
+            self.assert_in_dict({'db_state': 'unsharded'}, af)
+            self.assert_not_in_dict(['container_path'], af)
 
         # But there are also 1/5 updates *no one* gets
         self.brain.servers.stop()
@@ -1573,8 +1547,8 @@ class TestContainerSharding(BaseAutoContainerSharding):
         # Run updaters to clear the async pendings
         Manager(['object-updater']).once()
 
-        async_files = self.gather_async_pendings()
-        self.assertFalse(async_files)
+        async_data = self.gather_async_pending_data()
+        self.assertFalse(async_data)
 
         # Our "big" dbs didn't take updates
         for db_file in found['normal_dbs']:
@@ -1642,14 +1616,15 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.put_objects(more_obj_names)
         self.brain.servers.start()
 
-        async_files = self.gather_async_pendings()
-        self.assertTrue(async_files)
-        for af in async_files:
+        async_data = [data for data in self.gather_async_pending_data()
+                      if data['container'] == self.container_name]
+        self.assertTrue(async_data)
+        for af in async_data:
             # They should have a sharded db_state
-            self.assertInAsyncFile(af, {'db_state': 'sharded'})
+            self.assert_in_dict({'db_state': 'sharded'}, af)
             # But because the container-servers were down, they wont have
             # container-path (because it couldn't get a shard range back)
-            self.assertNotInAsyncFile(af, ['container_path'])
+            self.assert_not_in_dict(['container_path'], af)
 
         # they don't exist yet
         headers, listing = client.get_container(self.url, self.token,
@@ -1664,8 +1639,8 @@ class TestContainerSharding(BaseAutoContainerSharding):
                          obj_names + more_obj_names)
 
         # And they're cleared up
-        async_files = self.gather_async_pendings()
-        self.assertFalse(async_files)
+        async_data = self.gather_async_pending_data()
+        self.assertFalse(async_data)
 
         # If we take 1/2 the nodes offline when we add some more objects,
         # we should get async pendings with container-path because there
@@ -1677,18 +1652,19 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.put_objects(even_more_obj_names)
         self.brain.start_primary_half()
 
-        async_files = self.gather_async_pendings()
-        self.assertTrue(async_files)
-        for af in async_files:
+        async_data = [data for data in self.gather_async_pending_data()
+                      if data['container'] == self.container_name]
+        self.assertTrue(async_data)
+        for af in async_data:
             # They should have a sharded db_state AND container_path
-            self.assertInAsyncFile(af, {'db_state': 'sharded',
-                                        'container_path': mock.ANY})
+            self.assert_in_dict({'db_state': 'sharded',
+                                 'container_path': mock.ANY}, af)
 
         Manager(['object-updater']).once()
 
         # And they're cleared up
-        async_files = self.gather_async_pendings()
-        self.assertFalse(async_files)
+        async_data = self.gather_async_pending_data()
+        self.assertFalse(async_data)
 
     def test_shrinking(self):
         int_client = self.make_internal_client()
@@ -1696,7 +1672,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         def check_node_data(node_data, exp_hdrs, exp_obj_count, exp_shards,
                             exp_sharded_root_range=False):
             hdrs, range_data = node_data
-            self.assert_dict_contains(exp_hdrs, hdrs)
+            self.assert_in_dict(exp_hdrs, hdrs)
             sharded_root_range = False
             other_range_data = []
             for data in range_data:
@@ -1867,7 +1843,8 @@ class TestContainerSharding(BaseAutoContainerSharding):
 
             self.put_objects([beta])
             self.brain.servers.start()
-            async_pendings = self.gather_async_pendings()
+            async_pendings = [data for data in self.gather_async_pending_data()
+                              if data['container'] == self.container_name]
             num_container_replicas = len(self.brain.nodes)
             num_obj_replicas = self.policy.object_ring.replica_count
             expected_num_updates = num_container_updates(
@@ -2529,7 +2506,9 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.put_objects(['alpha'])
         self.assert_container_listing(['alpha'])
         self.assert_container_object_count(0)
-        self.assertLengthEqual(self.gather_async_pendings(), 1)
+        async_pendings = [data for data in self.gather_async_pending_data()
+                          if data['container'] == self.container_name]
+        self.assertLengthEqual(async_pendings, 1)
         self.brain.servers.start(number=shard_nodes[2])
 
         # run sharder on root to discover first shrink candidate
@@ -2576,7 +2555,9 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.put_objects(['beta'])
         self.assert_container_listing(['beta'])
         self.assert_container_object_count(1)
-        self.assertLengthEqual(self.gather_async_pendings(), 2)
+        async_pendings = [data for data in self.gather_async_pending_data()
+                          if data['container'] == self.container_name]
+        self.assertLengthEqual(async_pendings, 2)
         self.brain.servers.start(number=shard_nodes[2])
 
         # run sharder on root to discover second shrink candidate - root is not
@@ -3472,7 +3453,6 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertEqual(shard_ranges_1, shard_ranges)
                 shard_ranges = broker.get_shard_ranges(include_deleted=True)
                 self.assertLengthEqual(shard_ranges, len(exp_shard_ranges))
-                self.maxDiff = None
                 self.assertEqual(exp_shard_ranges, shard_ranges)
                 self.assertEqual(ShardRange.SHARDED,
                                  broker.get_own_shard_range().state)

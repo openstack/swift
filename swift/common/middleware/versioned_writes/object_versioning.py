@@ -236,7 +236,7 @@ def build_versions_object_name(object_name, version):
     return get_reserved_name(object_name, version)
 
 
-def build_versions_object_marker(object_name):
+def build_versions_object_max_name(object_name):
     """
     Get the name of a versions object for given ``object_name`` that will sort
     after any regular version of ``object_name``.
@@ -249,7 +249,8 @@ def build_versions_object_marker(object_name):
 
 def parse_versions_object_name(versioned_name):
     """
-    Parse a version name into the user object name and the version.
+    Parse a version name into the user object name and external representation
+    of the version.
 
     :param versioned_name: version name
     :return: a tuple of (user object name, version).
@@ -914,7 +915,7 @@ class ObjectContext(ObjectVersioningContext):
             try:
                 validate_version(version)
             except ValueError:
-                raise HTTPBadRequest('Invalid version parameter',
+                raise HTTPBadRequest('Invalid version parameter: %s' % version,
                                      request=req)
 
         if req.method == 'DELETE':
@@ -1293,7 +1294,7 @@ class ContainerContext(ObjectVersioningContext):
                 params['marker'] = build_versions_object_name(
                     params['marker'], version)
         elif 'marker' in params:
-            params['marker'] = build_versions_object_marker(params['marker'])
+            params['marker'] = build_versions_object_max_name(params['marker'])
 
         delim = params.get('delimiter', '')
         # Exclude the set of chars used in version_id from user delimiters

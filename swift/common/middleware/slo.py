@@ -1698,7 +1698,7 @@ class StaticLargeObject(object):
         new_env['QUERY_STRING'] = 'multipart-manifest=get'
         if 'version-id' in req.params:
             new_env['QUERY_STRING'] += \
-                '&version-id=' + req.params['version-id']
+                '&version-id=' + quote(req.params['version-id'])
         new_env['CONTENT_LENGTH'] = 0
         new_env['HTTP_USER_AGENT'] = \
             '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')

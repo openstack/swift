@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+from collections import defaultdict
 # NOTE: swift_conn
 # You'll see swift_conn passed around a few places in this file. This is the
 # source bufferedhttp connection of whatever it is attached to.
@@ -45,7 +45,7 @@ from swift.common.utils import (
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
     NamespaceBoundList, CooperativeIterator, cache_from_env,
-    CooperativeCachePopulator)
+    CooperativeCachePopulator, split_path)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -495,6 +495,47 @@ class BaseObjectController(Controller):
             delete_at_part, delete_at_nodes)
         return self._post_object(req, obj_ring, partition, headers)
 
+    def _distribute_custom_updates(self, req, n_outgoing, n_updates_needed):
+        updates = req.environ.get('swift.container_updates', [])
+        updates_per_backend_index = defaultdict(list)
+        for update in updates:
+            container_info = self.container_info(
+                update['account'], update['container'], req)
+            if not is_success(container_info.get('status')):
+                # TODO: what to do?
+                self.logger.warning(
+                    'Container info failed (%s) for custom update: %s',
+                    container_info.get('status'), update)
+                continue
+            partition, nodes, redirect_path, db_state = (
+                container_info['partition'], container_info['nodes'], None,
+                'unsharded')
+            # TODO: this isn't sufficient for a sharded history container; we
+            #   need to use self._get_update_target(req, container_info) but
+            #   unfortunately that is opinionated about using the original req
+            #   account & container
+            update['partition'] = partition
+            update['db_state'] = db_state
+            if redirect_path:
+                # no need to quote path parts because json serialization will
+                # escape non-ascii characters
+                update['account'], update['container'] = \
+                    split_path(redirect_path, 2, 2)
+
+            node_iter = itertools.cycle(nodes)
+            nodes_per_backend_index = defaultdict(list)
+            for update_index in range(n_updates_needed):
+                backend_index = update_index % n_outgoing
+                nodes_per_backend_index[backend_index].append(next(node_iter))
+
+            for backend_index, nodes in nodes_per_backend_index.items():
+                update = dict(update)
+                update['hosts'] = ['%s:%s' % get_ip_port(node, req.headers)
+                                   for node in nodes]
+                update['devices'] = [node['device'] for node in nodes]
+                updates_per_backend_index[backend_index].append(update)
+        return updates_per_backend_index
+
     def _backend_requests(self, req, n_outgoing,
                           container_info, delete_at_container=None,
                           delete_at_partition=None, delete_at_nodes=None):
@@ -537,9 +578,9 @@ class BaseObjectController(Controller):
                 headers[index].get('X-Delete-At-Device'),
                 delete_at_node['device'])
 
-        n_updates_needed = num_container_updates(
+        n_updates_needed = math.ceil(num_container_updates(
             len(containers), quorum_size(len(containers)),
-            n_outgoing, policy.quorum)
+            n_outgoing, policy.quorum))
 
         container_iter = itertools.cycle(containers)
         dan_iter = itertools.cycle(delete_at_nodes or [])
@@ -576,6 +617,11 @@ class BaseObjectController(Controller):
         for i in range(len(headers)):
             headers[i].setdefault('X-Backend-Clean-Expiring-Object-Queue',
                                   't' if i < n_desired_queue_updates else 'f')
+        custom_updates = self._distribute_custom_updates(
+            req, n_outgoing, n_updates_needed)
+        for backend_index, updates in custom_updates.items():
+            header_val = json.dumps(updates)
+            headers[backend_index]['X-Backend-Container-Updates'] = header_val
 
         return headers
 

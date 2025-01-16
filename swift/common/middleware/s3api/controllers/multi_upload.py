@@ -63,7 +63,8 @@ import binascii
 import time
 
 from swift.common import constraints
-from swift.common.middleware.mpu import MPUSloCallbackHandler, MPUId
+from swift.common.middleware.mpu import MPUSloCallbackHandler, \
+    parse_external_upload_id
 from swift.common.swob import Range, normalize_etag, wsgi_to_str
 from swift.common.utils import json, public, reiterate, md5
 from swift.common.request_helpers import get_container_update_override_key, \
@@ -118,14 +119,16 @@ def _make_complete_body(req, s3_etag, yielded_anything):
 
 
 def get_valid_upload_id(req):
-    upload_id = get_param(req, 'uploadId')
+    upload_id_str = get_param(req, 'uploadId')
     try:
-        # NB: we cannot check tht the upload id is valid for the path because
-        # we don't yet have the complete backend path with the account; mpu
-        # middleware will check the upload-id is valid for the path.
-        return str(MPUId.parse(upload_id))
+        # Check validity of the given upload-id
+        # NB: we cannot check that the upload id is valid *for the path*
+        # because we don't yet have the complete backend path with the account;
+        # mpu middleware will check the upload-id is valid for the path.
+        parse_external_upload_id(upload_id_str)
+        return upload_id_str
     except ValueError:
-        raise NoSuchUpload(upload_id=upload_id)
+        raise NoSuchUpload(upload_id=upload_id_str)
 
 
 class PartController(Controller):

@@ -124,6 +124,14 @@ class Timestamp(object):
                 raise ValueError('timestamp too large')
 
     @classmethod
+    def max(cls):
+        return cls(9999999999.99999)
+
+    @classmethod
+    def min(cls):
+        return cls(0.0)
+
+    @classmethod
     def now(cls, offset=0, delta=0):
         return cls(time.time(), offset=offset, delta=delta)
 

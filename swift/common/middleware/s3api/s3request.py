@@ -1767,7 +1767,7 @@ class S3Request(swob.Request):
         self.headers['X-Amz-Copy-Source'] = quote(src_path)
         if query:
             self.headers['X-Amz-Copy-Source'] += \
-                '?versionId=' + query['version-id']
+                '?versionId=' + quote(query['version-id'])
         return src_resp
 
     def _canonical_uri(self):

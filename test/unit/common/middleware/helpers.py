@@ -295,7 +295,7 @@ class FakeSwift(object):
                                          *self.uploaded[env['PATH_INFO']])
             else:
                 raise KeyError("Didn't find %r in allowed responses" % (
-                    (method, path),))
+                    (method, normalize_path(path)),))
 
         if method == 'HEAD':
             # HEAD resp never has body

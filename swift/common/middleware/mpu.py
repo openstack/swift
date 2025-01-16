@@ -12,26 +12,33 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import base64
 import binascii
+import hmac
 import json
+import urllib
 from collections import namedtuple
 
 from swift.common import swob, constraints
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
 from swift.common.middleware.symlink import ALLOW_RESERVED_NAMES
+from swift.common.middleware.versioned_writes.object_versioning import \
+    is_versioning_enabled, validate_version
+from swift.common.object_ref import ObjectRef, HistoryId, UploadId
 from swift.common.storage_policy import POLICIES
-from swift.common.utils import generate_unique_id, drain_and_close, \
+from swift.common.utils import drain_and_close, \
     config_positive_int_value, reiterate, parse_content_type, \
-    decode_timestamps, hash_path, split_path, quote
+    decode_timestamps, split_path, quote, param_str_from_dict
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
-    HTTPServiceUnavailable, quote_etag, wsgi_unquote, HTTPAccepted, HTTPCreated
+    HTTPServiceUnavailable, quote_etag, HTTPAccepted, HTTPCreated
 from swift.common.utils import get_logger, Timestamp, md5, public
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
-    get_valid_part_num, is_reserved_name, split_reserved_name, is_user_meta, \
+    get_valid_part_num, is_reserved_name, is_user_meta, \
     update_etag_override_header, update_etag_is_at_header, \
     validate_part_number, update_content_type, is_sys_meta, \
     get_container_update_override_key
@@ -45,6 +52,7 @@ MPU_SWIFT_SOURCE = 'MPU'
 
 MPU_OBJECT_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
 MPU_SYSMETA_UPLOAD_ID_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'upload-id'
+MPU_SYSMETA_HISTORY_ID_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'history-id'
 MPU_SYSMETA_ETAG_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'etag'
 MPU_SYSMETA_PARTS_COUNT_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'parts-count'
 MPU_SYSMETA_MAX_MANIFEST_PART_KEY = \
@@ -58,30 +66,59 @@ MPU_SESSION_COMPLETING_CONTENT_TYPE = 'application/x-mpu-session-completing'
 MPU_SESSION_COMPLETED_CONTENT_TYPE = 'application/x-mpu-session-completed'
 MPU_MANIFEST_DEFAULT_CONTENT_TYPE = 'application/x-mpu'
 MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
+MPU_PHONY_OBJECT_CONTENT_TYPE = 'application/x-phony;swift_source=mpu'
 MPU_GENERIC_MARKER_SUFFIX = 'marker'
 MPU_DELETED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-deleted'
 MPU_ABORTED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-aborted'
+MPU_UNEXPECTED_UPLOAD_ID_MSG = 'Request does not support upload-id'
 MPU_INVALID_UPLOAD_ID_MSG = 'Invalid upload-id'
 MPU_NO_SUCH_UPLOAD_ID_MSG = 'No such upload-id'
 
 
-def get_req_upload_id(req):
-    """
-    Try to extract an upload id from request params.
+def _get_mac_digest(signing_key, path, obj_id):
+    # drop the version so that tags are valid for v1, v1.0 or any future
+    # API version
+    v, a, c, o = split_path(path, 4, 4, True)
+    aco_path = '/'.join([a, c, o])
+    mac = hmac.HMAC(signing_key, b'', 'sha256')
+    mac.update(aco_path.encode('utf8'))
+    serialized = obj_id.serialize().encode('utf8')
+    mac.update(serialized)
+    return mac.hexdigest()
 
-    :param req: an instance of swob.Request
-    :raises HTTPBadRequest: if the ``upload-id`` parameter is found but is
-        invalid.
-    :returns: an instance of MPUId, or None if the ``upload-id`` parameter is
-        not found.
+
+def externalize_upload_id(signing_key, path, upload_id):
     """
-    if 'upload-id' in req.params:
-        try:
-            return MPUId.parse(req.params['upload-id'], path=req.path)
-        except ValueError:
-            raise HTTPBadRequest(MPU_INVALID_UPLOAD_ID_MSG)
-    else:
-        return None
+    Transform an UploadId to an external representation that is signed with the
+    object path. The signature can be used for stateless verification that an
+    UploadId was ever created for a given object path.
+
+    :param signing_key: key used to sign the external representation.
+    :param path: path for the object for which the UploadId was created.
+    :param upload_id: an instance of UploadId.
+    """
+    # TODO: the tag allows us to verify that an upload id provided by a
+    #   user was ever created by the middleware, but an hmac may be
+    #   overkill. A CRC might suffice, or we may alternatively choose to
+    #   encrypt the upload id which would replace the need for a tag.
+    tag = _get_mac_digest(signing_key, path, upload_id)
+    tagged_upload_id_str = upload_id.serialize() + tag
+    return base64.urlsafe_b64encode(
+        tagged_upload_id_str.encode('utf-8')).decode('utf-8')
+
+
+def parse_external_upload_id(upload_id_str):
+    decoded = base64.urlsafe_b64decode(
+        upload_id_str.encode('utf-8')).decode('utf-8')
+    return UploadId.parse(decoded[:-64]), decoded[-64:]
+
+
+def internalize_upload_id(signing_key, path, upload_id_str):
+    upload_id, tag = parse_external_upload_id(upload_id_str)
+    expected = _get_mac_digest(signing_key, path, upload_id)
+    if not hmac.compare_digest(expected, tag):
+        raise ValueError('Invalid tag')
+    return upload_id
 
 
 def normalize_part_number(part_number):
@@ -93,20 +130,23 @@ def make_relative_path(*parts):
 
 
 def calculate_max_name_length():
+    # TODO: ideally we'd allow longer internal names in hidden containers
     max_suffix = ''
-    for suffix in (MPU_DELETED_MARKER_SUFFIX, normalize_part_number(0)):
+    for suffix in (MPU_DELETED_MARKER_SUFFIX, normalize_part_number(0),
+                   'PUT', 'DELETE'):
         if len(suffix) > len(max_suffix):
             max_suffix = suffix
-    max_name_bloat = make_relative_path(
-        get_reserved_name(''), MPUId.max(), max_suffix)
-    return constraints.MAX_OBJECT_NAME_LENGTH - len(max_name_bloat)
+    obj_id = HistoryId(Timestamp.now(), null=True)
+    ref = ObjectRef('', obj_id=obj_id.serialize(), tail=max_suffix)
+
+    return constraints.MAX_OBJECT_NAME_LENGTH - len(ref.serialize())
 
 
 MPUParsedManifest = namedtuple('MPUParsedManifest',
                                ['manifest', 'mpu_etag', 'max_manifest_part'])
 
 
-class MPUEtagHasher(object):
+class MPUEtagHasher:
     def __init__(self):
         self.hasher = md5(usedforsecurity=False)
         self.part_count = 0
@@ -120,100 +160,7 @@ class MPUEtagHasher(object):
         return '%s-%d' % (self.hasher.hexdigest(), self.part_count)
 
 
-class MPUId(object):
-    """
-    Encapsulates properties of an MPU id.
-
-    An MPU id is composed of three parts:
-      * a timestamp
-      * a uuid
-      * a tag
-
-    The tag is a hash of a combination of the uuid and a path passed in when
-    the id is created. This enables a rudimentary check that an MPU id is
-    associated with a path.
-    """
-    # ~ doesn't get url-encoded and isn't in url-safe base64 encoded unique ids
-    ID_DELIMITER = '~'
-    _max = None
-
-    @classmethod
-    def max(cls):
-        """
-        Returns an MPUId whose string representation will sort higher than any
-        MPUId that can realistically be generated.
-        """
-        if cls._max is None:
-            id = ('z' * len(generate_unique_id()))  # max base64 encoded uuid
-            tag = ('f' * len(hash_path('a', 'c', 'o')))  # max hexdigest
-            cls._max = cls(id, ~Timestamp(0), tag)
-        return cls._max
-
-    __slots__ = ('uuid', 'timestamp', 'tag')
-
-    def __init__(self, uuid, timestamp, tag):
-        # don't call this: use either parse or create
-        self.uuid = uuid
-        self.timestamp = timestamp
-        self.tag = tag
-
-    def __eq__(self, other):
-        return str(self) == str(other)
-
-    def __hash__(self):
-        return hash(str(self))
-
-    def __str__(self):
-        # MPU listing should be sorted by (<object name>, <creation time>)
-        # so we put the timestamp before the uuid.
-        return self.ID_DELIMITER.join(
-            (self.timestamp.internal, self.uuid, self.tag))
-
-    @classmethod
-    def create(cls, path, timestamp):
-        """
-        Create a unique MPUId.
-
-        :param timestamp: a timestamp whose value will be embedded in the
-            ``MPUId``.
-        :param path: a path to which the ``MPUId`` will be uniquely associated;
-            a transformation of the ``path`` is embedded in the string
-            representation of the ``MPUId`` so that the ``MPUId`` can be
-            checked for association with a path when parsed.
-        :returns: an instance of ``MPUId``.
-        """
-        uid = generate_unique_id()
-        _, account, container, obj = split_path(path, 4, 4, True)
-        # NB: hash_path is used to obfuscate the actual path; the path that is
-        # hashed is not a path to any actual resource
-        tag = hash_path(account, container, get_reserved_name(obj, uid))
-        return cls(uid, Timestamp(timestamp), tag)
-
-    @classmethod
-    def parse(cls, value, path=None):
-        """
-        Parse an ``MPUId`` from the given value.
-
-        :param value: a string representation of an ``MPUId``.
-        :param path: (optional) if ``path`` is given then the parsed ``MPUId``
-            is checked for unique association with the ``path``; if the parsed
-            ``MPUId`` is not associated with the given ``path`` then a
-            ValueError is raised.
-        :returns: an instance of `MPUId``.
-        """
-        parts = value.strip().split(cls.ID_DELIMITER)
-        if not all(parts) or len(parts) != 3:
-            raise ValueError
-        ts, uuid, parsed_tag = parts
-        if path:
-            _, account, container, obj = split_path(path, 4, 4, True)
-            tag = hash_path(account, container, get_reserved_name(obj, uuid))
-            if tag != parsed_tag:
-                raise ValueError
-        return cls(uuid, Timestamp(ts), parsed_tag)
-
-
-class MPUItem(object):
+class MPUItem:
     def __init__(self, name, meta_timestamp, data_timestamp=None,
                  ctype_timestamp=None,
                  size=0, content_type='', etag='', deleted=0,
@@ -331,7 +278,7 @@ class MPUSession(MPUItem):
                  content_type=MPU_SESSION_CREATED_CONTENT_TYPE,
                  headers=None,
                  **kwargs):
-        super(MPUSession, self).__init__(
+        super().__init__(
             name=name,
             meta_timestamp=meta_timestamp,
             data_timestamp=data_timestamp,
@@ -447,39 +394,68 @@ class MPUSession(MPUItem):
             elif key_lower == MPU_SYSMETA_USER_CONTENT_TYPE_KEY:
                 headers['Content-Type'] = val
             elif key_lower.startswith(MPU_OBJECT_SYSMETA_PREFIX):
+                # filter out mpu session sysmeta
                 continue
             elif is_sys_meta('object', key_lower):
                 headers[key] = val
         return headers
 
+    @property
+    def history_id(self):
+        return HistoryId.parse(self.headers.get(MPU_SYSMETA_HISTORY_ID_KEY))
 
-class BaseMPUHandler(object):
+
+class BaseMPUHandler:
     def __init__(self, mw, req):
         self.mw = mw
         self.app = mw.app
         self.logger = mw.logger
         self.req = req
+        # native strings (unquoted utf8)
         try:
-            _, self.account, self.container, self.obj = req.split_path(
-                4, 4, True)
-            self.reserved_obj = get_reserved_name(self.obj)
+            path_parts = req.split_path(4, 4, True)
+            self.account, self.container, self.obj = (
+                wsgi_to_str(path_part) for path_part in path_parts[1:])
         except ValueError:
-            _, self.account, self.container = req.split_path(3, 3, False)
-            self.obj = self.reserved_obj = None
+            path_parts = req.split_path(3, 3, False)
+            self.account, self.container = (
+                wsgi_to_str(path_part) for path_part in path_parts[1:])
+            self.obj = None
 
         self.sessions_container = get_reserved_name('mpu_sessions',
                                                     self.container)
         self.parts_container = get_reserved_name('mpu_parts', self.container)
+        self.history_container = get_reserved_name('history', self.container)
+        self.hidden_account = AUTO_CREATE_ACCOUNT_PREFIX + self.account
+        self.user_container_info = get_container_info(
+            self.req.environ, self.app, swift_source=MPU_SWIFT_SOURCE)
 
     def _check_user_container_exists(self):
-        info = get_container_info(self.req.environ, self.app,
-                                  swift_source=MPU_SWIFT_SOURCE)
+        info = self.user_container_info
         if is_success(info['status']):
+            self.user_container_info.setdefault('sysmeta', {})
             return info
         elif info['status'] == HTTP_NOT_FOUND:
             raise HTTPNotFound()
         else:
             raise HTTPServiceUnavailable()
+
+    def _ensure_container_exists(self, account, container, policy_index):
+        # TODO: make storage policy specific parts bucket
+        policy_name = POLICIES[policy_index].name
+        path = '/'.join(['', 'v1', account, container])
+        headers = {'X-Storage-Policy': policy_name}
+        cont_req = self.make_subrequest(
+            path=path, method='PUT', headers=headers)
+        info = get_container_info(cont_req.environ, self.app,
+                                  swift_source=MPU_SWIFT_SOURCE)
+
+        if not is_success(info['status']):
+            resp = cont_req.get_response(self.app)
+            drain_and_close(resp)
+            if not resp.is_success or resp.status_int == HTTP_CONFLICT:
+                raise HTTPInternalServerError(
+                    'Error creating MPU resource container', request=self.req)
 
     def _authorize_request(self, acl):
         # TODO: this pattern appears in may places (e.g. obj.py,
@@ -498,8 +474,7 @@ class BaseMPUHandler(object):
         self._authorize_request('write_acl')
 
     def make_path(self, *parts):
-        return '/'.join(
-            ['', 'v1', self.account, make_relative_path(*parts)])
+        return '/'.join(['', 'v1', make_relative_path(*parts)])
 
     def make_subrequest(self, method=None, path=None, body=None,
                         headers=None, params=None):
@@ -518,7 +493,7 @@ class BaseMPUHandler(object):
         :param headers: a dict of headers for the sub-request.
         :param params: a dict of query-string parameters for the sub-request.
         """
-        quoted_path = wsgi_quote(path)
+        quoted_path = quote(path)
         req_headers = {'X-Backend-Allow-Reserved-Names': 'true'}
         if headers:
             req_headers.update(headers)
@@ -540,23 +515,26 @@ class BaseMPUHandler(object):
             client_resp_status_int = sub_resp.status_int
         return swob.status_map[client_resp_status_int](request=self.req)
 
-    def _put_delete_marker(self, marker_path):
-        headers = {'Content-Type': MPU_MARKER_CONTENT_TYPE,
-                   'Content-Length': '0'}
-        marker_req = self.make_subrequest(
-            'PUT', path=marker_path, headers=headers)
-        marker_resp = marker_req.get_response(self.app)
-        drain_and_close(marker_resp)
-        if not (marker_resp.is_success or marker_resp.status_int == 409):
-            raise marker_resp
-        else:
-            return marker_resp
-
-    def _put_parts_delete_marker(self, upload_id):
-        marker_path = self.make_path(
-            self.parts_container, self.reserved_obj, upload_id,
-            MPU_DELETED_MARKER_SUFFIX)
-        self._put_delete_marker(marker_path)
+    def _annotate_with_history_update(self, req, history_id, op, systags=None):
+        update_headers = {
+            # zero-size so that phony entries don't add to container bytes
+            'x-size': '0',
+            # listings can filter out based on content-type
+            'x-content-type': MPU_PHONY_OBJECT_CONTENT_TYPE,
+        }
+        history_ref = ObjectRef(self.obj, history_id.serialize(), op)
+        if systags:
+            update_headers['x-systags'] = param_str_from_dict(systags)
+        update = {
+            'account': self.hidden_account,
+            'container': self.history_container,
+            # history entries need to sort in reverse chronological order
+            'obj': history_ref.serialize(),
+            'headers': update_headers
+        }
+        if 'swift.container_updates' not in req.environ:
+            req.environ['swift.container_updates'] = []
+        req.environ['swift.container_updates'].append(update)
 
 
 class MPUSessionsHandler(BaseMPUHandler):
@@ -567,9 +545,30 @@ class MPUSessionsHandler(BaseMPUHandler):
     * Initiate Multipart Upload
     """
     def __init__(self, mw, req):
-        super(MPUSessionsHandler, self).__init__(mw, req)
-        self.user_container_info = self._check_user_container_exists()
-        self.user_container_info.setdefault('sysmeta', {})
+        super().__init__(mw, req)
+        self._check_user_container_exists()
+
+    def _extract_list_uploads_marker(self):
+        marker_name = self.req.params.get('marker')
+        upload_id_marker = self.req.params.get('upload-id-marker')
+        if upload_id_marker:
+            try:
+                marker_id = internalize_upload_id(
+                    self.mw.upload_id_signing_key,
+                    self.req.path + '/' + wsgi_quote(marker_name),
+                    upload_id_marker)
+            except ValueError as err:
+                raise HTTPBadRequest(
+                    MPU_INVALID_UPLOAD_ID_MSG + ' (%s: upload-id-marker: %s)'
+                    % (str(err), upload_id_marker))
+        else:
+            marker_id = UploadId.newest()
+        # TODO: why is this given marker not quoted like following
+        #    derived markers?...
+        #   the func test seems happy test_list_mpu_sessions
+        marker_ref = ObjectRef(marker_name, marker_id.serialize())
+        # mpu sessions are sorted in chronological order
+        return marker_ref.serialize()
 
     @public
     def list_uploads(self):
@@ -577,16 +576,14 @@ class MPUSessionsHandler(BaseMPUHandler):
         Handles List Multipart Uploads
         """
         self._authorize_read_request()
-        path = self.make_path(self.sessions_container)
+        path = self.make_path(self.hidden_account, self.sessions_container)
 
-        params = {}
+        subreq_params = {}
         if 'marker' in self.req.params:
-            upload_id_marker = self.req.params.get('upload-id-marker',
-                                                   str(MPUId.max()))
-            params['marker'] = get_reserved_name(
-                '%s/%s' % (self.req.params.get('marker'), upload_id_marker))
+            subreq_params['marker'] = self._extract_list_uploads_marker()
         if 'prefix' in self.req.params:
-            params['prefix'] = get_reserved_name(self.req.params['prefix'])
+            prefix = self.req.params['prefix']
+            subreq_params['prefix'] = ObjectRef(prefix).serialize()
         limit = int(self.req.params.get(
             'limit', constraints.CONTAINER_LISTING_LIMIT))
 
@@ -598,18 +595,21 @@ class MPUSessionsHandler(BaseMPUHandler):
             # client, so we may need more than one backend listing to reach the
             # desired limit in the client listing.
             sub_req = self.make_subrequest(
-                path=path, method='GET', params=params)
+                path=path, method='GET', params=subreq_params)
             sub_resp = sub_req.get_response(self.app)
             if sub_resp.is_success:
                 items = json.loads(sub_resp.body)
                 for item in items:
-                    params['marker'] = quote(item['name'])
+                    subreq_params['marker'] = quote(item['name'])
                     if item['content_type'] in (
                             MPU_SESSION_COMPLETED_CONTENT_TYPE,
                             MPU_SESSION_ABORTED_CONTENT_TYPE):
                         continue
-                    parts = split_reserved_name(item['name'])[0].split('/', 1)
-                    item['name'], item['upload_id'] = parts
+                    mpu_ref = ObjectRef.parse(item['name'])
+                    item['name'] = mpu_ref.user_name
+                    item['upload_id'] = self.mw.externalize_upload_id(
+                        self.req.path + '/' + quote(mpu_ref.user_name),
+                        UploadId.parse(mpu_ref.obj_id))
                     listing.append(item)
                     if len(listing) >= limit:
                         break
@@ -619,32 +619,19 @@ class MPUSessionsHandler(BaseMPUHandler):
         sub_resp.body = json.dumps(listing).encode('ascii')
         return sub_resp
 
-    def _ensure_container_exists(self, container, policy_index):
-        # TODO: make storage policy specific parts bucket
-        policy_name = POLICIES[policy_index].name
-
-        # container_name = wsgi_unquote(wsgi_quote(container_name))
-        path = self.make_path(container)
-        headers = {'X-Storage-Policy': policy_name}
-        cont_req = self.make_subrequest(
-            path=path, method='PUT', headers=headers)
-        info = get_container_info(cont_req.environ, self.app,
-                                  swift_source=MPU_SWIFT_SOURCE)
-
-        if not is_success(info['status']):
-            resp = cont_req.get_response(self.app)
-            drain_and_close(resp)
-            if not resp.is_success or resp.status_int == HTTP_CONFLICT:
-                raise HTTPInternalServerError(
-                    'Error creating MPU resource container', request=self.req)
-
-    def _ensure_parts_container_in_metadata(self, policy_index):
+    def _ensure_resource_containers_in_metadata(self, policy_index):
         parts_container_key = 'mpu-parts-container-%d' % policy_index
-        if parts_container_key not in self.user_container_info['sysmeta']:
-            headers = {'x-container-sysmeta-' + parts_container_key:
-                       wsgi_quote(self.parts_container)}
+        headers = {}
+        # TODO: IDK if history container needs to be in sysmeta - this may be
+        #   in anticipation of integrating with versioning when we want
+        #   object-versioning to know the container exists?
+        for key, val in ((parts_container_key, self.parts_container),
+                         ('history-container', self.history_container)):
+            if key not in self.user_container_info['sysmeta']:
+                headers['x-container-sysmeta-' + key] = quote(val)
+        if headers:
             cont_req = self.make_subrequest(
-                path=self.make_path(self.container),
+                path=self.make_path(self.account, self.container),
                 method='POST',
                 headers=headers)
             resp = cont_req.get_response(self.app)
@@ -658,23 +645,37 @@ class MPUSessionsHandler(BaseMPUHandler):
         """
         Handles Initiate Multipart Upload.
         """
-        upload_id = MPUId.create(self.req.path, self.req.ensure_x_timestamp())
+        # TODO: support alternative parts container policies
         if len(self.obj) > self.mw.max_name_length:
             raise HTTPBadRequest(
                 body='MPU object name length of %d longer than %d' %
                      (len(self.obj), self.mw.max_name_length),
                 request=self.req, content_type='text/plain')
         self._authorize_write_request()
+        timestamp = self.req.ensure_x_timestamp()
         policy_index = self.user_container_info['storage_policy']
-        self._ensure_container_exists(self.sessions_container, policy_index)
-        self._ensure_container_exists(self.parts_container, policy_index)
-        self._ensure_parts_container_in_metadata(policy_index)
+        self._ensure_container_exists(
+            self.hidden_account, self.sessions_container, policy_index)
+        # TODO: hide the parts container; for now it must in the user account
+        #   because SLO doesn't support cross-account segments
+        self._ensure_container_exists(
+            self.account, self.parts_container, policy_index)
+        self._ensure_container_exists(
+            self.hidden_account, self.history_container, policy_index)
+        self._ensure_resource_containers_in_metadata(policy_index)
 
         self.req.headers.pop('Etag', None)
         self.req.headers.pop('Content-Md5', None)
         update_content_type(self.req)
-        session_name = make_relative_path(self.reserved_obj, upload_id)
-        session_path = self.make_path(self.sessions_container, session_name)
+
+        upload_id = UploadId(timestamp)
+        session_ref = ObjectRef(self.obj, upload_id.serialize())
+        null = not is_versioning_enabled(self.user_container_info)
+        history_id = HistoryId(timestamp, null=null)
+        self.req.headers[MPU_SYSMETA_HISTORY_ID_KEY] = history_id.serialize()
+        session_name = session_ref.serialize()
+        session_path = self.make_path(
+            self.hidden_account, self.sessions_container, session_name)
         session = MPUSession.from_user_headers(session_name, self.req.headers)
         session_req = self.make_subrequest(
             path=session_path,
@@ -684,15 +685,19 @@ class MPUSessionsHandler(BaseMPUHandler):
 
         session_resp = session_req.get_response(self.app)
         if session_resp.is_success:
+            self.logger.debug('created mpu session %s' % session_path)
             drain_and_close(session_resp)
-            resp_headers = {'X-Upload-Id': str(upload_id)}
+            resp_headers = {
+                'X-Upload-Id': self.mw.externalize_upload_id(
+                    self.req.path, upload_id),
+            }
             resp = HTTPAccepted(headers=resp_headers)
         else:
             resp = self.translate_error_response(session_resp)
         return resp
 
 
-class MPUSloCallbackHandler(object):
+class MPUSloCallbackHandler:
     ERROR_MSG = 'Upload part too small'
 
     def __init__(self, mw):
@@ -728,14 +733,15 @@ class MPUSessionHandler(BaseMPUHandler):
     * Complete Multipart Upload
     * Upload Part and Upload Part Copy.
     """
-    def __init__(self, mw, req):
-        super(MPUSessionHandler, self).__init__(mw, req)
-        self.user_container_info = self._check_user_container_exists()
-        self.upload_id = get_req_upload_id(req)
-        self.session_name = make_relative_path(
-            self.reserved_obj, self.upload_id)
-        self.session_path = self.make_path(self.sessions_container,
-                                           self.session_name)
+    def __init__(self, mw, req, upload_id):
+        super().__init__(mw, req)
+        self._check_user_container_exists()
+        self.upload_id = upload_id
+        self.session_ref = ObjectRef(self.obj, self.upload_id.serialize())
+        # mpu sessions for the same user_name sort in chronological order...
+        self.session_name = self.session_ref.serialize()
+        self.session_path = self.make_path(
+            self.hidden_account, self.sessions_container, self.session_name)
         self.req_timestamp = Timestamp(
             self.req.headers.setdefault('X-Timestamp',
                                         Timestamp.now().internal))
@@ -743,6 +749,8 @@ class MPUSessionHandler(BaseMPUHandler):
     def _load_session(self):
         req = self.make_subrequest(method='HEAD', path=self.session_path)
         resp = req.get_response(self.app)
+        self.logger.debug('loading mpu session %s %s'
+                          % (self.session_path, resp.status_int))
         if resp.status_int == 404:
             raise HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
         elif not resp.is_success:
@@ -762,8 +770,9 @@ class MPUSessionHandler(BaseMPUHandler):
         return session_req.get_response(self.app)
 
     def _get_user_object_metadata(self):
-        symlink_path = self.make_path(self.container, self.obj)
-        req = self.make_subrequest(method='HEAD', path=symlink_path)
+        path = self.make_path(
+            self.account, self.container, self.obj)
+        req = self.make_subrequest(method='HEAD', path=path)
         resp = req.get_response(self.app)
         if resp.is_success:
             return resp.headers
@@ -776,10 +785,10 @@ class MPUSessionHandler(BaseMPUHandler):
         if not session.is_active:
             return HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
 
-        part_path = self.make_path(self.parts_container,
-                                   self.reserved_obj,
-                                   self.upload_id,
-                                   normalize_part_number(part_number))
+        part_ref = self.session_ref.clone()
+        part_ref.tail = normalize_part_number(part_number)
+        part_path = self.make_path(self.account, self.parts_container,
+                                   part_ref.serialize())
         self.logger.debug('mpu upload_part %s', part_path)
         headers = {}
         for k, v in self.req.headers.items():
@@ -813,9 +822,10 @@ class MPUSessionHandler(BaseMPUHandler):
         if not session.is_active:
             return HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
 
-        path = self.make_path(self.parts_container)
-
-        params = {'prefix': self.session_name}
+        path = self.make_path(self.account, self.parts_container)
+        subreq_params = {
+            'prefix': swob.str_to_wsgi(self.session_ref.serialize())
+        }
         try:
             part_number_marker = validate_part_number(
                 self.req.params.get('part-number-marker'))
@@ -823,18 +833,24 @@ class MPUSessionHandler(BaseMPUHandler):
             raise HTTPBadRequest(
                 'part-number-marker must be an integer greater than 0')
         if part_number_marker is not None:
-            params['marker'] = '%s/%s' % (
-                self.session_name, normalize_part_number(part_number_marker))
+            marker_ref = self.session_ref.clone()
+            marker_ref.tail = normalize_part_number(part_number_marker)
+            subreq_params['marker'] = swob.str_to_wsgi(marker_ref.serialize())
         if 'limit' in self.req.params:
-            params['limit'] = self.req.params['limit']
+            subreq_params['limit'] = self.req.params['limit']
 
         sub_req = self.make_subrequest(
-            path=path, method='GET', params=params)
+            path=path, method='GET', params=subreq_params)
         sub_resp = sub_req.get_response(self.app)
         if sub_resp.is_success:
             listing = json.loads(sub_resp.body)
             for item in listing:
-                item['name'] = split_reserved_name(item['name'])[0]
+                part_ref = ObjectRef.parse(item['name'])
+                item['name'] = '/'.join(
+                    (part_ref.user_name,
+                     self.mw.externalize_upload_id(
+                         self.req.path, UploadId.parse(part_ref.obj_id)),
+                     part_ref.tail))
             headers = {
                 'Content-Type': 'application/json; charset=utf-8',
                 'X-Storage-Policy': sub_resp.headers.get('X-Storage-Policy')
@@ -933,28 +949,28 @@ class MPUSessionHandler(BaseMPUHandler):
         mpu_etag_hasher = MPUEtagHasher()
         previous_part = 0
         part_number = 0
+        part_ref = self.session_ref.clone()
         for part_index, part_dict in enumerate(user_manifest):
+            manifest_part_dict = {}
             if not isinstance(part_dict, dict):
                 errors.append("Index %d: not a JSON object." % part_index)
                 continue
             try:
                 part_number = self._parse_part_number(part_dict, previous_part)
+                part_ref.tail = normalize_part_number(part_number)
+                manifest_part_dict['path'] = make_relative_path(
+                    self.parts_container, part_ref.serialize()
+                )
             except ValueError as err:
                 errors.append("Index %d: %s." % (part_index, err))
             try:
                 etag = self._parse_etag(part_dict)
+                manifest_part_dict['etag'] = etag
+                mpu_etag_hasher.update(etag)
             except ValueError as err:
                 errors.append("Index %d: %s." % (part_index, str(err)))
             if not errors:
-                part_path = make_relative_path(
-                    self.parts_container,
-                    self.reserved_obj,
-                    self.upload_id,
-                    normalize_part_number(part_number))
-                manifest.append({
-                    'path': wsgi_to_str(part_path),
-                    'etag': etag})
-                mpu_etag_hasher.update(etag)
+                manifest.append(manifest_part_dict)
 
         if not manifest and not errors:
             errors.append('Manifest must have at least one part.')
@@ -984,9 +1000,13 @@ class MPUSessionHandler(BaseMPUHandler):
         offset = self.req.timestamp.raw - session.data_timestamp.raw
         offset += session.data_timestamp.offset
         ts_complete = Timestamp(session.data_timestamp, offset=offset)
+        # note: setting x-timestamp here causes object-versioning to us that
+        # timestamp to form a version id, so version ids are coupled to the
+        # upload id and history id for the manifest
         manifest_headers = {
             'X-Timestamp': ts_complete.internal,
             'Accept': 'application/json',
+            # report size as 0 in container stats
             get_container_update_override_key('size'): '0',
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
@@ -1005,21 +1025,22 @@ class MPUSessionHandler(BaseMPUHandler):
             manifest_headers['If-None-Match'] = \
                 self.req.headers['If-None-Match']
         # set the MPU etag override to be forwarded to the manifest container
-        part_prefix_path = wsgi_quote(make_relative_path(
-            self.parts_container,
-            self.reserved_obj,
-            self.upload_id))
+        part_prefix_path = quote(make_relative_path(
+            self.parts_container, self.session_ref.serialize()))
         update_etag_override_header(
             manifest_headers, parsed_manifest.mpu_etag,
             [('mpu_etag', parsed_manifest.mpu_etag),
              ('mpu_link', part_prefix_path)])
         params = {'multipart-manifest': 'put', 'heartbeat': 'on'}
         manifest_req = self.make_subrequest(
-            path=self.make_path(self.container, self.obj),
+            path=self.make_path(
+                self.account, self.container, self.obj),
             method='PUT',
             headers=manifest_headers,
             body=json.dumps(parsed_manifest.manifest),
             params=params)
+        self._annotate_with_history_update(
+            manifest_req, session.history_id, 'PUT', {'mpu_policy': 0})
         slo_callback_handler = MPUSloCallbackHandler(self.mw)
         manifest_req.environ['swift.callback.slo_manifest_hook'] = \
             slo_callback_handler
@@ -1146,40 +1167,6 @@ class MPUSessionHandler(BaseMPUHandler):
 
 
 class MPUObjHandler(BaseMPUHandler):
-    def _maybe_cleanup_mpu(self, resp):
-        # NB: do this even for non-success responses in case any of the
-        # backend responses may have succeeded
-        if ('x-object-version-id' in resp.headers and
-                'x-object-current-version-id' not in resp.headers):
-            # existing object became a version -> no cleanup
-            # TODO: there's a gap here w.r.t. object-versioning...
-            #   If the backend response collection has more than one upload
-            #   symlink then we don't know which one has been preserved by
-            #   object-versioning. We could infer that the newest was copied to
-            #   the version container, or better, modify object-versioning to
-            #   include what got replaced in it's response headers. For now we
-            #   play it safe and cleanup nothing.
-            return
-
-        deleted_upload_ids = {}
-        for backend_resp in self.req.environ.get('swift.backend_responses',
-                                                 []):
-            if not is_success(backend_resp.status):
-                continue
-            # TODO: maybe add more conditions so we're sure it was MPU manifest
-            #   e.g. check that backend_resp has x-symlink-target and cross
-            #   check its value with expected manifest path
-            upload_id_val = backend_resp.headers.get(MPU_SYSMETA_UPLOAD_ID_KEY)
-            if upload_id_val:
-                try:
-                    upload_id = MPUId.parse(upload_id_val)
-                    deleted_upload_ids[upload_id] = backend_resp
-                except ValueError:
-                    # TODO: log a warning?
-                    pass
-        for upload_id, backend_resp in deleted_upload_ids.items():
-            self._put_parts_delete_marker(upload_id)
-
     def _handle_get_head_request(self):
         # instruct the object server to look for an mpu-etag in sysmeta
         # for evaluating conditional requests
@@ -1201,7 +1188,9 @@ class MPUObjHandler(BaseMPUHandler):
             elif key == MPU_SYSMETA_PARTS_COUNT_KEY:
                 new_headers['x-parts-count'] = val
             elif key == MPU_SYSMETA_UPLOAD_ID_KEY:
-                new_headers['x-upload-id'] = val
+                upload_id = UploadId.parse(val)
+                new_headers['x-upload-id'] = self.mw.externalize_upload_id(
+                    self.req.path, upload_id)
             elif key.startswith(MPU_OBJECT_SYSMETA_PREFIX):
                 continue
             else:
@@ -1212,18 +1201,48 @@ class MPUObjHandler(BaseMPUHandler):
         resp.headers = new_headers
         return resp
 
+    def _handle_put_delete_request(self):
+        # TODO: ok to always use default policy for history?
+        policy_index = POLICIES.default
+        self._ensure_container_exists(
+            self.hidden_account, self.history_container, policy_index)
+        # TODO: the coupling with object-versioning is unfortunate
+        version_id = self.req.params.get('version-id')
+        is_versioning = is_versioning_enabled(self.user_container_info)
+        # Note: we're relying on request method in the op field for correct
+        # sorting of null versions in history i.e. DELETE trumps PUT of
+        # otherwise same version.
+        if version_id == 'null':
+            # this is a new event in the null version's history
+            history_id = HistoryId(self.req.ensure_x_timestamp(), null=True)
+            op = self.req.method
+        elif version_id:
+            # this is a new event in a specific version's history
+            validate_version(version_id)
+            history_id = HistoryId(version_id)
+            op = self.req.method
+        elif is_versioning:
+            # object-versioning will transform both PUTs and DELETEs to a
+            # PUT in the versions container, so the history event should also
+            # be a PUT
+            history_id = HistoryId(self.req.ensure_x_timestamp(), null=False)
+            op = 'PUT'
+        else:
+            # this is a new event in the null version's history
+            history_id = HistoryId(self.req.ensure_x_timestamp(), null=True)
+            op = self.req.method
+        self._annotate_with_history_update(self.req, history_id, op)
+
     def handle_request(self):
         if self.req.method in ('GET', 'HEAD'):
             # instruct the object server to look for an mpu-etag in sysmeta
             # for evaluating conditional requests
-            resp = self._handle_get_head_request()
-        else:
-            resp = self.req.get_response(self.app)
-            if self.req.method in ('PUT', 'DELETE'):
-                # TODO: write down a general maybe-deleted marker in manifests
-                #  container *before* forwarding request
-                self._maybe_cleanup_mpu(resp)
-        return resp
+            return self._handle_get_head_request()
+
+        if self.req.method in ('PUT', 'DELETE'):
+            return self._handle_put_delete_request()
+
+        return self.req.get_response(self.app)
 
 
 class MPUContainerHandler(BaseMPUHandler):
@@ -1238,7 +1257,8 @@ class MPUContainerHandler(BaseMPUHandler):
             if not key.lower().startswith(
                     'x-container-sysmeta-mpu-parts-container-'):
                 continue
-            path = self.make_path(wsgi_unquote(value))
+            parts_container = urllib.parse.unquote(value)
+            path = self.make_path(self.account, parts_container)
             parts_req = self.make_subrequest('HEAD', path)
             parts_resp = parts_req.get_response(self.app)
             if parts_resp.is_success:
@@ -1289,6 +1309,11 @@ class MPUContainerHandler(BaseMPUHandler):
             self._update_resp_headers(resp)
         elif self.req.method == 'HEAD':
             self._update_resp_headers(resp)
+        elif self.req.method == 'PUT' and resp.is_success:
+            # TODO: ok to always use default policy for history?
+            policy_index = POLICIES.default
+            self._ensure_container_exists(
+                self.hidden_account, self.history_container, policy_index)
         elif self.req.method == 'DELETE':
             pass
             # TODO: implement
@@ -1301,11 +1326,13 @@ class MPUContainerHandler(BaseMPUHandler):
         return resp
 
 
-class MPUMiddleware(object):
+class MPUMiddleware:
     def __init__(self, app, conf, logger=None):
         self.conf = conf
         self.app = app
         self.logger = logger or get_logger(conf, log_route='slo')
+        self.upload_id_signing_key = base64.b64decode(
+            conf.get('upload_id_key', '').encode('ascii'))
         self.min_part_size = config_positive_int_value(
             conf.get('min_part_size', DEFAULT_MIN_PART_SIZE))
         self.max_part_number = config_positive_int_value(
@@ -1316,19 +1343,50 @@ class MPUMiddleware(object):
                             min_part_size=self.min_part_size,
                             max_name_length=self.max_name_length)
 
+    def externalize_upload_id(self, path, upload_id):
+        return externalize_upload_id(
+            self.upload_id_signing_key, path, upload_id)
+
+    def internalize_upload_id(self, path, upload_id):
+        return internalize_upload_id(
+            self.upload_id_signing_key, path, upload_id)
+
+    def get_valid_upload_id(self, req):
+        """
+        Try to extract an upload id from request params.
+
+        :param req: an instance of swob.Request
+        :raises HTTPBadRequest: if the ``upload-id`` parameter is found but is
+            invalid.
+        :returns: an instance of UploadId, or None if the ``upload-id``
+            parameter is not found.
+        """
+        if 'upload-id' not in req.params:
+            return None
+
+        upload_id_str = req.params['upload-id']
+        try:
+            upload_id = self.internalize_upload_id(req.path, upload_id_str)
+        except ValueError as err:
+            raise HTTPBadRequest(MPU_INVALID_UPLOAD_ID_MSG + ' (%s): %s'
+                                 % (str(err), upload_id_str))
+        return upload_id
+
     def handle_request(self, req, container, obj):
         # this defines the MPU API
-        upload_id = get_req_upload_id(req)
+        upload_id = self.get_valid_upload_id(req)
         part_number = get_valid_part_num(req)
         if obj and upload_id:
             if req.method == 'PUT' and part_number is not None:
-                resp = MPUSessionHandler(self, req).upload_part(part_number)
+                resp = MPUSessionHandler(self, req, upload_id).upload_part(
+                    part_number)
             elif req.method == 'GET':
-                resp = MPUSessionHandler(self, req).list_parts()
+                resp = MPUSessionHandler(self, req, upload_id).list_parts()
             elif req.method == 'POST':
-                resp = MPUSessionHandler(self, req).complete_upload()
+                resp = MPUSessionHandler(
+                    self, req, upload_id).complete_upload()
             elif req.method == 'DELETE':
-                resp = MPUSessionHandler(self, req).abort_upload()
+                resp = MPUSessionHandler(self, req, upload_id).abort_upload()
             else:
                 resp = None
         elif container and 'uploads' in req.params:

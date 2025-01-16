@@ -30,6 +30,7 @@ from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import readconf
 
 EXCLUDE_FILES = re.compile(r'^(hashes\.(pkl|invalid)|lock(-\d+)?)$')
+EXCLUDE_DIRS = re.compile(r'.*async_pending.*')
 
 
 def collect_info(path_list):
@@ -46,8 +47,11 @@ def collect_info(path_list):
         temp_files_list = []
         temp_dir_list = []
         for root, dirs, files in os.walk(path):
+            if EXCLUDE_DIRS.match(root):
+                continue
             files = [f for f in files if not EXCLUDE_FILES.match(f)]
             temp_files_list += files
+            dirs = [d for d in dirs if not EXCLUDE_DIRS.match(d)]
             temp_dir_list += dirs
         files_list.append(temp_files_list)
         dir_list.append(temp_dir_list)

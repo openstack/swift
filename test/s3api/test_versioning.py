@@ -19,6 +19,7 @@ from unittest import mock
 
 from botocore.exceptions import ClientError
 import io
+from urllib.parse import quote
 
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import md5
@@ -1373,7 +1374,7 @@ class TestObjectVersioning(BaseS3TestCase):
         # or you can be more explicit
         explicit_target = self.create_name('target-%s' % versions[0])
         copy_source = {'Bucket': self.bucket_name, 'Key': obj_name,
-                       'VersionId': versions[0]}
+                       'VersionId': quote(versions[0])}
         copy_resp = self.client.copy_object(
             Bucket=self.bucket_name, Key=explicit_target,
             CopySource=copy_source)
@@ -1386,7 +1387,7 @@ class TestObjectVersioning(BaseS3TestCase):
 
         # but you can also copy from a specific version
         version_target = self.create_name('target-%s' % versions[2])
-        copy_source['VersionId'] = versions[2]
+        copy_source['VersionId'] = quote(versions[2])
         copy_resp = self.client.copy_object(
             Bucket=self.bucket_name, Key=version_target,
             CopySource=copy_source)
