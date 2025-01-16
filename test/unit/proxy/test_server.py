@@ -1723,6 +1723,31 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         app = self._write_conf_and_load_app(conf_sections)
         self._check_policy_options(app, exp_options, exp_is_local)
 
+    def test_per_policy_conf_invalid_ec_head_node_count(self):
+        conf_sections = """
+        [app:proxy-server]
+        use = egg:swift#proxy
+        ec_head_node_count = foo * replicas
+        """
+        with self.assertRaises(ValueError) as cm:
+            self._write_conf_and_load_app(conf_sections)
+        self.assertEqual(
+            "Invalid ec_head_node_count value: 'foo * replicas' for (default)",
+            str(cm.exception))
+
+        conf_sections = """
+        [app:proxy-server]
+        use = egg:swift#proxy
+        [proxy-server:policy:0]
+        ec_head_node_count = foo * replicas
+        """
+        with self.assertRaises(ValueError) as cm:
+            self._write_conf_and_load_app(conf_sections)
+        self.assertEqual(
+            "Invalid ec_head_node_count value: 'foo * replicas' "
+            "for policy 0 (nulo)",
+            str(cm.exception))
+
     def test_per_policy_conf_one_configured(self):
         conf_sections = """
         [app:proxy-server]
@@ -1735,6 +1760,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         write_affinity_node_count = 1 * replicas
         write_affinity_handoff_delete_count = 4
         rebalance_missing_suppression_count = 2
+        ec_head_node_count = 5
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "shuffle",
@@ -1764,7 +1790,8 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             "'write_affinity_handoff_delete_count': None, "
             "'rebalance_missing_suppression_count': 1, "
             "'concurrent_gets': False, 'concurrency_timeout': 0.5, "
-            "'concurrent_ec_extra_requests': 0"
+            "'concurrent_ec_extra_requests': 0, "
+            "'ec_head_node_count': '1 * replicas'"
             "}, app)",
             repr(default_options))
         self.assertEqual(default_options, eval(repr(default_options), {
@@ -1778,7 +1805,8 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             "'write_affinity_handoff_delete_count': 4, "
             "'rebalance_missing_suppression_count': 2, "
             "'concurrent_gets': False, 'concurrency_timeout': 0.5, "
-            "'concurrent_ec_extra_requests': 0"
+            "'concurrent_ec_extra_requests': 0, "
+            "'ec_head_node_count': '5'"
             "}, app)",
             repr(policy_0_options))
         self.assertEqual(policy_0_options, eval(repr(policy_0_options), {
@@ -1808,6 +1836,38 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self.assertNotEqual(app.get_policy_options(None),
                             app.get_policy_options(POLICIES[0]))
 
+    def test_per_policy_ec_head_equality(self):
+        # do we ever compare policy options to each other outside of tests?
+        expected_values_equal = {
+            (1, 1): True,
+            (2, 1): False,
+            (8, '1 * replicas'): False,
+            ('1 * replicas', '1 * replicas'): True,
+            ('2 * replicas', '1 * replicas'): False,
+        }
+
+        def do_test(policy_0, policy_1, is_equal):
+            conf_sections = f"""
+            [app:proxy-server]
+            use = egg:swift#proxy
+
+            [proxy-server:policy:0]
+            ec_head_node_count = {policy_0}
+
+            [proxy-server:policy:1]
+            ec_head_node_count = {policy_1}
+            """
+            app = self._write_conf_and_load_app(conf_sections)
+            result_0 = app.get_policy_options(POLICIES[0])
+            result_1 = app.get_policy_options(POLICIES[1])
+            if is_equal:
+                self.assertEqual(result_0, result_1)
+            else:
+                self.assertNotEqual(result_0, result_1)
+
+        for (policy_0, policy_1), is_equal in expected_values_equal.items():
+            do_test(policy_0, policy_1, is_equal)
+
     def test_per_policy_conf_inherits_defaults(self):
         conf_sections = """
         [app:proxy-server]
@@ -1824,13 +1884,15 @@ class TestProxyServerConfigLoading(unittest.TestCase):
                             "sorting_method": "affinity",
                             "write_affinity": "",
                             "write_affinity_node_count_fn": 3,
-                            "write_affinity_handoff_delete_count": 3}
+                            "write_affinity_handoff_delete_count": 3,
+                            "ec_head_node_count": "1 * replicas"}
         exp_options = {None: expected_default,
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r1",
                                      "write_affinity_node_count_fn": 3,
-                                     "write_affinity_handoff_delete_count": 3},
+                                     "write_affinity_handoff_delete_count": 3,
+                                     "ec_head_node_count": "1 * replicas"},
                        POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
@@ -1847,34 +1909,40 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         write_affinity_node_count = 1 * replicas
         write_affinity = r2
         write_affinity_handoff_delete_count = 2
+        ec_head_node_count = 2 * replicas
 
         [proxy-server:policy:0]
         read_affinity = r1=100
         write_affinity = r1
         write_affinity_node_count = 5
         write_affinity_handoff_delete_count = 3
+        ec_head_node_count = 5
 
         [proxy-server:policy:1]
         read_affinity = r1=1
         write_affinity = r3
         write_affinity_node_count = 4
         write_affinity_handoff_delete_count = 4
+        ec_head_node_count = 6
         """
         exp_options = {None: {"read_affinity": "r2=10",
                               "sorting_method": "affinity",
                               "write_affinity": "r2",
                               "write_affinity_node_count_fn": 3,
-                              "write_affinity_handoff_delete_count": 2},
+                              "write_affinity_handoff_delete_count": 2,
+                              "ec_head_node_count": "2 * replicas"},
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r1",
                                      "write_affinity_node_count_fn": 5,
-                                     "write_affinity_handoff_delete_count": 3},
+                                     "write_affinity_handoff_delete_count": 3,
+                                     "ec_head_node_count": "5"},
                        POLICIES[1]: {"read_affinity": "r1=1",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r3",
                                      "write_affinity_node_count_fn": 4,
-                                     "write_affinity_handoff_delete_count": 4}}
+                                     "write_affinity_handoff_delete_count": 4,
+                                     "ec_head_node_count": "6"}}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
                         POLICIES[1]: [({'region': 3, 'zone': 2}, True),

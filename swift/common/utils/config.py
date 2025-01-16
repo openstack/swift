@@ -136,7 +136,7 @@ def config_percent_value(value):
         raise ValueError("%s: %s" % (str(err), value))
 
 
-def config_request_node_count_value(value):
+def config_request_node_count_value(value, config_name='request_node_count'):
     try:
         value_parts = value.lower().split()
         rnc_value = int(value_parts[0])
@@ -150,7 +150,7 @@ def config_request_node_count_value(value):
               value_parts[2] == 'replicas'):
             return lambda replicas: rnc_value * replicas
     raise ValueError(
-        'Invalid request_node_count value: %r' % value)
+        'Invalid %s value: %r' % (config_name, value))
 
 
 def config_fallocate_value(reserve_value):

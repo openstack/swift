@@ -1775,10 +1775,11 @@ class NodeIter(object):
         want to filter or reorder the nodes.
     :param policy: an instance of :class:`BaseStoragePolicy`. This should be
         None for an account or container ring.
+    :param node_count: optional number of nodes to yield.
     """
 
     def __init__(self, server_type, app, ring, partition, logger, request,
-                 node_iter=None, policy=None):
+                 node_iter=None, policy=None, node_count=None):
         self.server_type = server_type
         self.app = app
         self.ring = ring
@@ -1791,8 +1792,12 @@ class NodeIter(object):
             node_iter = itertools.chain(
                 part_nodes, ring.get_more_nodes(partition))
         self.num_primary_nodes = len(part_nodes)
-        self.nodes_left = self.app.request_node_count(self.num_primary_nodes)
-        self.expected_handoffs = self.nodes_left - self.num_primary_nodes
+        self.nodes_left = node_count
+        if self.nodes_left is None:
+            self.nodes_left = self.app.request_node_count(
+                self.num_primary_nodes)
+        self.expected_handoffs = max(
+            0, self.nodes_left - self.num_primary_nodes)
 
         # Use of list() here forcibly yanks the first N nodes (the primary
         # nodes) from node_iter, so the rest of its values are handoffs.

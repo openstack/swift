@@ -1502,6 +1502,28 @@ class TestNodeIter(BaseTest):
         self.assertEqual({0, 1, 2}, primary_indexes)
         self.assertEqual([0, 1, 2], handoff_indexes)
 
+    def test_iter_with_explicit_count_stops_before_all_primaries(self):
+        ring = FakeRing(replicas=3, max_more_nodes=20)
+        policy = StoragePolicy(0, 'zero', object_ring=ring)
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            Request.blank(''), policy=policy, node_count=2)
+
+        self.assertEqual(2, node_iter.nodes_left)
+        self.assertEqual(0, node_iter.expected_handoffs)
+        self.assertEqual(2, len(list(node_iter)))
+
+    def test_iter_with_explicit_count_includes_handoffs(self):
+        ring = FakeRing(replicas=3, max_more_nodes=20)
+        policy = StoragePolicy(0, 'zero', object_ring=ring)
+        node_iter = NodeIter(
+            'object', self.app, policy.object_ring, 0, self.logger,
+            Request.blank(''), policy=policy, node_count=5)
+
+        self.assertEqual(5, node_iter.nodes_left)
+        self.assertEqual(2, node_iter.expected_handoffs)
+        self.assertEqual(5, len(list(node_iter)))
+
     def test_multi_iteration(self):
         ring = FakeRing(replicas=8, max_more_nodes=20)
         policy = StoragePolicy(0, 'ec', object_ring=ring)
