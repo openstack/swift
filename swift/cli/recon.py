@@ -18,8 +18,7 @@
 from __future__ import print_function
 
 from eventlet.green import socket
-from six import string_types
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 
 from swift.common.utils import (
     SWIFT_CONF_FILE, md5_hash_for_file, set_swift_dir)
@@ -30,13 +29,9 @@ import json
 import optparse
 import time
 import sys
-import six
 import os
 
-if six.PY3:
-    from eventlet.green.urllib import request as urllib2
-else:
-    from eventlet.green import urllib2
+from eventlet.green.urllib import request as urllib_request
 
 
 def seconds2timeunit(seconds):
@@ -86,19 +81,19 @@ class Scout(object):
         """
         url = base_url + recon_type
         try:
-            body = urllib2.urlopen(url, timeout=self.timeout).read()
-            if six.PY3 and isinstance(body, six.binary_type):
+            body = urllib_request.urlopen(url, timeout=self.timeout).read()
+            if isinstance(body, bytes):
                 body = body.decode('utf8')
             content = json.loads(body)
             if self.verbose:
                 print("-> %s: %s" % (url, content))
             status = 200
-        except urllib2.HTTPError as err:
+        except urllib_request.HTTPError as err:
             if not self.suppress_errors or self.verbose:
                 print("-> %s: %s" % (url, err))
             content = err
             status = err.code
-        except (urllib2.URLError, socket.timeout) as err:
+        except (urllib_request.URLError, socket.timeout) as err:
             if not self.suppress_errors or self.verbose:
                 print("-> %s: %s" % (url, err))
             content = err
@@ -128,19 +123,19 @@ class Scout(object):
         """
         try:
             url = "http://%s:%s/" % (host[0], host[1])
-            req = urllib2.Request(url)
+            req = urllib_request.Request(url)
             req.get_method = lambda: 'OPTIONS'
-            conn = urllib2.urlopen(req)
+            conn = urllib_request.urlopen(req)
             header = conn.info().get('Server')
             server_header = header.split('/')
             content = server_header[0]
             status = 200
-        except urllib2.HTTPError as err:
+        except urllib_request.HTTPError as err:
             if not self.suppress_errors or self.verbose:
                 print("-> %s: %s" % (url, err))
             content = err
             status = err.code
-        except (urllib2.URLError, socket.timeout) as err:
+        except (urllib_request.URLError, socket.timeout) as err:
             if not self.suppress_errors or self.verbose:
                 print("-> %s: %s" % (url, err))
             content = err
@@ -1074,7 +1069,7 @@ class SwiftRecon(object):
             ring_names = [p.ring_name for p in POLICIES if (
                 p.name == policy or not policy or (
                     policy.isdigit() and int(policy) == int(p) or
-                    (isinstance(policy, string_types)
+                    (isinstance(policy, str)
                      and policy in p.aliases)))]
         else:
             ring_names = [self.server_type]

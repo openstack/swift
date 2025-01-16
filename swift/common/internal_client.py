@@ -14,13 +14,13 @@
 # limitations under the License.
 
 from eventlet import sleep, Timeout, spawn
-from eventlet.green import httplib, socket
+from eventlet.green import socket
+from eventlet.green.http import client as http_client
+from eventlet.green.urllib import request as urllib_request
 import json
-import six
-from six.moves import range
-from six.moves import urllib
+import urllib
 import struct
-from sys import exc_info, exit
+from sys import exit
 import zlib
 from time import gmtime, strftime, time
 from zlib import compressobj
@@ -33,11 +33,6 @@ from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.swob import Request, bytes_to_wsgi
 from swift.common.utils import quote, close_if_possible, drain_and_close
 from swift.common.wsgi import loadapp
-
-if six.PY3:
-    from eventlet.green.urllib import request as urllib2
-else:
-    from eventlet.green import urllib2
 
 
 class UnexpectedResponse(Exception):
@@ -126,8 +121,6 @@ class CompressingFileReader(object):
         if chunk:
             return chunk
         raise StopIteration
-
-    next = __next__
 
     def seek(self, offset, whence=0):
         if not (offset == 0 and whence == 0):
@@ -219,7 +212,7 @@ class InternalClient(object):
             headers.setdefault(USE_REPLICATION_NETWORK_HEADER, 'true')
 
         for attempt in range(self.request_tries):
-            resp = exc_type = exc_value = exc_traceback = None
+            resp = err = None
             req = Request.blank(
                 path, environ={'REQUEST_METHOD': method}, headers=headers)
             if body_file is not None:
@@ -231,8 +224,8 @@ class InternalClient(object):
             try:
                 # execute in a separate greenthread to not polute corolocals
                 resp = spawn(req.get_response, self.app).wait()
-            except (Exception, Timeout):
-                exc_type, exc_value, exc_traceback = exc_info()
+            except (Exception, Timeout) as e:
+                err = e
             else:
                 if resp.status_int in acceptable_statuses or \
                         resp.status_int // 100 in acceptable_statuses:
@@ -258,9 +251,8 @@ class InternalClient(object):
                 # non 2XX responses
                 msg += ' (%s)' % resp.body
             raise UnexpectedResponse(msg, resp)
-        if exc_type:
-            # To make pep8 tool happy, in place of raise t, v, tb:
-            six.reraise(exc_type, exc_value, exc_traceback)
+        if err:
+            raise err
 
     def handle_request(self, *args, **kwargs):
         resp = self.make_request(*args, **kwargs)
@@ -850,10 +842,10 @@ class InternalClient(object):
 def get_auth(url, user, key, auth_version='1.0', **kwargs):
     if auth_version != '1.0':
         exit('ERROR: swiftclient missing, only auth v1.0 supported')
-    req = urllib2.Request(url)
+    req = urllib_request.Request(url)
     req.add_header('X-Auth-User', user)
     req.add_header('X-Auth-Key', key)
-    conn = urllib2.urlopen(req)
+    conn = urllib_request.urlopen(req)
     headers = conn.info()
     return (
         headers.getheader('X-Storage-Url'),
@@ -916,12 +908,12 @@ class SimpleClient(object):
 
             url += '?' + '&'.join(params)
 
-        req = urllib2.Request(url, headers=headers, data=contents)
+        req = urllib_request.Request(url, headers=headers, data=contents)
         if proxy:
             proxy = urllib.parse.urlparse(proxy)
             req.set_proxy(proxy.netloc, proxy.scheme)
         req.get_method = lambda: method
-        conn = urllib2.urlopen(req, timeout=timeout)
+        conn = urllib_request.urlopen(req, timeout=timeout)
         body = conn.read()
         info = conn.info()
         try:
@@ -963,14 +955,15 @@ class SimpleClient(object):
             self.attempts += 1
             try:
                 return self.base_request(method, **kwargs)
-            except urllib2.HTTPError as err:
+            except urllib_request.HTTPError as err:
                 if is_client_error(err.getcode() or 500):
                     raise ClientException('Client error',
                                           http_status=err.getcode())
                 elif self.attempts > retries:
                     raise ClientException('Raise too many retries',
                                           http_status=err.getcode())
-            except (socket.error, httplib.HTTPException, urllib2.URLError):
+            except (socket.error, http_client.HTTPException,
+                    urllib_request.URLError):
                 if self.attempts > retries:
                     raise
             sleep(backoff)

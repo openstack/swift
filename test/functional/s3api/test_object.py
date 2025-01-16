@@ -20,7 +20,6 @@ import calendar
 import email.parser
 from email.utils import formatdate, parsedate
 from time import mktime
-import six
 
 import test.functional as tf
 from swift.common import utils
@@ -787,10 +786,7 @@ class TestS3ApiObject(S3ApiBase):
 
         # TODO: Using swift.common.utils.multipart_byteranges_to_document_iters
         #       could be easy enough.
-        if six.PY2:
-            parser = email.parser.FeedParser()
-        else:
-            parser = email.parser.BytesFeedParser()
+        parser = email.parser.BytesFeedParser()
         parser.feed(
             b"Content-Type: multipart/byterange; boundary=%s\r\n\r\n" %
             boundary_str.encode('ascii'))

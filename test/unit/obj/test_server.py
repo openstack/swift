@@ -16,15 +16,14 @@
 
 """Tests for swift.obj.server"""
 
-import six.moves.cPickle as pickle
+import pickle
 import datetime
 import json
 import errno
 import operator
 import os
 import mock
-import six
-from six import StringIO
+from io import StringIO
 import unittest
 import math
 import random
@@ -36,7 +35,7 @@ from contextlib import contextmanager
 from textwrap import dedent
 
 from eventlet import sleep, spawn, wsgi, Timeout, tpool, greenthread
-from eventlet.green import httplib
+from eventlet.green.http import client as http_client
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
@@ -223,9 +222,8 @@ class TestObjectController(BaseTestCase):
 
     def test_REQUEST_SPECIAL_CHARS(self):
         obj = 'special昆%20/%'
-        if six.PY3:
-            # The path argument of Request.blank() is a WSGI string, somehow
-            obj = obj.encode('utf-8').decode('latin-1')
+        # The path argument of Request.blank() is a WSGI string, somehow
+        obj = obj.encode('utf-8').decode('latin-1')
         self.check_all_api_methods(obj)
 
     def test_device_unavailable(self):
@@ -4270,6 +4268,56 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
 
+    def test_GET_no_etag_validation(self):
+        conf = {'devices': self.testdir, 'mount_check': 'false',
+                'container_update_timeout': 0.0,
+                'etag_validate_pct': '0'}
+        object_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = b'VERIFY'
+        resp = req.get_response(object_controller)
+        self.assertEqual(resp.status_int, 201)
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
+        disk_file.open()
+        file_name = os.path.basename(disk_file._data_file)
+        bad_etag = md5(b'VERIF', usedforsecurity=False).hexdigest()
+        metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
+                    'Content-Length': 6, 'ETag': bad_etag}
+        diskfile.write_metadata(disk_file._fp, metadata)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = req.get_response(object_controller)
+        quar_dir = os.path.join(
+            self.testdir, 'sda1', 'quarantined', 'objects',
+            os.path.basename(os.path.dirname(disk_file._data_file)))
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
+        body = resp.body
+        self.assertEqual(body, b'VERIFY')
+        self.assertEqual(resp.headers['Etag'], '"%s"' % bad_etag)
+        # Didn't quarantine!
+        self.assertFalse(os.path.exists(quar_dir))
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = req.get_response(object_controller)
+        body = resp.body
+        self.assertEqual(body, b'VERIFY')
+        self.assertEqual(resp.headers['Etag'], '"%s"' % bad_etag)
+
+        # If there's a size mismatch, though, we *should* quarantine
+        metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
+                    'Content-Length': 5, 'ETag': bad_etag}
+        diskfile.write_metadata(disk_file._fp, metadata)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = req.get_response(object_controller)
+        self.assertEqual('404 Not Found', resp.status)
+        self.assertFalse(os.path.exists(disk_file._datadir))
+        self.assertTrue(os.path.exists(quar_dir))
+
     def test_GET_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
@@ -4381,7 +4429,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4405,7 +4453,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have 'X-Storage-Token'.
@@ -4416,7 +4464,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have both 'X-Auth-Token' and 'X-Storage-Token'.
@@ -4428,7 +4476,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
     def test_GET_keep_cache_private_config_false(self):
@@ -4457,7 +4505,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1.0)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4481,7 +4529,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have 'X-Storage-Token'.
@@ -4492,7 +4540,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
         # Request headers have both 'X-Auth-Token' and 'X-Storage-Token'.
@@ -4504,7 +4552,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
 
     def test_GET_keep_cache_slo_manifest_no_config(self):
@@ -4535,7 +4583,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4581,7 +4629,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4627,7 +4675,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=True, cooperative_period=0)
+                keep_cache=True, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4672,7 +4720,7 @@ class TestObjectController(BaseTestCase):
         with mock.patch('swift.obj.diskfile.BaseDiskFile.reader', reader_mock):
             resp = req.get_response(obj_controller)
             reader_mock.assert_called_with(
-                keep_cache=False, cooperative_period=0)
+                keep_cache=False, cooperative_period=0, etag_validate_frac=1)
         self.assertEqual(resp.status_int, 200)
         etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         self.assertEqual(dict(resp.headers), {
@@ -4711,7 +4759,8 @@ class TestObjectController(BaseTestCase):
             "swift.obj.diskfile.BaseDiskFile.reader"
         ) as reader_mock:
             resp = req.get_response(obj_controller)
-        reader_mock.assert_called_with(keep_cache=False, cooperative_period=99)
+        reader_mock.assert_called_with(keep_cache=False, cooperative_period=99,
+                                       etag_validate_frac=1.0)
         self.assertEqual(resp.status_int, 200)
 
         # Test DiskFile reader actually sleeps when reading chunks. When
@@ -9333,10 +9382,7 @@ class TestObjectServer(unittest.TestCase):
         conn.send(b'c\r\n--boundary123\r\n')
 
         # disconnect client
-        if six.PY2:
-            conn.sock.fd._sock.close()
-        else:
-            conn.sock.fd._real_close()
+        conn.sock.fd._real_close()
         for i in range(2):
             sleep(0)
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -9446,10 +9492,7 @@ class TestObjectServer(unittest.TestCase):
         with self._check_multiphase_put_commit_handling() as context:
             conn = context['conn']
             # just bail straight out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
         sleep(0)
 
         put_timestamp = context['put_timestamp']
@@ -9490,10 +9533,7 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
         sleep(0)
 
         put_timestamp = context['put_timestamp']
@@ -9620,12 +9660,8 @@ class TestObjectServer(unittest.TestCase):
                          'Content-Type': 'text/plain'}
         for k, v in actual_meta.items():
             # See diskfile.py:_decode_metadata
-            if six.PY2:
-                self.assertIsInstance(k, six.binary_type)
-                self.assertIsInstance(v, six.binary_type)
-            else:
-                self.assertIsInstance(k, six.text_type)
-                self.assertIsInstance(v, six.text_type)
+            self.assertIsInstance(k, str)
+            self.assertIsInstance(v, str)
         self.assertIsNotNone(actual_meta.pop('ETag', None))
         self.assertEqual(expected_meta, actual_meta)
         # but no other files
@@ -9673,10 +9709,7 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
         sleep(0)
 
         # and make sure it demonstrates the client disconnect
@@ -9871,10 +9904,7 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            if six.PY2:
-                conn.sock.fd._sock.close()
-            else:
-                conn.sock.fd._real_close()
+            conn.sock.fd._real_close()
 
         # the object server needs to recognize the socket is closed
         # or at least timeout, we'll have to wait
@@ -9947,7 +9977,7 @@ class TestZeroCopy(unittest.TestCase):
         self.wsgi_greenlet = spawn(
             wsgi.server, listener, self.object_controller, NullLogger())
 
-        self.http_conn = httplib.HTTPConnection('127.0.0.1', port)
+        self.http_conn = http_client.HTTPConnection('127.0.0.1', port)
         self.http_conn.connect()
 
     def tearDown(self):

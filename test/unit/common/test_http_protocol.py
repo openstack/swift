@@ -20,7 +20,6 @@ import mock
 import types
 import unittest
 import eventlet.wsgi as wsgi
-import six
 
 from test.debug_logger import debug_logger
 from swift.common import http_protocol, swob
@@ -322,12 +321,6 @@ class TestSwiftHttpProtocolSomeMore(ProtocolTest):
     def test_request_lines(self):
         def app(env, start_response):
             start_response("200 OK", [])
-            if six.PY2:
-                return [json.dumps({
-                    'RAW_PATH_INFO': env['RAW_PATH_INFO'].decode('latin1'),
-                    'QUERY_STRING': (None if 'QUERY_STRING' not in env else
-                                     env['QUERY_STRING'].decode('latin1')),
-                }).encode('ascii')]
             return [json.dumps({
                 'RAW_PATH_INFO': env['RAW_PATH_INFO'],
                 'QUERY_STRING': env.get('QUERY_STRING'),

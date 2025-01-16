@@ -19,7 +19,6 @@ import unittest
 import uuid
 import random
 import time
-import six
 
 from swift.common.direct_client import DirectClientException
 from swift.common.manager import Manager
@@ -53,9 +52,6 @@ class Body(object):
         self.size += len(self.chunk)
         self.hasher.update(self.chunk)
         return self.chunk
-
-    # for py2 compat
-    next = __next__
 
 
 class TestReconstructorRebuild(ECProbeTest):
@@ -528,15 +524,15 @@ class TestReconstructorRebuild(ECProbeTest):
             self.assertEqual([], lines)
 
 
-if six.PY2:
-    # The non-ASCII chars in metadata cause test hangs in
-    # _assert_all_nodes_have_frag because of https://bugs.python.org/issue37093
+class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
 
-    class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
-
-        def _make_name(self, prefix):
-            return b'%s\xc3\xa8-%s' % (
-                prefix.encode(), str(uuid.uuid4()).encode())
+    def _make_name(self, prefix):
+        # The non-ASCII chars in metadata cause test hangs in
+        # _assert_all_nodes_have_frag because of
+        # https://bugs.python.org/issue37093
+        raise unittest.SkipTest('This never got fixed on py3')
+        return b'%s\xc3\xa8-%s' % (
+            prefix.encode(), str(uuid.uuid4()).encode())
 
 
 if __name__ == "__main__":

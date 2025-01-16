@@ -330,6 +330,12 @@ use = egg:swift#proxy
 # ionice_class =
 # ionice_priority =
 #
+# When reloading servers with SIGUSR1, workers running with old config/code
+# are allowed some time to finish serving in-flight requests. Use this to
+# configure the grace period (in seconds), after which the reloaded server
+# will issue SIGKILLs to remaining stale workers.
+# stale_worker_timeout = 86400
+#
 # When upgrading from liberasurecode<=1.5.0, you may want to continue writing
 # legacy CRCs until all nodes are upgraded and capabale of reading fragments
 # with zlib CRCs. liberasurecode>=1.6.2 checks for the environment variable

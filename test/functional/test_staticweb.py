@@ -16,10 +16,9 @@
 
 import functools
 import hashlib
-import six
 import time
 from unittest import SkipTest
-from six.moves.urllib.parse import unquote
+from urllib.parse import unquote
 from swift.common.middleware import tempurl
 from swift.common.utils import quote
 from swift.common.swob import str_to_wsgi
@@ -223,9 +222,7 @@ class TestStaticWeb(Base):
             hdrs={'X-Web-Mode': str(not anonymous), 'Host': host},
             cfg={'no_auth_token': anonymous, 'absolute_path': True})
         self.assert_status(expected_status)
-        body = self.env.account.conn.response.read()
-        if not six.PY2:
-            body = body.decode('utf8')
+        body = self.env.account.conn.response.read().decode('utf8')
         for string in expected_in:
             self.assertIn(string, body)
         for string in expected_not_in:
@@ -565,9 +562,7 @@ class TestStaticWebTempurl(Base):
             parms=self.whole_container_parms,
             cfg={'no_auth_token': True})
         self.assertEqual(status, 200)
-        body = self.env.conn.response.read()
-        if not six.PY2:
-            body = body.decode('utf-8')
+        body = self.env.conn.response.read().decode('utf-8')
         self.assertIn('Listing of /v1/', body)
         self.assertNotIn('href="..', body)
         self.assertIn(self.link('dir/'), body)
@@ -579,9 +574,7 @@ class TestStaticWebTempurl(Base):
             parms=self.whole_container_parms,
             cfg={'no_auth_token': True})
         self.assertEqual(status, 200)
-        body = self.env.conn.response.read()
-        if not six.PY2:
-            body = body.decode('utf-8')
+        body = self.env.conn.response.read().decode('utf-8')
         self.assertIn('Listing of /v1/', body)
         self.assertIn('href="..', body)
         self.assertIn(self.link('dir/obj'), body)
@@ -599,9 +592,7 @@ class TestStaticWebTempurl(Base):
             parms=iso_parms,
             cfg={'no_auth_token': True})
         self.assertEqual(status, 200)
-        body = self.env.conn.response.read()
-        if not six.PY2:
-            body = body.decode('utf-8')
+        body = self.env.conn.response.read().decode('utf-8')
         self.assertIn('Listing of /v1/', body)
         self.assertIn('href="..', body)
         self.assertIn(self.link('dir/obj', iso_parms), body)
@@ -619,9 +610,7 @@ class TestStaticWebTempurl(Base):
             self.env.container.path + [self.env.objects['dir/'].name, ''],
             parms=parms, cfg={'no_auth_token': True})
         self.assertEqual(status, 200)
-        body = self.env.conn.response.read()
-        if not six.PY2:
-            body = body.decode('utf-8')
+        body = self.env.conn.response.read().decode('utf-8')
         self.assertIn('Listing of /v1/', body)
         self.assertNotIn('href="..', body)
         self.assertIn(self.link('dir/obj', parms), body)
@@ -632,9 +621,7 @@ class TestStaticWebTempurl(Base):
                 self.env.objects['dir/subdir/'].name, ''],
             parms=parms, cfg={'no_auth_token': True})
         self.assertEqual(status, 200)
-        body = self.env.conn.response.read()
-        if not six.PY2:
-            body = body.decode('utf-8')
+        body = self.env.conn.response.read().decode('utf-8')
         self.assertIn('Listing of /v1/', body)
         self.assertIn('href="..', body)
         self.assertIn(self.link('dir/subdir/obj', parms), body)

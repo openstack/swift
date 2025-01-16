@@ -15,9 +15,8 @@
 
 """Tests for swift.obj.diskfile"""
 
-from __future__ import print_function
+import pickle
 import binascii
-import six.moves.cPickle as pickle
 import os
 import errno
 import itertools
@@ -29,7 +28,6 @@ import threading
 import uuid
 import xattr
 import re
-import six
 import sys
 from collections import defaultdict
 from random import shuffle, randint
@@ -805,10 +803,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 with open(path, 'rb') as fd:
                     actual = diskfile.read_metadata(fd)
                 # name should come out as native strings
-                expected_name = b'/AUTH_test/\xe2\x98\x83/\xe2\x98\x83'
-                if not six.PY2:
-                    expected_name = expected_name.decode('utf8')
-                self.assertEqual(actual['name'], expected_name)
+                self.assertEqual(actual['name'], '/AUTH_test/\u2603/\u2603')
                 # other meta will be WSGI strings, though
                 self.assertEqual(
                     actual['X-Object-Meta-\xe2\x98\x83'], '\xe2\x98\x83')
@@ -830,13 +825,10 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                     b'X-Object-Meta-Strange': b'should be bytes',
                     b'X-Object-Meta-x\xff': b'not utf8 \xff',
                     b'X-Object-Meta-y\xc3\xa8': b'not ascii \xc3\xa8'}
-        if six.PY2:
-            as_native = as_bytes
-        else:
-            as_native = dict((k.decode('utf-8', 'surrogateescape'),
-                              v if isinstance(v, int) else
-                              v.decode('utf-8', 'surrogateescape'))
-                             for k, v in as_bytes.items())
+        as_native = dict((k.decode('utf-8', 'surrogateescape'),
+                          v if isinstance(v, int) else
+                          v.decode('utf-8', 'surrogateescape'))
+                         for k, v in as_bytes.items())
 
         def check_metadata(expected, typ):
             with open(path, 'rb') as fd:
@@ -4407,10 +4399,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         value = header + b''.join(it)
         self.assertEqual(quarantine_msgs, [])
 
-        if six.PY2:
-            message = email.message_from_string(value)
-        else:
-            message = email.message_from_bytes(value)
+        message = email.message_from_bytes(value)
         parts = [p.get_payload(decode=True) for p in message.walk()][1:3]
         self.assertEqual(parts, target_strs)
 
@@ -7694,8 +7683,7 @@ class TestSuffixHashes(unittest.TestCase):
             df_mgr.get_hashes('sda1', '0', [], policy)
 
             open_log = defaultdict(list)
-            open_loc = '__builtin__.open' if six.PY2 else 'builtins.open'
-            with mock.patch(open_loc, watch_open):
+            with mock.patch('builtins.open', watch_open):
                 self.assertTrue(os.path.exists(inv_file))
                 # no new suffixes get invalidated... so no write iop
                 df_mgr.get_hashes('sda1', '0', [], policy)

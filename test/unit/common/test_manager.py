@@ -27,7 +27,7 @@ from collections import defaultdict
 from time import sleep, time
 import tempfile
 
-from six.moves import reload_module
+from importlib import reload as reload_module
 
 from swift.common import manager
 from swift.common.exceptions import InvalidPidFileException

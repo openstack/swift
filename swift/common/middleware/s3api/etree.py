@@ -26,12 +26,11 @@ except ImportError:
 else:
     import importlib.resources
     resource_stream = None
-import six
 
 from swift.common.utils import get_logger
 from swift.common.middleware.s3api.exception import S3Exception
 from swift.common.middleware.s3api.utils import camel_to_snake, \
-    utf8encode, utf8decode
+    utf8decode
 
 XMLNS_S3 = 'http://s3.amazonaws.com/doc/2006-03-01/'
 XMLNS_XSI = 'http://www.w3.org/2001/XMLSchema-instance'
@@ -51,7 +50,7 @@ def cleanup_namespaces(elem):
             tag = tag[len('{%s}' % ns):]
         return tag
 
-    if not isinstance(elem.tag, six.string_types):
+    if not isinstance(elem.tag, str):
         # elem is a comment element.
         return
 
@@ -136,8 +135,6 @@ class _Element(lxml.etree.ElementBase):
         """
         utf-8 wrapper property of lxml.etree.Element.text
         """
-        if six.PY2:
-            return utf8encode(lxml.etree.ElementBase.text.__get__(self))
         return lxml.etree.ElementBase.text.__get__(self)
 
     @text.setter

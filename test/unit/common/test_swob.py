@@ -22,9 +22,8 @@ import time
 
 from io import BytesIO
 
+from urllib.parse import quote
 import mock
-import six
-from six.moves.urllib.parse import quote
 
 import swift.common.swob as swob
 from swift.common import utils, exceptions
@@ -357,10 +356,7 @@ class TestEtag(unittest.TestCase):
 
     def test_normalize_bytes(self):
         some_etag = b'"some-etag"'
-        if six.PY2:
-            self.assertEqual('some-etag', swob.normalize_etag(some_etag))
-        else:
-            self.assertRaises(TypeError, swob.normalize_etag, some_etag)
+        self.assertRaises(TypeError, swob.normalize_etag, some_etag)
 
 
 class TestTransferEncoding(unittest.TestCase):
@@ -996,66 +992,44 @@ class TestRequest(unittest.TestCase):
         self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
         self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
 
-        if six.PY2:
-            # Unicode is encoded to UTF-8 on py2, to paper over deserialized
-            # JSON slipping into subrequests
+        # Arbitrary Unicode *is not* supported on py3 -- only latin-1
+        # encodable is supported, because PEP-3333.
+        with self.assertRaises(UnicodeEncodeError):
             req = swob.Request.blank(u'/\u2661')
-            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
-            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
 
-            req = swob.Request.blank('/')
+        req = swob.Request.blank('/')
+        with self.assertRaises(UnicodeEncodeError):
             req.path_info = u'/\u2661'
-            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
-            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
+        # Update didn't take
+        self.assertEqual(req.path, '/')
+        self.assertEqual(req.environ['PATH_INFO'], '/')
 
-        else:
-            # Arbitrary Unicode *is not* supported on py3 -- only latin-1
-            # encodable is supported, because PEP-3333.
-            with self.assertRaises(UnicodeEncodeError):
-                req = swob.Request.blank(u'/\u2661')
+        # Needs to be a "WSGI string"
+        req = swob.Request.blank('/\xe2\x99\xa1')
+        self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+        self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
 
-            req = swob.Request.blank('/')
-            with self.assertRaises(UnicodeEncodeError):
-                req.path_info = u'/\u2661'
-            # Update didn't take
-            self.assertEqual(req.path, '/')
-            self.assertEqual(req.environ['PATH_INFO'], '/')
-
-            # Needs to be a "WSGI string"
-            req = swob.Request.blank('/\xe2\x99\xa1')
-            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
-            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
-
-            req = swob.Request.blank('/')
-            req.path_info = '/\xe2\x99\xa1'
-            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
-            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
+        req = swob.Request.blank('/')
+        req.path_info = '/\xe2\x99\xa1'
+        self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+        self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
 
     def test_unicode_query(self):
         # Bytes are always OK
         req = swob.Request.blank('/')
         encoded = u'\u2661'.encode('utf-8')
         req.query_string = b'x=' + encoded
-        if six.PY2:
-            self.assertEqual(req.params['x'], encoded)
-        else:
-            self.assertEqual(req.params['x'], encoded.decode('latin1'))
+        self.assertEqual(req.params['x'], encoded.decode('latin1'))
 
-        if six.PY2:
-            # Unicode will be UTF-8-encoded on py2
-            req = swob.Request.blank('/')
+        # Note that py3 requires "WSGI strings"
+        req = swob.Request.blank('/')
+        with self.assertRaises(UnicodeEncodeError):
             req.query_string = u'x=\u2661'
-            self.assertEqual(req.params['x'], encoded)
-        else:
-            # ...but py3 requires "WSGI strings"
-            req = swob.Request.blank('/')
-            with self.assertRaises(UnicodeEncodeError):
-                req.query_string = u'x=\u2661'
-            self.assertEqual(req.params, {})
+        self.assertEqual(req.params, {})
 
-            req = swob.Request.blank('/')
-            req.query_string = 'x=' + encoded.decode('latin-1')
-            self.assertEqual(req.params['x'], encoded.decode('latin-1'))
+        req = swob.Request.blank('/')
+        req.query_string = 'x=' + encoded.decode('latin-1')
+        self.assertEqual(req.params['x'], encoded.decode('latin-1'))
 
     def test_url2(self):
         pi = '/hi/there'

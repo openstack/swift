@@ -25,9 +25,8 @@ import time
 from unittest import SkipTest
 from xml.dom import minidom
 
-import six
-from six.moves import http_client
-from six.moves import urllib
+import http.client
+import urllib.parse
 from swiftclient import get_auth
 
 from swift.common import constraints
@@ -37,7 +36,7 @@ from swift.common.utils import config_true_value, md5
 
 from test import safe_repr
 
-http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT
+http.client._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class AuthenticationFailed(Exception):
@@ -138,10 +137,10 @@ def putrequest(self, method, url, skip_host=False, skip_accept_encoding=False):
             and self._HTTPConnection__response.isclosed():
         self._HTTPConnection__response = None
 
-    if self._HTTPConnection__state == http_client._CS_IDLE:
-        self._HTTPConnection__state = http_client._CS_REQ_STARTED
+    if self._HTTPConnection__state == http.client._CS_IDLE:
+        self._HTTPConnection__state = http.client._CS_REQ_STARTED
     else:
-        raise http_client.CannotSendRequest(self._HTTPConnection__state)
+        raise http.client.CannotSendRequest(self._HTTPConnection__state)
 
     self._method = method
     if not url:
@@ -225,15 +224,12 @@ class Connection(object):
 
     @storage_url.setter
     def storage_url(self, value):
-        if six.PY2 and not isinstance(value, bytes):
-            value = value.encode('utf-8')
-
         url = urllib.parse.urlparse(value)
 
         if url.scheme == 'http':
-            self.conn_class = http_client.HTTPConnection
+            self.conn_class = http.client.HTTPConnection
         elif url.scheme == 'https':
-            self.conn_class = http_client.HTTPSConnection
+            self.conn_class = http.client.HTTPSConnection
         else:
             raise ValueError('unexpected protocol %s' % (url.scheme))
 
@@ -250,7 +246,7 @@ class Connection(object):
     def storage_scheme(self):
         if self.conn_class is None:
             return None
-        if issubclass(self.conn_class, http_client.HTTPSConnection):
+        if issubclass(self.conn_class, http.client.HTTPSConnection):
             return 'https'
         return 'http'
 
@@ -411,7 +407,7 @@ class Connection(object):
             except socket.timeout as e:
                 fail_messages.append(safe_repr(e))
                 continue
-            except http_client.HTTPException as e:
+            except http.client.HTTPException as e:
                 fail_messages.append(safe_repr(e))
                 continue
 
@@ -500,7 +496,7 @@ class Base(object):
                 'x-container-bytes-used',
             )
 
-        # NB: on py2, headers are always lower; on py3, they match the bytes
+        # NB: on py2, headers were always lower; on py3, they match the bytes
         # on the wire
         headers = dict((wsgi_to_str(h).lower(), wsgi_to_str(v))
                        for h, v in self.conn.response.getheaders())
@@ -568,9 +564,6 @@ class Account(Base):
         if status == 200:
             if format_type == 'json':
                 conts = json.loads(self.conn.response.read())
-                if six.PY2:
-                    for cont in conts:
-                        cont['name'] = cont['name'].encode('utf-8')
                 return conts
             elif format_type == 'xml':
                 conts = []
@@ -582,8 +575,6 @@ class Account(Base):
                             childNodes[0].nodeValue
                     conts.append(cont)
                 for cont in conts:
-                    if six.PY2:
-                        cont['name'] = cont['name'].encode('utf-8')
                     for key in ('count', 'bytes'):
                         cont[key] = int(cont[key])
                 return conts
@@ -591,8 +582,6 @@ class Account(Base):
                 lines = self.conn.response.read().split(b'\n')
                 if lines and not lines[-1]:
                     lines = lines[:-1]
-                if six.PY2:
-                    return lines
                 return [line.decode('utf-8') for line in lines]
         elif status == 204:
             return []
@@ -716,15 +705,7 @@ class Container(Base):
                                         parms=parms, cfg=cfg)
         if status == 200:
             if format_type == 'json' or 'versions' in parms:
-                files = json.loads(self.conn.response.read())
-
-                if six.PY2:
-                    for file_item in files:
-                        for key in ('name', 'subdir', 'content_type',
-                                    'version_id'):
-                            if key in file_item:
-                                file_item[key] = file_item[key].encode('utf-8')
-                return files
+                return json.loads(self.conn.response.read())
             elif format_type == 'xml':
                 files = []
                 tree = minidom.parseString(self.conn.response.read())
@@ -745,15 +726,7 @@ class Container(Base):
                     files.append(file_item)
 
                 for file_item in files:
-                    if 'subdir' in file_item:
-                        if six.PY2:
-                            file_item['subdir'] = \
-                                file_item['subdir'].encode('utf-8')
-                    else:
-                        if six.PY2:
-                            file_item.update({
-                                k: file_item[k].encode('utf-8')
-                                for k in ('name', 'content_type')})
+                    if 'bytes' in file_item:
                         file_item['bytes'] = int(file_item['bytes'])
                 return files
             else:
@@ -762,8 +735,6 @@ class Container(Base):
                     lines = content.split(b'\n')
                     if lines and not lines[-1]:
                         lines = lines[:-1]
-                    if six.PY2:
-                        return lines
                     return [line.decode('utf-8') for line in lines]
                 else:
                     return []

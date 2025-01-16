@@ -21,8 +21,7 @@ import traceback
 
 from eventlet import Timeout
 
-import six
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
@@ -237,10 +236,7 @@ class ContainerController(BaseStorageServer):
             return HTTPBadRequest(req=req)
 
         if account_partition:
-            # zip is lazy on py3, but we need a list, so force evaluation.
-            # On py2 it's an extra list copy, but the list is so small
-            # (one element per replica in account ring, usually 3) that it
-            # doesn't matter.
+            # zip is lazy, but we need a list, so force evaluation.
             updates = list(zip(account_hosts, account_devices))
         else:
             updates = []
@@ -644,11 +640,10 @@ class ContainerController(BaseStorageServer):
         """
         # record is object info
         (name, created, size, content_type, etag) = record[:5]
-        name_ = name.decode('utf8') if six.PY2 else name
         if content_type is None:
-            return {'subdir': name_}
+            return {'subdir': name}
         response = {
-            'bytes': size, 'hash': etag, 'name': name_,
+            'bytes': size, 'hash': etag, 'name': name,
             'content_type': content_type}
         override_bytes_from_content_type(response, logger=self.logger)
         response['last_modified'] = Timestamp(created).isoformat

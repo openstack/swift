@@ -22,9 +22,8 @@ from datetime import datetime
 import mock
 import requests
 import json
-import six
 from paste.deploy import loadwsgi
-from six.moves.urllib.parse import unquote, quote
+from urllib.parse import unquote, quote
 
 import swift.common.middleware.s3api
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
@@ -744,8 +743,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['s3api.auth_details'], {
-            'access_key': (u'test:\N{SNOWMAN}'.encode('utf-8') if six.PY2
-                           else u'test:\N{SNOWMAN}'),
+            'access_key': u'test:\N{SNOWMAN}',
             'signature': 'sig',
             'string_to_sign': b'\n'.join([
                 b'PUT', b'', b'', date_header.encode('ascii'),
@@ -779,9 +777,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
     def test_object_create_bad_md5_too_short(self):
         too_short_digest = md5(b'hey', usedforsecurity=False).digest()[:-1]
-        md5_str = base64.b64encode(too_short_digest).strip()
-        if not six.PY2:
-            md5_str = md5_str.decode('ascii')
+        md5_str = base64.b64encode(too_short_digest).strip().decode('ascii')
         req = Request.blank(
             '/bucket/object',
             environ={'REQUEST_METHOD': 'PUT',
@@ -797,9 +793,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
     def test_object_create_bad_md5_bad_padding(self):
         too_short_digest = md5(b'hey', usedforsecurity=False).digest()
-        md5_str = base64.b64encode(too_short_digest).strip(b'=\n')
-        if not six.PY2:
-            md5_str = md5_str.decode('ascii')
+        md5_str = base64.b64encode(too_short_digest).strip(
+            b'=\n').decode('ascii')
         req = Request.blank(
             '/bucket/object',
             environ={'REQUEST_METHOD': 'PUT',
@@ -816,9 +811,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_object_create_bad_md5_too_long(self):
         too_long_digest = md5(
             b'hey', usedforsecurity=False).digest() + b'suffix'
-        md5_str = base64.b64encode(too_long_digest).strip()
-        if not six.PY2:
-            md5_str = md5_str.decode('ascii')
+        md5_str = base64.b64encode(too_long_digest).strip().decode('ascii')
         req = Request.blank(
             '/bucket/object',
             environ={'REQUEST_METHOD': 'PUT',

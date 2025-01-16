@@ -17,8 +17,7 @@ import json
 import unittest
 import os
 import mock
-import six
-import six.moves.cPickle as pickle
+import pickle
 import tempfile
 import time
 import shutil
@@ -32,7 +31,7 @@ from eventlet.green import threading
 from contextlib import closing, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
-from six.moves.urllib.parse import unquote
+from urllib.parse import unquote
 from swift.common import utils
 from swift.common.exceptions import DiskFileError, DiskFileQuarantined
 from swift.common.header_key_dict import HeaderKeyDict
@@ -5175,10 +5174,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
     def _create_fragment(self, frag_index, body=b'test data'):
         utils.mkdirs(os.path.join(self.devices, 'sda1'))
         df_mgr = self.reconstructor._df_router[self.policy]
-        if six.PY2:
-            obj_name = self.obj_name
-        else:
-            obj_name = self.obj_name.decode('utf8')
+        obj_name = self.obj_name.decode('utf8')
         self.df = df_mgr.get_diskfile('sda1', 9, 'a', 'c', obj_name,
                                       policy=self.policy)
         write_diskfile(self.df, self.obj_timestamp, data=body,
@@ -6633,8 +6629,6 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             )
             expected_warning = 'Invalid resp from %s policy#0%s' % (
                 path, warning_extra)
-            if six.PY2:
-                expected_warning = expected_warning.decode('utf8')
             self.assertIn(expected_warning, warning_log_lines)
 
         test_missing_header(
@@ -6704,8 +6698,6 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 'Invalid resp from %s policy#0 '
                 '(invalid X-Object-Sysmeta-Ec-Frag-Index: %r)'
                 % (path, invalid_frag_index))
-            if six.PY2:
-                expected_warning = expected_warning.decode('utf8')
             self.assertIn(expected_warning, warning_log_lines)
 
         for value in ('None', 'invalid'):

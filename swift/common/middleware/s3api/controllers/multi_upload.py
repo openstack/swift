@@ -62,17 +62,14 @@ Static Large Object when the multipart upload is completed.
 import binascii
 import time
 
-import six
-
 from swift.common import constraints
 from swift.common.middleware.mpu import MPUSloCallbackHandler, MPUId
 from swift.common.swob import Range, normalize_etag, wsgi_to_str
 from swift.common.utils import json, public, reiterate, md5
-from swift.common.db import utf8encode
 from swift.common.request_helpers import get_container_update_override_key, \
     get_param
 
-from six.moves.urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
@@ -247,8 +244,6 @@ class UploadsController(Controller):
 
             :return (non_delimited_uploads, common_prefixes)
             """
-            if six.PY2:
-                (prefix, delimiter) = utf8encode(prefix, delimiter)
             non_delimited_uploads = []
             common_prefixes = set()
             for upload in uploads:
@@ -305,13 +300,8 @@ class UploadsController(Controller):
                     new_uploads, prefix, delimiter)
             uploads.extend(new_uploads)
             prefixes.extend(new_prefixes)
-            if six.PY2:
-                query['marker'] = objects[-1]['name'].encode('utf-8')
-                query['upload-id-marker'] = objects[-1]['upload_id'].encode(
-                    'utf-8')
-            else:
-                query['marker'] = objects[-1]['name']
-                query['upload-id-marker'] = objects[-1]['upload_id']
+            query['marker'] = objects[-1]['name']
+            query['upload-id-marker'] = objects[-1]['upload_id']
 
         truncated = len(uploads) >= max_uploads
         if len(uploads) > max_uploads:

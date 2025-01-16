@@ -30,9 +30,8 @@ from collections import defaultdict
 import unittest
 from uuid import uuid4
 import shutil
-import six
-from six.moves.http_client import HTTPConnection
-from six.moves.urllib.parse import urlparse
+from http.client import HTTPConnection
+from urllib.parse import urlparse
 
 from swiftclient import get_auth, head_account, client
 from swift.common import internal_client, direct_client, utils
@@ -363,9 +362,6 @@ class Body(object):
         self.read_amount += len(rv)
         self.hasher.update(rv)
         return rv
-
-    # for py2 compat:
-    next = __next__
 
 
 def exclude_nodes(nodes, *excludes):
@@ -733,16 +729,9 @@ class ECProbeTest(ProbeTest):
         if not require_durable:
             req_headers.update(
                 {'X-Backend-Fragment-Preferences': json.dumps([])})
-        # node dict has unicode values so utf8 decode our path parts too in
-        # case they have non-ascii characters
-        if six.PY2:
-            acc, con, obj = (s.decode('utf8') for s in (
-                self.account, self.container_name, self.object_name))
-        else:
-            acc, con, obj = self.account, self.container_name, self.object_name
         headers, data = direct_client.direct_get_object(
-            node, part, acc, con, obj, headers=req_headers,
-            resp_chunk_size=64 * 2 ** 20)
+            node, part, self.account, self.container_name, self.object_name,
+            headers=req_headers, resp_chunk_size=64 * 2 ** 20)
         hasher = md5(usedforsecurity=False)
         for chunk in data:
             hasher.update(chunk)

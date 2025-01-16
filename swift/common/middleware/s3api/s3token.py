@@ -61,8 +61,7 @@ from keystoneclient.v3 import client as keystone_client
 from keystoneauth1 import session as keystone_session
 from keystoneauth1 import loading as keystone_loading
 import requests
-import six
-from six.moves import urllib
+import urllib
 
 from swift.common.swob import Request, HTTPBadRequest, HTTPUnauthorized, \
     HTTPException, str_to_wsgi
@@ -217,9 +216,7 @@ class S3Token(object):
         error_msg = ('<?xml version="1.0" encoding="UTF-8"?>\r\n'
                      '<Error>\r\n  <Code>%s</Code>\r\n  '
                      '<Message>%s</Message>\r\n</Error>\r\n' %
-                     (code, message))
-        if six.PY3:
-            error_msg = error_msg.encode()
+                     (code, message)).encode()
         resp.body = error_msg
         return resp
 
@@ -266,18 +263,18 @@ class S3Token(object):
             return self._app(environ, start_response)
 
         access = s3_auth_details['access_key']
-        if isinstance(access, six.binary_type):
+        if isinstance(access, bytes):
             access = access.decode('utf-8')
 
         signature = s3_auth_details['signature']
-        if isinstance(signature, six.binary_type):
+        if isinstance(signature, bytes):
             signature = signature.decode('utf-8')
 
         string_to_sign = s3_auth_details['string_to_sign']
-        if isinstance(string_to_sign, six.text_type):
+        if isinstance(string_to_sign, str):
             string_to_sign = string_to_sign.encode('utf-8')
         token = base64.urlsafe_b64encode(string_to_sign)
-        if isinstance(token, six.binary_type):
+        if isinstance(token, bytes):
             token = token.decode('ascii')
 
         # NOTE(chmou): This is to handle the special case with nova
@@ -399,8 +396,6 @@ class S3Token(object):
 
         req.headers.update(headers)
         tenant_to_connect = force_tenant or tenant['id']
-        if six.PY2 and isinstance(tenant_to_connect, six.text_type):
-            tenant_to_connect = tenant_to_connect.encode('utf-8')
         self._logger.debug('Connecting with tenant: %s', tenant_to_connect)
         new_tenant_name = '%s%s' % (self._reseller_prefix, tenant_to_connect)
         environ['PATH_INFO'] = environ['PATH_INFO'].replace(

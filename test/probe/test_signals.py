@@ -25,8 +25,8 @@ import shutil
 import time
 from uuid import uuid4
 
-from six.moves import http_client as httplib
-from six.moves.urllib.parse import urlparse
+import http.client
+from urllib.parse import urlparse
 
 from swift.common.ring import Ring
 from swift.common.manager import Manager
@@ -113,8 +113,8 @@ class TestWSGIServerProcessHandling(ReplProbeTest):
     def get_conn(self):
         scheme, ip, port = self.get_scheme_ip_port()
         if scheme == 'https':
-            return httplib.HTTPSConnection('%s:%s' % (ip, port))
-        return httplib.HTTPConnection('%s:%s' % (ip, port))
+            return http.client.HTTPSConnection('%s:%s' % (ip, port))
+        return http.client.HTTPConnection('%s:%s' % (ip, port))
 
     def _check_reload(self):
         conn = self.get_conn()

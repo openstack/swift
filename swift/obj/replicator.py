@@ -22,8 +22,7 @@ import random
 import shutil
 import time
 import itertools
-from six import viewkeys
-import six.moves.cPickle as pickle
+import pickle  # nosec: B403
 
 import eventlet
 from eventlet import GreenPool, queue, tpool, Timeout, sleep
@@ -554,8 +553,8 @@ class ObjectReplicator(Daemon):
                             failure_devs_info.add((node['replication_ip'],
                                                    node['device']))
                         if success and node['region'] != job['region']:
-                            synced_remote_regions[node['region']] = viewkeys(
-                                candidates)
+                            synced_remote_regions[node['region']] = \
+                                candidates.keys()
                         responses.append(success)
                     for cand_objs in synced_remote_regions.values():
                         if delete_objs is None:
@@ -710,7 +709,8 @@ class ObjectReplicator(Daemon):
                                 failure_devs_info.add((node['replication_ip'],
                                                        node['device']))
                                 continue
-                            remote_hash = pickle.loads(resp.read())
+                            remote_hash = pickle.loads(
+                                resp.read())  # nosec: B301
                         finally:
                             conn.close()
                         del resp

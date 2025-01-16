@@ -21,7 +21,7 @@ import hmac
 import os
 import requests
 import requests.models
-from six.moves.urllib.parse import urlsplit, urlunsplit, quote
+from urllib.parse import urlsplit, urlunsplit, quote
 
 from swift.common import bufferedhttp
 from swift.common.utils import UTC

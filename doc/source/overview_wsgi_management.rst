@@ -58,13 +58,16 @@ is as follows:
    socket. Once all workers have started and can accept new connections,
    the manager notifies the socket-closer via a pipe. The socket-closer
    closes the old worker listen sockets so they stop accepting new
-   connections, then exits.
+   connections, passes the list of old workers to the new manager,
+   then exits.
 
 .. image:: images/reload_process_tree_5.svg
 
 5. Old workers continue servicing any in-progress connections, while new
    connections are picked up by new workers. Once an old worker completes
-   all of its oustanding requests, it exits.
+   all of its oustanding requests, it exits. Beginning with Swift 2.33.0,
+   if any workers persist beyond ``stale_worker_timeout``, the new manager
+   will clean them up with ``KILL`` signals.
 
 .. image:: images/reload_process_tree_6.svg
 

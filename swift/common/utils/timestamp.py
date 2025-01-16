@@ -21,10 +21,7 @@ import math
 import sys
 import time
 
-import six
-
 from email.utils import parsedate
-
 
 NORMAL_FORMAT = "%016.05f"
 INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
@@ -92,7 +89,7 @@ class Timestamp(object):
         """
         if isinstance(timestamp, bytes):
             timestamp = timestamp.decode('ascii')
-        if isinstance(timestamp, six.string_types):
+        if isinstance(timestamp, str):
             base, base_offset = timestamp.partition('_')[::2]
             self.timestamp = float(base)
             if '_' in base_offset:
@@ -142,11 +139,8 @@ class Timestamp(object):
     def __int__(self):
         return int(self.timestamp)
 
-    def __nonzero__(self):
-        return bool(self.timestamp or self.offset)
-
     def __bool__(self):
-        return self.__nonzero__()
+        return bool(self.timestamp or self.offset)
 
     @property
     def normal(self):
@@ -178,24 +172,21 @@ class Timestamp(object):
         :return: an isoformat string
         """
         t = float(self.normal)
-        if six.PY3:
-            # On Python 3, round manually using ROUND_HALF_EVEN rounding
-            # method, to use the same rounding method than Python 2. Python 3
-            # used a different rounding method, but Python 3.4.4 and 3.5.1 use
-            # again ROUND_HALF_EVEN as Python 2.
-            # See https://bugs.python.org/issue23517
-            frac, t = math.modf(t)
-            us = round(frac * 1e6)
-            if us >= 1000000:
-                t += 1
-                us -= 1000000
-            elif us < 0:
-                t -= 1
-                us += 1000000
-            dt = datetime.datetime.fromtimestamp(t, UTC)
-            dt = dt.replace(microsecond=us)
-        else:
-            dt = datetime.datetime.fromtimestamp(t, UTC)
+        # On Python 3, round manually using ROUND_HALF_EVEN rounding
+        # method, to use the same rounding method than Python 2. Python 3
+        # used a different rounding method, but Python 3.4.4 and 3.5.1 use
+        # again ROUND_HALF_EVEN as Python 2.
+        # See https://bugs.python.org/issue23517
+        frac, t = math.modf(t)
+        us = round(frac * 1e6)
+        if us >= 1000000:
+            t += 1
+            us -= 1000000
+        elif us < 0:
+            t -= 1
+            us += 1000000
+        dt = datetime.datetime.fromtimestamp(t, UTC)
+        dt = dt.replace(microsecond=us)
 
         isoformat = dt.isoformat()
         # need to drop tzinfo
@@ -333,7 +324,7 @@ def decode_timestamps(encoded, explicit=False):
     # TODO: some tests, e.g. in test_replicator, put float timestamps values
     # into container db's, hence this defensive check, but in real world
     # this may never happen.
-    if not isinstance(encoded, six.string_types):
+    if not isinstance(encoded, str):
         ts = Timestamp(encoded)
         return ts, ts, ts
 

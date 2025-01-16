@@ -65,7 +65,6 @@ PyYAML==3.12
 requests==2.14.2
 requests-mock==1.2.0
 rfc3986==1.1.0
-six==1.10.0
 smmap2==2.0.3
 snowballstemmer==1.2.1
 stestr==2.0.0

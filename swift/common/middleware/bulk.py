@@ -195,7 +195,6 @@ payload sent to the proxy (the list of objects/containers to be deleted).
 """
 
 import json
-import six
 import tarfile
 from xml.sax.saxutils import escape  # nosec B406
 from time import time
@@ -257,8 +256,6 @@ def get_response_body(data_format, data_dict, error_list, root_tag):
                 escape(status), '</status></object>\n',
             ])
         output.extend(['</errors>\n</', root_tag, '>\n'])
-        if six.PY2:
-            return ''.join(output)
         return ''.join(output).encode('utf-8')
 
     output = []
@@ -268,8 +265,6 @@ def get_response_body(data_format, data_dict, error_list, root_tag):
     output.extend(
         '%s, %s\n' % (name, status)
         for name, status in error_list)
-    if six.PY2:
-        return ''.join(output)
     return ''.join(output).encode('utf-8')
 
 
@@ -279,13 +274,9 @@ def pax_key_to_swift_header(pax_key):
         return "Content-Type"
     elif pax_key.startswith(u"SCHILY.xattr.user.meta."):
         useful_part = pax_key[len(u"SCHILY.xattr.user.meta."):]
-        if six.PY2:
-            return "X-Object-Meta-" + useful_part.encode("utf-8")
         return str_to_wsgi("X-Object-Meta-" + useful_part)
     elif pax_key.startswith(u"LIBARCHIVE.xattr.user.meta."):
         useful_part = pax_key[len(u"LIBARCHIVE.xattr.user.meta."):]
-        if six.PY2:
-            return "X-Object-Meta-" + useful_part.encode("utf-8")
         return str_to_wsgi("X-Object-Meta-" + useful_part)
     else:
         # You can get things like atime/mtime/ctime or filesystem ACLs in
@@ -357,15 +348,12 @@ class Bulk(object):
         while data_remaining:
             if b'\n' in line:
                 obj_to_delete, line = line.split(b'\n', 1)
-                if six.PY2:
-                    obj_to_delete = wsgi_unquote(obj_to_delete.strip())
-                else:
-                    # yeah, all this chaining is pretty terrible...
-                    # but it gets even worse trying to use UTF-8 and
-                    # errors='surrogateescape' when dealing with terrible
-                    # input like b'\xe2%98\x83'
-                    obj_to_delete = wsgi_to_str(wsgi_unquote(
-                        bytes_to_wsgi(obj_to_delete.strip())))
+                # yeah, all this chaining is pretty terrible...
+                # but it gets even worse trying to use UTF-8 and
+                # errors='surrogateescape' when dealing with terrible
+                # input like b'\xe2%98\x83'
+                obj_to_delete = wsgi_to_str(wsgi_unquote(
+                    bytes_to_wsgi(obj_to_delete.strip())))
                 objs_to_delete.append({'name': obj_to_delete})
             else:
                 data = req.body_file.read(self.max_path_length)
@@ -373,11 +361,8 @@ class Bulk(object):
                     line += data
                 else:
                     data_remaining = False
-                    if six.PY2:
-                        obj_to_delete = wsgi_unquote(line.strip())
-                    else:
-                        obj_to_delete = wsgi_to_str(wsgi_unquote(
-                            bytes_to_wsgi(line.strip())))
+                    obj_to_delete = wsgi_to_str(wsgi_unquote(
+                        bytes_to_wsgi(line.strip())))
                     if obj_to_delete:
                         objs_to_delete.append({'name': obj_to_delete})
             if len(objs_to_delete) > self.max_deletes_per_request:
@@ -577,9 +562,7 @@ class Bulk(object):
                         len(failed_files) >= self.max_failed_extractions:
                     break
                 if tar_info.isfile():
-                    obj_path = tar_info.name
-                    if not six.PY2:
-                        obj_path = obj_path.encode('utf-8', 'surrogateescape')
+                    obj_path = tar_info.name.encode('utf-8', 'surrogateescape')
                     obj_path = bytes_to_wsgi(obj_path)
                     if obj_path.startswith('./'):
                         obj_path = obj_path[2:]

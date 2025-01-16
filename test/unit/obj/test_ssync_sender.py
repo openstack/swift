@@ -19,7 +19,7 @@ import unittest
 
 import eventlet
 import mock
-import six
+import urllib.parse
 
 from swift.common import exceptions, utils
 from swift.common.storage_policy import POLICIES
@@ -59,8 +59,7 @@ class FakeResponse(ssync_sender.SsyncBufferedHTTPResponse):
     def __init__(self, chunk_body='', headers=None):
         self.status = 200
         self.close_called = False
-        if not six.PY2:
-            chunk_body = chunk_body.encode('ascii')
+        chunk_body = chunk_body.encode('ascii')
         if chunk_body:
             self.fp = io.BytesIO(
                 b'%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
@@ -1706,11 +1705,11 @@ class TestSender(BaseTest):
                                       extra_metadata=extra_metadata,
                                       commit=durable)
         expected = dict(df.get_metadata())
-        expected['body'] = body if six.PY2 else body.decode('ascii')
+        expected['body'] = body.decode('ascii')
         expected['chunk_size'] = len(body)
         expected['meta'] = meta_value
         expected['meta_name'] = meta_name
-        path = six.moves.urllib.parse.quote(expected['name'])
+        path = urllib.parse.quote(expected['name'])
         expected['path'] = path
         no_commit = '' if durable else 'X-Backend-No-Commit: True\r\n'
         expected['no_commit'] = no_commit
@@ -1773,7 +1772,7 @@ class TestSender(BaseTest):
         # Note that diskfile expects obj_name to be a native string
         # but metadata to be wsgi strings
         df.write_metadata(newer_metadata)
-        path = six.moves.urllib.parse.quote(df.read_metadata()['name'])
+        path = urllib.parse.quote(df.read_metadata()['name'])
         wire_meta = wsgi_to_bytes(meta_value)
         length = format(61 + len(path) + len(wire_meta), 'x')
 

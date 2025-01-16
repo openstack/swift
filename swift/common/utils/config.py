@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import six
 import os
 import operator
 import re
-from six.moves import configparser
-from six.moves.configparser import (ConfigParser, RawConfigParser)
+import configparser
+from configparser import ConfigParser, RawConfigParser
 
 # Used when reading config values
 TRUE_VALUES = {'true', '1', 'yes', 'on', 't', 'y'}
@@ -30,7 +29,7 @@ def config_true_value(value):
     Returns False otherwise.
     """
     return value is True or \
-        (isinstance(value, six.string_types) and value.lower() in TRUE_VALUES)
+        (isinstance(value, str) and value.lower() in TRUE_VALUES)
 
 
 def _non_negative_number(value, expected_type_f=float,
@@ -105,7 +104,7 @@ def config_auto_int_value(value, default):
     Returns value as an int or raises ValueError otherwise.
     """
     if value is None or \
-       (isinstance(value, six.string_types) and value.lower() == 'auto'):
+       (isinstance(value, str) and value.lower() == 'auto'):
         return default
     try:
         value = int(value)
@@ -338,15 +337,12 @@ def read_conf_dir(parser, conf_dir):
     return parser.read(sorted(conf_files))
 
 
-if six.PY2:
-    NicerInterpolation = None  # just don't cause ImportErrors over in wsgi.py
-else:
-    class NicerInterpolation(configparser.BasicInterpolation):
-        def before_get(self, parser, section, option, value, defaults):
-            if '%(' not in value:
-                return value
-            return super(NicerInterpolation, self).before_get(
-                parser, section, option, value, defaults)
+class NicerInterpolation(configparser.BasicInterpolation):
+    def before_get(self, parser, section, option, value, defaults):
+        if '%(' not in value:
+            return value
+        return super(NicerInterpolation, self).before_get(
+            parser, section, option, value, defaults)
 
 
 def readconf(conf_path, section_name=None, log_name=None, defaults=None,
@@ -370,27 +366,21 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
     if raw:
         c = RawConfigParser(defaults)
     else:
-        if six.PY2:
-            c = ConfigParser(defaults)
-        else:
-            # In general, we haven't really thought much about interpolation
-            # in configs. Python's default ConfigParser has always supported
-            # it, though, so *we* got it "for free". Unfortunatley, since we
-            # "supported" interpolation, we have to assume there are
-            # deployments in the wild that use it, and try not to break them.
-            # So, do what we can to mimic the py2 behavior of passing through
-            # values like "1%" (which we want to support for
-            # fallocate_reserve).
-            c = ConfigParser(defaults, interpolation=NicerInterpolation())
+        # In general, we haven't really thought much about interpolation
+        # in configs. Python's default ConfigParser has always supported
+        # it, though, so *we* got it "for free". Unfortunatley, since we
+        # "supported" interpolation, we have to assume there are
+        # deployments in the wild that use it, and try not to break them.
+        # So, do what we can to mimic the py2 behavior of passing through
+        # values like "1%" (which we want to support for
+        # fallocate_reserve).
+        c = ConfigParser(defaults, interpolation=NicerInterpolation())
     c.optionxform = str  # Don't lower-case keys
 
     if hasattr(conf_path, 'readline'):
         if hasattr(conf_path, 'seek'):
             conf_path.seek(0)
-        if six.PY2:
-            c.readfp(conf_path)
-        else:
-            c.read_file(conf_path)
+        c.read_file(conf_path)
     else:
         if os.path.isdir(conf_path):
             # read all configs in directory

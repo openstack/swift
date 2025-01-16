@@ -25,10 +25,7 @@ import logging.handlers
 import sys
 from contextlib import contextmanager, closing
 from collections import defaultdict
-try:
-    from collections.abc import Iterable
-except ImportError:
-    from collections import Iterable  # py2
+from collections.abc import Iterable
 import itertools
 from numbers import Number
 from tempfile import NamedTemporaryFile
@@ -45,12 +42,8 @@ import errno
 import xattr
 from io import BytesIO
 from uuid import uuid4
-
-import six
-import six.moves.cPickle as pickle
-from six.moves import range
-from six.moves.http_client import HTTPException
-from six.moves import configparser
+import pickle
+from http.client import HTTPException
 
 from swift.common import storage_policy, swob, utils, exceptions, \
     internal_client
@@ -494,8 +487,6 @@ class FakeIterable(object):
     def __next__(self):
         self.next_call_count += 1
         return next(self.values)
-
-    next = __next__  # py2
 
     def close(self):
         self.close_call_count += 1
@@ -987,14 +978,9 @@ def fake_http_connect(*code_iter, **kwargs):
         if 'give_connect' in kwargs:
             give_conn_fn = kwargs['give_connect']
 
-            if six.PY2:
-                argspec = inspect.getargspec(give_conn_fn)
-                if argspec.keywords or 'connection_id' in argspec.args:
-                    ckwargs['connection_id'] = i
-            else:
-                argspec = inspect.getfullargspec(give_conn_fn)
-                if argspec.varkw or 'connection_id' in argspec.args:
-                    ckwargs['connection_id'] = i
+            argspec = inspect.getfullargspec(give_conn_fn)
+            if argspec.varkw or 'connection_id' in argspec.args:
+                ckwargs['connection_id'] = i
             give_conn_fn(*args, **ckwargs)
         etag = next(etag_iter)
         headers = next(headers_iter)
@@ -1027,8 +1013,6 @@ def mocked_http_conn(*args, **kwargs):
     responses = []
 
     def capture_requests(ip, port, method, path, headers, qs, ssl):
-        if six.PY2 and not isinstance(ip, bytes):
-            ip = ip.encode('ascii')
         req = {
             'ip': ip,
             'port': port,
@@ -1438,39 +1422,6 @@ def generate_db_path(tempdir, server_type):
         '%s-%s.db' % (server_type, uuid4()))
 
 
-class ConfigAssertMixin(object):
-    """
-    Use this with a TestCase to get py2/3 compatible assert for DuplicateOption
-    """
-    def assertDuplicateOption(self, app_config, option_name, option_value):
-        """
-        PY3 added a DuplicateOptionError, PY2 didn't seem to care
-        """
-        if six.PY3:
-            self.assertDuplicateOptionError(app_config, option_name)
-        else:
-            self.assertDuplicateOptionOK(app_config, option_name, option_value)
-
-    def assertDuplicateOptionError(self, app_config, option_name):
-        with self.assertRaises(
-                configparser.DuplicateOptionError) as ctx:
-            app_config()
-        msg = str(ctx.exception)
-        self.assertIn(option_name, msg)
-        self.assertIn('already exists', msg)
-
-    def assertDuplicateOptionOK(self, app_config, option_name, option_value):
-        app = app_config()
-        if hasattr(app, 'conf'):
-            found_value = app.conf[option_name]
-        else:
-            if hasattr(app, '_pipeline_final_app'):
-                # special case for proxy app!
-                app = app._pipeline_final_app
-            found_value = getattr(app, option_name)
-        self.assertEqual(found_value, option_value)
-
-
 class FakeSource(object):
     def __init__(self, chunks, headers=None, body=b''):
         self.chunks = list(chunks)
@@ -1529,11 +1480,9 @@ class CaptureIterator(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         self._capture_call()
         return next(self.wrapped_iter)
-
-    __next__ = next
 
     def __del__(self):
         self._capture_call()

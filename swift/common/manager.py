@@ -24,14 +24,9 @@ import signal
 import time
 import subprocess
 import re
-import six
 import sys
 import tempfile
-try:
-    from shutil import which
-except ImportError:
-    # py2
-    from distutils.spawn import find_executable as which
+from shutil import which
 
 from swift.common.utils import search_tree, remove_file, write_file, readconf
 from swift.common.exceptions import InvalidPidFileException
@@ -845,10 +840,8 @@ class Server(object):
             if proc.stdout.closed:
                 output = ''
             else:
-                output = proc.stdout.read()
+                output = proc.stdout.read().decode('utf8', 'backslashreplace')
                 proc.stdout.close()
-                if not six.PY2:
-                    output = output.decode('utf8', 'backslashreplace')
 
             if kwargs.get('once', False):
                 # if you don't want once to wait you can send it to the

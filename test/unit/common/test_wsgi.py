@@ -15,17 +15,22 @@
 
 """Tests for swift.common.wsgi"""
 
+import configparser
 import errno
+import json
 import logging
+import signal
 import socket
+import struct
 import unittest
 import os
+import eventlet
 
 from collections import defaultdict
 from io import BytesIO
 from textwrap import dedent
 
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 import mock
 
@@ -43,7 +48,7 @@ from swift.common.storage_policy import POLICIES
 from test import listen_zero
 from test.debug_logger import debug_logger
 from test.unit import (
-    temptree, with_tempdir, write_fake_ring, patch_policies, ConfigAssertMixin)
+    temptree, with_tempdir, write_fake_ring, patch_policies)
 
 from paste.deploy import loadwsgi
 
@@ -60,7 +65,7 @@ def _fake_rings(tmpdir):
 
 
 @patch_policies
-class TestWSGI(unittest.TestCase, ConfigAssertMixin):
+class TestWSGI(unittest.TestCase):
     """Tests for swift.common.wsgi"""
 
     def test_init_request_processor(self):
@@ -164,8 +169,12 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
         contents = dedent(conf_body)
         with open(conf_path, 'w') as f:
             f.write(contents)
-        app_config = lambda: wsgi.loadapp(conf_path)
-        self.assertDuplicateOption(app_config, 'client_timeout', 3.0)
+        with self.assertRaises(
+                configparser.DuplicateOptionError) as ctx:
+            wsgi.loadapp(conf_path)
+        msg = str(ctx.exception)
+        self.assertIn('client_timeout', msg)
+        self.assertIn('already exists', msg)
 
     @with_tempdir
     def test_loadapp_from_file_with_global_conf(self, tempdir):
@@ -308,10 +317,12 @@ class TestWSGI(unittest.TestCase, ConfigAssertMixin):
             path = os.path.join(tempdir, filename + '.conf')
             with open(path, 'wt') as fd:
                 fd.write(dedent(conf_body))
-        app_config = lambda: wsgi.loadapp(tempdir)
-        # N.B. our paste conf.d parsing re-uses readconf,
-        # so, CLIENT_TIMEOUT/client_timeout are unique options
-        self.assertDuplicateOption(app_config, 'conn_timeout', 4.0)
+        with self.assertRaises(
+                configparser.DuplicateOptionError) as ctx:
+            wsgi.loadapp(tempdir)
+        msg = str(ctx.exception)
+        self.assertIn('conn_timeout', msg)
+        self.assertIn('already exists', msg)
 
     @with_tempdir
     def test_load_app_config(self, tempdir):
@@ -1266,6 +1277,79 @@ class CommonTestMixin(object):
         self.assertEqual([
             mock.call(self.logger),
         ], mock_capture.mock_calls)
+
+    def test_stale_pid_loading(self):
+        class FakeTime(object):
+            def __init__(self, step=10):
+                self.patchers = [
+                    mock.patch('swift.common.wsgi.time.time',
+                               side_effect=self.time),
+                    mock.patch('swift.common.wsgi.sleep',
+                               side_effect=self.sleep),
+                ]
+                self.now = 0
+                self.step = step
+                self.sleeps = []
+
+            def time(self):
+                self.now += self.step
+                return self.now
+
+            def sleep(self, delta):
+                if delta < 0:
+                    raise ValueError('cannot sleep negative time: %s' % delta)
+                self.now += delta
+                self.sleeps.append(delta)
+
+            def __enter__(self):
+                for patcher in self.patchers:
+                    patcher.start()
+                return self
+
+            def __exit__(self, *a):
+                for patcher in self.patchers:
+                    patcher.stop()
+
+        notify_rfd, notify_wfd = os.pipe()
+        state_rfd, state_wfd = os.pipe()
+        stale_process_data = {
+            "old_pids": {123: 5, 456: 6, 78: 27, 90: 28},
+        }
+        to_write = json.dumps(stale_process_data).encode('ascii')
+        os.write(state_wfd, struct.pack('!I', len(to_write)) + to_write)
+        os.close(state_wfd)
+        self.assertEqual(self.strategy.reload_pids, {})
+        os.environ['__SWIFT_SERVER_NOTIFY_FD'] = str(notify_wfd)
+        os.environ['__SWIFT_SERVER_CHILD_STATE_FD'] = str(state_rfd)
+        with mock.patch('swift.common.wsgi.capture_stdio'), \
+                mock.patch('swift.common.utils.get_ppid') as mock_ppid, \
+                mock.patch('os.kill') as mock_kill, FakeTime() as fake_time:
+            mock_ppid.side_effect = [
+                os.getpid(),
+                OSError(errno.ENOENT, "Not there"),
+                OSError(errno.EPERM, "Not for you"),
+                os.getpid(),
+            ]
+            self.strategy.signal_ready()
+            self.assertEqual(self.strategy.reload_pids,
+                             stale_process_data['old_pids'])
+
+            # We spawned our child-killer, but it hasn't been scheduled yet
+            self.assertEqual(mock_ppid.mock_calls, [])
+            self.assertEqual(mock_kill.mock_calls, [])
+            self.assertEqual(fake_time.sleeps, [])
+
+            # *Now* we let it run (with mocks still enabled)
+            eventlet.sleep()
+
+        self.assertEqual(str(os.getpid()).encode('ascii'),
+                         os.read(notify_rfd, 30))
+        os.close(notify_rfd)
+
+        self.assertEqual(mock_kill.mock_calls, [
+            mock.call(123, signal.SIGKILL),
+            mock.call(90, signal.SIGKILL)])
+        self.assertEqual(fake_time.sleeps, [86395, 2])
 
 
 class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):

@@ -15,8 +15,7 @@
 
 import json
 
-import six
-from six.moves.urllib.parse import unquote
+from urllib.parse import unquote
 
 from swift.common.utils import public, private, csv_append, Timestamp, \
     config_true_value, cache_from_env, filter_namespaces, NamespaceBoundList
@@ -508,8 +507,6 @@ class ContainerController(Controller):
                 else:
                     last_name = objects[-1]['name']
 
-                if six.PY2:
-                    last_name = last_name.encode('utf8')
                 params['marker'] = str_to_wsgi(last_name)
             elif marker:
                 params['marker'] = str_to_wsgi(marker)
@@ -594,8 +591,6 @@ class ContainerController(Controller):
                 break
             last_name = objects[-1].get('name',
                                         objects[-1].get('subdir', u''))
-            if six.PY2:
-                last_name = last_name.encode('utf8')
             if end_marker and reverse and end_marker >= last_name:
                 break
             if end_marker and not reverse and end_marker <= last_name:

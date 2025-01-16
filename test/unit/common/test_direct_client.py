@@ -22,7 +22,7 @@ import time
 import pickle
 
 import mock
-from six.moves import urllib
+import urllib.parse
 
 from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
@@ -31,7 +31,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import Timestamp, quote, md5
 from swift.common.swob import RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
-from six.moves.http_client import HTTPException
+from http.client import HTTPException
 
 from test.debug_logger import debug_logger
 from test.unit import patch_policies

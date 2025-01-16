@@ -22,7 +22,6 @@ import os
 from os.path import join
 import time
 from mock import patch
-import six
 import json
 
 from swift.common import swob
@@ -694,9 +693,8 @@ class BaseS3ApiObj(object):
 
     def test_object_PUT(self):
         etag = self.response_headers['etag']
-        content_md5 = binascii.b2a_base64(binascii.a2b_hex(etag)).strip()
-        if not six.PY2:
-            content_md5 = content_md5.decode('ascii')
+        content_md5 = binascii.b2a_base64(
+            binascii.a2b_hex(etag)).strip().decode('ascii')
 
         req = Request.blank(
             '/bucket/object',
@@ -731,9 +729,8 @@ class BaseS3ApiObj(object):
             '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted',
             swob.HTTPCreated, {}, None)
         etag = self.response_headers['etag']
-        content_md5 = binascii.b2a_base64(binascii.a2b_hex(etag)).strip()
-        if not six.PY2:
-            content_md5 = content_md5.decode('ascii')
+        content_md5 = binascii.b2a_base64(
+            binascii.a2b_hex(etag)).strip().decode('ascii')
 
         req = Request.blank(
             '/bucket/object',
@@ -767,9 +764,8 @@ class BaseS3ApiObj(object):
                             'Unprocessable Entity')
 
         bad_etag = md5(b'not-same-content').hexdigest()
-        content_md5 = binascii.b2a_base64(binascii.a2b_hex(bad_etag)).strip()
-        if not six.PY2:
-            content_md5 = content_md5.decode('ascii')
+        content_md5 = binascii.b2a_base64(
+            binascii.a2b_hex(bad_etag)).strip().decode('ascii')
 
         req = Request.blank(
             '/bucket/object',
@@ -790,9 +786,8 @@ class BaseS3ApiObj(object):
 
     def test_object_PUT_quota_exceeded(self):
         etag = self.response_headers['etag']
-        content_md5 = binascii.b2a_base64(binascii.a2b_hex(etag)).strip()
-        if not six.PY2:
-            content_md5 = content_md5.decode('ascii')
+        content_md5 = binascii.b2a_base64(
+            binascii.a2b_hex(etag)).strip().decode('ascii')
 
         self.swift.register(
             'PUT', '/v1/AUTH_test/bucket/object',
@@ -1363,9 +1358,8 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         self.assertEqual(headers['x-copy-from'], '/bucket/src_obj')
 
     def test_object_PUT_headers(self):
-        content_md5 = binascii.b2a_base64(binascii.a2b_hex(self.etag)).strip()
-        if not six.PY2:
-            content_md5 = content_md5.decode('ascii')
+        content_md5 = binascii.b2a_base64(binascii.a2b_hex(
+            self.etag)).strip().decode('ascii')
 
         self.swift.register('HEAD', '/v1/AUTH_test/some/source',
                             swob.HTTPOk, {'last-modified': self.last_modified},

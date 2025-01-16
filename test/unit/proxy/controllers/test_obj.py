@@ -29,14 +29,9 @@ import mock
 from eventlet import Timeout, sleep
 from eventlet.queue import Empty
 
-import six
-from six import StringIO
-from six.moves import range
-from six.moves.urllib.parse import quote, parse_qsl
-if six.PY2:
-    from email.parser import FeedParser as EmailFeedParser
-else:
-    from email.parser import BytesFeedParser as EmailFeedParser
+from io import StringIO
+from urllib.parse import quote, parse_qsl
+from email.parser import BytesFeedParser as EmailFeedParser
 
 import swift
 from swift.common import utils, swob, exceptions
@@ -1814,35 +1809,23 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
         req, log_lines = do_test((201, (100, Exception('boom')), 201))
         self.assertIn('ERROR with Object server', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.path, log_lines[0])
-        else:
-            self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        self.assertIn(req.path, log_lines[0])
         self.assertIn('Trying to get final status of PUT', log_lines[0])
 
         req, log_lines = do_test((201, (100, Timeout()), 201))
         self.assertIn('ERROR with Object server', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.path, log_lines[0])
-        else:
-            self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        self.assertIn(req.path, log_lines[0])
         self.assertIn('Trying to get final status of PUT', log_lines[0])
 
         req, log_lines = do_test((201, (100, 507), 201))
         self.assertIn('ERROR Insufficient Storage', log_lines[0])
 
         req, log_lines = do_test((201, (100, 500), 201))
-        if six.PY3:
-            # We allow the b'' in logs because we want to see bad characters.
-            self.assertIn(
-                "ERROR 500 b'' Trying to PUT /v1/AUTH_kilroy/%ED%88%8E/"
-                "%E9%90%89 From Object Server", log_lines[0])
-            self.assertIn(req.path, log_lines[0])
-        else:
-            self.assertIn(
-                'ERROR 500  Trying to PUT /v1/AUTH_kilroy/%ED%88%8E/%E9%90%89 '
-                'From Object Server', log_lines[0])
-            self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        # We allow the b'' in logs because we want to see bad characters.
+        self.assertIn(
+            "ERROR 500 b'' Trying to PUT /v1/AUTH_kilroy/%ED%88%8E/"
+            "%E9%90%89 From Object Server", log_lines[0])
+        self.assertIn(req.path, log_lines[0])
 
     def test_DELETE_errors(self):
         # verify logged errors with and without non-ascii characters in path
@@ -1863,19 +1846,13 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
                                  (201, 500, 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.swift_entity_path, log_lines[0])
-        else:
-            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(req.swift_entity_path, log_lines[0])
         self.assertIn(' From Object Server', log_lines[0])
 
         req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                  (201, 500, 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.swift_entity_path, log_lines[0])
-        else:
-            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(req.swift_entity_path, log_lines[0])
         self.assertIn(' From Object Server', log_lines[0])
 
         req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
@@ -1889,19 +1866,13 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
                                  (201, Exception(), 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.swift_entity_path, log_lines[0])
-        else:
-            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(req.swift_entity_path, log_lines[0])
         self.assertIn('ERROR with Object server', log_lines[0])
 
         req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                  (201, Exception(), 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.swift_entity_path, log_lines[0])
-        else:
-            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(req.swift_entity_path, log_lines[0])
         self.assertIn('ERROR with Object server', log_lines[0])
 
     def test_DELETE_with_write_affinity(self):
@@ -3158,7 +3129,7 @@ class ECObjectControllerMixin(CommonObjectControllerMixin):
     def _make_ec_object_stub(self, pattern='test', policy=None,
                              timestamp=None):
         policy = policy or self.policy
-        if isinstance(pattern, six.text_type):
+        if isinstance(pattern, str):
             pattern = pattern.encode('utf-8')
         test_body = pattern * policy.ec_segment_size
         test_body = test_body[:-random.randint(1, 1000)]
@@ -3897,7 +3868,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(len(real_body), len(sanity_body))
         self.assertEqual(real_body, sanity_body)
 
-        # list(zip(...)) for py3 compatibility (zip is lazy there)
+        # list(zip(...)) since zip is lazy
         node_fragments = list(zip(*fragment_payloads))
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
@@ -8123,10 +8094,7 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
                           'includes': '1_test',
                           'states': 'updating'},
                          actual_params)
-        if six.PY2:
-            self.assertIn('No JSON', err)
-        else:
-            self.assertIn('JSONDecodeError', err)
+        self.assertIn('JSONDecodeError', err)
         self.assertFalse(error_lines[1:])
 
     def test_get_namespaces_not_a_list(self):

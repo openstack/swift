@@ -21,8 +21,7 @@ import sqlite3
 import sys
 from collections import defaultdict
 
-import six
-from six.moves import urllib
+import urllib
 
 from swift.common.exceptions import LockTimeout
 from swift.common.utils import hash_path, storage_directory, \
@@ -722,10 +721,9 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
 
 
 def obj_main():
-    if not six.PY2:
-        # Make stdout able to write escaped bytes
-        sys.stdout = codecs.getwriter("utf-8")(
-            sys.stdout.detach(), errors='surrogateescape')
+    # Make stdout able to write escaped bytes
+    sys.stdout = codecs.getwriter("utf-8")(
+        sys.stdout.detach(), errors='surrogateescape')
 
     parser = OptionParser('%prog [options] OBJECT_FILE')
     parser.add_option(

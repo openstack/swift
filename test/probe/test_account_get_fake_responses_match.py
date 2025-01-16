@@ -17,8 +17,8 @@
 import re
 import unittest
 
-from six.moves import http_client
-from six.moves.urllib.parse import urlparse
+import http.client
+from urllib.parse import urlparse
 from swiftclient import get_auth
 from test.probe import PROXY_BASE_URL
 from test.probe.common import ReplProbeTest
@@ -53,9 +53,9 @@ class TestAccountGetFakeResponsesMatch(ReplProbeTest):
         port = int(port)
 
         if scheme == 'https':
-            conn = http_client.HTTPSConnection(host, port)
+            conn = http.client.HTTPSConnection(host, port)
         else:
-            conn = http_client.HTTPConnection(host, port)
+            conn = http.client.HTTPConnection(host, port)
         conn.request(method, self._account_path(account), headers=headers)
         resp = conn.getresponse()
         if resp.status // 100 != 2:

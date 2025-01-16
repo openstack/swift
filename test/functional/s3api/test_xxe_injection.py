@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import requests
-import six
 
 import botocore
 
@@ -62,11 +61,10 @@ class TestS3ApiXxeInjection(S3ApiBaseBoto3):
         finally:
             self.conn.meta.events.unregister(
                 'before-sign.s3.*', self._clear_data)
-        if not params.get('Key') and '/?' not in url and not six.PY2:
+        if not params.get('Key') and '/?' not in url:
             # Some combination of dependencies seems to cause bucket requests
             # to not get the trailing slash despite signing with it? But only
-            # new-enough versions sign with the trailing slash; py2 is stuck
-            # with old.
+            # new-enough versions sign with the trailing slash
             url = url.replace('?', '/?')
         return url
 

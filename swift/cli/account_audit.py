@@ -23,7 +23,7 @@ from itertools import chain
 import json
 from eventlet.greenpool import GreenPool
 from eventlet.event import Event
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 from swift.common.ring import Ring
 from swift.common.utils import split_path

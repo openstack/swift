@@ -123,11 +123,9 @@ the file are simply ignored).
 __all__ = ['FormPost', 'filter_factory', 'READ_CHUNK_SIZE', 'MAX_VALUE_LENGTH']
 
 import hmac
-import hashlib
 from time import time
 
-import six
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 from swift.common.constraints import valid_api_version
 from swift.common.exceptions import MimeInvalid
@@ -249,9 +247,7 @@ class FormPost(object):
                      ('Content-Length', str(len(body)))))
                 return [body]
             except (FormInvalid, EOFError) as err:
-                body = 'FormPost: %s' % err
-                if six.PY3:
-                    body = body.encode('utf-8')
+                body = ('FormPost: %s' % err).encode('utf-8')
                 start_response(
                     '400 Bad Request',
                     (('Content-Type', 'text/plain'),
@@ -273,8 +269,7 @@ class FormPost(object):
         :returns: status_line, headers_list, body
         """
         keys = self._get_keys(env)
-        if six.PY3:
-            boundary = boundary.encode('utf-8')
+        boundary = boundary.encode('utf-8')
         status = message = ''
         attributes = {}
         file_attributes = {}
@@ -320,8 +315,7 @@ class FormPost(object):
                     data += chunk
                 while fp.read(READ_CHUNK_SIZE):
                     pass
-                if six.PY3:
-                    data = data.decode('utf-8')
+                data = data.decode('utf-8')
                 if 'name' in attrs:
                     attributes[attrs['name'].lower()] = data.rstrip('\r\n--')
         if not status:
@@ -337,8 +331,7 @@ class FormPost(object):
             body = status
             if message:
                 body = status + '\r\nFormPost: ' + message.title()
-            if six.PY3:
-                body = body.encode('utf-8')
+            body = body.encode('utf-8')
             if not is_success(status_code) and resp_body:
                 body = resp_body
             headers.extend([('Content-Type', 'text/plain'),
@@ -352,8 +345,7 @@ class FormPost(object):
                                               quote(message))
         body = '<html><body><p><a href="%s">' \
                'Click to continue...</a></p></body></html>' % redirect
-        if six.PY3:
-            body = body.encode('utf-8')
+        body = body.encode('utf-8')
         headers.extend(
             [('Location', redirect), ('Content-Length', str(len(body)))])
         return '303 See Other', headers, body
@@ -415,8 +407,7 @@ class FormPost(object):
             attributes.get('max_file_size') or '0',
             attributes.get('max_file_count') or '0',
             attributes.get('expires') or '0')
-        if six.PY3:
-            hmac_body = hmac_body.encode('utf-8')
+        hmac_body = hmac_body.encode('utf-8')
 
         has_valid_sig = False
         signature = attributes.get('signature', '')
@@ -426,13 +417,12 @@ class FormPost(object):
             raise FormUnauthorized('invalid signature')
         if hash_name not in self.allowed_digests:
             raise FormUnauthorized('invalid signature')
-        hash_algorithm = getattr(hashlib, hash_name) if six.PY2 else hash_name
 
         for key in keys:
             # Encode key like in swift.common.utls.get_hmac.
-            if not isinstance(key, six.binary_type):
+            if not isinstance(key, bytes):
                 key = key.encode('utf8')
-            sig = hmac.new(key, hmac_body, hash_algorithm).hexdigest()
+            sig = hmac.new(key, hmac_body, hash_name).hexdigest()
             if streq_const_time(sig, signature):
                 has_valid_sig = True
         if not has_valid_sig:

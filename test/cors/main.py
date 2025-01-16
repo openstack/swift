@@ -24,9 +24,9 @@ import threading
 import time
 import traceback
 
-from six.moves import urllib
-from six.moves import socketserver
-from six.moves import SimpleHTTPServer
+import urllib.parse
+import socketserver
+import http.server
 
 try:
     import selenium.webdriver
@@ -51,12 +51,14 @@ TEST_TIMEOUT = 120.0  # seconds
 STEPS = 500
 
 
-# Hack up stdlib so SimpleHTTPRequestHandler works well on py2, too
-this_dir = os.path.realpath(os.path.dirname(__file__))
-os.getcwd = lambda: this_dir
+class CORSSiteHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(
+            *args,
+            directory=os.path.realpath(os.path.dirname(__file__)),
+            **kwargs,
+        )
 
-
-class CORSSiteHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # quiet, you!
 
@@ -67,7 +69,7 @@ class CORSSiteServer(socketserver.TCPServer):
 
 class CORSSite(threading.Thread):
     def __init__(self, bind_port=8000):
-        super(CORSSite, self).__init__()
+        super().__init__()
         self.server = None
         self.bind_port = bind_port
 

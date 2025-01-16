@@ -18,7 +18,6 @@ import calendar
 import datetime
 import email.utils
 import re
-import six
 import time
 import uuid
 
@@ -54,8 +53,6 @@ def snake_to_camel(snake):
 
 def unique_id():
     result = base64.urlsafe_b64encode(str(uuid.uuid4()).encode('ascii'))
-    if six.PY2:
-        return result
     return result.decode('ascii')
 
 

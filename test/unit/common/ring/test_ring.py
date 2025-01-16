@@ -15,7 +15,7 @@
 
 import array
 import collections
-import six.moves.cPickle as pickle
+import pickle
 import os
 import unittest
 import stat
@@ -28,7 +28,6 @@ import sys
 import copy
 import mock
 
-from six.moves import range
 from swift.common import ring, utils
 from swift.common.ring import utils as ring_utils
 from swift.common.utils import md5
@@ -959,9 +958,6 @@ class TestRing(TestRingBase):
             def __next__(self):
                 self.count += 1
                 return next(self._iter)
-
-            # complete the api
-            next = __next__
 
             def __getitem__(self, key):
                 return self.table[key]

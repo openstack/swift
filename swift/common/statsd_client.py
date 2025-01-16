@@ -21,7 +21,6 @@ from contextlib import closing
 from random import random
 
 from eventlet.green import socket
-import six
 
 
 def get_statsd_client(conf=None, tail_prefix='', logger=None):
@@ -164,8 +163,7 @@ class StatsdClient(object):
                 parts.append('@%s' % (sample_rate,))
             else:
                 return
-        if six.PY3:
-            parts = [part.encode('utf-8') for part in parts]
+        parts = [part.encode('utf-8') for part in parts]
         # Ideally, we'd cache a sending socket in self, but that
         # results in a socket getting shared by multiple green threads.
         with closing(self._open_socket()) as sock:

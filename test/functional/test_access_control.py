@@ -15,7 +15,7 @@
 # limitations under the License.
 
 import unittest
-from six.moves.urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 import uuid
 from random import shuffle
 

@@ -22,7 +22,7 @@ from random import choice, random
 from struct import unpack_from
 
 from eventlet import sleep, Timeout
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 
 import swift.common.db
 from swift.common.db import DatabaseConnectionError

@@ -18,7 +18,6 @@ import mock
 import tempfile
 import time
 
-from six.moves import range
 from test.unit import mock_check_drive
 
 from swift.common.swob import Request, HTTPException

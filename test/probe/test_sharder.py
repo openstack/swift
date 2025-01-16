@@ -21,8 +21,7 @@ import unittest
 import uuid
 
 from unittest import SkipTest
-import six
-from six.moves.urllib.parse import quote
+from urllib.parse import quote
 
 from swift.common import direct_client, utils
 from swift.common.header_key_dict import HeaderKeyDict
@@ -352,8 +351,7 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.assertIn('x-container-object-count', headers)
         expected_obj_count = len(expected_listing)
         self.assertEqual(expected_listing, [
-            x['name'].encode('utf-8') if six.PY2 else x['name']
-            for x in actual_listing])
+            x['name'] for x in actual_listing])
         self.assertEqual(str(expected_obj_count),
                          headers['x-container-object-count'])
         return headers, actual_listing
@@ -520,8 +518,7 @@ class TestContainerShardingNonUTF8(BaseAutoContainerSharding):
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name, query_string=qs,
                 headers=req_hdrs)
-            listing = [x['name'].encode('utf-8') if six.PY2 else x['name']
-                       for x in listing]
+            listing = [x['name'] for x in listing]
             if params.get('reverse'):
                 marker = params.get('marker', ShardRange.MAX)
                 end_marker = params.get('end_marker', ShardRange.MIN)
@@ -717,9 +714,7 @@ class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
         obj_names = []
         for x in range(start, start + number):
             name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234-%04d' % x)
-            name = name.encode('utf8').ljust(name_length, b'o')
-            if not six.PY2:
-                name = name.decode('utf8')
+            name = name.encode('utf8').ljust(name_length, b'o').decode('utf8')
             obj_names.append(name)
         return obj_names
 
@@ -729,9 +724,8 @@ class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
         name_length = self.cluster_info['swift']['max_container_name_length']
         cont_name = \
             self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234'
-        self.container_name = cont_name.encode('utf8').ljust(name_length, b'x')
-        if not six.PY2:
-            self.container_name = self.container_name.decode('utf8')
+        self.container_name = cont_name.encode('utf8').ljust(
+            name_length, b'x').decode('utf8')
 
 
 class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
@@ -784,8 +778,7 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
             qs = '&'.join('%s=%s' % param for param in params.items())
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name, query_string=qs)
-            listing = [(x['name'].encode('utf-8') if six.PY2 else x['name'],
-                        x['version_id'])
+            listing = [(x['name'], x['version_id'])
                        for x in listing]
             if params.get('reverse'):
                 marker = (
@@ -959,8 +952,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         headers, pre_sharding_listing = client.get_container(
             self.url, self.token, self.container_name)
         self.assertEqual(obj_names, [
-            x['name'].encode('utf-8') if six.PY2 else x['name']
-            for x in pre_sharding_listing])  # sanity
+            x['name'] for x in pre_sharding_listing])  # sanity
 
         # Shard it
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -1596,9 +1588,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             shard_listings = self.direct_get_container(sr.account,
                                                        sr.container)
             for node, (hdrs, listing) in shard_listings.items():
-                shard_listing_names = [
-                    o['name'].encode('utf-8') if six.PY2 else o['name']
-                    for o in listing]
+                shard_listing_names = [o['name'] for o in listing]
                 for obj in obj_names[4::5]:
                     if obj in sr:
                         self.assertIn(obj, shard_listing_names)
@@ -1613,29 +1603,25 @@ class TestContainerSharding(BaseAutoContainerSharding):
         start_listing = [
             o for o in obj_names if o <= expected_shard_ranges[1].upper]
         self.assertEqual(
-            [x['name'].encode('utf-8') if six.PY2 else x['name']
-             for x in listing[:len(start_listing)]],
+            [x['name'] for x in listing[:len(start_listing)]],
             start_listing)
         # we can't assert much about the remaining listing, other than that
         # there should be something
         self.assertTrue(
-            [x['name'].encode('utf-8') if six.PY2 else x['name']
-             for x in listing[len(start_listing):]])
+            [x['name'] for x in listing[len(start_listing):]])
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(str(len(listing)),
                          headers['x-container-object-count'])
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name,
                                                 query_string='reverse=on')
-        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
-                          for x in listing[-len(start_listing):]],
+        self.assertEqual([x['name'] for x in listing[-len(start_listing):]],
                          list(reversed(start_listing)))
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(str(len(listing)),
                          headers['x-container-object-count'])
         self.assertTrue(
-            [x['name'].encode('utf-8') if six.PY2 else x['name']
-             for x in listing[:-len(start_listing)]])
+            [x['name'] for x in listing[:-len(start_listing)]])
 
         # Run the sharders again to get everything to settle
         self.sharders.once()
@@ -1645,8 +1631,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         # now all shards have been cleaved we should get the complete listing
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name)
-        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
-                          for x in listing],
+        self.assertEqual([x['name'] for x in listing],
                          obj_names)
 
         # Create a few more objects in async pending. Check them, they should
@@ -1670,16 +1655,13 @@ class TestContainerSharding(BaseAutoContainerSharding):
         # they don't exist yet
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name)
-        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
-                          for x in listing],
-                         obj_names)
+        self.assertEqual([x['name'] for x in listing], obj_names)
 
         # Now clear them out and they should now exist where we expect.
         Manager(['object-updater']).once()
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name)
-        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
-                          for x in listing],
+        self.assertEqual([x['name'] for x in listing],
                          obj_names + more_obj_names)
 
         # And they're cleared up
@@ -3203,9 +3185,7 @@ class TestContainerShardingMoreUTF8(TestContainerSharding):
         obj_names = []
         for x in range(start, start + number):
             name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
-            name = name.encode('utf8').ljust(name_length, b'o')
-            if not six.PY2:
-                name = name.decode('utf8')
+            name = name.encode('utf8').ljust(name_length, b'o').decode('utf8')
             obj_names.append(name)
         return obj_names
 
@@ -3215,9 +3195,8 @@ class TestContainerShardingMoreUTF8(TestContainerSharding):
         name_length = self.cluster_info['swift']['max_container_name_length']
         cont_name = \
             self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234'
-        self.container_name = cont_name.encode('utf8').ljust(name_length, b'x')
-        if not six.PY2:
-            self.container_name = self.container_name.decode('utf8')
+        self.container_name = cont_name.encode('utf8').ljust(
+            name_length, b'x').decode('utf8')
 
 
 class TestManagedContainerSharding(BaseTestContainerSharding):

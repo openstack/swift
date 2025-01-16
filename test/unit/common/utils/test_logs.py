@@ -18,7 +18,6 @@ from __future__ import print_function
 
 import contextlib
 import errno
-import hashlib
 import logging
 import os
 import socket
@@ -29,19 +28,15 @@ import eventlet
 import functools
 import mock
 
-import six
-from six import StringIO
-from six.moves import http_client
+from io import StringIO
+import http.client
 
 from test.unit import with_tempdir
 from test.unit import quiet_eventlet_exceptions
 from test.unit.common.test_utils import MockOs, MockSys
 from swift.common.exceptions import Timeout, MessageTimeout, ConnectionTimeout
 
-if six.PY2:
-    import eventlet.green.httplib as green_http_client
-else:
-    import eventlet.green.http.client as green_http_client
+import eventlet.green.http.client as green_http_client
 
 from swift.common import utils
 
@@ -283,10 +278,8 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertEqual('swift: testing\n', sio.getvalue())
 
         # same log_route, different names...
-        logger1 = utils.get_swift_logger({'log_statsd_host': '1.2.3.4'},
-                                         name='name1', log_route='route')
-        logger2 = utils.get_swift_logger({'log_statsd_host': '1.2.3.5'},
-                                         name='name2', log_route='route')
+        logger1 = utils.get_swift_logger({}, name='name1', log_route='route')
+        logger2 = utils.get_swift_logger({}, name='name2', log_route='route')
         self.assertEqual('route', logger1.name)
         self.assertEqual('route', logger1.logger.name)
         self.assertEqual('name1', logger1.server)
@@ -302,10 +295,8 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertEqual('name2: testing\n', sio.getvalue())
 
         # different log_route, different names...
-        logger1 = utils.get_swift_logger({'log_statsd_host': '1.2.3.4'},
-                                         name='name1', log_route='route1')
-        logger2 = utils.get_swift_logger({'log_statsd_host': '1.2.3.5'},
-                                         name='name2', log_route='route2')
+        logger1 = utils.get_swift_logger({}, name='name1', log_route='route1')
+        logger2 = utils.get_swift_logger({}, name='name2', log_route='route2')
         self.assertEqual('route1', logger1.name)
         self.assertEqual('route1', logger1.logger.name)
         self.assertEqual('name1', logger1.server)
@@ -561,7 +552,7 @@ class TestUtilsLogs(unittest.TestCase):
                 self.assertTrue('my error message' in log_msg)
 
             # test BadStatusLine
-            log_exception(http_client.BadStatusLine(''))
+            log_exception(http.client.BadStatusLine(''))
             log_msg = strip_value(sio)
             self.assertNotIn('Traceback', log_msg)
             self.assertIn('''BadStatusLine("''"''', log_msg)
@@ -572,25 +563,24 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertNotIn('Traceback', log_msg)
             self.assertIn('''BadStatusLine("''"''', log_msg)
 
-            if not six.PY2:
-                # py3 introduced RemoteDisconnected exceptions which inherit
-                # from both BadStatusLine *and* OSError; make sure those are
-                # handled as BadStatusLine, not OSError
-                log_exception(http_client.RemoteDisconnected(
-                    'Remote end closed connection'))
-                log_msg = strip_value(sio)
-                self.assertNotIn('Traceback', log_msg)
-                self.assertIn(
-                    "RemoteDisconnected('Remote end closed connection'",
-                    log_msg)
+            # py3 introduced RemoteDisconnected exceptions which inherit
+            # from both BadStatusLine *and* OSError; make sure those are
+            # handled as BadStatusLine, not OSError
+            log_exception(http.client.RemoteDisconnected(
+                'Remote end closed connection'))
+            log_msg = strip_value(sio)
+            self.assertNotIn('Traceback', log_msg)
+            self.assertIn(
+                "RemoteDisconnected('Remote end closed connection'",
+                log_msg)
 
-                log_exception(green_http_client.RemoteDisconnected(
-                    'Remote end closed connection'))
-                log_msg = strip_value(sio)
-                self.assertNotIn('Traceback', log_msg)
-                self.assertIn(
-                    "RemoteDisconnected('Remote end closed connection'",
-                    log_msg)
+            log_exception(green_http_client.RemoteDisconnected(
+                'Remote end closed connection'))
+            log_msg = strip_value(sio)
+            self.assertNotIn('Traceback', log_msg)
+            self.assertIn(
+                "RemoteDisconnected('Remote end closed connection'",
+                log_msg)
 
             # test unhandled
             log_exception(Exception('my error message'))
@@ -786,7 +776,7 @@ class TestUtilsLogs(unittest.TestCase):
                                  log_msg_lines[0])
 
             # BadStatusLine
-            exc = http_client.BadStatusLine('my error message')
+            exc = http.client.BadStatusLine('my error message')
             log_msg_lines = log_exception(exc)
             self.assertEqual(1, len(log_msg_lines))
             self.assertEqual("some prefix: blah: %r" % exc, log_msg_lines[0])
@@ -1075,20 +1065,9 @@ class TestUtilsLogs(unittest.TestCase):
                           'Swift is great!', 'sha257', '')
 
     def test_str_anonymizer_python_maddness(self):
-        with mock.patch('swift.common.utils.base.hashlib') as mocklib:
-            if six.PY2:
-                # python <2.7.9 doesn't have this algorithms_guaranteed, but
-                # our if block short-circuts before we explode
-                mocklib.algorithms = hashlib.algorithms
-                mocklib.algorithms_guaranteed.sideEffect = AttributeError()
-            else:
-                # python 3 doesn't have this algorithms but our if block
-                # short-circuts before we explode
-                mocklib.algorithms.sideEffect.sideEffect = AttributeError()
-                mocklib.algorithms_guaranteed = hashlib.algorithms_guaranteed
-            utils.StrAnonymizer('Swift is great!', 'sha1', '')
-            self.assertRaises(ValueError, utils.StrAnonymizer,
-                              'Swift is great!', 'sha257', '')
+        utils.StrAnonymizer('Swift is great!', 'sha1', '')
+        self.assertRaises(ValueError, utils.StrAnonymizer,
+                          'Swift is great!', 'sha257', '')
 
     def test_str_format_time(self):
         dt = utils.StrFormatTime(10000.123456789)

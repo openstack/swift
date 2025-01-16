@@ -10,6 +10,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import io
 import json
 
 import os
@@ -17,7 +18,6 @@ import shutil
 import tempfile
 import unittest
 
-import six
 from mock import mock
 
 from swift.cli import ringcomposer
@@ -37,8 +37,8 @@ class TestCommands(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     def _run_composer(self, args):
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 with self.assertRaises(SystemExit) as cm:

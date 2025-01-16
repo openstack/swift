@@ -64,15 +64,12 @@ from eventlet.event import Event
 from eventlet.green import socket
 import eventlet.hubs
 import eventlet.queue
-import six
 
-from six.moves import cPickle as pickle
-from six.moves.configparser import (ConfigParser, NoSectionError,
-                                    NoOptionError)
-from six.moves import range
-from six.moves.urllib.parse import unquote
-from six.moves.urllib.parse import urlparse
-from six.moves import UserList
+import pickle  # nosec: B403
+from configparser import (ConfigParser, NoSectionError,
+                          NoOptionError)
+from urllib.parse import unquote, urlparse
+from collections import UserList
 
 import swift.common.exceptions
 from swift.common.http import is_server_error
@@ -269,10 +266,9 @@ def _patch_statsd_methods(target, statsd_client_source):
 
         @functools.wraps(func)
         def wrapped(*a, **kw):
-            if getattr(statsd_client_source, 'statsd_client'):
-                func = getattr(statsd_client_source.statsd_client,
-                               statsd_func_name)
-                return func(*a, **kw)
+            func = getattr(statsd_client_source.statsd_client,
+                           statsd_func_name)
+            return func(*a, **kw)
         return wrapped
 
     target.update_stats = statsd_delegate('update_stats')
@@ -333,9 +329,8 @@ def get_prefixed_logger(swift_logger, prefix):
     """
     new_logger = get_prefixed_swift_logger(swift_logger, prefix=prefix)
     if hasattr(swift_logger, 'statsd_client_source'):
-        if getattr(swift_logger.statsd_client_source, 'statsd_client'):
-            _patch_statsd_methods(
-                new_logger, swift_logger.statsd_client_source)
+        _patch_statsd_methods(
+            new_logger, swift_logger.statsd_client_source)
     return new_logger
 
 
@@ -375,26 +370,18 @@ def validate_hash_conf():
     if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
         hash_conf = ConfigParser()
 
-        if six.PY3:
-            # Use Latin1 to accept arbitrary bytes in the hash prefix/suffix
-            with open(SWIFT_CONF_FILE, encoding='latin1') as swift_conf_file:
-                hash_conf.read_file(swift_conf_file)
-        else:
-            with open(SWIFT_CONF_FILE) as swift_conf_file:
-                hash_conf.readfp(swift_conf_file)
+        # Use Latin1 to accept arbitrary bytes in the hash prefix/suffix
+        with open(SWIFT_CONF_FILE, encoding='latin1') as swift_conf_file:
+            hash_conf.read_file(swift_conf_file)
 
         try:
-            HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
-                                             'swift_hash_path_suffix')
-            if six.PY3:
-                HASH_PATH_SUFFIX = HASH_PATH_SUFFIX.encode('latin1')
+            HASH_PATH_SUFFIX = hash_conf.get(
+                'swift-hash', 'swift_hash_path_suffix').encode('latin1')
         except (NoSectionError, NoOptionError):
             pass
         try:
-            HASH_PATH_PREFIX = hash_conf.get('swift-hash',
-                                             'swift_hash_path_prefix')
-            if six.PY3:
-                HASH_PATH_PREFIX = HASH_PATH_PREFIX.encode('latin1')
+            HASH_PATH_PREFIX = hash_conf.get(
+                'swift-hash', 'swift_hash_path_prefix').encode('latin1')
         except (NoSectionError, NoOptionError):
             pass
 
@@ -474,10 +461,7 @@ def generate_trans_id(trans_id_suffix):
 
 
 def generate_unique_id():
-    result = base64.urlsafe_b64encode(os.urandom(16))
-    if six.PY2:
-        return result
-    return result.decode('ascii')
+    return base64.urlsafe_b64encode(os.urandom(16)).decode('ascii')
 
 
 def get_trans_id_time(trans_id):
@@ -507,7 +491,7 @@ class FileLikeIter(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         """
         next(x) -> the next value, or raise StopIteration
         """
@@ -519,7 +503,6 @@ class FileLikeIter(object):
             return rv
         else:
             return next(self.iterator)
-    __next__ = next
 
     def read(self, size=-1):
         """
@@ -958,7 +941,7 @@ class RateLimitedIterator(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         next_value = next(self.iterator)
 
         if self.ratelimit_if(next_value):
@@ -967,7 +950,6 @@ class RateLimitedIterator(object):
             else:
                 self.rate_limiter.wait()
         return next_value
-    __next__ = next
 
 
 class GreenthreadSafeIterator(object):
@@ -989,10 +971,9 @@ class GreenthreadSafeIterator(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         with self.semaphore:
             return next(self.unsafe_iter)
-    __next__ = next
 
 
 def timing_stats(**dec_kwargs):
@@ -1247,13 +1228,13 @@ def hash_path(account, container=None, object=None, raw_digest=False):
     """
     if object and not container:
         raise ValueError('container is required if object is provided')
-    paths = [account if isinstance(account, six.binary_type)
+    paths = [account if isinstance(account, bytes)
              else account.encode('utf8')]
     if container:
-        paths.append(container if isinstance(container, six.binary_type)
+        paths.append(container if isinstance(container, bytes)
                      else container.encode('utf8'))
     if object:
-        paths.append(object if isinstance(object, six.binary_type)
+        paths.append(object if isinstance(object, bytes)
                      else object.encode('utf8'))
     if raw_digest:
         return md5(HASH_PATH_PREFIX + b'/' + b'/'.join(paths)
@@ -2015,7 +1996,7 @@ class GreenAsyncPile(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         while True:
             try:
                 rv = self._responses.get_nowait()
@@ -2027,7 +2008,6 @@ class GreenAsyncPile(object):
             if rv is DEAD:
                 continue
             return rv
-    __next__ = next
 
 
 class StreamingPile(GreenAsyncPile):
@@ -2468,8 +2448,6 @@ class ClosingIterator(object):
             # but we still need to close any other closeables.
             self.close()
             raise
-
-    next = __next__  # py2
 
     def close(self):
         if not self.closed:
@@ -3094,18 +3072,14 @@ def parse_mime_headers(doc_file):
     while True:
         line = doc_file.readline()
         done = line in (b'\r\n', b'\n', b'')
-        if six.PY3:
-            try:
-                line = line.decode('utf-8')
-            except UnicodeDecodeError:
-                line = line.decode('latin1')
+        try:
+            line = line.decode('utf-8')
+        except UnicodeDecodeError:
+            line = line.decode('latin1')
         headers.append(line)
         if done:
             break
-    if six.PY3:
-        header_string = ''.join(headers)
-    else:
-        header_string = b''.join(headers)
+    header_string = ''.join(headers)
     headers = email.parser.Parser().parsestr(header_string)
     return HeaderKeyDict(headers)
 
@@ -3120,7 +3094,7 @@ def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
         (e.g. "divider", not "--divider")
     :param read_chunk_size: size of strings read via input_file.read()
     """
-    if six.PY3 and isinstance(boundary, str):
+    if isinstance(boundary, str):
         # Since the boundary is in client-supplied headers, it can contain
         # garbage that trips us and we don't like client-induced 500.
         boundary = boundary.encode('latin-1', errors='replace')
@@ -3360,8 +3334,6 @@ class NamespaceOuterBound(object):
     def __bool__(self):
         return False
 
-    __nonzero__ = __bool__
-
 
 @functools.total_ordering
 class Namespace(object):
@@ -3460,9 +3432,7 @@ class Namespace(object):
 
     @classmethod
     def _encode(cls, value):
-        if six.PY2 and isinstance(value, six.text_type):
-            return value.encode('utf-8')
-        if six.PY3 and isinstance(value, six.binary_type):
+        if isinstance(value, bytes):
             # This should never fail -- the value should always be coming from
             # valid swift paths, which means UTF-8
             return value.decode('utf-8')
@@ -3471,8 +3441,8 @@ class Namespace(object):
     def _encode_bound(self, bound):
         if isinstance(bound, NamespaceOuterBound):
             return bound
-        if not (isinstance(bound, six.text_type) or
-                isinstance(bound, six.binary_type)):
+        if not (isinstance(bound, str) or
+                isinstance(bound, bytes)):
             raise TypeError('must be a string type')
         return self._encode(bound)
 
@@ -4373,7 +4343,8 @@ class ShardRangeList(UserList):
     """
 
     def __getitem__(self, index):
-        # workaround for py3 - not needed for py2.7,py3.8
+        # workaround for py36,py37 - not needed for py3.8+
+        # see https://github.com/python/cpython/commit/b1c3167c
         result = self.data[index]
         return ShardRangeList(result) if type(result) is list else result
 
@@ -4602,7 +4573,7 @@ def strict_b64decode(value, allow_line_breaks=False):
             value = value.decode('ascii')
         except UnicodeDecodeError:
             raise ValueError
-    if not isinstance(value, six.text_type):
+    if not isinstance(value, str):
         raise ValueError
     # b64decode will silently discard bad characters, but we want to
     # treat them as an error
@@ -4613,10 +4584,7 @@ def strict_b64decode(value, allow_line_breaks=False):
         strip_chars += '\r\n'
     if any(c not in valid_chars for c in value.strip(strip_chars)):
         raise ValueError
-    try:
-        return base64.b64decode(value)
-    except (TypeError, binascii.Error):  # (py2 error, py3 error)
-        raise ValueError
+    return base64.b64decode(value)
 
 
 def cap_length(value, max_length):
@@ -5126,3 +5094,19 @@ class CooperativeIterator(ClosingIterator):
                 sleep()
             self.count += 1
         return super(CooperativeIterator, self)._get_next_item()
+
+
+def get_ppid(pid):
+    """
+    Get the parent process's PID given a child pid.
+
+    :raises OSError: if the child pid cannot be found
+    """
+    try:
+        with open('/proc/%d/stat' % pid) as fp:
+            stats = fp.read().split()
+        return int(stats[3])
+    except IOError as e:
+        if e.errno == errno.ENOENT:
+            raise OSError(errno.ESRCH, 'No such process')
+        raise

@@ -13,7 +13,6 @@
 import itertools
 import json
 import mock
-import six
 import unittest
 
 from swift.cli import container_deleter
@@ -60,11 +59,6 @@ class TestContainerDeleter(unittest.TestCase):
         ucont = cont = u'cont-\N{SNOWMAN}'
         uobj1 = obj1 = u'obj-\N{GREEK CAPITAL LETTER ALPHA}'
         uobj2 = obj2 = u'/obj-\N{GREEK CAPITAL LETTER OMEGA}'
-        if six.PY2:
-            acct = acct.encode('utf8')
-            cont = cont.encode('utf8')
-            obj1 = obj1.encode('utf8')
-            obj2 = obj2.encode('utf8')
         self.assertEqual(
             container_deleter.make_delete_jobs(
                 acct, cont, [obj1, obj2], utils.Timestamp(ts)),

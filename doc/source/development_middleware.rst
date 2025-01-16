@@ -80,11 +80,7 @@ presented below::
     from swift.common.request_helpers import get_sys_meta_prefix
     from swift.proxy.controllers.base import get_container_info
     from eventlet import Timeout
-    import six
-    if six.PY3:
-        from eventlet.green.urllib import request as urllib2
-    else:
-        from eventlet.green import urllib2
+    from eventlet.green.urllib import urllib_request
 
     # x-container-sysmeta-webhook
     SYSMETA_WEBHOOK = get_sys_meta_prefix('container') + 'webhook'
@@ -119,10 +115,10 @@ presented below::
                 webhook = container_info['sysmeta'].get('webhook')
                 if webhook:
                     # create a POST request with obj name as body
-                    webhook_req = urllib2.Request(webhook, data=obj)
+                    webhook_req = urllib_request.Request(webhook, data=obj)
                     with Timeout(20):
                         try:
-                            urllib2.urlopen(webhook_req).read()
+                            urllib_request.urlopen(webhook_req).read()
                         except (Exception, Timeout):
                             self.logger.exception(
                                 'failed POST to webhook %s' % webhook)

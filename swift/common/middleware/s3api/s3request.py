@@ -20,9 +20,8 @@ from email.header import Header
 from hashlib import sha1, sha256
 import hmac
 import re
-import six
 # pylint: disable-msg=import-error
-from six.moves.urllib.parse import quote, unquote, parse_qsl
+from urllib.parse import quote, unquote, parse_qsl
 import string
 
 from swift.common.middleware.mpu import MPU_INVALID_UPLOAD_ID_MSG, \
@@ -424,7 +423,7 @@ class SigV4Mixin(object):
         else:  # mostly-functional fallback
             headers_lower_dict = dict(
                 (k.lower().strip(), ' '.join(_header_strip(v or '').split()))
-                for (k, v) in six.iteritems(self.headers))
+                for (k, v) in self.headers.items())
 
         if 'host' in headers_lower_dict and re.match(
                 'Boto/2.[0-9].[0-2]',
@@ -639,9 +638,8 @@ class S3Request(swob.Request):
         secret = utf8encode(secret)
         user_signature = self.signature
         valid_signature = base64.b64encode(hmac.new(
-            secret, self.string_to_sign, sha1).digest()).strip()
-        if not six.PY2:
-            valid_signature = valid_signature.decode('ascii')
+            secret, self.string_to_sign, sha1
+        ).digest()).strip().decode('ascii')
         return streq_const_time(user_signature, valid_signature)
 
     @property
@@ -1490,8 +1488,6 @@ class S3Request(swob.Request):
                 self.user_id = "%s:%s" % (
                     sw_resp.environ['HTTP_X_TENANT_NAME'],
                     sw_resp.environ['HTTP_X_USER_NAME'])
-                if six.PY2 and not isinstance(self.user_id, bytes):
-                    self.user_id = self.user_id.encode('utf8')
             else:
                 # tempauth
                 self.user_id = self.access_key
@@ -1694,8 +1690,6 @@ class S3AclRequest(S3Request):
             # keystone
             self.user_id = "%s:%s" % (sw_resp.environ['HTTP_X_TENANT_NAME'],
                                       sw_resp.environ['HTTP_X_USER_NAME'])
-            if six.PY2 and not isinstance(self.user_id, bytes):
-                self.user_id = self.user_id.encode('utf8')
         else:
             # tempauth
             self.user_id = self.access_key

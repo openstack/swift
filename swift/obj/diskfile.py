@@ -30,7 +30,7 @@ The remaining methods in this module are considered implementation specific and
 are also not considered part of the backend API.
 """
 
-import six.moves.cPickle as pickle
+import pickle  # nosec: B403
 import binascii
 import copy
 import errno
@@ -44,7 +44,7 @@ import logging
 import traceback
 import xattr
 from os.path import basename, dirname, exists, join, splitext
-from random import shuffle
+import random
 from tempfile import mkstemp
 from contextlib import contextmanager
 from collections import defaultdict
@@ -52,7 +52,6 @@ from datetime import timedelta
 
 from eventlet import Timeout, tpool
 from eventlet.hubs import trampoline
-import six
 from pyeclib.ec_iface import ECDriverError, ECInvalidFragmentMetadata, \
     ECBadFragmentChecksum, ECInvalidParameter
 
@@ -154,16 +153,10 @@ def _encode_metadata(metadata):
 
     :param metadata: a dict
     """
-    if six.PY2:
-        def encode_str(item):
-            if isinstance(item, six.text_type):
-                return item.encode('utf8')
-            return item
-    else:
-        def encode_str(item):
-            if isinstance(item, six.text_type):
-                return item.encode('utf8', 'surrogateescape')
-            return item
+    def encode_str(item):
+        if isinstance(item, str):
+            return item.encode('utf8', 'surrogateescape')
+        return item
 
     return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
 
@@ -175,27 +168,16 @@ def _decode_metadata(metadata, metadata_written_by_py3):
     :param metadata: a dict
     :param metadata_written_by_py3:
     """
-    if six.PY2:
-        def to_str(item, is_name=False):
-            # For years, py2 and py3 handled non-ascii metadata differently;
-            # see https://bugs.launchpad.net/swift/+bug/2012531
-            if metadata_written_by_py3 and not is_name:
-                # do our best to read new-style data replicated from a py3 node
-                item = item.decode('utf8').encode('latin1')
-            if isinstance(item, six.text_type):
-                return item.encode('utf8')
-            return item
-    else:
-        def to_str(item, is_name=False):
-            # For years, py2 and py3 handled non-ascii metadata differently;
-            # see https://bugs.launchpad.net/swift/+bug/2012531
-            if not metadata_written_by_py3 and isinstance(item, bytes) \
-                    and not is_name:
-                # do our best to read old py2 data
-                item = item.decode('latin1')
-            if isinstance(item, six.binary_type):
-                return item.decode('utf8', 'surrogateescape')
-            return item
+    def to_str(item, is_name=False):
+        # For years, py2 and py3 handled non-ascii metadata differently;
+        # see https://bugs.launchpad.net/swift/+bug/2012531
+        if not metadata_written_by_py3 and isinstance(item, bytes) \
+                and not is_name:
+            # do our best to read old py2 data
+            item = item.decode('latin1')
+        if isinstance(item, bytes):
+            return item.decode('utf8', 'surrogateescape')
+        return item
 
     return {to_str(k): to_str(v, k == b'name') for k, v in metadata.items()}
 
@@ -255,10 +237,7 @@ def read_metadata(fd, add_missing_checksum=False):
     # strings are utf-8 encoded when written, but have not always been
     # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
     # when read
-    if six.PY2:
-        metadata = pickle.loads(metadata)
-    else:
-        metadata = pickle.loads(metadata, encoding='bytes')
+    metadata = pickle.loads(metadata, encoding='bytes')  # nosec: B301
     return _decode_metadata(metadata, metadata_written_by_py3)
 
 
@@ -360,7 +339,7 @@ def quarantine_renamer(device_path, corrupted_file_path):
 
 
 def valid_suffix(value):
-    if not isinstance(value, six.string_types) or len(value) != 3:
+    if not isinstance(value, str) or len(value) != 3:
         return False
     return all(c in '0123456789abcdef' for c in value)
 
@@ -381,7 +360,7 @@ def read_hashes(partition_dir):
         pass
     else:
         try:
-            hashes = pickle.loads(pickled_hashes)
+            hashes = pickle.loads(pickled_hashes)  # nosec: B301
         except Exception:
             # pickle.loads() can raise a wide variety of exceptions when
             # given invalid input depending on the way in which the
@@ -576,7 +555,7 @@ def object_audit_location_generator(devices, datadir, mount_check=True,
         device_dirs = list(
             set(listdir(devices)).intersection(set(device_dirs)))
     # randomize devices in case of process restart before sweep completed
-    shuffle(device_dirs)
+    random.shuffle(device_dirs)
 
     base, policy = split_policy_string(datadir)
     for device in device_dirs:
@@ -626,11 +605,7 @@ def get_auditor_status(datadir_path, logger, auditor_type):
         datadir_path, "auditor_status_%s.json" % auditor_type)
     status = {}
     try:
-        if six.PY3:
-            statusfile = open(auditor_status, encoding='utf8')
-        else:
-            statusfile = open(auditor_status, 'rb')
-        with statusfile:
+        with open(auditor_status, encoding='utf8') as statusfile:
             status = statusfile.read()
     except (OSError, IOError) as e:
         if e.errno != errno.ENOENT and logger:
@@ -648,9 +623,7 @@ def get_auditor_status(datadir_path, logger, auditor_type):
 
 
 def update_auditor_status(datadir_path, logger, partitions, auditor_type):
-    status = json.dumps({'partitions': partitions})
-    if six.PY3:
-        status = status.encode('utf8')
+    status = json.dumps({'partitions': partitions}).encode('utf8')
     auditor_status = os.path.join(
         datadir_path, "auditor_status_%s.json" % auditor_type)
     try:
@@ -1170,22 +1143,19 @@ class BaseDiskFileManager(object):
         :param path: full path to directory
         :param policy: storage policy used
         """
-        if six.PY2:
-            hashes = defaultdict(lambda: md5(usedforsecurity=False))
-        else:
-            class shim(object):
-                def __init__(self):
-                    self.md5 = md5(usedforsecurity=False)
+        class shim(object):
+            def __init__(self):
+                self.md5 = md5(usedforsecurity=False)
 
-                def update(self, s):
-                    if isinstance(s, str):
-                        self.md5.update(s.encode('utf-8'))
-                    else:
-                        self.md5.update(s)
+            def update(self, s):
+                if isinstance(s, str):
+                    self.md5.update(s.encode('utf-8'))
+                else:
+                    self.md5.update(s)
 
-                def hexdigest(self):
-                    return self.md5.hexdigest()
-            hashes = defaultdict(shim)
+            def hexdigest(self):
+                return self.md5.hexdigest()
+        hashes = defaultdict(shim)
         try:
             path_contents = sorted(os.listdir(path))
         except OSError as err:
@@ -2113,11 +2083,14 @@ class BaseDiskFileReader(object):
     :param keep_cache: should resulting reads be kept in the buffer cache
     :param cooperative_period: the period parameter when does cooperative
                                yielding during file read
+    :param etag_validate_frac: the probability that we should perform etag
+                               validation during a complete file read
     """
     def __init__(self, fp, data_file, obj_size, etag,
                  disk_chunk_size, keep_cache_size, device_path, logger,
                  quarantine_hook, use_splice, pipe_size, diskfile,
-                 keep_cache=False, cooperative_period=0):
+                 keep_cache=False, cooperative_period=0,
+                 etag_validate_frac=1):
         # Parameter tracking
         self._fp = fp
         self._data_file = data_file
@@ -2137,6 +2110,7 @@ class BaseDiskFileReader(object):
         else:
             self._keep_cache = False
         self._cooperative_period = cooperative_period
+        self._etag_validate_frac = etag_validate_frac
 
         # Internal Attributes
         self._iter_etag = None
@@ -2154,7 +2128,8 @@ class BaseDiskFileReader(object):
     def _init_checks(self):
         if self._fp.tell() == 0:
             self._started_at_0 = True
-            self._iter_etag = md5(usedforsecurity=False)
+            if random.random() < self._etag_validate_frac:
+                self._iter_etag = md5(usedforsecurity=False)
 
     def _update_checks(self, chunk):
         if self._iter_etag:
@@ -2984,6 +2959,7 @@ class BaseDiskFile(object):
             return self.get_metadata()
 
     def reader(self, keep_cache=False, cooperative_period=0,
+               etag_validate_frac=1,
                _quarantine_hook=lambda m: None):
         """
         Return a :class:`swift.common.swob.Response` class compatible
@@ -2997,6 +2973,8 @@ class BaseDiskFile(object):
                            OS buffer cache
         :param cooperative_period: the period parameter for cooperative
                                    yielding during file read
+        :param etag_validate_frac: the probability that we should perform etag
+                                   validation during a complete file read
         :param _quarantine_hook: 1-arg callable called when obj quarantined;
                                  the arg is the reason for quarantine.
                                  Default is to ignore it.
@@ -3009,7 +2987,8 @@ class BaseDiskFile(object):
             self._manager.keep_cache_size, self._device_path, self._logger,
             use_splice=self._use_splice, quarantine_hook=_quarantine_hook,
             pipe_size=self._pipe_size, diskfile=self, keep_cache=keep_cache,
-            cooperative_period=cooperative_period)
+            cooperative_period=cooperative_period,
+            etag_validate_frac=etag_validate_frac)
         # At this point the reader object is now responsible for closing
         # the file pointer.
         self._fp = None
@@ -3172,12 +3151,13 @@ class ECDiskFileReader(BaseDiskFileReader):
     def __init__(self, fp, data_file, obj_size, etag,
                  disk_chunk_size, keep_cache_size, device_path, logger,
                  quarantine_hook, use_splice, pipe_size, diskfile,
-                 keep_cache=False, cooperative_period=0):
+                 keep_cache=False, cooperative_period=0,
+                 etag_validate_frac=1):
         super(ECDiskFileReader, self).__init__(
             fp, data_file, obj_size, etag,
             disk_chunk_size, keep_cache_size, device_path, logger,
             quarantine_hook, use_splice, pipe_size, diskfile, keep_cache,
-            cooperative_period)
+            cooperative_period, etag_validate_frac)
         self.frag_buf = None
         self.frag_offset = 0
         self.frag_size = self._diskfile.policy.fragment_size
@@ -3196,7 +3176,7 @@ class ECDiskFileReader(BaseDiskFileReader):
     def _check_frag(self, frag):
         if not frag:
             return
-        if not isinstance(frag, six.binary_type):
+        if not isinstance(frag, bytes):
             # ECInvalidParameter can be returned if the frag violates the input
             # format so for safety, check the input chunk if it's binary to
             # avoid quarantining a valid fragment archive.

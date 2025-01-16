@@ -19,10 +19,8 @@ Pluggable Back-end for Account Server
 
 import sqlite3
 
-import six
-
 from swift.common.utils import Timestamp, RESERVED_BYTE
-from swift.common.db import DatabaseBroker, utf8encode, zero_like
+from swift.common.db import DatabaseBroker, zero_like
 
 DATADIR = 'accounts'
 
@@ -372,9 +370,6 @@ class AccountBroker(DatabaseBroker):
                   put_timestamp, 0)
         """
         delim_force_gte = False
-        if six.PY2:
-            (marker, end_marker, prefix, delimiter) = utf8encode(
-                marker, end_marker, prefix, delimiter)
         if reverse:
             # Reverse the markers if we are reversing the listing.
             marker, end_marker = end_marker, marker

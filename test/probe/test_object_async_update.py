@@ -30,7 +30,7 @@ import mock
 from swiftclient import client
 from swiftclient.exceptions import ClientException
 
-from six.moves.configparser import ConfigParser
+from configparser import ConfigParser
 from swift.common import direct_client, manager
 from swift.common.manager import Manager, Server
 from swift.common.swob import normalize_etag

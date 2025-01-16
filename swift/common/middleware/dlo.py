@@ -120,8 +120,6 @@ Here's an example using ``curl`` with tiny 1-byte segments::
 
 import json
 
-import six
-
 from swift.common import constraints
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
@@ -207,8 +205,6 @@ class GetContext(WSGIContext):
                     break
 
                 seg_name = segment['name']
-                if six.PY2:
-                    seg_name = seg_name.encode("utf-8")
 
                 # We deliberately omit the etag and size here;
                 # SegmentedIterable will check size and etag if

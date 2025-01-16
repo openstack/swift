@@ -15,9 +15,8 @@
 
 """ Object Server for Swift """
 
-import six
-import six.moves.cPickle as pickle
-from six.moves.urllib.parse import unquote
+import pickle  # nosec: B403
+from urllib.parse import unquote
 import json
 import os
 import multiprocessing
@@ -30,7 +29,7 @@ from eventlet import sleep, wsgi, Timeout, tpool
 from eventlet.greenthread import spawn
 
 from swift.common.utils import public, get_logger, \
-    config_true_value, timing_stats, replication, \
+    config_true_value, config_percent_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
@@ -157,6 +156,8 @@ class ObjectController(BaseStorageServer):
         self.keep_cache_slo_manifest = \
             config_true_value(conf.get('keep_cache_slo_manifest', 'false'))
         self.cooperative_period = int(conf.get("cooperative_period", 0))
+        self.etag_validate_frac = config_percent_value(
+            conf.get("etag_validate_pct", 100))
 
         default_allowed_headers = '''
             content-disposition,
@@ -198,8 +199,8 @@ class ObjectController(BaseStorageServer):
         # disk_chunk_size parameter. However, it affects all created sockets
         # using this class so we have chosen to tie it to the
         # network_chunk_size parameter value instead.
-        if six.PY2:
-            socket._fileobject.default_bufsize = self.network_chunk_size
+        # if six.PY2:
+        #    socket._fileobject.default_bufsize = self.network_chunk_size
         # TODO: find a way to enable similar functionality in py3
 
         # Provide further setup specific to an object server implementation.
@@ -1131,6 +1132,7 @@ class ObjectController(BaseStorageServer):
                 app_iter = disk_file.reader(
                     keep_cache=keep_cache,
                     cooperative_period=self.cooperative_period,
+                    etag_validate_frac=self.etag_validate_frac,
                 )
                 response = Response(
                     app_iter=app_iter, request=request,

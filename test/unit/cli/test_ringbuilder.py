@@ -19,7 +19,7 @@ import logging
 import mock
 import os
 import re
-import six
+import io
 import tempfile
 import unittest
 import uuid
@@ -44,11 +44,11 @@ except ImportError:
 class RunSwiftRingBuilderMixin(object):
 
     def run_srb(self, *argv, **kwargs):
-        if len(argv) == 1 and isinstance(argv[0], six.string_types):
+        if len(argv) == 1 and isinstance(argv[0], str):
             # convert a single string to a list
             argv = shlex.split(argv[0])
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
 
         if 'exp_results' in kwargs:
             exp_results = kwargs['exp_results']
@@ -1732,7 +1732,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         cb_file = os.path.join(self.tmpdir, 'composite.builder')
         cb.save(cb_file)
         argv = ["", cb_file, "validate"]
-        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+        with mock.patch("sys.stdout", io.StringIO()) as mock_stdout:
             self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
         lines = mock_stdout.getvalue().strip().split('\n')
         self.assertIn("Ring Builder file is invalid", lines[0])
@@ -1742,7 +1742,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
     def test_validate_empty_file(self):
         open(self.tmpfile, 'a').close
         argv = ["", self.tmpfile, "validate"]
-        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+        with mock.patch("sys.stdout", io.StringIO()) as mock_stdout:
             self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
         lines = mock_stdout.getvalue().strip().split('\n')
         self.assertIn("Ring Builder file is invalid", lines[0])
@@ -1761,7 +1761,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # corrupt the file
         with open(self.tmpfile, 'wb') as f:
             f.write(os.urandom(1024))
-        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+        with mock.patch("sys.stdout", io.StringIO()) as mock_stdout:
             self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
         lines = mock_stdout.getvalue().strip().split('\n')
         self.assertIn("Ring Builder file is invalid", lines[0])
@@ -1772,7 +1772,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
     def test_validate_non_existent_file(self):
         rand_file = '%s/%s' % (tempfile.gettempdir(), str(uuid.uuid4()))
         argv = ["", rand_file, "validate"]
-        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+        with mock.patch("sys.stdout", io.StringIO()) as mock_stdout:
             self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
         lines = mock_stdout.getvalue().strip().split('\n')
         self.assertIn("Ring Builder file does not exist", lines[0])
@@ -1785,7 +1785,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                 RingBuilder, 'load',
                 mock.Mock(side_effect=exceptions.PermissionError("boom"))):
             argv = ["", self.tmpfile, "validate"]
-            with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+            with mock.patch("sys.stdout", io.StringIO()) as mock_stdout:
                 self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
         lines = mock_stdout.getvalue().strip().split('\n')
         self.assertIn("boom", lines[0])
@@ -2100,8 +2100,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertOutputStub(out, builder_id=ring.id)
 
     def test_default_show_removed(self):
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
 
         ring = self.create_sample_ring()
 
@@ -2146,8 +2146,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertEqual(expected, mock_stdout.getvalue())
 
     def test_default_sorted_output(self):
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
 
         # Create a sample ring and remove/add some devices.
         now = time.time()
@@ -2186,8 +2186,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.create_sample_ring()
 
         # ring file not created
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
         argv = ["", self.tmpfile]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
@@ -2199,7 +2199,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "rebalance"]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         # ring file is up-to-date
-        mock_stdout = six.StringIO()
+        mock_stdout = io.StringIO()
         argv = ["", self.tmpfile]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
@@ -2213,7 +2213,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "set_weight", "0", "--id", "3"]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         # ring file is obsolete after set_weight
-        mock_stdout = six.StringIO()
+        mock_stdout = io.StringIO()
         argv = ["", self.tmpfile]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
@@ -2225,7 +2225,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "write_ring"]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         # ring file up-to-date again
-        mock_stdout = six.StringIO()
+        mock_stdout = io.StringIO()
         argv = ["", self.tmpfile]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
@@ -2235,7 +2235,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # Break ring file e.g. just make it empty
         open('%s.ring.gz' % self.tmpfile, 'w').close()
         # ring file is invalid
-        mock_stdout = six.StringIO()
+        mock_stdout = io.StringIO()
         argv = ["", self.tmpfile]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
@@ -2247,16 +2247,16 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.create_sample_ring()
 
         # remove devices from ring file
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
         for device in ["d0", "d1", "d2", "d3"]:
             argv = ["", self.tmpfile, "remove", device]
             with mock.patch("sys.stdout", mock_stdout):
                 with mock.patch("sys.stderr", mock_stderr):
                     self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         # default ring file without exception
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
         argv = ["", self.tmpfile, "default"]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
@@ -2281,8 +2281,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.create_sample_ring(empty=True)
 
         # default ring file without exception
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
         argv = ["", self.tmpfile, "default"]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
@@ -2515,7 +2515,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring = RingBuilder.load(self.tmpfile)
         last_replica2part2dev = ring._replica2part2dev
 
-        mock_stdout = six.StringIO()
+        mock_stdout = io.StringIO()
         argv = ["", self.tmpfile, "rebalance", "3"]
         with mock.patch("sys.stdout", mock_stdout):
             self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
@@ -2736,8 +2736,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertEqual(rb.version, old_version + 1)
 
     def test_use_ringfile_as_builderfile(self):
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
 
         argv = ["", self.tmpfile, "rebalance", "3"],
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
@@ -2810,8 +2810,8 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
             pass
 
     def run_srb(self, *argv):
-        mock_stdout = six.StringIO()
-        mock_stderr = six.StringIO()
+        mock_stdout = io.StringIO()
+        mock_stderr = io.StringIO()
 
         srb_args = ["", self.tempfile] + [str(s) for s in argv]
 
