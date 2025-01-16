@@ -55,6 +55,10 @@ def snake_to_camel(snake):
     return snake.title().replace('_', '')
 
 
+def make_header_label(header):
+    return 'header_' + header.lower().replace('-', '_')
+
+
 def unique_id():
     result = base64.urlsafe_b64encode(str(uuid.uuid4()).encode('ascii'))
     return result.decode('ascii')
@@ -70,6 +74,37 @@ def utf8decode(s):
     if isinstance(s, bytes):
         s = s.decode('utf8')
     return s
+
+
+def is_valid_base64(s):
+    try:
+        base64.b64decode(s)
+        return True
+    except Exception:
+        return False
+
+
+def is_valid_hash(hash_string):
+    try:
+        int(hash_string, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def classify_checksum_header_value(value):
+    if is_valid_hash(value):
+        if len(value) in (8, 16, 20, 32, 64, 128, 256, 512):
+            return 'hash_%d' % len(value)
+    elif is_valid_base64(value):
+        # crc32 -> b64_8
+        # crc64 -> b64_12
+        # md5 -> b64_24
+        # sha1 -> b64_28
+        # sha256 -> b64_44
+        if len(value) in (8, 12, 24, 28, 44):
+            return 'b64_%d' % len(value)
+    return 'unknown'
 
 
 def validate_bucket_name(name, dns_compliant_bucket_names):
