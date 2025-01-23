@@ -24,8 +24,8 @@ import re
 from urllib.parse import quote, unquote, parse_qsl
 import string
 
-from swift.common.utils import split_path, json, close_if_possible, md5, \
-    streq_const_time, get_policy_index
+from swift.common.utils import split_path, json, md5, streq_const_time, \
+    get_policy_index, InputProxy
 from swift.common.registry import get_swift_info
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
@@ -133,41 +133,42 @@ class S3InputSHA256Mismatch(BaseException):
         self.computed = computed
 
 
-class HashingInput(object):
+class HashingInput(InputProxy):
     """
     wsgi.input wrapper to verify the SHA256 of the input as it's read.
     """
 
-    def __init__(self, reader, content_length, expected_hex_hash):
-        self._input = reader
-        self._to_read = content_length
+    def __init__(self, wsgi_input, content_length, expected_hex_hash):
+        super().__init__(wsgi_input)
+        self._expected_length = content_length
         self._hasher = sha256()
-        self._expected = expected_hex_hash
+        self._expected_hash = expected_hex_hash
         if content_length == 0 and \
-                self._hasher.hexdigest() != self._expected.lower():
+                self._hasher.hexdigest() != self._expected_hash.lower():
             self.close()
             raise XAmzContentSHA256Mismatch(
-                client_computed_content_s_h_a256=self._expected,
+                client_computed_content_s_h_a256=self._expected_hash,
                 s3_computed_content_s_h_a256=self._hasher.hexdigest(),
             )
 
-    def read(self, size=None):
-        chunk = self._input.read(size)
+    def chunk_update(self, chunk, eof, *args, **kwargs):
         self._hasher.update(chunk)
-        self._to_read -= len(chunk)
-        short_read = bool(chunk) if size is None else (len(chunk) < size)
-        if self._to_read < 0 or (short_read and self._to_read) or (
-                self._to_read == 0 and
-                self._hasher.hexdigest() != self._expected.lower()):
+
+        if self.bytes_received < self._expected_length:
+            error = eof
+        elif self.bytes_received == self._expected_length:
+            error = self._hasher.hexdigest() != self._expected_hash.lower()
+        else:
+            error = True
+
+        if error:
             self.close()
             # Since we don't return the last chunk, the PUT never completes
             raise S3InputSHA256Mismatch(
-                self._expected,
+                self._expected_hash,
                 self._hasher.hexdigest())
-        return chunk
 
-    def close(self):
-        close_if_possible(self._input)
+        return chunk
 
 
 class SigV4Mixin(object):

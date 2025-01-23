@@ -134,7 +134,7 @@ from swift.common.digest import get_allowed_digests, \
     extract_digest_and_algorithm, DEFAULT_ALLOWED_DIGESTS
 from swift.common.utils import streq_const_time, parse_content_disposition, \
     parse_mime_headers, iter_multipart_mime_documents, reiterate, \
-    closing_if_possible, get_logger
+    closing_if_possible, get_logger, InputProxy
 from swift.common.registry import register_swift_info
 from swift.common.wsgi import WSGIContext, make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized, wsgi_to_str, str_to_wsgi
@@ -158,7 +158,7 @@ class FormUnauthorized(Exception):
     pass
 
 
-class _CappedFileLikeObject(object):
+class _CappedFileLikeObject(InputProxy):
     """
     A file-like object wrapping another file-like object that raises
     an EOFError if the amount of data read exceeds a given
@@ -170,26 +170,15 @@ class _CappedFileLikeObject(object):
     """
 
     def __init__(self, fp, max_file_size):
-        self.fp = fp
+        super().__init__(fp)
         self.max_file_size = max_file_size
-        self.amount_read = 0
         self.file_size_exceeded = False
 
-    def read(self, size=None):
-        ret = self.fp.read(size)
-        self.amount_read += len(ret)
-        if self.amount_read > self.max_file_size:
+    def chunk_update(self, chunk, eof, *args, **kwargs):
+        if self.bytes_received > self.max_file_size:
             self.file_size_exceeded = True
             raise EOFError('max_file_size exceeded')
-        return ret
-
-    def readline(self):
-        ret = self.fp.readline()
-        self.amount_read += len(ret)
-        if self.amount_read > self.max_file_size:
-            self.file_size_exceeded = True
-            raise EOFError('max_file_size exceeded')
-        return ret
+        return chunk
 
 
 class FormPost(object):

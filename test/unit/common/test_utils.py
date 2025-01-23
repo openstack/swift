@@ -18,6 +18,7 @@ from __future__ import print_function
 
 import argparse
 import hashlib
+import io
 import itertools
 
 from swift.common.statsd_client import StatsdClient
@@ -2961,8 +2962,16 @@ class TestFileLikeIter(unittest.TestCase):
 
     def test_read(self):
         in_iter = [b'abc', b'de', b'fghijk', b'l']
-        iter_file = utils.FileLikeIter(in_iter)
-        self.assertEqual(iter_file.read(), b''.join(in_iter))
+        expected = b''.join(in_iter)
+        self.assertEqual(utils.FileLikeIter(in_iter).read(), expected)
+        self.assertEqual(utils.FileLikeIter(in_iter).read(-1), expected)
+        self.assertEqual(utils.FileLikeIter(in_iter).read(None), expected)
+
+    def test_read_empty(self):
+        in_iter = [b'abc']
+        ip = utils.FileLikeIter(in_iter)
+        self.assertEqual(b'abc', ip.read())
+        self.assertEqual(b'', ip.read())
 
     def test_read_with_size(self):
         in_iter = [b'abc', b'de', b'fghijk', b'l']
@@ -2995,6 +3004,15 @@ class TestFileLikeIter(unittest.TestCase):
             [v if v == b'trailing.' else v + b'\n'
              for v in b''.join(in_iter).split(b'\n')])
 
+    def test_readline_size_unlimited(self):
+        in_iter = [b'abc', b'd\nef']
+        self.assertEqual(
+            utils.FileLikeIter(in_iter).readline(-1),
+            b'abcd\n')
+        self.assertEqual(
+            utils.FileLikeIter(in_iter).readline(None),
+            b'abcd\n')
+
     def test_readline2(self):
         self.assertEqual(
             utils.FileLikeIter([b'abc', b'def\n']).readline(4),
@@ -3025,6 +3043,16 @@ class TestFileLikeIter(unittest.TestCase):
         in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
                    b'trailing.']
         lines = utils.FileLikeIter(in_iter).readlines()
+        self.assertEqual(
+            lines,
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
+        lines = utils.FileLikeIter(in_iter).readlines(sizehint=-1)
+        self.assertEqual(
+            lines,
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
+        lines = utils.FileLikeIter(in_iter).readlines(sizehint=None)
         self.assertEqual(
             lines,
             [v if v == b'trailing.' else v + b'\n'
@@ -3090,6 +3118,137 @@ class TestFileLikeIter(unittest.TestCase):
                              {'select': SelectWithoutPoll,
                               '__original_module_select': SelectWithoutPoll}):
             self.assertEqual(utils.get_hub(), 'selects')
+
+
+class TestInputProxy(unittest.TestCase):
+    def test_read_all(self):
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(), b'abc')
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(-1), b'abc')
+        self.assertEqual(
+            utils.InputProxy(io.BytesIO(b'abc')).read(None), b'abc')
+
+    def test_read_size(self):
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(0), b'')
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(2), b'ab')
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(4), b'abc')
+
+    def test_readline(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        self.assertEqual(ip.readline(), b'ab\n')
+        self.assertFalse(ip.client_disconnect)
+
+    def test_bytes_received(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\ncdef'))
+        ip.readline()
+        self.assertEqual(3, ip.bytes_received)
+        ip.read(2)
+        self.assertEqual(5, ip.bytes_received)
+        ip.read(99)
+        self.assertEqual(7, ip.bytes_received)
+
+    def test_close(self):
+        utils.InputProxy(object()).close()  # safe
+
+        fake = mock.MagicMock()
+        fake.close = mock.MagicMock()
+        ip = (utils.InputProxy(fake))
+        ip.close()
+        self.assertEqual([mock.call()], fake.close.call_args_list)
+        self.assertFalse(ip.client_disconnect)
+
+    def test_read_piecemeal_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read(1)
+            ip.read(2)
+            ip.read(1)
+            ip.read(1)
+        self.assertEqual([mock.call(b'a', False),
+                          mock.call(b'bc', False),
+                          mock.call(b'', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+
+    def test_read_unlimited_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read()
+            ip.read()
+        self.assertEqual([mock.call(b'abc', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read(None)
+            ip.read(None)
+        self.assertEqual([mock.call(b'abc', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read(-1)
+            ip.read(-1)
+        self.assertEqual([mock.call(b'abc', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+
+    def test_readline_piecemeal_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(3)
+            ip.readline(1)  # read to exact length
+            ip.readline(1)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', False),
+                          mock.call(b'', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(3)
+            ip.readline(2)  # read beyond exact length
+            ip.readline(1)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+
+    def test_readline_unlimited_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline()
+            ip.readline()
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(None)
+            ip.readline(None)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(-1)
+            ip.readline(-1)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True)], mocked.call_args_list)
+
+    def test_chunk_update_modifies_chunk(self):
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update', return_value='modified'):
+            actual = ip.read()
+        self.assertEqual('modified', actual)
+
+    def test_read_client_disconnect(self):
+        fake = mock.MagicMock()
+        fake.read = mock.MagicMock(side_effect=ValueError('boom'))
+        ip = utils.InputProxy(fake)
+        with self.assertRaises(ValueError) as cm:
+            ip.read()
+        self.assertTrue(ip.client_disconnect)
+        self.assertEqual('boom', str(cm.exception))
+
+    def test_readline_client_disconnect(self):
+        fake = mock.MagicMock()
+        fake.readline = mock.MagicMock(side_effect=ValueError('boom'))
+        ip = utils.InputProxy(fake)
+        with self.assertRaises(ValueError) as cm:
+            ip.readline()
+        self.assertTrue(ip.client_disconnect)
+        self.assertEqual('boom', str(cm.exception))
 
 
 class UnsafeXrange(object):

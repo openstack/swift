@@ -1468,9 +1468,17 @@ class TestHashingInput(S3ApiTestCase):
         # can continue trying to read -- but it'll be empty
         self.assertEqual(b'', wrapped.read(2))
 
-        self.assertFalse(wrapped._input.closed)
+        self.assertFalse(wrapped.wsgi_input.closed)
         wrapped.close()
-        self.assertTrue(wrapped._input.closed)
+        self.assertTrue(wrapped.wsgi_input.closed)
+
+    def test_good_readline(self):
+        raw = b'12345\n6789'
+        wrapped = HashingInput(
+            BytesIO(raw), 10, hashlib.sha256(raw).hexdigest())
+        self.assertEqual(b'12345\n', wrapped.readline())
+        self.assertEqual(b'6789', wrapped.readline())
+        self.assertEqual(b'', wrapped.readline())
 
     def test_empty(self):
         wrapped = HashingInput(
@@ -1478,9 +1486,9 @@ class TestHashingInput(S3ApiTestCase):
         self.assertEqual(b'', wrapped.read(4))
         self.assertEqual(b'', wrapped.read(2))
 
-        self.assertFalse(wrapped._input.closed)
+        self.assertFalse(wrapped.wsgi_input.closed)
         wrapped.close()
-        self.assertTrue(wrapped._input.closed)
+        self.assertTrue(wrapped.wsgi_input.closed)
 
     def test_too_long(self):
         raw = b'123456789'
@@ -1495,18 +1503,26 @@ class TestHashingInput(S3ApiTestCase):
         # won't get caught by most things in a pipeline
         self.assertNotIsInstance(raised.exception, Exception)
         # the error causes us to close the input
-        self.assertTrue(wrapped._input.closed)
+        self.assertTrue(wrapped.wsgi_input.closed)
 
-    def test_too_short(self):
+    def test_too_short_read_piecemeal(self):
         raw = b'123456789'
         wrapped = HashingInput(
             BytesIO(raw), 10, hashlib.sha256(raw).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
-        self.assertEqual(b'56', wrapped.read(2))
-        # even though the hash matches, there was more data than we expected
+        self.assertEqual(b'56789', wrapped.read(5))
+        # even though the hash matches, there was less data than we expected
         with self.assertRaises(S3InputSHA256Mismatch):
-            wrapped.read(4)
-        self.assertTrue(wrapped._input.closed)
+            wrapped.read(1)
+        self.assertTrue(wrapped.wsgi_input.closed)
+
+    def test_too_short_read_all(self):
+        raw = b'123456789'
+        wrapped = HashingInput(
+            BytesIO(raw), 10, hashlib.sha256(raw).hexdigest())
+        with self.assertRaises(S3InputSHA256Mismatch):
+            wrapped.read()
+        self.assertTrue(wrapped.wsgi_input.closed)
 
     def test_bad_hash(self):
         raw = b'123456789'
@@ -1516,7 +1532,7 @@ class TestHashingInput(S3ApiTestCase):
         self.assertEqual(b'5678', wrapped.read(4))
         with self.assertRaises(S3InputSHA256Mismatch):
             wrapped.read(4)
-        self.assertTrue(wrapped._input.closed)
+        self.assertTrue(wrapped.wsgi_input.closed)
 
     def test_empty_bad_hash(self):
         _input = BytesIO(b'')
@@ -1525,6 +1541,14 @@ class TestHashingInput(S3ApiTestCase):
             # Don't even get a chance to try to read it
             HashingInput(_input, 0, 'nope')
         self.assertTrue(_input.closed)
+
+    def test_bad_hash_readline(self):
+        raw = b'12345\n6789'
+        wrapped = HashingInput(
+            BytesIO(raw), 10, hashlib.sha256(raw[:-3]).hexdigest())
+        self.assertEqual(b'12345\n', wrapped.readline())
+        with self.assertRaises(S3InputSHA256Mismatch):
+            self.assertEqual(b'6789', wrapped.readline())
 
 
 if __name__ == '__main__':

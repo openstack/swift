@@ -489,7 +489,9 @@ class FileLikeIter(object):
 
     def __next__(self):
         """
-        next(x) -> the next value, or raise StopIteration
+        :raise StopIteration: if there are no more values to iterate.
+        :raise ValueError: if the close() method has been called.
+        :return: the next value.
         """
         if self.closed:
             raise ValueError('I/O operation on closed file')
@@ -502,12 +504,14 @@ class FileLikeIter(object):
 
     def read(self, size=-1):
         """
-        read([size]) -> read at most size bytes, returned as a bytes string.
-
-        If the size argument is negative or omitted, read until EOF is reached.
-        Notice that when in non-blocking mode, less data than what was
-        requested may be returned, even if no size parameter was given.
+        :param size: (optional) the maximum number of bytes to read. The
+        default value of ``-1`` means 'unlimited' i.e. read until the wrapped
+        iterable is exhausted.
+        :raise ValueError: if the close() method has been called.
+        :return: a bytes literal; if the wrapped iterable has been exhausted
+            then a zero-length bytes literal is returned.
         """
+        size = -1 if size is None else size
         if self.closed:
             raise ValueError('I/O operation on closed file')
         if size < 0:
@@ -529,12 +533,17 @@ class FileLikeIter(object):
 
     def readline(self, size=-1):
         """
-        readline([size]) -> next line from the file, as a bytes string.
+        Read the next line.
 
-        Retain newline.  A non-negative size argument limits the maximum
-        number of bytes to return (an incomplete line may be returned then).
-        Return an empty string at EOF.
+        :param size: (optional) the maximum number of bytes of the next line to
+            read. The default value of ``-1`` means 'unlimited' i.e. read to
+            the end of the line or until the wrapped iterable is exhausted,
+            whichever is first.
+        :raise ValueError: if the close() method has been called.
+        :return: a bytes literal; if the wrapped iterable has been exhausted
+            then a zero-length bytes literal is returned.
         """
+        size = -1 if size is None else size
         if self.closed:
             raise ValueError('I/O operation on closed file')
         data = b''
@@ -557,12 +566,16 @@ class FileLikeIter(object):
 
     def readlines(self, sizehint=-1):
         """
-        readlines([size]) -> list of bytes strings, each a line from the file.
-
         Call readline() repeatedly and return a list of the lines so read.
-        The optional size argument, if given, is an approximate bound on the
-        total number of bytes in the lines returned.
+
+        :param sizehint: (optional) an approximate bound on the total number of
+            bytes in the lines returned. Lines are read until ``sizehint`` has
+            been exceeded but complete lines are always returned, so the total
+            bytes read may exceed ``sizehint``.
+        :raise ValueError: if the close() method has been called.
+        :return: a list of bytes literals, each a line from the file.
         """
+        sizehint = -1 if sizehint is None else sizehint
         if self.closed:
             raise ValueError('I/O operation on closed file')
         lines = []
@@ -579,12 +592,10 @@ class FileLikeIter(object):
 
     def close(self):
         """
-        close() -> None or (perhaps) an integer.  Close the file.
+        Close the iter.
 
-        Sets data attribute .closed to True.  A closed file cannot be used for
-        further I/O operations.  close() may be called more than once without
-        error.  Some kinds of file objects (for example, opened by popen())
-        may return an exit status upon closing.
+        Once close() has been called the iter cannot be used for further I/O
+        operations. close() may be called more than once without error.
         """
         self.iterator = None
         self.closed = True
@@ -2515,41 +2526,79 @@ class InputProxy(object):
     """
     File-like object that counts bytes read.
     To be swapped in for wsgi.input for accounting purposes.
+
+    :param wsgi_input: file-like object to be wrapped
     """
 
     def __init__(self, wsgi_input):
-        """
-        :param wsgi_input: file-like object to wrap the functionality of
-        """
         self.wsgi_input = wsgi_input
+        #: total number of bytes read from the wrapped input
         self.bytes_received = 0
+        #: ``True`` if an exception is raised by ``read()`` or ``readline()``,
+        #: ``False`` otherwise
         self.client_disconnect = False
 
-    def read(self, *args, **kwargs):
+    def chunk_update(self, chunk, eof, *args, **kwargs):
+        """
+        Called each time a chunk of bytes is read from the wrapped input.
+
+        :param chunk: the chunk of bytes that has been read.
+        :param eof: ``True`` if there are no more bytes to read from the
+            wrapped input, ``False`` otherwise. If ``read()`` has been called
+            this will be ``True`` when the size of ``chunk`` is less than the
+            requested size or the requested size is None. If ``readline`` has
+            been called this will be ``True`` when an incomplete line is read
+            (i.e. not ending with ``b'\\n'``) whose length is less than the
+            requested size or the requested size is None. If ``read()`` or
+            ``readline()`` are called with a requested size that exactly
+            matches the number of bytes remaining in the wrapped input then
+            ``eof`` will be ``False``. A subsequent call to ``read()`` or
+            ``readline()`` with non-zero ``size`` would result in ``eof`` being
+            ``True``. Alternatively, the end of the input could be inferred
+            by comparing ``bytes_received`` with the expected length of the
+            input.
+        """
+        # subclasses may override this method; either the given chunk or an
+        # alternative chunk value should be returned
+        return chunk
+
+    def read(self, size=None, *args, **kwargs):
         """
         Pass read request to the underlying file-like object and
         add bytes read to total.
+
+        :param size: (optional) maximum number of bytes to read; the default
+            ``None`` means unlimited.
         """
         try:
-            chunk = self.wsgi_input.read(*args, **kwargs)
+            chunk = self.wsgi_input.read(size, *args, **kwargs)
         except Exception:
             self.client_disconnect = True
             raise
         self.bytes_received += len(chunk)
-        return chunk
+        eof = size is None or size < 0 or len(chunk) < size
+        return self.chunk_update(chunk, eof)
 
-    def readline(self, *args, **kwargs):
+    def readline(self, size=None, *args, **kwargs):
         """
         Pass readline request to the underlying file-like object and
         add bytes read to total.
+
+        :param size: (optional) maximum number of bytes to read from the
+            current line; the default ``None`` means unlimited.
         """
         try:
-            line = self.wsgi_input.readline(*args, **kwargs)
+            line = self.wsgi_input.readline(size, *args, **kwargs)
         except Exception:
             self.client_disconnect = True
             raise
         self.bytes_received += len(line)
-        return line
+        eof = ((size is None or size < 0 or len(line) < size)
+               and (line[-1:] != b'\n'))
+        return self.chunk_update(line, eof)
+
+    def close(self):
+        close_if_possible(self.wsgi_input)
 
 
 class LRUCache(object):
