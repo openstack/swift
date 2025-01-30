@@ -17,7 +17,9 @@ import os
 import time
 import unittest
 
+from swift.common.swob import Request
 from swift.common.middleware.s3api import utils, s3request
+from swift.common.middleware.s3api.exception import InvalidBucketNameParseError
 
 strs = [
     ('Owner', 'owner'),
@@ -42,6 +44,7 @@ class TestS3ApiUtils(unittest.TestCase):
         self.assertTrue(utils.validate_bucket_name('bucket-1', True))
         self.assertTrue(utils.validate_bucket_name('b.u.c.k.e.t', True))
         self.assertTrue(utils.validate_bucket_name('a' * 63, True))
+        self.assertTrue(utils.validate_bucket_name('v1.0', True))
         # bad cases
         self.assertFalse(utils.validate_bucket_name('a', True))
         self.assertFalse(utils.validate_bucket_name('aa', True))
@@ -56,6 +59,7 @@ class TestS3ApiUtils(unittest.TestCase):
         self.assertFalse(utils.validate_bucket_name('bucket-.bucket', True))
         self.assertFalse(utils.validate_bucket_name('bucket..bucket', True))
         self.assertFalse(utils.validate_bucket_name('a' * 64, True))
+        self.assertFalse(utils.validate_bucket_name('v1', False))
 
     def test_validate_bucket_name_with_dns_compliant_bucket_names_false(self):
         # good cases
@@ -80,6 +84,174 @@ class TestS3ApiUtils(unittest.TestCase):
         # ending with dot seems invalid in US standard, too
         self.assertFalse(utils.validate_bucket_name('bucket.', False))
         self.assertFalse(utils.validate_bucket_name('a' * 256, False))
+
+    def test_extract_bucket_and_key(self):
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'GET',
+            },
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+            },
+        )
+
+        cont, obj = utils.extract_bucket_and_key(req, [], False)
+        self.assertEqual(cont, 'bucket')
+        self.assertEqual(obj, 'object')
+
+    def test_extract_bucket_and_key_invalid_character(self):
+        req = Request.blank(
+            '/bucket/\x00object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac'},
+        )
+        self.assertEqual((None, None),
+                         utils.extract_bucket_and_key(req, [], False))
+
+    def test_extract_bucket_and_key_invalid_bucket(self):
+        req = Request.blank(
+            '/b/object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac'},
+        )
+        self.assertEqual((None, None),
+                         utils.extract_bucket_and_key(req, [], False))
+
+    def test_extract_bucket_and_key_invalid_dns_compliant(self):
+        req = Request.blank(
+            '/BUCKET/object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac'},
+        )
+        self.assertEqual(('BUCKET', 'object'),
+                         utils.extract_bucket_and_key(req, [], False))
+
+        self.assertEqual((None, None),
+                         utils.extract_bucket_and_key(req, [], True))
+
+    def test_extract_bucket_and_key_bucket_in_host(self):
+        req = Request.blank(
+            '/object/xyz',
+            environ={'REQUEST_METHOD': 'GET',
+                     'HTTP_HOST': 'bucket.localhost'},
+            headers={'Authorization': 'AWS test:atester:hmac'},
+        )
+        self.assertEqual(
+            ('bucket', 'object/xyz'),
+            utils.extract_bucket_and_key(req, ['localhost'], False))
+
+    def test_parse_host(self):
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'GET',
+                'SERVER_NAME': 'foo.boo'
+            },
+        )
+        del req.environ['HTTP_HOST']
+        self.assertEqual(utils.parse_host(req.environ, []), None)
+        self.assertEqual(utils.parse_host(req.environ, ['boo']), 'foo')
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'GET',
+                'HTTP_HOST': 'buckets.localhost',
+                'SERVER_NAME': 'foo.localhost',
+            },
+        )
+        self.assertEqual(utils.parse_host(req.environ, []), None)
+        self.assertEqual(utils.parse_host(
+            req.environ, ['notlocalhost']), None)
+        self.assertEqual(utils.parse_host(
+            req.environ, ['localhost']), 'buckets')
+        self.assertEqual(utils.parse_host(
+            req.environ, ['.localhost']), 'buckets')
+        self.assertEqual(utils.parse_host(
+            req.environ, ['notlocalhost', '.localhost']), 'buckets')
+
+    def test_parse_path(self):
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'GET'},
+        )
+        bucket, obj = utils.parse_path(req, None, False)
+        self.assertEqual(bucket, 'bucket')
+        self.assertEqual(obj, 'object')
+        bucket, obj = utils.parse_path(req, None, True)
+        self.assertEqual(bucket, 'bucket')
+        self.assertEqual(obj, 'object')
+        bucket, obj = utils.parse_path(req, 'boo', True)
+        self.assertEqual(bucket, 'boo')
+        self.assertEqual(obj, 'bucket/object')
+
+    def test_parse_path_dns_compliant_bucket_names(self):
+        req = Request.blank(
+            '/BUCKET/object',
+            environ={'REQUEST_METHOD': 'GET'},
+        )
+        with self.assertRaises(InvalidBucketNameParseError):
+            utils.parse_path(req, None, True)
+        # non-compliant is ok if it somehow came in the host??
+        bucket, obj = utils.parse_path(req, 'BUCKET', True)
+        self.assertEqual(bucket, 'BUCKET')
+        self.assertEqual(obj, 'BUCKET/object')
+
+    def test_get_s3_access_key_id_not_s3_req(self):
+        headers = {'Authorization': 'not AWS my_access_key_id:signature'}
+        req = Request.blank('/v1/a/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers=headers)
+        self.assertIsNone(utils.get_s3_access_key_id(req))
+
+    def test_get_s3_access_key_id_v2_header(self):
+        headers = {'Authorization': 'AWS my_access_key_id:signature'}
+        req = Request.blank('/v1/a/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers=headers)
+        self.assertEqual('my_access_key_id', utils.get_s3_access_key_id(req))
+
+    def test_get_s3_access_key_id_v2_param(self):
+        params = {'AWSAccessKeyId': 'my_access_key_id'}
+        req = Request.blank('/v1/a/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            params=params)
+        self.assertEqual('my_access_key_id', utils.get_s3_access_key_id(req))
+
+    def test_get_s3_access_key_id_v4_header(self):
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=my_access_key_id/20130524/us-east-1/s3/'
+                'aws4_request,'
+                'SignedHeaders=host;range;x-amz-date,'
+                'Signature=fe5f80f77d5fa3beca038a248ff027d0445342fe2855ddc963'
+                '176630326f1024'}
+        req = Request.blank('/v1/a/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers=headers)
+        self.assertEqual('my_access_key_id', utils.get_s3_access_key_id(req))
+
+    def test_get_s3_access_key_id_v4_param(self):
+        params = {'X-Amz-Credential':
+                  'my_access_key_id/20130721/us-east-1/s3/aws4_request'}
+        req = Request.blank('/v1/a/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            params=params)
+        self.assertEqual('my_access_key_id', utils.get_s3_access_key_id(req))
+
+    def test_is_s3_req(self):
+        headers = {'Authorization': 'not AWS my_access_key_id:signature'}
+        req = Request.blank('/v1/a/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers=headers)
+        self.assertIs(False, utils.is_s3_req(req))
+
+        headers = {'Authorization': 'AWS my_access_key_id:signature'}
+        req = Request.blank('/v1/a/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers=headers)
+        self.assertIs(True, utils.is_s3_req(req))
 
     def test_mktime(self):
         date_headers = [

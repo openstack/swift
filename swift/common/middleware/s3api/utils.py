@@ -22,6 +22,10 @@ import time
 import uuid
 
 from swift.common import utils
+from swift.common.constraints import check_utf8
+from swift.common.swob import wsgi_to_str
+from swift.common.middleware.s3api.exception import \
+    InvalidBucketNameParseError, InvalidURIParseError
 
 MULTIUPLOAD_SUFFIX = '+segments'
 
@@ -103,6 +107,128 @@ def validate_bucket_name(name, dns_compliant_bucket_names):
         return False
     else:
         return True
+
+
+def get_s3_access_key_id(req):
+    """
+    Return the S3 access_key_id user for the request,
+    or None if it does not look like an S3 request.
+
+    :param req: a swob.Request instance
+
+    :returns: access_key_id if available, else None
+    """
+
+    authorization = req.headers.get('Authorization', '')
+    if authorization.startswith('AWS '):
+        # v2
+        return authorization[4:].rsplit(':', 1)[0]
+    if authorization.startswith('AWS4-HMAC-SHA256 '):
+        # v4
+        return authorization.partition('Credential=')[2].split('/', 1)[0]
+    params = req.params
+    if 'AWSAccessKeyId' in params:
+        # v2
+        return params['AWSAccessKeyId']
+    if 'X-Amz-Credential' in params:
+        # v4
+        return params['X-Amz-Credential'].split('/', 1)[0]
+
+    return None
+
+
+def is_s3_req(req):
+    """
+    Check whether a request looks like it ought to be an S3 request.
+
+    :param req: a swob.Request instance
+
+    :returns: True if access_key_id is available, False if not
+    """
+    return bool(get_s3_access_key_id(req))
+
+
+def parse_host(environ, storage_domains):
+    """
+    A bucket-in-host request has the bucket name as the first part of a
+    ``.``-separated host. If the host ends with any of
+    the given storage_domains then the bucket name is returned.
+    Otherwise ``None`` is returned.
+
+    :param environ: an environment dict
+    :param storage_domains: a list of storage domains for which bucket-in-host
+                            is supported.
+    :returns: bucket name or None
+    """
+
+    if 'HTTP_HOST' in environ:
+        given_domain = environ['HTTP_HOST']
+    elif 'SERVER_NAME' in environ:
+        given_domain = environ['SERVER_NAME']
+    else:
+        return None
+    if ':' in given_domain:
+        given_domain = given_domain.rsplit(':', 1)[0]
+
+    for storage_domain in storage_domains:
+        if not storage_domain.startswith('.'):
+            storage_domain = '.' + storage_domain
+
+        if given_domain.endswith(storage_domain):
+            return given_domain[:-len(storage_domain)]
+
+    return None
+
+
+def parse_path(req, bucket_in_host, dns_compliant_bucket_names):
+    """
+    :params req: a swob.Request instance
+    :params bucket_in_host: A bucket-in-host request has the bucket name as
+                            the first part of a ``.``-separated host.
+    :params dns_compliant_bucket_names: whether to validate that the bucket
+                                        name must be dns compliant
+
+    :returns: WSGI string
+    """
+    if not check_utf8(wsgi_to_str(req.environ['PATH_INFO'])):
+        raise InvalidURIParseError(req.path)
+
+    if bucket_in_host:
+        obj = req.environ['PATH_INFO'][1:] or None
+        return bucket_in_host, obj
+
+    bucket, obj = req.split_path(0, 2, True)
+
+    if bucket and not validate_bucket_name(
+            bucket, dns_compliant_bucket_names):
+        # Ignore GET service case
+        raise InvalidBucketNameParseError(bucket)
+    return bucket, obj
+
+
+def extract_bucket_and_key(req, storage_domains,
+                           dns_compliant_bucket_names):
+    """
+    Extract the bucket and object key from the request's PATH_INFO. Support
+    bucket-in-host if storage_domains and HTTP_HOST or SERVER_NAME are
+    specified. Otherwise the bucket is parsed from PATH_INFO.
+
+    :param req: a swob.Request instance
+    :param storage_domains: a list of storage domains for which bucket-in-host
+                            is supported.
+    :param dns_compliant_bucket_names: whether to validate that the bucket
+                                       name must be dns compliant
+
+    :returns: a tuple of (bucket, key). If the request path is invalid
+              the tuple (None, None) is returned.
+    """
+    try:
+        bucket_in_host = parse_host(req.environ, storage_domains)
+        bucket, key = parse_path(
+            req, bucket_in_host, dns_compliant_bucket_names)
+    except (InvalidBucketNameParseError, InvalidURIParseError):
+        bucket, key = None, None
+    return bucket, key
 
 
 class S3Timestamp(utils.Timestamp):
