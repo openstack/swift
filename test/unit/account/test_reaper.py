@@ -59,7 +59,7 @@ class FakeAccountBroker(object):
                 kwargs, ))
         for cont in self.containers:
             if cont > marker:
-                yield cont, None, None, None, None
+                yield cont, None, None, None, None, None
             limit -= 1
             if limit <= 0:
                 break
@@ -735,7 +735,7 @@ class TestReaper(unittest.TestCase):
                 if container in self.containers_yielded:
                     continue
 
-                yield container, None, None, None, None
+                yield container, None, None, None, None, None
                 self.containers_yielded.append(container)
 
         def fake_reap_container(self, account, account_partition,
