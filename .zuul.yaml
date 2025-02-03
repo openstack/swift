@@ -540,7 +540,7 @@
               - ^doc/(requirements.txt|(manpages|source)/.*)$
               - ^test/(cors|unit|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-probetests-centos-8-stream:
+        - swift-probetests-centos-9-stream:
             irrelevant-files: &probetest-irrelevant-files
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
