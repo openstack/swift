@@ -20,10 +20,43 @@ from swift.common.swob import Request, HTTPOk, HTTPNotFound, \
     HTTPCreated, HeaderKeyDict
 from swift.common import request_helpers as rh
 from swift.common.middleware.s3api.utils import sysmeta_header
-from test.unit.common.middleware.helpers import FakeSwift
+from test.unit.common.middleware.helpers import FakeSwift, FakeSwiftCall
+
+
+class TestFakeSwiftCall(unittest.TestCase):
+    def test_init(self):
+        req = Request.blank('/v1/a/c/o', headers={'Content-Length': '123'})
+        call = FakeSwiftCall(req)
+        self.assertEqual('GET', call.method)
+        self.assertEqual('/v1/a/c/o', call.path)
+        self.assertEqual({'Host': 'localhost:80',
+                          'Content-Length': '123'},
+                         call.headers)
+        self.assertIsInstance(call.footers, HeaderKeyDict)
+        self.assertEqual({}, call.footers)
+
+    def test_header_mutation(self):
+        orig_headers = {'foo': 'bar'}
+        req = Request.blank('/v1/a/c/o',
+                            headers=orig_headers)
+        call = FakeSwiftCall(req)
+        self.assertEqual('bar', call.headers['foo'])
+        req.headers['foo'] = 'baz'
+        self.assertEqual('bar', call.headers['foo'])
 
 
 class TestFakeSwift(unittest.TestCase):
+    def test_call_accessors(self):
+        swift = FakeSwift()
+        swift.register('GET', '/v1/a/c/o', HTTPOk, {'X-Foo': 'Bar'}, b'stuff')
+        req = Request.blank('/v1/a/c/o', headers={'Host': 'localhost:80'})
+        req.method = 'GET'
+        req.get_response(swift)
+        self.assertEqual([('GET', '/v1/a/c/o')], swift.calls)
+        self.assertEqual([{'Host': 'localhost:80'}], swift.headers)
+        self.assertEqual([('GET', '/v1/a/c/o', {'Host': 'localhost:80'})],
+                         swift.calls_with_headers)
+
     def test_allowed_methods(self):
 
         def do_test(swift, method, exp_status):
@@ -469,6 +502,46 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(4, swift.call_count)
         self.assertEqual(('GET', '/v1/a/c/o'), swift.calls[-1])
 
+    def test_PUT_with_footers_callback(self):
+        def footers_callback(footers):
+            footers['x-object-sysmeta-foo'] = 'bar'
+
+        swift = FakeSwift()
+        swift.register('PUT', '/v1/a/c/o', HTTPCreated, {}, None)
+        # Note: the POST must be registered
+        swift.register('POST', '/v1/a/c/o', HTTPCreated, {}, None)
+        req = Request.blank('/v1/a/c/o', body=b'stuff',
+                            headers={'X-Object-Meta-Foo': 'Bar'})
+        req.method = 'PUT'
+        req.environ['swift.callback.update_footers'] = footers_callback
+        resp = req.get_response(swift)
+        self.assertEqual(201, resp.status_int)
+        self.assertEqual({'Content-Length': '5',
+                          'Etag': 'c13d88cb4cb02003daedb8a84e5d272a',
+                          'Content-Type': 'text/html; charset=UTF-8'},
+                         resp.headers)
+        self.assertEqual(b'', resp.body)
+        self.assertEqual(1, swift.call_count)
+        self.assertEqual(('PUT', '/v1/a/c/o'), swift.calls[0])
+        self.assertEqual({'Host': 'localhost:80',
+                          'Content-Length': '5',
+                          'X-Object-Meta-Foo': 'Bar'},
+                         swift.call_list[0].headers)
+        self.assertEqual({'X-Object-Sysmeta-Foo': 'bar'},
+                         swift.call_list[0].footers)
+
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'GET'
+        resp = req.get_response(swift)
+        self.assertEqual(200, resp.status_int)
+        # resp has headers and footers
+        self.assertEqual({'Content-Length': '5',
+                          'Content-Type': 'text/html; charset=UTF-8',
+                          'Host': 'localhost:80',
+                          'X-Object-Sysmeta-Foo': 'bar',
+                          'X-Object-Meta-Foo': 'Bar'},
+                         resp.headers)
+
     def test_GET_registered_overrides_uploaded(self):
         swift = FakeSwift()
         swift.register('PUT', '/v1/a/c/o', HTTPCreated, {}, None)
@@ -514,7 +587,7 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual('bytes 0-2/5', resp.headers['Content-Range'])
         self.assertEqual('bytes=0-2', req.headers.get('Range'))
         self.assertEqual('bytes=0-2',
-                         swift.calls_with_headers[-1].headers.get('Range'))
+                         swift.call_list[-1].headers.get('Range'))
 
     def test_range_ignore_range_header(self):
         swift = FakeSwift()
@@ -530,7 +603,7 @@ class TestFakeSwift(unittest.TestCase):
         self.assertNotIn('Content-Range', resp.headers)
         self.assertEqual('bytes=0-2', req.headers.get('Range'))
         self.assertEqual('bytes=0-2',
-                         swift.calls_with_headers[-1].headers.get('Range'))
+                         swift.call_list[-1].headers.get('Range'))
 
     def test_range_ignore_range_header_old_swift(self):
         swift = FakeSwift()
@@ -547,7 +620,7 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual('bytes 0-2/5', resp.headers['Content-Range'])
         self.assertEqual('bytes=0-2', req.headers.get('Range'))
         self.assertEqual('bytes=0-2',
-                         swift.calls_with_headers[-1].headers.get('Range'))
+                         swift.call_list[-1].headers.get('Range'))
 
     def test_range_ignore_range_header_ignored(self):
         swift = FakeSwift()
@@ -561,7 +634,7 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual('bytes 0-2/5', resp.headers['Content-Range'])
         self.assertEqual('bytes=0-2', req.headers.get('Range'))
         self.assertEqual('bytes=0-2',
-                         swift.calls_with_headers[-1].headers.get('Range'))
+                         swift.call_list[-1].headers.get('Range'))
 
     def test_object_GET_updated_with_storage_policy(self):
         swift = FakeSwift()

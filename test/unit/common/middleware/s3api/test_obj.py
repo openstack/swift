@@ -1411,7 +1411,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         self.assertEqual('/v1/AUTH_test/bucket/object',
                          req.environ['swift.backend_path'])
 
-        head_call, put_call = self.swift.calls_with_headers
+        head_call, put_call = self.swift.call_list
         self.assertNotIn('x-backend-storage-policy-index', head_call.headers)
         self.assertNotIn('x-backend-storage-policy-index', put_call.headers)
         self.assertEqual(put_call.headers['x-copy-from'], '/some/source')
