@@ -12,7 +12,6 @@
 # limitations under the License.
 
 import json
-import numbers
 import shutil
 from functools import partial
 from tempfile import mkdtemp
@@ -140,6 +139,8 @@ class FakeInternalClient(reconciler.InternalClient):
                         continue
                     obj_path = swob.str_to_wsgi(
                         container_path + '/' + obj_name)
+                    # some tests setup mock listings using floats, some use
+                    # strings, so normalize here
                     ts = Timestamp(timestamp)
                     headers = {'X-Timestamp': ts.normal,
                                'X-Backend-Timestamp': ts.internal}
@@ -149,17 +150,12 @@ class FakeInternalClient(reconciler.InternalClient):
                     self.app.storage_policy[storage_policy_index].register(
                         'DELETE', obj_path, swob.HTTPNoContent, {})
                     # container listing entry
-                    last_modified = timestamp_to_last_modified(timestamp)
-                    # some tests setup mock listings using floats, some use
-                    # strings, so normalize here
-                    if isinstance(timestamp, numbers.Number):
-                        timestamp = '%f' % timestamp
                     obj_data = {
                         'bytes': 0,
                         # listing data is unicode
                         'name': obj_name,
-                        'last_modified': last_modified,
-                        'hash': timestamp,
+                        'last_modified': ts.isoformat,
+                        'hash': ts.internal,
                         'content_type': content_type,
                     }
                     container_listing_data.append(obj_data)
