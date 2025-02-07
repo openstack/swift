@@ -793,7 +793,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
 
         with self.assertRaises(ClientError) as cm:
             self.get_part(key_name, 3)
-        self.assertEqual(416, status_from_error(cm.exception))
+        self.assertEqual(416, status_from_error(cm.exception), cm.exception)
         self.assertEqual('InvalidPartNumber', code_from_error(cm.exception))
 
     def test_create_upload_complete_misordered_parts(self):

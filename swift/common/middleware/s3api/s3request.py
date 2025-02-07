@@ -26,7 +26,7 @@ from urllib.parse import quote, unquote, parse_qsl
 import string
 
 from swift.common.utils import split_path, json, md5, streq_const_time, \
-    get_policy_index, InputProxy
+    close_if_possible, InputProxy, get_policy_index, list_from_csv
 from swift.common.registry import get_swift_info
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
@@ -57,8 +57,12 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, \
     BadDigest, AuthorizationHeaderMalformed, SlowDown, \
     AuthorizationQueryParametersError, ServiceUnavailable, BrokenMPU, \
-    InvalidPartNumber, InvalidPartArgument, XAmzContentSHA256Mismatch
-from swift.common.middleware.s3api.exception import NotS3Request
+    XAmzContentSHA256Mismatch, IncompleteBody, InvalidChunkSizeError, \
+    InvalidPartNumber, InvalidPartArgument, MalformedTrailerError
+from swift.common.middleware.s3api.exception import NotS3Request, \
+    S3InputError, S3InputSizeError, S3InputIncomplete, \
+    S3InputChunkSignatureMismatch, S3InputChunkTooSmall, \
+    S3InputMalformedTrailer, S3InputMissingSecret
 from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
@@ -83,7 +87,18 @@ ALLOWED_SUB_RESOURCES = sorted([
 MAX_32BIT_INT = 2147483647
 SIGV2_TIMESTAMP_FORMAT = '%Y-%m-%dT%H:%M:%S'
 SIGV4_X_AMZ_DATE_FORMAT = '%Y%m%dT%H%M%SZ'
+SIGV4_CHUNK_MIN_SIZE = 8192
 SERVICE = 's3'  # useful for mocking out in tests
+
+
+def _is_streaming(aws_sha256):
+    return aws_sha256 in (
+        'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+        'STREAMING-AWS4-HMAC-SHA256-PAYLOAD',
+        'STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER',
+        'STREAMING-AWS4-ECDSA-P256-SHA256-PAYLOAD',
+        'STREAMING-AWS4-ECDSA-P256-SHA256-PAYLOAD-TRAILER',
+    )
 
 
 def _header_strip(value):
@@ -170,6 +185,238 @@ class HashingInput(InputProxy):
                 self._hasher.hexdigest())
 
         return chunk
+
+
+class ChunkReader(InputProxy):
+    """
+    wsgi.input wrapper to read a single chunk from a chunked input and validate
+    its signature.
+
+    :param wsgi_input: a wsgi input.
+    :param chunk_size: number of bytes to read.
+    :param validator: function to call to validate the chunk's content.
+    :param chunk_params: string of params from the chunk's header.
+    """
+    def __init__(self, wsgi_input, chunk_size, validator, chunk_params):
+        super().__init__(wsgi_input)
+        self.chunk_size = chunk_size
+        self._validator = validator
+        if self._validator is None:
+            self._signature = None
+        else:
+            self._signature = self._parse_chunk_signature(chunk_params)
+        self._sha256 = sha256()
+
+    def _parse_chunk_signature(self, chunk_params):
+        if not chunk_params:
+            raise S3InputIncomplete
+        start, _, chunk_sig = chunk_params.partition('=')
+        if start.strip() != 'chunk-signature':
+            # Call the validator to update the string to sign
+            self._validator('', '')
+            raise S3InputChunkSignatureMismatch
+        if ';' in chunk_sig:
+            raise S3InputIncomplete
+        chunk_sig = chunk_sig.strip()
+        if not chunk_sig:
+            raise S3InputIncomplete
+        return chunk_sig
+
+    @property
+    def to_read(self):
+        return self.chunk_size - self.bytes_received
+
+    def read(self, size=None, *args, **kwargs):
+        if size is None or size < 0 or size > self.to_read:
+            size = self.to_read
+        return super().read(size)
+
+    def readline(self, size=None, *args, **kwargs):
+        if size is None or size < 0 or size > self.to_read:
+            size = self.to_read
+        return super().readline(size)
+
+    def chunk_update(self, chunk, eof, *args, **kwargs):
+        self._sha256.update(chunk)
+        if self.bytes_received == self.chunk_size:
+            if self._validator and not self._validator(
+                    self._sha256.hexdigest(), self._signature):
+                self.close()
+                raise S3InputChunkSignatureMismatch
+        return chunk
+
+
+class StreamingInput:
+    """
+    wsgi.input wrapper to read a chunked input, verifying each chunk as it's
+    read. Once all chunks have been read, any trailers are read.
+
+    :param input: a wsgi input.
+    :param decoded_content_length: the number of payload bytes expected to be
+        extracted from chunks.
+    :param expected_trailers: the set of trailer names expected.
+    :param sig_checker: an instance of SigCheckerV4 that will be called to
+        verify each chunk's signature.
+    """
+    def __init__(self, input, decoded_content_length,
+                 expected_trailers, sig_checker):
+        self._input = input
+        self._decoded_content_length = decoded_content_length
+        self._expected_trailers = expected_trailers
+        self._sig_checker = sig_checker
+        # Length of the payload remaining; i.e., number of bytes a caller
+        # still expects to be able to read. Once exhausted, we should be
+        # exactly at the trailers (if present)
+        self._to_read = decoded_content_length
+        # Reader for the current chunk that's in progress
+        self._chunk_reader = None
+        # Track the chunk number, for error messages
+        self._chunk_number = 0
+        # Track the size of the most recently read chunk. AWS enforces an 8k
+        # min chunk size (except the final chunk)
+        self._last_chunk_size = None
+        # When True, we've read the payload, but not necessarily the trailers
+        self._completed_payload = False
+        # When True, we've read the trailers
+        self._completed_trailers = False
+        # Any trailers present after the payload (not available until after
+        # caller has read full payload; i.e., until after _to_read is 0)
+        self.trailers = {}
+
+    def _read_chunk_header(self):
+        """
+        Read a chunk header, reading at most one line from the raw input.
+
+        Parse out the next chunk size and any other params.
+
+        :returns: a tuple of (chunk_size, chunk_params). chunk_size is an int,
+            chunk_params is string.
+        """
+        self._chunk_number += 1
+        chunk_header = swob.bytes_to_wsgi(self._input.readline())
+        if chunk_header[-2:] != '\r\n':
+            raise S3InputIncomplete('invalid chunk header: %s' % chunk_header)
+        chunk_size, _, chunk_params = chunk_header[:-2].partition(';')
+
+        try:
+            chunk_size = int(chunk_size, 16)
+            if chunk_size < 0:
+                raise ValueError
+        except ValueError:
+            raise S3InputIncomplete('invalid chunk header: %s' % chunk_header)
+
+        if self._last_chunk_size is not None and \
+                self._last_chunk_size < SIGV4_CHUNK_MIN_SIZE and \
+                chunk_size != 0:
+            raise S3InputChunkTooSmall(self._last_chunk_size,
+                                       self._chunk_number)
+        self._last_chunk_size = chunk_size
+
+        if chunk_size > self._to_read:
+            raise S3InputSizeError(
+                self._decoded_content_length,
+                self._decoded_content_length - self._to_read + chunk_size)
+        return chunk_size, chunk_params
+
+    def _read_payload(self, size, readline=False):
+        bufs = []
+        bytes_read = 0
+        while not self._completed_payload and (
+                bytes_read < size
+                # Make sure we read the trailing zero-byte chunk at the end
+                or self._to_read == 0):
+            if self._chunk_reader is None:
+                # OK, we're at the start of a new chunk
+                chunk_size, chunk_params = self._read_chunk_header()
+                self._chunk_reader = ChunkReader(
+                    self._input,
+                    chunk_size,
+                    self._sig_checker and
+                    self._sig_checker.check_chunk_signature,
+                    chunk_params)
+            if readline:
+                buf = self._chunk_reader.readline(size - bytes_read)
+            else:
+                buf = self._chunk_reader.read(size - bytes_read)
+            bufs.append(buf)
+            if self._chunk_reader.to_read == 0:
+                # If it's the final chunk, we're in (possibly empty) trailers
+                # Otherwise, there's a CRLF chunk-separator
+                if self._chunk_reader.chunk_size == 0:
+                    self._completed_payload = True
+                elif self._input.read(2) != b'\r\n':
+                    raise S3InputIncomplete
+                self._chunk_reader = None
+            bytes_read += len(buf)
+            self._to_read -= len(buf)
+            if readline and buf[-1:] == b'\n':
+                break
+        return b''.join(bufs)
+
+    def _read_trailers(self):
+        if self._expected_trailers:
+            for line in iter(self._input.readline, b''):
+                if not line.endswith(b'\r\n'):
+                    raise S3InputIncomplete
+                if line == b'\r\n':
+                    break
+                key, _, value = swob.bytes_to_wsgi(line).partition(':')
+                if key.lower() not in self._expected_trailers:
+                    raise S3InputMalformedTrailer
+                self.trailers[key.strip()] = value.strip()
+            if 'x-amz-trailer-signature' in self._expected_trailers \
+                    and 'x-amz-trailer-signature' not in self.trailers:
+                raise S3InputIncomplete
+            if set(self.trailers.keys()) != self._expected_trailers:
+                raise S3InputMalformedTrailer
+            if 'x-amz-trailer-signature' in self._expected_trailers \
+                    and self._sig_checker is not None:
+                if not self._sig_checker.check_trailer_signature(
+                        self.trailers):
+                    raise S3InputChunkSignatureMismatch
+                if len(self.trailers) == 1:
+                    raise S3InputIncomplete
+            # Now that we've read them, we expect no more
+            self._expected_trailers = set()
+        elif self._input.read(2) not in (b'', b'\r\n'):
+            raise S3InputIncomplete
+
+        self._completed_trailers = True
+
+    def _read(self, size, readline=False):
+        data = self._read_payload(size, readline)
+        if self._completed_payload:
+            if not self._completed_trailers:
+                # read trailers, if present
+                self._read_trailers()
+            # At this point, we should have read everything; if we haven't,
+            # that's an error
+            if self._to_read:
+                raise S3InputSizeError(
+                    self._decoded_content_length,
+                    self._decoded_content_length - self._to_read)
+        return data
+
+    def read(self, size=None):
+        if size is None or size < 0 or size > self._to_read:
+            size = self._to_read
+        try:
+            return self._read(size)
+        except S3InputError:
+            self.close()
+            raise
+
+    def readline(self, size=None):
+        if size is None or size < 0 or size > self._to_read:
+            size = self._to_read
+        try:
+            return self._read(size, True)
+        except S3InputError:
+            self.close()
+            raise
+
+    def close(self):
+        close_if_possible(self._input)
 
 
 class BaseSigChecker:
@@ -275,9 +522,112 @@ class SigCheckerV4(BaseSigChecker):
         return derived_secret
 
     def _check_signature(self):
+        if self._secret is None:
+            raise S3InputMissingSecret
         valid_signature = hmac.new(
             self._secret, self.string_to_sign, sha256).hexdigest()
         return streq_const_time(self.signature, valid_signature)
+
+    def _chunk_string_to_sign(self, data_sha256):
+        """
+        Create 'ChunkStringToSign' value in Amazon terminology for v4.
+        """
+        return b'\n'.join([
+            b'AWS4-HMAC-SHA256-PAYLOAD',
+            self.req.timestamp.amz_date_format.encode('ascii'),
+            '/'.join(self.req.scope.values()).encode('utf8'),
+            self.signature.encode('utf8'),
+            sha256(b'').hexdigest().encode('utf8'),
+            data_sha256.encode('utf8')
+        ])
+
+    def check_chunk_signature(self, chunk_sha256, signature):
+        """
+        Check the validity of a chunk's signature.
+
+        This method verifies the signature of a given chunk using its SHA-256
+        hash. It updates the string to sign and the current signature, then
+        checks if the signature is valid. If any chunk signature is invalid,
+        it returns False.
+
+        :param chunk_sha256: (str) The SHA-256 hash of the chunk.
+        :param signature: (str) The signature to be verified.
+        :returns: True if all chunk signatures are valid, False otherwise.
+        """
+        if not self._all_chunk_signatures_valid:
+            return False
+        # NB: string_to_sign is calculated using the previous signature
+        self.string_to_sign = self._chunk_string_to_sign(chunk_sha256)
+        # So we have to update the signature to compare against *after*
+        # the string-to-sign
+        self.signature = signature
+        self._all_chunk_signatures_valid &= self._check_signature()
+        return self._all_chunk_signatures_valid
+
+    def _trailer_string_to_sign(self, trailers):
+        """
+        Create 'TrailerChunkStringToSign' value in Amazon terminology for v4.
+        """
+        canonical_trailers = swob.wsgi_to_bytes(''.join(
+            f'{key}:{value}\n'
+            for key, value in sorted(
+                trailers.items(),
+                key=lambda kvp: swob.wsgi_to_bytes(kvp[0]).lower(),
+            )
+            if key != 'x-amz-trailer-signature'
+        ))
+        if not canonical_trailers:
+            canonical_trailers = b'\n'
+        return b'\n'.join([
+            b'AWS4-HMAC-SHA256-TRAILER',
+            self.req.timestamp.amz_date_format.encode('ascii'),
+            '/'.join(self.req.scope.values()).encode('utf8'),
+            self.signature.encode('utf8'),
+            sha256(canonical_trailers).hexdigest().encode('utf8'),
+        ])
+
+    def check_trailer_signature(self, trailers):
+        """
+        Check the validity of a chunk's signature.
+
+        This method verifies the trailers received after the main payload.
+
+        :param trailers: (dict[str, str]) The trailers received.
+        :returns: True if x-amz-trailer-signature is valid, False otherwise.
+        """
+        if not self._all_chunk_signatures_valid:
+            # if there was a breakdown earlier, this can't be right
+            return False
+        # NB: string_to_sign is calculated using the previous signature
+        self.string_to_sign = self._trailer_string_to_sign(trailers)
+        # So we have to update the signature to compare against *after*
+        # the string-to-sign
+        self.signature = trailers['x-amz-trailer-signature']
+        self._all_chunk_signatures_valid &= self._check_signature()
+        return self._all_chunk_signatures_valid
+
+
+def _parse_credential(credential_string):
+    """
+    Parse an AWS credential string into its components.
+
+    This method splits the given credential string into its constituent parts:
+    access key ID, date, AWS region, AWS service, and terminal identifier.
+    The credential string must follow the format:
+    <access-key-id>/<date>/<AWS-region>/<AWS-service>/aws4_request.
+
+    :param credential_string: (str) The AWS credential string to be parsed.
+    :raises AccessDenied: If the credential string is invalid or does not
+        follow the required format.
+    :returns: A dict containing the parsed components of the credential string.
+    """
+    parts = credential_string.split("/")
+    # credential must be in following format:
+    # <access-key-id>/<date>/<AWS-region>/<AWS-service>/aws4_request
+    if not parts[0] or len(parts) != 5:
+        raise AccessDenied(reason='invalid_credential')
+    return dict(zip(['access', 'date', 'region', 'service', 'terminal'],
+                    parts))
 
 
 class SigV4Mixin(object):
@@ -288,6 +638,10 @@ class SigV4Mixin(object):
     @property
     def _is_query_auth(self):
         return 'X-Amz-Credential' in self.params
+
+    @property
+    def _is_x_amz_content_sha256_required(self):
+        return not self._is_query_auth
 
     @property
     def timestamp(self):
@@ -357,37 +711,6 @@ class SigV4Mixin(object):
         if int(self.timestamp) + expires < S3Timestamp.now():
             raise AccessDenied('Request has expired', reason='expired')
 
-    def _validate_sha256(self):
-        aws_sha256 = self.headers.get('x-amz-content-sha256')
-        looks_like_sha256 = (
-            aws_sha256 and len(aws_sha256) == 64 and
-            all(c in '0123456789abcdef' for c in aws_sha256.lower()))
-        if not aws_sha256:
-            if 'X-Amz-Credential' in self.params:
-                pass  # pre-signed URL; not required
-            else:
-                msg = 'Missing required header for this request: ' \
-                      'x-amz-content-sha256'
-                raise InvalidRequest(msg)
-        elif aws_sha256 == 'UNSIGNED-PAYLOAD':
-            pass
-        elif not looks_like_sha256 and 'X-Amz-Credential' not in self.params:
-            raise InvalidArgument(
-                'x-amz-content-sha256',
-                aws_sha256,
-                'x-amz-content-sha256 must be UNSIGNED-PAYLOAD, or '
-                'a valid sha256 value.')
-        return aws_sha256
-
-    def _parse_credential(self, credential_string):
-        parts = credential_string.split("/")
-        # credential must be in following format:
-        # <access-key-id>/<date>/<AWS-region>/<AWS-service>/aws4_request
-        if not parts[0] or len(parts) != 5:
-            raise AccessDenied(reason='invalid_credential')
-        return dict(zip(['access', 'date', 'region', 'service', 'terminal'],
-                        parts))
-
     def _parse_query_authentication(self):
         """
         Parse v4 query authentication
@@ -400,7 +723,7 @@ class SigV4Mixin(object):
             raise InvalidArgument('X-Amz-Algorithm',
                                   self.params.get('X-Amz-Algorithm'))
         try:
-            cred_param = self._parse_credential(
+            cred_param = _parse_credential(
                 swob.wsgi_to_str(self.params['X-Amz-Credential']))
             sig = swob.wsgi_to_str(self.params['X-Amz-Signature'])
             if not sig:
@@ -454,7 +777,7 @@ class SigV4Mixin(object):
         """
 
         auth_str = swob.wsgi_to_str(self.headers['Authorization'])
-        cred_param = self._parse_credential(auth_str.partition(
+        cred_param = _parse_credential(auth_str.partition(
             "Credential=")[2].split(',')[0])
         sig = auth_str.partition("Signature=")[2].split(',')[0]
         if not sig:
@@ -660,6 +983,14 @@ class S3Request(swob.Request):
             self.sig_checker = SigCheckerV4(self)
         else:
             self.sig_checker = SigCheckerV2(self)
+        aws_sha256 = self.headers.get('x-amz-content-sha256')
+        if self.method in ('PUT', 'POST'):
+            if _is_streaming(aws_sha256):
+                self._install_streaming_input_wrapper(aws_sha256)
+            else:
+                self._install_non_streaming_input_wrapper(aws_sha256)
+
+        # Lock in string-to-sign now, before we start messing with query params
         self.environ['s3api.auth_details'] = {
             'access_key': self.access_key,
             'signature': self.signature,
@@ -768,6 +1099,10 @@ class S3Request(swob.Request):
     @property
     def _is_query_auth(self):
         return 'AWSAccessKeyId' in self.params
+
+    @property
+    def _is_x_amz_content_sha256_required(self):
+        return False
 
     def _parse_host(self):
         if not self.conf.storage_domains:
@@ -906,7 +1241,110 @@ class S3Request(swob.Request):
             raise RequestTimeTooSkewed()
 
     def _validate_sha256(self):
-        return self.headers.get('x-amz-content-sha256')
+        aws_sha256 = self.headers.get('x-amz-content-sha256')
+        if not aws_sha256:
+            if self._is_x_amz_content_sha256_required:
+                msg = 'Missing required header for this request: ' \
+                      'x-amz-content-sha256'
+                raise InvalidRequest(msg)
+            else:
+                return
+
+        looks_like_sha256 = (
+            aws_sha256 and len(aws_sha256) == 64 and
+            all(c in '0123456789abcdef' for c in aws_sha256.lower()))
+        if aws_sha256 == 'UNSIGNED-PAYLOAD':
+            pass
+        elif _is_streaming(aws_sha256):
+            decoded_content_length = self.headers.get(
+                'x-amz-decoded-content-length')
+            try:
+                decoded_content_length = int(decoded_content_length)
+            except (ValueError, TypeError):
+                raise MissingContentLength
+            if decoded_content_length < 0:
+                raise InvalidArgument('x-amz-decoded-content-length',
+                                      decoded_content_length)
+
+            if not isinstance(self, SigV4Mixin) or self._is_query_auth:
+                if decoded_content_length < (self.content_length or 0):
+                    raise IncompleteBody(
+                        number_bytes_expected=decoded_content_length,
+                        number_bytes_provided=self.content_length,
+                    )
+                body = self.body_file.read()
+                raise XAmzContentSHA256Mismatch(
+                    client_computed_content_s_h_a256=aws_sha256,
+                    s3_computed_content_s_h_a256=sha256(body).hexdigest(),
+                )
+            elif aws_sha256 in (
+                'STREAMING-AWS4-ECDSA-P256-SHA256-PAYLOAD',
+                'STREAMING-AWS4-ECDSA-P256-SHA256-PAYLOAD-TRAILER',
+            ):
+                raise S3NotImplemented(
+                    "Don't know how to validate %s streams"
+                    % aws_sha256)
+
+        elif not looks_like_sha256 and self._is_x_amz_content_sha256_required:
+            raise InvalidArgument(
+                'x-amz-content-sha256',
+                aws_sha256,
+                'x-amz-content-sha256 must be UNSIGNED-PAYLOAD, '
+                'STREAMING-UNSIGNED-PAYLOAD-TRAILER, '
+                'STREAMING-AWS4-HMAC-SHA256-PAYLOAD, '
+                'STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER or '
+                'a valid sha256 value.')
+
+        return aws_sha256
+
+    def _cleanup_content_encoding(self):
+        if 'aws-chunked' in self.headers.get('Content-Encoding', ''):
+            new_enc = ', '.join(
+                enc for enc in list_from_csv(
+                    self.headers.pop('Content-Encoding'))
+                # TODO: test what's stored w/ 'aws-chunked, aws-chunked'
+                if enc != 'aws-chunked')
+            if new_enc:
+                # used to be, AWS would store '', but not any more
+                self.headers['Content-Encoding'] = new_enc
+
+    def _install_streaming_input_wrapper(self, aws_sha256):
+        self._cleanup_content_encoding()
+        self.content_length = int(self.headers.get(
+            'x-amz-decoded-content-length'))
+        expected_trailers = set()
+        if aws_sha256 == 'STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER':
+            expected_trailers.add('x-amz-trailer-signature')
+        trailer = self.headers.get('x-amz-trailer', '')
+        trailer_list = [
+            v.strip() for v in trailer.rstrip(',').split(',')
+        ] if trailer.strip() else []
+        if len(trailer_list) > 1:
+            raise InvalidRequest(
+                'Expecting a single x-amz-checksum- header. Multiple '
+                'checksum Types are not allowed.')
+        else:
+            expected_trailers.update(trailer_list)
+        streaming_input = StreamingInput(
+            self.environ['wsgi.input'],
+            self.content_length,
+            expected_trailers,
+            None if aws_sha256 == 'STREAMING-UNSIGNED-PAYLOAD-TRAILER'
+            else self.sig_checker)
+        self.environ['wsgi.input'] = streaming_input
+        return streaming_input
+
+    def _install_non_streaming_input_wrapper(self, aws_sha256):
+        if (aws_sha256 not in (None, 'UNSIGNED-PAYLOAD') and
+                self.content_length is not None):
+            self.environ['wsgi.input'] = HashingInput(
+                self.environ['wsgi.input'],
+                self.content_length,
+                aws_sha256)
+        # If no content-length, either client's trying to do a HTTP chunked
+        # transfer, or a HTTP/1.0-style transfer (in which case swift will
+        # reject with length-required and we'll translate back to
+        # MissingContentLength)
 
     def _validate_headers(self):
         if 'CONTENT_LENGTH' in self.environ:
@@ -963,21 +1401,7 @@ class S3Request(swob.Request):
         if 'x-amz-website-redirect-location' in self.headers:
             raise S3NotImplemented('Website redirection is not supported.')
 
-        aws_sha256 = self._validate_sha256()
-        if (aws_sha256
-                and aws_sha256 != 'UNSIGNED-PAYLOAD'
-                and self.content_length is not None):
-            # Even if client-provided SHA doesn't look like a SHA, wrap the
-            # input anyway so we'll send the SHA of what the client sent in
-            # the eventual error
-            self.environ['wsgi.input'] = HashingInput(
-                self.environ['wsgi.input'],
-                self.content_length,
-                aws_sha256)
-        # If no content-length, either client's trying to do a HTTP chunked
-        # transfer, or a HTTP/1.0-style transfer (in which case swift will
-        # reject with length-required and we'll translate back to
-        # MissingContentLength)
+        self._validate_sha256()
 
         value = _header_strip(self.headers.get('Content-MD5'))
         if value is not None:
@@ -993,15 +1417,6 @@ class S3Request(swob.Request):
 
             if len(self.headers['ETag']) != 32:
                 raise InvalidDigest(content_md5=value)
-
-        # https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
-        # describes some of what would be required to support this
-        if any(['aws-chunked' in self.headers.get('content-encoding', ''),
-                'STREAMING-AWS4-HMAC-SHA256-PAYLOAD' == self.headers.get(
-                    'x-amz-content-sha256', ''),
-                'x-amz-decoded-content-length' in self.headers]):
-            raise S3NotImplemented('Transfering payloads in multiple chunks '
-                                   'using aws-chunked is not supported.')
 
         if 'x-amz-tagging' in self.headers:
             raise S3NotImplemented('Object tagging is not supported.')
@@ -1466,6 +1881,8 @@ class S3Request(swob.Request):
     def translate_read_errors(self):
         try:
             yield
+        except S3InputIncomplete:
+            raise IncompleteBody('The request body terminated unexpectedly')
         except S3InputSHA256Mismatch as err:
             # hopefully by now any modifications to the path (e.g. tenant to
             # account translation) will have been made by auth middleware
@@ -1473,6 +1890,31 @@ class S3Request(swob.Request):
                 client_computed_content_s_h_a256=err.expected,
                 s3_computed_content_s_h_a256=err.computed,
             )
+        except S3InputChunkSignatureMismatch:
+            raise SignatureDoesNotMatch(
+                **self.signature_does_not_match_kwargs())
+        except S3InputSizeError as e:
+            raise IncompleteBody(
+                number_bytes_expected=e.expected,
+                number_bytes_provided=e.provided,
+            )
+        except S3InputChunkTooSmall as e:
+            raise InvalidChunkSizeError(
+                chunk=e.chunk_number,
+                bad_chunk_size=e.bad_chunk_size,
+            )
+        except S3InputMalformedTrailer:
+            raise MalformedTrailerError
+        except S3InputMissingSecret:
+            # XXX: We should really log something here. The poor user can't do
+            # anything about this; we need to notify the operator to notify the
+            # auth middleware developer
+            raise S3NotImplemented('Transferring payloads in multiple chunks '
+                                   'using aws-chunked is not supported.')
+        except S3InputError:
+            # All cases should be covered above, but belt & braces
+            # NB: general exception handler in s3api.py will log traceback
+            raise InternalError
 
     def _get_response(self, app, method, container, obj,
                       headers=None, body=None, query=None):

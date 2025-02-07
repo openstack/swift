@@ -1136,6 +1136,16 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             'Content-MD5': base64.b64encode(b'blahblahblahblah').strip()},
             fake_memcache)
 
+    def test_object_multipart_upload_initiate_with_checksum_algorithm(self):
+        fake_memcache = FakeMemcache()
+        fake_memcache.store[get_cache_key(
+            'AUTH_test', 'bucket+segments')] = {'status': 204}
+        fake_memcache.store[get_cache_key(
+            'AUTH_test', 'bucket')] = {'status': 204}
+        self._test_object_multipart_upload_initiate(
+            {'X-Amz-Checksum-Algorithm': 'CRC32',
+             'X-Amz-Checksum-Type': 'COMPOSITE'}, fake_memcache)
+
     def test_object_mpu_initiate_with_segment_bucket_mixed_policy(self):
         fake_memcache = FakeMemcache()
         fake_memcache.store[get_cache_key(
