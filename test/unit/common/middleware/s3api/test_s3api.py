@@ -919,23 +919,6 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_website_redirect_location(self):
         self._test_unsupported_header('x-amz-website-redirect-location')
 
-    def test_aws_chunked(self):
-        self._test_unsupported_header('content-encoding', 'aws-chunked')
-        # https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
-        # has a multi-encoding example:
-        #
-        # > Amazon S3 supports multiple content encodings. For example:
-        # >
-        # >     Content-Encoding : aws-chunked,gzip
-        # > That is, you can specify your custom content-encoding when using
-        # > Signature Version 4 streaming API.
-        self._test_unsupported_header('Content-Encoding', 'aws-chunked,gzip')
-        # Some clients skip the content-encoding,
-        # such as minio-go and aws-sdk-java
-        self._test_unsupported_header('x-amz-content-sha256',
-                                      'STREAMING-AWS4-HMAC-SHA256-PAYLOAD')
-        self._test_unsupported_header('x-amz-decoded-content-length')
-
     def test_object_tagging(self):
         self._test_unsupported_header('x-amz-tagging')
 

@@ -13,7 +13,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import unittest
 
 import calendar
@@ -29,7 +28,7 @@ from swift.common.middleware.s3api.utils import S3Timestamp
 from swift.common.utils import md5, quote
 
 from test.functional.s3api import S3ApiBase, SigV4Mixin, \
-    skip_boto2_sort_header_bug
+    skip_boto2_sort_header_bug, S3ApiBaseBoto3, get_boto3_conn
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code, calculate_md5, \
     get_error_msg
@@ -43,6 +42,43 @@ def setUpModule():
 
 def tearDownModule():
     tf.teardown_package()
+
+
+class TestS3ApiObjectBoto3(S3ApiBaseBoto3):
+    def setUp(self):
+        super().setUp()
+        self.conn = get_boto3_conn(tf.config['s3_access_key'],
+                                   tf.config['s3_secret_key'])
+        self.bucket = 'test-bucket'
+        resp = self.conn.create_bucket(Bucket=self.bucket)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+    def test_put(self):
+        body = b'abcd' * 8192
+        resp = self.conn.put_object(Bucket=self.bucket, Key='obj', Body=body)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        resp = self.conn.get_object(Bucket=self.bucket, Key='obj')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(body, resp['Body'].read())
+
+    def test_put_chunked(self):
+        body = b'abcd' * 8192
+        resp = self.conn.put_object(Bucket=self.bucket, Key='obj', Body=body,
+                                    ContentEncoding='aws-chunked')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        resp = self.conn.get_object(Bucket=self.bucket, Key='obj')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(body, resp['Body'].read())
+
+    def test_put_chunked_sha256(self):
+        body = b'abcd' * 8192
+        resp = self.conn.put_object(Bucket=self.bucket, Key='obj', Body=body,
+                                    ContentEncoding='aws-chunked',
+                                    ChecksumAlgorithm='SHA256')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        resp = self.conn.get_object(Bucket=self.bucket, Key='obj')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(body, resp['Body'].read())
 
 
 class TestS3ApiObject(S3ApiBase):
