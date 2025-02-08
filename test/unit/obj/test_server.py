@@ -39,6 +39,7 @@ from eventlet.green.http import client as http_client
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
+from swift.obj.expirer import ExpirerConfig
 from test import listen_zero, BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import mocked_http_conn, \
@@ -1388,10 +1389,10 @@ class TestObjectController(BaseTestCase):
     def _update_delete_at_headers(self, headers, a='a', c='c', o='o',
                                   node_count=1):
         delete_at = headers['X-Delete-At']
-        delete_at_container = utils.get_expirer_container(delete_at, 84600,
-                                                          a, c, o)
-        part, nodes = self.container_ring.get_nodes(
-            '.expiring_objects', delete_at_container)
+        expirer_config = ExpirerConfig(
+            self.conf, logger=self.logger, container_ring=self.container_ring)
+        part, nodes, delete_at_container = expirer_config.get_delete_at_nodes(
+            delete_at, a, c, o)
         # proxy assigns each replica a node, index 0 for test stability
         nodes = nodes[:node_count]
         headers.update({
@@ -5769,7 +5770,7 @@ class TestObjectController(BaseTestCase):
         self.object_controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.object_controller.logger)
         policy = random.choice(list(POLICIES))
-        self.object_controller.expiring_objects_account = 'exp'
+        self.object_controller.expirer_config.account_name = 'exp'
 
         http_connect_args = []
 
@@ -6806,9 +6807,10 @@ class TestObjectController(BaseTestCase):
         self.object_controller.delete_at_update(
             'DELETE', 12345678901, 'a', 'c', 'o', req, 'sda1', policy)
         expiring_obj_container = given_args.pop(2)
-        expected_exp_cont = utils.get_expirer_container(
-            utils.normalize_delete_at_timestamp(12345678901),
-            86400, 'a', 'c', 'o')
+        expected_exp_cont = \
+            self.object_controller.expirer_config.get_expirer_container(
+                utils.normalize_delete_at_timestamp(12345678901),
+                'a', 'c', 'o')
         self.assertEqual(expiring_obj_container, expected_exp_cont)
 
         self.assertEqual(given_args, [
@@ -6886,6 +6888,9 @@ class TestObjectController(BaseTestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
                                                 req, 'sda1', policy)
+        # proxy servers started sending the x-delete-at-container along with
+        # host/part/device in 2013 Ia0081693f01631d3f2a59612308683e939ced76a
+        # it may be no longer necessary to say "warning: upgrade faster"
         self.assertEqual(
             self.logger.get_lines_for_level('warning'),
             ['X-Delete-At-Container header must be specified for expiring '
@@ -6896,6 +6901,60 @@ class TestObjectController(BaseTestCase):
                 'PUT', '.expiring_objects', '0000000000', '0000000002-a/c/o',
                 '127.0.0.1:1234',
                 '3', 'sdc1', HeaderKeyDict({
+                    # the .expiring_objects account is always policy-0
+                    'X-Backend-Storage-Policy-Index': 0,
+                    'x-size': '0',
+                    'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                    'x-content-type': 'text/plain',
+                    'x-timestamp': utils.Timestamp('1').internal,
+                    'x-trans-id': '1234',
+                    'referer': 'PUT http://localhost/v1/a/c/o'}),
+                'sda1', policy])
+
+    def test_delete_at_update_put_with_info_but_wrong_container(self):
+        # Same as test_delete_at_update_put_with_info, but the
+        # X-Delete-At-Container is "wrong"
+        policy = random.choice(list(POLICIES))
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.logger = self.logger
+        delete_at = time()
+        req_headers = {
+            'X-Timestamp': 1,
+            'X-Trans-Id': '1234',
+            'X-Delete-At': delete_at,
+            'X-Backend-Storage-Policy-Index': int(policy),
+        }
+        self._update_delete_at_headers(req_headers)
+        delete_at = str(int(time() + 30))
+        expected_container = \
+            self.object_controller.expirer_config.get_expirer_container(
+                delete_at, 'a', 'c', 'o')
+        unexpected_container = str(int(delete_at) + 100)
+        req_headers['X-Delete-At-Container'] = unexpected_container
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers=req_headers)
+        self.object_controller.delete_at_update('PUT', delete_at,
+                                                'a', 'c', 'o',
+                                                req, 'sda1', policy)
+        self.assertEqual({'debug': [
+            "Proxy X-Delete-At-Container '%s' does not match expected "
+            "'%s' for current expirer_config." % (unexpected_container,
+                                                  expected_container)
+        ]}, self.logger.all_log_lines())
+        self.assertEqual(
+            given_args, [
+                'PUT', '.expiring_objects', unexpected_container,
+                '%s-a/c/o' % delete_at,
+                req_headers['X-Delete-At-Host'],
+                req_headers['X-Delete-At-Partition'],
+                req_headers['X-Delete-At-Device'], HeaderKeyDict({
                     # the .expiring_objects account is always policy-0
                     'X-Backend-Storage-Policy-Index': 0,
                     'x-size': '0',
@@ -6948,8 +7007,9 @@ class TestObjectController(BaseTestCase):
 
         self.object_controller.async_update = fake_async_update
         self.object_controller.logger = self.logger
-        delete_at_container = utils.get_expirer_container(
-            '1', 84600, 'a', 'c', 'o')
+        delete_at_container = \
+            self.object_controller.expirer_config.get_expirer_container(
+                '1', 'a', 'c', 'o')
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -7773,10 +7833,9 @@ class TestObjectController(BaseTestCase):
     def test_extra_headers_contain_object_bytes(self):
         timestamp1 = next(self.ts).normal
         delete_at_timestamp1 = int(time() + 1000)
-        delete_at_container1 = str(
-            delete_at_timestamp1 /
-            self.object_controller.expiring_objects_container_divisor *
-            self.object_controller.expiring_objects_container_divisor)
+        delete_at_container1 = \
+            self.object_controller.expirer_config.get_expirer_container(
+                delete_at_timestamp1, 'a', 'c', 'o')
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp1,
@@ -7861,8 +7920,9 @@ class TestObjectController(BaseTestCase):
 
         policy = random.choice(list(POLICIES))
         delete_at = int(next(self.ts)) + 30
-        delete_at_container = utils.get_expirer_container(delete_at, 86400,
-                                                          'a', 'c', 'o')
+        delete_at_container = \
+            self.object_controller.expirer_config.get_expirer_container(
+                delete_at, 'a', 'c', 'o')
         base_headers = {
             'X-Backend-Storage-Policy-Index': int(policy),
             'Content-Type': 'application/octet-stream',
@@ -7957,8 +8017,9 @@ class TestObjectController(BaseTestCase):
         put_ts = next(self.ts)
         put_size = 1548
         put_delete_at = int(next(self.ts)) + 30
-        put_delete_at_container = utils.get_expirer_container(
-            put_delete_at, 86400, 'a', 'c', 'o')
+        put_delete_at_container = \
+            self.object_controller.expirer_config.get_expirer_container(
+                put_delete_at, 'a', 'c', 'o')
         put_req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', body='\x01' * put_size,
             headers={
@@ -8008,8 +8069,9 @@ class TestObjectController(BaseTestCase):
 
         delete_at = int(next(self.ts)) + 100
         self.assertNotEqual(delete_at, put_delete_at)  # sanity
-        delete_at_container = utils.get_expirer_container(
-            delete_at, 86400, 'a', 'c', 'o')
+        delete_at_container = \
+            self.object_controller.expirer_config.get_expirer_container(
+                delete_at, 'a', 'c', 'o')
 
         base_headers = {
             'X-Backend-Storage-Policy-Index': int(policy),
@@ -8119,10 +8181,9 @@ class TestObjectController(BaseTestCase):
         self.object_controller.delete_at_update = fake_delete_at_update
         timestamp1 = normalize_timestamp(time())
         delete_at_timestamp1 = int(time() + 1000)
-        delete_at_container1 = str(
-            delete_at_timestamp1 /
-            self.object_controller.expiring_objects_container_divisor *
-            self.object_controller.expiring_objects_container_divisor)
+        delete_at_container1 = \
+            self.object_controller.expirer_config.get_expirer_container(
+                delete_at_timestamp1, 'a', 'c', 'o')
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp1,

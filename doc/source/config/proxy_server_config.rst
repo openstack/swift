@@ -124,8 +124,6 @@ disallowed_sections                   swift.valid_api_versions  Allows the abili
                                                                 public calls to /info. You can
                                                                 withhold subsections by separating
                                                                 the dict level with a ".".
-expiring_objects_container_divisor    86400
-expiring_objects_account_name         expiring_objects
 nice_priority                         None                      Scheduling priority of server
                                                                 processes.
                                                                 Niceness values range from -20 (most

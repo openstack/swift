@@ -2928,16 +2928,6 @@ def clean_content_type(value):
     return value
 
 
-def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
-    """
-    Returns an expiring object container name for given X-Delete-At and
-    (native string) a/c/o.
-    """
-    shard_int = int(hash_path(acc, cont, obj), 16) % 100
-    return normalize_delete_at_timestamp(
-        int(x_delete_at) // expirer_divisor * expirer_divisor - shard_int)
-
-
 class _MultipartMimeFileLikeObject(object):
 
     def __init__(self, wsgi_input, boundary, input_buffer, read_chunk_size):

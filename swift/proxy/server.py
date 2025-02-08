@@ -51,6 +51,7 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     wsgi_to_str
 from swift.common.exceptions import APIVersionError
 from swift.common.wsgi import run_wsgi
+from swift.obj import expirer
 
 
 # List of entry points for mandatory middlewares.
@@ -264,10 +265,8 @@ class Application(object):
             config_true_value(conf.get('account_autocreate', 'no'))
         self.auto_create_account_prefix = \
             constraints.AUTO_CREATE_ACCOUNT_PREFIX
-        self.expiring_objects_account = self.auto_create_account_prefix + \
-            (conf.get('expiring_objects_account_name') or 'expiring_objects')
-        self.expiring_objects_container_divisor = \
-            int(conf.get('expiring_objects_container_divisor') or 86400)
+        self.expirer_config = expirer.ExpirerConfig(
+            conf, container_ring=self.container_ring, logger=self.logger)
         self.max_containers_per_account = \
             int(conf.get('max_containers_per_account') or 0)
         self.max_containers_whitelist = [
