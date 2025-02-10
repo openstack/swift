@@ -257,39 +257,6 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
         self.server = server
         self.warn = self.warning
 
-    # There are a few properties needed for py35; see
-    # - https://bugs.python.org/issue31457
-    # - https://github.com/python/cpython/commit/1bbd482
-    # - https://github.com/python/cpython/commit/0b6a118
-    # - https://github.com/python/cpython/commit/ce9e625
-
-    def _log(self, level, msg, args, exc_info=None, extra=None,
-             stack_info=False):
-        """
-        Low-level log implementation, proxied to allow nested logger adapters.
-        """
-        return self.logger._log(
-            level,
-            msg,
-            args,
-            exc_info=exc_info,
-            extra=extra,
-            stack_info=stack_info,
-        )
-
-    @property
-    def manager(self):
-        return self.logger.manager
-
-    @manager.setter
-    def manager(self, value):
-        self.logger.manager = value
-
-    @property
-    def name(self):
-        # py3 does this for us already; add it for py2
-        return self.logger.name
-
     @property
     def txn_id(self):
         if hasattr(self._cls_thread_local, 'txn_id'):
@@ -315,9 +282,6 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
     @thread_locals.setter
     def thread_locals(self, value):
         self.txn_id, self.client_ip = value
-
-    def getEffectiveLevel(self):
-        return self.logger.getEffectiveLevel()
 
     def process(self, msg, kwargs):
         """
