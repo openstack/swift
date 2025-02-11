@@ -93,19 +93,16 @@ def account_listing_response(account, req, response_content_type, broker=None,
                 'count': object_count,
                 'bytes': bytes_used,
                 'last_modified': Timestamp(put_timestamp).isoformat}
-            # Add the container's storage policy to the response, unless:
-            # * storage_policy_index < 0, which means that
-            #   the storage policy could not be determined
-            # * storage_policy_index was not found in POLICIES,
-            #   which means the storage policy is missing from
-            #   the Swift configuration.
+            # Add the container's storage policy to the response, unless
+            # storage_policy_index was not found in POLICIES, which means
+            # the storage policy is missing from the Swift configuration
+            # or otherwise could not be determined.
+            #
             # The storage policy should always be returned when
             # everything is configured correctly, but clients are
-            # expected to be able to handle this case regardless.
-            if (
-                storage_policy_index >= 0
-                and storage_policy_index in POLICIES
-            ):
+            # expected to be able to handle this case regardless,
+            # if only to support older versions of swift.
+            if storage_policy_index in POLICIES:
                 container['storage_policy'] = (
                     POLICIES[storage_policy_index].name
                 )

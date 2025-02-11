@@ -227,6 +227,9 @@ class TestAccountUtils(TestDbBase):
                              container_timestamp.internal, 0, 10, 100, 0)
         broker.put_container('bar',
                              container_timestamp.internal, 0, 10, 100, 1)
+        # Can eat rows for policies not in POLICIES
+        broker.put_container('baz',
+                             container_timestamp.internal, 0, 10, 100, 2)
 
         req = Request.blank('')
         resp = utils.account_listing_response(
@@ -234,10 +237,10 @@ class TestAccountUtils(TestDbBase):
         self.assertEqual(resp.status_int, 200)
         expected = HeaderKeyDict({
             'Content-Type': 'application/json; charset=utf-8',
-            'Content-Length': 233,
-            'X-Account-Container-Count': 2,
-            'X-Account-Object-Count': 20,
-            'X-Account-Bytes-Used': 200,
+            'Content-Length': str(len(resp.body)),
+            'X-Account-Container-Count': 3,
+            'X-Account-Object-Count': 30,
+            'X-Account-Bytes-Used': 300,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': put_timestamp.normal,
             'X-Account-Storage-Policy-Zero-Container-Count': 1,
@@ -246,23 +249,43 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Storage-Policy-One-Container-Count': 1,
             'X-Account-Storage-Policy-One-Object-Count': 10,
             'X-Account-Storage-Policy-One-Bytes-Used': 100,
+            # No POLICIES[2], so only account totals can include baz
         })
         self.assertEqual(expected, resp.headers)
         expected = [{
             "last_modified": container_timestamp.isoformat,
             "count": 10,
             "bytes": 100,
-            "name": 'foo',
-            'storage_policy': POLICIES[0].name,
+            "name": 'bar',
+            'storage_policy': POLICIES[1].name,
         }, {
             "last_modified": container_timestamp.isoformat,
             "count": 10,
             "bytes": 100,
-            "name": 'bar',
-            'storage_policy': POLICIES[1].name,
+            "name": 'baz',
+        }, {
+            "last_modified": container_timestamp.isoformat,
+            "count": 10,
+            "bytes": 100,
+            "name": 'foo',
+            'storage_policy': POLICIES[0].name,
         }]
-        self.assertEqual(sorted(json.dumps(expected).encode('ascii')),
-                         sorted(resp.body))
+        self.assertEqual(expected, json.loads(resp.body))
+
+        req = Request.blank('')
+        resp = utils.account_listing_response(
+            'a', req, 'application/json', broker, delimiter='a')
+        self.assertEqual(resp.status_int, 200)
+        expected = [{
+            "subdir": "ba",
+        }, {
+            "last_modified": container_timestamp.isoformat,
+            "count": 10,
+            "bytes": 100,
+            "name": 'foo',
+            'storage_policy': POLICIES[0].name,
+        }]
+        self.assertEqual(expected, json.loads(resp.body))
 
     @patch_policies([StoragePolicy(0, 'zero', is_default=True),
                      StoragePolicy(1, 'one', is_default=False)])
@@ -325,14 +348,13 @@ class TestAccountUtils(TestDbBase):
             "last_modified": container_timestamp.isoformat,
             "count": 10,
             "bytes": 100,
-            "name": get_reserved_name('foo'),
-            'storage_policy': POLICIES[0].name,
+            "name": get_reserved_name('bar'),
+            'storage_policy': POLICIES[1].name,
         }, {
             "last_modified": container_timestamp.isoformat,
             "count": 10,
             "bytes": 100,
-            "name": get_reserved_name('bar'),
-            'storage_policy': POLICIES[1].name,
+            "name": get_reserved_name('foo'),
+            'storage_policy': POLICIES[0].name,
         }]
-        self.assertEqual(sorted(json.dumps(expected).encode('ascii')),
-                         sorted(resp.body))
+        self.assertEqual(expected, json.loads(resp.body))
