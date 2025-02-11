@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import gettext
 import warnings
 
 __version__ = None
@@ -47,14 +45,6 @@ if __version__ is None:
     _version_info = pbr.version.VersionInfo('swift')
     __version__ = _version_info.release_string()
     __canonical_version__ = _version_info.version_string()
-
-
-_localedir = os.environ.get('SWIFT_LOCALEDIR')
-_t = gettext.translation('swift', localedir=_localedir, fallback=True)
-
-
-def gettext_(msg):
-    return _t.gettext(msg)
 
 
 warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
