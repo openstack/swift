@@ -1636,8 +1636,8 @@ class TestSloDeleteManifest(SloTestCase):
             ('X-Backend-Storage-Policy-Index', '0'),
             ('X-Backend-Allow-Private-Methods', 'True'),
         ):
-            self.assertIn(header, self.app.calls_with_headers[1].headers)
-            value = self.app.calls_with_headers[1].headers[header]
+            self.assertIn(header, self.app.call_list[1].headers)
+            value = self.app.call_list[1].headers[header]
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
@@ -1710,8 +1710,8 @@ class TestSloDeleteManifest(SloTestCase):
             ('X-Backend-Storage-Policy-Index', '0'),
             ('X-Backend-Allow-Private-Methods', 'True'),
         ):
-            self.assertIn(header, self.app.calls_with_headers[-2].headers)
-            value = self.app.calls_with_headers[-2].headers[header]
+            self.assertIn(header, self.app.call_list[-2].headers)
+            value = self.app.call_list[-2].headers[header]
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
@@ -1780,8 +1780,8 @@ class TestSloDeleteManifest(SloTestCase):
             ('X-Backend-Storage-Policy-Index', '0'),
             ('X-Backend-Allow-Private-Methods', 'True'),
         ):
-            self.assertIn(header, self.app.calls_with_headers[-2].headers)
-            value = self.app.calls_with_headers[-2].headers[header]
+            self.assertIn(header, self.app.call_list[-2].headers)
+            value = self.app.call_list[-2].headers[header]
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
@@ -6013,7 +6013,7 @@ class TestPartNumber(SloGETorHEADTestCase):
         # since the our requested part-number is range-segment we expect Range
         # header on b_10 segment subrequest
         self.assertEqual('bytes=4-7',
-                         self.app.calls_with_headers[1].headers['Range'])
+                         self.app.call_list[1].headers['Range'])
 
     def test_part_number_sub_ranges_manifest(self):
         req = Request.blank(

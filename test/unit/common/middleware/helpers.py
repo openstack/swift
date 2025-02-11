@@ -12,10 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from urllib import parse
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
@@ -53,7 +52,15 @@ class LeakTrackingIter(object):
         self.mark_closed(self.key)
 
 
-FakeSwiftCall = namedtuple('FakeSwiftCall', ['method', 'path', 'headers'])
+class FakeSwiftCall(object):
+    def __init__(self, req, footers=None):
+        self.method = req.method
+        path = req.environ['PATH_INFO']
+        if req.environ.get('QUERY_STRING'):
+            path += '?' + req.environ['QUERY_STRING']
+        self.path = normalize_path(path)
+        self.headers = HeaderKeyDict(req.headers)
+        self.footers = footers or HeaderKeyDict()
 
 
 def normalize_query_string(qs):
@@ -249,10 +256,7 @@ class FakeSwift(object):
 
         # Capture the request before reading the body, in case the iter raises
         # an exception.
-        # note: tests may assume this copy of req_headers is case insensitive
-        # so we deliberately use a HeaderKeyDict
-        req_headers_copy = HeaderKeyDict(req.headers)
-        call = FakeSwiftCall(method, path, req_headers_copy)
+        call = FakeSwiftCall(req)
         try:
             resp_class, headers, body = self._select_response(env)
         except KeyError:
@@ -272,17 +276,16 @@ class FakeSwift(object):
             if 'swift.callback.update_footers' in env:
                 footers = HeaderKeyDict()
                 env['swift.callback.update_footers'](footers)
-                req.headers.update(footers)
-                req_headers_copy.update(footers)
+                call.footers.update(footers)
             etag = md5(req_body, usedforsecurity=False).hexdigest()
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(req_body))
 
             # keep it for subsequent GET requests later
-            resp_headers = dict(req.headers)
+            metadata = dict(call.headers, **call.footers)
             if "CONTENT_TYPE" in env:
-                resp_headers['Content-Type'] = env["CONTENT_TYPE"]
-            self.uploaded[env['PATH_INFO']] = (resp_headers, req_body)
+                metadata['Content-Type'] = env["CONTENT_TYPE"]
+            self.uploaded[env['PATH_INFO']] = (metadata, req_body)
 
         # simulate object POST
         elif method == 'POST' and obj:
@@ -294,7 +297,8 @@ class FakeSwift(object):
                     is_object_transient_sysmeta(k)))
             # apply from new
             new_metadata.update(
-                dict((k, v) for k, v in req.headers.items()
+                dict((k, v)
+                     for k, v in dict(call.headers, **call.footers).items()
                      if (is_user_meta('object', k) or
                          is_object_transient_sysmeta(k) or
                          k.lower == 'content-type')))
@@ -360,16 +364,35 @@ class FakeSwift(object):
                 if count > 0}
 
     @property
+    def call_list(self):
+        """
+        Returns a list of instances of ``FakeSwiftCall``.
+        """
+        return self._calls
+
+    @property
     def calls(self):
-        return [(method, path) for method, path, headers in self._calls]
+        """
+        Returns a list of 2-tuples (<method>, <path>) for each item in
+        ``call_list``.
+        """
+        return [(call.method, call.path) for call in self._calls]
 
     @property
     def headers(self):
-        return [headers for method, path, headers in self._calls]
+        """
+        Returns a list of headers for each item in ``call_list``.
+        """
+        return [call.headers for call in self._calls]
 
     @property
     def calls_with_headers(self):
-        return self._calls
+        """
+        Returns a list of 3-tuples (<method>, <path>, <headers>) for each item
+        in ``call_list``.
+        """
+        return [(call.method, call.path, call.headers)
+                for call in self._calls]
 
     @property
     def call_count(self):

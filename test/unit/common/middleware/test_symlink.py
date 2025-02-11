@@ -144,7 +144,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             ('PUT', '/v1/a/c/symlink'),
         ], self.app.calls)
         self.assertEqual('application/foo',
-                         self.app._calls[-1].headers['Content-Type'])
+                         self.app.call_list[-1].headers['Content-Type'])
 
     def test_symlink_simple_put_with_quoted_etag(self):
         self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
@@ -171,7 +171,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             ('PUT', '/v1/a/c/symlink'),
         ], self.app.calls)
         self.assertEqual('application/foo',
-                         self.app._calls[-1].headers['Content-Type'])
+                         self.app.call_list[-1].headers['Content-Type'])
 
     def test_symlink_simple_put_with_etag_target_missing_content_type(self):
         self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
@@ -200,7 +200,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         # regardless, but you actually can't get a HEAD response without swob
         # setting a Content-Type
         self.assertEqual('text/html; charset=UTF-8',
-                         self.app._calls[-1].headers['Content-Type'])
+                         self.app.call_list[-1].headers['Content-Type'])
 
     def test_symlink_simple_put_with_etag_explicit_content_type(self):
         self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
@@ -228,7 +228,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             ('PUT', '/v1/a/c/symlink'),
         ], self.app.calls)
         self.assertEqual('application/bar',
-                         self.app._calls[-1].headers['Content-Type'])
+                         self.app.call_list[-1].headers['Content-Type'])
 
     def test_symlink_simple_put_with_unmatched_etag(self):
         self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
@@ -303,7 +303,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             ('PUT', '/v1/a/c/symlink'),
         ], self.app.calls)
         self.assertEqual('application/foo',
-                         self.app._calls[-1].headers['Content-Type'])
+                         self.app.call_list[-1].headers['Content-Type'])
 
         method, path, hdrs = self.app.calls_with_headers[0]
         val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
@@ -450,7 +450,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         req_headers.update({
             'Host': 'localhost:80',
             'X-Backend-Ignore-Range-If-Metadata-Present':
@@ -581,7 +581,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertEqual(status, '201 Created')
         self.assertEqual([], self.app.calls)
         self.assertEqual('application/data',
-                         self.app._calls[-1].headers['Content-Type'])
+                         self.app.call_list[-1].headers['Content-Type'])
 
     def test_head_symlink(self):
         self.app.register('HEAD', '/v1/a/c/symlink', swob.HTTPOk,
@@ -625,7 +625,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn(('X-Object-Meta-Color', 'Red'), headers)
         self.assertIn(('X-Object-Meta-Color', 'Green'), headers)
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         req_headers.update({
             'Host': 'localhost:80',
             'X-Backend-Ignore-Range-If-Metadata-Present':
@@ -656,7 +656,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertEqual(len(self.authorized), 1)
         self.assertNotIn('X-Backend-Allow-Reserved-Names',
                          self.app.calls_with_headers[0])
-        call_headers = self.app.calls_with_headers[1].headers
+        call_headers = self.app.call_list[1].headers
         self.assertEqual('true', call_headers[
             'X-Backend-Allow-Reserved-Names'])
         self.assertEqual('foo', call_headers['Range'])
