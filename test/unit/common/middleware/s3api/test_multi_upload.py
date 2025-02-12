@@ -1508,7 +1508,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             ('DELETE', '/v1/AUTH_test/bucket+segments/%s/X' % wsgi_snowman)
         ])
 
-        self.assertEqual(json.loads(self.swift.req_bodies[-2]), [
+        self.assertEqual(json.loads(self.swift.call_list[-2].body), [
             {"path": u"/bucket+segments/\N{SNOWMAN}/X/1",
              "etag": "0123456789abcdef0123456789abcdef"},
             {"path": u"/bucket+segments/\N{SNOWMAN}/X/2",
