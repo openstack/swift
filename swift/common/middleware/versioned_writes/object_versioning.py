@@ -165,7 +165,7 @@ from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
     HTTPBadRequest, str_to_wsgi, bytes_to_wsgi, wsgi_quote, \
     wsgi_to_str, wsgi_unquote, Request, HTTPNotFound, HTTPException, \
     HTTPRequestEntityTooLarge, HTTPInternalServerError, HTTPNotAcceptable, \
-    HTTPConflict
+    HTTPConflict, HTTPLengthRequired
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import get_logger, Timestamp, drain_and_close, \
     config_true_value, close_if_possible, closing_if_possible, \
@@ -672,8 +672,10 @@ class ObjectContext(ObjectVersioningContext):
         Handle a PUT?version-id request and create/update the is_latest link to
         point to the specific version. Expects a valid 'version' id.
         """
-        if req.content_length is None:
+        if req.is_chunked:
             has_body = (req.body_file.read(1) != b'')
+        elif req.content_length is None:
+            raise HTTPLengthRequired(request=req)
         else:
             has_body = (req.content_length != 0)
         if has_body:

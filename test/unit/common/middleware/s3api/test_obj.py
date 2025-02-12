@@ -1509,14 +1509,16 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         self.assertEqual(status.split()[0], '204')
         self.assertEqual([
             ('HEAD', '/v1/AUTH_test/bucket/object'
-             '?symlink=get&version-id=1574358170.12293'),
+             '?symlink=get&version-id=1574358170.12293', None),
             ('DELETE', '/v1/AUTH_test/bucket/object'
-             '?symlink=get&version-id=1574358170.12293'),
+             '?symlink=get&version-id=1574358170.12293', None),
             ('GET', '/v1/AUTH_test/bucket'
-             '?prefix=object&versions=True'),
+             '?prefix=object&versions=True', '0'),
             ('PUT', '/v1/AUTH_test/bucket/object'
-             '?version-id=1574341899.21751'),
-        ], self.swift.calls)
+             '?version-id=1574341899.21751', '0'),
+        ], [
+            (method, path, headers.get('content-length'))
+            for method, path, headers in self.swift.calls_with_headers])
 
     def test_object_DELETE_version_id_not_implemented(self):
         req = Request.blank('/bucket/object?versionId=1574358170.12293',
