@@ -84,6 +84,9 @@ def account_to_xml(listing, account_name):
             sub = SubElement(doc, 'container')
             for field in ('name', 'count', 'bytes', 'last_modified'):
                 SubElement(sub, field).text = str(record.pop(field))
+            for field in ('storage_policy',):
+                if field in record:
+                    SubElement(sub, field).text = str(record.pop(field))
         sub.tail = '\n'
     return to_xml(doc)
 

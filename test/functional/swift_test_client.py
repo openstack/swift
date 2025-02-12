@@ -570,7 +570,8 @@ class Account(Base):
                 tree = minidom.parseString(self.conn.response.read())
                 for x in tree.getElementsByTagName('container'):
                     cont = {}
-                    for key in ['name', 'count', 'bytes', 'last_modified']:
+                    for key in ['name', 'count', 'bytes', 'last_modified',
+                                'storage_policy']:
                         cont[key] = x.getElementsByTagName(key)[0].\
                             childNodes[0].nodeValue
                     conts.append(cont)

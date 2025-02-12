@@ -367,7 +367,7 @@ class AccountBroker(DatabaseBroker):
         :param allow_reserved: exclude names with reserved-byte by default
 
         :returns: list of tuples of (name, object_count, bytes_used,
-                  put_timestamp, 0)
+                  put_timestamp, storage_policy_index, 0)
         """
         delim_force_gte = False
         if reverse:
@@ -383,7 +383,8 @@ class AccountBroker(DatabaseBroker):
             results = []
             while len(results) < limit:
                 query = """
-                    SELECT name, object_count, bytes_used, put_timestamp, 0
+                    SELECT name, object_count, bytes_used, put_timestamp,
+                    {storage_policy_index}, 0
                     FROM container
                     WHERE """
                 query_args = []
@@ -415,7 +416,27 @@ class AccountBroker(DatabaseBroker):
                 query += ' ORDER BY name %s LIMIT ?' % \
                          ('DESC' if reverse else '')
                 query_args.append(limit - len(results))
-                curs = conn.execute(query, query_args)
+                try:
+                    # First, try querying with the storage policy index.
+                    curs = conn.execute(
+                        query.format(
+                            storage_policy_index="storage_policy_index"),
+                        query_args)
+                except sqlite3.OperationalError as err:
+                    # If the storage policy column is not available,
+                    # the database has not been migrated to the new schema
+                    # with storage_policy_index. Re-run the query with
+                    # storage_policy_index set to 0, which is what
+                    # would be set once the database is migrated.
+                    # TODO(callumdickinson): If support for migrating
+                    # pre-storage policy versions of Swift is dropped,
+                    # then this special handling can be removed.
+                    if "no such column: storage_policy_index" in str(err):
+                        curs = conn.execute(
+                            query.format(storage_policy_index="0"),
+                            query_args)
+                    else:
+                        raise
                 curs.row_factory = None
 
                 # Delimiters without a prefix is ignored, further if there
@@ -452,7 +473,7 @@ class AccountBroker(DatabaseBroker):
                             delim_force_gte = True
                         dir_name = name[:end + len(delimiter)]
                         if dir_name != orig_marker:
-                            results.append([dir_name, 0, 0, '0', 1])
+                            results.append([dir_name, 0, 0, '0', -1, 1])
                         curs.close()
                         break
                     results.append(row)
