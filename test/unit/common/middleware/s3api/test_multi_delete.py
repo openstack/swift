@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import base64
+import hashlib
 import json
 import unittest
 from datetime import datetime
@@ -57,6 +58,87 @@ class BaseS3ApiMultiDelete(object):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(),
                                      'Content-MD5': content_md5},
+                            body=body)
+
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+    def test_object_multi_DELETE_no_content_md5(self):
+        elem = Element('Delete')
+        obj = SubElement(elem, 'Object')
+        SubElement(obj, 'Key').text = 'object'
+        body = tostring(elem, use_s3ns=False)
+
+        req = Request.blank('/bucket/object?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     },
+                            body=body)
+
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body), 'InvalidRequest')
+        self.assertIn(b'Missing required header', body)
+        self.assertIn(b'Content-MD5', body)
+
+    def test_object_multi_DELETE_sha256_invalid(self):
+        elem = Element('Delete')
+        obj = SubElement(elem, 'Object')
+        SubElement(obj, 'Key').text = 'object'
+        body = tostring(elem, use_s3ns=False)
+        content_sha256 = 'invalid'
+
+        req = Request.blank('/bucket/object?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Content-SHA256': content_sha256,
+                                     },
+                            body=body)
+
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body),
+                         'XAmzContentSHA256Mismatch')
+        self.assertIn(b"provided 'x-amz-content-sha256' header "
+                      b"does not match", body)
+
+    def test_object_multi_DELETE_sha256_bad(self):
+        elem = Element('Delete')
+        obj = SubElement(elem, 'Object')
+        SubElement(obj, 'Key').text = 'object'
+        body = tostring(elem, use_s3ns=False)
+        content_sha256 = hashlib.sha256(body[:-1]).hexdigest()
+
+        req = Request.blank('/bucket/object?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Content-SHA256': content_sha256,
+                                     },
+                            body=body)
+
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body),
+                         'XAmzContentSHA256Mismatch')
+        self.assertIn(b"provided 'x-amz-content-sha256' header "
+                      b"does not match", body)
+
+    def test_object_multi_DELETE_sha256_valid(self):
+        elem = Element('Delete')
+        obj = SubElement(elem, 'Object')
+        SubElement(obj, 'Key').text = 'object'
+        body = tostring(elem, use_s3ns=False)
+        content_sha256 = hashlib.sha256(body).hexdigest()
+
+        req = Request.blank('/bucket/object?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Content-SHA256': content_sha256,
+                                     },
                             body=body)
 
         status, headers, body = self.call_s3api(req)
