@@ -242,7 +242,7 @@
         COLUMNS: 240
       tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
-      tox_envlist: func
+      tox_envlist: func,s3api
       devstack_localrc:
         SWIFT_HASH: changeme
         # We don't need multiple replicas to run purely functional tests.
