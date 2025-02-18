@@ -367,7 +367,7 @@ class AccountBroker(DatabaseBroker):
         :param allow_reserved: exclude names with reserved-byte by default
 
         :returns: list of tuples of (name, object_count, bytes_used,
-                  put_timestamp, storage_policy_index, 0)
+                  put_timestamp, storage_policy_index, is_subdir)
         """
         delim_force_gte = False
         if reverse:
