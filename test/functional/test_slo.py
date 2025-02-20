@@ -501,10 +501,8 @@ class TestSlo(Base):
             self.assertEqual(resp.status, 201,
                              "Response status is not 201: %s" % body)
 
-        def put_segments(url, token, parsed, conn, object_segments):
-            now = int(time.time())
-            delete_time = now + 2
-
+        def put_segments(url, token, parsed, conn, object_segments,
+                         x_delete_after):
             for objnum in range(len(object_segments)):
                 conn.request('PUT', '%s/%s/segments/%s' % (
                     parsed.path,
@@ -513,13 +511,13 @@ class TestSlo(Base):
                     body=object_segments[objnum],
                     headers={
                         'X-Auth-Token': token,
-                        'X-Delete-At': delete_time})
+                        'X-Delete-After': str(x_delete_after)})
                 resp = check_response(conn)
                 body = resp.read()
                 self.assertEqual(resp.status, 201,
                                  "Response status is not 201: %s" % body)
 
-        retry(put_segments, segments)
+        retry(put_segments, segments, 2)
         retry(put_manifest, segments, 1)
 
         # get the manifest
