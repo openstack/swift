@@ -36,7 +36,6 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, \
     InvalidPartArgument, InvalidPartNumber, InvalidRequest, \
     XAmzContentSHA256Mismatch
-from swift.common.utils import md5
 
 from test.debug_logger import debug_logger
 
@@ -1461,8 +1460,7 @@ class TestHashingInput(S3ApiTestCase):
     def test_good(self):
         raw = b'123456789'
         wrapped = HashingInput(
-            BytesIO(raw), 9, lambda: md5(usedforsecurity=False),
-            md5(raw, usedforsecurity=False).hexdigest())
+            BytesIO(raw), 9, hashlib.sha256(raw).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # trying to read past the end gets us whatever's left
@@ -1475,8 +1473,8 @@ class TestHashingInput(S3ApiTestCase):
         self.assertTrue(wrapped._input.closed)
 
     def test_empty(self):
-        wrapped = HashingInput(BytesIO(b''), 0, hashlib.sha256,
-                               hashlib.sha256(b'').hexdigest())
+        wrapped = HashingInput(
+            BytesIO(b''), 0, hashlib.sha256(b'').hexdigest())
         self.assertEqual(b'', wrapped.read(4))
         self.assertEqual(b'', wrapped.read(2))
 
@@ -1487,8 +1485,7 @@ class TestHashingInput(S3ApiTestCase):
     def test_too_long(self):
         raw = b'123456789'
         wrapped = HashingInput(
-            BytesIO(raw), 8, lambda: md5(usedforsecurity=False),
-            md5(raw, usedforsecurity=False).hexdigest())
+            BytesIO(raw), 8, hashlib.sha256(raw).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
@@ -1503,8 +1500,7 @@ class TestHashingInput(S3ApiTestCase):
     def test_too_short(self):
         raw = b'123456789'
         wrapped = HashingInput(
-            BytesIO(raw), 10, lambda: md5(usedforsecurity=False),
-            md5(raw, usedforsecurity=False).hexdigest())
+            BytesIO(raw), 10, hashlib.sha256(raw).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
@@ -1515,8 +1511,7 @@ class TestHashingInput(S3ApiTestCase):
     def test_bad_hash(self):
         raw = b'123456789'
         wrapped = HashingInput(
-            BytesIO(raw), 9, hashlib.sha256,
-            md5(raw, usedforsecurity=False).hexdigest())
+            BytesIO(raw), 9, hashlib.sha256().hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'5678', wrapped.read(4))
         with self.assertRaises(S3InputSHA256Mismatch):
@@ -1528,7 +1523,7 @@ class TestHashingInput(S3ApiTestCase):
         self.assertFalse(_input.closed)
         with self.assertRaises(XAmzContentSHA256Mismatch):
             # Don't even get a chance to try to read it
-            HashingInput(_input, 0, hashlib.sha256, 'nope')
+            HashingInput(_input, 0, 'nope')
         self.assertTrue(_input.closed)
 
 
