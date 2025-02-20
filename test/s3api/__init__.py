@@ -50,8 +50,8 @@ def load_aws_config(conf_file):
     conf = readconf(conf_file, 'default')
     global _CONFIG
     _CONFIG = {
-        'endpoint': 'https://s3.amazonaws.com',
-        'region': 'us-east-1',
+        'endpoint': conf.get('endpoint', 'https://s3.amazonaws.com'),
+        'region': conf.get('region', 'us-east-1'),
         'access_key1': conf.get('aws_access_key_id'),
         'secret_key1': conf.get('aws_secret_access_key'),
         'session_token1': conf.get('aws_session_token')
