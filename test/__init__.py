@@ -37,10 +37,6 @@ warnings.filterwarnings('ignore', message=(
 
 import unittest
 
-if sys.version_info < (3, 2):
-    unittest.TestCase.assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
-    unittest.TestCase.assertRegex = unittest.TestCase.assertRegexpMatches
-
 from eventlet.green import socket
 
 from swift.common.utils import readconf
