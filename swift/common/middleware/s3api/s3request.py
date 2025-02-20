@@ -135,13 +135,13 @@ class S3InputSHA256Mismatch(BaseException):
 
 class HashingInput(object):
     """
-    wsgi.input wrapper to verify the hash of the input as it's read.
+    wsgi.input wrapper to verify the SHA256 of the input as it's read.
     """
 
-    def __init__(self, reader, content_length, hasher, expected_hex_hash):
+    def __init__(self, reader, content_length, expected_hex_hash):
         self._input = reader
         self._to_read = content_length
-        self._hasher = hasher()
+        self._hasher = sha256()
         self._expected = expected_hex_hash
         if content_length == 0 and \
                 self._hasher.hexdigest() != self._expected.lower():
@@ -887,7 +887,6 @@ class S3Request(swob.Request):
             self.environ['wsgi.input'] = HashingInput(
                 self.environ['wsgi.input'],
                 self.content_length,
-                sha256,
                 aws_sha256)
         # If no content-length, either client's trying to do a HTTP chunked
         # transfer, or a HTTP/1.0-style transfer (in which case swift will
