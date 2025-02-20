@@ -261,7 +261,7 @@ class BaseS3TestCase(BaseS3Mixin, unittest.TestCase):
 class BaseS3TestCaseWithBucket(BaseS3Mixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.bucket_name = cls.create_name('test-bucket')
+        cls.bucket_name = cls.create_name('bucket')
         client = cls.get_s3_client(1)
         client.create_bucket(Bucket=cls.bucket_name)
 
