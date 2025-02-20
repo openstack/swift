@@ -23,7 +23,7 @@ class BaseMultiPartUploadTestCase(BaseS3TestCase):
 
     def setUp(self):
         self.client = self.get_s3_client(1)
-        self.bucket_name = self.create_name('test-mpu')
+        self.bucket_name = self.create_name('mpu-bucket')
         resp = self.client.create_bucket(Bucket=self.bucket_name)
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
         self.num_parts = 3
