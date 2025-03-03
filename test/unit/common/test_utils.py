@@ -2275,6 +2275,15 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.fail("Expecting IOError exception")
         self.assertTrue(_m_linkat.called)
 
+    def test_link_fd_to_path_runs_out_of_retries(self):
+        _m_linkat = mock.Mock(
+            side_effect=IOError(errno.ENOENT, os.strerror(errno.ENOENT)))
+        with mock.patch('swift.common.utils.linkat', _m_linkat), \
+                self.assertRaises(IOError) as caught:
+            utils.link_fd_to_path(0, '/path', 1)
+        self.assertEqual(caught.exception.errno, errno.ENOENT)
+        self.assertEqual(3, len(_m_linkat.mock_calls))
+
     @requires_o_tmpfile_support_in_tmp
     @with_tempdir
     def test_linkat_race_dir_not_exists(self, tempdir):

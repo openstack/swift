@@ -877,12 +877,16 @@ def link_fd_to_path(fd, target_path, dirs_created=0, retries=2, fsync=True):
                   the newly created directories.
     """
     dirpath = os.path.dirname(target_path)
-    for _junk in range(0, retries):
+    attempts = 0
+    while True:
+        attempts += 1
         try:
             linkat(linkat.AT_FDCWD, "/proc/self/fd/%d" % (fd),
                    linkat.AT_FDCWD, target_path, linkat.AT_SYMLINK_FOLLOW)
             break
         except IOError as err:
+            if attempts > retries:
+                raise
             if err.errno == errno.ENOENT:
                 dirs_created = makedirs_count(dirpath)
             elif err.errno == errno.EEXIST:
