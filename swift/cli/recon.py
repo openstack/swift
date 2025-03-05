@@ -15,7 +15,6 @@
     cmdline utility to perform cluster reconnaissance
 """
 
-from __future__ import print_function
 
 from eventlet.green import socket
 from urllib.parse import urlparse

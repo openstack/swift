@@ -22,7 +22,6 @@ Safely reload WSGI servers while minimizing client downtime and errors by
    * waiting for the reload to complete.
 """
 
-from __future__ import print_function
 import argparse
 import errno
 import os

@@ -155,7 +155,6 @@ All three steps may be performed with one sub-command::
     Run container-sharder on all nodes to shard the container.
 
 """
-from __future__ import print_function
 import argparse
 import json
 import os.path

@@ -11,7 +11,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from __future__ import print_function
 import functools
 import sys
 from io import BytesIO

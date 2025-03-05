@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """Tests for swift.common.utils"""
-from __future__ import print_function
 
 import argparse
 import hashlib
