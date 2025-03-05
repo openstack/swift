@@ -23,9 +23,8 @@ import urllib.parse
 
 from swift.common.exceptions import EncryptionException, UnknownSecretIdError
 from swift.common.swob import HTTPInternalServerError
-from swift.common.utils import get_logger
+from swift.common.utils import get_logger, parse_header
 from swift.common.wsgi import WSGIContext
-from cgi import parse_header
 
 CRYPTO_KEY_CALLBACK = 'swift.callback.fetch_crypto_keys'
 

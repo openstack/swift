@@ -2889,6 +2889,11 @@ _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
     r'|"(?:[^"\\]|\\.)*"))?)')
 
+_loose_token = r'[^()<>@,;:\"\[\]?={}\x00-\x20\x7f]+'  # nosec B105
+_loose_extension_pattern = re.compile(
+    r'(?:\s*;\s*(' + _loose_token + r")\s*(?:=\s*(" + _loose_token +
+    r'|"(?:[^"\\]|\\.)*"))?)')
+
 _content_range_pattern = re.compile(r'^bytes (\d+)-(\d+)/(\d+)$')
 
 
@@ -2910,7 +2915,7 @@ def parse_content_range(content_range):
     return tuple(int(x) for x in found.groups())
 
 
-def parse_content_type(content_type):
+def parse_content_type(content_type, strict=True):
     """
     Parse a content-type and its parameters into values.
     RFC 2616 sec 14.17 and 3.7 are pertinent.
@@ -2922,17 +2927,46 @@ def parse_content_type(content_type):
             ('text/plain', [('charset, 'UTF-8'), ('level', '1')])
 
     :param content_type: content_type to parse
+    :param strict: ignore ``/`` and any following characters in parameter
+        tokens. If ``strict`` is True a parameter such as ``x=a/b`` will be
+        parsed as ``x=a``. If ``strict`` is False a parameter such as ``x=a/b``
+        will be parsed as ``x=a/b``. The default is True.
     :returns: a tuple containing (content type, list of k, v parameter tuples)
     """
     parm_list = []
     if ';' in content_type:
         content_type, parms = content_type.split(';', 1)
         parms = ';' + parms
-        for m in _rfc_extension_pattern.findall(parms):
+        pat = _rfc_extension_pattern if strict else _loose_extension_pattern
+        for m in pat.findall(parms):
             key = m[0].strip()
             value = m[1].strip()
             parm_list.append((key, value))
     return content_type, parm_list
+
+
+def parse_header(value):
+    """
+    Parse a header value to extract the first part and a dict of any
+    following parameters.
+
+    The ``value`` to parse should be of the form:
+
+        ``<first part>[;<key>=<value>][; <key>=<value>]...``
+
+    ``<first part>`` should be of the form ``<token>[/<token>]``, ``<key>``
+    should be a ``token``, and ``<value>`` should be either a ``token`` or
+    ``quoted-string``, where ``token`` and ``quoted-string`` are defined by RFC
+    2616 section 2.2.
+
+    :param value: the header value to parse.
+    :return: a tuple (first part, dict(params)).
+    """
+    # note: this does not behave *exactly* like cgi.parse_header (which this
+    # replaces) w.r.t. parsing non-token characters in param values (e.g. the
+    # null character) , but it's sufficient for our use cases.
+    token, params = parse_content_type(value, strict=False)
+    return token, dict(params)
 
 
 def extract_swift_bytes(content_type):

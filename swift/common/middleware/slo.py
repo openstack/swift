@@ -339,7 +339,6 @@ metadata which can be used for stats and billing purposes.
 """
 
 import base64
-from cgi import parse_header
 from collections import defaultdict
 from datetime import datetime
 import json
@@ -362,7 +361,7 @@ from swift.common.utils import get_logger, config_true_value, \
     override_bytes_from_content_type, split_path, \
     RateLimitedIterator, quote, closing_if_possible, \
     LRUCache, StreamingPile, strict_b64decode, Timestamp, friendly_close, \
-    md5
+    md5, parse_header
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
