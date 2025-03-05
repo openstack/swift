@@ -17,7 +17,7 @@ from __future__ import print_function
 import unittest
 from test.unit import temptree
 
-import mock
+from unittest import mock
 import os
 import sys
 import resource

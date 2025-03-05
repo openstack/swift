@@ -21,7 +21,7 @@ import unittest
 from getpass import getuser
 import logging
 from test.unit import tmpfile, with_tempdir
-import mock
+from unittest import mock
 import signal
 from contextlib import contextmanager
 import itertools

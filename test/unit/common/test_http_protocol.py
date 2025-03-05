@@ -16,7 +16,7 @@
 from argparse import Namespace
 from io import BytesIO
 import json
-import mock
+from unittest import mock
 import types
 import unittest
 import eventlet.wsgi as wsgi

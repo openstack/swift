@@ -25,7 +25,7 @@ from shutil import rmtree
 from collections import defaultdict
 from copy import deepcopy
 
-import mock
+from unittest import mock
 import urllib.parse
 
 from swift.common import internal_client, utils, swob

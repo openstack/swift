@@ -27,8 +27,8 @@ from shutil import rmtree, copy
 from tempfile import mkdtemp, NamedTemporaryFile
 import json
 
-import mock
-from mock import patch, call
+from unittest import mock
+from unittest.mock import patch, call
 from importlib import reload as reload_module
 
 from swift.container.backend import DATADIR

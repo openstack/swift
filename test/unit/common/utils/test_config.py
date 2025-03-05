@@ -19,7 +19,7 @@ import tempfile
 from textwrap import dedent
 import unittest
 
-import mock
+from unittest import mock
 
 from swift.common.utils import config
 

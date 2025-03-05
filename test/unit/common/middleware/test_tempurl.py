@@ -31,7 +31,7 @@
 import base64
 import hmac
 import itertools
-import mock
+from unittest import mock
 import unittest
 import hashlib
 from urllib.parse import quote

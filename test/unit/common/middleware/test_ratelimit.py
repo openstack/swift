@@ -16,7 +16,7 @@
 import unittest
 import time
 import eventlet
-import mock
+from unittest import mock
 
 from test.debug_logger import debug_logger
 from test.unit import FakeMemcache

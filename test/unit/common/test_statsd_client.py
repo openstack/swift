@@ -22,7 +22,7 @@ import time
 import unittest
 import warnings
 
-import mock
+from unittest import mock
 from queue import Queue, Empty
 
 

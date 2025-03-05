@@ -26,7 +26,7 @@ from shutil import rmtree
 from time import sleep, time
 import sys
 import copy
-import mock
+from unittest import mock
 
 from swift.common import ring, utils
 from swift.common.ring import utils as ring_utils

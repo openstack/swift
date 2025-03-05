@@ -16,7 +16,7 @@
 import io
 from http.client import parse_headers
 
-import mock
+from unittest import mock
 import unittest
 import socket
 

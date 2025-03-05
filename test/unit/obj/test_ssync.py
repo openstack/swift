@@ -14,7 +14,7 @@
 # limitations under the License.
 from collections import defaultdict
 
-import mock
+from unittest import mock
 import os
 import unittest
 

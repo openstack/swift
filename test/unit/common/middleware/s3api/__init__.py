@@ -16,7 +16,7 @@ import json
 import unittest
 from datetime import datetime
 import email
-import mock
+from unittest import mock
 import time
 from contextlib import contextmanager
 

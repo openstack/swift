@@ -28,7 +28,7 @@ import time
 import warnings
 
 from eventlet import spawn, wsgi
-import mock
+from unittest import mock
 from shutil import rmtree
 import pickle
 

@@ -19,7 +19,7 @@ import json
 import os
 import unittest
 
-import mock
+from unittest import mock
 
 import urllib.parse
 from swift.common.middleware.crypto import encrypter

@@ -21,7 +21,7 @@ from hashlib import sha256
 import os
 from os.path import join
 import time
-from mock import patch
+from unittest.mock import patch
 import json
 
 from swift.common import swob

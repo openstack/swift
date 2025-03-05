@@ -24,7 +24,7 @@ import unittest
 import contextlib
 import re
 
-import mock
+from unittest import mock
 
 from swift.common.splice import splice, tee
 

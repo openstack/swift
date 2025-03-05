@@ -18,7 +18,7 @@
 import ctypes
 import unittest
 import os
-import mock
+from unittest import mock
 from uuid import uuid4
 from tempfile import gettempdir
 

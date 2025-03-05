@@ -25,7 +25,7 @@ import time
 import unittest
 import os
 
-import mock
+from unittest import mock
 from configparser import NoSectionError, NoOptionError
 
 from eventlet import GreenPool, sleep, Queue
@@ -36,7 +36,7 @@ from swift.common import memcached
 from swift.common.memcached import MemcacheConnectionError, md5hash, \
     MemcacheCommand, EXPTIME_MAXDELTA
 from swift.common.utils import md5, human_readable
-from mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 from test.debug_logger import debug_logger
 
 

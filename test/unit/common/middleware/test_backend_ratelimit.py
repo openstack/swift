@@ -22,7 +22,7 @@ import unittest
 from collections import defaultdict
 from tempfile import mkdtemp
 
-import mock
+from unittest import mock
 
 from swift.common.middleware import backend_ratelimit
 from swift.common.middleware.backend_ratelimit import \

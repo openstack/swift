@@ -20,7 +20,7 @@ import shutil
 import tempfile
 import unittest
 
-from mock import patch, call, DEFAULT
+from unittest.mock import patch, call, DEFAULT
 import eventlet
 
 from swift.account import reaper

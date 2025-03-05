@@ -44,7 +44,7 @@ from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     MD5_OF_EMPTY_STRING
 from swift.common.storage_policy import POLICIES
 
-import mock
+from unittest import mock
 
 from test import annotate_failure
 from test.debug_logger import debug_logger

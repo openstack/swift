@@ -18,7 +18,7 @@ import io
 import json
 import unittest
 import os
-import mock
+from unittest import mock
 from gzip import GzipFile
 from shutil import rmtree
 import pickle

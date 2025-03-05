@@ -31,7 +31,7 @@ from email.utils import parsedate
 
 from email.parser import BytesFeedParser as FeedParser
 
-import mock
+from unittest import mock
 
 from test.functional import normalized_urls, load_constraint, cluster_info
 from test.functional import check_response, retry

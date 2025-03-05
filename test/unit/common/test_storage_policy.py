@@ -18,7 +18,7 @@ import io
 import logging
 import unittest
 import os
-import mock
+from unittest import mock
 from functools import partial
 
 from tempfile import NamedTemporaryFile

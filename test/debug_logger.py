@@ -15,7 +15,7 @@
 import collections
 import contextlib
 import logging
-import mock
+from unittest import mock
 import sys
 
 from collections import defaultdict

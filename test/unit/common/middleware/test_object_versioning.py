@@ -17,7 +17,7 @@ import functools
 import json
 import os
 import time
-import mock
+from unittest import mock
 import unittest
 import urllib.parse
 from swift.common import swob, utils

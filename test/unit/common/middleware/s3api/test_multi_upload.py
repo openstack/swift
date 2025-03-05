@@ -16,7 +16,7 @@
 import base64
 import binascii
 import hashlib
-from mock import patch
+from unittest.mock import patch
 import os
 import time
 import unittest

@@ -20,12 +20,12 @@ import unittest
 import os
 import tarfile
 import zlib
-import mock
+from unittest import mock
 from io import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
 from eventlet import sleep
-from mock import patch, call
+from unittest.mock import patch, call
 from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
 from swift.common import utils, constraints, registry

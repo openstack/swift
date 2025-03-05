@@ -17,7 +17,7 @@ import unittest
 from argparse import Namespace
 from textwrap import dedent
 
-import mock
+from unittest import mock
 from shutil import rmtree
 from tempfile import mkdtemp
 

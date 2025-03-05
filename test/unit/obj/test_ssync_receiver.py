@@ -20,7 +20,7 @@ import tempfile
 import unittest
 
 import eventlet
-import mock
+from unittest import mock
 import itertools
 
 from swift.common import bufferedhttp

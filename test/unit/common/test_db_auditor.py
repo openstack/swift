@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import unittest
-import mock
+from unittest import mock
 import time
 import os
 import random

@@ -19,7 +19,7 @@ import hashlib
 import json
 import unittest
 from datetime import datetime
-import mock
+from unittest import mock
 
 from swift.common import swob
 from swift.common.swob import Request

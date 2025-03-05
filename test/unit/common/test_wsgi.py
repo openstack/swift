@@ -32,7 +32,7 @@ from textwrap import dedent
 
 from urllib.parse import quote
 
-import mock
+from unittest import mock
 
 import swift.common.middleware.catch_errors
 import swift.common.middleware.gatekeeper

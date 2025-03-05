@@ -19,7 +19,7 @@ import hmac
 
 import os
 
-import mock
+from unittest import mock
 import unittest
 
 from getpass import getuser

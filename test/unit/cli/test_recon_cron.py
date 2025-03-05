@@ -16,7 +16,7 @@
 import tempfile
 import shutil
 import os
-import mock
+from unittest import mock
 
 from unittest import TestCase
 from swift.cli.recon_cron import get_async_count

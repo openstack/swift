@@ -15,7 +15,7 @@
 
 from datetime import timedelta
 import hashlib
-from mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 import unittest
 
 from io import BytesIO

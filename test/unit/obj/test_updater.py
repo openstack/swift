@@ -15,7 +15,7 @@
 import eventlet
 import pickle
 from queue import PriorityQueue
-import mock
+from unittest import mock
 import os
 import unittest
 import random
