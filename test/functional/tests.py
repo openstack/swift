@@ -33,7 +33,7 @@ from email.parser import BytesFeedParser as FeedParser
 
 import mock
 
-from test.functional import normalized_urls, load_constraint, cluster_info
+from test.functional import load_constraint, cluster_info
 from test.functional import check_response, retry
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
@@ -194,7 +194,7 @@ class TestAccount(Base):
 
     def testInvalidPath(self):
         was_path = self.env.account.conn.storage_path
-        if (normalized_urls):
+        if (tf.normalized_urls):
             self.env.account.conn.storage_path = '/'
         else:
             self.env.account.conn.storage_path = "/%s" % was_path
@@ -1152,7 +1152,7 @@ class TestContainerPathsEnv(BaseEnv):
                 file_item.write_random(cls.file_size,
                                        hdrs={'Content-Type':
                                              'application/directory'})
-            if (normalized_urls):
+            if (tf.normalized_urls):
                 nfile = '/'.join(filter(None, f.split('/')))
                 if (f[-1] == '/'):
                     nfile += '/'
@@ -1229,7 +1229,7 @@ class TestContainerPaths(Base):
         def assert_listing(path, file_list):
             files = self.env.container.files(parms={'path': path})
             self.assertEqual(sorted(file_list, key=locale.strxfrm), files)
-        if not normalized_urls:
+        if not tf.normalized_urls:
             assert_listing('/', ['/dir1/', '/dir2/', '/file1', '/file A'])
             assert_listing('/dir1',
                            ['/dir1/file2', '/dir1/subdir1/', '/dir1/subdir2/'])
