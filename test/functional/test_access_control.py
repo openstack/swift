@@ -20,7 +20,7 @@ import uuid
 from random import shuffle
 
 try:
-    from keystoneclient.v3 import ksc
+    from keystoneclient.v3 import client as ksc
 except ImportError:
     ksc = None
 from swiftclient import get_auth, http_connection
