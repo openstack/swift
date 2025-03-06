@@ -31,8 +31,7 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         # See https://github.com/eventlet/eventlet/pull/590
         self.pre_shutdown_bugfix_eventlet = not getattr(
             websocket.WebSocketWSGI, '_WSGI_APP_ALWAYS_IDLE', None)
-        # Note this is not a new-style class, so super() won't work
-        wsgi.HttpProtocol.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def log_request(self, *a):
         """
@@ -213,16 +212,14 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         return environ
 
     def _read_request_line(self):
-        # Note this is not a new-style class, so super() won't work
-        got = wsgi.HttpProtocol._read_request_line(self)
+        got = super()._read_request_line()
         # See https://github.com/eventlet/eventlet/pull/590
         if self.pre_shutdown_bugfix_eventlet:
             self.conn_state[2] = wsgi.STATE_REQUEST
         return got
 
     def handle_one_request(self):
-        # Note this is not a new-style class, so super() won't work
-        got = wsgi.HttpProtocol.handle_one_request(self)
+        got = super().handle_one_request()
         # See https://github.com/eventlet/eventlet/pull/590
         if self.pre_shutdown_bugfix_eventlet:
             if self.conn_state[2] != wsgi.STATE_CLOSE:
