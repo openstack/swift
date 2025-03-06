@@ -1641,7 +1641,7 @@ class TestSloDeleteManifest(SloTestCase):
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
-        self.assertEqual(json.loads(self.app.req_bodies[1]), [
+        self.assertEqual(json.loads(self.app.call_list[1].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
@@ -1715,7 +1715,7 @@ class TestSloDeleteManifest(SloTestCase):
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
-        self.assertEqual(json.loads(self.app.req_bodies[-2]), [
+        self.assertEqual(json.loads(self.app.call_list[-2].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
@@ -1785,7 +1785,7 @@ class TestSloDeleteManifest(SloTestCase):
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
-        self.assertEqual(json.loads(self.app.req_bodies[-2]), [
+        self.assertEqual(json.loads(self.app.call_list[-2].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,

@@ -13,6 +13,8 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import collections
+import io
 import unittest
 
 from swift.common.storage_policy import POLICIES
@@ -27,6 +29,7 @@ class TestFakeSwiftCall(unittest.TestCase):
     def test_init(self):
         req = Request.blank('/v1/a/c/o', headers={'Content-Length': '123'})
         call = FakeSwiftCall(req)
+        self.assertIs(req, call.req)
         self.assertEqual('GET', call.method)
         self.assertEqual('/v1/a/c/o', call.path)
         self.assertEqual({'Host': 'localhost:80',
@@ -34,6 +37,53 @@ class TestFakeSwiftCall(unittest.TestCase):
                          call.headers)
         self.assertIsInstance(call.footers, HeaderKeyDict)
         self.assertEqual({}, call.footers)
+        self.assertIsNone(call.body)
+
+    def test_environ_copy(self):
+        req = Request.blank('/v1/a/c/o', headers={'Content-Length': '123'})
+        req.environ['swift.source'] = 'SOURCE'
+        req.environ['swift.trans_id'] = 'test-txn-id'
+        mutable_history = ['x', 'y']
+        req.environ['swift.shard_listing_history'] = mutable_history
+        a_list = [(1, 2), {10, range(3)}]
+        d_dict = collections.defaultdict(str, a='b')
+        req.environ['deep.mutable'] = {
+            'x': {
+                'gen2': range(2),
+                'y': {
+                    'gen4': range(4),
+                    'l': a_list
+                },
+                'z': d_dict
+            },
+        }
+        call = FakeSwiftCall(req)
+
+        self.assertEqual('SOURCE', call.env.get('swift.source'))
+        self.assertEqual('test-txn-id', call.env.get('swift.trans_id'))
+        self.assertIn('wsgi.input', call.env)
+        self.assertIs(FakeSwiftCall.DUMMY_VALUE, call.env['wsgi.input'])
+        self.assertEqual(call.env['swift.shard_listing_history'], ['x', 'y'])
+        mutable_history.append('z')
+        self.assertEqual(call.env['swift.shard_listing_history'], ['x', 'y'])
+        self.assertEqual(call.req.environ['swift.shard_listing_history'],
+                         ['x', 'y', 'z'])
+
+        # mutate the deep mutable
+        a_list.append('new thing')
+        d_dict['new'] = 'thing'
+        self.assertEqual(
+            {
+                'x': {
+                    'gen2': FakeSwiftCall.DUMMY_VALUE,
+                    'y': {
+                        'gen4': FakeSwiftCall.DUMMY_VALUE,
+                        'l': [(1, 2), {10, FakeSwiftCall.DUMMY_VALUE}]
+                    },
+                    'z': {'a': 'b'}
+                },
+            },
+            call.env['deep.mutable'])
 
     def test_header_mutation(self):
         orig_headers = {'foo': 'bar'}
@@ -50,12 +100,17 @@ class TestFakeSwift(unittest.TestCase):
         swift = FakeSwift()
         swift.register('GET', '/v1/a/c/o', HTTPOk, {'X-Foo': 'Bar'}, b'stuff')
         req = Request.blank('/v1/a/c/o', headers={'Host': 'localhost:80'})
+        req.environ['swift.trans_id'] = 'test-txn-id'
+        req.environ['swift.source'] = 'SOURCE'
         req.method = 'GET'
         req.get_response(swift)
         self.assertEqual([('GET', '/v1/a/c/o')], swift.calls)
         self.assertEqual([{'Host': 'localhost:80'}], swift.headers)
         self.assertEqual([('GET', '/v1/a/c/o', {'Host': 'localhost:80'})],
                          swift.calls_with_headers)
+        self.assertEqual(['test-txn-id'], swift.txn_ids)
+        self.assertEqual(['SOURCE'], swift.swift_sources)
+        self.assertEqual(1, swift.call_count)
 
     def test_allowed_methods(self):
 
@@ -256,6 +311,7 @@ class TestFakeSwift(unittest.TestCase):
         self.assertEqual(b'', resp.body)
         self.assertEqual(1, swift.call_count)
         self.assertEqual(('PUT', '/v1/a/c/o'), swift.calls[-1])
+        self.assertEqual(b'stuff', swift.call_list[-1].body)
 
         req = Request.blank('/v1/a/c/o')
         req.method = 'GET'
@@ -541,6 +597,23 @@ class TestFakeSwift(unittest.TestCase):
                           'X-Object-Sysmeta-Foo': 'bar',
                           'X-Object-Meta-Foo': 'Bar'},
                          resp.headers)
+
+    def test_PUT_error_reading_body(self):
+        swift = FakeSwift()
+        swift.register('PUT', '/v1/a/c/o', HTTPCreated, {}, None)
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'PUT'
+        wsgi_input = io.BytesIO()
+        wsgi_input.close()
+        req.environ['wsgi.input'] = wsgi_input
+        with self.assertRaises(ValueError):
+            # ValueError: I/O operation on closed file.
+            req.get_response(swift)
+        # the request was captured...
+        self.assertEqual(1, swift.call_count)
+        call = swift.call_list[0]
+        self.assertEqual(('PUT', '/v1/a/c/o'), (call.method, call.path))
+        self.assertIsNone(call.body)
 
     def test_GET_registered_overrides_uploaded(self):
         swift = FakeSwift()
