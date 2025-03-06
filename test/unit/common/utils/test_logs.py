@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """Tests for swift.common.utils.logs"""
-from __future__ import print_function
 
 import contextlib
 import errno

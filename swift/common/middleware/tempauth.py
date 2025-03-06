@@ -173,7 +173,6 @@ To generate a curl command line from the above::
     '
 """
 
-from __future__ import print_function
 
 import json
 from time import time
