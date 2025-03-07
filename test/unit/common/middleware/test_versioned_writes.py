@@ -17,7 +17,7 @@ import functools
 import json
 import os
 import time
-import mock
+from unittest import mock
 import unittest
 from swift.common import swob, utils, registry
 from swift.common.middleware import versioned_writes, copy

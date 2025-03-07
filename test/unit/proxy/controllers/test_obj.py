@@ -25,7 +25,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 import json
 
-import mock
+from unittest import mock
 from eventlet import Timeout, sleep
 from eventlet.queue import Empty
 

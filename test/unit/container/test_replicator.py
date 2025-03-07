@@ -18,7 +18,7 @@ import time
 import shutil
 import itertools
 import unittest
-import mock
+from unittest import mock
 import random
 import sqlite3
 

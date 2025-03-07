@@ -15,7 +15,7 @@
 
 import unittest
 
-from mock import patch
+from unittest.mock import patch
 
 from swift.common.swob import Request, HTTPNoContent
 from swift.common.middleware.s3api.etree import fromstring, tostring, \

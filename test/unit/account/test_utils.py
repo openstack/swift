@@ -16,7 +16,7 @@ import time
 import unittest
 import json
 
-import mock
+from unittest import mock
 
 from swift.account import utils, backend
 from swift.common.storage_policy import POLICIES, StoragePolicy

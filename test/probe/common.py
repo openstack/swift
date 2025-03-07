@@ -17,7 +17,7 @@
 import errno
 import gc
 import json
-import mock
+from unittest import mock
 import os
 from subprocess import Popen, PIPE
 import sys

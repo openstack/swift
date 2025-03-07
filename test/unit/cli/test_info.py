@@ -15,7 +15,7 @@
 from argparse import Namespace
 import os
 import unittest
-import mock
+from unittest import mock
 from shutil import rmtree
 from tempfile import mkdtemp
 

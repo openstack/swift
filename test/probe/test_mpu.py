@@ -28,7 +28,7 @@ from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 from boto3.s3.transfer import TransferConfig
 from test.s3api import get_s3_client
 
-import mock
+from unittest import mock
 
 
 class TestMixedPolicyMPU(ReplProbeTest):

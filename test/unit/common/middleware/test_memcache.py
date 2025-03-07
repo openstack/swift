@@ -18,7 +18,7 @@ from textwrap import dedent
 import unittest
 
 from eventlet.green import ssl
-import mock
+from unittest import mock
 
 from swift.common.middleware import memcache
 from swift.common.memcached import MemcacheRing

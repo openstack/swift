@@ -15,7 +15,7 @@
 
 import errno
 import os
-import mock
+from unittest import mock
 import posix
 import unittest
 from tempfile import mkdtemp

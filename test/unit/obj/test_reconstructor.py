@@ -16,7 +16,7 @@ import itertools
 import json
 import unittest
 import os
-import mock
+from unittest import mock
 import pickle
 import tempfile
 import time

@@ -21,7 +21,7 @@ from contextlib import contextmanager
 import time
 import pickle
 
-import mock
+from unittest import mock
 import urllib.parse
 
 from swift.common import direct_client

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import pickle
-import mock
+from unittest import mock
 import os
 import unittest
 from contextlib import closing

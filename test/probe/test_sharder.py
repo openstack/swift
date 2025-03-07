@@ -44,7 +44,7 @@ from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
     wait_for_server_to_hangup, ENABLED_POLICIES, exclude_nodes
-import mock
+from unittest import mock
 
 try:
     from swiftclient.requests_compat import requests as client_requests

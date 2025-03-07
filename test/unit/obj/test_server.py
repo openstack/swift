@@ -22,7 +22,7 @@ import json
 import errno
 import operator
 import os
-import mock
+from unittest import mock
 from io import StringIO
 import unittest
 import math

@@ -19,7 +19,7 @@ import itertools
 import json
 from collections import defaultdict
 import unittest
-import mock
+from unittest import mock
 
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, \

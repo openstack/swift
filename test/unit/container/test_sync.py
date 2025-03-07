@@ -18,7 +18,7 @@ import os
 import unittest
 from textwrap import dedent
 
-import mock
+from unittest import mock
 import errno
 from swift.common.utils import Timestamp, readconf
 from test.debug_logger import debug_logger

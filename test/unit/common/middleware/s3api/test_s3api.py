@@ -16,10 +16,10 @@
 
 import base64
 import unittest
-from mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 import calendar
 from datetime import datetime
-import mock
+from unittest import mock
 import requests
 import json
 from paste.deploy import loadwsgi

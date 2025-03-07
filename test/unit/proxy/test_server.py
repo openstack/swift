@@ -42,7 +42,7 @@ import random
 from collections import defaultdict
 import uuid
 
-import mock
+from unittest import mock
 from eventlet import sleep, spawn, wsgi, Timeout, debug
 from eventlet.green.http import client as http_client
 from io import BytesIO

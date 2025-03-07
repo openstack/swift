@@ -16,7 +16,7 @@
 import binascii
 import string
 import json
-import mock
+from unittest import mock
 
 from swift.common import swob, utils
 from swift.common.request_helpers import get_reserved_name

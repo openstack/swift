@@ -20,7 +20,7 @@ from tempfile import mkdtemp
 from shutil import rmtree
 
 import os
-import mock
+from unittest import mock
 from swift.common import ring, utils
 from swift.common.utils import split_path
 from swift.common.swob import Request, Response

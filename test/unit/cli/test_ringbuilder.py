@@ -16,7 +16,7 @@
 import errno
 import itertools
 import logging
-import mock
+from unittest import mock
 import os
 import re
 import io

@@ -17,7 +17,7 @@ import array
 from contextlib import contextmanager
 import errno
 import json
-import mock
+from unittest import mock
 import os
 from posix import stat_result, statvfs_result
 from shutil import rmtree

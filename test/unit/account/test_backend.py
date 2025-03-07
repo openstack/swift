@@ -25,7 +25,7 @@ import sqlite3
 import itertools
 from contextlib import contextmanager
 import random
-import mock
+from unittest import mock
 import base64
 import shutil
 

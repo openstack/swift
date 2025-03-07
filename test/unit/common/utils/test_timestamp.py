@@ -18,7 +18,7 @@ import random
 import time
 import unittest
 
-import mock
+from unittest import mock
 
 from swift.common.utils import timestamp
 

@@ -16,7 +16,7 @@
 import json
 import unittest
 import time
-from mock import Mock
+from unittest.mock import Mock
 
 from swift.proxy.controllers import InfoController
 from swift.proxy.server import Application as ProxyApp

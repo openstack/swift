@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import unittest
-import mock
+from unittest import mock
 from hashlib import sha256
 
 from urllib.parse import quote, parse_qsl

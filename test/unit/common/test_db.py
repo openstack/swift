@@ -21,7 +21,7 @@ from tempfile import mkdtemp
 from shutil import rmtree, copy
 from uuid import uuid4
 import pickle
-import mock
+from unittest import mock
 
 import base64
 import json
@@ -29,7 +29,7 @@ import sqlite3
 import itertools
 import time
 import random
-from mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 from eventlet.timeout import Timeout
 

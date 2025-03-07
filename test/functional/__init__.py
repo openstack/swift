@@ -17,7 +17,7 @@
 import configparser
 import contextlib
 
-import mock
+from unittest import mock
 import os
 from urllib.parse import urlparse, urlsplit, urlunsplit
 import sys

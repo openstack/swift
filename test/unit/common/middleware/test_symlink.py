@@ -17,7 +17,7 @@
 import unittest
 import io
 import json
-import mock
+from unittest import mock
 
 from urllib.parse import parse_qs
 from swift.common import swob

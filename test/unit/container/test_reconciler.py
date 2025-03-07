@@ -16,7 +16,7 @@ import shutil
 from functools import partial
 from tempfile import mkdtemp
 
-import mock
+from unittest import mock
 import operator
 import time
 import unittest

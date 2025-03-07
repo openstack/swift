@@ -15,7 +15,7 @@
 
 import unittest
 import json
-import mock
+from unittest import mock
 import os
 import signal
 import string

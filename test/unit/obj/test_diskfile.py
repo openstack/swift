@@ -20,7 +20,7 @@ import binascii
 import os
 import errno
 import itertools
-import mock
+from unittest import mock
 import unittest
 import email
 import tempfile

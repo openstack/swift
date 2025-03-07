@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import unittest
-import mock
+from unittest import mock
 
 from swift.common import registry
 from swift.common.middleware import crypto

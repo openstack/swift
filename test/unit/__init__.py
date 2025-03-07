@@ -55,7 +55,7 @@ from swift.obj import server
 
 import functools
 from gzip import GzipFile
-import mock as mocklib
+from unittest import mock as mocklib
 import inspect
 from unittest import SkipTest
 

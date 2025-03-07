@@ -34,7 +34,7 @@ import eventlet.patcher
 import grp
 import logging
 import os
-import mock
+from unittest import mock
 import posix
 import pwd
 import random
@@ -57,7 +57,7 @@ from io import BytesIO, StringIO
 from shutil import rmtree
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
-from mock import MagicMock, patch
+from unittest.mock import MagicMock, patch
 from configparser import NoSectionError, NoOptionError
 from uuid import uuid4
 

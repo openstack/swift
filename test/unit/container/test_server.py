@@ -17,7 +17,7 @@
 import operator
 import os
 import posix
-import mock
+from unittest import mock
 import unittest
 import itertools
 import time
