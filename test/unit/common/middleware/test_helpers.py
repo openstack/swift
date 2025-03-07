@@ -54,7 +54,8 @@ class TestFakeSwiftCall(unittest.TestCase):
                     'gen4': range(4),
                     'l': a_list
                 },
-                'z': d_dict
+                'z': d_dict,
+                'null': None,
             },
         }
         call = FakeSwiftCall(req)
@@ -80,7 +81,8 @@ class TestFakeSwiftCall(unittest.TestCase):
                         'gen4': FakeSwiftCall.DUMMY_VALUE,
                         'l': [(1, 2), {10, FakeSwiftCall.DUMMY_VALUE}]
                     },
-                    'z': {'a': 'b'}
+                    'z': {'a': 'b'},
+                    'null': None,
                 },
             },
             call.env['deep.mutable'])

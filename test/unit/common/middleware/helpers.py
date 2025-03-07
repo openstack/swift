@@ -78,7 +78,9 @@ class FakeSwiftCall(object):
         # mutable values. However, some things (e.g. EncInputWrapper) won't
         # deepcopy. To avoid a confusing mixed of copied and original
         # values, replace un-copied values with DUMMY_VALUE.
-        if isinstance(value, (bool, int, float, str, bytes)):
+        if value is None:
+            return value
+        elif isinstance(value, (bool, int, float, str, bytes)):
             return value
         elif isinstance(value, (list, tuple, set)):
             return value.__class__([self._partial_copy(v) for v in value])
