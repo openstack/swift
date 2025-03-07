@@ -40,7 +40,7 @@ DEFAULT_ENV = {
     'OS_USERNAME': os.environ.get('ST_USER', 'test:tester'),
     'OS_PASSWORD': os.environ.get('ST_KEY', 'testing'),
     'OS_STORAGE_URL': None,
-    'S3_ENDPOINT': 'http://localhost:8080',
+    'S3_ENDPOINT': None,
     'S3_USER': 'test:tester',
     'S3_KEY': 'testing',
 }
@@ -316,6 +316,8 @@ with the --no-setup, --no-serve, and --no-run options.
             ENV['OS_USERNAME'],
             ENV['OS_PASSWORD'],
             timeout=1)[0]
+    if ENV['S3_ENDPOINT'] is None:
+        ENV['S3_ENDPOINT'] = ENV['OS_STORAGE_URL'].partition('/v1')[0]
 
     url = 'http://%s:%d/#%s' % (args.hostname, args.port, '&'.join(
         '%s=%s' % (urllib.parse.quote(key), urllib.parse.quote(val))
