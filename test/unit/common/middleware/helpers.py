@@ -51,11 +51,21 @@ class LeakTrackingIter(object):
         self.mark_closed(self.key)
 
 
+class FakeSwiftDummyValue:
+    _instance = None
+
+    @classmethod
+    def singleton(cls):
+        if not cls._instance:
+            cls._instance = FakeSwiftDummyValue()
+        return cls._instance
+
+
 class FakeSwiftCall(object):
     """
     Encapsulate properties of a request captured by FakeSwift.
     """
-    DUMMY_VALUE = object()
+    DUMMY_VALUE = FakeSwiftDummyValue.singleton()
 
     def __init__(self, req):
         self.req = req
