@@ -89,7 +89,7 @@ import os
 import time
 
 from swift.common.constraints import valid_api_version
-from swift.common.middleware.catch_errors import enforce_byte_count
+from swift.common.middleware.catch_errors import ByteEnforcer
 from swift.common.request_helpers import get_log_info
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
@@ -430,7 +430,7 @@ class ProxyLoggingMiddleware(object):
             if method == 'HEAD':
                 content_length = 0
             if content_length is not None:
-                iterator = enforce_byte_count(iterator, content_length)
+                iterator = ByteEnforcer(iterator, content_length)
 
             wire_status_int = int(start_response_args[0][0].split(' ', 1)[0])
             resp_headers = dict(start_response_args[0][1])

@@ -243,6 +243,9 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
 
         swob.HTTPException.__init__(
             self, status=kwargs.pop('status', self._status),
+            # we use an app_iter, so that we can add our trans_id to the resp
+            # xml *after* we've been called - technically any non-None app_iter
+            # would do, we override swob.Response._response_iter anyway.
             app_iter=self._body_iter(),
             content_type='application/xml', *args,
             **kwargs)
@@ -265,6 +268,9 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
         error_elem = Element('Error')
         SubElement(error_elem, 'Code').text = self._code
         SubElement(error_elem, 'Message').text = self._msg
+        # N.B. swob.Response objects don't normally have an environ attribute
+        # when they're created, but swob always gives this to us when we're
+        # __call__'d
         if 'swift.trans_id' in self.environ:
             request_id = self.environ['swift.trans_id']
             SubElement(error_elem, 'RequestId').text = request_id
@@ -273,6 +279,13 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
 
         yield tostring(error_elem, use_s3ns=False,
                        xml_declaration=self.xml_declaration)
+
+    def _response_iter(self, app_iter, body):
+        # we don't actually want our _response_iter to be a generator, a list
+        # of strings is much better for eventlet.wsgi.server connection
+        # handling and request pipelining and ErrorResponses are small.  FWIW
+        # we now have self.environ, app_iter=self._body_iter() and body is None
+        return super()._response_iter(list(app_iter), body)
 
     def _dict_to_etree(self, parent, d):
         for key, value in d.items():

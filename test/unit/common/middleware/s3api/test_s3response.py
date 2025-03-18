@@ -15,8 +15,9 @@
 
 import unittest
 
-from swift.common.swob import Response
+from swift.common.swob import Response, Request
 from swift.common.utils import HeaderKeyDict
+from swift.common.middleware.catch_errors import CatchErrorMiddleware
 from swift.common.middleware.s3api.s3response import S3Response, ErrorResponse
 from swift.common.middleware.s3api.utils import sysmeta_prefix
 
@@ -123,6 +124,27 @@ class TestErrorResponse(unittest.TestCase):
             b"<Message>my-msg</Message>"
             b"</Error>",
             resp.body)
+
+    def test_error_response_trans_id(self):
+        req = Request.blank('/bucket/object')
+        err = DummyErrorResponse(msg='my-msg', reason='my reason')
+        app = CatchErrorMiddleware(err, {})
+        with unittest.mock.patch(
+                'swift.common.middleware.catch_errors.generate_trans_id',
+                return_value='fake-trans-id'):
+            resp = req.get_response(app)
+        self.assertIn('swift.trans_id', req.environ)
+        self.assertEqual(418, resp.status_int)
+        self.assertIn('X-Trans-Id', resp.headers)
+        self.assertEqual(
+            b"<?xml version='1.0' encoding='UTF-8'?>\n"
+            b"<Error>"
+            b"<Code>DummyErrorResponse</Code>"
+            b"<Message>my-msg</Message>"
+            b"<RequestId>fake-trans-id</RequestId>"
+            b"</Error>",
+            resp.body)
+        self.assertEqual(146, int(resp.headers['Content-Length']))
 
 
 if __name__ == '__main__':
