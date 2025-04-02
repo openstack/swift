@@ -1096,6 +1096,17 @@ def requires_crc32c(func):
     return wrapper
 
 
+def requires_crc64nvme(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            checksum.crc64nvme()
+        except NotImplementedError as e:
+            raise SkipTest(str(e))
+        return func(*args, **kwargs)
+    return wrapper
+
+
 class StubResponse(object):
 
     def __init__(self, status, body=b'', headers=None, frag_index=None,
