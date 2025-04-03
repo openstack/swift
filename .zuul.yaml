@@ -11,6 +11,7 @@
     vars:
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
+        COLUMNS: 240
 
 - job:
     name: swift-tox-py36
@@ -237,6 +238,8 @@
       - opendev.org/openstack/keystone
     timeout: 5400
     vars:
+      tox_environment:
+        COLUMNS: 240
       tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
       tox_envlist: func
@@ -274,6 +277,8 @@
       Setup a SAIO dev environment and run ceph-s3tests
     timeout: 5400
     vars:
+      tox_environment:
+        COLUMNS: 240
       s3_acl: yes
       bindep_profile: test py39
     pre-run:
@@ -295,6 +300,8 @@
       Setup a SAIO dev environment and run our s3api test suite
     timeout: 1800
     vars:
+      tox_environment:
+        COLUMNS: 240
       s3_acl: yes
       bindep_profile: test py39
     pre-run:
@@ -316,6 +323,8 @@
       under Python 3.
     timeout: 7200
     vars:
+      tox_environment:
+        COLUMNS: 240
       s3_acl: no
       bindep_profile: test py39
     pre-run:
