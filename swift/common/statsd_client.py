@@ -39,49 +39,45 @@ def _build_line_parts(metric, value, metric_type, sample_rate):
     return line
 
 
-class LabeledFormats:
-    disabled = None
+def librato(metric, value, metric_type, sample_rate, labels):
+    # https://www.librato.com/docs/kb/collect/collection_agents/stastd/#stat-level-tags
+    if labels:
+        metric += '#' + ','.join('%s=%s' % (k, v) for k, v in labels)
+    line = _build_line_parts(metric, value, metric_type, sample_rate)
+    return line
 
-    @staticmethod
-    def librato(metric, value, metric_type, sample_rate, labels):
-        # https://www.librato.com/docs/kb/collect/collection_agents/stastd/#stat-level-tags
-        if labels:
-            metric += '#' + ','.join('%s=%s' % (k, v) for k, v in labels)
-        line = _build_line_parts(metric, value, metric_type, sample_rate)
-        return line
 
-    @staticmethod
-    def influxdb(metric, value, metric_type, sample_rate, labels):
-        # https://www.influxdata.com/blog/getting-started-with-sending-statsd-metrics-to-telegraf-influxdb/#introducing-influx-statsd
-        if labels:
-            metric += ''.join(',%s=%s' % (k, v) for k, v in labels)
-        line = _build_line_parts(metric, value, metric_type, sample_rate)
-        return line
+def influxdb(metric, value, metric_type, sample_rate, labels):
+    # https://www.influxdata.com/blog/getting-started-with-sending-statsd-metrics-to-telegraf-influxdb/#introducing-influx-statsd
+    if labels:
+        metric += ''.join(',%s=%s' % (k, v) for k, v in labels)
+    line = _build_line_parts(metric, value, metric_type, sample_rate)
+    return line
 
-    @staticmethod
-    def signalfx(metric, value, metric_type, sample_rate, labels):
-        # https://web.archive.org/web/20211123040355/https://docs.signalfx.com/en/latest/integrations/agent/monitors/collectd-statsd.html#adding-dimensions-to-statsd-metrics
-        # https://docs.splunk.com/Observability/gdi/statsd/statsd.html#adding-dimensions-to-statsd-metrics
-        if labels:
-            metric += '[%s]' % ','.join('%s=%s' % (k, v) for k, v in labels)
-        line = _build_line_parts(metric, value, metric_type, sample_rate)
-        return line
 
-    @staticmethod
-    def graphite(metric, value, metric_type, sample_rate, labels):
-        # https://graphite.readthedocs.io/en/latest/tags.html#carbon
-        if labels:
-            metric += ''.join(';%s=%s' % (k, v) for k, v in labels)
-        line = _build_line_parts(metric, value, metric_type, sample_rate)
-        return line
+def graphite(metric, value, metric_type, sample_rate, labels):
+    # https://graphite.readthedocs.io/en/latest/tags.html#carbon
+    if labels:
+        metric += ''.join(';%s=%s' % (k, v) for k, v in labels)
+    line = _build_line_parts(metric, value, metric_type, sample_rate)
+    return line
 
-    @staticmethod
-    def dogstatsd(metric, value, metric_type, sample_rate, labels):
-        # https://docs.datadoghq.com/developers/dogstatsd/datagram_shell/?tab=metrics
-        line = _build_line_parts(metric, value, metric_type, sample_rate)
-        if labels:
-            line += '|#' + ','.join('%s:%s' % (k, v) for k, v in labels)
-        return line
+
+def dogstatsd(metric, value, metric_type, sample_rate, labels):
+    # https://docs.datadoghq.com/developers/dogstatsd/datagram_shell/?tab=metrics
+    line = _build_line_parts(metric, value, metric_type, sample_rate)
+    if labels:
+        line += '|#' + ','.join('%s:%s' % (k, v) for k, v in labels)
+    return line
+
+
+LABEL_MODES = {
+    'disabled': None,
+    'librato': librato,
+    'influxdb': influxdb,
+    'graphite': graphite,
+    'dogstatsd': dogstatsd,
+}
 
 
 def _get_labeled_statsd_formatter(label_mode):
@@ -93,11 +89,9 @@ def _get_labeled_statsd_formatter(label_mode):
     :returns: a label formatting function.
     """
     try:
-        return getattr(LabeledFormats, label_mode)
-    except AttributeError:
-        label_modes = [
-            f for f in LabeledFormats.__dict__
-            if not f.startswith('__')]
+        return LABEL_MODES[label_mode]
+    except KeyError:
+        label_modes = LABEL_MODES.keys()
         raise ValueError(
             'unknown statsd_label_mode %r; '
             'expected one of %r' % (label_mode, label_modes))
@@ -439,7 +433,7 @@ class LabeledStatsdClient(AbstractStatsdClient):
     A statsd client that supports annotating metrics with labels.
 
     Labeled metrics can be emitted in the style of Graphite, Librato, InfluxDB,
-    DogStatsD, or SignalFX by specifying the corresponding ``label_mode`` when
+    or DogStatsD, by specifying the corresponding ``label_mode`` when
     constructing a client. If ``label_mode`` is ``disabled`` then no metrics
     are emitted by the client.
 
@@ -459,8 +453,8 @@ class LabeledStatsdClient(AbstractStatsdClient):
         value between 0 and 1.
     :param sample_rate_factor: A multiplier to apply to the rate at which
         metrics are sampled. Should be a float value between 0 and 1.
-    :param label_mode: one of 'graphite', 'dogstatsd', 'signalfx', 'librato',
-        'influxdb' or 'disabled'.
+    :param label_mode: one of 'graphite', 'dogstatsd', 'librato', 'influxdb'
+        or 'disabled'.
     :param default_labels: a dictionary of labels that will be added to every
         metric emitted by the client.
     :param logger: A stdlib logger instance.

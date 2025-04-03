@@ -71,7 +71,7 @@ bind_port = 8080
 #
 # Statsd metrics may include labeling information in a variety of formats.
 # Available options:
-#     disabled, dogstatsd, graphite, influxdb, librato, signalfx.
+#     disabled, dogstatsd, graphite, influxdb, librato.
 # Defaults to disabled; enable statsd_label_mode by setting another option.
 # See also: https://github.com/prometheus/statsd_exporter#tagging-extensions.
 # Note that enabling statsd_label_mode will likely increase the number of time

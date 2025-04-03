@@ -27,8 +27,7 @@ from queue import Queue, Empty
 
 
 from swift.common import statsd_client
-from swift.common.statsd_client import StatsdClient, get_statsd_client, \
-    LabeledFormats
+from swift.common.statsd_client import StatsdClient, get_statsd_client
 
 from test.debug_logger import debug_logger
 
@@ -254,11 +253,18 @@ class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
         conf = {'statsd_label_mode': 'dogstatsd'}
         logger = debug_logger(log_route='my-log-route')
         client = statsd_client.get_labeled_statsd_client(conf, logger)
-        self.assertEqual(LabeledFormats.dogstatsd, client.label_formatter)
+        self.assertEqual(statsd_client.dogstatsd, client.label_formatter)
         log_lines = logger.get_lines_for_level('debug')
         self.assertEqual(1, len(log_lines))
         self.assertEqual(
             'Labeled statsd mode: dogstatsd (my-log-route)', log_lines[0])
+
+    def test_weird_invalid_attrname_label_mode(self):
+        conf = {'statsd_label_mode': '__class__'}
+        with self.assertRaises(ValueError) as cm:
+            statsd_client.get_labeled_statsd_client(conf, self.logger)
+        self.assertIn("unknown statsd_label_mode '__class__'",
+                      str(cm.exception))
 
     def test_disabled_by_default(self):
         conf = {}
@@ -994,42 +1000,6 @@ class TestGetLabeledStatsdClientOutput(BaseTestStatsdClientOutput):
             'the_counter#action=some,result=ok:1|c|@0.45',
             labeled_statsd.increment, 'the_counter', labels=labels)
 
-    def test_statsd_methods_signalfx(self):
-        conf = {
-            'log_statsd_host': 'localhost',
-            'log_statsd_port': str(self.port),
-            'log_statsd_metric_prefix': 'my_prefix',
-            'statsd_label_mode': 'signalfx',
-        }
-        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
-        labels = {'action': 'some', 'result': 'ok'}
-        self.assertStat(
-            'the_counter[action=some,result=ok]:1|c',
-            labeled_statsd.increment, 'the_counter', labels=labels)
-        self.assertStat(
-            'the_counter[action=some,result=ok]:-1|c',
-            labeled_statsd.decrement, 'the_counter', labels=labels)
-        self.assertStat(
-            'the_timing[action=some,result=ok]'
-            ':6280.0|ms',
-            labeled_statsd.timing, 'the_timing', 6.28 * 1000, labels=labels)
-        self.assertStat(
-            'the_stat[action=some,result=ok]:3|c',
-            labeled_statsd.update_stats, 'the_stat', 3, labels=labels)
-
-    def test_statsd_methods_signalfx_sample_rate(self):
-        conf = {
-            'log_statsd_host': 'localhost',
-            'log_statsd_port': str(self.port),
-            'statsd_label_mode': 'signalfx',
-            'log_statsd_default_sample_rate': '0.9',
-            'log_statsd_sample_rate_factor': '0.5'}
-        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
-        labels = {'action': 'some', 'result': 'ok'}
-        self.assertStat(
-            'the_counter[action=some,result=ok]:1|c|@0.45',
-            labeled_statsd.increment, 'the_counter', labels=labels)
-
     def _do_test_statsd_methods_no_labels(self, label_mode):
         conf = {
             'log_statsd_host': 'localhost',
@@ -1069,6 +1039,3 @@ class TestGetLabeledStatsdClientOutput(BaseTestStatsdClientOutput):
 
     def test_statsd_methods_librato_no_labels(self):
         self._do_test_statsd_methods_no_labels('librato')
-
-    def test_statsd_methods_signalfx_no_labels(self):
-        self._do_test_statsd_methods_no_labels('signalfx')

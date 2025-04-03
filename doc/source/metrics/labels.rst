@@ -21,7 +21,6 @@ parsed by `statsd_exporter <https://github.com/prometheus/statsd_exporter/>`__:
 - ``librato``
 - ``influxdb``
 - ``dogstatsd``
-- ``signalfx``
 - ``graphite``
 
 See the ``proxy-server.conf-sample`` file for more information on configuring
