@@ -44,12 +44,11 @@ class RecordingSocket(object):
         pass
 
 
-class FakeStatsdClient(statsd_client.StatsdClient):
-    def __init__(self, *args, **kwargs):
-        super(FakeStatsdClient, self).__init__(*args, **kwargs)
+class BaseFakeStatsdClient:
+    def __init__(self):
         self.clear()
 
-        # Capture then call parent pubic stat functions
+        # Capture then call parent public stat functions
         self.update_stats = self._capture("update_stats")
         self.increment = self._capture("increment")
         self.decrement = self._capture("decrement")
@@ -58,7 +57,9 @@ class FakeStatsdClient(statsd_client.StatsdClient):
         self.transfer_rate = self._capture("transfer_rate")
 
     def _capture(self, func_name):
-        func = getattr(super(FakeStatsdClient, self), func_name)
+        # this works in subclasses because super() searches the next inherited
+        # class after BaseFakeStatsdClient i.e. the real StatsdClient class
+        func = getattr(super(BaseFakeStatsdClient, self), func_name)
 
         def wrapper(*args, **kwargs):
             self.calls[func_name].append((args, kwargs))
@@ -71,12 +72,7 @@ class FakeStatsdClient(statsd_client.StatsdClient):
     def _open_socket(self):
         return self.recording_socket
 
-    def _send(self, *args, **kwargs):
-        self.send_calls.append((args, kwargs))
-        super(FakeStatsdClient, self)._send(*args, **kwargs)
-
     def clear(self):
-        self.send_calls = []
         self.calls = defaultdict(list)
         self.recording_socket = RecordingSocket()
 
@@ -106,6 +102,19 @@ class FakeStatsdClient(statsd_client.StatsdClient):
             counts[metric] += step
         # convert to normal dict for better failure messages
         return dict(counts)
+
+
+class FakeStatsdClient(BaseFakeStatsdClient, statsd_client.StatsdClient):
+    def __init__(self, *args, **kwargs):
+        super(FakeStatsdClient, self).__init__()
+        super(BaseFakeStatsdClient, self).__init__(*args, **kwargs)
+
+
+class FakeLabeledStatsdClient(BaseFakeStatsdClient,
+                              statsd_client.LabeledStatsdClient):
+    def __init__(self, *args, **kwargs):
+        super(FakeLabeledStatsdClient, self).__init__()
+        super(BaseFakeStatsdClient, self).__init__(*args, **kwargs)
 
 
 class CaptureLog(object):
@@ -276,6 +285,20 @@ def debug_logger(name='test', log_route=None):
     adapted_logger = DebugLogAdapter(DebugLogger(name=log_route), name)
     utils._patch_statsd_methods(adapted_logger, adapted_logger.logger)
     return adapted_logger
+
+
+def debug_statsd_client(conf):
+    """get a configured statsd client"""
+    with mock.patch('swift.common.statsd_client.StatsdClient',
+                    FakeStatsdClient):
+        return statsd_client.get_statsd_client(conf)
+
+
+def debug_labeled_statsd_client(conf):
+    """get a configured labeled statsd client"""
+    with mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                    FakeLabeledStatsdClient):
+        return statsd_client.get_labeled_statsd_client(conf)
 
 
 class ForwardingLogHandler(logging.NullHandler):
