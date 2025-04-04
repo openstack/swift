@@ -2643,9 +2643,13 @@ class TestObjectUpdater(unittest.TestCase):
                       '0 outdated_unlinks, 0 errors, 0 redirects, 2 skips, '
                       '4 deferrals, 2 drains',
                       info_lines[-1])
-        self.assertEqual(
-            {'successes': 5, 'unlinks': 5, 'deferrals': 4, 'drains': 2},
-            self.logger.statsd_client.get_increment_counts())
+        self.assertEqual({
+            'successes': 5,
+            'unlinks': 5,
+            'deferrals': 4,
+            'drains': 2,
+            'skips': 2,
+        }, self.logger.statsd_client.counters)
         self.assertEqual(
             2, self.logger.statsd_client.get_stats_counts()['skips'])
 

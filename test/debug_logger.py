@@ -75,33 +75,29 @@ class BaseFakeStatsdClient:
     def clear(self):
         self.calls = defaultdict(list)
         self.recording_socket = RecordingSocket()
+        self.counters = defaultdict(int)
 
     @property
     def sendto_calls(self):
         return self.recording_socket.sendto_calls
 
     def get_increments(self):
+        """
+        Helper to avoid spelling a tricky list comprehension
+
+        :returns: a list of the "metric" arg for all calls to increment
+        """
         return [call[0][0] for call in self.calls['increment']]
 
-    def get_increment_counts(self):
-        # note: this method reports the sum of stats sent via the increment
-        # method only; consider using get_stats_counts instead to get the sum
-        # of stats sent via both the increment and update_stats methods
-        counts = defaultdict(int)
-        for metric in self.get_increments():
-            counts[metric] += 1
-        # convert to normal dict for better failure messages
-        return dict(counts)
+    def _update_stats(self, metric, value, *args, **kwargs):
+        """
+        Hook into base class primitive to track all "counter" metrics
+        """
+        self.counters[metric] += value
+        return super()._update_stats(metric, value, *args, **kwargs)
 
-    def get_update_stats(self):
-        return [call[0][:2] for call in self.calls['update_stats']]
-
-    def get_stats_counts(self):
-        counts = defaultdict(int)
-        for metric, step in self.get_update_stats():
-            counts[metric] += step
-        # convert to normal dict for better failure messages
-        return dict(counts)
+    # some aliases for backwards compat
+    get_stats_counts = get_increment_counts = lambda self: self.counters
 
 
 class FakeStatsdClient(BaseFakeStatsdClient, statsd_client.StatsdClient):

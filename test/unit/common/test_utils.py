@@ -7652,13 +7652,10 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         exp = {
             'decrement': [(('b',), {})],
             'increment': [(('a',), {})],
-            'timing': [(('d', 23.4), {}),
-                       (('f', 45929.52612393682, None), {})],
+            'timing': [(('d', 23.4), {})],
             'timing_since': [(('e', 23.4), {})],
             'transfer_rate': [(('f', 56.7, 1234.5), {})],
-            'update_stats': [(('a', 1, None), {}),
-                             (('b', -1, None), {}),
-                             (('c', 4), {})]
+            'update_stats': [(('c', 4), {})]
         }
         self.assertEqual(exp, client.calls)
 
@@ -7695,7 +7692,6 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         target.increment('a')
         exp = {
             'increment': [(('a',), {})],
-            'update_stats': [(('a', 1, None), {})],
         }
         self.assertEqual(exp, client.calls)
 
@@ -7746,13 +7742,10 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         exp = {
             'decrement': [(('b',), {})],
             'increment': [(('a',), {})],
-            'timing': [(('d', 23.4), {}),
-                       (('f', 45929.52612393682, None), {})],
+            'timing': [(('d', 23.4), {})],
             'timing_since': [(('e', 23.4), {})],
             'transfer_rate': [(('f', 56.7, 1234.5), {})],
-            'update_stats': [(('a', 1, None), {}),
-                             (('b', -1, None), {}),
-                             (('c', 4), {})]
+            'update_stats': [(('c', 4), {})]
         }
         self.assertTrue(hasattr(swift_logger.logger, 'statsd_client'))
         client = swift_logger.logger.statsd_client
@@ -7923,8 +7916,6 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         exp = {
             'increment': [(('foo',), {})],
             'decrement': [(('boo',), {})],
-            'update_stats': [(('foo', 1, None), {}),
-                             (('boo', -1, None), {})]
         }
         self.assertEqual(exp, prefixed_logger.logger.statsd_client.calls)
         self.assertEqual(exp, adapted_logger.logger.statsd_client.calls)

@@ -884,12 +884,13 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         daemon = self._run_once(node)
         # push to remote, and third node was missing (also maybe reconciler)
         self.assertTrue(2 < daemon.stats['rsync'] <= 3, daemon.stats['rsync'])
-        self.assertEqual(
-            1, self.logger.statsd_client.get_stats_counts().get(
-                'reconciler_db_created'))
-        self.assertFalse(
-            self.logger.statsd_client.get_stats_counts().get(
-                'reconciler_db_exists'))
+        self.assertEqual({
+            'attempts': 2,
+            'diffs': 1,
+            'successes': 4,
+            'rsyncs': 3,
+            'reconciler_db_created': 1,
+        }, self.logger.statsd_client.counters)
 
         # grab the rsynced instance of remote_broker
         remote_broker = self._get_broker('a', 'c', node_index=1)
@@ -911,12 +912,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # since we forced the object timestamps to be in the same hour.
         self.logger.clear()
         reconciler = daemon.get_reconciler_broker(misplaced[0]['created_at'])
-        self.assertFalse(
-            self.logger.statsd_client.get_stats_counts().get(
-                'reconciler_db_created'))
-        self.assertEqual(
-            1, self.logger.statsd_client.get_stats_counts().get(
-                'reconciler_db_exists'))
+        self.assertEqual({
+            'reconciler_db_exists': 1,
+        }, self.logger.statsd_client.counters)
         # but it may not be on the same node as us anymore though...
         reconciler = self._get_broker(reconciler.account,
                                       reconciler.container, node_index=0)

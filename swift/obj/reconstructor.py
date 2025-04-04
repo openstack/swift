@@ -834,6 +834,7 @@ class ObjectReconstructor(Daemon):
         hashed, suffix_hashes = tpool.execute(
             df_mgr._get_hashes, device, partition, policy,
             recalculate=recalculate, do_listdir=do_listdir)
+        # hashed is always an int, we count it in stats but don't return it
         self.logger.update_stats('suffix.hashes', hashed)
         return suffix_hashes
 

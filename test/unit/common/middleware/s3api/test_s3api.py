@@ -1753,8 +1753,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_app(req, app=app)
 
         self.assertEqual(
-            {'403.AccessDenied.invalid_credential': 1},
-            self.s3api.logger.logger.statsd_client.get_increment_counts())
+            ['403.AccessDenied.invalid_credential'],
+            self.s3api.logger.statsd_client.get_increments())
         self.assertEqual('s3:err:AccessDenied.invalid_credential',
                          get_log_info(req.environ))
         self.assertEqual(

@@ -200,6 +200,26 @@ class TestGetStatsdClientConfParsing(BaseTestStatsdClient):
             client.increment('tunafish')
         self.assertEqual(mock_open.mock_calls, [])
 
+    def test_legacy_client_does_not_support_labels_kwarg(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': '123451',
+            'statsd_label_mode': 'dogstatsd',
+        }
+        client = statsd_client.get_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        with mock.patch.object(client, '_send_line') as mocked:
+            # legacy client accepts sample_rate kwarg as positional argument
+            # for backwards compat as demonstrated in other tests
+            client.random = lambda: 0.4
+            client.increment('metric', 0.5)
+            # but will never accept labels kwarg
+            with self.assertRaises(TypeError):
+                client.increment('metric', labels=labels)
+        self.assertEqual(
+            [mock.call('metric:1|c|@0.5')],
+            mocked.call_args_list)
+
 
 class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
     """
@@ -215,7 +235,9 @@ class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
         self.assertEqual(1.0, client._sample_rate_factor)
         self.assertIsNone(client.logger)
         with mock.patch.object(client, '_open_socket') as mock_open:
-            client.increment('tunafish', {})
+            # because legacy statsd.increment last pos arg was sample_rate
+            # we're always explicit with labels kwarg
+            client.increment('tunafish', labels={})
         self.assertFalse(mock_open.mock_calls)
 
     def test_conf_non_defaults(self):
@@ -275,6 +297,25 @@ class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
         self.assertEqual(1, len(log_lines))
         self.assertEqual(
             'Labeled statsd mode: disabled (my-log-route)', log_lines[0])
+
+    def test_label_must_be_kwarg(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': '123451',
+            'statsd_label_mode': 'dogstatsd',
+        }
+        client = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        with mock.patch.object(client, '_send_line') as mocked:
+            # labels can not be a positional arg
+            with self.assertRaises(TypeError):
+                client.increment('metric', labels)
+            client.random = lambda: 0.4
+            # order of kwargs does not matter
+            client.increment('metric', sample_rate=0.5, labels=labels)
+        self.assertEqual(
+            [mock.call('metric:1|c|@0.5|#action:some,result:ok')],
+            mocked.call_args_list)
 
     def test_label_values_to_str(self):
         # verify that simple non-str types can be passed as label values

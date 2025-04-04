@@ -314,6 +314,35 @@ class AbstractStatsdClient:
     def _open_socket(self):
         return socket.socket(self._sock_family, socket.SOCK_DGRAM)
 
+    def _update_stats(self, metric, value, **kwargs):
+        # This method was added to disaggregate *crement metrics when testing
+        return self._send(metric, value, 'c', **kwargs)
+
+    def update_stats(self, metric, value, **kwargs):
+        self._update_stats(metric, value, **kwargs)
+
+    def increment(self, metric, **kwargs):
+        return self._update_stats(metric, 1, **kwargs)
+
+    def decrement(self, metric, **kwargs):
+        return self._update_stats(metric, -1, **kwargs)
+
+    def _timing(self, metric, timing_ms, **kwargs):
+        # This method was added to disaggregate timing metrics when testing
+        return self._send(metric, round(timing_ms, 4), 'ms', **kwargs)
+
+    def timing(self, metric, timing_ms, **kwargs):
+        return self._timing(metric, timing_ms, **kwargs)
+
+    def timing_since(self, metric, orig_time, **kwargs):
+        return self._timing(
+            metric, (time.time() - orig_time) * 1000, **kwargs)
+
+    def transfer_rate(self, metric, elapsed_time, byte_xfer, **kwargs):
+        if byte_xfer:
+            return self._timing(
+                metric, elapsed_time * 1000 / byte_xfer * 1000, **kwargs)
+
 
 class StatsdClient(AbstractStatsdClient):
     """
@@ -355,7 +384,7 @@ class StatsdClient(AbstractStatsdClient):
 
         self._set_prefix(tail_prefix)
 
-    def _send(self, metric, value, metric_type, sample_rate):
+    def _send(self, metric, value, metric_type, sample_rate=None):
         is_emitted, adjusted_sample_rate = self._is_emitted(sample_rate)
         if self.emit_legacy and is_emitted:
             metric = self._prefix + metric
@@ -402,30 +431,76 @@ class StatsdClient(AbstractStatsdClient):
         )
         self._set_prefix(tail_prefix)
 
+    # for backwards compat StatsdClient supports sample_rate as positional arg
     def update_stats(self, metric, value, sample_rate=None):
-        return self._send(metric, value, 'c', sample_rate)
+        """
+        Update a counter, aggregated metric changed by value.
+
+        :param metric: name of the metric
+        :param value: int, the counter delta
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().update_stats(metric, value,
+                                    sample_rate=sample_rate)
 
     def increment(self, metric, sample_rate=None):
-        return self.update_stats(metric, 1, sample_rate)
+        """
+        Increment a counter, aggregated metric increased by one.
+
+        :param metric: name of the metric
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().increment(metric, sample_rate=sample_rate)
 
     def decrement(self, metric, sample_rate=None):
-        return self.update_stats(metric, -1, sample_rate)
+        """
+        Decrement a counter, aggregated metric decreased by one.
 
-    def _timing(self, metric, timing_ms, sample_rate):
-        # This method was added to disagregate timing metrics when testing
-        return self._send(metric, round(timing_ms, 4), 'ms', sample_rate)
+        :param metric: name of the metric
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().decrement(metric, sample_rate=sample_rate)
 
     def timing(self, metric, timing_ms, sample_rate=None):
-        return self._timing(metric, timing_ms, sample_rate)
+        """
+        Update a timing metric, aggregated percentiles recalculated.
+
+        :param metric: name of the metric
+        :param timing_ms: float, total timing of operation
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().timing(metric, timing_ms, sample_rate=sample_rate)
 
     def timing_since(self, metric, orig_time, sample_rate=None):
-        return self._timing(
-            metric, (time.time() - orig_time) * 1000, sample_rate)
+        """
+        Update a timing metric, aggregated percentiles recalculated.
 
-    def transfer_rate(self, metric, elapsed_time, byte_xfer, sample_rate=None):
-        if byte_xfer:
-            return self.timing(
-                metric, elapsed_time * 1000 / byte_xfer * 1000, sample_rate)
+        This is an alternative spelling of timing which calculates
+        timing_ms=(time.time() - orig_time) for you.
+
+        :param metric: name of the metric
+        :param orig_time: float, time.time() from start of operation
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().timing_since(metric, orig_time,
+                                    sample_rate=sample_rate)
+
+    def transfer_rate(self, metric, elapsed_time, byte_xfer,
+                      sample_rate=None):
+        """
+        Update a timing metric, aggregated percentiles recalculated.
+
+        This is a timing metric, but adjusts the timing data per kB transferred
+        (ms/kB) for each non-zero-byte update.  Allegedly this could be used to
+        monitor problematic devices, where higher is bad.
+
+        :param metric: name of the metric
+        :param elapsed_time: float, total timing of operation
+        :param byte_xfer: int, number of bytes
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().transfer_rate(metric, elapsed_time, byte_xfer,
+                                     sample_rate=sample_rate)
 
 
 class LabeledStatsdClient(AbstractStatsdClient):
@@ -471,16 +546,16 @@ class LabeledStatsdClient(AbstractStatsdClient):
             self.logger.debug('Labeled statsd mode: %s (%s)',
                               label_mode, self.logger.name)
 
-    def _send(self, metric, value, metric_type, sample_rate, labels=None):
+    def _send(self, metric, value, metric_type, labels=None, sample_rate=None):
         if not self.label_formatter:
             return
 
         is_emitted, adjusted_sample_rate = self._is_emitted(sample_rate)
         if is_emitted:
             return self._send_line(self._build_line(
-                metric, value, metric_type, adjusted_sample_rate, labels))
+                metric, value, metric_type, labels, adjusted_sample_rate))
 
-    def _build_line(self, metric, value, metric_type, sample_rate, labels):
+    def _build_line(self, metric, value, metric_type, labels, sample_rate):
         all_labels = dict(self.default_labels)
         if labels:
             all_labels.update(labels)
@@ -491,31 +566,83 @@ class LabeledStatsdClient(AbstractStatsdClient):
             sample_rate,
             sorted(all_labels.items()))
 
-    def update_stats(self, metric, value, labels=None, sample_rate=None):
-        return self._send(metric, value, 'c', sample_rate, labels=labels)
+    def update_stats(self, metric, value, *, labels=None, sample_rate=None):
+        """
+        Update a counter, aggregated metric changed by value.
 
-    def increment(self, metric, labels=None, sample_rate=None):
-        return self.update_stats(metric, 1, labels, sample_rate)
+        :param metric: name of the metric
+        :param value: int, the counter delta
+        :param labels: dict, metric labels
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().update_stats(metric, value, labels=labels,
+                                    sample_rate=sample_rate)
 
-    def decrement(self, metric, labels=None, sample_rate=None):
-        return self.update_stats(metric, -1, labels, sample_rate)
+    def increment(self, metric, *, labels=None, sample_rate=None):
+        """
+        Increment a counter, aggregated metric increased by one.
 
-    def _timing(self, metric, timing_ms, labels, sample_rate):
-        # This method was added to disagregate timing metrics when testing
-        return self._send(metric, round(timing_ms, 4), 'ms',
-                          sample_rate, labels=labels)
+        :param metric: name of the metric
+        :param labels: dict, metric labels
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().increment(metric, labels=labels,
+                                 sample_rate=sample_rate)
 
-    def timing(self, metric, timing_ms, labels=None, sample_rate=None):
-        return self._timing(metric, timing_ms, labels, sample_rate)
+    def decrement(self, metric, *, labels=None, sample_rate=None):
+        """
+        Decrement a counter, aggregated metric decreased by one.
 
-    def timing_since(self, metric, orig_time, labels=None, sample_rate=None):
-        return self._timing(
-            metric, (time.time() - orig_time) * 1000,
-            labels, sample_rate)
+        :param metric: name of the metric
+        :param labels: dict, metric labels
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().decrement(metric, labels=labels,
+                                 sample_rate=sample_rate)
 
-    def transfer_rate(self, metric, elapsed_time, byte_xfer,
+    def timing(self, metric, timing_ms, *, labels=None, sample_rate=None):
+        """
+        Update a timing metric, aggregated percentiles recalculated.
+
+        :param metric: name of the metric
+        :param timing_ms: float, total timing of operation
+        :param labels: dict, metric labels
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().timing(metric, timing_ms, labels=labels,
+                              sample_rate=sample_rate)
+
+    def timing_since(self, metric, orig_time, *,
+                     labels=None, sample_rate=None):
+        """
+        Update a timing metric, aggregated percentiles recalculated.
+
+        This is an alternative spelling of timing which calculates
+        timing_ms=(time.time() - orig_time) for you.
+
+        :param metric: name of the metric
+        :param orig_time: float, time.time() from start of operation
+        :param labels: dict, metric labels
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().timing_since(metric, orig_time, labels=labels,
+                                    sample_rate=sample_rate)
+
+    def transfer_rate(self, metric, elapsed_time, byte_xfer, *,
                       labels=None, sample_rate=None):
-        if byte_xfer:
-            return self.timing(
-                metric, elapsed_time * 1000 / byte_xfer * 1000,
-                labels, sample_rate)
+        """
+        Update a timing metric, aggregated percentiles recalculated.
+
+        This is a timing metric, but adjusts the timing data per kB transferred
+        (ms/kB) for each non-zero-byte update.  Allegedly this could be used to
+        monitor problematic devices, where higher is bad.
+
+        :param metric: name of the metric
+        :param elapsed_time: float, total timing of operation
+        :param byte_xfer: int, number of bytes
+        :param labels: dict, metric labels
+        :param sample_rate: float, override default sample_rate
+        """
+        return super().transfer_rate(metric, elapsed_time, byte_xfer,
+                                     labels=labels,
+                                     sample_rate=sample_rate)
