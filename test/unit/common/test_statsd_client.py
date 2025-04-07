@@ -712,7 +712,6 @@ class TestGetStatsdClientOutput(BaseTestStatsdClientOutput):
             # No "log_statsd_host" means "disabled"
             'log_statsd_port': str(self.port),
         }, 'some-name')
-        # Delegate methods are no-ops
         self.assertIsNone(self.client.update_stats('foo', 88))
         self.assertIsNone(self.client.update_stats('foo', 88, 0.57))
         self.assertIsNone(self.client.update_stats('foo', 88,
@@ -733,7 +732,7 @@ class TestGetStatsdClientOutput(BaseTestStatsdClientOutput):
         # Now, the queue should be empty (no UDP packets sent)
         self.assertRaises(Empty, self.queue.get_nowait)
 
-    def test_delegate_methods_with_no_default_sample_rate(self):
+    def test_methods_with_no_default_sample_rate(self):
         self.client = get_statsd_client({
             'log_statsd_host': 'localhost',
             'log_statsd_port': str(self.port),
@@ -792,7 +791,7 @@ class TestGetStatsdClientOutput(BaseTestStatsdClientOutput):
         self.assertStat('another.counter:3|c|@0.939',
                         self.client.update_stats, 'another.counter', 3, 0.939)
 
-    def test_delegate_methods_with_default_sample_rate(self):
+    def test_methods_with_default_sample_rate(self):
         self.client = get_statsd_client({
             'log_statsd_host': 'localhost',
             'log_statsd_port': str(self.port),
@@ -844,7 +843,7 @@ class TestGetStatsdClientOutput(BaseTestStatsdClientOutput):
                         self.client.update_stats, 'another.counter',
                         3, 0.987654)
 
-    def test_delegate_methods_with_metric_prefix(self):
+    def test_methods_with_metric_prefix(self):
         self.client = get_statsd_client({
             'log_statsd_host': 'localhost',
             'log_statsd_port': str(self.port),
