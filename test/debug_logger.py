@@ -96,8 +96,9 @@ class BaseFakeStatsdClient:
         self.counters[metric] += value
         return super()._update_stats(metric, value, *args, **kwargs)
 
-    # some aliases for backwards compat
-    get_stats_counts = get_increment_counts = lambda self: self.counters
+    # getter for backwards compat
+    def get_stats_counts(self):
+        return self.counters
 
 
 class FakeStatsdClient(BaseFakeStatsdClient, statsd_client.StatsdClient):

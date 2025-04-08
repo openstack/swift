@@ -1609,7 +1609,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(0, daemon.stats['rsync'])
         self.assertEqual(1, daemon.stats['diff'])
         self.assertEqual({'diffs': 1},
-                         daemon.logger.statsd_client.get_increment_counts())
+                         daemon.logger.statsd_client.get_stats_counts())
 
         # update one shard range
         shard_ranges[1].update_meta(50, 50)
@@ -1621,7 +1621,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(0, daemon.stats['rsync'])
         self.assertEqual(0, daemon.stats['diff'])
         self.assertEqual({'no_changes': 1},
-                         daemon.logger.statsd_client.get_increment_counts())
+                         daemon.logger.statsd_client.get_stats_counts())
 
         # now enable local broker for sharding
         own_sr = broker.enable_sharding(Timestamp.now())
@@ -1742,7 +1742,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertFalse(error_lines[1:])
         self.assertEqual(1, daemon.stats['diff'])
         self.assertEqual(
-            1, daemon.logger.statsd_client.get_increment_counts()['diffs'])
+            1, daemon.logger.statsd_client.get_stats_counts()['diffs'])
 
     def test_sync_shard_ranges_timeout_in_fetch(self):
         # verify that replication is not considered successful if
@@ -1781,10 +1781,10 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertFalse(error_lines[1:])
         self.assertEqual(0, daemon.stats['diff'])
         self.assertNotIn(
-            'diffs', daemon.logger.statsd_client.get_increment_counts())
+            'diffs', daemon.logger.statsd_client.get_stats_counts())
         self.assertEqual(1, daemon.stats['failure'])
         self.assertEqual(
-            1, daemon.logger.statsd_client.get_increment_counts()['failures'])
+            1, daemon.logger.statsd_client.get_stats_counts()['failures'])
 
     def test_sync_shard_ranges_none_to_sync(self):
         # verify that merge_shard_ranges is not sent if there are no shard

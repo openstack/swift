@@ -950,7 +950,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual({
             'tasks.assigned': 10,
             'tasks.skipped': 20,
-        }, self.logger.statsd_client.get_increment_counts())
+        }, self.logger.statsd_client.get_stats_counts())
 
         # sort for comparison
         deleted_objects = {
@@ -1399,7 +1399,7 @@ class TestObjectExpirer(TestCase):
             mock.call('.expiring_objects', self.empty_time_container,
                       acceptable_statuses=(2, 404, 409))])
         self.assertEqual(
-            {}, self.expirer.logger.statsd_client.get_increment_counts())
+            {}, self.expirer.logger.statsd_client.get_stats_counts())
 
         # 404 (account/container list race) gets deleted inline
         task_account_container_list = [
@@ -1415,7 +1415,7 @@ class TestObjectExpirer(TestCase):
             mock.call('.expiring_objects', 'does-not-matter',
                       acceptable_statuses=(2, 404, 409))])
         self.assertEqual(
-            {}, self.expirer.logger.statsd_client.get_increment_counts())
+            {}, self.expirer.logger.statsd_client.get_stats_counts())
 
         # ready containers are processed
         task_account_container_list = [
@@ -1436,7 +1436,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(mock_delete_container.mock_calls, [])
         self.assertEqual(
             {'tasks.assigned': 5},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
         # the task queue has invalid task object
@@ -1457,7 +1457,7 @@ class TestObjectExpirer(TestCase):
             expected)
         self.assertEqual(
             {'tasks.assigned': 5, 'tasks.parse_errors': 2},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
         # test some of that async delete
@@ -1510,7 +1510,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(expected, found)
         self.assertEqual(
             {'tasks.assigned': 10},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
     def test_iter_task_to_expire_with_skipped_tasks_single_process(self):
@@ -1541,7 +1541,7 @@ class TestObjectExpirer(TestCase):
             )
         self.assertEqual(
             {"tasks.assigned": 1, "tasks.skipped": 4},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
     def test_iter_task_to_expire_with_skipped_tasks_multi_processes(self):
@@ -1568,7 +1568,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual({
             'tasks.assigned': 10,
             'tasks.skipped': 90,
-        }, self.expirer.logger.statsd_client.get_increment_counts())
+        }, self.expirer.logger.statsd_client.get_stats_counts())
 
     def test_iter_task_to_expire_with_skipped_and_delayed_tasks(self):
         divisor = 3
@@ -1596,7 +1596,7 @@ class TestObjectExpirer(TestCase):
                 sorted([task['target_path'] for task in
                        x.iter_task_to_expire(
                         task_account_container_list, process, divisor)]))
-            for k, v in x.logger.statsd_client.get_increment_counts().items():
+            for k, v in x.logger.statsd_client.get_stats_counts().items():
                 proc_stats[k] += v
 
         self.assertEqual(
@@ -1665,7 +1665,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(expected, observed)
         self.assertEqual(
             {'tasks.assigned': 6},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
         # configure delay for account a1
@@ -1698,7 +1698,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(expected, observed)
         self.assertEqual(
             {'tasks.assigned': 4, 'tasks.delayed': 2},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
         # configure delay for account a1 and for account a1 and container c2
@@ -1736,7 +1736,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(expected, observed)
         self.assertEqual(
             {'tasks.assigned': 5, 'tasks.delayed': 1},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
         # configure delay for account a1 and for account a1 and container c2
@@ -1773,7 +1773,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(expected, observed)
         self.assertEqual(
             {'tasks.assigned': 5, 'tasks.delayed': 1},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
     def test_iter_task_to_expire_with_delay_reaping_is_async(self):
@@ -1911,7 +1911,7 @@ class TestObjectExpirer(TestCase):
         )
         self.assertEqual(
             {'tasks.assigned': 5, 'objects': 5},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
     def test_iter_task_to_expire_exception(self):
@@ -1953,7 +1953,7 @@ class TestObjectExpirer(TestCase):
         )
         self.assertEqual(
             {'tasks.assigned': 5, 'objects': 5},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
     def test_iter_task_to_expire_404_response_on_missing_container(self):
@@ -2120,7 +2120,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(mock_method.call_args_list, [])
         self.assertEqual(
             {'errors': 10, 'tasks.assigned': 10},
-            self.expirer.logger.statsd_client.get_increment_counts())
+            self.expirer.logger.statsd_client.get_stats_counts())
 
         # all tasks are done
         self.expirer.logger.clear()
@@ -2141,7 +2141,7 @@ class TestObjectExpirer(TestCase):
              in self.expired_target_paths[self.just_past_time]])
         self.assertEqual(
             {'objects': 10, 'tasks.assigned': 10},
-            self.expirer.logger.statsd_client.get_increment_counts())
+            self.expirer.logger.statsd_client.get_stats_counts())
 
     def test_success_gets_counted(self):
         self.assertEqual(self.expirer.report_objects, 0)
@@ -2155,7 +2155,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(self.expirer.report_objects, 10)
         self.assertEqual(
             {'tasks.assigned': 10, 'objects': 10},
-            self.expirer.logger.statsd_client.get_increment_counts()
+            self.expirer.logger.statsd_client.get_stats_counts()
         )
 
     def test_delete_actual_object_gets_native_string(self):
@@ -2216,7 +2216,7 @@ class TestObjectExpirer(TestCase):
         ])
         self.assertEqual(
             {'errors': 5, 'objects': 5, 'tasks.assigned': 10},
-            self.expirer.logger.statsd_client.get_increment_counts())
+            self.expirer.logger.statsd_client.get_stats_counts())
 
     def test_run_forever_initial_sleep_random(self):
         global last_not_sleep

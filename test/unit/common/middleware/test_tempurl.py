@@ -172,7 +172,7 @@ class TestTempURL(unittest.TestCase):
             key, hmac_body, hashlib.sha512).digest())
         self.assert_valid_sig(expires, path, [key], b'sha512:' + sig)
 
-        self.assertEqual(self.logger.statsd_client.get_increment_counts(), {
+        self.assertEqual(self.logger.statsd_client.get_stats_counts(), {
             'tempurl.digests.sha1': 1,
             'tempurl.digests.sha256': 2,
             'tempurl.digests.sha512': 1

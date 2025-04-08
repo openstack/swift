@@ -134,7 +134,7 @@ class TestAuditorRealBroker(unittest.TestCase):
             'the sum of container_count across policies (%d)'
             % (num_containers, num_containers - 1), error_message)
         self.assertEqual(
-            test_auditor.logger.statsd_client.get_increment_counts(),
+            test_auditor.logger.statsd_client.get_stats_counts(),
             {'failures': 1})
         self.assertIn(
             (b'account-auditor.failures:1|c', ('host', 8125)),
