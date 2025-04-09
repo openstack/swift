@@ -266,7 +266,7 @@
         SERVICE_HOST: ""
 
 - job:
-    name: swift-tox-func-s3api-ceph-s3tests-tempauth
+    name: swift-tox-func-ceph-s3tests-tempauth
     parent: unittests
     voting: false
     nodeset: centos-9-stream
@@ -288,7 +288,7 @@
       - tools/playbooks/ceph-s3tests/post.yaml
 
 - job:
-    name: swift-tox-func-s3api-tests-tempauth
+    name: swift-tox-func-s3api-compat-tests-tempauth
     parent: unittests
     nodeset: centos-9-stream
     description: |
@@ -631,7 +631,7 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(unit|functional|probe|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-s3api-ceph-s3tests-tempauth:
+        - swift-tox-func-ceph-s3tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
@@ -639,7 +639,7 @@
               - ^doc/(requirements.txt|(manpages|source)/.*)$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-s3api-tests-tempauth:
+        - swift-tox-func-s3api-compat-tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
@@ -698,7 +698,7 @@
         - swift-tox-func-encryption-py312
         - swift-tox-func-ec-py312
         - swift-func-cors
-        - swift-tox-func-s3api-tests-tempauth
+        - swift-tox-func-s3api-compat-tests-tempauth
         - swift-probetests-centos-9-stream:
             irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
