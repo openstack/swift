@@ -1215,7 +1215,7 @@ class TestProxyServer(unittest.TestCase):
                 self.assertTrue(log_kwargs['exc_info'])
                 self.assertIs(caught_exc, log_kwargs['exc_info'][1])
                 incremented_limit_samples.append(
-                    logger.statsd_client.get_increment_counts().get(
+                    logger.statsd_client.get_stats_counts().get(
                         'error_limiter.incremented_limit', 0))
             self.assertEqual([0] * 10 + [1], incremented_limit_samples)
             self.assertEqual(
@@ -1249,7 +1249,7 @@ class TestProxyServer(unittest.TestCase):
                 self.assertIn(expected_msg, line)
                 self.assertIn(node_to_string(node), line)
                 incremented_limit_samples.append(
-                    logger.statsd_client.get_increment_counts().get(
+                    logger.statsd_client.get_stats_counts().get(
                         'error_limiter.incremented_limit', 0))
 
             self.assertEqual([0] * 10 + [1], incremented_limit_samples)
@@ -1266,7 +1266,7 @@ class TestProxyServer(unittest.TestCase):
             self.assertIn(expected_msg, line)
             self.assertIn(node_to_string(node), line)
             self.assertEqual(
-                2, logger.statsd_client.get_increment_counts().get(
+                2, logger.statsd_client.get_stats_counts().get(
                     'error_limiter.incremented_limit', 0))
             self.assertEqual(
                 ('Node will be error limited for 60.00s: %s' %
@@ -3574,7 +3574,7 @@ class TestReplicatedObjectController(
             error_node = object_ring.get_part_nodes(1)[0]
             self.app.error_limit(error_node, 'test')
             self.assertEqual(
-                1, self.logger.statsd_client.get_increment_counts().get(
+                1, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.forced_limit', 0))
             line = self.logger.get_lines_for_level('error')[-1]
             self.assertEqual(
@@ -3583,7 +3583,7 @@ class TestReplicatedObjectController(
 
             # no error limited checking yet.
             self.assertEqual(
-                0, self.logger.statsd_client.get_increment_counts().get(
+                0, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
             set_http_connect(200, 200,        # account, container
                              201, 201, 201,   # 3 working backends
@@ -3595,7 +3595,7 @@ class TestReplicatedObjectController(
             self.assertTrue(res.status.startswith('201 '))
             # error limited happened during PUT.
             self.assertEqual(
-                1, self.logger.statsd_client.get_increment_counts().get(
+                1, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
 
         # this is kind of a hokey test, but in FakeRing, the port is even when
@@ -4309,7 +4309,7 @@ class TestReplicatedObjectController(
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 202)
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual(
                 {'account.info.cache.disabled.200': 1,
                  'account.info.infocache.hit': 2,
@@ -4406,7 +4406,7 @@ class TestReplicatedObjectController(
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 202)
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual({'account.info.cache.miss.200': 1,
                               'account.info.infocache.hit': 2,
                               'container.info.cache.miss.200': 1,
@@ -4521,7 +4521,7 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
 
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual({'account.info.cache.miss.200': 1,
                               'account.info.infocache.hit': 1,
                               'container.info.cache.miss.200': 1,
@@ -4620,7 +4620,7 @@ class TestReplicatedObjectController(
             # verify request hitted infocache.
             self.assertEqual(resp.status_int, 202)
 
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual({'account.info.cache.disabled.200': 1,
                               'account.info.infocache.hit': 1,
                               'container.info.cache.disabled.200': 1,
@@ -4722,7 +4722,7 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
 
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual({'account.info.cache.miss.200': 1,
                               'account.info.infocache.hit': 1,
                               'container.info.cache.miss.200': 1,
@@ -4768,7 +4768,7 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
 
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual({'account.info.cache.miss.200': 1,
                               'account.info.infocache.hit': 1,
                               'container.info.cache.miss.200': 1,
@@ -4837,7 +4837,7 @@ class TestReplicatedObjectController(
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 202)
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual(stats, {
                 'account.info.cache.hit': 2,
                 'account.info.cache.miss.200': 1,
@@ -4903,7 +4903,7 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
 
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual({'account.info.cache.miss.200': 1,
                               'account.info.infocache.hit': 2,
                               'container.info.cache.miss.200': 1,
@@ -4975,7 +4975,7 @@ class TestReplicatedObjectController(
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 202)
-            stats = self.app.logger.statsd_client.get_increment_counts()
+            stats = self.app.logger.statsd_client.get_stats_counts()
             self.assertEqual(
                 {'account.info.cache.disabled.200': 1,
                  'account.info.infocache.hit': 2,
@@ -5672,7 +5672,7 @@ class TestReplicatedObjectController(
                         'Handoff requested (5)',
                         'Handoff requested (6)',
                     ])
-                stats = self.app.logger.statsd_client.get_increment_counts()
+                stats = self.app.logger.statsd_client.get_stats_counts()
                 self.assertEqual(2, stats.get('error_limiter.is_limited', 0))
                 self.assertEqual(2, stats.get('object.handoff_count', 0))
 
@@ -5700,7 +5700,7 @@ class TestReplicatedObjectController(
                         'Handoff requested (9)',
                         'Handoff requested (10)',
                     ])
-                stats = self.app.logger.statsd_client.get_increment_counts()
+                stats = self.app.logger.statsd_client.get_stats_counts()
                 self.assertEqual(4, stats.get('error_limiter.is_limited', 0))
                 self.assertEqual(4, stats.get('object.handoff_count', 0))
                 self.assertEqual(1, stats.get('object.handoff_all_count', 0))
@@ -5740,15 +5740,15 @@ class TestReplicatedObjectController(
             self.assertIn(first_nodes[0], second_nodes)
 
             self.assertEqual(
-                0, self.logger.statsd_client.get_increment_counts().get(
+                0, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
             self.assertEqual(
-                0, self.logger.statsd_client.get_increment_counts().get(
+                0, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.forced_limit', 0))
 
             self.app.error_limit(first_nodes[0], 'test')
             self.assertEqual(
-                1, self.logger.statsd_client.get_increment_counts().get(
+                1, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.forced_limit', 0))
             line = self.logger.get_lines_for_level('error')[-1]
             self.assertEqual(
@@ -5760,14 +5760,14 @@ class TestReplicatedObjectController(
                 request=Request.blank('')))
             self.assertNotIn(first_nodes[0], second_nodes)
             self.assertEqual(
-                1, self.logger.statsd_client.get_increment_counts().get(
+                1, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
             third_nodes = list(proxy_base.NodeIter(
                 'object', self.app, object_ring, 0, self.logger,
                 request=Request.blank('')))
             self.assertNotIn(first_nodes[0], third_nodes)
             self.assertEqual(
-                2, self.logger.statsd_client.get_increment_counts().get(
+                2, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
 
     def test_iter_nodes_gives_extra_if_error_limited_inline(self):

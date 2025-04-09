@@ -788,27 +788,27 @@ class TestFuncs(BaseTest):
         record_cache_op_metrics(
             self.logger, 'container', 'shard_listing', 'infocache_hit')
         self.assertEqual(
-            self.logger.statsd_client.get_increment_counts().get(
+            self.logger.statsd_client.get_stats_counts().get(
                 'container.shard_listing.infocache.hit'),
             1)
         record_cache_op_metrics(
             self.logger, 'container', 'shard_listing', 'hit')
         self.assertEqual(
-            self.logger.statsd_client.get_increment_counts().get(
+            self.logger.statsd_client.get_stats_counts().get(
                 'container.shard_listing.cache.hit'),
             1)
         resp = FakeResponse(status_int=200)
         record_cache_op_metrics(
             self.logger, 'object', 'shard_updating', 'skip', resp)
         self.assertEqual(
-            self.logger.statsd_client.get_increment_counts().get(
+            self.logger.statsd_client.get_stats_counts().get(
                 'object.shard_updating.cache.skip.200'),
             1)
         resp = FakeResponse(status_int=503)
         record_cache_op_metrics(
             self.logger, 'object', 'shard_updating', 'disabled', resp)
         self.assertEqual(
-            self.logger.statsd_client.get_increment_counts().get(
+            self.logger.statsd_client.get_stats_counts().get(
                 'object.shard_updating.cache.disabled.503'),
             1)
 
