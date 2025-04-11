@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import base64
+import io
 import unittest
 from unittest.mock import patch, MagicMock
 import calendar
@@ -243,6 +244,17 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual([(b's3api.test-metric:1|c', ('1.2.3.4', 8125))],
                          client.sendto_calls)
 
+    def test_init_logs_checksum_implementation(self):
+        with mock.patch('swift.common.middleware.s3api.s3api.get_logger',
+                        return_value=self.logger), \
+                mock.patch('swift.common.utils.checksum.crc32c_isal') \
+                as mock_crc32c:
+            mock_crc32c.__name__ = 'crc32c_isal'
+            S3ApiMiddleware(None, {})
+        self.assertEqual(
+            {'info': ['Using crc32c_isal implementation for CRC32C.']},
+            self.logger.all_log_lines())
+
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')
         status, headers, body = self.call_s3api(req)
@@ -320,6 +332,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                 'PATH_INFO': path,
                 'QUERY_STRING': query_string,
                 'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
+                'wsgi.input': io.BytesIO(),
             }
             for header, value in headers.items():
                 header = 'HTTP_' + header.replace('-', '_').upper()
@@ -1263,6 +1276,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     'Credential=X:Y/20110909/us-east-1/s3/aws4_request, '
                     'SignedHeaders=content-md5;content-type;date, '
                     'Signature=x',
+                'wsgi.input': io.BytesIO(),
             }
             fake_time = calendar.timegm((2011, 9, 9, 23, 36, 0))
             env.update(environ)
