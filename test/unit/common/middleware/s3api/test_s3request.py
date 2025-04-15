@@ -791,8 +791,8 @@ class TestRequest(S3ApiTestCase):
             b'Tue, 27 Mar 2007 19:36:42 +0000',
             b'/johnsmith/photos/puppy.jpg',
         ])
-        self.assertEqual(expected_sts, sigv2_req._string_to_sign())
-        self.assertTrue(sigv2_req.check_signature(secret))
+        self.assertEqual(expected_sts, sigv2_req.sig_checker.string_to_sign)
+        self.assertTrue(sigv2_req.sig_checker.check_signature(secret))
 
         req = Request.blank('/photos/puppy.jpg', method='PUT', headers={
             'Content-Type': 'image/jpeg',
@@ -811,8 +811,8 @@ class TestRequest(S3ApiTestCase):
             b'Tue, 27 Mar 2007 21:15:45 +0000',
             b'/johnsmith/photos/puppy.jpg',
         ])
-        self.assertEqual(expected_sts, sigv2_req._string_to_sign())
-        self.assertTrue(sigv2_req.check_signature(secret))
+        self.assertEqual(expected_sts, sigv2_req.sig_checker.string_to_sign)
+        self.assertTrue(sigv2_req.sig_checker.check_signature(secret))
 
         req = Request.blank(
             '/?prefix=photos&max-keys=50&marker=puppy',
@@ -832,12 +832,12 @@ class TestRequest(S3ApiTestCase):
             b'Tue, 27 Mar 2007 19:42:41 +0000',
             b'/johnsmith/',
         ])
-        self.assertEqual(expected_sts, sigv2_req._string_to_sign())
-        self.assertTrue(sigv2_req.check_signature(secret))
+        self.assertEqual(expected_sts, sigv2_req.sig_checker.string_to_sign)
+        self.assertTrue(sigv2_req.sig_checker.check_signature(secret))
 
         with patch('swift.common.middleware.s3api.s3request.streq_const_time',
                    return_value=True) as mock_eq:
-            self.assertTrue(sigv2_req.check_signature(secret))
+            self.assertTrue(sigv2_req.sig_checker.check_signature(secret))
         mock_eq.assert_called_once()
 
     def test_check_signature_sigv2(self):
@@ -861,7 +861,7 @@ class TestRequest(S3ApiTestCase):
             'storage_domains': ['s3.amazonaws.com']}))
         # This is a failure case with utf-8 non-ascii multi-bytes charactor
         # but we expect to return just False instead of exceptions
-        self.assertFalse(sigv2_req.check_signature(
+        self.assertFalse(sigv2_req.sig_checker.check_signature(
             u'\u30c9\u30e9\u30b4\u30f3'))
 
         # Test v4 check_signature with multi bytes invalid secret
@@ -877,12 +877,12 @@ class TestRequest(S3ApiTestCase):
         })
         sigv4_req = SigV4Request(
             req.environ, Config({'storage_domains': ['s3.amazonaws.com']}))
-        self.assertFalse(sigv4_req.check_signature(
+        self.assertFalse(sigv4_req.sig_checker.check_signature(
             u'\u30c9\u30e9\u30b4\u30f3'))
 
         with patch('swift.common.middleware.s3api.s3request.streq_const_time',
                    return_value=False) as mock_eq:
-            self.assertFalse(sigv4_req.check_signature(
+            self.assertFalse(sigv4_req.sig_checker.check_signature(
                 u'\u30c9\u30e9\u30b4\u30f3'))
         mock_eq.assert_called_once()
 
@@ -908,7 +908,7 @@ class TestRequest(S3ApiTestCase):
         sigv4_req = SigV4Request(req.environ)
         self.assertTrue(
             sigv4_req._canonical_request().endswith(b'UNSIGNED-PAYLOAD'))
-        self.assertTrue(sigv4_req.check_signature('secret'))
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
 
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_check_signature_sigv4_url_encode(self):
@@ -935,7 +935,7 @@ class TestRequest(S3ApiTestCase):
         canonical_req = sigv4_req._canonical_request()
         self.assertIn(b'PUT\n/test/~/file%2C1_1%3A1-1\n', canonical_req)
         self.assertTrue(canonical_req.endswith(b'UNSIGNED-PAYLOAD'))
-        self.assertTrue(sigv4_req.check_signature('secret'))
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
 
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_check_sigv4_req_zero_content_length_sha256(self):
@@ -979,7 +979,7 @@ class TestRequest(S3ApiTestCase):
         sigv4_req = SigV4Request(req.environ)
         self.assertTrue(
             sigv4_req._canonical_request().endswith(sha256_of_nothing))
-        self.assertTrue(sigv4_req.check_signature('secret'))
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
 
         # uppercase sha256 -- signature changes, but content's valid
         headers = {
@@ -998,7 +998,7 @@ class TestRequest(S3ApiTestCase):
         sigv4_req = SigV4Request(req.environ)
         self.assertTrue(
             sigv4_req._canonical_request().endswith(sha256_of_nothing.upper()))
-        self.assertTrue(sigv4_req.check_signature('secret'))
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
 
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_v4_req_xmz_content_sha256_mismatch(self):
