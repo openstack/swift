@@ -610,7 +610,7 @@ class SigV4Mixin(object):
         kwargs.update({
             'canonical_request': cr,
             'canonical_request_bytes': ' '.join(
-                format(ord(c), '02x') for c in cr.decode('latin1')),
+                format(b, '02x') for b in cr),
         })
         return kwargs
 
@@ -1131,8 +1131,7 @@ class S3Request(swob.Request):
             'string_to_sign': self.sig_checker.string_to_sign,
             'signature_provided': self.signature,
             'string_to_sign_bytes': ' '.join(
-                format(ord(c), '02x')
-                for c in self.sig_checker.string_to_sign.decode('latin1')),
+                format(b, '02x') for b in self.sig_checker.string_to_sign),
         }
 
     @property
