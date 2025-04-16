@@ -229,9 +229,8 @@ class TestObjectController(BaseTestCase):
                 self.assertEqual(resp.body, out_body)
 
     def _do_test_timing_stats(self, conf, req, now):
+        self.logger.clear()
         with mock.patch('swift.common.utils.time.time', return_value=now), \
-                mock.patch('swift.common.statsd_client.StatsdClient',
-                           FakeStatsdClient), \
                 mock.patch('swift.common.statsd_client.LabeledStatsdClient',
                            FakeLabeledStatsdClient):
             app = object_server.ObjectController(conf, logger=self.logger)
@@ -240,17 +239,169 @@ class TestObjectController(BaseTestCase):
 
             with mock.patch.object(statsd_client, 'random', return_value=0), \
                     mock.patch.object(statsd, 'random', return_value=0):
-                req.call_application(app)
+                resp = req.get_response(app)
 
         self.assertIsInstance(statsd_client, FakeStatsdClient)
         self.assertIsInstance(statsd, FakeLabeledStatsdClient)
-        return statsd_client, statsd
+        return statsd_client, statsd, resp
 
-    def test_legacy_and_labeled_timing_stats_replicate(self):
+    def test_legacy_and_labeled_timing_stats_get_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [
+                (('GET.timing', now), {})
+            ]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'GET',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 200
+                },
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_put_post_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual({
+            'transfer_rate': [(('PUT.sda1.timing', mock.ANY, mock.ANY), {})],
+            'timing_since': [(('PUT.timing', now), {})]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'PUT',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 201
+                },
+            })]
+        }, statsd.calls)
+
+        timestamp = normalize_timestamp(time())
+        headers['X-Timestamp'] = timestamp
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [(('POST.timing', now), {})]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'POST',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 202
+                },
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_head_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [
+                (('HEAD.timing', now), {'sample_rate': 0.8}),
+            ]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'HEAD',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 200
+                },
+                'sample_rate': 0.8
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_delete_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': timestamp})
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [
+                (('DELETE.timing', now), {})
+            ]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'DELETE',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 204
+                },
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_replicate_success(self):
         req = Request.blank(
             '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'})
         now = time()
-        statsd_client, statsd = self._do_test_timing_stats(self.conf, req, now)
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
         self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
             'sample_rate': 0.1
         })]}, statsd_client.calls)
@@ -271,7 +422,8 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/123-abc', environ={'REQUEST_METHOD': 'REPLICATE'})
         now = time()
-        statsd_client, statsd = self._do_test_timing_stats(self.conf, req, now)
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
         self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
             'sample_rate': 0.1
         })]}, statsd_client.calls)
@@ -294,7 +446,8 @@ class TestObjectController(BaseTestCase):
             headers={'X-Backend-Storage-Policy-Index': '1'}
         )
         now = time()
-        statsd_client, statsd = self._do_test_timing_stats(self.conf, req, now)
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
         self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
             'sample_rate': 0.1
         })]}, statsd_client.calls)
@@ -310,27 +463,163 @@ class TestObjectController(BaseTestCase):
             })]},
             statsd.calls)
 
-    def test_legacy_and_labeled_timing_stats_replicate_507(self):
-        req = Request.blank(
-            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'})
+    def test_legacy_and_labeled_timing_stats_ssync_success(self):
+        req = Request.blank('/sda1/0',
+                            environ={'REQUEST_METHOD': 'SSYNC'},
+                            headers={})
+        now = time()
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({'timing_since': [(('SSYNC.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'SSYNC',
+                    'policy': 0,
+                    'status': 200
+                },
+                'sample_rate': 0.1
+            })]
+        }, statsd.calls)
+
+    def _do_test_legacy_and_labeled_timing_stats_mount_check(
+            self, req, additional_labels=None, **kwargs):
         now = time()
         # mount_check will provoke a 507
         conf = dict(self.conf, mount_check='true')
-        statsd_client, statsd = self._do_test_timing_stats(conf, req, now)
-        self.assertEqual({'timing_since': [(('REPLICATE.errors.timing', now), {
-            'sample_rate': 0.1
-        })]}, statsd_client.calls)
-        self.assertEqual(
-            {'timing_since': [(('swift_object_server_request_timing', now), {
+        statsd_client, statsd, _ = self._do_test_timing_stats(conf, req, now)
+        self.assertEqual({
+            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
                 'labels': {
-                    'method': 'REPLICATE',
+                    'method': req.method,
                     'policy': 0,
-                    'skip_rehash': False,
-                    'status': 507
+                    'status': 507,
+                    **additional_labels
                 },
-                'sample_rate': 0.1
-            })]},
-            statsd.calls)
+                **kwargs
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_get_error(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_put_error(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_post_error(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_head_error(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, sample_rate=0.8,
+            additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_delete_error(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'application/x-test'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_replicate_507(self):
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, sample_rate=0.1, additional_labels={'skip_rehash': False, })
+
+    def test_legacy_and_labeled_timing_stats_ssync_error(self):
+        def fake_get_dev_path(*args, **kwargs):
+            return None
+
+        req = Request.blank('/sda1/0',
+                            environ={'REQUEST_METHOD': 'SSYNC'},
+                            headers={})
+        now = time()
+        conf = self.conf
+        with mock.patch('swift.common.utils.time.time', return_value=now), \
+                mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                           FakeLabeledStatsdClient):
+            app = object_server.ObjectController(conf, logger=self.logger)
+            app._diskfile_router[0].get_dev_path = fake_get_dev_path
+            statsd_client = app.logger.logger.statsd_client
+            statsd = app.statsd
+
+            with mock.patch.object(statsd_client, 'random', return_value=0), \
+                    mock.patch.object(statsd, 'random', return_value=0):
+                req.get_response(app)
+
+        self.assertIsInstance(statsd_client, FakeStatsdClient)
+        self.assertIsInstance(statsd, FakeLabeledStatsdClient)
+
+        kwargs = {'sample_rate': 0.1}
+        self.assertEqual({
+            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': req.method,
+                    'status': 507,
+                },
+                **kwargs
+            })]
+        }, statsd.calls)
+
+    def _do_test_legacy_and_labeled_timing_stats_bad_policy(
+            self, req, sample_rate=None):
+        now = time()
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        kwargs = {} if sample_rate is None else {'sample_rate': sample_rate}
+        self.assertEqual({
+            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': req.method,
+                    'status': 503,
+                },
+                **kwargs
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_ssync_bad_policy(self):
+        # non-existent policy
+        req = Request.blank(
+            '/sda1/0',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            headers={'X-Backend-Storage-Policy-Index': '99'}
+        )
+        self._do_test_legacy_and_labeled_timing_stats_bad_policy(
+            req, sample_rate=0.1)
 
     def test_legacy_and_labeled_timing_stats_replicate_bad_policy(self):
         # non-existent policy
@@ -338,85 +627,8 @@ class TestObjectController(BaseTestCase):
             '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'},
             headers={'X-Backend-Storage-Policy-Index': '99'}
         )
-        now = time()
-        statsd_client, statsd = self._do_test_timing_stats(
-            self.conf, req, now)
-        self.assertEqual({'timing_since': [(('REPLICATE.errors.timing', now), {
-            'sample_rate': 0.1
-        })]}, statsd_client.calls)
-        self.assertEqual(
-            {'timing_since': [(('swift_object_server_request_timing', now), {
-                'labels': {
-                    'method': 'REPLICATE',
-                    'status': 503
-                },
-                'sample_rate': 0.1
-            })]},
-            statsd.calls)
-
-    def _do_test_legacy_timing_stats_error(self, req, sample_rate=None):
-        now = time()
-        # mount_check will provoke a 507
-        conf = dict(self.conf, mount_check='true')
-        statsd_client, statsd = self._do_test_timing_stats(conf, req, now)
-        kwargs = {} if sample_rate is None else {'sample_rate': sample_rate}
-        self.assertEqual({
-            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
-        }, statsd_client.calls)
-
-    def test_legacy_timing_stats_get_error(self):
-        req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        self._do_test_legacy_timing_stats_error(req)
-
-    def test_legacy_timing_stats_post_error(self):
-        timestamp = normalize_timestamp(time())
-        headers = {'X-Timestamp': timestamp,
-                   'X-Object-Meta-1': 'One',
-                   'Content-Type': 'text/plain'}
-
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers=headers)
-        self._do_test_legacy_timing_stats_error(req)
-
-    def test_legacy_timing_stats_head_error(self):
-        req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
-        self._do_test_legacy_timing_stats_error(req, sample_rate=0.8)
-
-    def test_legacy_timing_stats_delete_error(self):
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': timestamp,
-                     'Content-Type': 'application/x-test'})
-        self._do_test_legacy_timing_stats_error(req)
-
-    def test_legacy_timing_stats_ssync_error(self):
-        # non-existent policy
-        req = Request.blank(
-            '/sda1/0',
-            environ={'REQUEST_METHOD': 'SSYNC'},
-            headers={'X-Backend-Storage-Policy-Index': '99'}
-        )
-        now = time()
-        statsd_client, statsd = self._do_test_timing_stats(
-            self.conf, req, now)
-        self.assertEqual({'timing_since': [(('SSYNC.errors.timing', now), {
-            'sample_rate': 0.1
-        })]}, statsd_client.calls)
-
-    def test_legacy_timing_stats_put_error(self):
-        timestamp = normalize_timestamp(time())
-        headers = {'X-Timestamp': timestamp,
-                   'X-Object-Meta-1': 'One',
-                   'Content-Type': 'text/plain'}
-
-        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers=headers)
-        req.body = b'VERIFY'
-        self._do_test_legacy_timing_stats_error(req)
+        self._do_test_legacy_and_labeled_timing_stats_bad_policy(
+            req, sample_rate=0.1)
 
     def test_REQUEST_SPECIAL_CHARS(self):
         obj = 'special昆%20/%'
@@ -9273,7 +9485,7 @@ class TestObjectController(BaseTestCase):
         self.object_controller.logger = self.logger
         with mock.patch('time.time',
                         side_effect=[10000.0, 10000.0, 10001.0, 10002.0,
-                                     10002.0, 10002.0]), \
+                                     10002.0, 10002.0, 10002.0, 10002.0]), \
                 mock.patch('os.getpid', return_value=1234):
             req.get_response(self.object_controller)
         self.assertEqual(
