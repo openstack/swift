@@ -1888,8 +1888,11 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
         fromstring(body, 'Error')
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(self._get_error_code(body), 'InvalidPart')
-        self.assertIn('One or more of the specified parts could not be found',
-                      self._get_error_message(body))
+        self.assertEqual(
+            "One or more of the specified parts could not be found.  The part "
+            "may not have been uploaded, or the specified entity tag may not "
+            "match the part's entity tag.",
+            self._get_error_message(body))
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),

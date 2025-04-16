@@ -848,9 +848,11 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual('InvalidPart', complete_mpu_resp[
             'Error']['Code'])
-        self.assertTrue(complete_mpu_resp['Error']['Message'].startswith(
-            'One or more of the specified parts could not be found.'
-        ), complete_mpu_resp['Error']['Message'])
+        self.assertEqual(
+            "One or more of the specified parts could not be found.  The part "
+            "may not have been uploaded, or the specified entity tag may not "
+            "match the part's entity tag.",
+            complete_mpu_resp['Error']['Message'])
         self.assertEqual(complete_mpu_resp['Error']['UploadId'], upload_id)
         self.assertIn(complete_mpu_resp['Error']['PartNumber'], ('1', '2'))
         self.assertEqual(complete_mpu_resp['Error']['ETag'], None)

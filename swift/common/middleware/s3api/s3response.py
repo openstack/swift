@@ -472,9 +472,9 @@ class InvalidPartArgument(InvalidArgument):
 
 class InvalidPart(ErrorResponse):
     _status = '400 Bad Request'
-    _msg = 'One or more of the specified parts could not be found. The part ' \
-           'might not have been uploaded, or the specified entity tag might ' \
-           'not have matched the part\'s entity tag.'
+    _msg = 'One or more of the specified parts could not be found.  The ' \
+           'part may not have been uploaded, or the specified entity tag ' \
+           'may not match the part\'s entity tag.'
 
 
 class InvalidPartOrder(ErrorResponse):
