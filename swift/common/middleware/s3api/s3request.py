@@ -172,21 +172,118 @@ class HashingInput(InputProxy):
         return chunk
 
 
+class BaseSigChecker:
+    def __init__(self, req):
+        self.req = req
+        self.signature = req.signature
+        self.string_to_sign = self._string_to_sign()
+        self._secret = None
+
+    def _string_to_sign(self):
+        raise NotImplementedError
+
+    def _derive_secret(self, secret):
+        return utf8encode(secret)
+
+    def _check_signature(self):
+        raise NotImplementedError
+
+    def check_signature(self, secret):
+        self._secret = self._derive_secret(secret)
+        return self._check_signature()
+
+
+class SigCheckerV2(BaseSigChecker):
+    def _string_to_sign(self):
+        """
+        Create 'StringToSign' value in Amazon terminology for v2.
+        """
+        buf = [swob.wsgi_to_bytes(wsgi_str) for wsgi_str in [
+            self.req.method,
+            _header_strip(self.req.headers.get('Content-MD5')) or '',
+            _header_strip(self.req.headers.get('Content-Type')) or '']]
+
+        if 'headers_raw' in self.req.environ:  # eventlet >= 0.19.0
+            # See https://github.com/eventlet/eventlet/commit/67ec999
+            amz_headers = defaultdict(list)
+            for key, value in self.req.environ['headers_raw']:
+                key = key.lower()
+                if not key.startswith('x-amz-'):
+                    continue
+                amz_headers[key.strip()].append(value.strip())
+            amz_headers = dict((key, ','.join(value))
+                               for key, value in amz_headers.items())
+        else:  # mostly-functional fallback
+            amz_headers = dict((key.lower(), value)
+                               for key, value in self.req.headers.items()
+                               if key.lower().startswith('x-amz-'))
+
+        if self.req._is_header_auth:
+            if 'x-amz-date' in amz_headers:
+                buf.append(b'')
+            elif 'Date' in self.req.headers:
+                buf.append(swob.wsgi_to_bytes(self.req.headers['Date']))
+        elif self.req._is_query_auth:
+            buf.append(swob.wsgi_to_bytes(self.req.params['Expires']))
+        else:
+            # Should have already raised NotS3Request in _parse_auth_info,
+            # but as a sanity check...
+            raise AccessDenied(reason='not_s3')
+
+        for key, value in sorted(amz_headers.items()):
+            buf.append(swob.wsgi_to_bytes("%s:%s" % (key, value)))
+
+        path = self.req._canonical_uri()
+        if self.req.query_string:
+            path += '?' + self.req.query_string
+        params = []
+        if '?' in path:
+            path, args = path.split('?', 1)
+            for key, value in sorted(self.req.params.items()):
+                if key in ALLOWED_SUB_RESOURCES:
+                    params.append('%s=%s' % (key, value) if value else key)
+        if params:
+            buf.append(swob.wsgi_to_bytes('%s?%s' % (path, '&'.join(params))))
+        else:
+            buf.append(swob.wsgi_to_bytes(path))
+        return b'\n'.join(buf)
+
+    def _check_signature(self):
+        valid_signature = base64.b64encode(hmac.new(
+            self._secret, self.string_to_sign, sha1
+        ).digest()).strip().decode('ascii')
+        return streq_const_time(self.signature, valid_signature)
+
+
+class SigCheckerV4(BaseSigChecker):
+    def __init__(self, req):
+        super().__init__(req)
+        self._all_chunk_signatures_valid = True
+
+    def _string_to_sign(self):
+        return b'\n'.join([
+            b'AWS4-HMAC-SHA256',
+            self.req.timestamp.amz_date_format.encode('ascii'),
+            '/'.join(self.req.scope.values()).encode('utf8'),
+            sha256(self.req._canonical_request()).hexdigest().encode('ascii')])
+
+    def _derive_secret(self, secret):
+        derived_secret = b'AWS4' + super()._derive_secret(secret)
+        for scope_piece in self.req.scope.values():
+            derived_secret = hmac.new(
+                derived_secret, scope_piece.encode('utf8'), sha256).digest()
+        return derived_secret
+
+    def _check_signature(self):
+        valid_signature = hmac.new(
+            self._secret, self.string_to_sign, sha256).hexdigest()
+        return streq_const_time(self.signature, valid_signature)
+
+
 class SigV4Mixin(object):
     """
     A request class mixin to provide S3 signature v4 functionality
     """
-
-    def check_signature(self, secret):
-        secret = utf8encode(secret)
-        user_signature = self.signature
-        derived_secret = b'AWS4' + secret
-        for scope_piece in self.scope.values():
-            derived_secret = hmac.new(
-                derived_secret, scope_piece.encode('utf8'), sha256).digest()
-        valid_signature = hmac.new(
-            derived_secret, self.string_to_sign, sha256).hexdigest()
-        return streq_const_time(user_signature, valid_signature)
 
     @property
     def _is_query_auth(self):
@@ -507,16 +604,6 @@ class SigV4Mixin(object):
             ('terminal', 'aws4_request'),
         ])
 
-    def _string_to_sign(self):
-        """
-        Create 'StringToSign' value in Amazon terminology for v4.
-        """
-        return b'\n'.join([
-            b'AWS4-HMAC-SHA256',
-            self.timestamp.amz_date_format.encode('ascii'),
-            '/'.join(self.scope.values()).encode('utf8'),
-            sha256(self._canonical_request()).hexdigest().encode('ascii')])
-
     def signature_does_not_match_kwargs(self):
         kwargs = super(SigV4Mixin, self).signature_does_not_match_kwargs()
         cr = self._canonical_request()
@@ -566,13 +653,18 @@ class S3Request(swob.Request):
         self.bucket_in_host = self._parse_host()
         self.container_name, self.object_name = self._parse_uri()
         self._validate_headers()
-        # Lock in string-to-sign now, before we start messing with query params
-        self.string_to_sign = self._string_to_sign()
+        if isinstance(self, SigV4Mixin):
+            # this is a deliberate but only partial shift away from the
+            # 'inherit and override from mixin' pattern towards a 'compose
+            # adapters' pattern.
+            self.sig_checker = SigCheckerV4(self)
+        else:
+            self.sig_checker = SigCheckerV2(self)
         self.environ['s3api.auth_details'] = {
             'access_key': self.access_key,
             'signature': self.signature,
-            'string_to_sign': self.string_to_sign,
-            'check_signature': self.check_signature,
+            'string_to_sign': self.sig_checker.string_to_sign,
+            'check_signature': self.sig_checker.check_signature,
         }
         self.account = None
         self.user_id = None
@@ -632,14 +724,6 @@ class S3Request(swob.Request):
                 raise InvalidPartNumber()  # 416
 
         return part_number
-
-    def check_signature(self, secret):
-        secret = utf8encode(secret)
-        user_signature = self.signature
-        valid_signature = base64.b64encode(hmac.new(
-            secret, self.string_to_sign, sha1
-        ).digest()).strip().decode('ascii')
-        return streq_const_time(user_signature, valid_signature)
 
     @property
     def timestamp(self):
@@ -1041,70 +1125,14 @@ class S3Request(swob.Request):
             raw_path_info = '/' + self.bucket_in_host + raw_path_info
         return raw_path_info
 
-    def _string_to_sign(self):
-        """
-        Create 'StringToSign' value in Amazon terminology for v2.
-        """
-        amz_headers = {}
-
-        buf = [swob.wsgi_to_bytes(wsgi_str) for wsgi_str in [
-            self.method,
-            _header_strip(self.headers.get('Content-MD5')) or '',
-            _header_strip(self.headers.get('Content-Type')) or '']]
-
-        if 'headers_raw' in self.environ:  # eventlet >= 0.19.0
-            # See https://github.com/eventlet/eventlet/commit/67ec999
-            amz_headers = defaultdict(list)
-            for key, value in self.environ['headers_raw']:
-                key = key.lower()
-                if not key.startswith('x-amz-'):
-                    continue
-                amz_headers[key.strip()].append(value.strip())
-            amz_headers = dict((key, ','.join(value))
-                               for key, value in amz_headers.items())
-        else:  # mostly-functional fallback
-            amz_headers = dict((key.lower(), value)
-                               for key, value in self.headers.items()
-                               if key.lower().startswith('x-amz-'))
-
-        if self._is_header_auth:
-            if 'x-amz-date' in amz_headers:
-                buf.append(b'')
-            elif 'Date' in self.headers:
-                buf.append(swob.wsgi_to_bytes(self.headers['Date']))
-        elif self._is_query_auth:
-            buf.append(swob.wsgi_to_bytes(self.params['Expires']))
-        else:
-            # Should have already raised NotS3Request in _parse_auth_info,
-            # but as a sanity check...
-            raise AccessDenied(reason='not_s3')
-
-        for key, value in sorted(amz_headers.items()):
-            buf.append(swob.wsgi_to_bytes("%s:%s" % (key, value)))
-
-        path = self._canonical_uri()
-        if self.query_string:
-            path += '?' + self.query_string
-        params = []
-        if '?' in path:
-            path, args = path.split('?', 1)
-            for key, value in sorted(self.params.items()):
-                if key in ALLOWED_SUB_RESOURCES:
-                    params.append('%s=%s' % (key, value) if value else key)
-        if params:
-            buf.append(swob.wsgi_to_bytes('%s?%s' % (path, '&'.join(params))))
-        else:
-            buf.append(swob.wsgi_to_bytes(path))
-        return b'\n'.join(buf)
-
     def signature_does_not_match_kwargs(self):
         return {
             'a_w_s_access_key_id': self.access_key,
-            'string_to_sign': self.string_to_sign,
+            'string_to_sign': self.sig_checker.string_to_sign,
             'signature_provided': self.signature,
             'string_to_sign_bytes': ' '.join(
                 format(ord(c), '02x')
-                for c in self.string_to_sign.decode('latin1')),
+                for c in self.sig_checker.string_to_sign.decode('latin1')),
         }
 
     @property

@@ -706,7 +706,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         date_header = self.get_date_header()
         req.headers['Date'] = date_header
         with mock.patch('swift.common.middleware.s3api.s3request.'
-                        'S3Request.check_signature') as mock_cs:
+                        'SigCheckerV2.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
             self.assertIn('swift.backend_path', req.environ)
             self.assertEqual(
@@ -737,7 +737,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         date_header = self.get_date_header()
         req.headers['Date'] = date_header
         with mock.patch('swift.common.middleware.s3api.s3request.'
-                        'S3Request.check_signature') as mock_cs:
+                        'SigCheckerV2.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
             self.assertIn('swift.backend_path', req.environ)
             self.assertEqual(
@@ -1300,9 +1300,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     patch.object(swift.common.middleware.s3api.s3request,
                                  'SERVICE', 'host'):
                 req = _get_req(path, environ)
-                hash_in_sts = req._string_to_sign().split(b'\n')[3]
+                hash_in_sts = req.sig_checker._string_to_sign().split(b'\n')[3]
                 self.assertEqual(hash_val, hash_in_sts.decode('ascii'))
-                self.assertTrue(req.check_signature(
+                self.assertTrue(req.sig_checker.check_signature(
                     'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY'))
 
         # all next data got from aws4_testsuite from Amazon
