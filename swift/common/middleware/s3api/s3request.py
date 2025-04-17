@@ -16,6 +16,7 @@
 import base64
 import binascii
 from collections import defaultdict, OrderedDict
+import contextlib
 from email.header import Header
 from hashlib import sha1, sha256
 import hmac
@@ -948,13 +949,8 @@ class S3Request(swob.Request):
 
         if te or ml:
             # Limit the read similar to how SLO handles manifests
-            try:
+            with self.translate_read_errors():
                 body = self.body_file.read(max_length)
-            except S3InputSHA256Mismatch as err:
-                raise XAmzContentSHA256Mismatch(
-                    client_computed_content_s_h_a256=err.expected,
-                    s3_computed_content_s_h_a256=err.computed,
-                )
         else:
             # No (or zero) Content-Length provided, and not chunked transfer;
             # no body. Assume zero-length, and enforce a required body below.
@@ -1439,6 +1435,18 @@ class S3Request(swob.Request):
 
         return code_map[method]
 
+    @contextlib.contextmanager
+    def translate_read_errors(self):
+        try:
+            yield
+        except S3InputSHA256Mismatch as err:
+            # hopefully by now any modifications to the path (e.g. tenant to
+            # account translation) will have been made by auth middleware
+            raise XAmzContentSHA256Mismatch(
+                client_computed_content_s_h_a256=err.expected,
+                s3_computed_content_s_h_a256=err.computed,
+            )
+
     def _get_response(self, app, method, container, obj,
                       headers=None, body=None, query=None):
         """
@@ -1457,21 +1465,13 @@ class S3Request(swob.Request):
                                    body=body, query=query)
 
         try:
-            sw_resp = sw_req.get_response(app)
-        except S3InputSHA256Mismatch as err:
-            # hopefully by now any modifications to the path (e.g. tenant to
-            # account translation) will have been made by auth middleware
-            self.environ['s3api.backend_path'] = sw_req.environ['PATH_INFO']
-            raise XAmzContentSHA256Mismatch(
-                client_computed_content_s_h_a256=err.expected,
-                s3_computed_content_s_h_a256=err.computed,
-            )
-        else:
+            with self.translate_read_errors():
+                sw_resp = sw_req.get_response(app)
+        finally:
             # reuse account
-            _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
+            _, self.account, _ = split_path(sw_req.environ['PATH_INFO'],
                                             2, 3, True)
-            # Update s3.backend_path from the response environ
-            self.environ['s3api.backend_path'] = sw_resp.environ['PATH_INFO']
+            self.environ['s3api.backend_path'] = sw_req.environ['PATH_INFO']
 
         # keep a record of the backend policy index so that the s3api can add
         # it to the headers of whatever response it returns, which may not
