@@ -143,6 +143,22 @@
       python_version: '3.12'
 
 - job:
+    name: swift-tox-py313
+    parent: swift-tox-base
+    nodeset: ubuntu-noble
+    description: |
+      Run unit-tests for swift under cPython version 3.13.
+
+      Uses tox with the ``py313`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py313
+      bindep_profile: test py313
+      python_use_pyenv: True
+      python_version: '3.13'
+
+- job:
     name: swift-tox-func-py312
     parent: swift-tox-base
     nodeset: ubuntu-noble
@@ -622,6 +638,8 @@
         - swift-tox-py39:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py312:
+            irrelevant-files: *unittest-irrelevant-files
+        - swift-tox-py313:
             irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests
