@@ -2934,6 +2934,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             TypeError, md5, None, usedforsecurity=False)
 
     def test_get_my_ppid(self):
+        if not os.path.exists('/proc/'):
+            self.skipTest('get_ppid can only be functionally tested on Linux')
         self.assertEqual(os.getppid(), utils.get_ppid(os.getpid()))
 
 
@@ -4981,7 +4983,8 @@ class TestGetPpid(unittest.TestCase):
         self.assertEqual(utils.get_ppid(123), 456)
         self.assertIn(mock.call('/proc/123/stat'), mock_open.mock_calls)
 
-    def test_not_found(self, mock_open):
+    @mock.patch('swift.common.utils.os.path.exists', return_value=True)
+    def test_not_found(self, _mock_exists, mock_open):
         mock_open.side_effect = IOError(errno.ENOENT, "Not there")
         with self.assertRaises(OSError) as caught:
             utils.get_ppid(123)

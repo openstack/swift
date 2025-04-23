@@ -5237,5 +5237,7 @@ def get_ppid(pid):
         return int(stats[3])
     except IOError as e:
         if e.errno == errno.ENOENT:
+            if not os.path.exists('/proc/'):
+                raise RuntimeError('get_ppid can only be used on Linux')
             raise OSError(errno.ESRCH, 'No such process')
         raise
