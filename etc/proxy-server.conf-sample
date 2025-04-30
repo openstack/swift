@@ -459,6 +459,19 @@ use = egg:swift#tempauth
 # This can be useful with an SSL load balancer in front of a non-SSL server.
 # storage_url_scheme = default
 #
+# Fernet keys may be used for storage, rather than relying on memcached.
+# Multiple keys may be configured using options named 'fernet_key_<key_id>'
+# where 'key_id' is a unique identifier. The value should be 32 url-safe
+# base64-encoded bytes, such as may be generated using
+# `openssl rand -base64 32 | tr '+/' '-_'`
+# Any of these keys may be used for decryption. Only one key may be used
+# for encryption by a proxy at any given time; configure it with the
+# 'active_fernet_key_id' option. All proxies in the cluster should know
+# about a key before it is activated. If blank (the default),
+# memcached-backed tokens will be issued.
+# fernet_key_myid = <32 url-safe base64-encoded bytes>
+# active_fernet_key_id = myid
+#
 # Lastly, you need to list all the accounts/users you want here. The format is:
 #   user_<account>_<user> = <key> [group] [group] [...] [storage_url]
 # or if you want underscores in <account> or <user>, you can base64 encode them

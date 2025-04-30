@@ -1501,6 +1501,32 @@ def cache_from_env(env, allow_none=False):
     return item_from_env(env, 'swift.cache', allow_none)
 
 
+def load_multikey_opts(conf, prefix, allow_none_key=False):
+    """
+    Read multi-key options of the form "<prefix>_<key> = <value>"
+
+    :param conf: a config dict
+    :param prefix: the prefix for which to search
+    :param allow_none_key: if True, also parse "<prefix> = <value>" and
+                           include it in the result as ``(None, value)``
+    :returns: a sorted list of (<key>, <value>) tuples
+    :raises ValueError: if an option starts with prefix but cannot be parsed
+    """
+    result = []
+    for k, v in conf.items():
+        if not k.startswith(prefix):
+            continue
+        suffix = k[len(prefix):]
+        if not suffix and allow_none_key:
+            result.append((k, None, v))
+            continue
+        if len(suffix) >= 2 and suffix[0] == '_':
+            result.append((k, suffix[1:], v))
+            continue
+        raise ValueError('Malformed multi-key option name %s' % k)
+    return sorted(result)
+
+
 def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
     """
     Ensure that a pickle file gets written to disk.  The file
