@@ -550,7 +550,7 @@ Shard Ranges (3):
             # Test mismatch of ring and policy name (valid policy)
             self.assertRaises(InfoSystemExit, print_item_locations,
                               objring, policy_name='zero')
-        self.assertIn('Warning: mismatch between ring and policy name!',
+        self.assertIn('WARNING: mismatch between ring and policy name!',
                       out.getvalue())
         self.assertIn('No target specified', out.getvalue())
 
@@ -561,7 +561,7 @@ Shard Ranges (3):
             objring = ring.Ring(self.testdir, ring_name='object')
             self.assertRaises(InfoSystemExit, print_item_locations,
                               objring, policy_name=policy_name)
-        exp_msg = 'Warning: Policy %s is not valid' % policy_name
+        exp_msg = 'WARNING: Policy %s is not valid' % policy_name
         self.assertIn(exp_msg, out.getvalue())
         self.assertIn('No target specified', out.getvalue())
 
@@ -598,7 +598,7 @@ Shard Ranges (3):
             print_item_locations(account_ring, account=account)
         exp_msg = 'Account  \t%s' % account
         self.assertIn(exp_msg, out.getvalue())
-        exp_warning = 'Warning: account specified ' + \
+        exp_warning = 'WARNING: account specified ' + \
                       'but ring not named "account"'
         self.assertIn(exp_warning, out.getvalue())
         exp_acct_msg = 'Account  \t%s' % account
@@ -1385,7 +1385,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile, policy_name='two', swift_dir=self.testdir)
-        ring_alert_msg = 'Warning: Ring does not match policy!'
+        ring_alert_msg = 'WARNING: Ring does not match policy!'
         self.assertIn(ring_alert_msg, out.getvalue())
 
     def test_valid_etag(self):

@@ -22,7 +22,7 @@ from operator import itemgetter
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
 import sys
-from sys import argv as sys_argv, exit, stderr, stdout
+from sys import argv as sys_argv, exit, stdout
 from textwrap import wrap
 from time import time
 import traceback
@@ -159,8 +159,8 @@ def _parse_add_values(argvish):
             dev_dict = parse_add_value(devstr)
 
             if dev_dict['region'] is None:
-                stderr.write('WARNING: No region specified for %s. '
-                             'Defaulting to region 1.\n' % devstr)
+                print('WARNING: No region specified for %s. '
+                      'Defaulting to region 1.\n' % devstr, file=sys.stderr)
                 dev_dict['region'] = 1
 
             if dev_dict['replication_ip'] is None:
@@ -1300,9 +1300,9 @@ swift-ring-builder <builder_file> write_ring
         ring_data = builder.get_ring()
         if not ring_data._replica2part2dev_id:
             if ring_data.devs:
-                print('Warning: Writing a ring with no partition '
+                print('WARNING: Writing a ring with no partition '
                       'assignments but with devices; did you forget to run '
-                      '"rebalance"?')
+                      '"rebalance"?', file=sys.stderr)
         ring_data.save(
             pathjoin(backup_dir, '%d.' % time() + basename(ring_file)))
         ring_data.save(ring_file)
@@ -1324,8 +1324,8 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
         if len(argv) > 3:
             min_part_hours = int(argv[3])
         else:
-            stderr.write("WARNING: default min_part_hours may not match "
-                         "the value in the lost builder.\n")
+            print("WARNING: default min_part_hours may not match "
+                  "the value in the lost builder.\n", file=sys.stderr)
             min_part_hours = 24
         ring = Ring(ring_file)
         for dev in ring.devs:
