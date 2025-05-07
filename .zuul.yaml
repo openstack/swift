@@ -467,7 +467,7 @@
     name: swift-multinode-rolling-upgrade-bobcat
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2023.2
+      previous_swift_version: 2023.2-eol
 
 - job:
     name: swift-multinode-rolling-upgrade-caracal
@@ -480,6 +480,12 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/2024.2
+
+- job:
+    name: swift-multinode-rolling-upgrade-epoxy
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/2025.1
 
 - job:
     name: swift-multinode-rolling-upgrade-master
@@ -767,6 +773,7 @@
         - swift-multinode-rolling-upgrade-bobcat
         - swift-multinode-rolling-upgrade-caracal
         - swift-multinode-rolling-upgrade-dalmatian
+        - swift-multinode-rolling-upgrade-epoxy
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
