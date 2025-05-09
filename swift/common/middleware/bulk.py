@@ -194,9 +194,8 @@ swift.source set and the content length will reflect the size of the
 payload sent to the proxy (the list of objects/containers to be deleted).
 """
 
-import json
+from swift.common.request_helpers import get_heartbeat_response_body
 import tarfile
-from xml.sax.saxutils import escape  # nosec B406
 from time import time
 from eventlet import sleep
 import zlib
@@ -222,50 +221,6 @@ class CreateContainerError(Exception):
 
 ACCEPTABLE_FORMATS = ['text/plain', 'application/json', 'application/xml',
                       'text/xml']
-
-
-def get_response_body(data_format, data_dict, error_list, root_tag):
-    """
-    Returns a properly formatted response body according to format.
-
-    Handles json and xml, otherwise will return text/plain.
-    Note: xml response does not include xml declaration.
-
-    :params data_format: resulting format
-    :params data_dict: generated data about results.
-    :params error_list: list of quoted filenames that failed
-    :params root_tag: the tag name to use for root elements when returning XML;
-                      e.g. 'extract' or 'delete'
-    """
-    if data_format == 'application/json':
-        data_dict['Errors'] = error_list
-        return json.dumps(data_dict).encode('ascii')
-    if data_format and data_format.endswith('/xml'):
-        output = ['<', root_tag, '>\n']
-        for key in sorted(data_dict):
-            xml_key = key.replace(' ', '_').lower()
-            output.extend([
-                '<', xml_key, '>',
-                escape(str(data_dict[key])),
-                '</', xml_key, '>\n',
-            ])
-        output.append('<errors>\n')
-        for name, status in error_list:
-            output.extend([
-                '<object><name>', escape(name), '</name><status>',
-                escape(status), '</status></object>\n',
-            ])
-        output.extend(['</errors>\n</', root_tag, '>\n'])
-        return ''.join(output).encode('utf-8')
-
-    output = []
-    for key in sorted(data_dict):
-        output.append('%s: %s\n' % (key, data_dict[key]))
-    output.append('Errors:\n')
-    output.extend(
-        '%s, %s\n' % (name, status)
-        for name, status in error_list)
-    return ''.join(output).encode('utf-8')
 
 
 def pax_key_to_swift_header(pax_key):
@@ -506,8 +461,9 @@ class Bulk(object):
             self.logger.exception('Error in bulk delete.')
             resp_dict['Response Status'] = HTTPServerError().status
 
-        yield separator + get_response_body(out_content_type,
-                                            resp_dict, failed_files, 'delete')
+        yield separator + get_heartbeat_response_body(out_content_type,
+                                                      resp_dict, failed_files,
+                                                      'delete')
 
     def handle_extract_iter(self, req, compress_type,
                             out_content_type='text/plain'):
@@ -671,7 +627,7 @@ class Bulk(object):
             self.logger.exception('Error in extract archive.')
             resp_dict['Response Status'] = HTTPServerError().status
 
-        yield separator + get_response_body(
+        yield separator + get_heartbeat_response_body(
             out_content_type, resp_dict, failed_files, 'extract')
 
     def _process_delete(self, resp, pile, obj_name, resp_dict,
