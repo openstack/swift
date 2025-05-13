@@ -234,8 +234,6 @@ ceph_s3:
   s3tests_boto3.functional.test_s3.test_put_object_ifmatch_overwrite_existed_good: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_put_object_ifnonmatch_failed: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_put_object_ifnonmatch_good: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_put_object_ifnonmatch_nonexisted_good: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_put_object_ifnonmatch_overwrite_existed_failed: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_put_tags_acl_public: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_set_cors: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_set_tagging: {status: KNOWN}

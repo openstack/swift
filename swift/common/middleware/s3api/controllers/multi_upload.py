@@ -80,7 +80,8 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     ErrorResponse, MalformedXML, BadDigest, KeyTooLongError, \
     InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
     InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
-    NoSuchBucket, BucketAlreadyOwnedByYou, ServiceUnavailable
+    NoSuchBucket, BucketAlreadyOwnedByYou, ServiceUnavailable, \
+    PreconditionFailed, S3NotImplemented
 from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
@@ -646,6 +647,14 @@ class UploadController(Controller):
         Handles Complete Multipart Upload.
         """
         upload_id = get_param(req, 'uploadId')
+        # Check for conditional requests before getting upload info so the
+        # headers can't bleed into the HEAD
+        if req.headers.get('If-None-Match', '*') != '*' or any(
+                h in req.headers for h in (
+                    'If-Match', 'If-Modified-Since', 'If-Unmodified-Since')):
+            raise S3NotImplemented(
+                'Conditional uploads are not supported.')
+
         resp, is_marker = _get_upload_info(req, self.app, upload_id)
         if (is_marker and
                 resp.sw_headers.get('X-Backend-Timestamp') >= Timestamp.now()):
@@ -735,13 +744,17 @@ class UploadController(Controller):
 
         s3_etag = '%s-%d' % (s3_etag_hasher.hexdigest(), len(manifest))
         s3_etag_header = sysmeta_header('object', 'etag')
-        if resp.sysmeta_headers.get(s3_etag_header) == s3_etag:
-            # This header should only already be present if the upload marker
-            # has been cleaned up and the current target uses the same
-            # upload-id; assuming the segments to use haven't changed, the work
-            # is already done
+        # This header should only already be present if the upload marker
+        # has been cleaned up and the current target uses the same upload-id
+        already_uploaded_s3_etag = resp.sysmeta_headers.get(s3_etag_header)
+        if already_uploaded_s3_etag == s3_etag:
+            # If the segments to use haven't changed, the work is already done
             return HTTPOk(body=_make_complete_body(req, s3_etag, False),
                           content_type='application/xml')
+        elif already_uploaded_s3_etag:
+            # If the header's present but *doesn't* match, upload-id is
+            # no longer valid
+            raise NoSuchUpload(upload_id=upload_id)
         headers[s3_etag_header] = s3_etag
         # Leave base header value blank; SLO will populate
         c_etag = '; s3_etag=%s' % s3_etag
@@ -796,7 +809,10 @@ class UploadController(Controller):
                                 continue
                             body.append(chunk)
                         body = json.loads(b''.join(body))
-                        if body['Response Status'] != '201 Created':
+                        if body['Response Status'] == \
+                                '412 Precondition Failed':
+                            raise PreconditionFailed
+                        elif body['Response Status'] != '201 Created':
                             for seg, err in body['Errors']:
                                 if err == too_small_message:
                                     raise EntityTooSmall()
