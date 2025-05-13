@@ -333,14 +333,10 @@ class ProxyLoggingMiddleware(object):
         metric_name_policy = self.statsd_metric_name_policy(req, status_int,
                                                             method,
                                                             policy_index)
-        # Only log data for valid controllers (or SOS) to keep the metric count
-        # down (egregious errors will get logged by the proxy server itself).
-
-        if metric_name:
-            self.access_logger.timing(metric_name + '.timing',
-                                      (end_time - start_time) * 1000)
-            self.access_logger.update_stats(metric_name + '.xfer',
-                                            bytes_received + bytes_sent)
+        self.access_logger.timing(metric_name + '.timing',
+                                  (end_time - start_time) * 1000)
+        self.access_logger.update_stats(metric_name + '.xfer',
+                                        bytes_received + bytes_sent)
         if metric_name_policy:
             self.access_logger.timing(metric_name_policy + '.timing',
                                       (end_time - start_time) * 1000)
