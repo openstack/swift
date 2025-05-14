@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """Tests for swift.common.utils.logs"""
-from __future__ import print_function
 
 import contextlib
 import errno
@@ -26,7 +25,7 @@ import time
 import unittest
 import eventlet
 import functools
-import mock
+from unittest import mock
 
 from io import StringIO
 import http.client

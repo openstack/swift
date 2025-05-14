@@ -33,7 +33,7 @@ from swift.common.swob import Request, HTTPException, str_to_wsgi, \
     bytes_to_wsgi
 from swift.common.utils import quote, closing_if_possible, close_if_possible, \
     parse_content_type, iter_multipart_mime_documents, parse_mime_headers, \
-    Timestamp, get_expirer_container, md5
+    Timestamp, md5
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -1609,8 +1609,8 @@ class TestSloDeleteManifest(SloTestCase):
     def test_handle_async_delete_whole(self):
         self.slo.allow_async_delete = True
         now = Timestamp(time.time())
-        exp_obj_cont = get_expirer_container(
-            int(now), 86400, 'AUTH_test', 'deltest', 'man-all-there')
+        exp_obj_cont = self.slo.expirer_config.get_expirer_container(
+            int(now), 'AUTH_test', 'deltest', 'man-all-there')
         self.app.register(
             'UPDATE', '/v1/.expiring_objects/%s' % exp_obj_cont,
             swob.HTTPNoContent, {}, None)
@@ -1636,12 +1636,12 @@ class TestSloDeleteManifest(SloTestCase):
             ('X-Backend-Storage-Policy-Index', '0'),
             ('X-Backend-Allow-Private-Methods', 'True'),
         ):
-            self.assertIn(header, self.app.calls_with_headers[1].headers)
-            value = self.app.calls_with_headers[1].headers[header]
+            self.assertIn(header, self.app.call_list[1].headers)
+            value = self.app.call_list[1].headers[header]
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
-        self.assertEqual(json.loads(self.app.req_bodies[1]), [
+        self.assertEqual(json.loads(self.app.call_list[1].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
@@ -1663,8 +1663,8 @@ class TestSloDeleteManifest(SloTestCase):
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
         now = Timestamp(time.time())
-        exp_obj_cont = get_expirer_container(
-            int(now), 86400, unicode_acct, 'deltest', 'man-all-there')
+        exp_obj_cont = self.slo.expirer_config.get_expirer_container(
+            int(now), unicode_acct, 'deltest', 'man-all-there')
         self.app.register(
             'UPDATE', '/v1/.expiring_objects/%s' % exp_obj_cont,
             swob.HTTPNoContent, {}, None)
@@ -1710,12 +1710,12 @@ class TestSloDeleteManifest(SloTestCase):
             ('X-Backend-Storage-Policy-Index', '0'),
             ('X-Backend-Allow-Private-Methods', 'True'),
         ):
-            self.assertIn(header, self.app.calls_with_headers[-2].headers)
-            value = self.app.calls_with_headers[-2].headers[header]
+            self.assertIn(header, self.app.call_list[-2].headers)
+            value = self.app.call_list[-2].headers[header]
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
-        self.assertEqual(json.loads(self.app.req_bodies[-2]), [
+        self.assertEqual(json.loads(self.app.call_list[-2].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
@@ -1737,8 +1737,8 @@ class TestSloDeleteManifest(SloTestCase):
         unicode_acct = u'AUTH_test-un\u00efcode'
         wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
         now = Timestamp(time.time())
-        exp_obj_cont = get_expirer_container(
-            int(now), 86400, unicode_acct, u'\N{SNOWMAN}', 'same-container')
+        exp_obj_cont = self.slo.expirer_config.get_expirer_container(
+            int(now), unicode_acct, u'\N{SNOWMAN}', 'same-container')
         self.app.register(
             'UPDATE', '/v1/.expiring_objects/%s' % exp_obj_cont,
             swob.HTTPNoContent, {}, None)
@@ -1780,12 +1780,12 @@ class TestSloDeleteManifest(SloTestCase):
             ('X-Backend-Storage-Policy-Index', '0'),
             ('X-Backend-Allow-Private-Methods', 'True'),
         ):
-            self.assertIn(header, self.app.calls_with_headers[-2].headers)
-            value = self.app.calls_with_headers[-2].headers[header]
+            self.assertIn(header, self.app.call_list[-2].headers)
+            value = self.app.call_list[-2].headers[header]
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
-        self.assertEqual(json.loads(self.app.req_bodies[-2]), [
+        self.assertEqual(json.loads(self.app.call_list[-2].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
@@ -1801,6 +1801,32 @@ class TestSloDeleteManifest(SloTestCase):
              'size': 0,
              'storage_policy_index': 0},
         ])
+
+    def test_handle_async_delete_alternative_expirer_config(self):
+        # Test that SLO async delete operation will send UPDATE requests to the
+        # alternative expirer container when using a non-default account name
+        # and container divisor.
+        slo_conf = {
+            'expiring_objects_account_name': 'exp',
+            'expiring_objects_container_divisor': '5400',
+        }
+        self.slo = slo.filter_factory(slo_conf)(self.app)
+        now = Timestamp(time.time())
+        exp_obj_cont = self.slo.expirer_config.get_expirer_container(
+            int(now), 'AUTH_test', 'deltest', 'man-all-there')
+        self.app.register(
+            'UPDATE', '/v1/.exp/%s' % exp_obj_cont,
+            swob.HTTPNoContent, {}, None)
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man-all-there',
+            method='DELETE')
+        with patch('swift.common.utils.Timestamp.now', return_value=now):
+            self.slo.handle_async_delete(req)
+        self.assertEqual([
+            ('GET', '/v1/AUTH_test/deltest/man-all-there'
+             '?multipart-manifest=get'),
+            ('UPDATE', '/v1/.exp/%s' % exp_obj_cont),
+        ], self.app.calls)
 
     def test_handle_async_delete_nested(self):
         self.slo.allow_async_delete = True
@@ -5987,7 +6013,7 @@ class TestPartNumber(SloGETorHEADTestCase):
         # since the our requested part-number is range-segment we expect Range
         # header on b_10 segment subrequest
         self.assertEqual('bytes=4-7',
-                         self.app.calls_with_headers[1].headers['Range'])
+                         self.app.call_list[1].headers['Range'])
 
     def test_part_number_sub_ranges_manifest(self):
         req = Request.blank(

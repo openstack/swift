@@ -15,7 +15,7 @@
 
 from swift.common import registry, utils
 
-import mock
+from unittest import mock
 import unittest
 
 

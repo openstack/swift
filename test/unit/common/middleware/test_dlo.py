@@ -15,7 +15,7 @@
 # limitations under the License.
 
 import json
-import mock
+from unittest import mock
 import shutil
 import tempfile
 from textwrap import dedent

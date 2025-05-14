@@ -19,7 +19,7 @@ import shutil
 import tempfile
 import unittest
 import uuid
-import mock
+from unittest import mock
 
 from swift.common import swob
 from swift.common.middleware import container_sync

@@ -15,7 +15,7 @@
 
 import copy
 import errno
-import mock
+from unittest import mock
 import operator
 import os
 import unittest

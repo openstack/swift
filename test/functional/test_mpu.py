@@ -14,9 +14,8 @@
 # limitations under the License.
 import binascii
 import json
-import mock
 import unittest
-from unittest import SkipTest
+from unittest import mock, SkipTest
 from uuid import uuid4
 
 import test.functional as tf

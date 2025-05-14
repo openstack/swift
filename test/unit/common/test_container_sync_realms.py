@@ -18,7 +18,7 @@ import os
 import unittest
 import uuid
 
-from mock import ANY, patch
+from unittest.mock import ANY, patch
 from swift.common.container_sync_realms import ContainerSyncRealms
 from test.debug_logger import debug_logger
 from test.unit import temptree

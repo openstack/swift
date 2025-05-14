@@ -20,8 +20,12 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, HTTPOk, HTTPNoContent
 from swift.common.middleware import listing_formats
 from swift.common.request_helpers import get_reserved_name
+from swift.common.storage_policy import POLICIES
 from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
+
+
+TEST_POLICIES = (POLICIES[0].name, 'Policy-1')
 
 
 class TestListingFormats(unittest.TestCase):
@@ -32,8 +36,14 @@ class TestListingFormats(unittest.TestCase):
                                                  logger=self.logger)
         self.fake_account_listing = json.dumps([
             {'name': 'bar', 'bytes': 0, 'count': 0,
-             'last_modified': '1970-01-01T00:00:00.000000'},
+             'last_modified': '1970-01-01T00:00:00.000000',
+             'storage_policy': TEST_POLICIES[0]},
             {'subdir': 'foo_'},
+            {'name': 'foobar', 'bytes': 0, 'count': 0,
+             'last_modified': '2025-01-01T00:00:00.000000',
+             'storage_policy': TEST_POLICIES[1]},
+            {'name': 'nobar', 'bytes': 0, 'count': 0,  # Unknown policy
+             'last_modified': '2025-02-01T00:00:00.000000'},
         ]).encode('ascii')
         self.fake_container_listing = json.dumps([
             {'name': 'bar', 'hash': 'etag', 'bytes': 0,
@@ -44,11 +54,18 @@ class TestListingFormats(unittest.TestCase):
 
         self.fake_account_listing_with_reserved = json.dumps([
             {'name': 'bar', 'bytes': 0, 'count': 0,
-             'last_modified': '1970-01-01T00:00:00.000000'},
+             'last_modified': '1970-01-01T00:00:00.000000',
+             'storage_policy': TEST_POLICIES[0]},
             {'name': get_reserved_name('bar', 'versions'), 'bytes': 0,
-             'count': 0, 'last_modified': '1970-01-01T00:00:00.000000'},
+             'count': 0, 'last_modified': '1970-01-01T00:00:00.000000',
+             'storage_policy': TEST_POLICIES[0]},
             {'subdir': 'foo_'},
             {'subdir': get_reserved_name('foo_')},
+            {'name': 'foobar', 'bytes': 0, 'count': 0,
+             'last_modified': '2025-01-01T00:00:00.000000',
+             'storage_policy': TEST_POLICIES[1]},
+            {'name': 'nobar', 'bytes': 0, 'count': 0,  # Unknown policy
+             'last_modified': '2025-02-01T00:00:00.000000'},
         ]).encode('ascii')
         self.fake_container_listing_with_reserved = json.dumps([
             {'name': 'bar', 'hash': 'etag', 'bytes': 0,
@@ -68,7 +85,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, b'bar\nfoo_\n')
+        self.assertEqual(resp.body, b'bar\nfoo_\nfoobar\nnobar\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -76,7 +93,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a?format=plain')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, b'bar\nfoo_\n')
+        self.assertEqual(resp.body, b'bar\nfoo_\nfoobar\nnobar\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -98,8 +115,16 @@ class TestListingFormats(unittest.TestCase):
             b'<account name="a">',
             b'<container><name>bar</name><count>0</count><bytes>0</bytes>'
             b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
-            b'</container>',
+            b'<storage_policy>%s</storage_policy>'
+            b'</container>' % TEST_POLICIES[0].encode('ascii'),
             b'<subdir name="foo_" />',
+            b'<container><name>foobar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>2025-01-01T00:00:00.000000</last_modified>'
+            b'<storage_policy>%s</storage_policy>'
+            b'</container>' % TEST_POLICIES[1].encode('ascii'),
+            b'<container><name>nobar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>2025-02-01T00:00:00.000000</last_modified>'
+            b'</container>',
             b'</account>',
         ])
         self.assertEqual(resp.headers['Content-Type'],
@@ -247,7 +272,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a\xe2\x98\x83')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, b'bar\nfoo_\n')
+        self.assertEqual(resp.body, b'bar\nfoo_\nfoobar\nnobar\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -262,7 +287,7 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a\xe2\x98\x83', headers={
             'X-Backend-Allow-Reserved-Names': 'true'})
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, b'bar\n%s\nfoo_\n%s\n' % (
+        self.assertEqual(resp.body, b'bar\n%s\nfoo_\n%s\nfoobar\nnobar\n' % (
             get_reserved_name('bar', 'versions').encode('ascii'),
             get_reserved_name('foo_').encode('ascii'),
         ))
@@ -273,7 +298,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a\xe2\x98\x83?format=plain')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, b'bar\nfoo_\n')
+        self.assertEqual(resp.body, b'bar\nfoo_\nfoobar\nnobar\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -282,7 +307,7 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a\xe2\x98\x83?format=plain', headers={
             'X-Backend-Allow-Reserved-Names': 'true'})
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, b'bar\n%s\nfoo_\n%s\n' % (
+        self.assertEqual(resp.body, b'bar\n%s\nfoo_\n%s\nfoobar\nnobar\n' % (
             get_reserved_name('bar', 'versions').encode('ascii'),
             get_reserved_name('foo_').encode('ascii'),
         ))
@@ -317,8 +342,16 @@ class TestListingFormats(unittest.TestCase):
             b'<account name="a\xe2\x98\x83">',
             b'<container><name>bar</name><count>0</count><bytes>0</bytes>'
             b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
-            b'</container>',
+            b'<storage_policy>%s</storage_policy>'
+            b'</container>' % TEST_POLICIES[0].encode('ascii'),
             b'<subdir name="foo_" />',
+            b'<container><name>foobar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>2025-01-01T00:00:00.000000</last_modified>'
+            b'<storage_policy>%s</storage_policy>'
+            b'</container>' % TEST_POLICIES[1].encode('ascii'),
+            b'<container><name>nobar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>2025-02-01T00:00:00.000000</last_modified>'
+            b'</container>',
             b'</account>',
         ])
         self.assertEqual(resp.headers['Content-Type'],
@@ -334,15 +367,26 @@ class TestListingFormats(unittest.TestCase):
             b'<account name="a\xe2\x98\x83">',
             b'<container><name>bar</name><count>0</count><bytes>0</bytes>'
             b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
-            b'</container>',
+            b'<storage_policy>%s</storage_policy>'
+            b'</container>' % TEST_POLICIES[0].encode('ascii'),
             b'<container><name>%s</name>'
             b'<count>0</count><bytes>0</bytes>'
             b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
-            b'</container>' % get_reserved_name(
-                'bar', 'versions').encode('ascii'),
+            b'<storage_policy>%s</storage_policy>'
+            b'</container>' % (
+                get_reserved_name('bar', 'versions').encode('ascii'),
+                TEST_POLICIES[0].encode('ascii'),
+            ),
             b'<subdir name="foo_" />',
             b'<subdir name="%s" />' % get_reserved_name(
                 'foo_').encode('ascii'),
+            b'<container><name>foobar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>2025-01-01T00:00:00.000000</last_modified>'
+            b'<storage_policy>%s</storage_policy>'
+            b'</container>' % TEST_POLICIES[1].encode('ascii'),
+            b'<container><name>nobar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>2025-02-01T00:00:00.000000</last_modified>'
+            b'</container>',
             b'</account>',
         ])
         self.assertEqual(resp.headers['Content-Type'],
@@ -659,8 +703,16 @@ class TestListingFormats(unittest.TestCase):
         body = json.dumps([
             {'name': 'bar', 'hash': 'etag', 'bytes': 0,
              'content_type': 'text/plain',
-             'last_modified': '1970-01-01T00:00:00.000000'},
+             'last_modified': '1970-01-01T00:00:00.000000',
+             'storage_policy': TEST_POLICIES[0]},
             {'subdir': 'foo/'},
+            {'name': 'foobar', 'hash': 'etag', 'bytes': 0,
+             'content_type': 'text/plain',
+             'last_modified': '2025-01-01T00:00:00.000000',
+             'storage_policy': TEST_POLICIES[1]},
+            {'name': 'nobar', 'hash': 'etag', 'bytes': 0,
+             'content_type': 'text/plain',
+             'last_modified': '2025-02-01T00:00:00.000000'},
         ] * 160000).encode('ascii')
         self.assertGreater(  # sanity
             len(body), listing_formats.MAX_CONTAINER_LISTING_CONTENT_LENGTH)

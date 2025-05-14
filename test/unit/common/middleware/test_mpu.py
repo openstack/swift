@@ -18,7 +18,7 @@ import json
 import unittest
 import urllib
 
-import mock
+from unittest import mock
 
 from swift.common import swob, registry
 from swift.common.header_key_dict import HeaderKeyDict
@@ -2382,7 +2382,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(exp_resp_headers, resp.headers)
         self.assertEqual({'Host': 'localhost:80',
                           'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
-                         self.app.calls_with_headers[0].headers)
+                         self.app.call_list[0].headers)
         return resp
 
     def test_get_mpu(self):

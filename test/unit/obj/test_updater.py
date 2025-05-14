@@ -15,7 +15,7 @@
 import eventlet
 import pickle
 from queue import PriorityQueue
-import mock
+from unittest import mock
 import os
 import unittest
 import random
@@ -483,7 +483,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(['Skipping: sda1 is unmounted'],
                          self.logger.get_lines_for_level('warning'))
         self.logger.clear()
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(), {})
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(), {})
 
         # multiple devices, one unmounted
         NUM_DEVICES = 4
@@ -528,7 +528,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(['Skipping: sda2 is unmounted'],
                          self.logger.get_lines_for_level('warning'))
         self.logger.clear()
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(), {})
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(), {})
 
     @mock.patch('swift.obj.updater.os')
     def test_run_once_child(self, mock_os):
@@ -746,7 +746,7 @@ class TestObjectUpdater(unittest.TestCase):
         ou._process_device_in_child(self.sda1, 'sda1')
         self.assertTrue(not os.path.exists(older_op_path))
         self.assertTrue(os.path.exists(op_path))
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(),
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1, 'outdated_unlinks': 1})
         self.assertIsNone(pickle.load(open(op_path, 'rb')).get('successes'))
         self.assertEqual(
@@ -811,7 +811,7 @@ class TestObjectUpdater(unittest.TestCase):
         if err:
             raise err
         self.assertTrue(os.path.exists(op_path))
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(),
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0],
                          pickle.load(open(op_path, 'rb')).get('successes'))
@@ -832,7 +832,7 @@ class TestObjectUpdater(unittest.TestCase):
         if err:
             raise err
         self.assertTrue(os.path.exists(op_path))
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(),
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0, 2],
                          pickle.load(open(op_path, 'rb')).get('successes'))
@@ -851,7 +851,7 @@ class TestObjectUpdater(unittest.TestCase):
             mock_connect.return_value.getresponse.side_effect = exc
             ou._process_device_in_child(self.sda1, 'sda1')
         self.assertTrue(os.path.exists(op_path))
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(),
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0, 2],
                          pickle.load(open(op_path, 'rb')).get('successes'))
@@ -871,7 +871,7 @@ class TestObjectUpdater(unittest.TestCase):
             mock_connect.return_value.getresponse.side_effect = exc
             ou._process_device_in_child(self.sda1, 'sda1')
         self.assertTrue(os.path.exists(op_path))
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(),
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0, 2],
                          pickle.load(open(op_path, 'rb')).get('successes'))
@@ -900,7 +900,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.dirname(os.path.dirname(
             op_path))))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
-        self.assertEqual(ou.logger.statsd_client.get_increment_counts(),
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'unlinks': 1, 'successes': 1})
         self.assertEqual(
             sorted(ou.logger.statsd_client.calls['timing']),
@@ -1494,7 +1494,7 @@ class TestObjectUpdater(unittest.TestCase):
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  str(int(policy)))
             self.assertEqual(
-                daemon.logger.statsd_client.get_increment_counts(),
+                daemon.logger.statsd_client.get_stats_counts(),
                 {'successes': 1, 'unlinks': 1, 'async_pendings': 1})
 
     def _write_async_update(self, dfmanager, timestamp, policy,
@@ -1556,7 +1556,7 @@ class TestObjectUpdater(unittest.TestCase):
                 self.assertEqual(method, 'PUT')
                 self.assertDictEqual(expected, headers)
             self.assertEqual(
-                daemon.logger.statsd_client.get_increment_counts(),
+                daemon.logger.statsd_client.get_stats_counts(),
                 {'successes': 1, 'unlinks': 1, 'async_pendings': 1})
             self.assertFalse(os.listdir(async_dir))
             daemon.logger.clear()
@@ -1673,7 +1673,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(
             {'redirects': 1, 'successes': 1,
              'unlinks': 1, 'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
 
     def test_obj_put_async_root_update_redirected_previous_success(self):
@@ -1705,7 +1705,7 @@ class TestObjectUpdater(unittest.TestCase):
                          [req['path'] for req in conn.requests])
         self.assertEqual(
             {'failures': 1, 'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         async_path, async_data = self._check_async_file(async_dir)
         self.assertEqual(dict(orig_async_data, successes=[1]), async_data)
 
@@ -1733,7 +1733,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(
             {'redirects': 1, 'successes': 1, 'failures': 1, 'unlinks': 1,
              'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
 
     def _check_async_file(self, async_dir):
@@ -1781,7 +1781,7 @@ class TestObjectUpdater(unittest.TestCase):
                          [req['path'] for req in conn.requests])
         self.assertEqual(
             {'failures': 1, 'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         # async file still intact
         async_path, async_data = self._check_async_file(async_dir)
         self.assertEqual(orig_async_path, async_path)
@@ -1860,7 +1860,7 @@ class TestObjectUpdater(unittest.TestCase):
             [req['path'] for req in conn.requests])
         self.assertEqual(
             {'redirects': 2, 'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         # update failed, we still have pending file with most recent redirect
         # response Location header value added to data
         async_path, async_data = self._check_async_file(async_dir)
@@ -1886,7 +1886,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(
             {'redirects': 2, 'successes': 1, 'unlinks': 1,
              'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
 
     def test_obj_put_async_update_redirection_loop(self):
@@ -1934,7 +1934,7 @@ class TestObjectUpdater(unittest.TestCase):
                          [req['path'] for req in conn.requests])
         self.assertEqual(
             {'redirects': 2, 'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         # update failed, we still have pending file with most recent redirect
         # response Location header value added to data
         async_path, async_data = self._check_async_file(async_dir)
@@ -1966,7 +1966,7 @@ class TestObjectUpdater(unittest.TestCase):
             [req['path'] for req in conn.requests])
         self.assertEqual(
             {'redirects': 4, 'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         # update failed, we still have pending file with most recent redirect
         # response Location header value from root added to persisted data
         async_path, async_data = self._check_async_file(async_dir)
@@ -1996,7 +1996,7 @@ class TestObjectUpdater(unittest.TestCase):
             [req['path'] for req in conn.requests])
         self.assertEqual(
             {'redirects': 6, 'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         # update failed, we still have pending file, but container_path is None
         # because most recent redirect location was a repeat
         async_path, async_data = self._check_async_file(async_dir)
@@ -2020,7 +2020,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(
             {'redirects': 6, 'successes': 1, 'unlinks': 1,
              'async_pendings': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
 
     def test_obj_update_quarantine(self):
@@ -2052,7 +2052,7 @@ class TestObjectUpdater(unittest.TestCase):
 
         self.assertEqual(
             {'quarantines': 1},
-            daemon.logger.statsd_client.get_increment_counts())
+            daemon.logger.statsd_client.get_stats_counts())
         self.assertFalse(os.listdir(async_dir))  # no asyncs
 
     def test_obj_update_gone_missing(self):
@@ -2085,7 +2085,7 @@ class TestObjectUpdater(unittest.TestCase):
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon._load_update(self.sda1, op_path)
         self.assertEqual(
-            {}, daemon.logger.statsd_client.get_increment_counts())
+            {}, daemon.logger.statsd_client.get_stats_counts())
         self.assertEqual(os.listdir(async_dir), [ohash[-3:]])
         self.assertFalse(os.listdir(odir))
 
@@ -2166,7 +2166,7 @@ class TestObjectUpdater(unittest.TestCase):
                       info_lines[-1])
         self.assertEqual({'skips': 9, 'successes': 2, 'unlinks': 2,
                           'deferrals': 9},
-                         self.logger.statsd_client.get_increment_counts())
+                         self.logger.statsd_client.get_stats_counts())
 
     @mock.patch('swift.obj.updater.dump_recon_cache')
     def test_per_container_rate_limit_unlimited(self, mock_recon):
@@ -2205,7 +2205,7 @@ class TestObjectUpdater(unittest.TestCase):
                       '0 deferrals, 0 drains',
                       info_lines[-1])
         self.assertEqual({'successes': 11, 'unlinks': 11},
-                         self.logger.statsd_client.get_increment_counts())
+                         self.logger.statsd_client.get_stats_counts())
 
     @mock.patch('swift.obj.updater.dump_recon_cache')
     def test_per_container_rate_limit_some_limited(self, mock_recon):
@@ -2275,7 +2275,7 @@ class TestObjectUpdater(unittest.TestCase):
                       info_lines[-1])
         self.assertEqual({'skips': 2, 'successes': 2, 'unlinks': 2,
                           'deferrals': 2},
-                         self.logger.statsd_client.get_increment_counts())
+                         self.logger.statsd_client.get_stats_counts())
 
     @mock.patch('swift.obj.updater.dump_recon_cache')
     def test_per_container_rate_limit_defer_2_skip_1(self, mock_recon):
@@ -2325,7 +2325,7 @@ class TestObjectUpdater(unittest.TestCase):
 
         def fake_get_time(bucket_iter):
             captured_skips_stats.append(
-                daemon.logger.statsd_client.get_increment_counts().get(
+                daemon.logger.statsd_client.get_stats_counts().get(
                     'skips', 0))
             captured_queues.append(list(bucket_iter.buckets[0].deque))
             # make each update delay before the iter being called again
@@ -2394,7 +2394,7 @@ class TestObjectUpdater(unittest.TestCase):
                       info_lines[-1])
         self.assertEqual(
             {'skips': 1, 'successes': 3, 'unlinks': 3, 'deferrals': 2,
-             'drains': 1}, self.logger.statsd_client.get_increment_counts())
+             'drains': 1}, self.logger.statsd_client.get_stats_counts())
 
     @mock.patch('swift.obj.updater.dump_recon_cache')
     def test_per_container_rate_limit_defer_3_skip_1(self, mock_recon):
@@ -2444,7 +2444,7 @@ class TestObjectUpdater(unittest.TestCase):
 
         def fake_get_time(bucket_iter):
             captured_skips_stats.append(
-                daemon.logger.statsd_client.get_increment_counts().get(
+                daemon.logger.statsd_client.get_stats_counts().get(
                     'skips', 0))
             captured_queues.append(list(bucket_iter.buckets[0].deque))
             # make each update delay before the iter being called again
@@ -2516,7 +2516,7 @@ class TestObjectUpdater(unittest.TestCase):
                       info_lines[-1])
         self.assertEqual(
             {'skips': 1, 'successes': 4, 'unlinks': 4, 'deferrals': 3,
-             'drains': 2}, self.logger.statsd_client.get_increment_counts())
+             'drains': 2}, self.logger.statsd_client.get_stats_counts())
 
     @mock.patch('swift.obj.updater.dump_recon_cache')
     def test_per_container_rate_limit_unsent_deferrals(self, mock_recon):
@@ -2572,7 +2572,7 @@ class TestObjectUpdater(unittest.TestCase):
             if not captured_skips_stats:
                 daemon.begin = now[0]
             captured_skips_stats.append(
-                daemon.logger.statsd_client.get_increment_counts().get(
+                daemon.logger.statsd_client.get_stats_counts().get(
                     'skips', 0))
             captured_queues.append(list(bucket_iter.buckets[0].deque))
             # insert delay each time iter is called
@@ -2643,9 +2643,13 @@ class TestObjectUpdater(unittest.TestCase):
                       '0 outdated_unlinks, 0 errors, 0 redirects, 2 skips, '
                       '4 deferrals, 2 drains',
                       info_lines[-1])
-        self.assertEqual(
-            {'successes': 5, 'unlinks': 5, 'deferrals': 4, 'drains': 2},
-            self.logger.statsd_client.get_increment_counts())
+        self.assertEqual({
+            'successes': 5,
+            'unlinks': 5,
+            'deferrals': 4,
+            'drains': 2,
+            'skips': 2,
+        }, self.logger.statsd_client.counters)
         self.assertEqual(
             2, self.logger.statsd_client.get_stats_counts()['skips'])
 

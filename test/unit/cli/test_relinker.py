@@ -18,7 +18,7 @@ from contextlib import contextmanager
 import logging
 from textwrap import dedent
 
-import mock
+from unittest import mock
 import os
 import pickle
 import shutil

@@ -19,7 +19,7 @@ import time
 import unittest
 import uuid
 
-import mock
+from unittest import mock
 import requests
 from requests_mock.contrib import fixture as rm_fixture
 import urllib.parse

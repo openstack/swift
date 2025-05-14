@@ -18,7 +18,7 @@ import time
 import unittest
 
 import eventlet
-import mock
+from unittest import mock
 import urllib.parse
 
 from swift.common import exceptions, utils

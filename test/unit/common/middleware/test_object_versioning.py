@@ -17,7 +17,7 @@ import functools
 import json
 import os
 import time
-import mock
+from unittest import mock
 import unittest
 import urllib.parse
 from swift.common import swob, utils
@@ -613,7 +613,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -626,7 +626,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in symlink_expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -668,7 +668,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -684,7 +684,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in symlink_expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -727,7 +727,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             'content-type': 'text/jibberish01',
             'x-object-meta-foo': 'bar',
         }
-        version_obj_post_headers = self.app._calls[1].headers
+        version_obj_post_headers = self.app.call_list[1].headers
         for k, v in expected_hdrs.items():
             self.assertEqual(version_obj_post_headers[k], v)
 
@@ -852,7 +852,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -863,7 +863,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -905,7 +905,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -962,7 +962,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -1031,7 +1031,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -1111,7 +1111,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -1122,7 +1122,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -1182,7 +1182,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -1193,7 +1193,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -1363,7 +1363,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        obj_put_headers = self.app.calls_with_headers[-1].headers
+        obj_put_headers = self.app.call_list[-1].headers
         self.assertNotIn(SYSMETA_VERSIONS_SYMLINK, obj_put_headers)
 
     def test_put_object_versioning_disabled(self):
@@ -1394,7 +1394,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('PUT', '/v1/a/c/o'),
         ])
-        obj_put_headers = self.app._calls[-1].headers
+        obj_put_headers = self.app.call_list[-1].headers
         self.assertNotIn(SYSMETA_VERSIONS_SYMLINK, obj_put_headers)
 
     @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
@@ -1452,7 +1452,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        obj_put_headers = self.app.calls_with_headers[-1].headers
+        obj_put_headers = self.app.call_list[-1].headers
         self.assertNotIn(SYSMETA_VERSIONS_SYMLINK, obj_put_headers)
 
     @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
@@ -1510,7 +1510,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
             'content-type': 'text/jibberish01',
             'x-object-meta-foo': 'bar',
         }
-        version_obj_post_headers = self.app._calls[1].headers
+        version_obj_post_headers = self.app.call_list[1].headers
         for k, v in expected_hdrs.items():
             self.assertEqual(version_obj_post_headers[k], v)
 
@@ -1543,7 +1543,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
             'content-type': 'text/jibberish01',
             'x-object-meta-foo': 'bar',
         }
-        version_obj_post_headers = self.app._calls[0].headers
+        version_obj_post_headers = self.app.call_list[0].headers
         for k, v in expected_hdrs.items():
             self.assertEqual(version_obj_post_headers[k], v)
 
@@ -1565,8 +1565,7 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         self.assertEqual(status, '204 No Content')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-        called_method = \
-            [method for (method, path, rheaders) in self.app._calls]
+        called_method = [call.method for call in self.app.call_list]
         self.assertNotIn('PUT', called_method)
         self.assertNotIn('GET', called_method)
         self.assertEqual(1, self.app.call_count)
@@ -1596,7 +1595,7 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         req.environ['REQUEST_METHOD'] = 'PUT'
         self.assertRequestEqual(req, self.authorized[0])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertEqual(['GET', 'PUT', 'DELETE'], [c.method for c in calls])
         self.assertEqual('application/x-deleted;swift_versions_deleted=1',
                          calls[1].headers.get('Content-Type'))
@@ -1631,7 +1630,7 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         req.environ['REQUEST_METHOD'] = 'PUT'
         self.assertRequestEqual(req, self.authorized[0])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertEqual(['GET', 'PUT', 'PUT', 'DELETE'],
                          [c.method for c in calls])
         self.assertEqual(
@@ -1665,7 +1664,7 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         req.environ['REQUEST_METHOD'] = 'PUT'
         self.assertRequestEqual(req, self.authorized[0])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertEqual(['GET', 'PUT', 'DELETE'],
                          [c.method for c in calls])
         self.assertEqual(
@@ -1735,7 +1734,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -1788,7 +1787,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -1835,7 +1834,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -1885,7 +1884,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),
         }
-        symlink_put_headers = self.app._calls[-1].headers
+        symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -1923,7 +1922,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             ('GET', '/v1/a/src_cont/src_obj'),
             ('PUT', '/v1/a/c/o'),
         ])
-        obj_put_headers = self.app._calls[-1].headers
+        obj_put_headers = self.app.call_list[-1].headers
         self.assertNotIn(SYSMETA_VERSIONS_SYMLINK, obj_put_headers)
 
 
@@ -1952,7 +1951,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         }, '')
         self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)
@@ -1961,7 +1960,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             ('HEAD', version_path),
             ('PUT', '/v1/a/c/o?version-id=%s' % timestamp.normal),
         ])
-        obj_put_headers = self.app.calls_with_headers[-1].headers
+        obj_put_headers = self.app.call_list[-1].headers
         symlink_expected_headers = {
             SYSMETA_VERSIONS_SYMLINK: 'true',
             TGT_OBJ_SYSMETA_SYMLINK_HDR: self.build_symlink_path(
@@ -1972,7 +1971,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         for k, v in symlink_expected_headers.items():
             self.assertEqual(obj_put_headers[k], v)
 
-    def test_PUT_version_with_body(self):
+    def test_PUT_version_with_non_empty_body(self):
         req = Request.blank(
             '/v1/a/c/o', method='PUT', body='foo',
             environ={'swift.cache': self.cache_version_on},
@@ -1980,13 +1979,30 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '400 Bad Request')
 
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body='foo',
+            environ={'swift.cache': self.cache_version_on,
+                     'HTTP_TRANSFER_ENCODING': 'chunked',
+                     'CONTENT_LENGTH': None},
+            params={'version-id': '1'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '400 Bad Request')
+
+    def test_PUT_version_with_no_length_or_encoding(self):
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT',
+            environ={'swift.cache': self.cache_version_on},
+            params={'version-id': '1'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '411 Length Required')
+
     def test_PUT_version_not_found(self):
         timestamp = next(self.ts)
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)
@@ -1999,7 +2015,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on_but_busted},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)
@@ -2226,7 +2242,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
                  obj='o', version='9999999939.99999')),
         ])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertIn('X-Newest', calls[0].headers)
         self.assertEqual('True', calls[0].headers['X-Newest'])
 
@@ -2332,7 +2348,7 @@ class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
         }, '')
         self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, '')
         req = Request.blank(
-            '/v1/a/c/o', method='PUT',
+            '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_off},
             params={'version-id': timestamp.normal})
         status, headers, body = self.call_ov(req)
@@ -2341,7 +2357,7 @@ class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
             ('HEAD', version_path),
             ('PUT', '/v1/a/c/o?version-id=%s' % timestamp.normal),
         ])
-        obj_put_headers = self.app.calls_with_headers[-1].headers
+        obj_put_headers = self.app.call_list[-1].headers
         symlink_expected_headers = {
             SYSMETA_VERSIONS_SYMLINK: 'true',
             TGT_OBJ_SYSMETA_SYMLINK_HDR: self.build_symlink_path(
@@ -3240,7 +3256,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         ])
 
         # if it's in cache, we won't even get the HEAD
-        self.app._calls = []
+        self.app.clear_calls()
         self.cache_version_never_on.set(
             get_cache_key('a', self.build_container_name('c')),
             {'status': 404})

@@ -21,7 +21,7 @@ import time
 import unittest
 import random
 from tempfile import mkdtemp
-import mock
+from unittest import mock
 
 from swift.common.internal_client import InternalClient
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
@@ -333,8 +333,7 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
         self.assertIn('processed=3, audited=1, skipped=1, errors=1',
                       log_lines[0])
         exp_metrics = dict(('base.%s' % k, v) for k, v in exp_stats.items())
-        self.assertEqual(exp_metrics,
-                         self.fake_statsd_client.get_increment_counts())
+        self.assertEqual(exp_metrics, self.fake_statsd_client.counters)
 
     def test_audit_stops_at_max_row_other_items_merged(self):
         items = [

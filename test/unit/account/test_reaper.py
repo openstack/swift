@@ -20,7 +20,7 @@ import shutil
 import tempfile
 import unittest
 
-from mock import patch, call, DEFAULT
+from unittest.mock import patch, call, DEFAULT
 import eventlet
 
 from swift.account import reaper
@@ -59,7 +59,7 @@ class FakeAccountBroker(object):
                 kwargs, ))
         for cont in self.containers:
             if cont > marker:
-                yield cont, None, None, None, None
+                yield cont, None, None, None, None, None
             limit -= 1
             if limit <= 0:
                 break
@@ -470,7 +470,7 @@ class TestReaper(unittest.TestCase):
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(
-            r.logger.statsd_client.get_increment_counts()['return_codes.4'], 1)
+            r.logger.statsd_client.get_stats_counts()['return_codes.4'], 1)
         self.assertEqual(r.stats_containers_deleted, 1)
 
     def test_reap_container_partial_fail(self):
@@ -490,7 +490,7 @@ class TestReaper(unittest.TestCase):
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(
-            r.logger.statsd_client.get_increment_counts()['return_codes.4'], 4)
+            r.logger.statsd_client.get_stats_counts()['return_codes.4'], 4)
         self.assertEqual(r.stats_containers_possibly_remaining, 1)
 
     def test_reap_container_full_fail(self):
@@ -510,7 +510,7 @@ class TestReaper(unittest.TestCase):
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(
-            r.logger.statsd_client.get_increment_counts()['return_codes.4'], 5)
+            r.logger.statsd_client.get_stats_counts()['return_codes.4'], 5)
         self.assertEqual(r.stats_containers_remaining, 1)
 
     def test_reap_container_get_object_timeout(self):
@@ -735,7 +735,7 @@ class TestReaper(unittest.TestCase):
                 if container in self.containers_yielded:
                     continue
 
-                yield container, None, None, None, None
+                yield container, None, None, None, None, None
                 self.containers_yielded.append(container)
 
         def fake_reap_container(self, account, account_partition,

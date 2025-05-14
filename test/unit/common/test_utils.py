@@ -14,10 +14,10 @@
 # limitations under the License.
 
 """Tests for swift.common.utils"""
-from __future__ import print_function
 
 import argparse
 import hashlib
+import io
 import itertools
 
 from swift.common.statsd_client import StatsdClient
@@ -34,7 +34,7 @@ import eventlet.patcher
 import grp
 import logging
 import os
-import mock
+from unittest import mock
 import posix
 import pwd
 import random
@@ -57,7 +57,7 @@ from io import BytesIO, StringIO
 from shutil import rmtree
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
-from mock import MagicMock, patch
+from unittest.mock import MagicMock, patch
 from configparser import NoSectionError, NoOptionError
 from uuid import uuid4
 
@@ -1861,6 +1861,77 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(
             utils.parse_content_type(r'text/plain; x="\""; a'),
             ('text/plain', [('x', r'"\""'), ('a', '')]))
+        self.assertEqual(
+            utils.parse_content_type(r'text/plain; x=a/b; y'),
+            ('text/plain', [('x', 'a'), ('y', '')]))
+
+        self.assertEqual(
+            utils.parse_content_type(r'text/plain; x=a/b; y', strict=True),
+            ('text/plain', [('x', 'a'), ('y', '')]))
+        self.assertEqual(
+            utils.parse_content_type(r'text/plain; x=a/b; y', strict=False),
+            ('text/plain', [('x', 'a/b'), ('y', '')]))
+
+    def test_parse_header(self):
+        self.assertEqual(
+            utils.parse_header('text/plain'), ('text/plain', {}))
+        self.assertEqual(
+            utils.parse_header('text/plain;'), ('text/plain', {}))
+        self.assertEqual(
+            utils.parse_header(r'text/plain; x=a/b; y  =  z'),
+            ('text/plain', {'x': 'a/b', 'y': 'z'}))
+        self.assertEqual(
+            utils.parse_header(r'text/plain; x=a/b; y'),
+            ('text/plain', {'x': 'a/b', 'y': ''}))
+        self.assertEqual(
+            utils.parse_header('etag; x=a/b; y'),
+            ('etag', {'x': 'a/b', 'y': ''}))
+
+    def test_parse_headers_chars_in_params(self):
+        def do_test(val):
+            self.assertEqual(
+                utils.parse_header('text/plain; x=a%sb' % val),
+                ('text/plain', {'x': 'a%sb' % val}))
+
+        do_test('\N{SNOWMAN}')
+        do_test('\\')
+        do_test('%')
+        do_test('-')
+        do_test('-')
+        do_test('&')
+        # wsgi_quote'd null character is ok...
+        do_test('%00')
+
+    def test_parse_header_non_token_chars_in_params(self):
+        def do_test(val):
+            # character terminates individual param parsing...
+            self.assertEqual(
+                utils.parse_header('text/plain; x=a%sb; y=z' % val),
+                ('text/plain', {'x': 'a', 'y': 'z'}),
+                'val=%s' % val
+            )
+
+        non_token_chars = '()<>@,:[]?={}\x00"'
+
+        for ch in non_token_chars:
+            do_test(ch)
+
+        do_test(' space  oddity ')
+
+    def test_parse_header_quoted_string_in_params(self):
+        def do_test(val):
+            self.assertEqual(
+                utils.parse_header('text/plain; x="%s"; y=z' % val),
+                ('text/plain', {'x': '"%s"' % val, 'y': 'z'}),
+                'val=%s' % val
+            )
+
+        non_token_chars = '()<>@,:[]?={}\x00'
+
+        for ch in non_token_chars:
+            do_test(ch)
+
+        do_test(' space  oddity ')
 
     def test_override_bytes_from_content_type(self):
         listing_dict = {
@@ -2283,6 +2354,15 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.fail("Expecting IOError exception")
         self.assertTrue(_m_linkat.called)
 
+    def test_link_fd_to_path_runs_out_of_retries(self):
+        _m_linkat = mock.Mock(
+            side_effect=IOError(errno.ENOENT, os.strerror(errno.ENOENT)))
+        with mock.patch('swift.common.utils.linkat', _m_linkat), \
+                self.assertRaises(IOError) as caught:
+            utils.link_fd_to_path(0, '/path', 1)
+        self.assertEqual(caught.exception.errno, errno.ENOENT)
+        self.assertEqual(3, len(_m_linkat.mock_calls))
+
     @requires_o_tmpfile_support_in_tmp
     @with_tempdir
     def test_linkat_race_dir_not_exists(self, tempdir):
@@ -2691,18 +2771,27 @@ cluster_dfw1 = http://dfw1.host/v1/
             m_socket.reset_mock()
             m_sock.reset_mock()
             utils.systemd_notify()
-            self.assertEqual(m_socket.call_count, 0)
-            self.assertEqual(m_sock.connect.call_count, 0)
-            self.assertEqual(m_sock.sendall.call_count, 0)
+            self.assertEqual(m_socket.mock_calls, [
+                mock.call(socket.AF_UNIX, socket.SOCK_DGRAM)])
+            self.assertEqual(m_sock.connect.mock_calls, [
+                mock.call(utils.get_pid_notify_socket())])
+            self.assertEqual(m_sock.sendall.mock_calls, [
+                mock.call(b'READY=1')])
 
             # File notification socket
             m_socket.reset_mock()
             m_sock.reset_mock()
             os.environ['NOTIFY_SOCKET'] = 'foobar'
             utils.systemd_notify()
-            m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
-            m_sock.connect.assert_called_once_with('foobar')
-            m_sock.sendall.assert_called_once_with(b'READY=1')
+            self.assertEqual(m_socket.mock_calls, [
+                mock.call(socket.AF_UNIX, socket.SOCK_DGRAM),
+                mock.call(socket.AF_UNIX, socket.SOCK_DGRAM)])
+            self.assertEqual(m_sock.connect.mock_calls, [
+                mock.call(utils.get_pid_notify_socket()),
+                mock.call('foobar')])
+            self.assertEqual(m_sock.sendall.mock_calls, [
+                mock.call(b'READY=1'),
+                mock.call(b'READY=1')])
             # Still there, so we can send STOPPING/RELOADING messages
             self.assertIn('NOTIFY_SOCKET', os.environ)
 
@@ -2710,18 +2799,30 @@ cluster_dfw1 = http://dfw1.host/v1/
             m_sock.reset_mock()
             logger = debug_logger()
             utils.systemd_notify(logger, "RELOADING=1")
-            m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
-            m_sock.connect.assert_called_once_with('foobar')
-            m_sock.sendall.assert_called_once_with(b'RELOADING=1')
+            self.assertEqual(m_socket.mock_calls, [
+                mock.call(socket.AF_UNIX, socket.SOCK_DGRAM),
+                mock.call(socket.AF_UNIX, socket.SOCK_DGRAM)])
+            self.assertEqual(m_sock.connect.mock_calls, [
+                mock.call(utils.get_pid_notify_socket()),
+                mock.call('foobar')])
+            self.assertEqual(m_sock.sendall.mock_calls, [
+                mock.call(b'RELOADING=1'),
+                mock.call(b'RELOADING=1')])
 
             # Abstract notification socket
             m_socket.reset_mock()
             m_sock.reset_mock()
             os.environ['NOTIFY_SOCKET'] = '@foobar'
             utils.systemd_notify()
-            m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
-            m_sock.connect.assert_called_once_with('\0foobar')
-            m_sock.sendall.assert_called_once_with(b'READY=1')
+            self.assertEqual(m_socket.mock_calls, [
+                mock.call(socket.AF_UNIX, socket.SOCK_DGRAM),
+                mock.call(socket.AF_UNIX, socket.SOCK_DGRAM)])
+            self.assertEqual(m_sock.connect.mock_calls, [
+                mock.call(utils.get_pid_notify_socket()),
+                mock.call('\x00foobar')])
+            self.assertEqual(m_sock.sendall.mock_calls, [
+                mock.call(b'READY=1'),
+                mock.call(b'READY=1')])
             self.assertIn('NOTIFY_SOCKET', os.environ)
 
         # Test logger with connection error
@@ -2741,8 +2842,9 @@ cluster_dfw1 = http://dfw1.host/v1/
             m_logger.reset_mock()
             utils.systemd_notify(logger=m_logger)
             self.assertEqual(0, m_sock.sendall.call_count)
-            m_logger.debug.assert_called_once_with(
-                "Systemd notification failed", exc_info=True)
+            self.assertEqual(m_logger.debug.mock_calls, [
+                mock.call("Systemd notification failed", exc_info=True),
+                mock.call("Systemd notification failed", exc_info=True)])
 
         # Test it for real
         def do_test_real_socket(socket_address, notify_socket):
@@ -2762,6 +2864,11 @@ cluster_dfw1 = http://dfw1.host/v1/
         if sys.platform.startswith('linux'):
             # test abstract socket address
             do_test_real_socket('\0foobar', '@foobar')
+
+            with utils.NotificationServer(os.getpid(), 1) as swift_listener:
+                do_test_real_socket('\0foobar', '@foobar')
+                self.assertEqual(swift_listener.receive(),
+                                 b'READY=1')
 
     def test_md5_with_data(self):
         if not self.fips_enabled:
@@ -2835,6 +2942,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             TypeError, md5, None, usedforsecurity=False)
 
     def test_get_my_ppid(self):
+        if not os.path.exists('/proc/'):
+            self.skipTest('get_ppid can only be functionally tested on Linux')
         self.assertEqual(os.getppid(), utils.get_ppid(os.getpid()))
 
 
@@ -2942,8 +3051,16 @@ class TestFileLikeIter(unittest.TestCase):
 
     def test_read(self):
         in_iter = [b'abc', b'de', b'fghijk', b'l']
-        iter_file = utils.FileLikeIter(in_iter)
-        self.assertEqual(iter_file.read(), b''.join(in_iter))
+        expected = b''.join(in_iter)
+        self.assertEqual(utils.FileLikeIter(in_iter).read(), expected)
+        self.assertEqual(utils.FileLikeIter(in_iter).read(-1), expected)
+        self.assertEqual(utils.FileLikeIter(in_iter).read(None), expected)
+
+    def test_read_empty(self):
+        in_iter = [b'abc']
+        ip = utils.FileLikeIter(in_iter)
+        self.assertEqual(b'abc', ip.read())
+        self.assertEqual(b'', ip.read())
 
     def test_read_with_size(self):
         in_iter = [b'abc', b'de', b'fghijk', b'l']
@@ -2976,6 +3093,15 @@ class TestFileLikeIter(unittest.TestCase):
             [v if v == b'trailing.' else v + b'\n'
              for v in b''.join(in_iter).split(b'\n')])
 
+    def test_readline_size_unlimited(self):
+        in_iter = [b'abc', b'd\nef']
+        self.assertEqual(
+            utils.FileLikeIter(in_iter).readline(-1),
+            b'abcd\n')
+        self.assertEqual(
+            utils.FileLikeIter(in_iter).readline(None),
+            b'abcd\n')
+
     def test_readline2(self):
         self.assertEqual(
             utils.FileLikeIter([b'abc', b'def\n']).readline(4),
@@ -3006,6 +3132,16 @@ class TestFileLikeIter(unittest.TestCase):
         in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
                    b'trailing.']
         lines = utils.FileLikeIter(in_iter).readlines()
+        self.assertEqual(
+            lines,
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
+        lines = utils.FileLikeIter(in_iter).readlines(sizehint=-1)
+        self.assertEqual(
+            lines,
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
+        lines = utils.FileLikeIter(in_iter).readlines(sizehint=None)
         self.assertEqual(
             lines,
             [v if v == b'trailing.' else v + b'\n'
@@ -3071,6 +3207,137 @@ class TestFileLikeIter(unittest.TestCase):
                              {'select': SelectWithoutPoll,
                               '__original_module_select': SelectWithoutPoll}):
             self.assertEqual(utils.get_hub(), 'selects')
+
+
+class TestInputProxy(unittest.TestCase):
+    def test_read_all(self):
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(), b'abc')
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(-1), b'abc')
+        self.assertEqual(
+            utils.InputProxy(io.BytesIO(b'abc')).read(None), b'abc')
+
+    def test_read_size(self):
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(0), b'')
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(2), b'ab')
+        self.assertEqual(utils.InputProxy(io.BytesIO(b'abc')).read(4), b'abc')
+
+    def test_readline(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        self.assertEqual(ip.readline(), b'ab\n')
+        self.assertFalse(ip.client_disconnect)
+
+    def test_bytes_received(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\ncdef'))
+        ip.readline()
+        self.assertEqual(3, ip.bytes_received)
+        ip.read(2)
+        self.assertEqual(5, ip.bytes_received)
+        ip.read(99)
+        self.assertEqual(7, ip.bytes_received)
+
+    def test_close(self):
+        utils.InputProxy(object()).close()  # safe
+
+        fake = mock.MagicMock()
+        fake.close = mock.MagicMock()
+        ip = (utils.InputProxy(fake))
+        ip.close()
+        self.assertEqual([mock.call()], fake.close.call_args_list)
+        self.assertFalse(ip.client_disconnect)
+
+    def test_read_piecemeal_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read(1)
+            ip.read(2)
+            ip.read(1)
+            ip.read(1)
+        self.assertEqual([mock.call(b'a', False),
+                          mock.call(b'bc', False),
+                          mock.call(b'', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+
+    def test_read_unlimited_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read()
+            ip.read()
+        self.assertEqual([mock.call(b'abc', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read(None)
+            ip.read(None)
+        self.assertEqual([mock.call(b'abc', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.read(-1)
+            ip.read(-1)
+        self.assertEqual([mock.call(b'abc', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+
+    def test_readline_piecemeal_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(3)
+            ip.readline(1)  # read to exact length
+            ip.readline(1)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', False),
+                          mock.call(b'', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(3)
+            ip.readline(2)  # read beyond exact length
+            ip.readline(1)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True),
+                          mock.call(b'', True)], mocked.call_args_list)
+
+    def test_readline_unlimited_chunk_update(self):
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline()
+            ip.readline()
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(None)
+            ip.readline(None)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True)], mocked.call_args_list)
+        ip = utils.InputProxy(io.BytesIO(b'ab\nc'))
+        with mock.patch.object(ip, 'chunk_update') as mocked:
+            ip.readline(-1)
+            ip.readline(-1)
+        self.assertEqual([mock.call(b'ab\n', False),
+                          mock.call(b'c', True)], mocked.call_args_list)
+
+    def test_chunk_update_modifies_chunk(self):
+        ip = utils.InputProxy(io.BytesIO(b'abc'))
+        with mock.patch.object(ip, 'chunk_update', return_value='modified'):
+            actual = ip.read()
+        self.assertEqual('modified', actual)
+
+    def test_read_client_disconnect(self):
+        fake = mock.MagicMock()
+        fake.read = mock.MagicMock(side_effect=ValueError('boom'))
+        ip = utils.InputProxy(fake)
+        with self.assertRaises(ValueError) as cm:
+            ip.read()
+        self.assertTrue(ip.client_disconnect)
+        self.assertEqual('boom', str(cm.exception))
+
+    def test_readline_client_disconnect(self):
+        fake = mock.MagicMock()
+        fake.readline = mock.MagicMock(side_effect=ValueError('boom'))
+        ip = utils.InputProxy(fake)
+        with self.assertRaises(ValueError) as cm:
+            ip.readline()
+        self.assertTrue(ip.client_disconnect)
+        self.assertEqual('boom', str(cm.exception))
 
 
 class UnsafeXrange(object):
@@ -4221,16 +4488,6 @@ class TestParseContentDisposition(unittest.TestCase):
         self.assertEqual(attrs, {'name': 'somefile', 'filename': 'test.html'})
 
 
-class TestGetExpirerContainer(unittest.TestCase):
-
-    @mock.patch.object(utils, 'hash_path', return_value=hex(101)[2:])
-    def test_get_expirer_container(self, mock_hash_path):
-        container = utils.get_expirer_container(1234, 20, 'a', 'c', 'o')
-        self.assertEqual(container, '0000001219')
-        container = utils.get_expirer_container(1234, 200, 'a', 'c', 'o')
-        self.assertEqual(container, '0000001199')
-
-
 class TestIterMultipartMimeDocuments(unittest.TestCase):
 
     def test_bad_start(self):
@@ -4734,7 +4991,8 @@ class TestGetPpid(unittest.TestCase):
         self.assertEqual(utils.get_ppid(123), 456)
         self.assertIn(mock.call('/proc/123/stat'), mock_open.mock_calls)
 
-    def test_not_found(self, mock_open):
+    @mock.patch('swift.common.utils.os.path.exists', return_value=True)
+    def test_not_found(self, _mock_exists, mock_open):
         mock_open.side_effect = IOError(errno.ENOENT, "Not there")
         with self.assertRaises(OSError) as caught:
             utils.get_ppid(123)
@@ -7405,13 +7663,10 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         exp = {
             'decrement': [(('b',), {})],
             'increment': [(('a',), {})],
-            'timing': [(('d', 23.4), {}),
-                       (('f', 45929.52612393682, None), {})],
+            'timing': [(('d', 23.4), {})],
             'timing_since': [(('e', 23.4), {})],
             'transfer_rate': [(('f', 56.7, 1234.5), {})],
-            'update_stats': [(('a', 1, None), {}),
-                             (('b', -1, None), {}),
-                             (('c', 4), {})]
+            'update_stats': [(('c', 4), {})]
         }
         self.assertEqual(exp, client.calls)
 
@@ -7448,7 +7703,6 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         target.increment('a')
         exp = {
             'increment': [(('a',), {})],
-            'update_stats': [(('a', 1, None), {})],
         }
         self.assertEqual(exp, client.calls)
 
@@ -7499,13 +7753,10 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         exp = {
             'decrement': [(('b',), {})],
             'increment': [(('a',), {})],
-            'timing': [(('d', 23.4), {}),
-                       (('f', 45929.52612393682, None), {})],
+            'timing': [(('d', 23.4), {})],
             'timing_since': [(('e', 23.4), {})],
             'transfer_rate': [(('f', 56.7, 1234.5), {})],
-            'update_stats': [(('a', 1, None), {}),
-                             (('b', -1, None), {}),
-                             (('c', 4), {})]
+            'update_stats': [(('c', 4), {})]
         }
         self.assertTrue(hasattr(swift_logger.logger, 'statsd_client'))
         client = swift_logger.logger.statsd_client
@@ -7676,8 +7927,6 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
         exp = {
             'increment': [(('foo',), {})],
             'decrement': [(('boo',), {})],
-            'update_stats': [(('foo', 1, None), {}),
-                             (('boo', -1, None), {})]
         }
         self.assertEqual(exp, prefixed_logger.logger.statsd_client.calls)
         self.assertEqual(exp, adapted_logger.logger.statsd_client.calls)

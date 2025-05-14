@@ -41,7 +41,7 @@ from eventlet.timeout import Timeout
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, Timestamp, WatchdogTimeout,
-    normalize_delete_at_timestamp, public, get_expirer_container,
+    normalize_delete_at_timestamp, public,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
     NamespaceBoundList, CooperativeIterator)
@@ -619,13 +619,10 @@ class BaseObjectController(Controller):
 
             append_log_info(req.environ, 'x-delete-at:%s' % x_delete_at)
 
-            delete_at_container = get_expirer_container(
-                x_delete_at, self.app.expiring_objects_container_divisor,
-                self.account_name, self.container_name, self.object_name)
-
-            delete_at_part, delete_at_nodes = \
-                self.app.container_ring.get_nodes(
-                    self.app.expiring_objects_account, delete_at_container)
+            delete_at_part, delete_at_nodes, delete_at_container = \
+                self.app.expirer_config.get_delete_at_nodes(
+                    x_delete_at, self.account_name, self.container_name,
+                    self.object_name)
 
         return req, delete_at_container, delete_at_part, delete_at_nodes
 

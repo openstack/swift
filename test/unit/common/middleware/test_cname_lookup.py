@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import unittest
-import mock
+from unittest import mock
 
 try:
     # this test requires the dnspython package to be installed
@@ -177,7 +177,8 @@ class TestCNAMELookup(unittest.TestCase):
                 self.cache[key] = value
 
         module = 'swift.common.middleware.cname_lookup.lookup_cname'
-        dns_module = 'dns.resolver.Resolver.query'
+        dns_module = 'swift.common.middleware.cname_lookup.' \
+            'dns.resolver.Resolver.query'
         memcache = memcache_stub()
 
         with mock.patch(module) as m:
@@ -305,25 +306,26 @@ class TestCNAMELookup(unittest.TestCase):
         resp = do_test('c.badtest.com')
         self.assertEqual(resp, bad_domain)
 
-    @mock.patch('dns.resolver.Resolver.query',
-                side_effect=dns.exception.DNSException)
-    def test_host_is_storage_domain(self, mock_lookup):
+    def test_host_is_storage_domain(self):
         conf = {'storage_domain': 'storage.example.com',
                 'lookup_depth': 2}
         app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
 
         def do_test(host):
-            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
-                                headers={'Host': host})
-            return app(req.environ, start_response)
+            with mock.patch.object(
+                app.resolver, 'query',
+                side_effect=dns.exception.DNSException,
+            ) as mock_lookup:
+                req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                                    headers={'Host': host})
+                return app(req.environ, start_response), mock_lookup
 
         bad_domain = [b'CNAME lookup failed to resolve to a valid domain']
-        resp = do_test('c.badtest.com')
+        resp, mock_lookup = do_test('c.badtest.com')
         self.assertEqual(resp, bad_domain)
         self.assertEqual(1, len(mock_lookup.mock_calls))
-        mock_lookup.reset_mock()
 
-        resp = do_test('storage.example.com')
+        resp, mock_lookup = do_test('storage.example.com')
         self.assertEqual(resp, [b'FAKE APP'])
         self.assertEqual(0, len(mock_lookup.mock_calls))
 
@@ -365,7 +367,8 @@ class TestCNAMELookup(unittest.TestCase):
                 self.nameserver_ports = None
 
         mocked_resolver = MockedResolver()
-        dns_module = 'dns.resolver.Resolver'
+        dns_module = 'swift.common.middleware.cname_lookup.' \
+            'dns.resolver.Resolver'
 
         # If no nameservers provided in conf, resolver nameservers is unset
         for conf in [{}, {'nameservers': ''}]:

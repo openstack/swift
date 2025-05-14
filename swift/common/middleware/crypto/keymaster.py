@@ -19,7 +19,7 @@ from swift.common.exceptions import UnknownSecretIdError
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request, HTTPException, wsgi_to_str, str_to_wsgi
 from swift.common.utils import readconf, strict_b64decode, get_logger, \
-    split_path
+    split_path, load_multikey_opts
 from swift.common.wsgi import WSGIContext
 
 
@@ -282,17 +282,6 @@ class BaseKeyMaster(object):
         return readconf(self.keymaster_config_path,
                         self.keymaster_conf_section)
 
-    def _load_multikey_opts(self, conf, prefix):
-        result = []
-        for k, v in conf.items():
-            if not k.startswith(prefix):
-                continue
-            suffix = k[len(prefix):]
-            if suffix and (suffix[0] != '_' or len(suffix) < 2):
-                raise ValueError('Malformed root secret option name %s' % k)
-            result.append((k, suffix[1:] or None, v))
-        return sorted(result)
-
     def __call__(self, env, start_response):
         req = Request(env)
 
@@ -366,8 +355,8 @@ class KeyMaster(BaseKeyMaster):
         :rtype: dict
         """
         root_secrets = {}
-        for opt, secret_id, value in self._load_multikey_opts(
-                conf, 'encryption_root_secret'):
+        for opt, secret_id, value in load_multikey_opts(
+                conf, 'encryption_root_secret', allow_none_key=True):
             try:
                 secret = self._decode_root_secret(value)
             except ValueError:

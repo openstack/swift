@@ -22,7 +22,7 @@ import time
 import unittest
 import warnings
 
-import mock
+from unittest import mock
 from queue import Queue, Empty
 
 
@@ -76,6 +76,9 @@ class BaseTestStatsdClient(unittest.TestCase):
 
 
 class TestStatsdClient(BaseTestStatsdClient):
+    """
+    Tests here construct a StatsdClient directly.
+    """
     def test_init_host(self):
         client = StatsdClient('myhost', 1234)
         self.assertEqual([('myhost', 1234)], self.getaddrinfo_calls)
@@ -130,7 +133,10 @@ class TestStatsdClient(BaseTestStatsdClient):
         self.assertEqual('some-name.more-specific.', client._prefix)
 
 
-class TestModuleFunctions(BaseTestStatsdClient):
+class TestGetStatsdClientConfParsing(BaseTestStatsdClient):
+    """
+    Tests here use get_statsd_client to make a StatsdClient.
+    """
     def test_get_statsd_client_defaults(self):
         # no options configured
         client = statsd_client.get_statsd_client({})
@@ -155,6 +161,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
             'log_statsd_default_sample_rate': '3.3',
             'log_statsd_sample_rate_factor': '4.4',
             'log_junk': 'ignored',
+            'statsd_label_mode': 'dogstatsd',  # ignored
         }
         client = statsd_client.get_statsd_client(
             conf, tail_prefix='milkshake', logger=self.logger)
@@ -169,6 +176,258 @@ class TestModuleFunctions(BaseTestStatsdClient):
         warn_lines = self.logger.get_lines_for_level('warning')
         self.assertEqual([], warn_lines)
 
+    def test_emit_legacy(self):
+        conf = {
+            'log_statsd_host': 'myhost',
+            'log_statsd_port': '1234',
+        }
+        client = statsd_client.get_statsd_client(conf)
+        with mock.patch.object(client, '_open_socket') as mock_open:
+            client.increment('tunafish')
+        self.assertEqual(mock_open.mock_calls, [
+            mock.call(),
+            mock.call().sendto(b'tunafish:1|c', ('myhost', 1234)),
+            mock.call().close(),
+        ])
+
+        conf = {
+            'log_statsd_host': 'myhost',
+            'log_statsd_port': '1234',
+            'statsd_emit_legacy': 'False',
+        }
+        client = statsd_client.get_statsd_client(conf)
+        with mock.patch.object(client, '_open_socket') as mock_open:
+            client.increment('tunafish')
+        self.assertEqual(mock_open.mock_calls, [])
+
+    def test_legacy_client_does_not_support_labels_kwarg(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': '123451',
+            'statsd_label_mode': 'dogstatsd',
+        }
+        client = statsd_client.get_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        with mock.patch.object(client, '_send_line') as mocked:
+            # legacy client accepts sample_rate kwarg as positional argument
+            # for backwards compat as demonstrated in other tests
+            client.random = lambda: 0.4
+            client.increment('metric', 0.5)
+            # but will never accept labels kwarg
+            with self.assertRaises(TypeError):
+                client.increment('metric', labels=labels)
+        self.assertEqual(
+            [mock.call('metric:1|c|@0.5')],
+            mocked.call_args_list)
+
+
+class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
+    """
+    Tests here use get_labeled_statsd_client to make a LabeledStatsdClient.
+    """
+    def test_conf_defaults(self):
+        # no options configured
+        client = statsd_client.get_labeled_statsd_client({})
+        self.assertIsInstance(client, statsd_client.LabeledStatsdClient)
+        self.assertIsNone(client._host)
+        self.assertEqual(8125, client._port)
+        self.assertEqual(1.0, client._default_sample_rate)
+        self.assertEqual(1.0, client._sample_rate_factor)
+        self.assertIsNone(client.logger)
+        with mock.patch.object(client, '_open_socket') as mock_open:
+            # because legacy statsd.increment last pos arg was sample_rate
+            # we're always explicit with labels kwarg
+            client.increment('tunafish', labels={})
+        self.assertFalse(mock_open.mock_calls)
+
+    def test_conf_non_defaults(self):
+        # legacy options...
+        conf = {
+            'log_statsd_host': 'example.com',
+            'log_statsd_port': '6789',
+            'log_statsd_default_sample_rate': '3.3',
+            'log_statsd_sample_rate_factor': '4.4',
+            'log_junk': 'ignored',
+            'statsd_emit_legacy': 'False',  # ignored
+        }
+        client = statsd_client.get_labeled_statsd_client(
+            conf, logger=self.logger)
+        self.assertIsInstance(client, statsd_client.LabeledStatsdClient)
+        self.assertEqual('example.com', client._host)
+        self.assertEqual(6789, client._port)
+        self.assertEqual(3.3, client._default_sample_rate)
+        self.assertEqual(4.4, client._sample_rate_factor)
+        self.assertEqual(self.logger, client.logger)
+        warn_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual([], warn_lines)
+
+    def test_invalid_label_mode(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': '1234',
+            'statsd_label_mode': 'invalid',
+        }
+        with self.assertRaises(ValueError) as cm:
+            statsd_client.get_labeled_statsd_client(conf, self.logger)
+        self.assertIn("unknown statsd_label_mode 'invalid'", str(cm.exception))
+
+    def test_valid_label_mode(self):
+        conf = {'statsd_label_mode': 'dogstatsd'}
+        logger = debug_logger(log_route='my-log-route')
+        client = statsd_client.get_labeled_statsd_client(conf, logger)
+        self.assertEqual(statsd_client.dogstatsd, client.label_formatter)
+        log_lines = logger.get_lines_for_level('debug')
+        self.assertEqual(1, len(log_lines))
+        self.assertEqual(
+            'Labeled statsd mode: dogstatsd (my-log-route)', log_lines[0])
+
+    def test_weird_invalid_attrname_label_mode(self):
+        conf = {'statsd_label_mode': '__class__'}
+        with self.assertRaises(ValueError) as cm:
+            statsd_client.get_labeled_statsd_client(conf, self.logger)
+        self.assertIn("unknown statsd_label_mode '__class__'",
+                      str(cm.exception))
+
+    def test_disabled_by_default(self):
+        conf = {}
+        logger = debug_logger(log_route='my-log-route')
+        client = statsd_client.get_labeled_statsd_client(conf, logger)
+        self.assertIsNone(client.label_formatter)
+        log_lines = logger.get_lines_for_level('debug')
+        self.assertEqual(1, len(log_lines))
+        self.assertEqual(
+            'Labeled statsd mode: disabled (my-log-route)', log_lines[0])
+
+    def test_label_must_be_kwarg(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': '123451',
+            'statsd_label_mode': 'dogstatsd',
+        }
+        client = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        with mock.patch.object(client, '_send_line') as mocked:
+            # labels can not be a positional arg
+            with self.assertRaises(TypeError):
+                client.increment('metric', labels)
+            client.random = lambda: 0.4
+            # order of kwargs does not matter
+            client.increment('metric', sample_rate=0.5, labels=labels)
+        self.assertEqual(
+            [mock.call('metric:1|c|@0.5|#action:some,result:ok')],
+            mocked.call_args_list)
+
+    def test_label_values_to_str(self):
+        # verify that simple non-str types can be passed as label values
+        conf = {
+            'log_statsd_host': 'myhost1',
+            'log_statsd_port': 1235,
+            'statsd_label_mode': 'librato',
+        }
+        client = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'bool': True, 'number': 42.1, 'null': None}
+        with mock.patch.object(client, '_send_line') as mocked:
+            client.update_stats('metric', '10', labels=labels)
+        self.assertEqual(
+            [mock.call('metric#bool=True,null=None,number=42.1:10|c')],
+            mocked.call_args_list)
+
+    def test_user_label(self):
+        conf = {
+            'log_statsd_host': 'myhost1',
+            'log_statsd_port': 1235,
+            'statsd_label_mode': 'librato',
+            'statsd_user_label_foo': 'foo.bar.com',
+        }
+        client = statsd_client.get_labeled_statsd_client(conf)
+        self.assertEqual({'user_foo': 'foo.bar.com'}, client.default_labels)
+        with mock.patch.object(client, '_send_line') as mocked:
+            client.update_stats('metric', '10', labels={'app': 'value'})
+        self.assertEqual(
+            [mock.call('metric#app=value,user_foo=foo.bar.com:10|c')],
+            mocked.call_args_list)
+
+    def test_user_label_overridden_by_call_label(self):
+        conf = {
+            'log_statsd_host': 'myhost1',
+            'log_statsd_port': 1235,
+            'statsd_label_mode': 'librato',
+            'statsd_user_label_foo': 'foo',
+        }
+        client = statsd_client.get_labeled_statsd_client(conf)
+        self.assertEqual({'user_foo': 'foo'}, client.default_labels)
+        with mock.patch.object(client, '_send_line') as mocked:
+            client.update_stats('metric', '10', labels={'user_foo': 'bar'})
+        self.assertEqual(
+            [mock.call('metric#user_foo=bar:10|c')],
+            mocked.call_args_list)
+
+    def test_user_label_sorting(self):
+        conf = {
+            'log_statsd_host': 'myhost1',
+            'log_statsd_port': 1235,
+            'statsd_label_mode': 'librato',
+            'statsd_user_label_foo': 'middle',
+        }
+        labels = {'z': 'last', 'a': 'first'}
+        client = statsd_client.get_labeled_statsd_client(conf)
+        with mock.patch.object(client, '_send_line') as mocked:
+            client.update_stats('metric', '10', labels=labels)
+        self.assertEqual(
+            [mock.call('metric#a=first,user_foo=middle,z=last:10|c')],
+            mocked.call_args_list)
+
+    def test_user_label_invalid_chars(self):
+        invalid = ',|=[]:.'
+        for c in invalid:
+            user_label = 'statsd_user_label_foo%sbar' % c
+            conf = {
+                'log_statsd_host': 'myhost1',
+                'log_statsd_port': 1235,
+                'statsd_label_mode': 'librato',
+                user_label: 'buz',
+            }
+            with self.assertRaises(ValueError) as ctx:
+                statsd_client.get_labeled_statsd_client(conf)
+            self.assertEqual("invalid character in statsd "
+                             "user label configuration "
+                             "'%s': '%s'" % (user_label, c),
+                             str(ctx.exception))
+
+    def test_user_label_value_invalid_chars(self):
+        invalid = ',|=[]:'
+        for c in invalid:
+            label_value = 'bar%sbaz' % c
+            conf = {
+                'log_statsd_host': 'myhost1',
+                'log_statsd_port': 1235,
+                'statsd_label_mode': 'librato',
+                'statsd_user_label_foo': label_value
+            }
+            with self.assertRaises(ValueError) as ctx:
+                statsd_client.get_labeled_statsd_client(conf)
+            self.assertEqual("invalid character in configuration "
+                             "'statsd_user_label_foo' value "
+                             "'%s': '%s'" % (label_value, c),
+                             str(ctx.exception))
+
+
+class CommonBaseTestsMixIn(object):
+
+    # N.B. we use a MixIn here to help maintain/transfer the understanding that
+    # the tests defined in this "MixIn" are run in multiple concrete TestCase
+    # subclasses.  We can't inherit from TestCase ourselves because unittest
+    # does not know how to skip abstract common base TestCases - although we
+    # may explore alternatives in the future.
+    def make_test_client(self, conf, tail_prefix='', **kwargs):
+        """
+        Concrete TestCase classes should implement this method and have the
+        following attributes:
+             * tail_prefix
+             * expected_prefix_bytes
+        """
+        raise NotImplementedError()
+
     def test_ipv4_or_ipv6_hostname_defaults_to_ipv4(self):
         def stub_getaddrinfo_both_ipv4_and_ipv6(host, port, family, *rest):
             if family == socket.AF_INET:
@@ -182,10 +441,10 @@ class TestModuleFunctions(BaseTestStatsdClient):
 
         with mock.patch.object(statsd_client.socket, 'getaddrinfo',
                                new=stub_getaddrinfo_both_ipv4_and_ipv6):
-            client = get_statsd_client({
+            client = self.make_test_client({
                 'log_statsd_host': 'localhost',
                 'log_statsd_port': '9876',
-            }, 'some-name', logger=self.logger)
+            }, self.tail_prefix, logger=self.logger)
 
         self.assertEqual(client._sock_family, socket.AF_INET)
         self.assertEqual(client._target, ('localhost', 9876))
@@ -194,7 +453,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
         self.assertEqual(got_sock.family, socket.AF_INET)
 
     def test_ipv4_instantiation_and_socket_creation(self):
-        client = get_statsd_client({
+        client = self.make_test_client({
             'log_statsd_host': '127.0.0.1',
             'log_statsd_port': '9876',
         }, 'some-name', logger=self.logger)
@@ -233,7 +492,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
 
         with mock.patch.object(statsd_client.socket,
                                'getaddrinfo', fake_getaddrinfo):
-            client = get_statsd_client({
+            client = self.make_test_client({
                 'log_statsd_host': '::1',
                 'log_statsd_port': '9876',
             }, 'some-name', logger=self.logger)
@@ -248,7 +507,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
         stub_err = statsd_client.socket.gaierror('whoops')
         with mock.patch.object(statsd_client.socket, 'getaddrinfo',
                                side_effect=stub_err):
-            client = get_statsd_client({
+            client = self.make_test_client({
                 'log_statsd_host': 'i-am-not-a-hostname-or-ip',
                 'log_statsd_port': '9876',
             }, 'some-name', logger=self.logger)
@@ -280,7 +539,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
 
         with mock.patch.object(statsd_client.socket, 'getaddrinfo',
                                fake_getaddrinfo):
-            client = get_statsd_client({
+            client = self.make_test_client({
                 'log_statsd_host': '::1',
                 'log_statsd_port': '9876',
             }, 'some-name', logger=self.logger)
@@ -293,10 +552,11 @@ class TestModuleFunctions(BaseTestStatsdClient):
         client.increment('tunafish')
         self.assertEqual(fl.get_lines_for_level('warning'), [])
         self.assertEqual(mock_socket.sent,
-                         [(b'some-name.tunafish:1|c', ('::1', 9876, 0, 0))])
+                         [(self.expected_prefix_bytes + b'tunafish:1|c',
+                           ('::1', 9876, 0, 0))])
 
     def test_no_exception_when_cant_send_udp_packet(self):
-        client = get_statsd_client({'log_statsd_host': 'some.host.com'})
+        client = self.make_test_client({'log_statsd_host': 'some.host.com'})
         fl = debug_logger()
         client.logger = fl
         mock_socket = MockUdpSocket(sendto_errno=errno.EPERM)
@@ -307,7 +567,7 @@ class TestModuleFunctions(BaseTestStatsdClient):
         self.assertEqual(fl.get_lines_for_level('warning'), expected)
 
     def test_sample_rates(self):
-        client = get_statsd_client({'log_statsd_host': 'some.host.com'})
+        client = self.make_test_client({'log_statsd_host': 'some.host.com'})
 
         mock_socket = MockUdpSocket()
         self.assertTrue(client.random is random.random)
@@ -316,18 +576,16 @@ class TestModuleFunctions(BaseTestStatsdClient):
         client.random = lambda: 0.50001
 
         self.assertIsNone(client.increment('tribbles', sample_rate=0.5))
-        self.assertEqual(len(mock_socket.sent), 0)
+        self.assertFalse(mock_socket.sent)
 
         client.random = lambda: 0.49999
         rv = client.increment('tribbles', sample_rate=0.5)
         self.assertIsInstance(rv, int)
-        self.assertEqual(len(mock_socket.sent), 1)
-
-        payload = mock_socket.sent[0][0]
-        self.assertTrue(payload.endswith(b"|@0.5"))
+        self.assertEqual([(b"tribbles:1|c|@0.5", ('some.host.com', 8125))],
+                         mock_socket.sent)
 
     def test_sample_rates_with_sample_rate_factor(self):
-        client = get_statsd_client({
+        client = self.make_test_client({
             'log_statsd_host': 'some.host.com',
             'log_statsd_default_sample_rate': '0.82',
             'log_statsd_sample_rate_factor': '0.91',
@@ -335,33 +593,58 @@ class TestModuleFunctions(BaseTestStatsdClient):
         effective_sample_rate = 0.82 * 0.91
 
         mock_socket = MockUdpSocket()
-        self.assertTrue(client.random is random.random)
+        self.assertIs(client.random, random.random)
 
         client._open_socket = lambda *_: mock_socket
         client.random = lambda: effective_sample_rate + 0.001
 
         client.increment('tribbles')
-        self.assertEqual(len(mock_socket.sent), 0)
+        self.assertFalse(mock_socket.sent)
 
         client.random = lambda: effective_sample_rate - 0.001
         client.increment('tribbles')
-        self.assertEqual(len(mock_socket.sent), 1)
+        expected = ("tribbles:1|c|@%s" % effective_sample_rate).encode('utf-8')
+        self.assertEqual([(expected, ('some.host.com', 8125))],
+                         mock_socket.sent)
 
-        payload = mock_socket.sent[0][0]
-        suffix = ("|@%s" % effective_sample_rate).encode('utf-8')
-        self.assertTrue(payload.endswith(suffix), payload)
-
+        # caller specifies non-default sample rate
+        mock_socket = MockUdpSocket()
         effective_sample_rate = 0.587 * 0.91
+        client.random = lambda: effective_sample_rate + 0.001
+        client.increment('tribbles', sample_rate=0.587)
+        self.assertFalse(mock_socket.sent)
+
         client.random = lambda: effective_sample_rate - 0.001
         client.increment('tribbles', sample_rate=0.587)
-        self.assertEqual(len(mock_socket.sent), 2)
-
-        payload = mock_socket.sent[1][0]
-        suffix = ("|@%s" % effective_sample_rate).encode('utf-8')
-        self.assertTrue(payload.endswith(suffix), payload)
+        expected = ("tribbles:1|c|@%s" % effective_sample_rate).encode('utf-8')
+        self.assertEqual([(expected, ('some.host.com', 8125))],
+                         mock_socket.sent)
 
 
-class TestStatsdClientOutput(unittest.TestCase):
+class TestGetStatsdClient(BaseTestStatsdClient, CommonBaseTestsMixIn):
+    """
+    Tests here use get_statsd_client to make a LabeledStatsdClient.
+    """
+    tail_prefix = 'some-name'
+    expected_prefix_bytes = ('%s.' % tail_prefix).encode()
+
+    def make_test_client(self, conf, tail_prefix='', **kwargs):
+        return statsd_client.get_statsd_client(conf, tail_prefix, **kwargs)
+
+
+class TestGetLabeledStatsdClient(BaseTestStatsdClient, CommonBaseTestsMixIn):
+    """
+    Tests here use get_labeled_statsd_client to make a LabeledStatsdClient.
+    """
+    tail_prefix = None
+    expected_prefix_bytes = b''
+
+    def make_test_client(self, conf, _tail_prefix='', **kwargs):
+        conf.setdefault('statsd_label_mode', 'dogstatsd')
+        return statsd_client.get_labeled_statsd_client(conf, **kwargs)
+
+
+class BaseTestStatsdClientOutput(unittest.TestCase):
 
     def setUp(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -374,13 +657,13 @@ class TestStatsdClientOutput(unittest.TestCase):
         self.client = None
 
     def tearDown(self):
-        # The "no-op when disabled" test doesn't set up a real logger, so
+        # The "no-op when disabled" test doesn't set up a real client, so
         # create one here so we can tell the reader thread to stop.
         if not self.client:
             self.client = get_statsd_client({
                 'log_statsd_host': 'localhost',
                 'log_statsd_port': str(self.port),
-            }, 'some-name')
+            })
         self.client.increment('STOP')
         self.reader_thread.join(timeout=4)
         self.sock.close()
@@ -405,20 +688,25 @@ class TestStatsdClientOutput(unittest.TestCase):
         while not got:
             sender_fn(*args, **kwargs)
             try:
-                got = self.queue.get(timeout=0.5)
+                got = self.queue.get(timeout=0.3)
             except Empty:
                 pass
-        return got
+        return got.decode('utf-8')
 
     def assertStat(self, expected, sender_fn, *args, **kwargs):
-        got = self._send_and_get(sender_fn, *args, **kwargs).decode('utf-8')
+        got = self._send_and_get(sender_fn, *args, **kwargs)
         return self.assertEqual(expected, got)
 
     def assertStatMatches(self, expected_regexp, sender_fn, *args, **kwargs):
-        got = self._send_and_get(sender_fn, *args, **kwargs).decode('utf-8')
+        got = self._send_and_get(sender_fn, *args, **kwargs)
         return self.assertTrue(re.search(expected_regexp, got),
                                [got, expected_regexp])
 
+
+class TestGetStatsdClientOutput(BaseTestStatsdClientOutput):
+    """
+    Tests here use get_statsd_client to make a StatsdClient.
+    """
     def test_methods_are_no_ops_when_not_enabled(self):
         self.client = get_statsd_client({
             # No "log_statsd_host" means "disabled"
@@ -449,6 +737,7 @@ class TestStatsdClientOutput(unittest.TestCase):
         self.client = get_statsd_client({
             'log_statsd_host': 'localhost',
             'log_statsd_port': str(self.port),
+            'statsd_label_mode': 'disabled',  # ignored
         }, 'some-name')
         self.assertStat('some-name.some.counter:1|c', self.client.increment,
                         'some.counter')
@@ -592,3 +881,233 @@ class TestStatsdClientOutput(unittest.TestCase):
         self.assertStat('alpha.beta.another.counter:3|c|@0.9912',
                         self.client.update_stats, 'another.counter', 3,
                         sample_rate=0.9912)
+
+    def test_statsd_methods_legacy_disabled(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'log_statsd_metric_prefix': 'my_prefix',
+            'statsd_emit_legacy': 'false',
+        }
+        statsd = statsd_client.get_statsd_client(conf, tail_prefix='pfx')
+        with mock.patch.object(statsd, '_open_socket') as mock_open:
+            statsd.increment('some.counter')
+            statsd.decrement('some.counter')
+            statsd.timing('some.timing', 6.28 * 1000)
+            statsd.update_stats('some.stat', 3)
+        self.assertFalse(mock_open.mock_calls)
+
+
+class TestGetLabeledStatsdClientOutput(BaseTestStatsdClientOutput):
+    """
+    Tests here use get_labeled_statsd_client to make a LabeledStatsdClient.
+    """
+    def test_statsd_methods_disabled(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'log_statsd_metric_prefix': 'my_prefix',
+            'statsd_label_mode': 'disabled',
+        }
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        with mock.patch.object(labeled_statsd,
+                               '_open_socket') as mock_open:
+            # Any labeled-metrics callers should not emit any metrics
+            labeled_statsd.increment('the_counter', labels=labels)
+            labeled_statsd.decrement('the_counter', labels=labels)
+            labeled_statsd.timing('the_timing', 6.28 * 1000, labels=labels)
+            labeled_statsd.update_stats('the_stat', 3, labels=labels)
+        self.assertFalse(mock_open.mock_calls)
+
+    def test_statsd_methods_dogstatsd(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_legacy': 'false',  # ignored
+        }
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the_counter:1|c|#action:some,result:ok',
+            labeled_statsd.increment, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_counter:-1|c|#action:some,result:ok',
+            labeled_statsd.decrement, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_timing:6280.0|ms'
+            '|#action:some,result:ok',
+            labeled_statsd.timing, 'the_timing', 6.28 * 1000, labels=labels)
+        self.assertStat(
+            'the_stat:3|c|#action:some,result:ok',
+            labeled_statsd.update_stats, 'the_stat', 3, labels=labels)
+
+    def test_statsd_methods_dogstatsd_sample_rate(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'statsd_label_mode': 'dogstatsd',
+            'log_statsd_default_sample_rate': '0.9',
+            'log_statsd_sample_rate_factor': '0.5'}
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the_counter:1|c|@0.45|#action:some,result:ok',
+            labeled_statsd.increment, 'the_counter', labels=labels)
+
+    def test_statsd_methods_graphite(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'log_statsd_metric_prefix': 'my_prefix',
+            'statsd_label_mode': 'graphite',
+        }
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the_counter;action=some;result=ok:1|c',
+            labeled_statsd.increment, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_counter;action=some;result=ok:-1|c',
+            labeled_statsd.decrement, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_timing;action=some;result=ok'
+            ':6280.0|ms',
+            labeled_statsd.timing, 'the_timing', 6.28 * 1000, labels=labels)
+        self.assertStat(
+            'the_stat;action=some;result=ok:3|c',
+            labeled_statsd.update_stats, 'the_stat', 3, labels=labels)
+
+    def test_statsd_methods_graphite_sample_rate(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'statsd_label_mode': 'graphite',
+            'log_statsd_default_sample_rate': '0.9',
+            'log_statsd_sample_rate_factor': '0.5'}
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the_counter;action=some;result=ok:1|c|@0.45',
+            labeled_statsd.increment, 'the_counter', labels=labels)
+
+    def test_statsd_methods_influxdb(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'log_statsd_metric_prefix': 'my_prefix',
+            'statsd_label_mode': 'influxdb',
+        }
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the_counter,action=some,result=ok:1|c',
+            labeled_statsd.increment, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_counter,action=some,result=ok:-1|c',
+            labeled_statsd.decrement, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_counter,action=some,result=ok:-1|c',
+            labeled_statsd.decrement, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_timing,action=some,result=ok'
+            ':6280.0|ms',
+            labeled_statsd.timing, 'the_timing', 6.28 * 1000, labels=labels)
+        self.assertStat(
+            'the_stat,action=some,result=ok:3|c',
+            labeled_statsd.update_stats, 'the_stat', 3, labels=labels)
+
+    def test_statsd_methods_influxdb_sample_rate(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'statsd_label_mode': 'influxdb',
+            'log_statsd_default_sample_rate': '0.9',
+            'log_statsd_sample_rate_factor': '0.5'}
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the.counter,action=some,result=ok:1|c|@0.45',
+            labeled_statsd.increment, 'the.counter', labels=labels)
+
+    def test_statsd_methods_librato(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'log_statsd_metric_prefix': 'my_prefix',
+            'statsd_label_mode': 'librato',
+        }
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the_counter#action=some,result=ok:1|c',
+            labeled_statsd.increment, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_counter#action=some,result=ok:-1|c',
+            labeled_statsd.decrement, 'the_counter', labels=labels)
+        self.assertStat(
+            'the_timing#action=some,result=ok'
+            ':6280.0|ms',
+            labeled_statsd.timing, 'the_timing', 6.28 * 1000, labels=labels)
+        self.assertStat(
+            'the_stat#action=some,result=ok:3|c',
+            labeled_statsd.update_stats, 'the_stat', 3, labels=labels)
+
+    def test_statsd_methods_librato_sample_rate(self):
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'statsd_label_mode': 'librato',
+            'log_statsd_default_sample_rate': '0.9',
+            'log_statsd_sample_rate_factor': '0.5'}
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'action': 'some', 'result': 'ok'}
+        self.assertStat(
+            'the_counter#action=some,result=ok:1|c|@0.45',
+            labeled_statsd.increment, 'the_counter', labels=labels)
+
+    def _do_test_statsd_methods_no_labels(self, label_mode):
+        # no default_sample_rate option
+        conf = {
+            'log_statsd_host': 'localhost',
+            'log_statsd_port': str(self.port),
+            'statsd_label_mode': label_mode,
+        }
+        labeled_statsd = statsd_client.get_labeled_statsd_client(conf)
+        self.assertStat('the.counter:1|c',
+                        labeled_statsd.increment, 'the.counter', labels={})
+        self.assertStat('the.counter:-1|c',
+                        labeled_statsd.decrement, 'the.counter', labels={})
+        # but individual call sites could set sample_rate
+        self.assertStat('the.counter:1|c|@0.9912',
+                        labeled_statsd.increment, 'the.counter', labels={},
+                        sample_rate=0.9912)
+        self.assertStat(
+            'the.timing:6280.0|ms',
+            labeled_statsd.timing, 'the.timing', 6.28 * 1000, labels={})
+        self.assertStat('the.stat:3|c',
+                        labeled_statsd.update_stats, 'the.stat', 3, labels={})
+
+        self.assertStat('the.counter:1|c',
+                        labeled_statsd.increment, 'the.counter')
+        self.assertStat('the.counter:-1|c',
+                        labeled_statsd.decrement, 'the.counter')
+        self.assertStat('the.timing:6280.0|ms',
+                        labeled_statsd.timing, 'the.timing', 6.28 * 1000)
+        self.assertStat('the.stat:3|c',
+                        labeled_statsd.update_stats, 'the.stat', 3)
+        self.assertStat('the.stat:500.0|ms',
+                        labeled_statsd.transfer_rate, 'the.stat', 3.3, 6600)
+
+    def test_statsd_methods_dogstatsd_no_labels(self):
+        self._do_test_statsd_methods_no_labels('dogstatsd')
+
+    def test_statsd_methods_graphite_no_labels(self):
+        self._do_test_statsd_methods_no_labels('graphite')
+
+    def test_statsd_methods_influxdb_no_labels(self):
+        self._do_test_statsd_methods_no_labels('influxdb')
+
+    def test_statsd_methods_librato_no_labels(self):
+        self._do_test_statsd_methods_no_labels('librato')

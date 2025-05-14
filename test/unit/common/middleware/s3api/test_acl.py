@@ -15,7 +15,7 @@
 
 import base64
 import unittest
-import mock
+from unittest import mock
 
 from io import BytesIO
 

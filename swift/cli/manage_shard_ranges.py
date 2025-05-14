@@ -155,7 +155,6 @@ All three steps may be performed with one sub-command::
     Run container-sharder on all nodes to shard the container.
 
 """
-from __future__ import print_function
 import argparse
 import json
 import os.path
@@ -737,7 +736,7 @@ def _fix_gaps(broker, args, paths_with_gaps):
             print('    gap can be fixed by expanding neighbor range:')
             _print_shard_range(expanding_range, 3)
         else:
-            print('Warning: cannot fix gap: non-ACTIVE neighbors')
+            print('WARNING: cannot fix gap: non-ACTIVE neighbors')
 
     if args.max_expanding >= 0:
         solutions = solutions[:args.max_expanding]

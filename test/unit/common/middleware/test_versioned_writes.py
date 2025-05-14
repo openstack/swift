@@ -17,7 +17,7 @@ import functools
 import json
 import os
 import time
-import mock
+from unittest import mock
 import unittest
 from swift.common import swob, utils, registry
 from swift.common.middleware import versioned_writes, copy
@@ -394,7 +394,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-        called_method = [method for (method, path, hdrs) in self.app._calls]
+        called_method = [call.method for call in self.app.call_list]
         self.assertNotIn('GET', called_method)
 
     def test_put_request_is_dlo_manifest_with_container_config_true(self):
@@ -424,7 +424,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
         self.assertIn('x-object-manifest',
-                      self.app.calls_with_headers[2].headers)
+                      self.app.call_list[2].headers)
 
     def test_put_version_is_dlo_manifest_with_container_config_true(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
@@ -456,7 +456,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
         self.assertIn('x-object-manifest',
-                      self.app.calls_with_headers[1].headers)
+                      self.app.call_list[1].headers)
 
     def test_delete_object_no_versioning_with_container_config_true(self):
         # set False to versions_write obviously and expect no GET versioning
@@ -472,8 +472,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(status, '204 No Content')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-        called_method = \
-            [method for (method, path, rheaders) in self.app._calls]
+        called_method = [call.method for call in self.app.call_list]
         self.assertNotIn('PUT', called_method)
         self.assertNotIn('GET', called_method)
         self.assertEqual(1, self.app.call_count)
@@ -724,17 +723,17 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertRequestEqual(req, self.authorized[0])
         self.assertRequestEqual(req, self.authorized[1])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertEqual(['GET', 'HEAD', 'DELETE'],
                          [c.method for c in calls])
 
         self.assertIn('X-Newest', calls[1].headers)
         self.assertEqual('True', calls[1].headers['X-Newest'])
 
-        method, path, req_headers = calls.pop()
-        self.assertTrue(path.startswith('/v1/a/c/o'))
+        call = calls.pop()
+        self.assertTrue(call.path.startswith('/v1/a/c/o'))
         # Since we're deleting the original, this *should* still be present:
-        self.assertEqual('1', req_headers.get('X-If-Delete-At'))
+        self.assertEqual('1', call.headers.get('X-If-Delete-At'))
 
     def test_delete_latest_version_is_marker_success(self):
         # Test popping a delete marker off the stack. So, there's data in the
@@ -836,13 +835,13 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertRequestEqual(req, self.authorized[0])
 
         # check that X-If-Delete-At was removed from DELETE request
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertEqual(['GET', 'HEAD', 'DELETE'],
                          [c.method for c in calls])
 
-        method, path, req_headers = calls.pop()
-        self.assertTrue(path.startswith('/v1/a/ver_cont/001o/3'))
-        self.assertNotIn('x-if-delete-at', [h.lower() for h in req_headers])
+        call = calls.pop()
+        self.assertTrue(call.path.startswith('/v1/a/ver_cont/001o/3'))
+        self.assertNotIn('x-if-delete-at', [h.lower() for h in call.headers])
 
     @mock.patch('swift.common.middleware.versioned_writes.legacy.time.time',
                 return_value=1234)
@@ -869,7 +868,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         req.environ['REQUEST_METHOD'] = 'PUT'
         self.assertRequestEqual(req, self.authorized[0])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertEqual(['GET', 'PUT', 'DELETE'], [c.method for c in calls])
         self.assertEqual('application/x-deleted;swift_versions_deleted=1',
                          calls[1].headers.get('Content-Type'))
@@ -903,7 +902,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         req.environ['REQUEST_METHOD'] = 'PUT'
         self.assertRequestEqual(req, self.authorized[0])
 
-        calls = self.app.calls_with_headers
+        calls = self.app.call_list
         self.assertEqual(['GET', 'PUT', 'PUT', 'DELETE'],
                          [c.method for c in calls])
         self.assertEqual('/v1/a/ver_cont/001o/1416421142.00000',

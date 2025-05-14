@@ -17,7 +17,7 @@
 import io
 import hashlib
 import hmac
-import mock
+from unittest import mock
 import unittest
 
 from swift.cli import form_signature

@@ -19,7 +19,7 @@ import hmac
 
 import os
 
-import mock
+from unittest import mock
 import unittest
 
 from getpass import getuser
@@ -399,7 +399,7 @@ class TestKeymaster(unittest.TestCase):
             with self.assertRaises(ValueError) as err:
                 keymaster.KeyMaster(self.swift, conf)
             self.assertEqual(
-                'Malformed root secret option name %s' % bad_option,
+                'Malformed multi-key option name %s' % bad_option,
                 str(err.exception))
         do_test('encryption_root_secret1')
         do_test('encryption_root_secret123')

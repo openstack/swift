@@ -82,14 +82,31 @@ def account_listing_response(account, req, response_content_type, broker=None,
                                                prefix, delimiter, reverse,
                                                req.allow_reserved_names)
     data = []
-    for (name, object_count, bytes_used, put_timestamp, is_subdir) \
+    for (name, object_count, bytes_used, put_timestamp,
+         storage_policy_index, is_subdir) \
             in account_list:
         if is_subdir:
             data.append({'subdir': name})
         else:
-            data.append(
-                {'name': name, 'count': object_count, 'bytes': bytes_used,
-                 'last_modified': Timestamp(put_timestamp).isoformat})
+            container = {
+                'name': name,
+                'count': object_count,
+                'bytes': bytes_used,
+                'last_modified': Timestamp(put_timestamp).isoformat}
+            # Add the container's storage policy to the response, unless
+            # storage_policy_index was not found in POLICIES, which means
+            # the storage policy is missing from the Swift configuration
+            # or otherwise could not be determined.
+            #
+            # The storage policy should always be returned when
+            # everything is configured correctly, but clients are
+            # expected to be able to handle this case regardless,
+            # if only to support older versions of swift.
+            if storage_policy_index in POLICIES:
+                container['storage_policy'] = (
+                    POLICIES[storage_policy_index].name
+                )
+            data.append(container)
     if response_content_type.endswith('/xml'):
         account_list = listing_formats.account_to_xml(data, account)
         ret = HTTPOk(body=account_list, request=req, headers=resp_headers)

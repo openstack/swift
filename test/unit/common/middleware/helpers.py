@@ -12,10 +12,8 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
-
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from urllib import parse
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
@@ -53,7 +51,79 @@ class LeakTrackingIter(object):
         self.mark_closed(self.key)
 
 
-FakeSwiftCall = namedtuple('FakeSwiftCall', ['method', 'path', 'headers'])
+class FakeSwiftDummyValue:
+    _instance = None
+
+    @classmethod
+    def singleton(cls):
+        if not cls._instance:
+            cls._instance = FakeSwiftDummyValue()
+        return cls._instance
+
+
+class FakeSwiftCall(object):
+    """
+    Encapsulate properties of a request captured by FakeSwift.
+    """
+    DUMMY_VALUE = FakeSwiftDummyValue.singleton()
+
+    def __init__(self, req):
+        self.req = req
+        self.method = req.method
+        path = req.environ['PATH_INFO']
+        if req.environ.get('QUERY_STRING'):
+            path += '?' + req.environ['QUERY_STRING']
+        self.path = normalize_path(path)
+        self.headers = HeaderKeyDict(req.headers)
+        # footers is populated if/when it is passed by FakeSwift to any
+        # update_footers callback that has been set in the request environment.
+        self.footers = HeaderKeyDict()
+        self._env = self._partial_copy(req.environ)
+        # leave FakeSwift to read body and set this attribute after the call
+        # has been captured
+        self.body = None
+
+    def _partial_copy(self, value):
+        # Ideally we want a snapshot of the environ, with deep copies of
+        # mutable values. However, some things (e.g. EncInputWrapper) won't
+        # deepcopy. To avoid a confusing mixed of copied and original
+        # values, replace un-copied values with DUMMY_VALUE.
+        if value is None:
+            return value
+        elif isinstance(value, (bool, int, float, str, bytes)):
+            return value
+        elif isinstance(value, (list, tuple, set)):
+            return value.__class__([self._partial_copy(v) for v in value])
+        elif isinstance(value, dict):
+            return dict([(k, self._partial_copy(v))
+                         for k, v in value.items()])
+        else:
+            return self.DUMMY_VALUE
+
+    @property
+    def env(self):
+        """
+        Returns a partial deepcopy of the request environ as it was received by
+        ``FakeSwift``.
+
+        It may not be possible to deepcopy everything in a request environ, so
+        only values of type ``bool``, ``int``, ``float``, ``str``, ``bytes``,
+        ``list``, ``tuple``, ``set``, or ``dict`` are copied. Other values are
+        replaced with a ``FakeSwiftCall.DUMMY_VALUE`` sentinel so that tests
+        can still check for that key being in ``env``, but not mistakenly
+        assume that the value is a copy.
+
+        Tests that need to make assertions about values not copied into
+        ``FakeSwiftCall.env`` can access the original request environ via
+        ``FakeSwiftCall.req.environ``.
+
+        Writing tests that assert the equality of ``env`` is discouraged (e.g.
+        ``self.assertEqual(expected, call.env)``) because those assertions will
+        break when new default keys are added to the request environ. Tests
+        should instead make assertions about individual items in ``env`` (e.g.
+        ``self.assertEqual(expected, call.env['swift.source')``).
+        """
+        return self._env
 
 
 def normalize_query_string(qs):
@@ -169,12 +239,8 @@ class FakeSwift(object):
     def __init__(self, capture_unexpected_calls=True):
         self.capture_unexpected_calls = capture_unexpected_calls
         self._calls = []
-        self.req_bodies = []
         self._unclosed_req_keys = defaultdict(int)
         self._unread_req_paths = defaultdict(int)
-        self.req_method_paths = []
-        self.swift_sources = []
-        self.txn_ids = []
         self.uploaded = {}
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
@@ -280,15 +346,10 @@ class FakeSwift(object):
                 return resp(env, start_response)
 
         req = swob.Request(env)
-        self.swift_sources.append(env.get('swift.source'))
-        self.txn_ids.append(env.get('swift.trans_id'))
 
         # Capture the request before reading the body, in case the iter raises
         # an exception.
-        # note: tests may assume this copy of req_headers is case insensitive
-        # so we deliberately use a HeaderKeyDict
-        req_headers_copy = HeaderKeyDict(req.headers)
-        call = FakeSwiftCall(method, path, req_headers_copy)
+        call = FakeSwiftCall(req)
         try:
             resp_spec = self._select_response(env)
         except KeyError:
@@ -298,27 +359,25 @@ class FakeSwift(object):
         else:
             self._calls.append(call)
 
-        req_body = None  # generally, we don't care and let eventlet discard()
         if (cont and not obj and method == 'UPDATE') or (
                 obj and method == 'PUT'):
-            req_body = b''.join(iter(env['wsgi.input'].read, b''))
+            call.body = b''.join(iter(env['wsgi.input'].read, b''))
 
         # simulate object PUT
         if method == 'PUT' and obj:
             if 'swift.callback.update_footers' in env:
                 footers = HeaderKeyDict()
                 env['swift.callback.update_footers'](footers)
-                req.headers.update(footers)
-                req_headers_copy.update(footers)
-            etag = md5(req_body, usedforsecurity=False).hexdigest()
+                call.footers.update(footers)
+            etag = md5(call.body, usedforsecurity=False).hexdigest()
             resp_spec.headers.setdefault('Etag', etag)
-            resp_spec.headers.setdefault('Content-Length', len(req_body))
+            resp_spec.headers.setdefault('Content-Length', len(call.body))
 
             # keep it for subsequent GET requests later
-            resp_headers = dict(req.headers)
+            metadata = dict(call.headers, **call.footers)
             if "CONTENT_TYPE" in env:
-                resp_headers['Content-Type'] = env["CONTENT_TYPE"]
-            self.uploaded[env['PATH_INFO']] = (resp_headers, req_body)
+                metadata['Content-Type'] = env["CONTENT_TYPE"]
+            self.uploaded[env['PATH_INFO']] = (metadata, call.body)
 
         # simulate object POST
         elif method == 'POST' and obj:
@@ -330,13 +389,12 @@ class FakeSwift(object):
                     is_object_transient_sysmeta(k)))
             # apply from new
             new_metadata.update(
-                dict((k, v) for k, v in req.headers.items()
+                dict((k, v)
+                     for k, v in dict(call.headers, **call.footers).items()
                      if (is_user_meta('object', k) or
                          is_object_transient_sysmeta(k) or
                          k.lower == 'content-type')))
             self.uploaded[env['PATH_INFO']] = new_metadata, data
-
-        self.req_bodies.append(req_body)
 
         # Some middlewares (e.g. proxy_logging) inspect the request headers
         # after it has been handled, so simulate some request headers updates
@@ -389,20 +447,47 @@ class FakeSwift(object):
                 if count > 0}
 
     @property
-    def calls(self):
-        return [(method, path) for method, path, headers in self._calls]
-
-    @property
-    def headers(self):
-        return [headers for method, path, headers in self._calls]
-
-    @property
-    def calls_with_headers(self):
+    def call_list(self):
+        """
+        Returns a list of instances of ``FakeSwiftCall``.
+        """
         return self._calls
 
     @property
+    def calls(self):
+        """
+        Returns a list of 2-tuples (<method>, <path>) for each item in
+        ``call_list``.
+        """
+        return [(call.method, call.path) for call in self._calls]
+
+    @property
+    def headers(self):
+        """
+        Returns a list of headers for each item in ``call_list``.
+        """
+        return [call.headers for call in self._calls]
+
+    @property
+    def calls_with_headers(self):
+        """
+        Returns a list of 3-tuples (<method>, <path>, <headers>) for each item
+        in ``call_list``.
+        """
+        return [(call.method, call.path, call.headers)
+                for call in self._calls]
+
+    @property
     def call_count(self):
-        return len(self._calls)
+        return len(self.call_list)
+
+    @property
+    def txn_ids(self):
+        return [call.env.get('swift.trans_id') for call in self.call_list]
+
+    @property
+    def swift_sources(self):
+        return [call.env.get('swift.source') for call in self.call_list]
 
     def update_sticky_response_headers(self, path, headers):
         """

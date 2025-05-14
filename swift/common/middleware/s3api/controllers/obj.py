@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from io import BytesIO
 import json
 
 from swift.common import constraints
@@ -323,6 +324,16 @@ class ObjectController(Controller):
 
             self._maybe_cleanup_mpu(req, resp)
 
+            # If we're going to continue using this request, we need to
+            # replace the now-spent body
+            req.environ['wsgi.input'] = BytesIO(b'')
+            req.headers['content-length'] = '0'
+            req.headers.pop('transfer-encoding', None)
+            if query.get('multipart-manifest') and resp.status_int == HTTP_OK:
+                for chunk in resp.app_iter:
+                    pass  # drain the bulk-deleter response
+                resp.status = HTTP_NO_CONTENT
+                resp.body = b''
             if resp.sw_headers.get('X-Object-Current-Version-Id') == 'null':
                 new_resp = self._restore_on_delete(req)
                 if new_resp:

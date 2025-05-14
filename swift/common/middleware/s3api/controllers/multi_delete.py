@@ -77,7 +77,12 @@ class MultiObjectDeleteController(Controller):
             if not xml:
                 raise MissingRequestBodyError()
 
-            req.check_md5(xml)
+            if 'x-amz-content-sha256' not in req.headers:
+                # SHA256 got checked when we read the body, so there's at
+                # least *some* verification. Recent versions of boto3 stopped
+                # sending Content-MD5, so it can't *always* be required.
+                # See https://bugs.launchpad.net/swift/+bug/2098529
+                req.check_md5(xml)
             elem = fromstring(xml, 'Delete', self.logger)
 
             quiet = elem.find('./Quiet')

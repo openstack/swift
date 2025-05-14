@@ -23,7 +23,7 @@ import time
 from io import BytesIO
 
 from urllib.parse import quote
-import mock
+from unittest import mock
 
 import swift.common.swob as swob
 from swift.common import utils, exceptions

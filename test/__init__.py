@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 import sys
 from contextlib import contextmanager
 
@@ -36,10 +35,6 @@ warnings.filterwarnings('ignore', message=(
     'and will be removed in a future release.'))
 
 import unittest
-
-if sys.version_info < (3, 2):
-    unittest.TestCase.assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
-    unittest.TestCase.assertRegex = unittest.TestCase.assertRegexpMatches
 
 from eventlet.green import socket
 

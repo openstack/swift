@@ -25,7 +25,7 @@ import sqlite3
 import itertools
 from contextlib import contextmanager
 import random
-import mock
+from unittest import mock
 import base64
 import shutil
 
@@ -1448,7 +1448,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
 
         # make sure we can iter containers without the migration
         for c in broker.list_containers_iter(1, None, None, None, None):
-            self.assertEqual(c, ('test_name', 1, 2, timestamp, 0))
+            self.assertEqual(c, ('test_name', 1, 2, timestamp, 0, 0))
 
         # stats table is mysteriously empty...
         stats = broker.get_policy_stats()
@@ -1607,7 +1607,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # make sure "test_name" container in new database
         self.assertEqual(new_broker.get_info()['container_count'], 1)
         for c in new_broker.list_containers_iter(1, None, None, None, None):
-            self.assertEqual(c, ('test_name', 1, 2, timestamp, 0))
+            self.assertEqual(c, ('test_name', 1, 2, timestamp, 0, 0))
 
         # full migration successful
         with new_broker.get() as conn:

@@ -20,12 +20,12 @@ import unittest
 import os
 import tarfile
 import zlib
-import mock
+from unittest import mock
 from io import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
 from eventlet import sleep
-from mock import patch, call
+from unittest.mock import patch, call
 from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
 from swift.common import utils, constraints, registry
@@ -645,11 +645,11 @@ class TestUntar(unittest.TestCase):
         ])
 
     def test_get_response_body(self):
-        txt_body = bulk.get_response_body(
+        txt_body = bulk.get_heartbeat_response_body(
             'bad_formay', {'hey': 'there'}, [['json > xml', '202 Accepted']],
             "doesn't matter for text")
         self.assertIn(b'hey: there', txt_body)
-        xml_body = bulk.get_response_body(
+        xml_body = bulk.get_heartbeat_response_body(
             'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']],
             'root_tag')
         self.assertIn(b'&gt', xml_body)

@@ -31,7 +31,7 @@ from eventlet.greenthread import spawn
 from swift.common.utils import public, get_logger, \
     config_true_value, config_percent_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
-    get_expirer_container, parse_mime_headers, \
+    parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
     normalize_timestamp, md5, parse_options, CooperativeIterator
@@ -44,7 +44,7 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     ChunkReadError, DiskFileXattrNotSupported
 from swift.common.request_helpers import resolve_ignore_range_header, \
     OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
-from swift.obj import ssync_receiver
+from swift.obj import ssync_receiver, expirer
 from swift.common.http import is_success, HTTP_MOVED_PERMANENTLY
 from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
@@ -181,10 +181,7 @@ class ObjectController(BaseStorageServer):
                 self.allowed_headers.add(header)
 
         self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
-        self.expiring_objects_account = self.auto_create_account_prefix + \
-            (conf.get('expiring_objects_account_name') or 'expiring_objects')
-        self.expiring_objects_container_divisor = \
-            int(conf.get('expiring_objects_container_divisor') or 86400)
+        self.expirer_config = expirer.ExpirerConfig(conf, logger=self.logger)
         # Initialization was successful, so now apply the network chunk size
         # parameter as the default read / write buffer size for the network
         # sockets.
@@ -462,11 +459,9 @@ class ObjectController(BaseStorageServer):
         if config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
             return
-        delete_at = normalize_delete_at_timestamp(delete_at)
-        updates = [(None, None)]
 
-        partition = None
-        hosts = contdevices = [None]
+        delete_at = normalize_delete_at_timestamp(delete_at)
+
         headers_in = request.headers
         headers_out = HeaderKeyDict({
             # system accounts are always Policy-0
@@ -474,26 +469,42 @@ class ObjectController(BaseStorageServer):
             'x-timestamp': request.timestamp.internal,
             'x-trans-id': headers_in.get('x-trans-id', '-'),
             'referer': request.as_referer()})
+
+        expiring_objects_account_name, delete_at_container = \
+            self.expirer_config.get_expirer_account_and_container(
+                delete_at, account, container, obj)
         if op != 'DELETE':
             hosts = headers_in.get('X-Delete-At-Host', None)
             if hosts is None:
                 # If header is missing, no update needed as sufficient other
                 # object servers should perform the required update.
                 return
-            delete_at_container = headers_in.get('X-Delete-At-Container', None)
-            if not delete_at_container:
-                # older proxy servers did not send X-Delete-At-Container so for
-                # backwards compatibility calculate the value here, but also
-                # log a warning because this is prone to inconsistent
-                # expiring_objects_container_divisor configurations.
-                # See https://bugs.launchpad.net/swift/+bug/1187200
-                self.logger.warning(
-                    'X-Delete-At-Container header must be specified for '
-                    'expiring objects background %s to work properly. Making '
-                    'best guess as to the container name for now.' % op)
-                delete_at_container = get_expirer_container(
-                    delete_at, self.expiring_objects_container_divisor,
-                    account, container, obj)
+
+            proxy_delete_at_container = headers_in.get(
+                'X-Delete-At-Container', None)
+            if delete_at_container != proxy_delete_at_container:
+                if not proxy_delete_at_container:
+                    # We carry this warning around for pre-2013 proxies
+                    self.logger.warning(
+                        'X-Delete-At-Container header must be specified for '
+                        'expiring objects background %s to work properly. '
+                        'Making best guess as to the container name '
+                        'for now.', op)
+                    proxy_delete_at_container = delete_at_container
+                else:
+                    # Inconsistent configuration may lead to orphaned expirer
+                    # task queue objects when X-Delete-At is updated, which can
+                    # stick around for a whole reclaim age.
+                    self.logger.debug(
+                        'Proxy X-Delete-At-Container %r does not match '
+                        'expected %r for current expirer_config.',
+                        proxy_delete_at_container, delete_at_container)
+                # it's not possible to say which is "more correct", this will
+                # at least match the host/part/device
+                delete_at_container = normalize_delete_at_timestamp(
+                    proxy_delete_at_container)
+
+            # new updates need to enqueue new x-delete-at
             partition = headers_in.get('X-Delete-At-Partition', None)
             contdevices = headers_in.get('X-Delete-At-Device', '')
             updates = [upd for upd in
@@ -512,23 +523,13 @@ class ObjectController(BaseStorageServer):
                 request.headers.get(
                     'X-Backend-Clean-Expiring-Object-Queue', 't')):
                 return
-
-            # DELETEs of old expiration data have no way of knowing what the
-            # old X-Delete-At-Container was at the time of the initial setting
-            # of the data, so a best guess is made here.
-            # Worst case is a DELETE is issued now for something that doesn't
-            # exist there and the original data is left where it is, where
-            # it will be ignored when the expirer eventually tries to issue the
-            # object DELETE later since the X-Delete-At value won't match up.
-            delete_at_container = get_expirer_container(
-                delete_at, self.expiring_objects_container_divisor,
-                account, container, obj)
-        delete_at_container = normalize_delete_at_timestamp(
-            delete_at_container)
+            # DELETE op always go directly to async_pending
+            partition = None
+            updates = [(None, None)]
 
         for host, contdevice in updates:
             self.async_update(
-                op, self.expiring_objects_account, delete_at_container,
+                op, expiring_objects_account_name, delete_at_container,
                 build_task_obj(delete_at, account, container, obj),
                 host, partition, contdevice, headers_out, objdevice,
                 policy)

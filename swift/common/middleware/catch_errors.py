@@ -22,7 +22,7 @@ class BadResponseLength(Exception):
     pass
 
 
-def enforce_byte_count(inner_iter, nbytes):
+class ByteEnforcer(object):
     """
     Enforces that inner_iter yields exactly <nbytes> bytes before
     exhaustion.
@@ -31,25 +31,39 @@ def enforce_byte_count(inner_iter, nbytes):
 
     :param inner_iter: iterable of bytestrings
     :param nbytes: number of bytes expected
-    """
-    try:
-        bytes_left = nbytes
-        for chunk in inner_iter:
-            if bytes_left >= len(chunk):
-                yield chunk
-                bytes_left -= len(chunk)
-            else:
-                yield chunk[:bytes_left]
-                raise BadResponseLength(
-                    "Too many bytes; truncating after %d bytes "
-                    "with at least %d surplus bytes remaining" % (
-                        nbytes, len(chunk) - bytes_left))
 
-        if bytes_left:
-            raise BadResponseLength('Expected another %d bytes' % (
-                bytes_left,))
-    finally:
-        close_if_possible(inner_iter)
+    N.B. since we require the nbytes param and require the inner_iter to yield
+    exactly that many bytes we can support the __len__ interface for anyone
+    happens to expect non chunked resp iterables to support that
+    (e.g.  eventlet's wsgi.server).
+    """
+
+    def __init__(self, inner_iter, nbytes):
+        self.inner_iter = inner_iter
+        self.nbytes = nbytes
+
+    def __len__(self):
+        return self.nbytes
+
+    def __iter__(self):
+        try:
+            bytes_left = self.nbytes
+            for chunk in self.inner_iter:
+                if bytes_left >= len(chunk):
+                    yield chunk
+                    bytes_left -= len(chunk)
+                else:
+                    yield chunk[:bytes_left]
+                    raise BadResponseLength(
+                        "Too many bytes; truncating after %d bytes "
+                        "with at least %d surplus bytes remaining" % (
+                            self.nbytes, len(chunk) - bytes_left))
+
+            if bytes_left:
+                raise BadResponseLength('Expected another %d bytes' % (
+                    bytes_left,))
+        finally:
+            close_if_possible(self.inner_iter)
 
 
 class CatchErrorsContext(WSGIContext):
@@ -99,7 +113,7 @@ class CatchErrorsContext(WSGIContext):
         # and raise an exception to stop any more bytes from being
         # generated and also to kill the TCP connection.
         if env['REQUEST_METHOD'] == 'HEAD':
-            resp = enforce_byte_count(resp, 0)
+            resp = ByteEnforcer(resp, 0)
 
         elif self._response_headers:
             content_lengths = [val for header, val in self._response_headers
@@ -110,7 +124,7 @@ class CatchErrorsContext(WSGIContext):
                 except ValueError:
                     pass
                 else:
-                    resp = enforce_byte_count(resp, content_length)
+                    resp = ByteEnforcer(resp, content_length)
 
         # make sure the response has the trans_id
         if self._response_headers is None:

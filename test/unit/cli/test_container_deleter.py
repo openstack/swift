@@ -12,7 +12,7 @@
 
 import itertools
 import json
-import mock
+from unittest import mock
 import unittest
 
 from swift.cli import container_deleter

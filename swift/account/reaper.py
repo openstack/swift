@@ -265,7 +265,8 @@ class AccountReaper(Daemon):
                 container_limit, '', None, None, None, allow_reserved=True))
             while containers:
                 try:
-                    for (container, _junk, _junk, _junk, _junk) in containers:
+                    for row in containers:
+                        container = row[0]
                         this_shard = (
                             int(md5(container.encode('utf-8'),
                                     usedforsecurity=False)

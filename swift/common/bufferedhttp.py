@@ -67,7 +67,7 @@ class BufferedHTTPResponse(HTTPResponse):
         self.strict = strict
         self._method = method
 
-        self.headers = self.msg = None
+        self._headers = self.msg = None
 
         # from the Status-Line of the response
         self.version = _UNKNOWN         # HTTP-Version
@@ -80,23 +80,36 @@ class BufferedHTTPResponse(HTTPResponse):
         self.will_close = _UNKNOWN      # conn will close at end of response
         self._readline_buffer = b''
 
-    def begin(self):
-        HTTPResponse.begin(self)
-        header_payload = self.headers.get_payload()
-        if isinstance(header_payload, list) and len(header_payload) == 1:
-            header_payload = header_payload[0].get_payload()
-        if header_payload:
-            # This shouldn't be here. We must've bumped up against
-            # https://bugs.python.org/issue37093
-            for line in header_payload.rstrip('\r\n').split('\n'):
-                if ':' not in line or line[:1] in ' \t':
-                    # Well, we're no more broken than we were before...
-                    # Should we support line folding?
-                    # How can/should we handle a bad header line?
-                    break
-                header, value = line.split(':', 1)
-                value = value.strip(' \t\n\r')
-                self.headers.add_header(header, value)
+    @property
+    def headers(self):
+        return self._headers
+
+    @headers.setter
+    def headers(self, hdrs):
+        try:
+            header_payload = hdrs.get_payload()
+        except AttributeError:
+            pass
+        else:
+            if isinstance(header_payload, list) and len(header_payload) == 1:
+                header_payload = header_payload[0].get_payload()
+            if header_payload:
+                # This shouldn't be here. We must've bumped up against
+                # https://bugs.python.org/issue37093
+                for line in header_payload.rstrip('\r\n').split('\n'):
+                    if ':' not in line or line[:1] in ' \t':
+                        # Well, we're no more broken than we were before...
+                        # Should we support line folding?
+                        # How can/should we handle a bad header line?
+                        break
+                    header, value = line.split(':', 1)
+                    value = value.strip(' \t\n\r')
+                    hdrs.add_header(header, value)
+                # Clear the payload now that all headers are present.
+                # Otherwise, we may double-up the headers parsed here
+                # if/when repeatedly setting the headers property.
+                hdrs.set_payload(None)
+        self._headers = hdrs
 
     def expect_response(self):
         if self.fp:

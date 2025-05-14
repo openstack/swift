@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 
 import configparser
 import contextlib
 
-import mock
+from unittest import mock
 import os
 from urllib.parse import urlparse, urlsplit, urlunsplit
 import sys
@@ -825,7 +824,8 @@ def setup_package():
     global web_front_end
     web_front_end = config.get('web_front_end', 'integral')
     global normalized_urls
-    normalized_urls = config.get('normalized_urls', False)
+    normalized_urls = utils.config_true_value(
+        config.get('normalized_urls', False))
 
     global orig_collate
     orig_collate = locale.setlocale(locale.LC_COLLATE)

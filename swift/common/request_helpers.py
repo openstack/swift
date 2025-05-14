@@ -23,6 +23,8 @@ from swob in here without creating circular imports.
 import itertools
 import mimetypes
 import time
+import json
+from xml.sax.saxutils import escape  # nosec B406
 
 from swift.common.header_key_dict import HeaderKeyDict
 
@@ -1053,3 +1055,47 @@ def append_log_info(environ, log_info):
 
 def get_log_info(environ):
     return ','.join(environ.get('swift.log_info', []))
+
+
+def get_heartbeat_response_body(data_format, data_dict, error_list, root_tag):
+    """
+    Returns a response body for heartbeat according to format.
+
+    Handles json and xml, otherwise will return text/plain.
+    Note: xml response does not include xml declaration.
+
+    :params data_format: resulting format
+    :params data_dict: generated data about results.
+    :params error_list: list of quoted filenames that failed
+    :params root_tag: the tag name to use for root elements when returning XML;
+                      e.g. 'extract' or 'delete'
+    """
+    if data_format == 'application/json':
+        data_dict['Errors'] = error_list
+        return json.dumps(data_dict).encode('ascii')
+    if data_format and data_format.endswith('/xml'):
+        output = ['<', root_tag, '>\n']
+        for key in sorted(data_dict):
+            xml_key = key.replace(' ', '_').lower()
+            output.extend([
+                '<', xml_key, '>',
+                escape(str(data_dict[key])),
+                '</', xml_key, '>\n',
+            ])
+        output.append('<errors>\n')
+        for name, status in error_list:
+            output.extend([
+                '<object><name>', escape(name), '</name><status>',
+                escape(status), '</status></object>\n',
+            ])
+        output.extend(['</errors>\n</', root_tag, '>\n'])
+        return ''.join(output).encode('utf-8')
+
+    output = []
+    for key in sorted(data_dict):
+        output.append('%s: %s\n' % (key, data_dict[key]))
+    output.append('Errors:\n')
+    output.extend(
+        '%s, %s\n' % (name, status)
+        for name, status in error_list)
+    return ''.join(output).encode('utf-8')

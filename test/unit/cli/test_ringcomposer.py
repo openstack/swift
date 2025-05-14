@@ -18,7 +18,7 @@ import shutil
 import tempfile
 import unittest
 
-from mock import mock
+from unittest import mock
 
 from swift.cli import ringcomposer
 from test.unit import write_stub_builder

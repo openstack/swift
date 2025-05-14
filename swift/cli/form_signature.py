@@ -15,7 +15,6 @@
 """
 Script for generating a form signature for use with FormPost middleware.
 """
-from __future__ import print_function
 import hmac
 from hashlib import sha1
 from os.path import basename

@@ -18,7 +18,7 @@ import io
 import json
 import os
 import random
-import sys
+import ssl
 import socket
 import time
 
@@ -308,9 +308,7 @@ class Connection(object):
         return json.loads(self.response.read())
 
     def http_connect(self):
-        if self.storage_scheme == 'https' and \
-                self.insecure and sys.version_info >= (2, 7, 9):
-            import ssl
+        if self.storage_scheme == 'https' and self.insecure:
             self.connection = self.conn_class(
                 self.storage_netloc,
                 context=ssl._create_unverified_context())
@@ -570,7 +568,8 @@ class Account(Base):
                 tree = minidom.parseString(self.conn.response.read())
                 for x in tree.getElementsByTagName('container'):
                     cont = {}
-                    for key in ['name', 'count', 'bytes', 'last_modified']:
+                    for key in ['name', 'count', 'bytes', 'last_modified',
+                                'storage_policy']:
                         cont[key] = x.getElementsByTagName(key)[0].\
                             childNodes[0].nodeValue
                     conts.append(cont)

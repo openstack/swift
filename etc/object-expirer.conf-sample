@@ -39,7 +39,6 @@
 
 [object-expirer]
 # interval = 300.0
-# expiring_objects_account_name = expiring_objects
 # report_interval = 300.0
 #
 # request_tries is the number of times the expirer's internal client will

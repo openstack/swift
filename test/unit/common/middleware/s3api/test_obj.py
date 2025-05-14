@@ -21,7 +21,7 @@ from hashlib import sha256
 import os
 from os.path import join
 import time
-from mock import patch
+from unittest.mock import patch
 import json
 
 from swift.common import swob
@@ -1426,7 +1426,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         self.assertEqual('/v1/AUTH_test/bucket/object',
                          req.environ['swift.backend_path'])
 
-        head_call, put_call = self.swift.calls_with_headers
+        head_call, put_call = self.swift.call_list
         self.assertNotIn('x-backend-storage-policy-index', head_call.headers)
         self.assertNotIn('x-backend-storage-policy-index', put_call.headers)
         self.assertEqual(put_call.headers['x-copy-from'], '/some/source')
@@ -1518,12 +1518,14 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         self.assertEqual(status.split()[0], '204')
         self.assertEqual([
             ('DELETE', '/v1/AUTH_test/bucket/object'
-             '?symlink=get&version-id=1574358170.12293'),
+             '?symlink=get&version-id=1574358170.12293', None),
             ('GET', '/v1/AUTH_test/bucket'
-             '?prefix=object&versions=True'),
+             '?prefix=object&versions=True', '0'),
             ('PUT', '/v1/AUTH_test/bucket/object'
-             '?version-id=1574341899.21751'),
-        ], self.swift.calls)
+             '?version-id=1574341899.21751', '0'),
+        ], [
+            (method, path, headers.get('content-length'))
+            for method, path, headers in self.swift.calls_with_headers])
 
     def test_object_DELETE_version_id_not_implemented(self):
         req = Request.blank('/bucket/object?versionId=1574358170.12293',

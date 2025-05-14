@@ -14,15 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import mock
+from unittest import mock
 import unittest
 import urllib.parse
+import eventlet
 
 from swift.common import swob
 from swift.common.middleware import copy
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPException
-from swift.common.utils import closing_if_possible, md5
+from swift.common.utils import close_if_possible, closing_if_possible, md5
 from test.debug_logger import debug_logger
 from test.unit import patch_policies, FakeRing
 from test.unit.common.middleware.helpers import FakeSwift
@@ -1530,3 +1531,141 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
         self.assertEqual(resp.body, range_not_satisfiable_body)
         self.assertEqual(resp.etag, body_etag)
         self.assertEqual(resp.headers['Accept-Ranges'], 'bytes')
+
+
+class TestServerSideCopyHeartbeat(unittest.TestCase):
+    def setUp(self):
+        self.app = FakeSwift()
+        self.ssc = copy.filter_factory({'yield_frequency': '1'})(self.app)
+
+    def tearDown(self):
+        pass
+
+    def call_app(self, req, app=None):
+        if app is None:
+            app = self.app
+
+        self.authorized = []
+
+        def authorize(req):
+            self.authorized.append(req)
+
+        if 'swift.authorize' not in req.environ:
+            req.environ['swift.authorize'] = authorize
+
+        req.headers.setdefault("User-Agent", "Test User Agent")
+
+        status = [None]
+        headers = [None]
+
+        def start_response(s, h, ei=None):
+            status[0] = s
+            headers[0] = h
+
+        body_iter = app(req.environ, start_response)
+        body = b''
+        try:
+            for chunk in body_iter:
+                body += chunk
+        finally:
+            close_if_possible(body_iter)
+
+        return status[0], headers[0], body
+
+    def test_copy_with_heartbeat_success(self):
+        original_spawn = eventlet.spawn
+        self.app.register('GET', '/v1/a/c/o?heartbeat=true', swob.HTTPOk,
+                          {'Content-Length': '10'}, b'X' * 10)
+        self.app.register('PUT', '/v1/a/c/o2?heartbeat=true',
+                          swob.HTTPCreated, {})
+        heartbeats = []
+
+        def mock_spawn(func, *args, **kwargs):
+            def delayed_func(*a, **kw):
+                eventlet.sleep(2.5)
+                return func(*a, **kw)
+            return original_spawn(delayed_func, *args, **kwargs)
+        req = swob.Request.blank(
+            '/v1/a/c/o2?heartbeat=true',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Content-Length': '0', 'X-Copy-From': 'c/o'})
+
+        with mock.patch('eventlet.spawn', mock_spawn):
+            status = [None]
+            headers_list = [None]
+
+            def start_response(s, h, ei=None):
+                status[0] = s
+                headers_list[0] = h
+            body_iter = self.ssc(req.environ, start_response)
+            self.assertEqual('202 Accepted', status[0])
+
+            try:
+                for chunk in body_iter:
+                    heartbeats.append(chunk)
+            finally:
+                close_if_possible(body_iter)
+        self.assertTrue(len(heartbeats) >= 3,
+                        f"Expected 3 heartbeats, got {len(heartbeats)}")
+        self.assertEqual(heartbeats[0], b' ')
+
+        for i in range(1, len(heartbeats) - 1):
+            self.assertEqual(heartbeats[i], b' ')
+        self.assertIn(b'201 Created', heartbeats[-1])
+        self.assertEqual(req.environ.get('eventlet.minimum_write_chunk_size'),
+                         0)
+        self.assertEqual(2, len(self.app.calls))
+        self.assertEqual(('GET', '/v1/a/c/o?heartbeat=true'),
+                         self.app.calls[0])
+        self.assertEqual(('PUT', '/v1/a/c/o2?heartbeat=true'),
+                         self.app.calls[1])
+
+    def test_copy_with_heartbeat_failure(self):
+        original_spawn = eventlet.spawn
+        self.app.register('GET', '/v1/a/c/o?heartbeat=true', swob.HTTPOk,
+                          {'Content-Length': '10'}, b'X' * 10)
+        self.app.register('PUT', '/v1/a/c/o2?heartbeat=true',
+                          swob.HTTPServiceUnavailable, {})
+        heartbeats = []
+
+        def mock_spawn(func, *args, **kwargs):
+
+            def delayed_func(*a, **kw):
+                eventlet.sleep(2.5)
+                return func(*a, **kw)
+            return original_spawn(delayed_func, *args, **kwargs)
+
+        req = swob.Request.blank(
+            '/v1/a/c/o2?heartbeat=true',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Content-Length': '0', 'X-Copy-From': 'c/o'})
+
+        with mock.patch('eventlet.spawn', mock_spawn):
+            status = [None]
+            headers_list = [None]
+
+            def start_response(s, h, ei=None):
+                status[0] = s
+                headers_list[0] = h
+            body_iter = self.ssc(req.environ, start_response)
+            self.assertEqual('202 Accepted', status[0])
+
+            try:
+                for chunk in body_iter:
+                    heartbeats.append(chunk)
+            finally:
+                close_if_possible(body_iter)
+        self.assertTrue(len(heartbeats) >= 3,
+                        f"Expected 3 heartbeats, got {len(heartbeats)}")
+        self.assertEqual(heartbeats[0], b' ')
+
+        for i in range(1, len(heartbeats) - 1):
+            self.assertEqual(heartbeats[i], b' ')
+        self.assertIn(b'503 Service Unavailable', heartbeats[-1])
+        self.assertEqual(req.environ.get('eventlet.minimum_write_chunk_size'),
+                         0)
+        self.assertEqual(2, len(self.app.calls))
+        self.assertEqual(('GET', '/v1/a/c/o?heartbeat=true'),
+                         self.app.calls[0])
+        self.assertEqual(('PUT', '/v1/a/c/o2?heartbeat=true'),
+                         self.app.calls[1])

@@ -15,7 +15,7 @@
 
 import errno
 import os
-import mock
+from unittest import mock
 import posix
 import unittest
 from tempfile import mkdtemp
@@ -1089,6 +1089,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.content_type, 'text/plain')
         self.assertEqual(resp.charset, 'utf-8')
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_GET_with_containers_json(self):
         put_timestamps = {}
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1108,7 +1110,8 @@ class TestAccountController(unittest.TestCase):
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '0',
                                      'X-Bytes-Used': '0',
-                                     'X-Timestamp': normalize_timestamp(0)})
+                                     'X-Timestamp': normalize_timestamp(0),
+                                     'X-Backend-Storage-Policy-Index': 1})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?format=json',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1117,9 +1120,11 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(
             json.loads(resp.body),
             [{'count': 0, 'bytes': 0, 'name': 'c1',
-              'last_modified': Timestamp(put_timestamps['c1']).isoformat},
+              'last_modified': Timestamp(put_timestamps['c1']).isoformat,
+              'storage_policy': POLICIES[0].name},
              {'count': 0, 'bytes': 0, 'name': 'c2',
-              'last_modified': Timestamp(put_timestamps['c2']).isoformat}])
+              'last_modified': Timestamp(put_timestamps['c2']).isoformat,
+              'storage_policy': POLICIES[1].name}])
         put_timestamps['c1'] = normalize_timestamp(3)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': put_timestamps['c1'],
@@ -1134,7 +1139,8 @@ class TestAccountController(unittest.TestCase):
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '3',
                                      'X-Bytes-Used': '4',
-                                     'X-Timestamp': normalize_timestamp(0)})
+                                     'X-Timestamp': normalize_timestamp(0),
+                                     'X-Backend-Storage-Policy-Index': 1})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?format=json',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1143,12 +1149,16 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(
             json.loads(resp.body),
             [{'count': 1, 'bytes': 2, 'name': 'c1',
-              'last_modified': Timestamp(put_timestamps['c1']).isoformat},
+              'last_modified': Timestamp(put_timestamps['c1']).isoformat,
+              'storage_policy': POLICIES[0].name},
              {'count': 3, 'bytes': 4, 'name': 'c2',
-              'last_modified': Timestamp(put_timestamps['c2']).isoformat}])
+              'last_modified': Timestamp(put_timestamps['c2']).isoformat,
+              'storage_policy': POLICIES[1].name}])
         self.assertEqual(resp.content_type, 'application/json')
         self.assertEqual(resp.charset, 'utf-8')
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_GET_with_containers_xml(self):
         put_timestamps = {}
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1168,7 +1178,8 @@ class TestAccountController(unittest.TestCase):
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '0',
                                      'X-Bytes-Used': '0',
-                                     'X-Timestamp': normalize_timestamp(0)})
+                                     'X-Timestamp': normalize_timestamp(0),
+                                     'X-Backend-Storage-Policy-Index': 1})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1183,7 +1194,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                          'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c1')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1193,11 +1205,14 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp(put_timestamps['c1']).isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[0].name)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = \
             [n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                          'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c2')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1207,6 +1222,8 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp(put_timestamps['c2']).isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[1].name)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
                                      'X-Delete-Timestamp': '0',
@@ -1219,7 +1236,8 @@ class TestAccountController(unittest.TestCase):
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '3',
                                      'X-Bytes-Used': '4',
-                                     'X-Timestamp': normalize_timestamp(0)})
+                                     'X-Timestamp': normalize_timestamp(0),
+                                     'X-Backend-Storage-Policy-Index': 1})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1233,7 +1251,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                          'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c1')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1243,11 +1262,14 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp(put_timestamps['c1']).isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[0].name)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = [
             n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                          'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c2')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1257,6 +1279,8 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp(put_timestamps['c2']).isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[1].name)
         self.assertEqual(resp.charset, 'utf-8')
 
     def test_GET_xml_escapes_account_name(self):
@@ -1347,6 +1371,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.body.strip().split(b'\n'),
                          [b'c3', b'c4'])
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_GET_limit_marker_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
@@ -1360,29 +1386,37 @@ class TestAccountController(unittest.TestCase):
                          'X-Delete-Timestamp': '0',
                          'X-Object-Count': '2',
                          'X-Bytes-Used': '3',
-                         'X-Timestamp': put_timestamp})
+                         'X-Timestamp': put_timestamp,
+                         'X-Backend-Storage-Policy-Index': c % 2})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         expected = [{'count': 2, 'bytes': 3, 'name': 'c0',
-                     'last_modified': Timestamp('1').isoformat},
+                     'last_modified': Timestamp('1').isoformat,
+                     'storage_policy': POLICIES[0].name},
                     {'count': 2, 'bytes': 3, 'name': 'c1',
-                     'last_modified': Timestamp('2').isoformat},
+                     'last_modified': Timestamp('2').isoformat,
+                     'storage_policy': POLICIES[1].name},
                     {'count': 2, 'bytes': 3, 'name': 'c2',
-                     'last_modified': Timestamp('3').isoformat}]
+                     'last_modified': Timestamp('3').isoformat,
+                     'storage_policy': POLICIES[0].name}]
         self.assertEqual(json.loads(resp.body), expected)
         req = Request.blank('/sda1/p/a?limit=3&marker=c2&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         expected = [{'count': 2, 'bytes': 3, 'name': 'c3',
-                     'last_modified': Timestamp('4').isoformat},
+                     'last_modified': Timestamp('4').isoformat,
+                     'storage_policy': POLICIES[1].name},
                     {'count': 2, 'bytes': 3, 'name': 'c4',
-                     'last_modified': Timestamp('5').isoformat}]
+                     'last_modified': Timestamp('5').isoformat,
+                     'storage_policy': POLICIES[0].name}]
         self.assertEqual(json.loads(resp.body), expected)
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_GET_limit_marker_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
@@ -1396,7 +1430,8 @@ class TestAccountController(unittest.TestCase):
                          'X-Delete-Timestamp': '0',
                          'X-Object-Count': '2',
                          'X-Bytes-Used': '3',
-                         'X-Timestamp': put_timestamp})
+                         'X-Timestamp': put_timestamp,
+                         'X-Backend-Storage-Policy-Index': c % 2})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3&format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1410,7 +1445,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                          'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c0')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1420,11 +1456,14 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp('1').isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[0].name)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = [
             n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                         'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c2')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1434,6 +1473,8 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp('3').isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[0].name)
         req = Request.blank('/sda1/p/a?limit=3&marker=c2&format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
@@ -1446,7 +1487,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                          'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c3')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1456,11 +1498,14 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp('4').isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[1].name)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = [
             n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'last_modified', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name',
+                          'storage_policy'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c4')
         node = [n for n in container if n.nodeName == 'count'][0]
@@ -1470,6 +1515,8 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'last_modified'][0]
         self.assertEqual(node.firstChild.nodeValue,
                          Timestamp('5').isoformat)
+        node = [n for n in container if n.nodeName == 'storage_policy'][0]
+        self.assertEqual(node.firstChild.nodeValue, POLICIES[0].name)
 
     def test_GET_accept_wildcard(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1911,13 +1958,18 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.status_int // 100, 2, resp.body)
         for container in containers:
             path = '/sda1/p/%s/%s' % (account, container['name'])
-            req = Request.blank(path, method='PUT', headers={
+            headers = {
                 'X-Put-Timestamp': container['timestamp'].internal,
                 'X-Delete-Timestamp': container.get(
                     'deleted', Timestamp(0)).internal,
                 'X-Object-Count': container['count'],
                 'X-Bytes-Used': container['bytes'],
-            })
+            }
+            if 'storage_policy' in container:
+                headers['X-Backend-Storage-Policy-Index'] = (
+                    POLICIES.get_by_name(container['storage_policy']).idx
+                )
+            req = Request.blank(path, method='PUT', headers=headers)
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int // 100, 2, resp.body)
 
@@ -1927,6 +1979,7 @@ class TestAccountController(unittest.TestCase):
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }]
         self._report_containers(containers)
 
@@ -1960,17 +2013,21 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(json.loads(resp.body), [{
             'subdir': '%s' % get_reserved_name('null')}])
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_delimiter_with_reserved_and_public(self):
         containers = [{
             'name': get_reserved_name('null', 'test01'),
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': 'nullish',
             'bytes': 10,
             'count': 10,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }]
         self._report_containers(containers)
 
@@ -2020,17 +2077,21 @@ class TestAccountController(unittest.TestCase):
                          [{'subdir': '\x00'}] +
                          self._expected_listing(containers)[1:])
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_markers_with_reserved(self):
         containers = [{
             'name': get_reserved_name('null', 'test01'),
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 10,
             'count': 10,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }]
         self._report_containers(containers)
 
@@ -2064,6 +2125,7 @@ class TestAccountController(unittest.TestCase):
             'bytes': 300,
             'count': 30,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         })
         self._report_containers(containers)
 
@@ -2085,27 +2147,33 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(json.loads(resp.body),
                          self._expected_listing(containers)[-1:])
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_prefix_with_reserved(self):
         containers = [{
             'name': get_reserved_name('null', 'test01'),
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 10,
             'count': 10,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }, {
             'name': get_reserved_name('null', 'foo'),
             'bytes': 10,
             'count': 10,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': get_reserved_name('nullish'),
             'bytes': 300,
             'count': 32,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }]
         self._report_containers(containers)
 
@@ -2125,27 +2193,33 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(json.loads(resp.body),
                          self._expected_listing(containers[:2]))
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_prefix_and_delim_with_reserved(self):
         containers = [{
             'name': get_reserved_name('null', 'test01'),
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 10,
             'count': 10,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }, {
             'name': get_reserved_name('null', 'foo'),
             'bytes': 10,
             'count': 10,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': get_reserved_name('nullish'),
             'bytes': 300,
             'count': 32,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }]
         self._report_containers(containers)
 
@@ -2166,22 +2240,27 @@ class TestAccountController(unittest.TestCase):
             self._expected_listing(containers[-1:])
         self.assertEqual(json.loads(resp.body), expected)
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_reserved_markers_with_non_reserved(self):
         containers = [{
             'name': get_reserved_name('null', 'test01'),
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 10,
             'count': 10,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }, {
             'name': 'nullish',
             'bytes': 300,
             'count': 32,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }]
         self._report_containers(containers)
 
@@ -2221,22 +2300,27 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(json.loads(resp.body),
                          self._expected_listing(containers)[1:])
 
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                     StoragePolicy(1, 'one', is_default=False)])
     def test_null_markers(self):
         containers = [{
             'name': get_reserved_name('null', ''),
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }, {
             'name': get_reserved_name('null', 'test01'),
             'bytes': 200,
             'count': 2,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[1].name,
         }, {
             'name': 'null',
             'bytes': 300,
             'count': 32,
             'timestamp': next(self.ts),
+            'storage_policy': POLICIES[0].name,
         }]
         self._report_containers(containers)
 

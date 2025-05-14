@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import ctypes
-from mock import patch
+from unittest.mock import patch
 import socket
 import unittest
 

@@ -308,7 +308,7 @@ class RateLimitMiddleware(object):
             self.memcache_client = cache_from_env(env)
         if not self.memcache_client:
             self.logger.warning(
-                'Warning: Cannot ratelimit without a memcached client')
+                'Cannot ratelimit without a memcached client')
             return self.app(env, start_response)
         try:
             version, account, container, obj = req.split_path(1, 4, True)

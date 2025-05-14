@@ -21,7 +21,6 @@ import unittest
 
 from io import BytesIO
 
-from swift import gettext_ as _
 from swift.common.swob import Request, Response
 
 try:
@@ -479,11 +478,10 @@ class Test_html_viewer(unittest.TestCase):
         self.assertIn('makedirs', self.viewer.format_source_code(nfl_os))
         self.assertNotIn('makedirsXYZ', self.viewer.format_source_code(nfl_os))
         nfl_illegal = '%sc:136(makedirs)' % osfile
-        self.assertIn(_('The file type are forbidden to access!'),
+        self.assertIn('The file type are forbidden to access!',
                       self.viewer.format_source_code(nfl_illegal))
         nfl_not_exist = '%s.py:136(makedirs)' % osfile
-        expected_msg = _('Can not access the file %s.py.') % osfile
-        self.assertIn(expected_msg,
+        self.assertIn('Can not access the file %s.py.' % osfile,
                       self.viewer.format_source_code(nfl_not_exist))
 
 

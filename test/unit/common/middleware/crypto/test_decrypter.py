@@ -17,7 +17,7 @@ import json
 import os
 import unittest
 
-import mock
+from unittest import mock
 
 from swift.common.request_helpers import is_object_transient_sysmeta
 from swift.common.utils import MD5_OF_EMPTY_STRING

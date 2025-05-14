@@ -24,7 +24,7 @@ class BaseMultiPartUploadTestCase(BaseS3TestCase):
 
     def setUp(self):
         self.client = self.get_s3_client(1)
-        self.bucket_name = self.create_name('test-mpu')
+        self.bucket_name = self.create_name('mpu-bucket')
         resp = self.client.create_bucket(Bucket=self.bucket_name)
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
         self.num_parts = 3
@@ -894,7 +894,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
 
         with self.assertRaises(ClientError) as cm:
             self.get_part(key_name, 3)
-        self.assertEqual(416, status_from_error(cm.exception))
+        self.assertEqual(416, status_from_error(cm.exception), cm.exception)
         self.assertEqual('InvalidPartNumber', code_from_error(cm.exception))
 
     def test_create_upload_complete_misordered_parts(self):
@@ -953,9 +953,11 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual('InvalidPart', complete_mpu_resp[
             'Error']['Code'])
-        self.assertTrue(complete_mpu_resp['Error']['Message'].startswith(
-            'One or more of the specified parts could not be found.'
-        ), complete_mpu_resp['Error']['Message'])
+        self.assertEqual(
+            "One or more of the specified parts could not be found.  The part "
+            "may not have been uploaded, or the specified entity tag may not "
+            "match the part's entity tag.",
+            complete_mpu_resp['Error']['Message'])
         self.assertEqual(complete_mpu_resp['Error']['UploadId'], upload_id)
         self.assertIn(complete_mpu_resp['Error']['PartNumber'], ('1', '2'))
         self.assertEqual(complete_mpu_resp['Error']['ETag'], None)

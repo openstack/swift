@@ -141,7 +141,6 @@ https://github.com/swiftstack/s3compat in detail.
 
 """
 
-from cgi import parse_header
 import json
 from paste.deploy import loadwsgi
 from urllib.parse import parse_qs
@@ -159,7 +158,8 @@ from swift.common.middleware.s3api.s3request import get_request_class
 from swift.common.middleware.s3api.s3response import ErrorResponse, \
     InternalError, MethodNotAllowed, S3ResponseBase, S3NotImplemented
 from swift.common.utils import get_logger, config_true_value, \
-    config_positive_int_value, split_path, closing_if_possible, list_from_csv
+    config_positive_int_value, split_path, closing_if_possible, \
+    list_from_csv, parse_header
 from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.registry import register_swift_info, \

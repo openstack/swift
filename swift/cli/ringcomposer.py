@@ -65,7 +65,6 @@ For further details use::
 
   swift-ring-composer -h
 """
-from __future__ import print_function
 import argparse
 import json
 import os

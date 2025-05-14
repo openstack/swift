@@ -13,14 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
 
 import errno
 import gc
 import json
 from configparser import ConfigParser
 
-import mock
+from unittest import mock
 import os
 from subprocess import Popen, PIPE
 import sys

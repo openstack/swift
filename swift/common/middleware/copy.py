@@ -125,6 +125,8 @@ from swift.common.request_helpers import copy_header_subset, remove_items, \
     is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
     check_path_header, OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.common.wsgi import WSGIContext, make_subrequest
+import eventlet
+from swift.common.request_helpers import get_heartbeat_response_body
 
 
 def _check_copy_from_header(req):
@@ -175,10 +177,11 @@ def _copy_headers(src, dest):
 
 class ServerSideCopyWebContext(WSGIContext):
 
-    def __init__(self, app, logger):
+    def __init__(self, app, logger, yield_frequency=10):
         super(ServerSideCopyWebContext, self).__init__(app)
         self.app = app
         self.logger = logger
+        self.yield_frequency = yield_frequency
 
     def get_source_resp(self, req):
         sub_req = make_subrequest(
@@ -187,12 +190,73 @@ class ServerSideCopyWebContext(WSGIContext):
         return sub_req.get_response(self.app)
 
     def send_put_req(self, req, additional_resp_headers, start_response):
-        app_resp = self._app_call(req.environ)
-        self._adjust_put_response(req, additional_resp_headers)
-        start_response(self._response_status,
-                       self._response_headers,
-                       self._response_exc_info)
-        return app_resp
+        heartbeat = config_true_value(req.params.get('heartbeat'))
+        ACCEPTABLE_FORMATS = ['text/plain', 'application/json']
+
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = 'text/plain'
+        if not out_content_type:
+            out_content_type = 'text/plain'
+
+        if heartbeat:
+            gt = eventlet.spawn(self._app_call,
+                                req.environ)
+            start_response('202 Accepted',
+                           [('Content-Type', out_content_type)])
+
+            def resp_iter():
+                # Send an initial heartbeat
+                yield b' '
+                app_iter = [b'']
+                try:
+                    while not gt.dead:
+                        try:
+                            with eventlet.Timeout(self.yield_frequency):
+                                app_iter = gt.wait()
+                        except eventlet.Timeout:
+                            yield b' '
+                except Exception as e:
+                    # Send back the status to the client if error
+                    self._response_status = '500 Internal Error'
+                    app_iter = [str(e).encode('utf8')]
+                finally:
+                    response_body = b''.join(app_iter).decode('utf8')
+                    resp_dict = {'Response Status': self._response_status,
+                                 'Response Body': response_body}
+                    errors = []
+
+                    if not is_success(self._get_status_int()):
+                        src_path = additional_resp_headers['X-Copied-From']
+                        errors.append((
+                            wsgi_quote(src_path),
+                            self._response_status,
+                        ))
+
+                    for k, v in additional_resp_headers.items():
+                        if not k.lower().startswith(('x-object-sysmeta-',
+                                                    'x-backend')):
+                            resp_dict[k] = v
+
+                    for k, v in self._response_headers:
+                        if not k.lower().startswith(('x-object-sysmeta-',
+                                                    'x-backend')):
+                            resp_dict[k] = v
+                    yield get_heartbeat_response_body(out_content_type,
+                                                      resp_dict,
+                                                      errors, 'copy')
+                    close_if_possible(gt)
+
+            return resp_iter()
+
+        else:
+            app_resp = self._app_call(req.environ)
+            self._adjust_put_response(req, additional_resp_headers)
+            start_response(self._response_status,
+                           self._response_headers,
+                           self._response_exc_info)
+            return app_resp
 
     def _adjust_put_response(self, req, additional_resp_headers):
         if is_success(self._get_status_int()):
@@ -220,6 +284,7 @@ class ServerSideCopyMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route="copy")
+        self.yield_frequency = int(conf.get('yield_frequency', 10))
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -337,6 +402,15 @@ class ServerSideCopyMiddleware(object):
                                   'body', request=req,
                                   content_type='text/plain')(req.environ,
                                                              start_response)
+        # If heartbeat is enabled, set minimum_write_chunk_size directly
+        # in the original client request before making subrequests
+        if config_true_value(req.params.get('heartbeat')):
+            wsgi_input = req.environ.get('wsgi.input')
+            if hasattr(wsgi_input, 'environ'):
+                wsgi_input.environ['eventlet.minimum_write_chunk_size'] = 0
+            # Not sure if we also need to set it in
+            # the current request's environ
+            req.environ['eventlet.minimum_write_chunk_size'] = 0
 
         # Form the path of source object to be fetched
         ver, acct, _rest = req.split_path(2, 3, True)
@@ -351,7 +425,8 @@ class ServerSideCopyMiddleware(object):
                                         src_container_name, src_obj_name)
 
         # GET the source object, bail out on error
-        ssc_ctx = ServerSideCopyWebContext(self.app, self.logger)
+        ssc_ctx = ServerSideCopyWebContext(self.app, self.logger,
+                                           self.yield_frequency)
         source_resp = self._get_source_object(ssc_ctx, source_path, req)
         if source_resp.status_int >= HTTP_MULTIPLE_CHOICES:
             return source_resp(source_resp.environ, start_response)
@@ -444,6 +519,17 @@ class ServerSideCopyMiddleware(object):
                                                      source_resp, sink_req)
 
         put_resp = ssc_ctx.send_put_req(sink_req, resp_headers, start_response)
+
+        # For heartbeat=on, we need to cleanup the resp iter
+        if config_true_value(req.params.get('heartbeat')):
+            def clean_iter(app_iter):
+                try:
+                    for chunk in app_iter:
+                        yield chunk
+                finally:
+                    close_if_possible(source_resp.app_iter)
+            return clean_iter(put_resp)
+
         close_if_possible(source_resp.app_iter)
         return put_resp
 

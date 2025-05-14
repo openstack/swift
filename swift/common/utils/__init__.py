@@ -15,7 +15,6 @@
 
 """Miscellaneous utility functions for use with Swift."""
 
-from __future__ import print_function
 
 import base64
 import binascii
@@ -493,7 +492,9 @@ class FileLikeIter(object):
 
     def __next__(self):
         """
-        next(x) -> the next value, or raise StopIteration
+        :raise StopIteration: if there are no more values to iterate.
+        :raise ValueError: if the close() method has been called.
+        :return: the next value.
         """
         if self.closed:
             raise ValueError('I/O operation on closed file')
@@ -506,12 +507,14 @@ class FileLikeIter(object):
 
     def read(self, size=-1):
         """
-        read([size]) -> read at most size bytes, returned as a bytes string.
-
-        If the size argument is negative or omitted, read until EOF is reached.
-        Notice that when in non-blocking mode, less data than what was
-        requested may be returned, even if no size parameter was given.
+        :param size: (optional) the maximum number of bytes to read. The
+        default value of ``-1`` means 'unlimited' i.e. read until the wrapped
+        iterable is exhausted.
+        :raise ValueError: if the close() method has been called.
+        :return: a bytes literal; if the wrapped iterable has been exhausted
+            then a zero-length bytes literal is returned.
         """
+        size = -1 if size is None else size
         if self.closed:
             raise ValueError('I/O operation on closed file')
         if size < 0:
@@ -533,12 +536,17 @@ class FileLikeIter(object):
 
     def readline(self, size=-1):
         """
-        readline([size]) -> next line from the file, as a bytes string.
+        Read the next line.
 
-        Retain newline.  A non-negative size argument limits the maximum
-        number of bytes to return (an incomplete line may be returned then).
-        Return an empty string at EOF.
+        :param size: (optional) the maximum number of bytes of the next line to
+            read. The default value of ``-1`` means 'unlimited' i.e. read to
+            the end of the line or until the wrapped iterable is exhausted,
+            whichever is first.
+        :raise ValueError: if the close() method has been called.
+        :return: a bytes literal; if the wrapped iterable has been exhausted
+            then a zero-length bytes literal is returned.
         """
+        size = -1 if size is None else size
         if self.closed:
             raise ValueError('I/O operation on closed file')
         data = b''
@@ -561,12 +569,16 @@ class FileLikeIter(object):
 
     def readlines(self, sizehint=-1):
         """
-        readlines([size]) -> list of bytes strings, each a line from the file.
-
         Call readline() repeatedly and return a list of the lines so read.
-        The optional size argument, if given, is an approximate bound on the
-        total number of bytes in the lines returned.
+
+        :param sizehint: (optional) an approximate bound on the total number of
+            bytes in the lines returned. Lines are read until ``sizehint`` has
+            been exceeded but complete lines are always returned, so the total
+            bytes read may exceed ``sizehint``.
+        :raise ValueError: if the close() method has been called.
+        :return: a list of bytes literals, each a line from the file.
         """
+        sizehint = -1 if sizehint is None else sizehint
         if self.closed:
             raise ValueError('I/O operation on closed file')
         lines = []
@@ -583,12 +595,10 @@ class FileLikeIter(object):
 
     def close(self):
         """
-        close() -> None or (perhaps) an integer.  Close the file.
+        Close the iter.
 
-        Sets data attribute .closed to True.  A closed file cannot be used for
-        further I/O operations.  close() may be called more than once without
-        error.  Some kinds of file objects (for example, opened by popen())
-        may return an exit status upon closing.
+        Once close() has been called the iter cannot be used for further I/O
+        operations. close() may be called more than once without error.
         """
         self.iterator = None
         self.closed = True
@@ -881,12 +891,16 @@ def link_fd_to_path(fd, target_path, dirs_created=0, retries=2, fsync=True):
                   the newly created directories.
     """
     dirpath = os.path.dirname(target_path)
-    for _junk in range(0, retries):
+    attempts = 0
+    while True:
+        attempts += 1
         try:
             linkat(linkat.AT_FDCWD, "/proc/self/fd/%d" % (fd),
                    linkat.AT_FDCWD, target_path, linkat.AT_SYMLINK_FOLLOW)
             break
         except IOError as err:
+            if attempts > retries:
+                raise
             if err.errno == errno.ENOENT:
                 dirs_created = makedirs_count(dirpath)
             elif err.errno == errno.EEXIST:
@@ -1489,6 +1503,32 @@ def cache_from_env(env, allow_none=False):
     :returns: swift.common.memcached.MemcacheRing from environment
     """
     return item_from_env(env, 'swift.cache', allow_none)
+
+
+def load_multikey_opts(conf, prefix, allow_none_key=False):
+    """
+    Read multi-key options of the form "<prefix>_<key> = <value>"
+
+    :param conf: a config dict
+    :param prefix: the prefix for which to search
+    :param allow_none_key: if True, also parse "<prefix> = <value>" and
+                           include it in the result as ``(None, value)``
+    :returns: a sorted list of (<key>, <value>) tuples
+    :raises ValueError: if an option starts with prefix but cannot be parsed
+    """
+    result = []
+    for k, v in conf.items():
+        if not k.startswith(prefix):
+            continue
+        suffix = k[len(prefix):]
+        if not suffix and allow_none_key:
+            result.append((k, None, v))
+            continue
+        if len(suffix) >= 2 and suffix[0] == '_':
+            result.append((k, suffix[1:], v))
+            continue
+        raise ValueError('Malformed multi-key option name %s' % k)
+    return sorted(result)
 
 
 def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
@@ -2519,41 +2559,79 @@ class InputProxy(object):
     """
     File-like object that counts bytes read.
     To be swapped in for wsgi.input for accounting purposes.
+
+    :param wsgi_input: file-like object to be wrapped
     """
 
     def __init__(self, wsgi_input):
-        """
-        :param wsgi_input: file-like object to wrap the functionality of
-        """
         self.wsgi_input = wsgi_input
+        #: total number of bytes read from the wrapped input
         self.bytes_received = 0
+        #: ``True`` if an exception is raised by ``read()`` or ``readline()``,
+        #: ``False`` otherwise
         self.client_disconnect = False
 
-    def read(self, *args, **kwargs):
+    def chunk_update(self, chunk, eof, *args, **kwargs):
+        """
+        Called each time a chunk of bytes is read from the wrapped input.
+
+        :param chunk: the chunk of bytes that has been read.
+        :param eof: ``True`` if there are no more bytes to read from the
+            wrapped input, ``False`` otherwise. If ``read()`` has been called
+            this will be ``True`` when the size of ``chunk`` is less than the
+            requested size or the requested size is None. If ``readline`` has
+            been called this will be ``True`` when an incomplete line is read
+            (i.e. not ending with ``b'\\n'``) whose length is less than the
+            requested size or the requested size is None. If ``read()`` or
+            ``readline()`` are called with a requested size that exactly
+            matches the number of bytes remaining in the wrapped input then
+            ``eof`` will be ``False``. A subsequent call to ``read()`` or
+            ``readline()`` with non-zero ``size`` would result in ``eof`` being
+            ``True``. Alternatively, the end of the input could be inferred
+            by comparing ``bytes_received`` with the expected length of the
+            input.
+        """
+        # subclasses may override this method; either the given chunk or an
+        # alternative chunk value should be returned
+        return chunk
+
+    def read(self, size=None, *args, **kwargs):
         """
         Pass read request to the underlying file-like object and
         add bytes read to total.
+
+        :param size: (optional) maximum number of bytes to read; the default
+            ``None`` means unlimited.
         """
         try:
-            chunk = self.wsgi_input.read(*args, **kwargs)
+            chunk = self.wsgi_input.read(size, *args, **kwargs)
         except Exception:
             self.client_disconnect = True
             raise
         self.bytes_received += len(chunk)
-        return chunk
+        eof = size is None or size < 0 or len(chunk) < size
+        return self.chunk_update(chunk, eof)
 
-    def readline(self, *args, **kwargs):
+    def readline(self, size=None, *args, **kwargs):
         """
         Pass readline request to the underlying file-like object and
         add bytes read to total.
+
+        :param size: (optional) maximum number of bytes to read from the
+            current line; the default ``None`` means unlimited.
         """
         try:
-            line = self.wsgi_input.readline(*args, **kwargs)
+            line = self.wsgi_input.readline(size, *args, **kwargs)
         except Exception:
             self.client_disconnect = True
             raise
         self.bytes_received += len(line)
-        return line
+        eof = ((size is None or size < 0 or len(line) < size)
+               and (line[-1:] != b'\n'))
+        return self.chunk_update(line, eof)
+
+    def close(self):
+        close_if_possible(self.wsgi_input)
 
 
 class LRUCache(object):
@@ -2844,6 +2922,11 @@ _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
     r'|"(?:[^"\\]|\\.)*"))?)')
 
+_loose_token = r'[^()<>@,;:\"\[\]?={}\x00-\x20\x7f]+'  # nosec B105
+_loose_extension_pattern = re.compile(
+    r'(?:\s*;\s*(' + _loose_token + r")\s*(?:=\s*(" + _loose_token +
+    r'|"(?:[^"\\]|\\.)*"))?)')
+
 _content_range_pattern = re.compile(r'^bytes (\d+)-(\d+)/(\d+)$')
 
 
@@ -2865,7 +2948,7 @@ def parse_content_range(content_range):
     return tuple(int(x) for x in found.groups())
 
 
-def parse_content_type(content_type):
+def parse_content_type(content_type, strict=True):
     """
     Parse a content-type and its parameters into values.
     RFC 2616 sec 14.17 and 3.7 are pertinent.
@@ -2877,17 +2960,46 @@ def parse_content_type(content_type):
             ('text/plain', [('charset, 'UTF-8'), ('level', '1')])
 
     :param content_type: content_type to parse
+    :param strict: ignore ``/`` and any following characters in parameter
+        tokens. If ``strict`` is True a parameter such as ``x=a/b`` will be
+        parsed as ``x=a``. If ``strict`` is False a parameter such as ``x=a/b``
+        will be parsed as ``x=a/b``. The default is True.
     :returns: a tuple containing (content type, list of k, v parameter tuples)
     """
     parm_list = []
     if ';' in content_type:
         content_type, parms = content_type.split(';', 1)
         parms = ';' + parms
-        for m in _rfc_extension_pattern.findall(parms):
+        pat = _rfc_extension_pattern if strict else _loose_extension_pattern
+        for m in pat.findall(parms):
             key = m[0].strip()
             value = m[1].strip()
             parm_list.append((key, value))
     return content_type, parm_list
+
+
+def parse_header(value):
+    """
+    Parse a header value to extract the first part and a dict of any
+    following parameters.
+
+    The ``value`` to parse should be of the form:
+
+        ``<first part>[;<key>=<value>][; <key>=<value>]...``
+
+    ``<first part>`` should be of the form ``<token>[/<token>]``, ``<key>``
+    should be a ``token``, and ``<value>`` should be either a ``token`` or
+    ``quoted-string``, where ``token`` and ``quoted-string`` are defined by RFC
+    2616 section 2.2.
+
+    :param value: the header value to parse.
+    :return: a tuple (first part, dict(params)).
+    """
+    # note: this does not behave *exactly* like cgi.parse_header (which this
+    # replaces) w.r.t. parsing non-token characters in param values (e.g. the
+    # null character) , but it's sufficient for our use cases.
+    token, params = parse_content_type(value, strict=False)
+    return token, dict(params)
 
 
 def extract_swift_bytes(content_type):
@@ -2930,16 +3042,6 @@ def clean_content_type(value):
         if right.lstrip().startswith('swift_bytes='):
             return left
     return value
-
-
-def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
-    """
-    Returns an expiring object container name for given X-Delete-At and
-    (native string) a/c/o.
-    """
-    shard_int = int(hash_path(acc, cont, obj), 16) % 100
-    return normalize_delete_at_timestamp(
-        int(x_delete_at) // expirer_divisor * expirer_divisor - shard_int)
 
 
 class _MultipartMimeFileLikeObject(object):
@@ -4882,14 +4984,67 @@ def get_db_files(db_path):
     return sorted(results)
 
 
+def get_pid_notify_socket(pid=None):
+    """
+    Get a pid-specific abstract notification socket.
+
+    This is used by the ``swift-reload`` command.
+    """
+    if pid is None:
+        pid = os.getpid()
+    return '\0swift-notifications\0' + str(pid)
+
+
+class NotificationServer(object):
+    RECV_SIZE = 1024
+
+    def __init__(self, pid, read_timeout):
+        self.pid = pid
+        self.read_timeout = read_timeout
+        self.sock = None
+
+    def receive(self):
+        return self.sock.recv(self.RECV_SIZE)
+
+    def close(self):
+        self.sock.close()
+        self.sock = None
+
+    def start(self):
+        if self.sock is not None:
+            raise RuntimeError('notification server already started')
+
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        started = False
+        try:
+            self.sock.bind(get_pid_notify_socket(self.pid))
+            self.sock.settimeout(self.read_timeout)
+            started = True
+        finally:
+            if not started:
+                self.close()
+
+    def __enter__(self):
+        if self.sock is None:
+            self.start()
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
 def systemd_notify(logger=None, msg=b"READY=1"):
     """
     Send systemd-compatible notifications.
 
-    Notify the service manager that started this process, if it has set the
-    NOTIFY_SOCKET environment variable. For example, systemd will set this
-    when the unit has ``Type=notify``. More information can be found in
-    systemd documentation:
+    Attempt to send the message to swift's pid-specific notification socket;
+    see :func:`get_pid_notify_socket`. This is used by the ``swift-reload``
+    command.
+
+    Additionally, notify the service manager that started this process, if
+    it has set the NOTIFY_SOCKET environment variable. For example, systemd
+    will set this when the unit has ``Type=notify``. More information can
+    be found in systemd documentation:
     https://www.freedesktop.org/software/systemd/man/sd_notify.html
 
     Common messages include::
@@ -4897,15 +5052,18 @@ def systemd_notify(logger=None, msg=b"READY=1"):
        READY=1
        RELOADING=1
        STOPPING=1
-       STATUS=<some string>
 
     :param logger: a logger object
     :param msg: the message to send
     """
     if not isinstance(msg, bytes):
         msg = msg.encode('utf8')
-    notify_socket = os.getenv('NOTIFY_SOCKET')
-    if notify_socket:
+
+    notify_sockets = [get_pid_notify_socket()]
+    systemd_socket = os.getenv('NOTIFY_SOCKET')
+    if systemd_socket:
+        notify_sockets.append(systemd_socket)
+    for notify_socket in notify_sockets:
         if notify_socket.startswith('@'):
             # abstract namespace socket
             notify_socket = '\0%s' % notify_socket[1:]
@@ -4914,8 +5072,9 @@ def systemd_notify(logger=None, msg=b"READY=1"):
             try:
                 sock.connect(notify_socket)
                 sock.sendall(msg)
-            except EnvironmentError:
-                if logger:
+            except EnvironmentError as e:
+                if logger and not (notify_socket == notify_sockets[0] and
+                                   e.errno == errno.ECONNREFUSED):
                     logger.debug("Systemd notification failed", exc_info=True)
 
 
@@ -5108,5 +5267,7 @@ def get_ppid(pid):
         return int(stats[3])
     except IOError as e:
         if e.errno == errno.ENOENT:
+            if not os.path.exists('/proc/'):
+                raise RuntimeError('get_ppid can only be used on Linux')
             raise OSError(errno.ESRCH, 'No such process')
         raise

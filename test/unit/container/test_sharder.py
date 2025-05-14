@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from tempfile import mkdtemp
 from uuid import uuid4
 
-import mock
+from unittest import mock
 import unittest
 
 from collections import defaultdict
@@ -3690,8 +3690,8 @@ class TestSharder(BaseTestSharder):
 
         # repeat with handoff node and db_file error
         with self._mock_sharder(conf=conf) as sharder:
-            with mock.patch('os.stat', side_effect=OSError('test error')):
-                with mock_timestamp_now(now):
+            with mock_timestamp_now(now):
+                with mock.patch('os.stat', side_effect=OSError('test error')):
                     for broker in brokers:
                         sharder._identify_sharding_candidate(broker, {})
         stats_0_b = {'path': brokers[0].db_file,

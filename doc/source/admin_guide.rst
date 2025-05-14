@@ -817,6 +817,10 @@ Reporting Metrics to StatsD
 
 .. highlight:: cfg
 
+.. note::
+    The legacy statsd metrics described in this section are being supplemented
+    with :doc:`metrics/labels`.
+
 If you have a StatsD_ server running, Swift may be configured to send it
 real-time operational metrics.  To enable this, set the following
 configuration entries (see the sample configuration files)::

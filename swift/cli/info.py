@@ -11,7 +11,6 @@
 # under the License.
 
 
-from __future__ import print_function
 import codecs
 import itertools
 import json
@@ -561,7 +560,7 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
             if (policy_index is not None and
                policy_index_for_name is not None and
                policy_index != policy_index_for_name):
-                print('Warning: Ring does not match policy!')
+                print('WARNING: Ring does not match policy!')
                 print('Double check your policy name!')
             if not ring and policy_index_for_name:
                 ring = POLICIES.get_object_ring(policy_index_for_name,
@@ -653,9 +652,9 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
         policy = POLICIES.get_by_name(policy_name)
         if policy:
             if ring_name != policy.ring_name:
-                print('Warning: mismatch between ring and policy name!')
+                print('WARNING: mismatch between ring and policy name!')
         else:
-            print('Warning: Policy %s is not valid' % policy_name)
+            print('WARNING: Policy %s is not valid' % policy_name)
 
     policy_index = None
     if ring is None and (obj or part):
@@ -699,7 +698,7 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
             ring = Ring(swift_dir, ring_name='container')
         else:
             if ring_name != 'container':
-                print('Warning: account/container specified ' +
+                print('WARNING: account/container specified ' +
                       'but ring not named "container"')
     if account and not container and not obj:
         loc = 'accounts'
@@ -707,7 +706,7 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
             ring = Ring(swift_dir, ring_name='account')
         else:
             if ring_name != 'account':
-                print('Warning: account specified ' +
+                print('WARNING: account specified ' +
                       'but ring not named "account"')
 
     if account:
@@ -762,7 +761,7 @@ def run_print_info(db_type, args, opts):
     except (sqlite3.OperationalError, LockTimeout) as e:
         if not opts.get('stale_reads_ok'):
             opts['stale_reads_ok'] = True
-            print('Warning: Possibly Stale Data')
+            print('WARNING: Possibly Stale Data')
             run_print_info(db_type, args, opts)
             sys.exit(2)
         else:

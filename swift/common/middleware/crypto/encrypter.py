@@ -27,7 +27,7 @@ from swift.common.request_helpers import get_object_transient_sysmeta, \
 from swift.common.swob import Request, Match, HTTPException, \
     HTTPUnprocessableEntity, wsgi_to_bytes, bytes_to_wsgi, normalize_etag
 from swift.common.utils import get_logger, config_true_value, \
-    MD5_OF_EMPTY_STRING, md5
+    MD5_OF_EMPTY_STRING, md5, InputProxy
 
 
 def encrypt_header_val(crypto, value, key):
@@ -66,11 +66,11 @@ def _hmac_etag(key, etag):
     return base64.b64encode(result).decode()
 
 
-class EncInputWrapper(object):
+class EncInputWrapper(InputProxy):
     """File-like object to be swapped in for wsgi.input."""
     def __init__(self, crypto, keys, req, logger):
+        super().__init__(req.environ['wsgi.input'])
         self.env = req.environ
-        self.wsgi_input = req.environ['wsgi.input']
         self.path = req.path
         self.crypto = crypto
         self.body_crypto_ctxt = None
@@ -180,15 +180,7 @@ class EncInputWrapper(object):
 
         req.environ['swift.callback.update_footers'] = footers_callback
 
-    def read(self, *args, **kwargs):
-        return self.readChunk(self.wsgi_input.read, *args, **kwargs)
-
-    def readline(self, *args, **kwargs):
-        return self.readChunk(self.wsgi_input.readline, *args, **kwargs)
-
-    def readChunk(self, read_method, *args, **kwargs):
-        chunk = read_method(*args, **kwargs)
-
+    def chunk_update(self, chunk, eof, *args, **kwargs):
         if chunk:
             self._init_encryption_context()
             self.plaintext_md5.update(chunk)

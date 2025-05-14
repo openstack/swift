@@ -15,7 +15,7 @@
 
 import unittest
 
-from swift.common.swob import Request
+from swift.common.swob import Request, HTTPOk
 from swift.common.middleware import catch_errors
 from swift.common.utils import get_logger
 
@@ -136,6 +136,30 @@ class TestCatchErrors(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, self.start_response)
         self.assertEqual(list(resp), [b'An error occurred'])
+
+    def test_has_len(self):
+        # sanity
+        app = HTTPOk(body='test-body')
+        req = Request.blank('/')
+        captured_status_length = []
+
+        def capture_start_resp(status, headers, exc_info=None):
+            length = None
+            for k, v in headers:
+                if k == 'Content-Length':
+                    length = int(v)
+            captured_status_length.append((status, length))
+        iterable = app(req.environ, capture_start_resp)
+        self.assertEqual(captured_status_length, [('200 OK', 9)])
+        self.assertTrue(hasattr(iterable, '__len__'))
+        # wrapped should work the same way
+        app_resp = HTTPOk(body='test-body')
+        app = catch_errors.CatchErrorMiddleware(app_resp, {})
+        req = Request.blank('/')
+        captured_status_length = []
+        iterable = app(req.environ, capture_start_resp)
+        self.assertEqual(captured_status_length, [('200 OK', 9)])
+        self.assertTrue(hasattr(iterable, '__len__'))
 
     def test_HEAD_with_content_length(self):
         def cannot_count_app(env, sr):

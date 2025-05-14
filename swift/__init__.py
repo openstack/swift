@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import sys
-import gettext
 import warnings
 
 __version__ = None
@@ -48,48 +45,6 @@ if __version__ is None:
     _version_info = pbr.version.VersionInfo('swift')
     __version__ = _version_info.release_string()
     __canonical_version__ = _version_info.version_string()
-
-
-_localedir = os.environ.get('SWIFT_LOCALEDIR')
-_t = gettext.translation('swift', localedir=_localedir, fallback=True)
-
-
-def gettext_(msg):
-    return _t.gettext(msg)
-
-
-if (3, 0) <= sys.version_info[:2] <= (3, 5):
-    # In the development of py3, json.loads() stopped accepting byte strings
-    # for a while. https://bugs.python.org/issue17909 got fixed for py36, but
-    # since it was termed an enhancement and not a regression, we don't expect
-    # any backports. At the same time, it'd be better if we could avoid
-    # leaving a whole bunch of json.loads(resp.body.decode(...)) scars in the
-    # code that'd probably persist even *after* we drop support for 3.5 and
-    # earlier. So, monkey patch stdlib.
-    import json
-    if not getattr(json.loads, 'patched_to_decode', False):
-        class JsonLoadsPatcher(object):
-            def __init__(self, orig):
-                self._orig = orig
-
-            def __call__(self, s, **kw):
-                if isinstance(s, bytes):
-                    # No fancy byte-order mark detection for us; just assume
-                    # UTF-8 and raise a UnicodeDecodeError if appropriate.
-                    s = s.decode('utf8')
-                return self._orig(s, **kw)
-
-            def __getattribute__(self, attr):
-                if attr == 'patched_to_decode':
-                    return True
-                if attr == '_orig':
-                    return super().__getattribute__(attr)
-                # Pass through all other attrs to the original; among other
-                # things, this preserves doc strings, etc.
-                return getattr(self._orig, attr)
-
-        json.loads = JsonLoadsPatcher(json.loads)
-        del JsonLoadsPatcher
 
 
 warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(

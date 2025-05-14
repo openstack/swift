@@ -25,7 +25,7 @@ from unittest import main, SkipTest
 from uuid import uuid4
 import random
 
-import mock
+from unittest import mock
 
 from swiftclient import client
 from swiftclient.exceptions import ClientException

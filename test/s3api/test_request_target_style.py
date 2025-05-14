@@ -15,7 +15,7 @@
 
 from unittest import SkipTest
 
-from test.s3api import BaseS3TestCase
+from test.s3api import BaseS3TestCaseWithBucket
 
 
 class AlwaysAbsoluteURLProxyConfig(object):
@@ -30,20 +30,12 @@ class AlwaysAbsoluteURLProxyConfig(object):
         return {}
 
 
-class TestRequestTargetStyle(BaseS3TestCase):
+class TestRequestTargetStyle(BaseS3TestCaseWithBucket):
 
     def setUp(self):
         self.client = self.get_s3_client(1)
         if not self.client._endpoint.host.startswith('https:'):
             raise SkipTest('Absolute URL test requires https')
-
-        self.bucket_name = self.create_name('test-address-style')
-        resp = self.client.create_bucket(Bucket=self.bucket_name)
-        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
-
-    def tearDown(self):
-        self.clear_bucket(self.client, self.bucket_name)
-        super(TestRequestTargetStyle, self).tearDown()
 
     def test_absolute_url(self):
         sess = self.client._endpoint.http_session

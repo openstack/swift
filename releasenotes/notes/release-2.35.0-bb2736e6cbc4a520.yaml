@@ -1,0 +1,109 @@
+---
+features:
+  - |
+    Account listings now include storage policy information for the
+    containers listed.
+
+  - |
+    Added a new object-expirer configuration option,
+    ``round_robin_task_cache_size``, to adjust the number of tasks to cache
+    before processing. This may be used to trade faster expirer start-up for
+    more lumpy container-server load.
+
+  - |
+    Added a ``stale_worker_timeout`` configuration option to the WSGI
+    servers. Once this time elapses following a reload, the manager
+    process will issue SIGKILLs to any remaining stale workers.
+
+  - |
+    Object updater observability improvements:
+
+    * Added last start time to recon dumps as ``object_updater_last``.
+
+    * Added information (including target account/container) from oldest
+      failed updates to recon dumps, both per-device and aggregated for the
+      node. Use the new ``async_tracker_max_entries`` and
+      ``async_tracker_dump_count`` options to adjust how many records to
+      collect.
+
+  - |
+    Added the option to tune down ETag validation in the object-server
+    during full-object reads. By default, every full read will continue
+    to have its ETag validated as bytes are streamed to the proxy-server.
+    The ``etag_validate_pct`` option may be used to configure approximately
+    what percentage of full-object reads should be validated; reducing this
+    can improve performance when object-servers are CPU-constrained.
+
+    Partial reads continue to never have their ETag validated in the
+    object-server. The object-auditor continues to periodically validate
+    every object's ETag.
+
+deprecations:
+  - |
+    The object-expirer configuration options
+    ``expiring_objects_container_divisor`` and
+    ``expiring_objects_account_name`` are now deprecated.
+
+    If a cluster was deployed with a non-standard account name, operators
+    should remove the option from all configs so they are using a supported
+    configuration going forward, but will need to deploy stand-alone expirer
+    processes with legacy expirer config to clean-up old expiration tasks
+    from the previously configured account name.
+
+fixes:
+  - |
+    Removed the use of ``eval`` in the xprofile middleware. Note that this
+    middleware is only intended for development purposes and is not
+    intended for use in production systems.
+
+  - |
+    The S3 API no longer requires a ``Content-MD5`` header for ``DeleteObjects``
+    requests when using v4 signatures.
+
+  - |
+    Uploads to containers with object versioning enabled now require a
+    ``Content-Length`` or ``Transfer-Encoding: chunked`` header, similar to
+    other containers.
+
+  - |
+    Fixed a server error when deleting a specific version via the S3 API.
+
+  - |
+    ``X-Open-Expired`` now works properly with ``?part-number`` requests.
+
+  - |
+    Fixed ``Content-Type`` and ``Content-Length`` headers in account and
+    container ``HEAD`` responses (with eventlet>=0.38.0).
+
+  - |
+    Object expiration fixes:
+
+    * The object-expirer now better handles errors during listings.
+
+    * The object-expirer now respects the ``internal_client_conf_path``
+      configuration option in legacy ``object-expirer.conf`` configs.
+
+  - |
+    Improved the reliability of ``swift-reload``.
+
+  - |
+    Separated unlinks-due-to-outdated-updates from
+    unlinks-due-to-fully-processed-updates in logged object-updater stats.
+
+  - |
+    The ``cooperative_period`` option for the object-server now affects PUT
+    requests in a way similar to GET responses.
+
+  - |
+    Fixed an issue with the object-reconstructor that would prevent
+    reconstruction of objects with non-ASCII header names.
+
+  - |
+    Fixed an issue with the container-reconciler that could cause reconciler
+    databases to have conflicting rows that could not be resolved.
+
+  - |
+    Removed use of the deprecated cgi module.
+
+  - |
+    Various other minor bug fixes and improvements.

@@ -1257,6 +1257,13 @@ class BaseDiskFileManager(object):
         raise NotImplementedError
 
     def _get_hashes(self, *args, **kwargs):
+        """
+        Base entry-point to non-tpool'd __get_hashes
+
+        See __get_hashes for params
+
+        :returns: (int, dict) tuple, i.e. (num_hashed, sanitized_suffix_hashes)
+        """
         hashed, hashes = self.__get_hashes(*args, **kwargs)
         hashes.pop('updated', None)
         hashes.pop('valid', None)

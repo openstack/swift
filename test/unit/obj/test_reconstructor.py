@@ -16,7 +16,7 @@ import itertools
 import json
 import unittest
 import os
-import mock
+from unittest import mock
 import pickle
 import tempfile
 import time
@@ -3731,7 +3731,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         }
         stub_hashes = {}
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                        return_value=(None, stub_hashes)):
+                        return_value=(0, stub_hashes)):
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
         self.assertEqual(1, len(jobs))
         job = jobs[0]
@@ -3774,7 +3774,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'abc': {frag_index: 'hash', None: 'hash'},
         }
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                        return_value=(None, stub_hashes)):
+                        return_value=(0, stub_hashes)):
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
         self.assertEqual(1, len(jobs))
         job = jobs[0]
@@ -3819,7 +3819,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'abc': {None: 'hash'},
         }
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                        return_value=(None, stub_hashes)):
+                        return_value=(0, stub_hashes)):
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
         self.assertEqual(1, len(jobs), 'Expected only one job, got %r' % jobs)
         job = jobs[0]
@@ -3876,7 +3876,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'abc': {None: 'hash'},
         }
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                        return_value=(None, stub_hashes)):
+                        return_value=(0, stub_hashes)):
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
         self.assertEqual(2, len(jobs))
         sync_jobs, revert_jobs = [], []
@@ -3933,7 +3933,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'abc': {None: 'hash'},
         }
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                        return_value=(None, stub_hashes)):
+                        return_value=(0, stub_hashes)):
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
         self.assertEqual(len(jobs), 1, 'Expected only one job, got %r' % jobs)
         job = jobs[0]
@@ -4015,7 +4015,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         }
         remote_response = pickle.dumps(remote_hashes)
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                        return_value=(None, local_hashes)), \
+                        return_value=(0, local_hashes)), \
                 mocked_http_conn(200, body=remote_response) as request_log:
             suffixes, new_node = self.reconstructor._get_suffixes_to_sync(
                 job, node)
@@ -4112,7 +4112,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
 
         with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mocked_http_conn(*codes, body_iter=body_iter) as request_log:
             self.reconstructor.process_job(job)
 
@@ -4166,7 +4166,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         ssync_calls = []
         with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mocked_http_conn(*codes, body_iter=body_iter) as request_log:
             self.reconstructor.process_job(job)
 
@@ -4266,7 +4266,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         with mock.patch('swift.obj.ssync_sender.SsyncBufferedHTTPConnection',
                         return_value=ssync_conn), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager.yield_hashes',
                            return_value=iter([])), \
                 mocked_http_conn(*codes, body_iter=body_iter):
@@ -4335,7 +4335,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         ssync_calls = []
         with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mocked_http_conn(*codes, body_iter=body_iter) as request_log:
             self.reconstructor.process_job(job)
 
@@ -4407,7 +4407,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
 
         with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mocked_http_conn(*codes, body_iter=body_iter) as request_log:
             self.reconstructor.process_job(job)
 
@@ -4477,7 +4477,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         with mock_ssync_sender(ssync_calls,
                                response_callback=ssync_response_callback), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mocked_http_conn(*[200] * len(expected_suffix_calls),
                                  body=pickle.dumps({})) as request_log:
             self.reconstructor.process_job(job)
@@ -4538,7 +4538,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         ssync_calls = []
         with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mocked_http_conn(*codes) as request_log:
             self.reconstructor.process_job(job)
 
@@ -4598,7 +4598,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         ssync_calls = []
         with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)), \
+                           return_value=(0, stub_hashes)), \
                 mocked_http_conn(*codes, body_iter=body_iter) as request_log:
             self.reconstructor.process_job(job)
         # increment frag_index since we're rebuilding to our right
@@ -4656,7 +4656,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         ssync_calls = []
         with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes)):
+                           return_value=(0, stub_hashes)):
             self.reconstructor.process_job(job)
 
         self.assertEqual(

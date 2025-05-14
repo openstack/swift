@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import mock
+from unittest import mock
 import signal
+import socket
 import subprocess
 import unittest
 
@@ -122,8 +123,8 @@ class TestMain(unittest.TestCase):
         self.mock_validate = patcher.start()
         self.addCleanup(patcher.stop)
 
-        patcher = mock.patch.object(reload, 'get_child_pids')
-        self.mock_get_child_pids = patcher.start()
+        patcher = mock.patch.object(reload, 'NotificationServer')
+        self.mock_notify_server = patcher.start()
         self.addCleanup(patcher.stop)
 
         patcher = mock.patch('os.kill')
@@ -138,13 +139,11 @@ class TestMain(unittest.TestCase):
             ],
             'swift-proxy-server',
         )
-        self.mock_get_child_pids.side_effect = [
-            {'worker1', 'worker2'},
-            {'worker1', 'worker2', 'foster parent'},
-            {'worker1', 'worker2', 'foster parent', 'new worker'},
-            {'worker1', 'worker2', 'new worker'},
+        self.mock_notify_server().__enter__().receive.side_effect = [
+            b'RELOADING=1',
+            b'READY=1',
         ]
-        self.assertIsNone(reload.main(['123']))
+        self.assertIsNone(reload.main(['123', '-v']))
         self.assertEqual(self.mock_check_call.mock_calls, [mock.call([
             '/usr/bin/swift-proxy-server',
             '/etc/swift/proxy-server.conf',
@@ -164,10 +163,9 @@ class TestMain(unittest.TestCase):
             ],
             'swift-proxy-server',
         )
-        self.mock_get_child_pids.side_effect = [
-            {'worker1', 'worker2'},
-            {'worker1', 'worker2', 'foster parent'},
-            {'worker1', 'worker2', 'foster parent', 'new worker'},
+        self.mock_notify_server().__enter__().receive.side_effect = [
+            b'RELOADING=1',
+            socket.timeout,
         ]
         with self.assertRaises(SystemExit) as caught:
             reload.main(['123'])

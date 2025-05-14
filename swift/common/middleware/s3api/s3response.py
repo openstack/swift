@@ -247,6 +247,9 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
 
         swob.HTTPException.__init__(
             self, status=kwargs.pop('status', self._status),
+            # we use an app_iter, so that we can add our trans_id to the resp
+            # xml *after* we've been called - technically any non-None app_iter
+            # would do, we override swob.Response._response_iter anyway.
             app_iter=self._body_iter(),
             content_type='application/xml', *args,
             **kwargs)
@@ -269,6 +272,9 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
         error_elem = Element('Error')
         SubElement(error_elem, 'Code').text = self._code
         SubElement(error_elem, 'Message').text = self._msg
+        # N.B. swob.Response objects don't normally have an environ attribute
+        # when they're created, but swob always gives this to us when we're
+        # __call__'d
         if 'swift.trans_id' in self.environ:
             request_id = self.environ['swift.trans_id']
             SubElement(error_elem, 'RequestId').text = request_id
@@ -277,6 +283,13 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
 
         yield tostring(error_elem, use_s3ns=False,
                        xml_declaration=self.xml_declaration)
+
+    def _response_iter(self, app_iter, body):
+        # we don't actually want our _response_iter to be a generator, a list
+        # of strings is much better for eventlet.wsgi.server connection
+        # handling and request pipelining and ErrorResponses are small.  FWIW
+        # we now have self.environ, app_iter=self._body_iter() and body is None
+        return super()._response_iter(list(app_iter), body)
 
     def _dict_to_etree(self, parent, d):
         for key, value in d.items():
@@ -399,7 +412,7 @@ class IllegalVersioningConfigurationException(ErrorResponse):
 class IncompleteBody(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'You did not provide the number of bytes specified by the ' \
-           'Content-Length HTTP header.'
+           'Content-Length HTTP header'
 
 
 class IncorrectNumberOfFilesInPostRequest(ErrorResponse):
@@ -448,6 +461,11 @@ class InvalidBucketState(ErrorResponse):
     _msg = 'The request is not valid with the current state of the bucket.'
 
 
+class InvalidChunkSizeError(ErrorResponse):
+    _status = '403 Forbidden'
+    _msg = 'Only the last chunk is allowed to have a size less than 8192 bytes'
+
+
 class InvalidDigest(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'The Content-MD5 you specified was invalid.'
@@ -476,9 +494,9 @@ class InvalidPartArgument(InvalidArgument):
 
 class InvalidPart(ErrorResponse):
     _status = '400 Bad Request'
-    _msg = 'One or more of the specified parts could not be found. The part ' \
-           'might not have been uploaded, or the specified entity tag might ' \
-           'not have matched the part\'s entity tag.'
+    _msg = 'One or more of the specified parts could not be found.  The ' \
+           'part may not have been uploaded, or the specified entity tag ' \
+           'may not match the part\'s entity tag.'
 
 
 class InvalidPartOrder(ErrorResponse):
@@ -567,6 +585,12 @@ class MalformedPOSTRequest(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'The body of your POST request is not well-formed ' \
            'multipart/form-data.'
+
+
+class MalformedTrailerError(ErrorResponse):
+    _status = '400 Bad Request'
+    _msg = 'The request contained trailing data that was not well-formed ' \
+           'or did not conform to our published schema.'
 
 
 class MalformedXML(ErrorResponse):

@@ -89,7 +89,7 @@ import os
 import time
 
 from swift.common.constraints import valid_api_version
-from swift.common.middleware.catch_errors import enforce_byte_count
+from swift.common.middleware.catch_errors import ByteEnforcer
 from swift.common.request_helpers import get_log_info
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
@@ -333,14 +333,10 @@ class ProxyLoggingMiddleware(object):
         metric_name_policy = self.statsd_metric_name_policy(req, status_int,
                                                             method,
                                                             policy_index)
-        # Only log data for valid controllers (or SOS) to keep the metric count
-        # down (egregious errors will get logged by the proxy server itself).
-
-        if metric_name:
-            self.access_logger.timing(metric_name + '.timing',
-                                      (end_time - start_time) * 1000)
-            self.access_logger.update_stats(metric_name + '.xfer',
-                                            bytes_received + bytes_sent)
+        self.access_logger.timing(metric_name + '.timing',
+                                  (end_time - start_time) * 1000)
+        self.access_logger.update_stats(metric_name + '.xfer',
+                                        bytes_received + bytes_sent)
         if metric_name_policy:
             self.access_logger.timing(metric_name_policy + '.timing',
                                       (end_time - start_time) * 1000)
@@ -430,7 +426,7 @@ class ProxyLoggingMiddleware(object):
             if method == 'HEAD':
                 content_length = 0
             if content_length is not None:
-                iterator = enforce_byte_count(iterator, content_length)
+                iterator = ByteEnforcer(iterator, content_length)
 
             wire_status_int = int(start_response_args[0][0].split(' ', 1)[0])
             resp_headers = dict(start_response_args[0][1])
