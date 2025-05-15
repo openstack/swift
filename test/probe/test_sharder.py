@@ -38,7 +38,6 @@ from swiftclient import client, get_auth, ClientException
 
 from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.obj import num_container_updates
-from test import annotate_failure
 from test.debug_logger import debug_logger
 from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
@@ -313,7 +312,7 @@ class BaseTestContainerSharding(ReplProbeTest):
                                          for d in shard_ranges)
         self.assertLengthEqual(actual_shard_ranges, expected_number)
         if expected_number:
-            with annotate_failure('Ranges %s.' % actual_shard_ranges):
+            with self.subTest(shard_ranges=actual_shard_ranges):
                 self.assertEqual(first_lower, actual_shard_ranges[0].lower_str)
                 for x, y in zip(actual_shard_ranges, actual_shard_ranges[1:]):
                     self.assertEqual(x.upper, y.lower)
@@ -399,7 +398,7 @@ class BaseTestContainerSharding(ReplProbeTest):
     def assert_container_has_shard_sysmeta(self):
         node_headers = self.direct_head_container()
         for node_id, headers in node_headers.items():
-            with annotate_failure('%s in %s' % (node_id, node_headers.keys())):
+            with self.subTest(node_id=node_id, nodes=node_headers.keys()):
                 for k, v in headers.items():
                     if k.lower().startswith('x-container-sysmeta-shard'):
                         break
@@ -1085,7 +1084,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         root_shard_ranges = self.direct_get_container_shard_ranges()
         for node, (hdrs, root_shards) in root_shard_ranges.items():
             self.assertLengthEqual(root_shards, 2)
-            with annotate_failure('node %s. ' % node):
+            with self.subTest(node=node):
                 self.assertEqual(
                     [ShardRange.ACTIVE] * 2,
                     [sr['state'] for sr in root_shards])
@@ -1122,7 +1121,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found_for_shard['shard_dbs'], 2)
         for db_file in found_for_shard['shard_dbs'][:2]:
             broker = ContainerBroker(db_file)
-            with annotate_failure('shard db file %s. ' % db_file):
+            with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('sharding', broker.get_db_state())
                 self.assertEqual(
@@ -1193,7 +1192,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
         for db_file in found_for_shard['shard_dbs']:
             broker = ContainerBroker(db_file)
-            with annotate_failure('shard db file %s. ' % db_file):
+            with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('sharding', broker.get_db_state())
                 self.assertEqual(
@@ -1216,7 +1215,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found_for_sub_shard['normal_dbs'], 3)
         for db_file in found_for_sub_shard['normal_dbs']:
             broker = ContainerBroker(db_file)
-            with annotate_failure('sub shard db file %s. ' % db_file):
+            with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('unsharded', broker.get_db_state())
                 self.assertEqual(
@@ -1227,7 +1226,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         root_shard_ranges = self.direct_get_container_shard_ranges()
         for node, (hdrs, root_shards) in root_shard_ranges.items():
             self.assertLengthEqual(root_shards, 5)
-            with annotate_failure('node %s. ' % node):
+            with self.subTest(node=node):
                 # shard ranges are sorted by upper, state, lower, so expect:
                 # sub-shards, orig shard 0, orig shard 1
                 self.assertEqual(
@@ -1254,7 +1253,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         shard_listings = self.direct_get_container(shard_shards[0].account,
                                                    shard_shards[0].container)
         for node, (hdrs, listing) in shard_listings.items():
-            with annotate_failure(node):
+            with self.subTest(node=node):
                 self.assertIn('alpha', [o['name'] for o in listing])
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
@@ -1265,7 +1264,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         # check original first shard range shards
         for db_file in found_for_shard['shard_dbs']:
             broker = ContainerBroker(db_file)
-            with annotate_failure('shard db file %s. ' % db_file):
+            with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('sharded', broker.get_db_state())
                 self.assertEqual(
@@ -1283,7 +1282,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         for node, (hdrs, root_shards) in root_shard_ranges.items():
             # old first shard range should have been deleted
             self.assertLengthEqual(root_shards, 4)
-            with annotate_failure('node %s. ' % node):
+            with self.subTest(node=node):
                 self.assertEqual(
                     [ShardRange.ACTIVE] * 4,
                     [sr['state'] for sr in root_shards])
@@ -1727,7 +1726,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             object_counts = []
             bytes_used = []
             for node_id, node_data in node_data.items():
-                with annotate_failure('Node id %s.' % node_id):
+                with self.subTest(node_id=node_id):
                     check_node_data(
                         node_data, exp_shard_hdrs, exp_obj_count,
                         expected_shards, exp_sharded_root_range)
@@ -1811,7 +1810,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             root_nodes_data = self.direct_get_container_shard_ranges()
             self.assertEqual(3, len(root_nodes_data))
             for node_id, node_data in root_nodes_data.items():
-                with annotate_failure('Node id %s.' % node_id):
+                with self.subTest(node_id=node_id):
                     check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
 
             # run updaters to update .sharded account; shard containers have
@@ -1875,7 +1874,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
                 num_obj_replicas, self.policy.quorum)
             expected_num_pendings = min(expected_num_updates, num_obj_replicas)
             # sanity check
-            with annotate_failure('policy %s. ' % self.policy):
+            with self.subTest(policy=self.policy):
                 self.assertLengthEqual(async_pendings, expected_num_pendings)
 
             # root object count is not updated...
@@ -1884,7 +1883,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             root_nodes_data = self.direct_get_container_shard_ranges()
             self.assertEqual(3, len(root_nodes_data))
             for node_id, node_data in root_nodes_data.items():
-                with annotate_failure('Node id %s.' % node_id):
+                with self.subTest(node_id=node_id):
                     check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
                 range_data = node_data[1]
                 self.assert_shard_range_lists_equal(
@@ -1919,7 +1918,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.assertEqual(3, len(root_nodes_data))
             exp_hdrs['X-Container-Object-Count'] = str(exp_obj_count)
             for node_id, node_data in root_nodes_data.items():
-                with annotate_failure('Node id %s.' % node_id):
+                with self.subTest(node_id=node_id):
                     # NB now only *one* shard range in root
                     check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
 
@@ -1947,7 +1946,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             part, nodes = self.brain.ring.get_nodes(
                 donor.account, donor.container)
             for node in nodes:
-                with annotate_failure(node):
+                with self.subTest(node=node):
                     broker = self.get_broker(
                         part, node, donor.account, donor.container)
                     own_sr = broker.get_own_shard_range()
@@ -2006,7 +2005,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
                         # just the alpha object
                         'X-Container-Object-Count': '1'}
             for node_id, node_data in root_nodes_data.items():
-                with annotate_failure('Node id %s.' % node_id):
+                with self.subTest(node_id=node_id):
                     # NB now no shard ranges in root
                     check_node_data(node_data, exp_hdrs, 0, 0)
 
@@ -2161,8 +2160,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         # the 'alpha' object is NOT replicated to the two sharded nodes
         for node in self.brain.nodes[:2]:
             broker = self.get_broker(self.brain.part, node)
-            with annotate_failure(
-                    'Node id %s in %s' % (node['id'], self.brain.nodes[:2])):
+            with self.subTest(node=node['id'], nodes=self.brain.nodes[:2]):
                 self.assertFalse(broker.get_objects())
                 self.assert_container_state(node, 'sharding', 3)
         self.brain.servers.stop(number=node_numbers[2])
@@ -2172,7 +2170,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.brain.servers.start(number=node_numbers[2])
         node_data = self.direct_get_container_shard_ranges()
         for node, (hdrs, shard_ranges) in node_data.items():
-            with annotate_failure(node):
+            with self.subTest(node=node):
                 self.assert_shard_ranges_contiguous(3, shard_ranges)
 
         # complete cleaving third shard range on first two nodes
@@ -2213,8 +2211,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         for node in self.brain.nodes[:2]:
             broker = self.get_broker(self.brain.part, node)
             info = broker.get_info()
-            with annotate_failure(
-                    'Node id %s in %s' % (node['id'], self.brain.nodes[:2])):
+            with self.subTest(node=node['id'], nodes=self.brain.nodes[:2]):
                 self.assertEqual(len(obj_names), info['object_count'])
                 self.assertFalse(broker.get_objects())
 
@@ -2232,8 +2229,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         # the 'alpha' object is NOT replicated to the two sharded nodes
         for node in self.brain.nodes[:2]:
             broker = self.get_broker(self.brain.part, node)
-            with annotate_failure(
-                    'Node id %s in %s' % (node['id'], self.brain.nodes[:2])):
+            with self.subTest(node=node['id'], nodes=self.brain.nodes[:2]):
                 self.assertFalse(broker.get_objects())
                 self.assert_container_state(node, 'sharded', 2)
         self.brain.servers.stop(number=node_numbers[2])
@@ -2243,7 +2239,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.brain.servers.start(number=node_numbers[2])
         node_data = self.direct_get_container_shard_ranges()
         for node, (hdrs, shard_ranges) in node_data.items():
-            with annotate_failure(node):
+            with self.subTest(node=node):
                 self.assert_shard_ranges_contiguous(2, shard_ranges)
 
         # run the sharder on the third server, alpha object is included in
@@ -2965,8 +2961,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             self.assert_container_state(node, 'unsharded', 3)
         node_data = self.direct_get_container_shard_ranges()
         for node_id, (hdrs, shard_ranges) in node_data.items():
-            with annotate_failure(
-                    'node id %s from %s' % (node_id, node_data.keys)):
+            with self.subTest(node_id=node_id, nodes=node_data.keys()):
                 self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
 
         # check handoff cleaved all objects before it was deleted - stop all
@@ -3304,8 +3299,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # root container own shard range should still be SHARDED
         for i, node in enumerate(self.brain.nodes):
-            with annotate_failure('node[%d]' % i):
-                broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+            with self.subTest(i=i):
+                broker = self.get_broker(self.brain.part, node)
                 self.assertEqual(ShardRange.SHARDED,
                                  broker.get_own_shard_range().state)
 
@@ -3326,8 +3321,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # root container own shard range should now be ACTIVE
         for i, node in enumerate(self.brain.nodes):
-            with annotate_failure('node[%d]' % i):
-                broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+            with self.subTest(i=i):
+                broker = self.get_broker(self.brain.part, node)
                 self.assertEqual(ShardRange.ACTIVE,
                                  broker.get_own_shard_range().state)
 
@@ -3437,7 +3432,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.assert_container_listing(obj_names)
         # check the unwanted shards did shrink away...
         for shard_range in shard_ranges_0:
-            with annotate_failure(shard_range):
+            with self.subTest(shard_range=shard_range):
                 found_for_shard = self.categorize_container_dir_content(
                     shard_range.account, shard_range.container)
                 self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
@@ -3468,7 +3463,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
              for sr in shard_ranges_1],
             key=ShardRange.sort_key)
         for node in (0, 1, 2):
-            with annotate_failure('node %s' % node):
+            with self.subTest(node=node):
                 broker = self.get_broker(self.brain.part,
                                          self.brain.nodes[node])
                 brokers[node] = broker
@@ -3505,7 +3500,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # 3 active shards, albeit with zero objects to cleave.
         self.sharders_once_non_auto()
         for node in (0, 1, 2):
-            with annotate_failure('node %s' % node):
+            with self.subTest(node=node):
                 broker = self.get_broker(self.brain.part,
                                          self.brain.nodes[node])
                 brokers[node] = broker
@@ -3527,7 +3522,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # the shard is updated from a root) may have happened before all roots
         # have had their shard ranges transitioned to ACTIVE.
         for shard_range in shard_ranges_1:
-            with annotate_failure(shard_range):
+            with self.subTest(shard_range=shard_range):
                 found_for_shard = self.categorize_container_dir_content(
                     shard_range.account, shard_range.container)
                 self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
@@ -3549,7 +3544,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # replicate it as per a normal cleave.
         self.sharders_once_non_auto()
         for node in (0, 1, 2):
-            with annotate_failure('node %s' % node):
+            with self.subTest(node=node):
                 broker = self.get_broker(self.brain.part,
                                          self.brain.nodes[node])
                 brokers[node] = broker
@@ -3592,7 +3587,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # ensure all shards learn their ACTIVE state from root
         self.sharders_once_non_auto()
         for node in (0, 1, 2):
-            with annotate_failure('node %d' % node):
+            with self.subTest(node=node):
                 shard_ranges = self.assert_container_state(
                     self.brain.nodes[node], 'sharded', 3)
                 for sr in shard_ranges:
@@ -4022,9 +4017,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # all DBs should now be sharded and still deleted
         for node in self.brain.nodes:
-            with annotate_failure(
-                    'node %s in %s'
-                    % (node['index'], [n['index'] for n in self.brain.nodes])):
+            with self.subTest(node_index=node['index'],
+                              nodes=[n['index'] for n in self.brain.nodes]):
                 self.assert_container_state(node, 'sharded', 2,
                                             override_deleted=True)
                 broker = self.get_broker(self.brain.part, node,
@@ -4118,9 +4112,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # all DBs should now be sharded and NOT deleted
         for node in self.brain.nodes:
-            with annotate_failure(
-                    'node %s in %s'
-                    % (node['index'], [n['index'] for n in self.brain.nodes])):
+            with self.subTest(node_index=node['index'],
+                              nodes=[n['index'] for n in self.brain.nodes]):
                 broker = self.get_broker(self.brain.part, node,
                                          self.account, self.container_name)
                 self.assertEqual(SHARDED, broker.get_db_state())

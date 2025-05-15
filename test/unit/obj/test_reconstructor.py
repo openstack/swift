@@ -41,7 +41,6 @@ from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
 from swift.obj.reconstructor import SYNC, REVERT
-from test import annotate_failure
 
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, mocked_http_conn, FabricatedRing,
@@ -5488,7 +5487,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                                    2 * ring.replicas,
                                    3 * ring.replicas,
                                    99 * ring.replicas):
-            with annotate_failure(request_node_count):
+            with self.subTest(request_node_count=request_node_count):
                 self.logger.clear()
                 self.reconstructor.request_node_count = \
                     lambda replicas: request_node_count
@@ -5957,7 +5956,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         self.assertEqual(2, reconstructor.quarantine_threshold)
 
         for bad in ('1.1', '-1', -1, 'auto', 'bad'):
-            with annotate_failure(bad):
+            with self.subTest(option=bad):
                 with self.assertRaises(ValueError):
                     object_reconstructor.ObjectReconstructor(
                         {'quarantine_threshold': bad})
@@ -5988,7 +5987,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         self.assertEqual(2, reconstructor.quarantine_age)
 
         for bad in ('1.1', 'auto', 'bad'):
-            with annotate_failure(bad):
+            with self.subTest(option=bad):
                 with self.assertRaises(ValueError):
                     object_reconstructor.ObjectReconstructor(
                         {'quarantine_age': bad})
@@ -6015,7 +6014,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
 
         for bad in ('1.1', 1.1, 'auto', 'bad',
                     '2.5 * replicas', 'two * replicas'):
-            with annotate_failure(bad):
+            with self.subTest(option=bad):
                 with self.assertRaises(ValueError):
                     object_reconstructor.ObjectReconstructor(
                         {'request_node_count': bad})
@@ -6261,8 +6260,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                                    - num_frags - 1)
                 other_responses = [(404, None, None)] * (num_other_resps - 1)
                 other_responses.append((bad_status, None, None))
-                with annotate_failure(
-                        'request_node_count=%d' % request_node_count):
+                with self.subTest(request_node_count=request_node_count):
                     exc = self._do_test_reconstruct_insufficient_frags(
                         {'quarantine_threshold': 1,
                          'reclaim_age': 0,
