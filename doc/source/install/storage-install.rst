@@ -11,6 +11,5 @@ Note that installation and configuration vary by distribution.
 .. toctree::
    :maxdepth: 1
 
-   storage-install-obs.rst
    storage-install-rdo.rst
    storage-install-ubuntu-debian.rst
