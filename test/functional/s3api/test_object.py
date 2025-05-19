@@ -346,7 +346,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_put_object_conditional_requests(self):
         obj = 'object'
         content = b'abcdefghij'
-        headers = {'If-None-Match': '*'}
+        headers = {'If-None-Match': 'asdf'}
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj, headers, content)
         self.assertEqual(status, 501)
@@ -370,6 +370,18 @@ class TestS3ApiObject(S3ApiBase):
         status, headers, body = \
             self.conn.make_request('HEAD', self.bucket, obj, {}, '')
         self.assertEqual(status, 404)
+
+        # But this will
+        headers = {'If-None-Match': '*'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEqual(status, 200)
+
+        # And the if-none-match prevents overwrites
+        headers = {'If-None-Match': '*'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEqual(status, 412)
 
     def test_put_object_expect(self):
         obj = 'object'
