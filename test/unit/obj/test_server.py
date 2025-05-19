@@ -332,6 +332,92 @@ class TestObjectController(BaseTestCase):
             })]},
             statsd.calls)
 
+    def test_legacy_and_labeled_timing_stats_replicate_bad_policy(self):
+        # non-existent policy
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'},
+            headers={'X-Backend-Storage-Policy-Index': '99'}
+        )
+        now = time()
+        statsd_client, statsd = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.errors.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'status': 503
+                },
+                'sample_rate': 0.1
+            })]},
+            statsd.calls)
+
+    def _do_test_legacy_timing_stats_error(self, req, sample_rate=None):
+        now = time()
+        # mount_check will provoke a 507
+        conf = dict(self.conf, mount_check='true')
+        statsd_client, statsd = self._do_test_timing_stats(conf, req, now)
+        kwargs = {} if sample_rate is None else {'sample_rate': sample_rate}
+        self.assertEqual({
+            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
+        }, statsd_client.calls)
+
+    def test_legacy_timing_stats_get_error(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        self._do_test_legacy_timing_stats_error(req)
+
+    def test_legacy_timing_stats_post_error(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'X-Object-Meta-1': 'One',
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        self._do_test_legacy_timing_stats_error(req)
+
+    def test_legacy_timing_stats_head_error(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
+        self._do_test_legacy_timing_stats_error(req, sample_rate=0.8)
+
+    def test_legacy_timing_stats_delete_error(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'application/x-test'})
+        self._do_test_legacy_timing_stats_error(req)
+
+    def test_legacy_timing_stats_ssync_error(self):
+        # non-existent policy
+        req = Request.blank(
+            '/sda1/0',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            headers={'X-Backend-Storage-Policy-Index': '99'}
+        )
+        now = time()
+        statsd_client, statsd = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({'timing_since': [(('SSYNC.errors.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+
+    def test_legacy_timing_stats_put_error(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'X-Object-Meta-1': 'One',
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers)
+        req.body = b'VERIFY'
+        self._do_test_legacy_timing_stats_error(req)
+
     def test_REQUEST_SPECIAL_CHARS(self):
         obj = 'special昆%20/%'
         # The path argument of Request.blank() is a WSGI string, somehow

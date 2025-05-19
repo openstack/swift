@@ -30,13 +30,13 @@ from swift.common.request_helpers import get_param, \
     validate_internal_container, constrain_req_limit
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, config_true_value, \
-    timing_stats, replication, get_log_line, \
+    replication, get_log_line, \
     config_fallocate_value, fs_has_free_space, parse_options
 from swift.common.constraints import valid_timestamp, check_utf8, \
     check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common import constraints
 from swift.common.db_replicator import ReplicatorRpc
-from swift.common.base_storage_server import BaseStorageServer
+from swift.common.base_storage_server import BaseStorageServer, timing_stats
 from swift.common.middleware import listing_formats
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \

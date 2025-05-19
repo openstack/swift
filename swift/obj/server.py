@@ -29,8 +29,8 @@ from eventlet import sleep, wsgi, Timeout, tpool
 from eventlet.greenthread import spawn
 
 from swift.common.utils import public, get_logger, \
-    config_true_value, config_percent_value, timing_stats, \
-    labeled_timing_stats, replication, normalize_delete_at_timestamp, \
+    config_true_value, config_percent_value, \
+    replication, normalize_delete_at_timestamp, \
     get_log_line, Timestamp, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
@@ -46,7 +46,8 @@ from swift.common.request_helpers import resolve_ignore_range_header, \
     OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.obj import ssync_receiver, expirer
 from swift.common.http import is_success, HTTP_MOVED_PERMANENTLY
-from swift.common.base_storage_server import BaseStorageServer
+from swift.common.base_storage_server import BaseStorageServer, \
+    timing_stats, labeled_timing_stats
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
