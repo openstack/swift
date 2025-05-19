@@ -41,7 +41,8 @@ from swift import __version__ as swift_version
 from swift.common.http import is_success
 from swift.obj.expirer import ExpirerConfig
 from test import listen_zero, BaseTestCase
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, FakeStatsdClient, \
+    FakeLabeledStatsdClient
 from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
     connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
@@ -55,6 +56,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     Timestamp, md5
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
+from swift.common.statsd_client import LabeledStatsdClient
 from swift.common.swob import Request, WsgiBytesIO, \
     HTTPRequestedRangeNotSatisfiable
 from swift.common.splice import splice
@@ -191,10 +193,15 @@ class TestObjectController(BaseTestCase):
             'mount_check': 'false',
             'container_update_timeout': 0.0,
         }
+        self.logger.clear()
         app = object_server.ObjectController(conf, logger=self.logger)
         self.assertEqual(app.container_update_timeout, 0.0)
         self.assertEqual(app.auto_create_account_prefix, '.')
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIsInstance(app.statsd, LabeledStatsdClient)
+        self.assertEqual({
+            'debug': [
+                'Labeled statsd mode: disabled (test-object-controller)'
+            ]}, self.logger.all_log_lines())
 
     def check_all_api_methods(self, obj_name='o', alt_res=None):
         path = '/sda1/p/a/c/%s' % obj_name
@@ -220,6 +227,110 @@ class TestObjectController(BaseTestCase):
             self.assertEqual(resp.status_int, res)
             if out_body and (200 <= res < 300):
                 self.assertEqual(resp.body, out_body)
+
+    def _do_test_timing_stats(self, conf, req, now):
+        with mock.patch('swift.common.utils.time.time', return_value=now), \
+                mock.patch('swift.common.statsd_client.StatsdClient',
+                           FakeStatsdClient), \
+                mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                           FakeLabeledStatsdClient):
+            app = object_server.ObjectController(conf, logger=self.logger)
+            statsd_client = app.logger.logger.statsd_client
+            statsd = app.statsd
+
+            with mock.patch.object(statsd_client, 'random', return_value=0), \
+                    mock.patch.object(statsd, 'random', return_value=0):
+                req.call_application(app)
+
+        self.assertIsInstance(statsd_client, FakeStatsdClient)
+        self.assertIsInstance(statsd, FakeLabeledStatsdClient)
+        return statsd_client, statsd
+
+    def test_legacy_and_labeled_timing_stats_replicate(self):
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'})
+        now = time()
+        statsd_client, statsd = self._do_test_timing_stats(self.conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'policy': 0,
+                    'skip_rehash': False,
+                    'status': 200
+                },
+                'sample_rate': 0.1
+            })]},
+            statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_replicate_skip_rehash(self):
+        # suffixes in request path
+        req = Request.blank(
+            '/sda1/p/123-abc', environ={'REQUEST_METHOD': 'REPLICATE'})
+        now = time()
+        statsd_client, statsd = self._do_test_timing_stats(self.conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'policy': 0,
+                    'skip_rehash': True,
+                    'status': 200
+                },
+                'sample_rate': 0.1
+            })]},
+            statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_replicate_policy(self):
+        # non-default policy
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'},
+            headers={'X-Backend-Storage-Policy-Index': '1'}
+        )
+        now = time()
+        statsd_client, statsd = self._do_test_timing_stats(self.conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'policy': 1,
+                    'skip_rehash': False,
+                    'status': 200
+                },
+                'sample_rate': 0.1
+            })]},
+            statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_replicate_507(self):
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'})
+        now = time()
+        # mount_check will provoke a 507
+        conf = dict(self.conf, mount_check='true')
+        statsd_client, statsd = self._do_test_timing_stats(conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.errors.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'policy': 0,
+                    'skip_rehash': False,
+                    'status': 507
+                },
+                'sample_rate': 0.1
+            })]},
+            statsd.calls)
 
     def test_REQUEST_SPECIAL_CHARS(self):
         obj = 'special昆%20/%'
@@ -6921,7 +7032,7 @@ class TestObjectController(BaseTestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
-        self.object_controller.logger = self.logger
+        self.logger.clear()
         delete_at = time()
         req_headers = {
             'X-Timestamp': 1,
@@ -6975,7 +7086,7 @@ class TestObjectController(BaseTestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
-        self.object_controller.logger = self.logger
+        self.logger.clear()
         delete_at = time()
         req_headers = {
             'X-Timestamp': 1,

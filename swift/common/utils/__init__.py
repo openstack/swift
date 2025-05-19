@@ -986,6 +986,34 @@ class GreenthreadSafeIterator(object):
             return next(self.unsafe_iter)
 
 
+def labeled_timing_stats(metric, **dec_kwargs):
+    """
+    Returns a decorator that emits labeled metrics timing events or errors
+    for public methods in swift's wsgi server controllers, based on response
+    code.
+
+    The controller methods are not allowed to override the following labels:
+    'method', 'status'.
+    """
+    def decorating_func(func):
+
+        @functools.wraps(func)
+        def _timing_stats(ctrl, req, *args, **kwargs):
+            labels = {}
+            start_time = time.time()
+            req_method = req.method
+            resp = func(ctrl, req, *args, timing_stats_labels=labels, **kwargs)
+            labels['method'] = req_method
+            labels['status'] = resp.status_int
+
+            ctrl.statsd.timing_since(metric, start_time, labels=labels,
+                                     **dec_kwargs)
+            return resp
+
+        return _timing_stats
+    return decorating_func
+
+
 def timing_stats(**dec_kwargs):
     """
     Returns a decorator that logs timing events or errors for public methods in
