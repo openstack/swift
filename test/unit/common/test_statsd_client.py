@@ -708,27 +708,28 @@ class TestGetStatsdClientOutput(BaseTestStatsdClientOutput):
     Tests here use get_statsd_client to make a StatsdClient.
     """
     def test_methods_are_no_ops_when_not_enabled(self):
-        self.client = get_statsd_client({
+        # *Don't* use self.client -- we want tearDown to create it
+        client = get_statsd_client({
             # No "log_statsd_host" means "disabled"
             'log_statsd_port': str(self.port),
         }, 'some-name')
-        self.assertIsNone(self.client.update_stats('foo', 88))
-        self.assertIsNone(self.client.update_stats('foo', 88, 0.57))
-        self.assertIsNone(self.client.update_stats('foo', 88,
-                                                   sample_rate=0.61))
-        self.assertIsNone(self.client.increment('foo'))
-        self.assertIsNone(self.client.increment('foo', 0.57))
-        self.assertIsNone(self.client.increment('foo', sample_rate=0.61))
-        self.assertIsNone(self.client.decrement('foo'))
-        self.assertIsNone(self.client.decrement('foo', 0.57))
-        self.assertIsNone(self.client.decrement('foo', sample_rate=0.61))
-        self.assertIsNone(self.client.timing('foo', 88.048))
-        self.assertIsNone(self.client.timing('foo', 88.57, 0.34))
-        self.assertIsNone(self.client.timing('foo', 88.998, sample_rate=0.82))
-        self.assertIsNone(self.client.timing_since('foo', 8938))
-        self.assertIsNone(self.client.timing_since('foo', 8948, 0.57))
-        self.assertIsNone(self.client.timing_since('foo', 849398,
-                                                   sample_rate=0.61))
+        self.assertIsNone(client.update_stats('foo', 88))
+        self.assertIsNone(client.update_stats('foo', 88, 0.57))
+        self.assertIsNone(client.update_stats('foo', 88,
+                                              sample_rate=0.61))
+        self.assertIsNone(client.increment('foo'))
+        self.assertIsNone(client.increment('foo', 0.57))
+        self.assertIsNone(client.increment('foo', sample_rate=0.61))
+        self.assertIsNone(client.decrement('foo'))
+        self.assertIsNone(client.decrement('foo', 0.57))
+        self.assertIsNone(client.decrement('foo', sample_rate=0.61))
+        self.assertIsNone(client.timing('foo', 88.048))
+        self.assertIsNone(client.timing('foo', 88.57, 0.34))
+        self.assertIsNone(client.timing('foo', 88.998, sample_rate=0.82))
+        self.assertIsNone(client.timing_since('foo', 8938))
+        self.assertIsNone(client.timing_since('foo', 8948, 0.57))
+        self.assertIsNone(client.timing_since('foo', 849398,
+                                              sample_rate=0.61))
         # Now, the queue should be empty (no UDP packets sent)
         self.assertRaises(Empty, self.queue.get_nowait)
 
