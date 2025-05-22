@@ -90,19 +90,19 @@ class TestObjectUpdater(unittest.TestCase):
                            'replication_ip': '127.0.0.1',
                            # replication_port may be overridden in tests but
                            # include here for completeness...
-                           'replication_port': 67890,
+                           'replication_port': 60789,
                            'device': 'sda1', 'zone': 0},
                           {'id': 1, 'ip': '127.0.0.2', 'port': 1,
                            'replication_ip': '127.0.0.1',
-                           'replication_port': 67890,
+                           'replication_port': 60789,
                            'device': 'sda1', 'zone': 2},
                           {'id': 2, 'ip': '127.0.0.2', 'port': 1,
                            'replication_ip': '127.0.0.1',
-                           'replication_port': 67890,
+                           'replication_port': 60789,
                            'device': 'sda1', 'zone': 4},
                           {'id': 3, 'ip': '127.0.0.2', 'port': 1,
                            'replication_ip': '127.0.0.1',
-                           'replication_port': 67890,
+                           'replication_port': 60789,
                            'device': 'sda1', 'zone': 6}], 30),
                 f)
         self.devices_dir = os.path.join(self.testdir, 'devices')
@@ -750,7 +750,7 @@ class TestObjectUpdater(unittest.TestCase):
                          {'failures': 1, 'outdated_unlinks': 1})
         self.assertIsNone(pickle.load(open(op_path, 'rb')).get('successes'))
         self.assertEqual(
-            ['ERROR with remote server 127.0.0.1:67890/sda1: '
+            ['ERROR with remote server 127.0.0.1:60789/sda1: '
              'Connection refused'] * 3,
             ou.logger.get_lines_for_level('error'))
         self.assertEqual(
