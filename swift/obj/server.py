@@ -659,10 +659,14 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def POST(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def POST(self, request, timing_stats_labels):
         """Handle HTTP POST requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
 
         req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
@@ -1055,10 +1059,15 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def PUT(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def PUT(self, request, timing_stats_labels):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         disk_file, fsize, orig_metadata = self._pre_create_checks(
             request, device, partition, account, container, obj, policy)
         writer = disk_file.writer(size=fsize)
@@ -1099,10 +1108,15 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def GET(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def GET(self, request, timing_stats_labels):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1184,10 +1198,15 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats(sample_rate=0.8)
-    def HEAD(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME, sample_rate=0.8)
+    def HEAD(self, request, timing_stats_labels):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1244,10 +1263,15 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def DELETE(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def DELETE(self, request, timing_stats_labels):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         req_timestamp = valid_timestamp(request)
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
@@ -1364,15 +1388,17 @@ class ObjectController(BaseStorageServer):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    def SSYNC(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME, sample_rate=0.1)
+    def SSYNC(self, request, timing_stats_labels):
         # the ssync sender may want to send PUT subrequests for non-durable
         # data that should not be committed; legacy behaviour has been to
         # commit all PUTs (subject to EC footer metadata), so we need to
         # indicate to the sender that this object server has been upgraded to
         # understand the X-Backend-No-Commit header.
         headers = {'X-Backend-Accept-No-Commit': True}
-        return Response(app_iter=ssync_receiver.Receiver(self, request)(),
-                        headers=headers)
+        receiver = ssync_receiver.Receiver(self, request)
+        timing_stats_labels['policy'] = int(receiver.policy)
+        return Response(app_iter=receiver(), headers=headers)
 
     def __call__(self, env, start_response):
         """WSGI Application entry point for the Swift Object Server."""
