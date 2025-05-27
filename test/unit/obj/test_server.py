@@ -356,8 +356,7 @@ class TestObjectController(BaseTestCase):
                     'container': 'c',
                     'policy': 0,
                     'status': 200
-                },
-                'sample_rate': 0.8
+                }
             })]
         }, statsd.calls)
 
@@ -412,8 +411,7 @@ class TestObjectController(BaseTestCase):
                     'policy': 0,
                     'skip_rehash': False,
                     'status': 200
-                },
-                'sample_rate': 0.1
+                }
             })]},
             statsd.calls)
 
@@ -434,8 +432,7 @@ class TestObjectController(BaseTestCase):
                     'policy': 0,
                     'skip_rehash': True,
                     'status': 200
-                },
-                'sample_rate': 0.1
+                }
             })]},
             statsd.calls)
 
@@ -458,8 +455,7 @@ class TestObjectController(BaseTestCase):
                     'policy': 1,
                     'skip_rehash': False,
                     'status': 200
-                },
-                'sample_rate': 0.1
+                }
             })]},
             statsd.calls)
 
@@ -479,8 +475,7 @@ class TestObjectController(BaseTestCase):
                     'method': 'SSYNC',
                     'policy': 0,
                     'status': 200
-                },
-                'sample_rate': 0.1
+                }
             })]
         }, statsd.calls)
 
@@ -500,8 +495,7 @@ class TestObjectController(BaseTestCase):
                     'policy': 0,
                     'status': 507,
                     **additional_labels
-                },
-                **kwargs
+                }
             })]
         }, statsd.calls)
 
@@ -587,8 +581,7 @@ class TestObjectController(BaseTestCase):
                 'labels': {
                     'method': req.method,
                     'status': 507,
-                },
-                **kwargs
+                }
             })]
         }, statsd.calls)
 
@@ -606,8 +599,7 @@ class TestObjectController(BaseTestCase):
                 'labels': {
                     'method': req.method,
                     'status': 503,
-                },
-                **kwargs
+                }
             })]
         }, statsd.calls)
 

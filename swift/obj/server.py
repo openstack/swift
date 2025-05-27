@@ -1198,7 +1198,7 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats(sample_rate=0.8)
-    @labeled_timing_stats(metric=LABELED_METRIC_NAME, sample_rate=0.8)
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
     def HEAD(self, request, timing_stats_labels):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
@@ -1357,7 +1357,7 @@ class ObjectController(BaseStorageServer):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    @labeled_timing_stats(metric=LABELED_METRIC_NAME, sample_rate=0.1)
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
     def REPLICATE(self, request, timing_stats_labels):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used
@@ -1388,7 +1388,7 @@ class ObjectController(BaseStorageServer):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    @labeled_timing_stats(metric=LABELED_METRIC_NAME, sample_rate=0.1)
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
     def SSYNC(self, request, timing_stats_labels):
         # the ssync sender may want to send PUT subrequests for non-durable
         # data that should not be committed; legacy behaviour has been to
