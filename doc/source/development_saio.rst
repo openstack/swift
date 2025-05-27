@@ -20,8 +20,8 @@ cluster. To begin:
 
 * Get a Linux system server image, this guide will cover:
 
-  * Ubuntu 14.04, 16.04 LTS
-  * CentOS 7
+  * Ubuntu 24.04 LTS
+  * CentOS Stream 9
   * Fedora
   * OpenSuse
 
@@ -57,50 +57,46 @@ Installing dependencies
 
         sudo apt-get update
         sudo apt-get install curl gcc memcached rsync sqlite3 xfsprogs \
-                             git-core libffi-dev python-setuptools \
+                             git-core libffi-dev python3-setuptools \
                              liberasurecode-dev libssl-dev
-        sudo apt-get install python-coverage python-dev python-nose \
-                             python-xattr python-eventlet \
-                             python-greenlet python-pastedeploy \
-                             python-netifaces python-pip python-dnspython \
-                             python-mock
+        sudo apt-get install python3-coverage python3-dev python3-pytest \
+                             python3-xattr python3-eventlet \
+                             python3-greenlet python3-pastedeploy \
+                             python3-pip python3-dnspython
 
 * On ``CentOS`` (requires additional repositories)::
 
-        sudo yum update
-        sudo yum install epel-release
-        sudo yum-config-manager --enable epel extras
-        sudo yum install centos-release-openstack-train
-        sudo yum install curl gcc memcached rsync sqlite xfsprogs git-core \
-                         libffi-devel xinetd liberasurecode-devel \
-                         openssl-devel python-setuptools \
-                         python-coverage python-devel python-nose \
-                         pyxattr python-eventlet \
-                         python-greenlet python-paste-deploy \
-                         python-netifaces python-pip python-dns \
-                         python-mock
+        sudo dnf update
+        sudo dnf install epel-release
+        sudo dnf config-manager --enable epel extras
+        sudo dnf install centos-release-openstack-epoxy
+        sudo dnf install curl gcc memcached rsync-daemon sqlite xfsprogs git-core \
+                         libffi-devel liberasurecode-devel \
+                         openssl-devel python3-setuptools \
+                         python3-coverage python3-devel python3-pytest \
+                         python3-pyxattr python3-eventlet \
+                         python3-greenlet python3-paste-deploy \
+                         python3-pip python3-dns
 
 * On ``Fedora``::
 
         sudo dnf update
         sudo dnf install curl gcc memcached rsync-daemon sqlite xfsprogs git-core \
-                         libffi-devel liberasurecode-devel python-pyeclib \
-                         openssl-devel python-setuptools \
-                         python-coverage python-devel python-nose \
-                         python-pyxattr python-eventlet \
-                         python-greenlet python-paste-deploy \
-                         python-netifaces python-pip python-dns \
-                         python-mock
+                         libffi-devel liberasurecode-devel python3-pyeclib \
+                         openssl-devel python3-setuptools \
+                         python3-coverage python3-devel python3-pytest \
+                         python3-pyxattr python3-eventlet \
+                         python3-greenlet python3-paste-deploy \
+                         python3-pip python3-dns
 
 * On ``OpenSuse``::
 
         sudo zypper install curl gcc memcached rsync sqlite3 xfsprogs git-core \
-                            libffi-devel liberasurecode-devel python2-setuptools \
+                            libffi-devel liberasurecode-devel python3-setuptools \
                             libopenssl-devel
-        sudo zypper install python2-coverage python-devel python2-nose \
-                            python-xattr python-eventlet python2-greenlet \
-                            python2-netifaces python2-pip python2-dnspython \
-                            python2-mock
+        sudo zypper install python3-coverage python3-devel python3-nose \
+                            python3-xattr python3-eventlet python3-greenlet \
+                            python3-pip python3-dnspython
 
 .. note::
    This installs necessary system dependencies and *most* of the python
@@ -291,12 +287,7 @@ Getting the code
 
 #. Build a development installation of python-swiftclient::
 
-      cd $HOME/python-swiftclient; sudo python setup.py develop; cd -
-
-   Ubuntu 12.04 users need to install python-swiftclient's dependencies before the installation of
-   python-swiftclient. This is due to a bug in an older version of setup tools::
-
-      cd $HOME/python-swiftclient; sudo pip install -r requirements.txt; sudo python setup.py develop; cd -
+      cd $HOME/python-swiftclient; sudo python3 setup.py develop; cd -
 
 #. Check out the Swift repo::
 
@@ -749,7 +740,7 @@ Testing Swift
 
       curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>
 
-#. Check that ``swift`` command provided by the python-swiftclient package works::
+#. Check that the ``swift`` command provided by python-swiftclient works::
 
       swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat
 
