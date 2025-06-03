@@ -20,6 +20,7 @@ import os
 import inspect
 import shutil
 import unittest
+import uuid
 from time import sleep, time
 from uuid import uuid4
 import random
@@ -5118,6 +5119,136 @@ class TestContainerBroker(test_db.TestDbBase):
         lines = broker.logger.get_lines_for_level('error')
         self.assertIn('Problem finding shard upper', lines[0])
         self.assertFalse(lines[1:])
+
+    def _do_test_find_shard_ranges_aligned(
+            self, obj_names, delimiter, shard_size, own_sr=None):
+        container_name = uuid.uuid4().hex
+        db_path = os.path.join(self.testdir, '%s.db' % container_name)
+        broker = ContainerBroker(
+            db_path, account='a', container=container_name)
+        broker.initialize(next(self.ts).internal, 0)
+        broker.set_sharding_sysmeta('Delimiter', delimiter)
+        self.assertEqual(([], False), broker.find_shard_ranges(10))  # sanity
+        if own_sr:
+            own_sr.name = 'a/' + container_name
+            broker.merge_shard_ranges([own_sr])
+        random.shuffle(obj_names)
+        for obj_name in obj_names:
+            broker.put_object(
+                obj_name, next(self.ts).internal, 0, 'text/plain', 'etag')
+        ranges, _ = broker.find_shard_ranges(shard_size)
+        return [(range['lower'], range['upper'], range['object_count'])
+                for range in ranges]
+
+    def test_find_shard_ranges_aligned(self):
+        names = ['abc', 'abc\x001', 'abc\x002', 'abc\x01', 'abc\x01\x001',
+                 'bbc\x001', 'bbc\x002', 'bbc\x003', 'bbcd\x001']
+
+        # no delimiter; sanity check
+        actual = self._do_test_find_shard_ranges_aligned(names, '', 3)
+        expected = [
+            ('', 'abc\x002', 3),
+            ('abc\x002', 'bbc\x001', 3),
+            ('bbc\x001', '', 3),
+        ]
+        self.assertEqual(expected, actual)
+
+        actual = self._do_test_find_shard_ranges_aligned(names, '\x00', 3)
+        expected = [
+            ('', 'abc\x01', 4),
+            ('abc\x01', 'bbc\x01', 4),
+            ('bbc\x01', '', 1),
+        ]
+        self.assertEqual(expected, actual)
+
+    def test_find_shard_ranges_aligned_first_delimiter_rules(self):
+        names = ['abc',
+                 'abc\x001',
+                 'abc\x001\x001',
+                 'abc\x001\x002',
+                 'abc\x002\x001',
+                 'abc\x002\x002',
+                 'abc\x002\x003',
+                 'abc\x002\x004',
+                 'abc\x003\x001',
+                 'abc\x003\x002']
+
+        # shard size means we first land on a name with two delimiters
+        actual = self._do_test_find_shard_ranges_aligned(names, '\x00', 3)
+        expected = [
+            ('', 'abc\x001\x01', 4),
+            ('abc\x001\x01', 'abc\x002\x01', 4),
+            ('abc\x002\x01', '', 2),
+        ]
+        self.assertEqual(expected, actual)
+
+        # but different shard size means we land on name with only one
+        # delimiter with very diffrent outcome
+        # TODO: this test case makes me wonder if the alignment should be
+        #   defined by a regex pattern rather than a single delimiter??
+        actual = self._do_test_find_shard_ranges_aligned(names, '\x00', 2)
+        expected = [
+            ('', '', 10),
+        ]
+        self.assertEqual(expected, actual)
+
+    def test_find_shard_ranges_align_beyond_last_name(self):
+        # delimiter aligns to beyond last name so aligns to own_sr.upper
+        names = ['abc', 'abc\x001', 'abc\x002', 'abc\x01', 'abc\x01\x001',
+                 'bbc\x001', 'bbc\x002', 'bbc\x003', 'bbcd\x001']
+        actual = self._do_test_find_shard_ranges_aligned(names, 'c', 3)
+        expected = [
+            ('', 'abd', 5),
+            ('abd', '', 4),
+        ]
+        self.assertEqual(expected, actual)
+
+    def test_find_shard_ranges_aligned_multi_character_delimiter(self):
+        names = ['abc', 'abc\x001', 'abc\x002', 'abc\x01', 'abc\x01\x001',
+                 'bbc\x001', 'bbc\x002', 'bbc\x003', 'bbcd\x001']
+        actual = self._do_test_find_shard_ranges_aligned(names, 'ab', 3)
+        expected = [
+            ('', 'ac', 5),
+            ('ac', 'bbc\x003', 3),
+            ('bbc\x003', '', 1),
+        ]
+        self.assertEqual(expected, actual)
+
+    def test_find_shard_ranges_aligned_misplaced_objects(self):
+        names = ['abc', 'abc\x001', 'abc\x002', 'abc\x01', 'abc\x01\x001',
+                 'bbc\x001', 'bbc\x002', 'bbc\x003', 'bbcd\x001']
+
+        # misplaced objects no delimiter; sanity check
+        own_sr = ShardRange('a/c', 123.4, lower='', upper='bbc\x002')
+        actual = self._do_test_find_shard_ranges_aligned(
+            names, '', 3, own_sr)
+        expected = [
+            ('', 'abc\x002', 3),
+            ('abc\x002', 'bbc\x001', 3),
+            ('bbc\x001', 'bbc\x002', 3),  # final count includes misplaced
+        ]
+        self.assertEqual(expected, actual)
+
+        # misplaced objects above aligned own_sr.upper
+        own_sr = ShardRange('a/c', 123.4, lower='', upper='abd\x01')
+        actual = self._do_test_find_shard_ranges_aligned(
+            names, '\x00', 3, own_sr)
+        expected = [
+            ('', 'abc\x01', 4),
+            ('abc\x01', 'abd\x01', 5),  # final count includes misplaced
+        ]
+        self.assertEqual(expected, actual)
+
+        # misplaced objects above misaligned own_sr.upper
+        own_sr = ShardRange('a/c', 123.4, lower='', upper='bbc\x002')
+        actual = self._do_test_find_shard_ranges_aligned(
+            names, '\x00', 3, own_sr)
+        expected = [
+            ('', 'abc\x01', 4),
+            # misaligned own_sr.upper prevents corrrect alignment
+            ('abc\x01', 'bbc\x002', 5),  # final count includes misplaced
+        ]
+        self.assertEqual(expected, actual)
 
     @with_tempdir
     def test_set_db_states(self, tempdir):

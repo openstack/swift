@@ -2401,16 +2401,28 @@ class ContainerBroker(DatabaseBroker):
             # own_shard_range is left alive
             return True
 
-    def _get_next_shard_range_upper(self, shard_size, last_upper=None):
+    def _get_next_shard_range_upper(self, shard_size, last_upper=None,
+                                    delimiter=None):
         """
-        Returns the name of the object that is ``shard_size`` rows beyond
-        ``last_upper`` in the object table ordered by name. If ``last_upper``
-        is not given then it defaults to the start of object table ordered by
-        name.
+        Returns the next shard's upper bound and the number of rows in that
+        shard. If ``last_upper`` is not given then it defaults to the start of
+        object table ordered by name.
 
+        :param shard_size: the target size of the next shard; the actual size
+            of the next shard may vary from the target size in order to satisfy
+            the ``delimiter`` argument.
         :param last_upper: the upper bound of the last found shard range.
-        :return: an object name, or None if the number of rows beyond
-            ``last_upper`` is less than ``shard_size``.
+        :param delimiter: (optional) if given, the upper bound will be
+            truncated to the prefix ending in the rightmost position of the
+            delimiter, and adjusted upwards to include all names staring with
+            that prefix. This can be used to ensure that names with a common
+            prefix will always fall on one side or the other of a shard bound.
+            For example. a separator of ``\x00`` would cause an upper bound of
+            ``xyz\x00abc`` to be adjusted to ``xyz\x01`` so that any name
+            starting ``xyz\x00`` will be below that upper bound.
+        :return: a tuple of (object name, shard size); object name is None if
+            the number of rows beyond ``last_upper`` is less than
+            ``shard_size``.
         """
         self._commit_puts_stale_ok()
         with self.get() as connection:
@@ -2422,7 +2434,27 @@ class ContainerBroker(DatabaseBroker):
                 args.append(str(last_upper))
             sql += "ORDER BY name LIMIT 1 OFFSET %d" % (shard_size - 1)
             row = connection.execute(sql, args).fetchone()
-            return row['name'] if row else None
+            if row:
+                next_upper = row['name']
+                if delimiter and delimiter in next_upper:
+                    # adjust upwards to ensure progress
+                    prefix = next_upper.rsplit(delimiter, 1)[0]
+                    adjusted_upper = \
+                        prefix + delimiter[:-1] + chr(ord(delimiter[-1]) + 1)
+                    sql = ('SELECT COUNT(*) FROM object '
+                           'WHERE %s=0 AND name > ? AND name <= ?' %
+                           self._get_deleted_key(connection))
+                    args = [next_upper, adjusted_upper]
+                    row = connection.execute(sql, args).fetchone()
+                    actual_size = shard_size + row[0]
+                    next_upper = adjusted_upper
+                else:
+                    next_upper = row['name']
+                    actual_size = shard_size
+            else:
+                next_upper = None
+                actual_size = shard_size
+            return next_upper, actual_size
 
     def find_shard_ranges(self, shard_size, limit=-1, existing_ranges=None,
                           minimum_shard_size=1):
@@ -2457,6 +2489,7 @@ class ContainerBroker(DatabaseBroker):
         existing_ranges = existing_ranges or []
         minimum_shard_size = max(minimum_shard_size, 1)
         object_count = self.get_info().get('object_count', 0)
+        delimiter = self.get_sharding_sysmeta('Delimiter')
         if shard_size + minimum_shard_size > object_count:
             # container not big enough to shard
             return [], False
@@ -2488,6 +2521,7 @@ class ContainerBroker(DatabaseBroker):
         sub_broker = self.get_brokers()[0]
         index = len(existing_ranges)
         while limit is None or limit < 0 or len(found_ranges) < limit:
+            actual_size = shard_size  # default assumption
             if progress + shard_size + minimum_shard_size > object_count:
                 # next shard point is within minimum_size rows of the final
                 # object name, or beyond it, so don't bother with db query.
@@ -2495,8 +2529,9 @@ class ContainerBroker(DatabaseBroker):
                 next_shard_upper = None
             else:
                 try:
-                    next_shard_upper = sub_broker._get_next_shard_range_upper(
-                        shard_size, last_shard_upper)
+                    next_shard_upper, actual_size = \
+                        sub_broker._get_next_shard_range_upper(
+                            shard_size, last_shard_upper, delimiter)
                 except (sqlite3.OperationalError, LockTimeout):
                     self.logger.exception(
                         "Problem finding shard upper in %r: " % self.db_file)
@@ -2513,7 +2548,7 @@ class ContainerBroker(DatabaseBroker):
                     # shard size may not be accurate until cleaved, but at
                     # least the sum of shard sizes will equal the unsharded
                     # object_count
-                    shard_size = object_count - progress
+                    actual_size = object_count - progress
 
             # NB shard ranges are created with a non-zero object count for a
             # few reasons:
@@ -2523,16 +2558,20 @@ class ContainerBroker(DatabaseBroker):
             #     but not yet cleaved; and
             #  3. So we have a rough idea of size of the shards should be
             #     while cleaving.
-            found_ranges.append(
-                {'index': index,
-                 'lower': str(last_shard_upper),
-                 'upper': str(next_shard_upper),
-                 'object_count': shard_size})
+            if actual_size < minimum_shard_size and found_ranges:
+                found_ranges[-1]['upper'] = str(next_shard_upper)
+                found_ranges[-1]['object_count'] += actual_size
+            else:
+                found_ranges.append(
+                    {'index': index,
+                     'lower': str(last_shard_upper),
+                     'upper': str(next_shard_upper),
+                     'object_count': actual_size})
 
             if next_shard_upper == own_shard_range.upper:
                 return found_ranges, True
 
-            progress += shard_size
+            progress += actual_size
             last_shard_upper = next_shard_upper
             index += 1
 
