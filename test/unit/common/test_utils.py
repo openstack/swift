@@ -7989,62 +7989,7 @@ class TestLoggerStatsdClientDelegation(unittest.TestCase):
             msgs)
 
 
-class TestTimingStatsDecorators(unittest.TestCase):
-    def test_timing_stats(self):
-        class MockController(object):
-            def __init__(mock_self, status):
-                mock_self.status = status
-                mock_self.logger = debug_logger()
-
-            @utils.timing_stats()
-            def METHOD(mock_self):
-                return Response(status=mock_self.status)
-
-        now = time.time()
-        mock_controller = MockController(200)
-        with mock.patch('swift.common.utils.time.time', return_value=now):
-            mock_controller.METHOD()
-        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.statsd_client.calls)
-
-        mock_controller = MockController(400)
-        with mock.patch('swift.common.utils.time.time', return_value=now):
-            mock_controller.METHOD()
-        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.statsd_client.calls)
-
-        mock_controller = MockController(404)
-        with mock.patch('swift.common.utils.time.time', return_value=now):
-            mock_controller.METHOD()
-        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.statsd_client.calls)
-
-        mock_controller = MockController(412)
-        with mock.patch('swift.common.utils.time.time', return_value=now):
-            mock_controller.METHOD()
-        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.statsd_client.calls)
-
-        mock_controller = MockController(416)
-        with mock.patch('swift.common.utils.time.time', return_value=now):
-            mock_controller.METHOD()
-        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
-                         mock_controller.logger.statsd_client.calls)
-
-        mock_controller = MockController(500)
-        with mock.patch('swift.common.utils.time.time', return_value=now):
-            mock_controller.METHOD()
-        self.assertEqual(
-            {'timing_since': [(('METHOD.errors.timing', now), {})]},
-            mock_controller.logger.statsd_client.calls)
-
-        mock_controller = MockController(507)
-        with mock.patch('swift.common.utils.time.time', return_value=now):
-            mock_controller.METHOD()
-        self.assertEqual(
-            {'timing_since': [(('METHOD.errors.timing', now), {})]},
-            mock_controller.logger.statsd_client.calls)
-
+class TestMemcachedTimingStatsDecorators(unittest.TestCase):
     def test_memcached_timing_stats(self):
         class MockMemcached(object):
             def __init__(mock_self):

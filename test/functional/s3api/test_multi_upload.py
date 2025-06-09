@@ -723,6 +723,66 @@ class TestS3ApiMultiUpload(S3ApiBase):
                                    query=query)
         self.assertEqual(get_error_code(body), 'InvalidPart')
 
+    def test_complete_multi_upload_conditional(self):
+        bucket = 'bucket'
+        key = 'obj'
+        self.conn.make_request('PUT', bucket)
+        query = 'uploads'
+        status, headers, body = \
+            self.conn.make_request('POST', bucket, key, query=query)
+        elem = fromstring(body, 'InitiateMultipartUploadResult')
+        upload_id = elem.find('UploadId').text
+
+        query = 'partNumber=1&uploadId=%s' % upload_id
+        status, headers, body = \
+            self.conn.make_request('PUT', bucket, key, query=query)
+        part_etag = headers['etag']
+        xml = self._gen_comp_xml([part_etag])
+
+        for headers in [
+            {'If-Match': part_etag},
+            {'If-Match': '*'},
+            {'If-None-Match': part_etag},
+            {'If-Modified-Since': 'Wed, 21 Oct 2015 07:28:00 GMT'},
+            {'If-Unmodified-Since': 'Wed, 21 Oct 2015 07:28:00 GMT'},
+        ]:
+            with self.subTest(headers=headers):
+                query = 'uploadId=%s' % upload_id
+                status, _, body = self.conn.make_request(
+                    'POST', bucket, key, body=xml,
+                    query=query, headers=headers)
+                self.assertEqual(status, 501)
+                self.assertEqual(get_error_code(body), 'NotImplemented')
+
+        # Can do basic existence checks, though
+        headers = {'If-None-Match': '*'}
+        query = 'uploadId=%s' % upload_id
+        status, _, body = self.conn.make_request(
+            'POST', bucket, key, body=xml,
+            query=query, headers=headers)
+        self.assertEqual(status, 200)
+
+        # And it'll prevent overwrites
+        query = 'uploads'
+        status, headers, body = \
+            self.conn.make_request('POST', bucket, key, query=query)
+        elem = fromstring(body, 'InitiateMultipartUploadResult')
+        upload_id = elem.find('UploadId').text
+
+        query = 'partNumber=1&uploadId=%s' % upload_id
+        status, headers, body = \
+            self.conn.make_request('PUT', bucket, key, query=query)
+        part_etag = headers['etag']
+        xml = self._gen_comp_xml([part_etag])
+
+        headers = {'If-None-Match': '*'}
+        query = 'uploadId=%s' % upload_id
+        status, _, body = self.conn.make_request(
+            'POST', bucket, key, body=xml,
+            query=query, headers=headers)
+        self.assertEqual(status, 412)
+        self.assertEqual(get_error_code(body), 'PreconditionFailed')
+
     def test_complete_upload_min_segment_size(self):
         bucket = 'bucket'
         key = 'obj'

@@ -1399,14 +1399,16 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
     def _do_test_object_multipart_upload_complete(
             self, bucket_policy_index=int(POLICIES.default),
-            segment_bucket_policy_index=None):
+            segment_bucket_policy_index=None, extra_headers=None):
+        extra_headers = extra_headers or {}
         content_md5 = base64.b64encode(md5(
             XML.encode('ascii'), usedforsecurity=False).digest())
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(),
-                                     'Content-MD5': content_md5, },
+                                     'Content-MD5': content_md5,
+                                     **extra_headers},
                             body=XML)
         if segment_bucket_policy_index is None:
             segment_bucket_policy_index = bucket_policy_index
@@ -1453,9 +1455,67 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
     def test_object_multipart_upload_complete(self):
         self._do_test_object_multipart_upload_complete()
 
+    def test_object_multipart_upload_complete_with_if_none_match_star(self):
+        self._do_test_object_multipart_upload_complete(
+            extra_headers={'If-None-Match': '*'}
+        )
+
     def test_object_multipart_upload_complete_mixed_policy(self):
         self._do_test_object_multipart_upload_complete(
             bucket_policy_index=0, segment_bucket_policy_index=1
+        )
+
+    def test_mpu_complete_mixed_policy_with_if_none_match_star(self):
+        self._do_test_object_multipart_upload_complete(
+            bucket_policy_index=0, segment_bucket_policy_index=1,
+            extra_headers={'If-None-Match': '*'}
+        )
+
+    def _do_test_object_multipart_upload_complete_501(self, extra_headers):
+        bucket_policy_index = int(POLICIES.default)
+        segment_bucket_policy_index = bucket_policy_index
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
+        req = Request.blank('/bucket/object?uploadId=X',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5,
+                                     **extra_headers},
+                            body=XML)
+        self._register_bucket_policy_index_head('bucket', bucket_policy_index)
+        self._register_bucket_policy_index_head('bucket+segments',
+                                                segment_bucket_policy_index)
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'Error')
+        self.assertEqual(elem.find('Code').text, 'NotImplemented')
+        self.assertEqual(status.split()[0], '501')
+
+        self.assertEqual(self.swift.calls, [
+            # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            # And then we bail because of the 501
+        ])
+
+    def test_object_multipart_upload_complete_with_if_match(self):
+        self._do_test_object_multipart_upload_complete_501(
+            extra_headers={'If-Match': 'not-the-etag'}
+        )
+
+    def test_object_multipart_upload_complete_with_if_none_match(self):
+        self._do_test_object_multipart_upload_complete_501(
+            extra_headers={'If-None-Match': 'not-the-etag'}
+        )
+
+    def test_object_multipart_upload_complete_with_if_modified_since(self):
+        self._do_test_object_multipart_upload_complete_501(
+            extra_headers={'If-Modified-Since': 'not-the-etag'}
+        )
+
+    def test_object_multipart_upload_complete_with_if_unmodified_since(self):
+        self._do_test_object_multipart_upload_complete_501(
+            extra_headers={'If-Unmodified-Since': 'not-the-etag'}
         )
 
     def test_object_multipart_upload_complete_other_headers(self):
@@ -1528,7 +1588,8 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
     def _do_test_object_multipart_upload_retry_complete(
             self, bucket_policy_index=int(POLICIES.default),
-            segment_bucket_policy_index=None):
+            segment_bucket_policy_index=None, extra_headers=None):
+        extra_headers = extra_headers or {}
         if segment_bucket_policy_index is None:
             segment_bucket_policy_index = bucket_policy_index
         self._register_bucket_policy_index_head('bucket', bucket_policy_index)
@@ -1550,7 +1611,8 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(),
-                                     'Content-MD5': content_md5, },
+                                     'Content-MD5': content_md5,
+                                     **extra_headers},
                             body=XML)
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
@@ -1576,11 +1638,22 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
     def test_object_multipart_upload_retry_complete(self):
         self._do_test_object_multipart_upload_retry_complete()
 
+    def test_mpu_retry_complete_with_if_none_match_star(self):
+        self._do_test_object_multipart_upload_retry_complete(
+            extra_headers={'If-None-Match': '*'})
+
     def test_object_multipart_upload_retry_complete_mixed_policy(self):
         self._do_test_object_multipart_upload_retry_complete(
             bucket_policy_index=0, segment_bucket_policy_index=1)
 
-    def test_object_multipart_upload_retry_complete_etag_mismatch(self):
+    def test_mpu_retry_complete_mixed_policy_with_if_none_match_star(self):
+        self._do_test_object_multipart_upload_retry_complete(
+            bucket_policy_index=0, segment_bucket_policy_index=1,
+            extra_headers={'If-None-Match': '*'})
+
+    def _do_object_multipart_upload_retry_complete_etag_mismatch(
+            self, extra_headers=None):
+        extra_headers = extra_headers or {}
         content_md5 = base64.b64encode(md5(
             XML.encode('ascii'), usedforsecurity=False).digest())
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',
@@ -1597,13 +1670,13 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(),
-                                     'Content-MD5': content_md5, },
+                                     'Content-MD5': content_md5,
+                                     **extra_headers},
                             body=XML)
         status, headers, body = self.call_s3api(req)
-        elem = fromstring(body, 'CompleteMultipartUploadResult')
-        self.assertNotIn('Etag', headers)
-        self.assertEqual(elem.find('ETag').text, S3_ETAG)
-        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'Error')
+        self.assertEqual(elem.find('Code').text, 'NoSuchUpload')
+        self.assertEqual(status.split()[0], '404')
 
         self.assertEqual(self.swift.calls, [
             # Bucket exists
@@ -1613,23 +1686,69 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
             # But the object does, and with the same upload ID
             ('HEAD', '/v1/AUTH_test/bucket/object'),
-            # Create the SLO
-            ('PUT', '/v1/AUTH_test/bucket/object'
-                    '?heartbeat=on&multipart-manifest=put'),
-            # Retry deleting the marker for the sake of completeness
-            ('DELETE', '/v1/AUTH_test/bucket+segments/object/X')
+            # And then we bail
         ])
         self.assertEqual(req.environ['swift.backend_path'],
                          '/v1/AUTH_test/bucket+segments/object/X')
 
-        _, _, headers = self.swift.calls_with_headers[-2]
-        self.assertEqual(headers.get('X-Object-Meta-Foo'), 'bar')
-        self.assertEqual(headers.get('Content-Type'), 'baz/quux')
-        # SLO will provide a base value
-        override_etag = '; s3_etag=%s' % S3_ETAG.strip('"')
-        h = 'X-Object-Sysmeta-Container-Update-Override-Etag'
-        self.assertEqual(headers.get(h), override_etag)
-        self.assertEqual(headers.get('X-Object-Sysmeta-S3Api-Upload-Id'), 'X')
+    def test_object_multipart_upload_retry_complete_etag_mismatch(self):
+        self._do_object_multipart_upload_retry_complete_etag_mismatch()
+
+    def test_object_multipart_upload_retry_complete_with_if_none_match_star(
+            self):
+        self._do_object_multipart_upload_retry_complete_etag_mismatch(
+            {'If-None-Match': '*'})
+
+    def _do_object_multipart_upload_retry_complete_etag_mismatch_501(
+            self, extra_headers):
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',
+                            swob.HTTPNotFound, {}, None)
+        recent_ts = S3Timestamp.now(delta=-1000000).internal
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk,
+                            {'x-object-meta-foo': 'bar',
+                             'content-type': 'baz/quux',
+                             'x-object-sysmeta-s3api-upload-id': 'X',
+                             'x-object-sysmeta-s3api-etag': 'not-the-etag',
+                             'x-timestamp': recent_ts}, None)
+        req = Request.blank('/bucket/object?uploadId=X',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5,
+                                     **extra_headers},
+                            body=XML)
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'Error')
+        self.assertEqual(elem.find('Code').text, 'NotImplemented')
+        self.assertEqual(status.split()[0], '501')
+
+        self.assertEqual(self.swift.calls, [
+            # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            # And then we bail because of the 501
+        ])
+
+    def test_object_multipart_upload_retry_complete_with_if_match(self):
+        self._do_object_multipart_upload_retry_complete_etag_mismatch_501(
+            {'If-Match': 'not-the-etag'})
+
+    def test_object_multipart_upload_retry_complete_with_if_none_match(self):
+        self._do_object_multipart_upload_retry_complete_etag_mismatch_501(
+            {'If-None-Match': 'not-the-etag'})
+
+    def test_object_multipart_upload_retry_complete_with_if_modified_since(
+            self):
+        self._do_object_multipart_upload_retry_complete_etag_mismatch_501(
+            {'If-Modified-Since': 'not-the-etag'})
+
+    def test_object_multipart_upload_retry_complete_with_if_unmodified_since(
+            self):
+        self._do_object_multipart_upload_retry_complete_etag_mismatch_501(
+            {'If-Unmodified-Since': 'not-the-etag'})
 
     def test_object_multipart_upload_retry_complete_upload_id_mismatch(self):
         content_md5 = base64.b64encode(md5(

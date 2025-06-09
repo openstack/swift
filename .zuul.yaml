@@ -242,7 +242,7 @@
         COLUMNS: 240
       tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
-      tox_envlist: func
+      tox_envlist: func,s3api
       devstack_localrc:
         SWIFT_HASH: changeme
         # We don't need multiple replicas to run purely functional tests.
@@ -407,6 +407,7 @@
       Build a 4 node swift cluster and run functional tests
     timeout: 5400
     vars:
+      tox_envlist: func
       bindep_profile: test py39
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
@@ -422,48 +423,56 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: wallaby-eom
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-xena
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: xena-eom
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-yoga
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: yoga-eom
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-zed
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: zed-eom
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-antelope
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: 2023.1-eom
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-bobcat
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: 2023.2-eol
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-caracal
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/2024.1
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-dalmatian
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/2024.2
+      tox_envlist: func-py3
 
 - job:
     name: swift-multinode-rolling-upgrade-epoxy
@@ -698,6 +707,8 @@
             irrelevant-files: *tempest-irrelevant-files
         - grenade-skip-level:
             irrelevant-files: *tempest-irrelevant-files
+        - grenade-skip-level-always:
+            irrelevant-files: *tempest-irrelevant-files
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -739,6 +750,8 @@
         - grenade:
             irrelevant-files: *tempest-irrelevant-files
         - grenade-skip-level:
+            irrelevant-files: *tempest-irrelevant-files
+        - grenade-skip-level-always:
             irrelevant-files: *tempest-irrelevant-files
     experimental:
       jobs:

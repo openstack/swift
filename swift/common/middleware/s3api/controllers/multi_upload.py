@@ -76,7 +76,7 @@ from swift.common.middleware.s3api.controllers.base import Controller, \
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     ErrorResponse, MalformedXML, BadDigest, KeyTooLongError, \
     InvalidPart, EntityTooSmall, InvalidPartOrder, InvalidRequest, HTTPOk, \
-    NoSuchUpload, NoSuchBucket
+    NoSuchUpload, NoSuchBucket, PreconditionFailed, S3NotImplemented
 from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
@@ -549,6 +549,13 @@ class UploadController(Controller):
         Handles Complete Multipart Upload.
         """
         upload_id = get_valid_upload_id(req)
+        # Check for conditional requests before getting upload info so the
+        # headers can't bleed into the HEAD
+        if req.headers.get('If-None-Match', '*') != '*' or any(
+                h in req.headers for h in (
+                    'If-Match', 'If-Modified-Since', 'If-Unmodified-Since')):
+            raise S3NotImplemented(
+                'Conditional uploads are not supported.')
         manifest, s3_etag = self._parse_user_manifest(req, upload_id)
 
         # TODO: do we want to have independent size checking for s3api vs
@@ -600,8 +607,11 @@ class UploadController(Controller):
                                 continue
                             body.append(chunk)
                         body = json.loads(b''.join(body))
-                        if body['Response Status'] not in ('201 Created',
-                                                           '202 Accepted'):
+                        if body['Response Status'] == \
+                                '412 Precondition Failed':
+                            raise PreconditionFailed
+                        elif body['Response Status'] not in ('201 Created',
+                                                             '202 Accepted'):
                             # swift will return 202 if the backends respond 409
                             # to the mpu PUT e.g. if the mpu PUT timestamp is
                             # older than on-disk state

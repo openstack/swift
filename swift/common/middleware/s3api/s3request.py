@@ -1359,9 +1359,10 @@ class S3Request(swob.Request):
                 raise InvalidArgument('Content-Length',
                                       self.environ['CONTENT_LENGTH'])
 
-        if self.method == 'PUT' and any(h in self.headers for h in (
-                'If-Match', 'If-None-Match',
-                'If-Modified-Since', 'If-Unmodified-Since')):
+        if self.method == 'PUT' and (
+                any(h in self.headers for h in (
+                    'If-Match', 'If-Modified-Since', 'If-Unmodified-Since'))
+                or self.headers.get('If-None-Match', '*') != '*'):
             raise S3NotImplemented(
                 'Conditional object PUTs are not supported.')
 

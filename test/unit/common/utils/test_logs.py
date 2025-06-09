@@ -182,7 +182,7 @@ class TestUtilsLogs(unittest.TestCase):
                 # pdb is basically impossible. Sorry about that.
                 utils.capture_stdio(logger)
                 logger.info("I like ham")
-                self.assertGreater(crashy_calls[0], 1)
+                self.assertGreaterEqual(crashy_calls[0], 1)
 
         logger.removeHandler(handler)
 

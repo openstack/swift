@@ -25,7 +25,7 @@ fixtures==3.0.0
 future==0.16.0
 gitdb2==2.0.3
 GitPython==2.1.8
-greenlet==0.3.3
+greenlet==0.4.14
 idna==2.6
 imagesize==1.0.0
 iso8601==0.1.12
@@ -56,6 +56,7 @@ pyparsing==2.2.0
 pyperclip==1.6.0
 pytest==4.6.11
 pytest-cov==2.12.1
+pytest-subtests==0.3.0
 python-keystoneclient==3.19.0
 python-mimeparse==1.6.0
 python-subunit==1.2.0

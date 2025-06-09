@@ -41,7 +41,8 @@ from swift import __version__ as swift_version
 from swift.common.http import is_success
 from swift.obj.expirer import ExpirerConfig
 from test import listen_zero, BaseTestCase
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, FakeStatsdClient, \
+    FakeLabeledStatsdClient
 from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
     connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
@@ -55,6 +56,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     Timestamp, md5
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
+from swift.common.statsd_client import LabeledStatsdClient
 from swift.common.swob import Request, WsgiBytesIO, \
     HTTPRequestedRangeNotSatisfiable
 from swift.common.splice import splice
@@ -191,10 +193,15 @@ class TestObjectController(BaseTestCase):
             'mount_check': 'false',
             'container_update_timeout': 0.0,
         }
+        self.logger.clear()
         app = object_server.ObjectController(conf, logger=self.logger)
         self.assertEqual(app.container_update_timeout, 0.0)
         self.assertEqual(app.auto_create_account_prefix, '.')
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertIsInstance(app.statsd, LabeledStatsdClient)
+        self.assertEqual({
+            'debug': [
+                'Labeled statsd mode: disabled (test-object-controller)'
+            ]}, self.logger.all_log_lines())
 
     def check_all_api_methods(self, obj_name='o', alt_res=None):
         path = '/sda1/p/a/c/%s' % obj_name
@@ -220,6 +227,400 @@ class TestObjectController(BaseTestCase):
             self.assertEqual(resp.status_int, res)
             if out_body and (200 <= res < 300):
                 self.assertEqual(resp.body, out_body)
+
+    def _do_test_timing_stats(self, conf, req, now):
+        self.logger.clear()
+        with mock.patch('swift.common.utils.time.time', return_value=now), \
+                mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                           FakeLabeledStatsdClient):
+            app = object_server.ObjectController(conf, logger=self.logger)
+            statsd_client = app.logger.logger.statsd_client
+            statsd = app.statsd
+
+            with mock.patch.object(statsd_client, 'random', return_value=0), \
+                    mock.patch.object(statsd, 'random', return_value=0):
+                resp = req.get_response(app)
+
+        self.assertIsInstance(statsd_client, FakeStatsdClient)
+        self.assertIsInstance(statsd, FakeLabeledStatsdClient)
+        return statsd_client, statsd, resp
+
+    def test_legacy_and_labeled_timing_stats_get_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [
+                (('GET.timing', now), {})
+            ]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'GET',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 200
+                },
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_put_post_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual({
+            'transfer_rate': [(('PUT.sda1.timing', mock.ANY, mock.ANY), {})],
+            'timing_since': [(('PUT.timing', now), {})]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'PUT',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 201
+                },
+            })]
+        }, statsd.calls)
+
+        timestamp = normalize_timestamp(time())
+        headers['X-Timestamp'] = timestamp
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [(('POST.timing', now), {})]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'POST',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 202
+                },
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_head_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [
+                (('HEAD.timing', now), {'sample_rate': 0.8}),
+            ]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'HEAD',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 200
+                }
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_delete_success(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        now = time()
+        statsd_client, statsd, resp = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual(resp.status_int, 201)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': timestamp})
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({
+            'timing_since': [
+                (('DELETE.timing', now), {})
+            ]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'DELETE',
+                    'account': 'a',
+                    'container': 'c',
+                    'policy': 0,
+                    'status': 204
+                },
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_replicate_success(self):
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'})
+        now = time()
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'policy': 0,
+                    'skip_rehash': False,
+                    'status': 200
+                }
+            })]},
+            statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_replicate_skip_rehash(self):
+        # suffixes in request path
+        req = Request.blank(
+            '/sda1/p/123-abc', environ={'REQUEST_METHOD': 'REPLICATE'})
+        now = time()
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'policy': 0,
+                    'skip_rehash': True,
+                    'status': 200
+                }
+            })]},
+            statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_replicate_policy(self):
+        # non-default policy
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'},
+            headers={'X-Backend-Storage-Policy-Index': '1'}
+        )
+        now = time()
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({'timing_since': [(('REPLICATE.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual(
+            {'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'REPLICATE',
+                    'policy': 1,
+                    'skip_rehash': False,
+                    'status': 200
+                }
+            })]},
+            statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_ssync_success(self):
+        req = Request.blank('/sda1/0',
+                            environ={'REQUEST_METHOD': 'SSYNC'},
+                            headers={})
+        now = time()
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        self.assertEqual({'timing_since': [(('SSYNC.timing', now), {
+            'sample_rate': 0.1
+        })]}, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': 'SSYNC',
+                    'policy': 0,
+                    'status': 200
+                }
+            })]
+        }, statsd.calls)
+
+    def _do_test_legacy_and_labeled_timing_stats_mount_check(
+            self, req, additional_labels=None, **kwargs):
+        now = time()
+        # mount_check will provoke a 507
+        conf = dict(self.conf, mount_check='true')
+        statsd_client, statsd, _ = self._do_test_timing_stats(conf, req, now)
+        self.assertEqual({
+            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': req.method,
+                    'policy': 0,
+                    'status': 507,
+                    **additional_labels
+                }
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_get_error(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_put_error(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body=b'VERIFY')
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_post_error(self):
+        timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': timestamp,
+                   'Content-Type': 'text/plain'}
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_head_error(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, sample_rate=0.8,
+            additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_delete_error(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'application/x-test'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, additional_labels={'account': 'a', 'container': 'c', })
+
+    def test_legacy_and_labeled_timing_stats_replicate_507(self):
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'})
+        self._do_test_legacy_and_labeled_timing_stats_mount_check(
+            req, sample_rate=0.1, additional_labels={'skip_rehash': False, })
+
+    def test_legacy_and_labeled_timing_stats_ssync_error(self):
+        def fake_get_dev_path(*args, **kwargs):
+            return None
+
+        req = Request.blank('/sda1/0',
+                            environ={'REQUEST_METHOD': 'SSYNC'},
+                            headers={})
+        now = time()
+        conf = self.conf
+        with mock.patch('swift.common.utils.time.time', return_value=now), \
+                mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                           FakeLabeledStatsdClient):
+            app = object_server.ObjectController(conf, logger=self.logger)
+            app._diskfile_router[0].get_dev_path = fake_get_dev_path
+            statsd_client = app.logger.logger.statsd_client
+            statsd = app.statsd
+
+            with mock.patch.object(statsd_client, 'random', return_value=0), \
+                    mock.patch.object(statsd, 'random', return_value=0):
+                req.get_response(app)
+
+        self.assertIsInstance(statsd_client, FakeStatsdClient)
+        self.assertIsInstance(statsd, FakeLabeledStatsdClient)
+
+        kwargs = {'sample_rate': 0.1}
+        self.assertEqual({
+            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': req.method,
+                    'status': 507,
+                }
+            })]
+        }, statsd.calls)
+
+    def _do_test_legacy_and_labeled_timing_stats_bad_policy(
+            self, req, sample_rate=None):
+        now = time()
+        statsd_client, statsd, _ = self._do_test_timing_stats(
+            self.conf, req, now)
+        kwargs = {} if sample_rate is None else {'sample_rate': sample_rate}
+        self.assertEqual({
+            'timing_since': [((req.method + '.errors.timing', now), kwargs)]
+        }, statsd_client.calls)
+        self.assertEqual({
+            'timing_since': [(('swift_object_server_request_timing', now), {
+                'labels': {
+                    'method': req.method,
+                    'status': 503,
+                }
+            })]
+        }, statsd.calls)
+
+    def test_legacy_and_labeled_timing_stats_ssync_bad_policy(self):
+        # non-existent policy
+        req = Request.blank(
+            '/sda1/0',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            headers={'X-Backend-Storage-Policy-Index': '99'}
+        )
+        self._do_test_legacy_and_labeled_timing_stats_bad_policy(
+            req, sample_rate=0.1)
+
+    def test_legacy_and_labeled_timing_stats_replicate_bad_policy(self):
+        # non-existent policy
+        req = Request.blank(
+            '/sda1/p/', environ={'REQUEST_METHOD': 'REPLICATE'},
+            headers={'X-Backend-Storage-Policy-Index': '99'}
+        )
+        self._do_test_legacy_and_labeled_timing_stats_bad_policy(
+            req, sample_rate=0.1)
 
     def test_REQUEST_SPECIAL_CHARS(self):
         obj = 'special昆%20/%'
@@ -535,6 +936,113 @@ class TestObjectController(BaseTestCase):
         self.assertTrue(os.path.isfile(ts_file))
         meta_file = os.path.join(obj_dir, t_post1 + '.meta')
         self.assertFalse(os.path.isfile(meta_file))
+
+    def _do_test_diskfile_metadata_unavailable(self, test_req):
+        # a concurrent request may cause ondisk files to be removed between the
+        # time they were listed and the time they were opened; verify that
+        # appropriate response is returned to the client
+        t_put = next(self.ts).internal
+        t_post = next(self.ts).internal
+
+        # PUT
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # POST
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t_post,
+                                     'X-Object-Meta-Test': 'test'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        other_reqs = [Request.blank('/sda1/p/a/c/o',
+                                    environ={'REQUEST_METHOD': 'POST'},
+                                    headers={
+                                        'X-Timestamp': next(self.ts).internal,
+                                        'X-Object-Meta-Test': 'other'})]
+        test_req.headers['X-Timestamp'] = next(self.ts).internal
+
+        # test requests concurrent with an on-disk file being unlinked...
+        orig_read_metadata = diskfile._read_file_metadata
+        concurrent_resp = []
+
+        def fake_read_metadata(fd, *args, **kwargs):
+            metadata = orig_read_metadata(fd, *args, **kwargs)
+            if other_reqs:
+                timestamps.append(metadata['X-Timestamp'])
+                if timestamps[-1] == t_post:
+                    other_req = other_reqs.pop()
+                    if other_req:
+                        # this POST will remove the meta file that the test_req
+                        # has in its dir listing
+                        resp = other_req.get_response(self.object_controller)
+                        concurrent_resp.append(resp.status_int)
+            return orig_read_metadata(fd, *args, **kwargs)
+
+        # meta file listed but not found in _read_file_metadata
+        timestamps = []
+        with mock.patch('swift.obj.diskfile._read_file_metadata',
+                        fake_read_metadata):
+            resp = test_req.get_response(self.object_controller)
+        self.assertEqual([t_put, t_post], timestamps)
+        self.assertEqual([202], concurrent_resp)
+
+        # HEAD
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'X-Timestamp': next(self.ts).internal})
+        head_resp = req.get_response(self.object_controller)
+        return resp, head_resp
+
+    def test_PUT_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            headers={'Content-Length': '0',
+                                     'Content-Type': 'plain/text'},
+                            environ={'REQUEST_METHOD': 'PUT'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual(req.headers['X-Timestamp'],
+                         head_resp.headers['X-Timestamp'])
+        self.assertNotIn('X-Object-Meta-Test', head_resp.headers)
+
+    def test_POST_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
+
+    def test_GET_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
+
+    def test_HEAD_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
+
+    def test_DELETE_metafile_unavailable(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        resp, head_resp = self._do_test_diskfile_metadata_unavailable(req)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(head_resp.status_int, 200)
+        self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
 
     def test_POST_not_exist(self):
         timestamp = normalize_timestamp(time())
@@ -6923,7 +7431,7 @@ class TestObjectController(BaseTestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
-        self.object_controller.logger = self.logger
+        self.logger.clear()
         delete_at = time()
         req_headers = {
             'X-Timestamp': 1,
@@ -6977,7 +7485,7 @@ class TestObjectController(BaseTestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
-        self.object_controller.logger = self.logger
+        self.logger.clear()
         delete_at = time()
         req_headers = {
             'X-Timestamp': 1,
@@ -9078,7 +9586,7 @@ class TestObjectController(BaseTestCase):
         self.object_controller.logger = self.logger
         with mock.patch('time.time',
                         side_effect=[10000.0, 10000.0, 10001.0, 10002.0,
-                                     10002.0, 10002.0]), \
+                                     10002.0, 10002.0, 10002.0, 10002.0]), \
                 mock.patch('os.getpid', return_value=1234):
             req.get_response(self.object_controller)
         self.assertEqual(
@@ -9201,6 +9709,56 @@ class TestObjectController(BaseTestCase):
                 headers={'X-Timestamp': delete_timestamp})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 404)
+
+        qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
+        self.assertFalse(os.path.exists(qdir))
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'X-Timestamp': head_timestamp})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['X-Timestamp'], put_timestamp)
+
+    def test_race_with_PUT_POST_PUT(self):
+        existing_timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time() + 1)
+        put_timestamp = normalize_timestamp(time() + 2)
+        head_timestamp = normalize_timestamp(time() + 3)
+
+        # make a .data
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': existing_timestamp,
+                     'Content-Type': 'application/octet-stream'},
+            body=b'orig data')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # force a PUT between the listdir and read_metadata of a PUT
+        put_once = [False]
+        orig_listdir = os.listdir
+
+        def mock_listdir(path):
+            listing = orig_listdir(path)
+            if not put_once[0]:
+                put_once[0] = True
+                req = Request.blank(
+                    '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                    headers={'X-Timestamp': put_timestamp,
+                             'Content-Type': 'application/octet-stream'},
+                    body=b'some data')
+                resp = req.get_response(self.object_controller)
+                self.assertEqual(resp.status_int, 201)
+            return listing
+
+        with mock.patch('os.listdir', mock_listdir):
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+                headers={'X-Timestamp': post_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertNotIn('X-Backend-Timestamp', resp.headers)
+            self.assertEqual(resp.status_int, 503)
 
         qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
         self.assertFalse(os.path.exists(qdir))

@@ -13,13 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
+from unittest import mock
+
+import time
 import unittest
 import os
 
-from swift.common.base_storage_server import BaseStorageServer
+from swift.common.base_storage_server import BaseStorageServer, \
+    timing_stats, labeled_timing_stats
+from swift.common.swob import Request, Response, HTTPInsufficientStorage
+from test.debug_logger import debug_logger, debug_labeled_statsd_client
+
 from tempfile import mkdtemp
 from swift import __version__ as swift_version
-from swift.common.swob import Request
 from swift.common.utils import get_logger, public, replication
 from shutil import rmtree
 
@@ -51,6 +58,230 @@ class FakeANOTHER(FakeOPTIONS):
     def REPLICATE2(self):
         """this is to test replication_server"""
         pass
+
+
+class MockLabeledTimingController(object):
+    def __init__(self, status, extra_labels=None):
+        self.statsd = debug_labeled_statsd_client({})
+        self.status = status
+        self.extra_labels = extra_labels or {}
+
+    def _update_labels(self, req, labels):
+        labels.update(self.extra_labels)
+
+    @labeled_timing_stats(metric='my_timing_metric')
+    def handle_req(self, req, timing_stats_labels):
+        self._update_labels(req, timing_stats_labels)
+        if isinstance(self.status, Exception):
+            raise self.status
+        return Response(status=self.status)
+
+
+class TestLabeledTimingStatsDecorator(unittest.TestCase):
+
+    @contextlib.contextmanager
+    def _patch_time(self):
+        now = time.time()
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            yield now
+
+    def test_labeled_timing_stats_get_200(self):
+        req = Request.blank('/v1/a/c/o')
+        mock_controller = MockLabeledTimingController(200)
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'method': 'GET',
+                    'status': 200,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+    def test_labeled_timing_stats_head_500(self):
+        req = Request.blank('/v1/a/c/o', method='HEAD')
+        mock_controller = MockLabeledTimingController(500)
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'method': 'HEAD',
+                    'status': 500,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+    def test_labeled_timing_stats_head_507_exception(self):
+        req = Request.blank('/v1/a/c/o', method='HEAD')
+        mock_controller = MockLabeledTimingController(
+            HTTPInsufficientStorage())
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'method': 'HEAD',
+                    'status': 507,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+    def test_labeled_timing_stats_extra_labels(self):
+        req = Request.blank('/v1/AUTH_test/c/o')
+        mock_controller = MockLabeledTimingController(
+            206, extra_labels={'account': 'AUTH_test'})
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'account': 'AUTH_test',
+                    'method': 'GET',
+                    'status': 206,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+    def test_labeled_timing_stats_can_not_override_status(self):
+        req = Request.blank('/v1/AUTH_test/c/o')
+        mock_controller = MockLabeledTimingController(
+            404, extra_labels={'status': 200})
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'method': 'GET',
+                    'status': 404,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+    def test_labeled_timing_stats_can_not_override_method(self):
+        req = Request.blank('/v1/AUTH_test/c/o', method='POST')
+        mock_controller = MockLabeledTimingController(
+            412, extra_labels={'method': 'GET'})
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'method': 'POST',
+                    'status': 412,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+    def test_labeled_timing_stats_really_can_not_override_method(self):
+
+        class MutilatingController(MockLabeledTimingController):
+
+            def _update_labels(self, req, labels):
+                req.method = 'BANANA'
+
+        req = Request.blank('/v1/AUTH_test/c/o', method='POST')
+        mock_controller = MutilatingController(412)
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual('BANANA', req.method)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'method': 'POST',
+                    'status': 412,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+    def test_labeled_timing_stats_cannot_remove_labels(self):
+
+        class MutilatingController(MockLabeledTimingController):
+
+            def _update_labels(self, req, labels):
+                labels.clear()
+
+        req = Request.blank('/v1/AUTH_test/c/o', method='DELETE')
+        mock_controller = MutilatingController('42 bad stuff')
+        with self._patch_time() as now:
+            mock_controller.handle_req(req)
+        self.assertEqual(
+            {'timing_since': [(('my_timing_metric', now), {
+                'labels': {
+                    'method': 'DELETE',
+                    # resp.status_int knows how to do it
+                    'status': 42,
+                }
+            })]},
+            mock_controller.statsd.calls)
+
+
+class TestTimingStatsDecorators(unittest.TestCase):
+    def test_timing_stats(self):
+        class MockController(object):
+            def __init__(mock_self, status):
+                mock_self.status = status
+                mock_self.logger = debug_logger()
+
+            @timing_stats()
+            def METHOD(mock_self):
+                if isinstance(mock_self.status, Exception):
+                    raise mock_self.status
+                return Response(status=mock_self.status)
+
+        now = time.time()
+        mock_controller = MockController(200)
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
+                         mock_controller.logger.statsd_client.calls)
+
+        mock_controller = MockController(400)
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
+                         mock_controller.logger.statsd_client.calls)
+
+        mock_controller = MockController(404)
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
+                         mock_controller.logger.statsd_client.calls)
+
+        mock_controller = MockController(412)
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
+                         mock_controller.logger.statsd_client.calls)
+
+        mock_controller = MockController(416)
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual({'timing_since': [(('METHOD.timing', now), {})]},
+                         mock_controller.logger.statsd_client.calls)
+
+        mock_controller = MockController(500)
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual(
+            {'timing_since': [(('METHOD.errors.timing', now), {})]},
+            mock_controller.logger.statsd_client.calls)
+
+        mock_controller = MockController(507)
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual(
+            {'timing_since': [(('METHOD.errors.timing', now), {})]},
+            mock_controller.logger.statsd_client.calls)
+
+        mock_controller = MockController(
+            HTTPInsufficientStorage())
+        with mock.patch('swift.common.utils.time.time', return_value=now):
+            mock_controller.METHOD()
+        self.assertEqual(
+            {'timing_since': [(('METHOD.errors.timing', now), {})]},
+            mock_controller.logger.statsd_client.calls)
 
 
 class TestBaseStorageServer(unittest.TestCase):

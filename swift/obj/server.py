@@ -29,9 +29,9 @@ from eventlet import sleep, wsgi, Timeout, tpool
 from eventlet.greenthread import spawn
 
 from swift.common.utils import public, get_logger, \
-    config_true_value, config_percent_value, timing_stats, replication, \
-    normalize_delete_at_timestamp, get_log_line, Timestamp, \
-    parse_mime_headers, \
+    config_true_value, config_percent_value, \
+    replication, normalize_delete_at_timestamp, \
+    get_log_line, Timestamp, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
     normalize_timestamp, md5, parse_options, CooperativeIterator
@@ -41,27 +41,33 @@ from swift.common.constraints import check_object_creation, \
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
-    ChunkReadError, DiskFileXattrNotSupported
+    ChunkReadError, DiskFileXattrNotSupported, DiskFileStateChanged
 from swift.common.request_helpers import resolve_ignore_range_header, \
     OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.obj import ssync_receiver, expirer
 from swift.common.http import is_success, HTTP_MOVED_PERMANENTLY
-from swift.common.base_storage_server import BaseStorageServer
+from swift.common.base_storage_server import BaseStorageServer, \
+    timing_stats, labeled_timing_stats
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
     resolve_etag_is_at_header, is_sys_meta, validate_internal_obj, \
     is_backend_open_expired
+from swift.common.statsd_client import get_labeled_statsd_client
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
-    HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, normalize_etag
+    HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, \
+    normalize_etag, HTTPServiceUnavailable
 from swift.common.wsgi import run_wsgi
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj, embed_expirer_bytes_in_ctype, \
     X_DELETE_TYPE
+
+
+LABELED_METRIC_NAME = 'swift_object_server_request_timing'
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -141,6 +147,7 @@ class ObjectController(BaseStorageServer):
         """
         super(ObjectController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='object-server')
+        self.statsd = get_labeled_statsd_client(conf, self.logger.logger)
         self.node_timeout = float(conf.get('node_timeout', 3))
         self.container_update_timeout = float(
             conf.get('container_update_timeout', 1))
@@ -652,10 +659,14 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def POST(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def POST(self, request, timing_stats_labels):
         """Handle HTTP POST requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
 
         req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
@@ -676,6 +687,8 @@ class ObjectController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
             return HTTPNotFound(request=request)
+        except DiskFileStateChanged:
+            return HTTPServiceUnavailable(request=request)
         orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
         orig_ctype_timestamp = disk_file.content_type_timestamp
         req_ctype_time = '0'
@@ -831,7 +844,8 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeleted as e:
             orig_metadata = {}
             orig_timestamp = e.timestamp
-        except (DiskFileNotExist, DiskFileQuarantined):
+        except (DiskFileNotExist, DiskFileQuarantined,
+                DiskFileStateChanged):
             orig_metadata = {}
             orig_timestamp = Timestamp(0)
         # Checks for If-None-Match
@@ -1045,10 +1059,15 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def PUT(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def PUT(self, request, timing_stats_labels):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         disk_file, fsize, orig_metadata = self._pre_create_checks(
             request, device, partition, account, container, obj, policy)
         writer = disk_file.writer(size=fsize)
@@ -1094,10 +1113,15 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def GET(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def GET(self, request, timing_stats_labels):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1173,14 +1197,21 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             resp = HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
+        except DiskFileStateChanged:
+            resp = HTTPServiceUnavailable(request=request)
         return resp
 
     @public
     @timing_stats(sample_rate=0.8)
-    def HEAD(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def HEAD(self, request, timing_stats_labels):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1203,6 +1234,8 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             return HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
+        except DiskFileStateChanged:
+            return HTTPServiceUnavailable(request=request)
         conditional_etag = resolve_etag_is_at_header(request, metadata)
         response = Response(request=request, conditional_response=True,
                             conditional_etag=conditional_etag)
@@ -1235,10 +1268,15 @@ class ObjectController(BaseStorageServer):
 
     @public
     @timing_stats()
-    def DELETE(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def DELETE(self, request, timing_stats_labels):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
+        timing_stats_labels['account'] = account
+        timing_stats_labels['container'] = container
+        timing_stats_labels['policy'] = int(policy)
+
         req_timestamp = valid_timestamp(request)
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
@@ -1263,6 +1301,12 @@ class ObjectController(BaseStorageServer):
             orig_timestamp = 0
             orig_metadata = {}
             response_class = HTTPNotFound
+        except DiskFileStateChanged:
+            # Bail out early because unread metadata may have an X-Delete-At.
+            # This condition can occur when a concurrent request has replaced
+            # the data or meta file that this thread was trying to open. Force
+            # client to retry, hoping the on-disk files have settled.
+            return HTTPServiceUnavailable(request=request)
         else:
             orig_timestamp = disk_file.data_timestamp
             if orig_timestamp < req_timestamp:
@@ -1323,7 +1367,8 @@ class ObjectController(BaseStorageServer):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    def REPLICATE(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def REPLICATE(self, request, timing_stats_labels):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
@@ -1335,10 +1380,14 @@ class ObjectController(BaseStorageServer):
         device, partition, suffix_parts, policy = \
             get_name_and_placement(request, 2, 3, True)
         suffixes = suffix_parts.split('-') if suffix_parts else []
+        skip_rehash = bool(suffixes)
+        timing_stats_labels['policy'] = int(policy)
+        timing_stats_labels['skip_rehash'] = skip_rehash
+
         try:
             hashes = self._diskfile_router[policy].get_hashes(
                 device, partition, suffixes, policy,
-                skip_rehash=bool(suffixes))
+                skip_rehash=skip_rehash)
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:
@@ -1349,15 +1398,17 @@ class ObjectController(BaseStorageServer):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    def SSYNC(self, request):
+    @labeled_timing_stats(metric=LABELED_METRIC_NAME)
+    def SSYNC(self, request, timing_stats_labels):
         # the ssync sender may want to send PUT subrequests for non-durable
         # data that should not be committed; legacy behaviour has been to
         # commit all PUTs (subject to EC footer metadata), so we need to
         # indicate to the sender that this object server has been upgraded to
         # understand the X-Backend-No-Commit header.
         headers = {'X-Backend-Accept-No-Commit': True}
-        return Response(app_iter=ssync_receiver.Receiver(self, request)(),
-                        headers=headers)
+        receiver = ssync_receiver.Receiver(self, request)
+        timing_stats_labels['policy'] = int(receiver.policy)
+        return Response(app_iter=receiver(), headers=headers)
 
     def __call__(self, env, start_response):
         """WSGI Application entry point for the Swift Object Server."""

@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import functools
 import logging
 import os
 import unittest
@@ -148,6 +148,15 @@ def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):
         aws_secret_access_key=secret_key,
         aws_session_token=session_token
     )
+
+
+def skip_if_s3_acl_tests_disabled(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if config_true_value(get_opt('s3_acl_tests_disabled', 'false')):
+            raise unittest.SkipTest('s3_acl_tests_disabled is true')
+        return func(*args, **kwargs)
+    return wrapper
 
 
 def etag_from_resp(response):

@@ -37,7 +37,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, ServiceUnavailable, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, \
     InvalidPartArgument, InvalidPartNumber, InvalidRequest, \
-    XAmzContentSHA256Mismatch
+    XAmzContentSHA256Mismatch, ErrorResponse
 
 from test.debug_logger import debug_logger
 
@@ -392,6 +392,55 @@ class TestRequest(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403')
         self.assertEqual(body, b'')
+
+    def test_put_object_if_none_match(self):
+        req = Request.blank('/bucket/object', method='PUT',
+                            headers={'If-None-Match': 'asdf',
+                                     'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        with self.assertRaises(s3response.S3NotImplemented) as cm:
+            S3Request(req.environ, self.s3api.conf)._validate_headers()
+        self.assertIn('501 Not Implemented', str(cm.exception))
+
+    def test_put_object_if_match(self):
+        req = Request.blank('/bucket/object', method='PUT',
+                            headers={'If-Match': '*',
+                                     'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        with self.assertRaises(s3response.S3NotImplemented) as cm:
+            S3Request(req.environ, self.s3api.conf)._validate_headers()
+        self.assertIn('501 Not Implemented', str(cm.exception))
+
+    def test_put_object_if_modified_since(self):
+        req = Request.blank('/bucket/object', method='PUT',
+                            headers={'If-Modified-Since':
+                                     'Sat, 27 Jun 2015 00:00:00 GMT',
+                                     'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        with self.assertRaises(s3response.S3NotImplemented) as cm:
+            S3Request(req.environ, self.s3api.conf)._validate_headers()
+        self.assertIn('501 Not Implemented', str(cm.exception))
+
+    def test_put_object_if_unmodified_since(self):
+        req = Request.blank('/bucket/object', method='PUT',
+                            headers={'If-Unmodified-Since':
+                                     'Sat, 27 Jun 2015 00:00:00 GMT',
+                                     'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        with self.assertRaises(s3response.S3NotImplemented) as cm:
+            S3Request(req.environ, self.s3api.conf)._validate_headers()
+        self.assertIn('501 Not Implemented', str(cm.exception))
+
+    def test_put_object_if_none_match_star(self):
+        # This is the only allowed case, should NOT raise
+        req = Request.blank('/bucket/object', method='PUT',
+                            headers={'If-None-Match': '*',
+                                     'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        try:
+            S3Request(req.environ, self.s3api.conf)._validate_headers()
+        except ErrorResponse as err:
+            self.fail('Unexpected exception raised: %s' % err)
 
     def _test_request_timestamp_sigv4(self, date_header):
         # signature v4 here

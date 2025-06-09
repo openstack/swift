@@ -24,7 +24,6 @@ from unittest import mock
 from swift.common.utils import config
 
 from io import StringIO
-from test import annotate_failure
 from test.unit import temptree
 
 
@@ -240,7 +239,7 @@ class TestUtilsConfig(unittest.TestCase):
 
         for bad in ('1.1', 1.1, 'auto', 'bad',
                     '2.5 * replicas', 'two * replicas'):
-            with annotate_failure(bad):
+            with self.subTest(option=bad):
                 with self.assertRaises(ValueError):
                     config.config_request_node_count_value(bad)
 

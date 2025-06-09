@@ -46,7 +46,6 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5, \
     ShardName, Namespace
-from test import annotate_failure
 
 from test.debug_logger import debug_logger
 from test.unit import FakeRing, make_timestamp_iter, unlink_files, \
@@ -1562,7 +1561,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(UNSHARDED, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
         for db in expected_shard_dbs:
-            with annotate_failure(db):
+            with self.subTest(db=db):
                 self.assertFalse(os.path.exists(db))
 
         # run cleave - all shard ranges in found state, nothing happens
@@ -1585,10 +1584,10 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
         for db in expected_shard_dbs:
-            with annotate_failure(db):
+            with self.subTest(db=db):
                 self.assertFalse(os.path.exists(db))
         for shard_range in broker.get_shard_ranges():
-            with annotate_failure(shard_range):
+            with self.subTest(shard_range=shard_range):
                 self.assertEqual(ShardRange.FOUND, shard_range.state)
 
         # move first shard range to created state, first shard range is cleaved
@@ -1630,10 +1629,10 @@ class TestSharder(BaseTestSharder):
         self._check_objects(objects[:2], expected_shard_dbs[0])
         # other shard ranges should be unchanged
         for i in range(1, len(shard_ranges)):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertFalse(os.path.exists(expected_shard_dbs[i]))
         for i in range(1, len(updated_shard_ranges)):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertEqual(dict(shard_ranges[i]),
                                  dict(updated_shard_ranges[i]))
 
@@ -1682,7 +1681,7 @@ class TestSharder(BaseTestSharder):
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(4, len(updated_shard_ranges))
         for i in range(1, len(updated_shard_ranges)):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertEqual(dict(shard_ranges[i]),
                                  dict(updated_shard_ranges[i]))
         context = CleavingContext.load(broker)
@@ -1743,7 +1742,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges[2].object_count = 1
         shard_ranges[2].state = ShardRange.CLEAVED
         for i in range(0, 3):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self._check_shard_range(
                     shard_ranges[i], updated_shard_ranges[i])
         self._check_objects(objects[2:5], expected_shard_dbs[1])
@@ -1751,10 +1750,10 @@ class TestSharder(BaseTestSharder):
         # other shard ranges should be unchanged
         self.assertFalse(os.path.exists(expected_shard_dbs[0]))
         for i, db in enumerate(expected_shard_dbs[3:], 3):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertFalse(os.path.exists(db))
         for i, updated_shard_range in enumerate(updated_shard_ranges[3:], 3):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertEqual(dict(shard_ranges[i]),
                                  dict(updated_shard_range))
         context = CleavingContext.load(broker)
@@ -1804,18 +1803,18 @@ class TestSharder(BaseTestSharder):
         shard_ranges[3].object_count = 1
         shard_ranges[3].state = ShardRange.CLEAVED
         for i in range(0, 4):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self._check_shard_range(
                     shard_ranges[i], updated_shard_ranges[i])
         # NB includes the deleted object
         self._check_objects(objects[6:8], expected_shard_dbs[3])
         # other shard ranges should be unchanged
         for i, db in enumerate(expected_shard_dbs[:3]):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertFalse(os.path.exists(db))
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
         for i, updated_shard_range in enumerate(updated_shard_ranges[4:], 4):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertEqual(dict(shard_ranges[i]),
                                  dict(updated_shard_range))
 
@@ -1875,7 +1874,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(5, len(updated_shard_ranges))
         # NB stats of the ACTIVE shard range should not be reset by cleaving
         for i in range(0, 4):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self._check_shard_range(
                     shard_ranges[i], updated_shard_ranges[i])
         self.assertEqual(dict(shard_ranges[4]), dict(updated_shard_ranges[4]))
@@ -1884,7 +1883,7 @@ class TestSharder(BaseTestSharder):
         self._check_objects(objects[8:], expected_shard_dbs[4])
         # other shard ranges should be unchanged
         for i, db in enumerate(expected_shard_dbs[:4]):
-            with annotate_failure(i):
+            with self.subTest(i=i):
                 self.assertFalse(os.path.exists(db))
 
         self.assertEqual(initial_root_info['object_count'],
@@ -3723,7 +3722,7 @@ class TestSharder(BaseTestSharder):
                 with mock_timestamp_now(now):
                     for broker in brokers:
                         sharder._identify_sharding_candidate(broker, node)
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 self.assertEqual([stats_0], sharder.sharding_candidates)
 
         # reduce the threshold and the second container is included
@@ -3762,7 +3761,7 @@ class TestSharder(BaseTestSharder):
                 with mock_timestamp_now(now):
                     for broker in brokers:
                         sharder._identify_sharding_candidate(broker, node)
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 self.assertEqual([stats_2], sharder.sharding_candidates)
 
         own_sr.update_state(ShardRange.ACTIVE, state_timestamp=Timestamp.now())
@@ -5950,7 +5949,7 @@ class TestSharder(BaseTestSharder):
             broker.merge_shard_ranges([own_shard_range])
 
         for state in ShardRange.STATES:
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 check_only_own_shard_range_sent(state)
 
         init_obj_count = len(obj_names)
@@ -5981,7 +5980,7 @@ class TestSharder(BaseTestSharder):
                 self.check_shard_ranges_sent(broker, expected_sent)
 
         for i, state in enumerate(ShardRange.STATES):
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 check_tombstones_sent(state)
 
     def test_update_root_container_already_reported(self):
@@ -6013,7 +6012,7 @@ class TestSharder(BaseTestSharder):
             broker.merge_shard_ranges([own_shard_range])
 
         for state in ShardRange.STATES:
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 check_already_reported_not_sent(state)
 
     def test_update_root_container_all_ranges(self):
@@ -6057,7 +6056,7 @@ class TestSharder(BaseTestSharder):
                     broker, [dict(sr) for sr in expected_sent])
 
         for state in ShardRange.STATES.keys():
-            with annotate_failure(state):
+            with self.subTest(state=state):
                 check_all_shard_ranges_sent(state)
 
     def test_audit_root_container_reset_epoch(self):
@@ -6625,8 +6624,7 @@ class TestSharder(BaseTestSharder):
         # other shard ranges
         for own_state in ShardRange.STATES:
             for root_state in ShardRange.STATES:
-                with annotate_failure('own_state=%s, root_state=%s' %
-                                      (own_state, root_state)):
+                with self.subTest(own_state=own_state, root_state=root_state):
                     own_ts = next(self.ts_iter)
                     root_ts = next(self.ts_iter)
                     broker, shard_ranges = check_audit(own_state, root_state)
@@ -6647,8 +6645,7 @@ class TestSharder(BaseTestSharder):
         # other shard ranges
         for own_state in ShardRange.STATES:
             for root_state in ShardRange.STATES:
-                with annotate_failure('own_state=%s, root_state=%s' %
-                                      (own_state, root_state)):
+                with self.subTest(own_state=own_state, root_state=root_state):
                     root_ts = next(self.ts_iter)
                     own_ts = next(self.ts_iter)
                     broker, shard_ranges = check_audit(own_state, root_state)
@@ -6722,8 +6719,9 @@ class TestSharder(BaseTestSharder):
                 timestamp=next(self.ts_iter), state=acceptor_state)
             root_from_root = root_own_sr.copy(
                 timestamp=next(self.ts_iter), state=root_state)
-            with annotate_failure('with states %s %s %s'
-                                  % (own_state, acceptor_state, root_state)):
+            with self.subTest(own_state=own_state,
+                              acceptor_state=acceptor_state,
+                              root_state=root_state):
                 own_sr_name = ShardName.create(
                     '.shards_a', 'c', 'c', next(self.ts_iter), 0)
                 own_sr = ShardRange(
@@ -6775,8 +6773,9 @@ class TestSharder(BaseTestSharder):
                 str(ShardName.create('.shards_a', 'c', 'c', ts, 0)),
                 ts, lower='a', upper='b', state=own_state, state_timestamp=ts)
             expected = [acceptor_from_root]
-            with annotate_failure('with states %s %s %s'
-                                  % (own_state, acceptor_state, root_state)):
+            with self.subTest(own_state=own_state,
+                              acceptor_state=acceptor_state,
+                              root_state=root_state):
                 sharder = self._assert_merge_into_shard(
                     own_sr, [],
                     # own sr is in ranges fetched from root
@@ -6794,9 +6793,9 @@ class TestSharder(BaseTestSharder):
                     if root_state == ShardRange.ACTIVE:
                         # special case: ACTIVE root *is* merged
                         continue
-                    with annotate_failure(
-                            'with states %s %s %s'
-                            % (own_state, acceptor_state, root_state)):
+                    with self.subTest(own_state=own_state,
+                                      acceptor_state=acceptor_state,
+                                      root_state=root_state):
                         do_test(own_state, acceptor_state, root_state)
 
     def test_audit_shard_root_ranges_missing_own_merged_while_shrinking(self):
@@ -6819,8 +6818,9 @@ class TestSharder(BaseTestSharder):
                 str(ShardName.create('.shards_a', 'c', 'c', ts, 0)),
                 ts, lower='a', upper='b', state=own_state, state_timestamp=ts)
             expected = [acceptor_from_root]
-            with annotate_failure('with states %s %s %s'
-                                  % (own_state, acceptor_state, root_state)):
+            with self.subTest(own_state=own_state,
+                              acceptor_state=acceptor_state,
+                              root_state=root_state):
                 sharder = self._assert_merge_into_shard(
                     own_sr, [],
                     # own sr is NOT in ranges fetched from root
@@ -6841,9 +6841,9 @@ class TestSharder(BaseTestSharder):
                     if root_state == ShardRange.ACTIVE:
                         # special case: ACTIVE root *is* merged
                         continue
-                    with annotate_failure(
-                            'with states %s %s %s'
-                            % (own_state, acceptor_state, root_state)):
+                    with self.subTest(own_state=own_state,
+                                      acceptor_state=acceptor_state,
+                                      root_state=root_state):
                         do_test(own_state, acceptor_state, root_state)
 
     def test_audit_shard_root_range_not_merged_while_shrinking(self):
@@ -6866,7 +6866,7 @@ class TestSharder(BaseTestSharder):
             for root_state in ShardRange.STATES:
                 if root_state == ShardRange.ACTIVE:
                     continue  # special case tested below
-                with annotate_failure((own_state, root_state)):
+                with self.subTest(own_state=own_state, root_state=root_state):
                     do_test(own_state, root_state)
 
     def test_audit_shard_root_range_overlap_not_merged_while_shrinking(self):
@@ -6892,7 +6892,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.SHRINKING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_active_root_range_merged_while_shrinking(self):
@@ -6912,7 +6912,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.SHRINKING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_root_ranges_fetch_fails_while_shrinking(self):
@@ -6965,9 +6965,10 @@ class TestSharder(BaseTestSharder):
                     # special case covered in other tests
                     continue
                 for root_state in ShardRange.STATES:
-                    with annotate_failure(
-                            'with states %s %s %s'
-                            % (own_state, acceptor_state, root_state)):
+                    with self.subTest(
+                            own_state=own_state,
+                            acceptor_state=acceptor_state,
+                            root_state=root_state):
                         do_test(own_state, acceptor_state, root_state)
 
     def test_audit_shard_root_ranges_merge_while_sharding(self):
@@ -7003,9 +7004,10 @@ class TestSharder(BaseTestSharder):
                     # special case covered in other tests
                     continue
                 for root_state in ShardRange.STATES:
-                    with annotate_failure(
-                            'with states %s %s %s'
-                            % (own_state, acceptor_state, root_state)):
+                    with self.subTest(
+                            own_state=own_state,
+                            acceptor_state=acceptor_state,
+                            root_state=root_state):
                         do_test(own_state, acceptor_state, root_state)
 
     def test_audit_shard_root_ranges_not_merged_once_sharded(self):
@@ -7043,9 +7045,10 @@ class TestSharder(BaseTestSharder):
         for own_state in (ShardRange.SHARDED, ShardRange.SHRUNK):
             for other_sub_shard_state in ShardRange.STATES:
                 for root_state in ShardRange.STATES:
-                    with annotate_failure(
-                            'with states %s %s %s'
-                            % (own_state, other_sub_shard_state, root_state)):
+                    with self.subTest(
+                            own_state=own_state,
+                            other_sub_shard_state=other_sub_shard_state,
+                            root_state=root_state):
                         do_test(own_state, other_sub_shard_state, root_state)
 
     def test_audit_shard_root_ranges_replace_existing_while_cleaving(self):
@@ -7088,7 +7091,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.CLEAVING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_root_ranges_supplement_deleted_while_cleaving(self):
@@ -7129,7 +7132,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.CLEAVING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_root_ranges_supplement_existing_while_cleaving(self):
@@ -7169,7 +7172,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.CLEAVING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_root_ranges_cleaving_not_merged_while_cleaving(self):
@@ -7210,9 +7213,10 @@ class TestSharder(BaseTestSharder):
         for own_state in ShardRange.CLEAVING_STATES:
             for acceptor_state in ShardRange.CLEAVING_STATES:
                 for root_state in ShardRange.STATES:
-                    with annotate_failure(
-                            'with states %s %s %s'
-                            % (own_state, acceptor_state, root_state)):
+                    with self.subTest(
+                            own_state=own_state,
+                            acceptor_state=acceptor_state,
+                            root_state=root_state):
                         do_test(own_state, acceptor_state, root_state)
 
     def test_audit_shard_root_ranges_overlap_not_merged_while_cleaving_1(self):
@@ -7247,7 +7251,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.CLEAVING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_root_ranges_overlap_not_merged_while_cleaving_2(self):
@@ -7286,7 +7290,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.CLEAVING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_root_ranges_with_gap_not_merged_while_cleaving(self):
@@ -7320,7 +7324,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
 
         for own_state in ShardRange.CLEAVING_STATES:
-            with annotate_failure(own_state):
+            with self.subTest(own_state=own_state):
                 do_test(own_state)
 
     def test_audit_shard_container_ancestors_not_merged_while_sharding(self):
@@ -7419,8 +7423,8 @@ class TestSharder(BaseTestSharder):
 
         for child_deleted in (False, True):
             for child_state in ShardRange.STATES:
-                with annotate_failure('deleted: %s, state: %s'
-                                      % (child_deleted, child_state)):
+                with self.subTest(child_deleted=child_deleted,
+                                  child_state=child_state):
                     do_test(child_deleted, child_state)
 
     def test_audit_shard_container_children_not_merged_once_sharded(self):
@@ -8262,7 +8266,7 @@ class TestCleavingContext(BaseTestSharder):
         ref = CleavingContext._make_ref(broker)
 
         for curs in ('curs', u'curs\u00e4\u00fb'):
-            with annotate_failure('%r' % curs):
+            with self.subTest(curs=curs):
                 expected = curs
                 ctx = CleavingContext(ref, curs, 12, 11, 10, False, True)
                 self.assertEqual(dict(ctx), {
@@ -9148,7 +9152,7 @@ class TestSharderFunctions(BaseTestSharder):
                 sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
                                 state=state, object_count=object_count,
                                 tombstones=100)  # tombstones not considered
-                with annotate_failure('%s %s' % (state, object_count)):
+                with self.subTest(state=state, object_count=object_count):
                     if state == ShardRange.ACTIVE and object_count >= 10:
                         self.assertTrue(is_sharding_candidate(sr, 10))
                     else:
@@ -9186,13 +9190,13 @@ class TestSharderFunctions(BaseTestSharder):
 
         for state in ShardRange.STATES:
             for object_count in (10, 11):
-                with annotate_failure('%s %s' % (state, object_count)):
+                with self.subTest(state=state, object_count=object_count):
                     do_check_false(state, object_count, 0)
             for tombstones in (10, 11):
-                with annotate_failure('%s %s' % (state, tombstones)):
+                with self.subTest(state=state, tombstones=tombstones):
                     do_check_false(state, 0, tombstones)
             for tombstones in (5, 6):
-                with annotate_failure('%s %s' % (state, tombstones)):
+                with self.subTest(state=state, tombstones=tombstones):
                     do_check_false(state, 5, tombstones)
 
     def test_find_and_rank_whole_path_split(self):

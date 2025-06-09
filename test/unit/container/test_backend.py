@@ -46,7 +46,6 @@ from swift.common.storage_policy import POLICIES
 
 from unittest import mock
 
-from test import annotate_failure
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
                        mock_timestamp_now)
@@ -2772,19 +2771,19 @@ class TestContainerBroker(test_db.TestDbBase):
         # selected rows
         for since_row in range(10):
             actual = broker.get_objects(since_row=since_row)
-            with annotate_failure(since_row):
+            with self.subTest(since_row=since_row):
                 self.assertEqual(obj_names[since_row:],
                                  [o['name'] for o in actual])
 
         for since_row in range(10, 20):
             actual = broker.get_objects(since_row=since_row)
-            with annotate_failure(since_row):
+            with self.subTest(since_row=since_row):
                 self.assertEqual(obj_names[10:],
                                  [o['name'] for o in actual])
 
         for since_row in range(20, len(obj_names) + 1):
             actual = broker.get_objects(since_row=since_row)
-            with annotate_failure(since_row):
+            with self.subTest(since_row=since_row):
                 self.assertEqual(obj_names[since_row - 10:],
                                  [o['name'] for o in actual])
 

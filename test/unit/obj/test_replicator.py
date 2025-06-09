@@ -1547,7 +1547,9 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertTrue(os.path.exists(part_path))
             self.assertEqual([mock.call(part_path)], mockrmtree.call_args_list)
 
-    def test_delete_policy_override_params(self):
+    @mock.patch('swift.common.bufferedhttp.BufferedHTTPConnection.connect',
+                side_effect=OSError(errno.ECONNREFUSED, 'ECONNREFUSED'))
+    def test_delete_policy_override_params(self, _mock_connect):
         df0 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o',
                                        policy=POLICIES.legacy)
         df1 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o',

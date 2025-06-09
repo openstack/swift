@@ -14,10 +14,81 @@
 # limitations under the License.
 
 import inspect
+import time
+import functools
+
 from swift import __version__ as swift_version
-from swift.common.utils import public, timing_stats, config_true_value, \
+from swift.common.utils import public, config_true_value, \
     LOG_LINE_DEFAULT_FORMAT
-from swift.common.swob import Response
+from swift.common.http import is_server_error
+from swift.common.swob import Response, HTTPException
+
+
+def labeled_timing_stats(metric, **dec_kwargs):
+    """
+    Returns a decorator that emits labeled metrics timing events or errors
+    for public methods in swift's wsgi server controllers, based on response
+    code.
+
+    The controller methods are not allowed to override the following labels:
+    'method', 'status'.
+    """
+    def decorating_func(func):
+
+        @functools.wraps(func)
+        def _timing_stats(ctrl, req, *args, **kwargs):
+            labels = {}
+            start_time = time.time()
+            req_method = req.method
+            try:
+                resp = func(
+                    ctrl, req, *args, timing_stats_labels=labels, **kwargs)
+            except HTTPException as e:
+                resp = e
+            labels['method'] = req_method
+            labels['status'] = resp.status_int
+
+            ctrl.statsd.timing_since(metric, start_time, labels=labels,
+                                     **dec_kwargs)
+            return resp
+
+        return _timing_stats
+    return decorating_func
+
+
+def timing_stats(**dec_kwargs):
+    """
+    Returns a decorator that logs timing events or errors for public methods in
+    swift's wsgi server controllers, based on response code.
+    """
+    def decorating_func(func):
+        method = func.__name__
+
+        @functools.wraps(func)
+        def _timing_stats(ctrl, *args, **kwargs):
+            start_time = time.time()
+            try:
+                resp = func(ctrl, *args, **kwargs)
+            except HTTPException as e:
+                resp = e
+            # .timing is for successful responses *or* error codes that are
+            # not Swift's fault. For example, 500 is definitely the server's
+            # fault, but 412 is an error code (4xx are all errors) that is
+            # due to a header the client sent.
+            #
+            # .errors.timing is for failures that *are* Swift's fault.
+            # Examples include 507 for an unmounted drive or 500 for an
+            # unhandled exception.
+            if not is_server_error(resp.status_int):
+                ctrl.logger.timing_since(method + '.timing',
+                                         start_time, **dec_kwargs)
+            else:
+                ctrl.logger.timing_since(method + '.errors.timing',
+                                         start_time, **dec_kwargs)
+            return resp
+
+        return _timing_stats
+    return decorating_func
 
 
 class BaseStorageServer(object):

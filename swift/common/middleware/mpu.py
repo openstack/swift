@@ -997,6 +997,10 @@ class MPUSessionHandler(BaseMPUHandler):
                 str(parsed_manifest.max_manifest_part)
         }
         manifest_headers.update(session.get_manifest_headers())
+        # TODO: pass through more conditional request headers? and add tests
+        if 'If-None-Match' in self.req.headers:
+            manifest_headers['If-None-Match'] = \
+                self.req.headers['If-None-Match']
         # set the MPU etag override to be forwarded to the manifest container
         part_prefix_path = wsgi_quote(make_relative_path(
             self.parts_container,

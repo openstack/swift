@@ -35,7 +35,7 @@ from swift.common.request_helpers import split_and_validate_path, \
     validate_container_params
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
-    config_true_value, timing_stats, replication, \
+    config_true_value, replication, \
     override_bytes_from_content_type, get_log_line, \
     config_fallocate_value, fs_has_free_space, list_from_csv, \
     ShardRange, parse_options
@@ -46,7 +46,7 @@ from swift.common.exceptions import ConnectionTimeout
 from swift.common.http import HTTP_NO_CONTENT, HTTP_NOT_FOUND, is_success
 from swift.common.middleware import listing_formats
 from swift.common.storage_policy import POLICIES
-from swift.common.base_storage_server import BaseStorageServer
+from swift.common.base_storage_server import BaseStorageServer, timing_stats
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
