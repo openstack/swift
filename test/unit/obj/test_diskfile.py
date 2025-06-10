@@ -47,6 +47,7 @@ from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        BaseUnitTestCase)
 from swift.obj import diskfile
 from swift.common import utils
+from swift.common.base_storage_server import TimingBreakdown
 from swift.common.utils import hash_path, mkdirs, Timestamp, lock_path, \
     encode_timestamps, O_TMPFILE, md5 as _md5, MD5_OF_EMPTY_STRING
 from swift.common import ring
@@ -6264,6 +6265,22 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 self.assertTrue(writer._put_succeeded)
 
         self.assertFalse(_m_renamer.called)
+
+    def test_diskfile_writer_timing_breakdown(self):
+        timing_breakdown = TimingBreakdown()
+        df = self._simple_get_diskfile(timing_breakdown=timing_breakdown)
+
+        # Mock the record method to verify it's called
+        with mock.patch.object(timing_breakdown, 'record') as mock_record:
+            with df.create() as writer:
+                writer.write(b'test data')
+                metadata = {
+                    'ETag': 'test_etag',
+                    'X-Timestamp': Timestamp.now().internal,
+                    'Content-Length': '9',
+                }
+                writer.put(metadata)
+        mock_record.assert_called_with('tpool_scheduling')
 
 
 @patch_policies(test_policies)

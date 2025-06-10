@@ -46,7 +46,7 @@ from swift.common.request_helpers import resolve_ignore_range_header, \
 from swift.obj import ssync_receiver, expirer
 from swift.common.http import is_success, HTTP_MOVED_PERMANENTLY
 from swift.common.base_storage_server import BaseStorageServer, \
-    timing_stats, labeled_timing_stats
+    timing_stats, labeled_timing_stats, request_timing_logging
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
@@ -128,6 +128,7 @@ class EventletPlungerString(bytes):
     eventlet.wsgi to force the headers out, so we use an
     EventletPlungerString to empty out all of Eventlet's buffers.
     """
+
     def __len__(self):
         return wsgi.MINIMUM_CHUNK_SIZE + 1
 
@@ -164,6 +165,8 @@ class ObjectController(BaseStorageServer):
         self.cooperative_period = int(conf.get("cooperative_period", 0))
         self.etag_validate_frac = config_percent_value(
             conf.get("etag_validate_pct", 100))
+        self.slow_delete_log_threshold = float(
+            conf.get('slow_delete_log_threshold_seconds', 120))
 
         default_allowed_headers = '''
             content-disposition,
@@ -1264,7 +1267,8 @@ class ObjectController(BaseStorageServer):
     @public
     @timing_stats()
     @labeled_timing_stats(metric=LABELED_METRIC_NAME)
-    def DELETE(self, request, timing_stats_labels):
+    @request_timing_logging(threshold_attr='slow_delete_log_threshold')
+    def DELETE(self, request, timing_stats_labels, timing_breakdown):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
@@ -1277,9 +1281,13 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy, next_part_power=next_part_power)
+                policy=policy, next_part_power=next_part_power,
+                timing_breakdown=timing_breakdown)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
+        finally:
+            timing_breakdown.record('diskfile_acquisition')
+
         try:
             orig_metadata = disk_file.read_metadata(current_time=req_timestamp)
         except DiskFileXattrNotSupported:
@@ -1308,6 +1316,9 @@ class ObjectController(BaseStorageServer):
                 response_class = HTTPNoContent
             else:
                 response_class = HTTPConflict
+        finally:
+            timing_breakdown.record('metadata_read')
+
         response_timestamp = max(orig_timestamp, req_timestamp)
         orig_delete_at = Timestamp(
             orig_metadata.get('X-Delete-At') or Timestamp.zero())
@@ -1336,19 +1347,25 @@ class ObjectController(BaseStorageServer):
             else:
                 # differentiate success from no object at all
                 response_class = HTTPNoContent
+
         self._conditional_delete_at_update(
             request, device, account, container, obj, policy, {},
             orig_delete_at, 0
         )
+        timing_breakdown.record('delete_at_update')
+
         if orig_timestamp < req_timestamp:
             try:
                 disk_file.delete(req_timestamp)
             except DiskFileNoSpace:
                 return HTTPInsufficientStorage(drive=device, request=request)
+            finally:
+                timing_breakdown.record('tombstone_write')
             self.container_update(
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp.internal}),
                 device, policy)
+            timing_breakdown.record('container_update')
         return response_class(
             request=request,
             headers={'X-Backend-Timestamp': response_timestamp.internal,
