@@ -2492,9 +2492,6 @@ class TestRingBuilder(unittest.TestCase):
             (0, 0, '127.0.0.1', 3): [0, 256, 0, 0],
         })
 
-    @unittest.skipIf(sys.version_info < (3,),
-                     "Seed-specific tests don't work well between python "
-                     "versions. This test is now PY3 only")
     def test_undispersable_zone_converge_on_balance(self):
         rb = ring.RingBuilder(8, 6, 0)
         dev_id = 0
@@ -2550,9 +2547,6 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb.get_balance(), 14.453125)
         self.assertEqual(rb.dispersion, 16.6015625)
 
-    @unittest.skipIf(sys.version_info < (3,),
-                     "Seed-specific tests don't work well between python "
-                     "versions. This test is now PY3 only")
     def test_undispersable_server_converge_on_balance(self):
         rb = ring.RingBuilder(8, 6, 0)
         dev_id = 0
