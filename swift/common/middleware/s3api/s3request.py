@@ -1086,9 +1086,19 @@ class S3Request(swob.Request):
                 checksum_key = checksum_header
                 checksum_source = self.headers
 
-            # S3 doesn't check the checksum against the request body for at
-            # least some POSTs (e.g. MPU complete) so restrict this to PUTs
-            if checksum_key and self.method == 'PUT':
+            if self.method == 'PUT':
+                verify_checksum = True
+            elif self.method == 'POST':
+                if 'delete' in self.params:
+                    verify_checksum = True
+                else:
+                    # S3 doesn't check the checksum for some POSTs (e.g. MPU
+                    # complete)
+                    verify_checksum = False
+            else:
+                verify_checksum = False
+
+            if checksum_key and verify_checksum:
                 self._install_checksumming_input_wrapper(
                     checksum_hasher, checksum_key, checksum_source)
 
@@ -1687,13 +1697,32 @@ class S3Request(swob.Request):
         return body
 
     def check_md5(self, body):
-        if 'HTTP_CONTENT_MD5' not in self.environ:
-            raise InvalidRequest('Missing required header for this request: '
-                                 'Content-MD5')
+        """
+        Check the md5 of the request body against the content-md5 header if the
+        header is present.
 
+        :raise BadDigest: if the header is present but does not match the
+            calculated body md5.
+        :return: True if the header is present, False otherwise.
+        """
+        content_md5 = self.environ.get('HTTP_CONTENT_MD5')
+        if not content_md5:
+            return False
         digest = base64_str(md5(body, usedforsecurity=False).digest())
-        if self.environ['HTTP_CONTENT_MD5'] != digest:
-            raise BadDigest(content_md5=self.environ['HTTP_CONTENT_MD5'])
+        if content_md5 != digest:
+            raise BadDigest(expected_digest=content_md5)
+        return True
+
+    def require_md5(self, body):
+        allowed_checksum_env_keys = [
+            'HTTP_' + hdr.upper().replace('-', '_')
+            for hdr in CHECKSUMS_BY_HEADER.keys()
+        ]
+        allowed_checksum_env_keys.append('HTTP_CONTENT_MD5')
+        if not any(k in self.environ for k in allowed_checksum_env_keys):
+            raise InvalidRequest('Missing required header for this request: '
+                                 'Content-MD5 OR x-amz-checksum-*')
+        self.check_md5(body)
 
     def _copy_source_headers(self):
         env = {}

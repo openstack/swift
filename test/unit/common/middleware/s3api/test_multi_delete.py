@@ -29,7 +29,7 @@ from test.unit.common.middleware.s3api import S3ApiTestCase, S3ApiTestCaseAcl
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
-from swift.common.utils import md5
+from swift.common.utils import checksum, md5
 
 
 class BaseS3ApiMultiDelete(object):
@@ -138,6 +138,27 @@ class BaseS3ApiMultiDelete(object):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(),
                                      'X-Amz-Content-SHA256': content_sha256,
+                                     },
+                            body=body)
+
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertIn(b'<Code>InvalidRequest</Code>', body)
+        self.assertIn(b'<Message>Missing required header for this request: '
+                      b'Content-MD5 OR x-amz-checksum-*</Message>', body)
+
+    def test_object_multi_DELETE_crc32_valid(self):
+        elem = Element('Delete')
+        obj = SubElement(elem, 'Object')
+        SubElement(obj, 'Key').text = 'object'
+        body = tostring(elem, use_s3ns=False)
+        content_crc32 = base64.b64encode(checksum.crc32(body).digest()).strip()
+
+        req = Request.blank('/bucket/object?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Checksum-CRC32': content_crc32,
                                      },
                             body=body)
 

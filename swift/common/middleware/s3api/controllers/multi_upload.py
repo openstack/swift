@@ -77,11 +77,11 @@ from urllib.parse import quote, urlparse
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
-    ErrorResponse, MalformedXML, BadDigest, KeyTooLongError, \
-    InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
-    InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
-    NoSuchBucket, BucketAlreadyOwnedByYou, ServiceUnavailable, \
-    PreconditionFailed, S3NotImplemented
+    ErrorResponse, MalformedXML, KeyTooLongError, InvalidPart, \
+    BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, InvalidRequest, \
+    HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, NoSuchBucket, \
+    BucketAlreadyOwnedByYou, ServiceUnavailable, PreconditionFailed, \
+    S3NotImplemented
 from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
@@ -697,17 +697,12 @@ class UploadController(Controller):
             xml = req.xml(MAX_COMPLETE_UPLOAD_BODY_SIZE)
             if not xml:
                 raise InvalidRequest(msg='You must specify at least one part')
-            if 'content-md5' in req.headers:
-                # If an MD5 was provided, we need to verify it.
-                # Note that S3Request already took care of translating to ETag
-                md5_body = md5(xml, usedforsecurity=False).hexdigest()
-                if req.headers['etag'] != md5_body:
-                    raise BadDigest(
-                        expected_digest=req.headers['content-md5'])
+            # If an MD5 was provided, we need to verify it.
+            if req.check_md5(xml):
                 # We're only interested in the body here, in the
-                # multipart-upload controller -- *don't* let it get
+                # multipart-upload controller -- *don't* let etag get
                 # plumbed down to the object-server
-                del req.headers['etag']
+                req.headers.pop('etag', None)
 
             complete_elem = fromstring(
                 xml, 'CompleteMultipartUpload', self.logger)
