@@ -15,12 +15,13 @@
 import json
 import unittest
 from datetime import datetime
+from datetime import timezone
 import email
 from unittest import mock
 import time
 from contextlib import contextmanager
 
-from swift.common import swob, utils
+from swift.common import swob
 from swift.common.http import is_success
 
 from swift.common.middleware.s3api.s3api import filter_factory
@@ -203,7 +204,7 @@ class S3ApiTestCase(unittest.TestCase):
         return email.utils.formatdate(time.time() + skew)
 
     def get_v4_amz_date_header(self, offset=None):
-        when = datetime.now(utils.UTC)
+        when = datetime.now(timezone.utc)
         if offset is not None:
             when += offset
         return when.strftime('%Y%m%dT%H%M%SZ')

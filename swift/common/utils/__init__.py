@@ -141,8 +141,7 @@ from swift.common.utils.timestamp import (  # noqa
     normalize_timestamp,
     EPOCH,
     last_modified_date_to_timestamp,
-    normalize_delete_at_timestamp,
-    UTC,
+    normalize_delete_at_timestamp
 )
 from swift.common.utils.ipaddrs import (  # noqa
     is_valid_ip,

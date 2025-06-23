@@ -40,6 +40,7 @@ from collections.abc import MutableMapping
 import time
 from functools import partial
 from datetime import datetime
+from datetime import timezone
 from email.utils import parsedate
 import re
 import random
@@ -50,7 +51,7 @@ from io import StringIO
 import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import UTC, reiterate, split_path, Timestamp, pairs, \
+from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
     close_if_possible, closing_if_possible, config_true_value, friendly_close
 from swift.common.exceptions import InvalidTimestamp
 
@@ -148,7 +149,7 @@ def _datetime_property(header):
         if value is not None:
             try:
                 parts = parsedate(self.headers[header])[:7]
-                return datetime(*(parts + (UTC,)))
+                return datetime(*(parts + (timezone.utc,)))
             except Exception:
                 return None
 

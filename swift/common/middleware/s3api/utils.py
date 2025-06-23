@@ -110,13 +110,14 @@ class S3Timestamp(utils.Timestamp):
 
     @property
     def s3xmlformat(self):
-        dt = datetime.datetime.fromtimestamp(self.ceil(), utils.UTC)
+        dt = datetime.datetime.fromtimestamp(
+            self.ceil(), datetime.timezone.utc)
         return dt.strftime(self.S3_XML_FORMAT)
 
     @classmethod
     def from_s3xmlformat(cls, date_string):
         dt = datetime.datetime.strptime(date_string, cls.S3_XML_FORMAT)
-        dt = dt.replace(tzinfo=utils.UTC)
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
         seconds = calendar.timegm(dt.timetuple())
         return cls(seconds)
 

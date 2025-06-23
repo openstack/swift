@@ -27,7 +27,6 @@ import zlib
 from urllib.parse import urlsplit, urlunsplit, quote
 
 from swift.common import bufferedhttp
-from swift.common.utils import UTC
 from swift.common.utils.ipaddrs import parse_socket_string
 
 from test.s3api import BaseS3TestCaseWithBucket, get_opt
@@ -60,7 +59,7 @@ def _crc32(payload=b''):
 
 
 EMPTY_SHA256 = _sha256()
-EPOCH = datetime.datetime.fromtimestamp(0, UTC)
+EPOCH = datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
 
 
 class S3Session(object):
@@ -117,7 +116,7 @@ class S3Session(object):
             'stream_response': stream,  # set to True for large downloads
             'bucket': bucket,
             'key': key,
-            'now': datetime.datetime.now(UTC),
+            'now': datetime.datetime.now(datetime.timezone.utc),
         }
 
         if bucket:
