@@ -29,7 +29,6 @@ import eventlet
 import datetime
 
 from swift.common.utils.base import md5, quote, split_path
-from swift.common.utils.timestamp import UTC
 from swift.common.utils.config import config_true_value
 # common.utils imports a fully qualified common.exceptions so that
 # common.exceptions can import common.utils with out a circular import error
@@ -743,8 +742,9 @@ class StrFormatTime(object):
                         'w', 'W', 'x', 'X', 'y', 'Y', 'Z']:
             raise ValueError(("The attribute %s is not a correct directive "
                               "for time.strftime formater.") % attr)
-        return datetime.datetime(*self.time_struct[:-2],
-                                 tzinfo=UTC).strftime('%' + attr)
+        return datetime.datetime(
+            *self.time_struct[:-2],
+            tzinfo=datetime.timezone.utc).strftime('%' + attr)
 
     @property
     def asctime(self):

@@ -133,11 +133,6 @@ class MockSys(object):
                           self.stderr.fileno()]
 
 
-class TestUTC(unittest.TestCase):
-    def test_tzname(self):
-        self.assertEqual(utils.UTC.tzname(None), 'UTC')
-
-
 class TestUtils(unittest.TestCase):
     """Tests for swift.common.utils """
 
