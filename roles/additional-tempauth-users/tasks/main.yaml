@@ -16,7 +16,7 @@
 
 - name: Configure service account for tempauth tests
   ini_file:
-    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/../swift/test/sample.conf"
     section: func_test
     option: account5
     value: test5
@@ -24,7 +24,7 @@
 
 - name: Configure service username for tempauth tests
   ini_file:
-    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/../swift/test/sample.conf"
     section: func_test
     option: username5
     value: tester5
@@ -32,7 +32,7 @@
 
 - name: Configure service user password for tempauth tests
   ini_file:
-    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/../swift/test/sample.conf"
     section: func_test
     option: password5
     value: testing5
@@ -40,7 +40,7 @@
 
 - name: Configure service prefix for tempauth tests
   ini_file:
-    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/../swift/test/sample.conf"
     section: func_test
     option: service_prefix
     value: SERVICE_TA
