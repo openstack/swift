@@ -21,8 +21,6 @@ py34 unit test job and there are imports here that end up importing modules
 that are not yet ported to py34, such wsgi.py which import mimetools.
 """
 import os
-from contextlib import closing
-from gzip import GzipFile
 from tempfile import mkdtemp
 import time
 import warnings
@@ -30,7 +28,6 @@ import warnings
 from eventlet import spawn, wsgi
 from unittest import mock
 from shutil import rmtree
-import pickle
 
 import swift
 from swift.account import server as account_server
@@ -150,18 +147,18 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
     # write_fake_ring can't handle a 3-element ring, and the EC policy needs
     # at least 6 devs to work with (ec_k=2, ec_m=1, duplication_factor=2),
     # so we do it manually
-    devs = [{'id': 0, 'zone': 0, 'device': 'sdg1', 'ip': '127.0.0.1',
-             'port': obj1lis.getsockname()[1]},
-            {'id': 1, 'zone': 0, 'device': 'sdh1', 'ip': '127.0.0.1',
-             'port': obj2lis.getsockname()[1]},
-            {'id': 2, 'zone': 0, 'device': 'sdi1', 'ip': '127.0.0.1',
-             'port': obj3lis.getsockname()[1]},
-            {'id': 3, 'zone': 0, 'device': 'sdj1', 'ip': '127.0.0.1',
-             'port': obj4lis.getsockname()[1]},
-            {'id': 4, 'zone': 0, 'device': 'sdk1', 'ip': '127.0.0.1',
-             'port': obj5lis.getsockname()[1]},
-            {'id': 5, 'zone': 0, 'device': 'sdl1', 'ip': '127.0.0.1',
-             'port': obj6lis.getsockname()[1]}]
+    devs = [{'id': 0, 'region': 1, 'zone': 0, 'device': 'sdg1',
+             'ip': '127.0.0.1', 'port': obj1lis.getsockname()[1]},
+            {'id': 1, 'region': 1, 'zone': 0, 'device': 'sdh1',
+             'ip': '127.0.0.1', 'port': obj2lis.getsockname()[1]},
+            {'id': 2, 'region': 1, 'zone': 0, 'device': 'sdi1',
+             'ip': '127.0.0.1', 'port': obj3lis.getsockname()[1]},
+            {'id': 3, 'region': 1, 'zone': 0, 'device': 'sdj1',
+             'ip': '127.0.0.1', 'port': obj4lis.getsockname()[1]},
+            {'id': 4, 'region': 1, 'zone': 0, 'device': 'sdk1',
+             'ip': '127.0.0.1', 'port': obj5lis.getsockname()[1]},
+            {'id': 5, 'region': 1, 'zone': 0, 'device': 'sdl1',
+             'ip': '127.0.0.1', 'port': obj6lis.getsockname()[1]}]
     pol3_replica2part2dev_id = [[0, 1, 2, 0],
                                 [1, 2, 0, 1],
                                 [2, 0, 1, 2]]
@@ -174,14 +171,12 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
     obj3_ring_path = os.path.join(
         _testdir, storage_policy.POLICIES[3].ring_name + '.ring.gz')
     part_shift = 30
-    with closing(GzipFile(obj3_ring_path, 'wb')) as fh:
-        pickle.dump(RingData(pol3_replica2part2dev_id, devs, part_shift), fh)
+    RingData(pol3_replica2part2dev_id, devs, part_shift).save(obj3_ring_path)
 
     obj4_ring_path = os.path.join(
         _testdir, storage_policy.POLICIES[4].ring_name + '.ring.gz')
     part_shift = 30
-    with closing(GzipFile(obj4_ring_path, 'wb')) as fh:
-        pickle.dump(RingData(pol4_replica2part2dev_id, devs, part_shift), fh)
+    RingData(pol4_replica2part2dev_id, devs, part_shift).save(obj4_ring_path)
 
     prosrv = proxy_server.Application(conf, logger=debug_logger('proxy'))
     for policy in storage_policy.POLICIES:

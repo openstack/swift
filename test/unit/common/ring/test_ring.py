@@ -15,12 +15,9 @@
 
 import array
 import collections
-import pickle
 import os
 import unittest
 import stat
-from contextlib import closing
-from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
 from time import sleep, time
@@ -77,35 +74,15 @@ class TestRingData(unittest.TestCase):
         self.assertEqual(rd.devs, d)
         self.assertEqual(rd._part_shift, s)
 
-    def test_can_load_pickled_ring_data(self):
-        rd = ring.RingData(
-            [[0, 1, 0, 1], [0, 1, 0, 1]],
-            [{'id': 0, 'zone': 0, 'ip': '10.1.1.0', 'port': 7000},
-             {'id': 1, 'zone': 1, 'ip': '10.1.1.1', 'port': 7000}],
-            30)
-        ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
-        for p in range(pickle.HIGHEST_PROTOCOL):
-            with closing(GzipFile(ring_fname, 'wb')) as f:
-                pickle.dump(rd, f, protocol=p)
-            meta_only = ring.RingData.load(ring_fname, metadata_only=True)
-            self.assertEqual([
-                {'id': 0, 'zone': 0, 'region': 1,
-                 'ip': '10.1.1.0', 'port': 7000,
-                 'replication_ip': '10.1.1.0', 'replication_port': 7000},
-                {'id': 1, 'zone': 1, 'region': 1,
-                 'ip': '10.1.1.1', 'port': 7000,
-                 'replication_ip': '10.1.1.1', 'replication_port': 7000},
-            ], meta_only.devs)
-            # Pickled rings can't load only metadata, so you get it all
-            self.assert_ring_data_equal(rd, meta_only)
-            ring_data = ring.RingData.load(ring_fname)
-            self.assert_ring_data_equal(rd, ring_data)
-
     def test_roundtrip_serialization(self):
         ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
         rd = ring.RingData(
             [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])],
-            [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
+            [
+                {'id': 0, 'region': 1, 'zone': 0},
+                {'id': 1, 'region': 1, 'zone': 1},
+            ],
+            30)
         rd.save(ring_fname)
         meta_only = ring.RingData.load(ring_fname, metadata_only=True)
         self.assertEqual([
@@ -387,58 +364,6 @@ class TestRing(TestRingBase):
             self.testdir,
             reload_time=self.intended_reload_time,
             ring_name='without_replication')
-        self.assertEqual(self.ring.devs, intended_devs)
-
-    def test_reload_old_style_pickled_ring(self):
-        devs = [{'id': 0, 'zone': 0,
-                 'weight': 1.0, 'ip': '10.1.1.1',
-                 'port': 6200},
-                {'id': 1, 'zone': 0,
-                 'weight': 1.0, 'ip': '10.1.1.1',
-                 'port': 6200},
-                None,
-                {'id': 3, 'zone': 2,
-                 'weight': 1.0, 'ip': '10.1.2.1',
-                 'port': 6200},
-                {'id': 4, 'zone': 2,
-                 'weight': 1.0, 'ip': '10.1.2.2',
-                 'port': 6200}]
-        intended_devs = [{'id': 0, 'region': 1, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6200,
-                          'replication_ip': '10.1.1.1',
-                          'replication_port': 6200},
-                         {'id': 1, 'region': 1, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6200,
-                          'replication_ip': '10.1.1.1',
-                          'replication_port': 6200},
-                         None,
-                         {'id': 3, 'region': 1, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.1', 'port': 6200,
-                          'replication_ip': '10.1.2.1',
-                          'replication_port': 6200},
-                         {'id': 4, 'region': 1, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.2', 'port': 6200,
-                          'replication_ip': '10.1.2.2',
-                          'replication_port': 6200}]
-
-        # simulate an old-style pickled ring
-        testgz = os.path.join(self.testdir,
-                              'without_replication_or_region.ring.gz')
-        ring_data = ring.RingData(self.intended_replica2part2dev_id,
-                                  devs,
-                                  self.intended_part_shift)
-        # an old-style pickled ring won't have region data
-        for dev in ring_data.devs:
-            if dev:
-                del dev["region"]
-        gz_file = GzipFile(testgz, 'wb')
-        pickle.dump(ring_data, gz_file, protocol=2)
-        gz_file.close()
-
-        self.ring = ring.Ring(
-            self.testdir,
-            reload_time=self.intended_reload_time,
-            ring_name='without_replication_or_region')
         self.assertEqual(self.ring.devs, intended_devs)
 
     def test_get_part(self):

@@ -21,7 +21,6 @@ from unittest import mock
 import os
 from urllib.parse import urlparse, urlsplit, urlunsplit
 import sys
-import pickle
 import socket
 import locale
 import eventlet
@@ -31,8 +30,6 @@ import random
 import base64
 
 from time import time, sleep
-from contextlib import closing
-from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
 from unittest import SkipTest
@@ -303,15 +300,14 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
         replica2part2dev_id = [[0, 1, 2, 0],
                                [1, 2, 0, 1],
                                [2, 0, 1, 2]]
-        devs = [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                 'port': obj_sockets[0].getsockname()[1]},
-                {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                 'port': obj_sockets[1].getsockname()[1]},
-                {'id': 2, 'zone': 2, 'device': 'sdc1', 'ip': '127.0.0.1',
-                 'port': obj_sockets[2].getsockname()[1]}]
+        devs = [{'id': 0, 'region': 1, 'zone': 0, 'device': 'sda1',
+                 'ip': '127.0.0.1', 'port': obj_sockets[0].getsockname()[1]},
+                {'id': 1, 'region': 1, 'zone': 1, 'device': 'sdb1',
+                 'ip': '127.0.0.1', 'port': obj_sockets[1].getsockname()[1]},
+                {'id': 2, 'region': 1, 'zone': 2, 'device': 'sdc1',
+                 'ip': '127.0.0.1', 'port': obj_sockets[2].getsockname()[1]}]
         ring_data = ring.RingData(replica2part2dev_id, devs, 30)
-        with closing(GzipFile(ring_file_test, 'wb')) as f:
-            pickle.dump(ring_data, f)
+        ring_data.save(ring_file_test)
 
     for dev in ring_data.devs:
         _debug('Ring file dev: %s' % dev)
@@ -623,21 +619,19 @@ def in_process_setup(the_object_server=object_server):
     _test_socks += [acc1lis, acc2lis, con1lis, con2lis] + obj_sockets
 
     account_ring_path = os.path.join(_testdir, 'account.ring.gz')
-    with closing(GzipFile(account_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': acc1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': acc2lis.getsockname()[1]}], 30),
-                    f)
+    ring.RingData(
+        [[0, 1, 0, 1], [1, 0, 1, 0]],
+        [{'id': 0, 'region': 1, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+          'port': acc1lis.getsockname()[1]},
+         {'id': 1, 'region': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+          'port': acc2lis.getsockname()[1]}], 30).save(account_ring_path)
     container_ring_path = os.path.join(_testdir, 'container.ring.gz')
-    with closing(GzipFile(container_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': con1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': con2lis.getsockname()[1]}], 30),
-                    f)
+    ring.RingData(
+        [[0, 1, 0, 1], [1, 0, 1, 0]],
+        [{'id': 0, 'region': 1, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+          'port': con1lis.getsockname()[1]},
+         {'id': 1, 'region': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+          'port': con2lis.getsockname()[1]}], 30).save(container_ring_path)
 
     def get_logger_name(name):
         if show_debug_logs:

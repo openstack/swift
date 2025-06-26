@@ -72,17 +72,17 @@ class TestListEndpoints(unittest.TestCase):
             array.array('H', [1, 0, 1, 0]),
             array.array('H', [1, 0, 1, 0]),
             array.array('H', [4, 3, 4, 3])]
-        intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
+        intended_devs = [{'id': 0, 'region': 1, 'zone': 0, 'weight': 1.0,
                           'ip': '10.1.1.1', 'port': 6200,
                           'device': 'sda1'},
-                         {'id': 1, 'zone': 0, 'weight': 1.0,
+                         {'id': 1, 'region': 1, 'zone': 0, 'weight': 1.0,
                           'ip': '10.1.1.1', 'port': 6200,
                           'device': 'sdb1'},
                          None,
-                         {'id': 3, 'zone': 2, 'weight': 1.0,
+                         {'id': 3, 'region': 1, 'zone': 2, 'weight': 1.0,
                           'ip': '10.1.2.1', 'port': 6200,
                           'device': 'sdc1'},
-                         {'id': 4, 'zone': 2, 'weight': 1.0,
+                         {'id': 4, 'region': 1, 'zone': 2, 'weight': 1.0,
                           'ip': '10.1.2.2', 'port': 6200,
                           'device': 'sdd1'}]
         intended_part_shift = 30

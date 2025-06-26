@@ -20,7 +20,7 @@ import copy
 import logging
 import logging.handlers
 import sys
-from contextlib import contextmanager, closing
+from contextlib import contextmanager
 from collections import defaultdict
 from collections.abc import Iterable
 import itertools
@@ -39,7 +39,6 @@ import errno
 import xattr
 from io import BytesIO
 from uuid import uuid4
-import pickle
 from http.client import HTTPException
 
 from swift.common import storage_policy, swob, utils, exceptions
@@ -54,7 +53,6 @@ from swift.common.ring import Ring, RingData, RingBuilder
 from swift.obj import server
 
 import functools
-from gzip import GzipFile
 from unittest import mock as mocklib
 import inspect
 from unittest import SkipTest
@@ -303,10 +301,10 @@ def write_fake_ring(path, *devs):
     """
     Pretty much just a two node, two replica, 2 part power ring...
     """
-    dev1 = {'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-            'port': 6200}
-    dev2 = {'id': 1, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
-            'port': 6200}
+    dev1 = {'id': 0, 'region': 1, 'zone': 0, 'device': 'sda1',
+            'ip': '127.0.0.1', 'port': 6200}
+    dev2 = {'id': 1, 'region': 1, 'zone': 0, 'device': 'sdb1',
+            'ip': '127.0.0.1', 'port': 6200}
 
     dev1_updates, dev2_updates = devs or ({}, {})
 
@@ -316,8 +314,7 @@ def write_fake_ring(path, *devs):
     replica2part2dev_id = [[0, 1, 0, 1], [1, 0, 1, 0]]
     devs = [dev1, dev2]
     part_shift = 30
-    with closing(GzipFile(path, 'wb')) as f:
-        pickle.dump(RingData(replica2part2dev_id, devs, part_shift), f)
+    RingData(replica2part2dev_id, devs, part_shift).save(path)
 
 
 def write_stub_builder(tmpdir, region=1, name=''):
