@@ -1208,7 +1208,7 @@ class BaseDiskFileManager(object):
                     quar_path = quarantine_renamer(device_path,
                                                    join(hsh_path,
                                                         "made-up-filename"))
-                    logging.exception(
+                    logging.error(
                         'Quarantined %(hsh_path)s to %(quar_path)s because '
                         'it is not a directory', {'hsh_path': hsh_path,
                                                   'quar_path': quar_path})
@@ -1226,7 +1226,7 @@ class BaseDiskFileManager(object):
                         # to quarantine the whole suffix
                         quar_path = quarantine_renamer(device_path, hsh_path)
                         orig_path = path
-                    logging.exception(
+                    logging.error(
                         'Quarantined %(orig_path)s to %(quar_path)s because '
                         'it could not be listed', {'orig_path': orig_path,
                                                    'quar_path': quar_path})
