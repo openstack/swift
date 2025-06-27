@@ -38,7 +38,7 @@ from contextlib import closing, contextmanager
 from gzip import GzipFile
 import pyeclib.ec_iface
 
-from eventlet import hubs, timeout, tpool
+from eventlet import hubs, timeout, tpool, spawn, sleep
 from swift.obj.diskfile import update_auditor_status, EUCLEAN
 from test import BaseTestCase
 from test.debug_logger import debug_logger
@@ -48,7 +48,7 @@ from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        encode_frag_archive_bodies, skip_if_no_xattrs)
 from swift.obj import diskfile
 from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, Timestamp, \
+from swift.common.utils import hash_path, mkdirs, Timestamp, lock_path, \
     encode_timestamps, O_TMPFILE, md5 as _md5, MD5_OF_EMPTY_STRING
 from swift.common import ring
 from swift.common.splice import splice
@@ -7673,6 +7673,21 @@ class TestSuffixHashes(unittest.TestCase):
             self.check_cleanup_ondisk_files(policy, file_list, [])
 
     # invalidate_hash tests - behavior
+
+    def test_invalidate_hash_race_with_partition_delete(self):
+        part_dir = os.path.join(self.testdir, '0')
+        suffix_dir = os.path.join(part_dir, 'fff')
+        os.makedirs(suffix_dir)
+
+        def replicatorish():
+            with lock_path(part_dir):
+                sleep(0.01)
+                rmtree(part_dir)
+                sleep(0.01)
+
+        spawn(replicatorish)
+        sleep(0)  # make sure thread starts
+        diskfile.invalidate_hash(suffix_dir)
 
     def test_invalidate_hash_file_does_not_exist(self):
         for policy in self.iter_policies():
