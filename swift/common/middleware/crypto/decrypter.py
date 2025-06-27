@@ -16,6 +16,7 @@
 import base64
 import json
 
+from swift.common.constraints import valid_api_version
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
@@ -454,7 +455,11 @@ class Decrypter(object):
             is_cont_or_obj_req = True
         except ValueError:
             is_cont_or_obj_req = False
+
         if not is_cont_or_obj_req:
+            return self.app(env, start_response)
+        if not valid_api_version(parts[0]):
+            # Not a swift request
             return self.app(env, start_response)
 
         if parts[3] and req.method in ('GET', 'HEAD'):
