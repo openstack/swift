@@ -700,9 +700,10 @@ class UploadController(Controller):
             if 'content-md5' in req.headers:
                 # If an MD5 was provided, we need to verify it.
                 # Note that S3Request already took care of translating to ETag
-                if req.headers['etag'] != md5(
-                        xml, usedforsecurity=False).hexdigest():
-                    raise BadDigest(content_md5=req.headers['content-md5'])
+                md5_body = md5(xml, usedforsecurity=False).hexdigest()
+                if req.headers['etag'] != md5_body:
+                    raise BadDigest(
+                        expected_digest=req.headers['content-md5'])
                 # We're only interested in the body here, in the
                 # multipart-upload controller -- *don't* let it get
                 # plumbed down to the object-server
