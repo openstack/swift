@@ -474,8 +474,16 @@ def invalidate_hash(suffix_dir):
     invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
     if not isinstance(suffix, bytes):
         suffix = suffix.encode('utf-8')
-    with lock_path(partition_dir), open(invalidations_file, 'ab') as inv_fh:
-        inv_fh.write(suffix + b"\n")
+    with lock_path(partition_dir):
+        try:
+            inv_fh = open(invalidations_file, 'ab')
+        except FileNotFoundError:
+            # Was previously locked for replication off a handoff, and has now
+            # been deleted -- I guess?
+            pass
+        else:
+            with inv_fh:
+                inv_fh.write(suffix + b"\n")
 
 
 def relink_paths(target_path, new_target_path, ignore_missing=True):
