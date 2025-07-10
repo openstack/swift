@@ -58,6 +58,24 @@ def _crc32(payload=b''):
     ).decode('ascii')
 
 
+def get_raw_conn(request):
+    # requests is going to try *real hard* to either send a "Content-Length" or
+    # "Transfer-encoding: chunked" header so dip down to our bufferedhttp to do
+    # the sending/parsing when we want to override those headers
+    host, port = parse_socket_string(request['host'], None)
+    if port:
+        port = int(port)
+    return bufferedhttp.http_connect_raw(
+        host,
+        port,
+        request['method'],
+        request['path'],
+        request['headers'],
+        '&'.join('%s=%s' % (k, v) for k, v in request['query'].items()),
+        request['https']
+    )
+
+
 EMPTY_SHA256 = _sha256()
 EPOCH = datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
 
@@ -771,23 +789,9 @@ class InputErrorsMixin(object):
             method='PUT',
         )
         self.conn.sign_request(request)
-        # requests is not our friend here; it's going to try *real hard* to
-        # either send a "Content-Length" or "Transfer-encoding: chunked" header
-        # so dip down to our bufferedhttp to do the sending/parsing
-        host, port = parse_socket_string(request['host'], None)
-        if port:
-            port = int(port)
-        conn = bufferedhttp.http_connect_raw(
-            host,
-            port,
-            request['method'],
-            request['path'],
-            request['headers'],
-            '&'.join('%s=%s' % (k, v) for k, v in request['query'].items()),
-            request['https']
-        )
-        conn.send(TEST_BODY)
-        return conn.getresponse()
+        raw_conn = get_raw_conn(request)
+        raw_conn.send(TEST_BODY)
+        return raw_conn.getresponse()
 
     def test_no_md5_no_sha_no_content_length(self):
         resp = self.get_response_put_object_no_md5_no_sha_no_content_length()
@@ -1180,23 +1184,9 @@ class InputErrorsMixin(object):
             headers={'x-amz-content-sha256': _sha256(TEST_BODY)},
         )
         self.conn.sign_request(request)
-        # requests is not our friend here; it's going to try *real hard* to
-        # either send a "Content-Length" or "Transfer-encoding: chunked" header
-        # so dip down to our bufferedhttp to do the sending/parsing
-        host, port = parse_socket_string(request['host'], None)
-        if port:
-            port = int(port)
-        conn = bufferedhttp.http_connect_raw(
-            host,
-            port,
-            request['method'],
-            request['path'],
-            request['headers'],
-            '&'.join('%s=%s' % (k, v) for k, v in request['query'].items()),
-            request['https']
-        )
-        conn.send(TEST_BODY)
-        resp = conn.getresponse()
+        raw_conn = get_raw_conn(request)
+        raw_conn.send(TEST_BODY)
+        resp = raw_conn.getresponse()
         body = resp.read()
         self.assertEqual(resp.status, 411, body)
         self.assertIn(b'<Code>MissingContentLength</Code>', body)
@@ -3577,6 +3567,47 @@ class NotV4AuthHeadersMixin:
                 'x-amz-decoded-content-length': str(len(chunked_body))})
         self.assertSHA256Mismatch(resp, 'STREAMING-AWS4-HMAC-SHA256-PAYLOAD',
                                   _sha256(chunked_body))
+
+    def test_no_md5_no_sha_good_crc_header_body_too_long_ok(self):
+        request = self.conn.build_request(
+            self.bucket_name,
+            'test-obj',
+            method='PUT',
+            headers={
+                'x-amz-checksum-crc32': _crc32(TEST_BODY),
+                'content-length': str(len(TEST_BODY)),
+            },
+        )
+        self.conn.sign_request(request)
+        raw_conn = get_raw_conn(request)
+        # send more than expected body; as long as the crc is correct for the
+        # content-length part of the body that is actually read then it's ok
+        raw_conn.send(TEST_BODY + b'0123456789')
+        resp = raw_conn.getresponse()
+        body = resp.read()
+        self.assertEqual(resp.status, 200, body)
+
+    def test_no_md5_no_sha_bad_crc_header_body_too_long(self):
+        request = self.conn.build_request(
+            self.bucket_name,
+            'test-obj',
+            method='PUT',
+            headers={
+                'x-amz-checksum-crc32': _crc32(TEST_BODY),
+                'content-length': str(len(TEST_BODY[:-10])),
+            },
+        )
+        self.conn.sign_request(request)
+        raw_conn = get_raw_conn(request)
+        # content-length is less than sent body; not all the body is read so
+        # the calculated crc will mismatch the body crc
+        raw_conn.send(TEST_BODY)
+        resp = raw_conn.getresponse()
+        body = resp.read().decode('utf-8')
+        self.assertEqual(resp.status, 400, body)
+        self.assertIn('<Code>BadDigest</Code>', body)
+        self.assertIn('<Message>The CRC32 you specified did not match the '
+                      'calculated checksum.</Message>', body)
 
 
 class TestV4AuthQuery(InputErrorsMixin,
