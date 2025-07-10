@@ -612,6 +612,28 @@ class InputErrorsMixin(object):
         # self.assertIn('<CalculatedDigest>%s</CalculatedDigest>'
         #               % md5_of_body, respbody)
 
+    def assertBadChecksumDigest(self, resp, crc_type, crc_in_headers):
+        """
+        Check that the response is a well-formed BadDigest error that would be
+        raised for a checksum mismatch
+
+        :param resp: the ``requests`` response
+        :param crc_type: the CRC type
+        :param crc_in_headers: the crc value sent in headers
+        """
+        respbody = resp.content
+        if not isinstance(respbody, str):
+            respbody = respbody.decode('utf8')
+        self.assertEqual((resp.status_code, resp.reason), (400, 'Bad Request'),
+                         respbody)
+        self.assertIn('<Code>BadDigest</Code>', respbody)
+        self.assertIn("<Message>The %s you specified did not match the "
+                      "calculated checksum.</Message>" % crc_type,
+                      respbody)
+        self.assertNotIn('Expected', respbody)
+        self.assertNotIn('Computed', respbody)
+        self.assertNotIn(crc_in_headers, respbody)
+
     def assertIncompleteBody(
         self,
         resp,
@@ -932,10 +954,7 @@ class InputErrorsMixin(object):
                 'content-md5': _md5(TEST_BODY),
                 'x-amz-content-sha256': _sha256(TEST_BODY),
                 'x-amz-checksum-crc32': _crc32(b'not the body')})
-        self.assertEqual(resp.status_code, 400, resp.content)
-        self.assertIn(b'<Code>BadDigest</Code>', resp.content)
-        self.assertIn(b'<Message>The CRC32 you specified did not match the '
-                      b'calculated checksum.</Message>', resp.content)
+        self.assertBadChecksumDigest(resp, 'CRC32', _crc32(b'not the body'))
 
     def test_good_md5_bad_sha_bad_crc_header(self):
         resp = self.conn.make_request(
@@ -2019,14 +2038,11 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
             body=chunked_body,
             headers={
                 'x-amz-sdk-checksum-algorithm': 'crc32',
-                'x-amz-checksum-crc32': _crc32(b'not the test body'),
+                'x-amz-checksum-crc32': _crc32(b'not the body'),
                 'x-amz-content-sha256': 'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
                 'content-encoding': 'aws-chunked',
                 'x-amz-decoded-content-length': str(len(TEST_BODY))})
-        self.assertEqual(resp.status_code, 400, resp.content)
-        self.assertIn(b'<Code>BadDigest</Code>', resp.content)
-        self.assertIn(b'<Message>The CRC32 you specified did not match the '
-                      b'calculated checksum.</Message>', resp.content)
+        self.assertBadChecksumDigest(resp, 'CRC32', _crc32(b'not the body'))
 
     def test_strm_unsgnd_pyld_trl_declared_algo_declared_no_trailer_sent(self):
         chunked_body = b''.join(
@@ -2272,17 +2288,14 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
                 'content-encoding': 'aws-chunked',
                 'x-amz-decoded-content-length': str(len(TEST_BODY)),
                 'x-amz-trailer': 'x-amz-checksum-crc32'})
-        self.assertEqual(resp.status_code, 400, resp.content)
-        self.assertIn(b'<Code>BadDigest</Code>', resp.content)
-        self.assertIn(b'<Message>The CRC32 you specified did not match the '
-                      b'calculated checksum.</Message>', resp.content)
+        self.assertBadChecksumDigest(resp, 'CRC32', _crc32(b'not the body'))
 
     def test_strm_unsgnd_pyld_trl_with_trailer_checksum_invalid(self):
         chunked_body = b''.join(
             b'%x\r\n%s\r\n' % (len(chunk), chunk)
             for chunk in [TEST_BODY, b''])[:-2]
         chunked_body += ''.join([
-            f'x-amz-checksum-crc32: {"not=base-64"}\r\n',
+            f'x-amz-checksum-crc32: {"not-base-64"}\r\n',
         ]).encode('ascii')
         resp = self.conn.make_request(
             self.bucket_name,
@@ -2298,6 +2311,8 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
         self.assertIn(b'<Code>InvalidRequest</Code>', resp.content)
         self.assertIn(b'<Message>Value for x-amz-checksum-crc32 trailing '
                       b'header is invalid.</Message>', resp.content)
+        # the bad value is not reflected back in the response
+        self.assertNotIn(b'not-base-64', resp.content)
 
     def test_strm_unsgnd_pyld_trl_content_sha256_in_trailer(self):
         chunked_body = b''.join(
@@ -2643,10 +2658,7 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
                 'content-encoding': 'aws-chunked',
                 'x-amz-decoded-content-length': str(len(TEST_BODY)),
                 'x-amz-trailer': 'x-amz-checksum-crc32'})
-        self.assertEqual(resp.status_code, 400, resp.content)
-        self.assertIn(b'<Code>BadDigest</Code>', resp.content)
-        self.assertIn(b'<Message>The CRC32 you specified did not match the '
-                      b'calculated checksum.</Message>', resp.content)
+        self.assertBadChecksumDigest(resp, 'CRC32', _crc32(TEST_BODY[:-1]))
 
     def test_strm_unsgnd_pyld_trl_extra_line_then_trailer_ok(self):
         chunked_body = b''.join(
