@@ -1,3 +1,13 @@
+swift (2.34.1, dalmatian stable backports)
+
+    * Removed the use of `eval` in the xprofile middleware. Note that this
+      middleware is only intended for development purposes and is not
+      intended for use in production systems.
+
+    * Fixed `Content-Type` and `Content-Length` headers in account and
+      container `HEAD` responses (with eventlet>=0.38.0).
+
+
 swift (2.34.0, OpenStack Dalmatian)
 
     * Middleware features:
