@@ -1,3 +1,13 @@
+swift (2.33.1, caracal stable backports)
+
+    * Removed the use of `eval` in the xprofile middleware. Note that this
+      middleware is only intended for development purposes and is not
+      intended for use in production systems.
+
+    * Fixed `Content-Type` and `Content-Length` headers in account and
+      container `HEAD` responses (with eventlet>=0.38.0).
+
+
 swift (2.33.0, OpenStack Caracal)
 
     * S3 API fixes:
