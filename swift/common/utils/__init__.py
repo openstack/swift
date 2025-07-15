@@ -4619,7 +4619,7 @@ def safe_json_loads(value):
     return None
 
 
-def strict_b64decode(value, allow_line_breaks=False):
+def strict_b64decode(value, allow_line_breaks=False, exact_size=None):
     '''
     Validate and decode Base64-encoded data.
 
@@ -4628,6 +4628,8 @@ def strict_b64decode(value, allow_line_breaks=False):
 
     :param value: some base64-encoded data
     :param allow_line_breaks: if True, ignore carriage returns and newlines
+    :param exact_size: if provided, the exact size of the decoded bytes
+        expected; also enforces round-trip checks
     :returns: the decoded data
     :raises ValueError: if ``value`` is not a string, contains invalid
                         characters, or has insufficient padding
@@ -4648,7 +4650,17 @@ def strict_b64decode(value, allow_line_breaks=False):
         strip_chars += '\r\n'
     if any(c not in valid_chars for c in value.strip(strip_chars)):
         raise ValueError
-    return base64.b64decode(value)
+    ret_val = base64.b64decode(value)
+    if exact_size is not None:
+        if len(ret_val) != exact_size:
+            raise ValueError
+        if base64_str(ret_val) != value:
+            raise ValueError
+    return ret_val
+
+
+def base64_str(value):
+    return base64.b64encode(value).decode('ascii')
 
 
 def cap_length(value, max_length):
