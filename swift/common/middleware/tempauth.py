@@ -318,6 +318,8 @@ class TempAuth(object):
                 env['REMOTE_USER'] = groups
                 env['swift.authorize'] = self.authorize
                 env['swift.clean_acl'] = clean_acl
+                # Set access_user_id for consistent logging across middlewares
+                env.setdefault('swift.access_logging', {})['user_id'] = user
                 if '.reseller_admin' in groups:
                     env['reseller_request'] = True
             else:
@@ -879,6 +881,8 @@ class TempAuth(object):
         user = wsgi_to_str(user)
         key = wsgi_to_str(key)
         account_user = account + ':' + user
+        req.environ.setdefault(
+            'swift.access_logging', {})['user_id'] = account_user
         if account_user not in self.users:
             self.logger.increment('token_denied')
             return HTTPUnauthorized(request=req, headers=unauthed_headers)

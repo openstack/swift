@@ -645,6 +645,20 @@ class TestAuth(unittest.TestCase):
                                auth.DEFAULT_TOKEN_LIFE - 0.5, delta=0.5)
         self.assertGreater(len(resp.headers['x-auth-token']), 10)
 
+    def test_get_token_sets_access_logging_user_id(self):
+        # Test that token generation sets access logging user_id
+        test_auth = auth.filter_factory({'user_ac_user': 'testing'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+        # Check that access logging user_id was set during token generation
+        self.assertIn('swift.access_logging', req.environ)
+        self.assertIn('user_id', req.environ['swift.access_logging'])
+        self.assertEqual(req.environ['swift.access_logging']['user_id'],
+                         'ac:user')
+
     def test_get_token_memcache_error(self):
         test_auth = auth.filter_factory({'user_ac_user': 'testing'})(FakeApp())
         req = self._make_request(
@@ -1135,7 +1149,10 @@ class TestAuth(unittest.TestCase):
         req = self._make_request(
             quoted_acct, headers={'X-Auth-Token': auth_token})
         req.environ['swift.cache'] = memcache
+        self.assertNotIn('swift.access_logging', req.environ)
         resp = req.get_response(ath)
+        self.assertEqual(req.environ['swift.access_logging'],
+                         {'user_id': 't\u00e9st:t\u00e9ster'})
         self.assertEqual(204, resp.status_int)
 
         # ...but it also works if you send the account raw

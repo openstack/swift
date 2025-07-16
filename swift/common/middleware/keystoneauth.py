@@ -218,6 +218,10 @@ class KeystoneAuth(object):
             user_roles = (r.lower() for r in env_identity.get('roles', []))
             if self.reseller_admin_role in user_roles:
                 environ['reseller_request'] = True
+            # Set access_user_id for consistent logging across auth middlewares
+            access_logging = environ.setdefault('swift.access_logging', {})
+            user_id, user_name = env_identity.get('user', (None, None))
+            access_logging['user_id'] = user_id or user_name
         else:
             self.logger.debug('Authorizing as anonymous')
             environ['swift.authorize'] = self.authorize_anonymous
