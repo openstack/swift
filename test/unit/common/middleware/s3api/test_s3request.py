@@ -1651,9 +1651,10 @@ class TestRequest(S3ApiTestCase):
             req.environ['wsgi.input'].read()
 
     def test_check_sig_v4_streaming_aws_hmac_sha256_payload_trailer_bad(self):
+        # second chunk has bad signature
         body = 'a;chunk-signature=c9dd07703599d3d0bd51c96193110756d4f7091d5a' \
                '4408314a53a802e635b1ad\r\nabcdefghij\r\n' \
-               'a;chunk-signature=000000000000000000000000000000000000000000' \
+               'a;chunk-signature=badbadbadbad000000000000000000000000000000' \
                '0000000000000000000000\r\nklmnopqrst\r\n' \
                '7;chunk-signature=b63f141c2012de9ac60b961795ef31ad3202b125aa' \
                '873b4142cf9d815360abc0\r\nuvwxyz\n\r\n' \

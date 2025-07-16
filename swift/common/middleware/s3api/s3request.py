@@ -239,6 +239,8 @@ class ChecksummingInput(InputProxy):
         # says nothing about whether the underlying stream uses aws-chunked
         self._checksum_hasher.update(chunk)
         if self.bytes_received < self._expected_length:
+            # wrapped input is likely to have timed out before this clause is
+            # reached with eof==True, but just in case...
             error = eof
         elif self.bytes_received == self._expected_length:
             # Lazy fetch checksum value because it may have come in trailers
@@ -256,6 +258,8 @@ class ChecksummingInput(InputProxy):
                 raise S3InputChecksumTrailerInvalid(self._checksum_key)
             error = self._checksum_hasher.digest() != expected_raw_checksum
         else:
+            # the underlying wsgi.Input stops reading at content-length so we
+            # don't expect to reach this clause, but just in case...
             error = True
 
         if error:
