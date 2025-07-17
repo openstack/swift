@@ -79,3 +79,32 @@ class S3InputMissingSecret(S3InputError):
     This happens if the auth middleware responsible for the user never called
     the provided ``check_signature`` callback.
     """
+
+
+class S3InputSHA256Mismatch(S3InputError):
+    """
+    Client provided a X-Amz-Content-SHA256, but it doesn't match the data.
+
+    This should result in a BadDigest going back to the client.
+    """
+    def __init__(self, expected, computed):
+        self.expected = expected
+        self.computed = computed
+
+
+class S3InputChecksumMismatch(S3InputError):
+    """
+    Client provided a X-Amz-Checksum-* header, but it doesn't match the data.
+
+    This should result in a InvalidRequest going back to the client.
+    """
+
+
+class S3InputChecksumTrailerInvalid(S3InputError):
+    """
+    Client provided a X-Amz-Checksum-* trailer, but it is not a valid format.
+
+    This should result in a InvalidRequest going back to the client.
+    """
+    def __init__(self, trailer_name):
+        self.trailer = trailer_name

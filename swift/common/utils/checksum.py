@@ -186,6 +186,11 @@ def crc32c(data=None, initial_value=0):
                      initial_value=initial_value)
 
 
+def crc64nvme(data=None, initial_value=0):
+    '''Stub for s3api'''
+    raise NotImplementedError
+
+
 def log_selected_implementation(logger):
     try:
         impl = _select_crc32c_impl()

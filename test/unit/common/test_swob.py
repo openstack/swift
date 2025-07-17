@@ -1190,7 +1190,7 @@ class TestResponse(unittest.TestCase):
         resp.last_modified = 1234567.12345
         self.assertEqual(
             datetime.datetime.fromtimestamp(
-                1234567, tz=utils.timestamp.UTC),
+                1234567, tz=datetime.timezone.utc),
             resp.last_modified)
         self.assertEqual('Thu, 15 Jan 1970 06:56:07 GMT',
                          resp.headers['Last-Modified'])
@@ -1198,7 +1198,7 @@ class TestResponse(unittest.TestCase):
         resp.headers['Last-Modified'] = 'Fri, 16 Jan 1970 06:56:07 GMT'
         self.assertEqual(
             datetime.datetime.fromtimestamp(
-                1320967, tz=utils.timestamp.UTC),
+                1320967, tz=datetime.timezone.utc),
             resp.last_modified)
 
     def test_properties(self):

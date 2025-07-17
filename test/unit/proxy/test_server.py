@@ -2545,10 +2545,12 @@ class BaseTestObjectController(object):
             self.assertEqual(b'', fd.read())
             # I expected this to raise a socket error
             self.assertEqual(b'', sock.recv(1024))
+            time.sleep(0.01)
             # ... but we ARE disconnected
             with self.assertRaises(socket.error) as caught:
                 sock.send(b'test')
-            self.assertEqual(caught.exception.errno, errno.EPIPE)
+            self.assertIn(caught.exception.errno,
+                          (errno.EPIPE, errno.ECONNRESET))
             # and logging confirms we've timed out
             last_debug_msg = prosrv.logger.get_lines_for_level('debug')[-1]
             self.assertIn('timed out', last_debug_msg)
@@ -3052,6 +3054,8 @@ class TestReplicatedObjectController(
             # kernel discovers that the connection is not open and
             # subsequent send attempts fail.
             sock.sendall(b'GET /info HTTP/1.1\r\n')
+            # OS X especially seems to want this to detect the close
+            time.sleep(0.001)
             sock.sendall(b'Host: localhost\r\n'
                          b'X-Storage-Token: t\r\n'
                          b'\r\n')

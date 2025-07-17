@@ -29,6 +29,7 @@ import eventlet
 
 from collections import defaultdict
 from datetime import datetime
+from datetime import timezone
 import urllib.parse
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 from swift.common.swob import Request
@@ -39,7 +40,7 @@ from swift.common.direct_client import ClientException
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import split_path, Timestamp, encode_timestamps, \
-    mkdirs, UTC
+    mkdirs
 
 from test.debug_logger import debug_logger
 from test.unit import FakeRing, fake_http_connect, patch_policies, \
@@ -48,7 +49,7 @@ from test.unit.common.middleware import helpers
 
 
 def timestamp_to_last_modified(timestamp):
-    dt = datetime.fromtimestamp(float(Timestamp(timestamp)), UTC)
+    dt = datetime.fromtimestamp(float(Timestamp(timestamp)), timezone.utc)
     return dt.strftime('%Y-%m-%dT%H:%M:%S.%f')
 
 

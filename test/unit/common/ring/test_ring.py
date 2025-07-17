@@ -50,9 +50,7 @@ class TestRingBase(unittest.TestCase):
 class TestRingData(unittest.TestCase):
 
     def setUp(self):
-        self.testdir = os.path.join(os.path.dirname(__file__), 'ring_data')
-        rmtree(self.testdir, ignore_errors=1)
-        os.mkdir(self.testdir)
+        self.testdir = mkdtemp()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -531,9 +529,6 @@ class TestRing(TestRingBase):
         self.ring.devs.append(new_dev)
         self.ring._rebuild_tier_data()
 
-    @unittest.skipIf(sys.version_info < (3,),
-                     "Seed-specific tests don't work well between python "
-                     "versions. This test is now PY3 only")
     def test_get_more_nodes(self):
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someone changes the results the ring produces, they know it.

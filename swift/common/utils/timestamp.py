@@ -18,7 +18,6 @@
 import datetime
 import functools
 import math
-import sys
 import time
 
 from email.utils import parsedate
@@ -185,7 +184,7 @@ class Timestamp(object):
         elif us < 0:
             t -= 1
             us += 1000000
-        dt = datetime.datetime.fromtimestamp(t, UTC)
+        dt = datetime.datetime.fromtimestamp(t, datetime.timezone.utc)
         dt = dt.replace(microsecond=us)
 
         isoformat = dt.isoformat()
@@ -408,21 +407,3 @@ def normalize_delete_at_timestamp(timestamp, high_precision=False):
     """
     fmt = '%016.5f' if high_precision else '%010d'
     return fmt % min(max(0, float(timestamp)), 9999999999.99999)
-
-
-if sys.version_info < (3, 11):
-    class _UTC(datetime.tzinfo):
-        """
-        A tzinfo class for datetimes that returns a 0 timedelta (UTC time)
-        """
-
-        def dst(self, dt):
-            return datetime.timedelta(0)
-        utcoffset = dst
-
-        def tzname(self, dt):
-            return 'UTC'
-
-    UTC = _UTC()
-else:
-    from datetime import UTC
