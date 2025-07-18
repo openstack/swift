@@ -41,7 +41,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     XAmzContentSHA256Mismatch, ErrorResponse, S3NotImplemented
 from swift.common.utils import checksum
 from test.debug_logger import debug_logger
-from test.unit import requires_crc32c
+from test.unit import requires_crc32c, requires_crc64nvme
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
 
 Fake_ACL_MAP = {
@@ -2002,40 +2002,38 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(S3InputChecksumMismatch):
             sigv4_req.environ['wsgi.input'].read()
 
+    @requires_crc64nvme
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
-    def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_crc64nvme_valid(self):
-        # apparently valid value provokes the not implemented error
+    def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_crc64nvme_ok(self):
         body = 'a\r\nabcdefghij\r\n' \
                'a\r\nklmnopqrst\r\n' \
                '7\r\nuvwxyz\n\r\n' \
                '0\r\n'
-        crc = base64.b64encode(b'12345678')
+        crc = base64.b64encode(
+            checksum.crc64nvme(b'abcdefghijklmnopqrstuvwxyz\n').digest())
         req = self._make_sig_v4_streaming_unsigned_payload_trailer_req(
             body=body,
             extra_headers={'x-amz-checksum-crc64nvme': crc}
         )
-        with self.assertRaises(S3NotImplemented) as cm:
-            SigV4Request(req.environ)
-        self.assertIn(
-            b'The x-amz-checksum-crc64nvme algorithm is not supported.',
-            cm.exception.body)
+        sigv4_req = SigV4Request(req.environ)
+        self.assertEqual(b'abcdefghijklmnopqrstuvwxyz\n',
+                         sigv4_req.environ['wsgi.input'].read())
 
+    @requires_crc64nvme
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_crc64nvme_invalid(self):
-        # the not implemented error is raised before the value is validated
         body = 'a\r\nabcdefghij\r\n' \
                'a\r\nklmnopqrst\r\n' \
                '7\r\nuvwxyz\n\r\n' \
                '0\r\n'
+        crc = base64.b64encode(checksum.crc64nvme(b'not-the-body').digest())
         req = self._make_sig_v4_streaming_unsigned_payload_trailer_req(
             body=body,
-            extra_headers={'x-amz-checksum-crc64nvme': 'not-a-valid-crc'}
+            extra_headers={'x-amz-checksum-crc64nvme': crc}
         )
-        with self.assertRaises(S3NotImplemented) as cm:
-            SigV4Request(req.environ)
-        self.assertIn(
-            b'The x-amz-checksum-crc64nvme algorithm is not supported.',
-            cm.exception.body)
+        sigv4_req = SigV4Request(req.environ)
+        with self.assertRaises(S3InputChecksumMismatch):
+            sigv4_req.environ['wsgi.input'].read()
 
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_sha1_ok(self):
@@ -2897,13 +2895,21 @@ class TestModuleFunctions(unittest.TestCase):
         do_test('crc32c')
         do_test('sha1')
         do_test('sha256')
+        try:
+            checksum._select_crc64nvme_impl()
+        except NotImplementedError:
+            pass
+        else:
+            do_test('crc64nvme')
 
     def test_get_checksum_hasher_invalid(self):
         def do_test(crc):
             with self.assertRaises(s3response.S3NotImplemented):
                 _get_checksum_hasher('x-amz-checksum-%s' % crc)
 
-        do_test('crc64nvme')
+        with mock.patch.object(checksum, '_select_crc64nvme_impl',
+                               side_effect=NotImplementedError):
+            do_test('crc64nvme')
         do_test('nonsense')
         do_test('')
 
