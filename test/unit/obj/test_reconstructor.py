@@ -28,8 +28,7 @@ import collections
 from eventlet import Timeout, sleep, spawn
 from eventlet.green import threading
 
-from contextlib import closing, contextmanager
-from gzip import GzipFile
+from contextlib import contextmanager
 from shutil import rmtree
 from urllib.parse import unquote
 from swift.common import utils
@@ -110,30 +109,24 @@ def _create_test_rings(path, next_part_power=None):
     ]
 
     intended_devs = [
-        {'id': 0, 'device': 'sda1', 'zone': 0, 'ip': '127.0.0.0',
+        {'id': 0, 'device': 'sda1', 'region': 1, 'zone': 0, 'ip': '127.0.0.0',
          'port': 6200},
-        {'id': 1, 'device': 'sda1', 'zone': 1, 'ip': '127.0.0.1',
+        {'id': 1, 'device': 'sda1', 'region': 1, 'zone': 1, 'ip': '127.0.0.1',
          'port': 6200},
-        {'id': 2, 'device': 'sda1', 'zone': 2, 'ip': '127.0.0.2',
+        {'id': 2, 'device': 'sda1', 'region': 1, 'zone': 2, 'ip': '127.0.0.2',
          'port': 6200},
-        {'id': 3, 'device': 'sda1', 'zone': 4, 'ip': '127.0.0.3',
+        {'id': 3, 'device': 'sda1', 'region': 1, 'zone': 4, 'ip': '127.0.0.3',
          'port': 6200}
     ]
     intended_part_shift = 30
-    with closing(GzipFile(testgz, 'wb')) as f:
-        pickle.dump(
-            ring.RingData(intended_replica2part2dev_id,
-                          intended_devs, intended_part_shift,
-                          next_part_power),
-            f)
+    ring.RingData(intended_replica2part2dev_id,
+                  intended_devs, intended_part_shift,
+                  next_part_power).save(testgz)
 
     testgz = os.path.join(path, 'object-1.ring.gz')
-    with closing(GzipFile(testgz, 'wb')) as f:
-        pickle.dump(
-            ring.RingData(intended_replica2part2dev_id,
-                          intended_devs, intended_part_shift,
-                          next_part_power),
-            f)
+    ring.RingData(intended_replica2part2dev_id,
+                  intended_devs, intended_part_shift,
+                  next_part_power).save(testgz)
 
 
 def count_stats(logger, key, metric):

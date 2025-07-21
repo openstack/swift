@@ -13,12 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pickle
 from unittest import mock
 import os
 import unittest
-from contextlib import closing
-from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
 from test.debug_logger import debug_logger
@@ -44,20 +41,18 @@ class TestContainerUpdater(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
         ring_file = os.path.join(self.testdir, 'account.ring.gz')
-        with closing(GzipFile(ring_file, 'wb')) as f:
-            pickle.dump(
-                RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                         [{'id': 0, 'ip': '127.0.0.2', 'port': 12345,
-                           'replication_ip': '127.0.0.1',
-                           # replication_port may be overridden in tests but
-                           # include here for completeness...
-                           'replication_port': 67890,
-                           'device': 'sda1', 'zone': 0},
-                          {'id': 1, 'ip': '127.0.0.2', 'port': 12345,
-                           'replication_ip': '127.0.0.1',
-                           'replication_port': 67890,
-                           'device': 'sda1', 'zone': 2}], 30),
-                f)
+        RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                 [{'id': 0, 'ip': '127.0.0.2', 'port': 12345,
+                   'replication_ip': '127.0.0.1',
+                   # replication_port may be overridden in tests but
+                   # include here for completeness...
+                   'replication_port': 67890,
+                   'device': 'sda1', 'zone': 0, 'region': 1},
+                  {'id': 1, 'ip': '127.0.0.2', 'port': 12345,
+                   'replication_ip': '127.0.0.1',
+                   'replication_port': 67890,
+                   'device': 'sda1', 'zone': 2, 'region': 1}],
+                 30).save(ring_file)
         self.devices_dir = os.path.join(self.testdir, 'devices')
         os.mkdir(self.devices_dir)
         self.sda1 = os.path.join(self.devices_dir, 'sda1')

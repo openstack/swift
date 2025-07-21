@@ -34,8 +34,7 @@ from random import shuffle, randint
 from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
-from contextlib import closing, contextmanager
-from gzip import GzipFile
+from contextlib import contextmanager
 import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool, spawn, sleep
@@ -116,28 +115,25 @@ def _create_test_ring(path, policy):
         [1, 2, 3, 0, 5, 6, 4],
         [2, 3, 0, 1, 6, 4, 5]]
     intended_devs = [
-        {'id': 0, 'device': 'sda1', 'zone': 0, 'ip': '127.0.0.0',
+        {'id': 0, 'device': 'sda1', 'region': 1, 'zone': 0, 'ip': '127.0.0.0',
          'port': 6200},
-        {'id': 1, 'device': 'sda1', 'zone': 1, 'ip': '127.0.0.1',
+        {'id': 1, 'device': 'sda1', 'region': 1, 'zone': 1, 'ip': '127.0.0.1',
          'port': 6200},
-        {'id': 2, 'device': 'sda1', 'zone': 2, 'ip': '127.0.0.2',
+        {'id': 2, 'device': 'sda1', 'region': 1, 'zone': 2, 'ip': '127.0.0.2',
          'port': 6200},
-        {'id': 3, 'device': 'sda1', 'zone': 4, 'ip': '127.0.0.3',
+        {'id': 3, 'device': 'sda1', 'region': 1, 'zone': 4, 'ip': '127.0.0.3',
          'port': 6200},
-        {'id': 4, 'device': 'sda1', 'zone': 5, 'ip': '127.0.0.4',
+        {'id': 4, 'device': 'sda1', 'region': 1, 'zone': 5, 'ip': '127.0.0.4',
          'port': 6200},
-        {'id': 5, 'device': 'sda1', 'zone': 6,
+        {'id': 5, 'device': 'sda1', 'region': 1, 'zone': 6,
          'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6200},
-        {'id': 6, 'device': 'sda1', 'zone': 7,
+        {'id': 6, 'device': 'sda1', 'region': 1, 'zone': 7,
          'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334',
          'port': 6200}]
     intended_part_shift = 30
     intended_reload_time = 15
-    with closing(GzipFile(testgz, 'wb')) as f:
-        pickle.dump(
-            ring.RingData(intended_replica2part2dev_id, intended_devs,
-                          intended_part_shift),
-            f)
+    ring.RingData(intended_replica2part2dev_id, intended_devs,
+                  intended_part_shift).save(testgz)
     return ring.Ring(path, ring_name=ring_name,
                      reload_time=intended_reload_time)
 

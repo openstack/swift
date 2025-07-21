@@ -21,8 +21,6 @@ import unittest
 import random
 import itertools
 from collections import Counter
-from contextlib import closing
-from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
 import json
@@ -81,30 +79,28 @@ class TestObjectUpdater(unittest.TestCase):
         utils.HASH_PATH_PREFIX = b''
         self.testdir = mkdtemp()
         ring_file = os.path.join(self.testdir, 'container.ring.gz')
-        with closing(GzipFile(ring_file, 'wb')) as f:
-            pickle.dump(
-                RingData([[0, 1, 2, 0, 1, 2],
-                          [1, 2, 0, 1, 2, 0],
-                          [2, 3, 1, 2, 3, 1]],
-                         [{'id': 0, 'ip': '127.0.0.2', 'port': 1,
-                           'replication_ip': '127.0.0.1',
-                           # replication_port may be overridden in tests but
-                           # include here for completeness...
-                           'replication_port': 60789,
-                           'device': 'sda1', 'zone': 0},
-                          {'id': 1, 'ip': '127.0.0.2', 'port': 1,
-                           'replication_ip': '127.0.0.1',
-                           'replication_port': 60789,
-                           'device': 'sda1', 'zone': 2},
-                          {'id': 2, 'ip': '127.0.0.2', 'port': 1,
-                           'replication_ip': '127.0.0.1',
-                           'replication_port': 60789,
-                           'device': 'sda1', 'zone': 4},
-                          {'id': 3, 'ip': '127.0.0.2', 'port': 1,
-                           'replication_ip': '127.0.0.1',
-                           'replication_port': 60789,
-                           'device': 'sda1', 'zone': 6}], 30),
-                f)
+        RingData([[0, 1, 2, 0],
+                  [1, 2, 0, 1],
+                  [2, 3, 1, 2]],
+                 [{'id': 0, 'ip': '127.0.0.2', 'port': 1,
+                   'replication_ip': '127.0.0.1',
+                   # replication_port may be overridden in tests but
+                   # include here for completeness...
+                   'replication_port': 60789,
+                   'device': 'sda1', 'zone': 0, 'region': 1},
+                  {'id': 1, 'ip': '127.0.0.2', 'port': 1,
+                   'replication_ip': '127.0.0.1',
+                   'replication_port': 60789,
+                   'device': 'sda1', 'zone': 2, 'region': 1},
+                  {'id': 2, 'ip': '127.0.0.2', 'port': 1,
+                   'replication_ip': '127.0.0.1',
+                   'replication_port': 60789,
+                   'device': 'sda1', 'zone': 4, 'region': 1},
+                  {'id': 3, 'ip': '127.0.0.2', 'port': 1,
+                   'replication_ip': '127.0.0.1',
+                   'replication_port': 60789,
+                   'device': 'sda1', 'zone': 6, 'region': 1}],
+                 30).save(ring_file)
         self.devices_dir = os.path.join(self.testdir, 'devices')
         os.mkdir(self.devices_dir)
         self.sda1 = os.path.join(self.devices_dir, 'sda1')

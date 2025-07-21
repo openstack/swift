@@ -16,7 +16,6 @@
 import array
 import contextlib
 
-import pickle  # nosec: B403
 import json
 from collections import defaultdict
 from gzip import GzipFile
@@ -50,12 +49,10 @@ def normalize_devices(devs):
     #                and replication_port are required for
     #                replication process. An old replication
     #                ring doesn't contain this parameters into
-    #                device. Old-style pickled rings won't have
-    #                region information.
+    #                device.
     for dev in devs:
         if dev is None:
             continue
-        dev.setdefault('region', 1)
         if 'ip' in dev:
             dev.setdefault('replication_ip', dev['ip'])
         if 'port' in dev:
@@ -108,20 +105,6 @@ class RingReader(object):
         result, self._buffer = self._buffer[:amount], self._buffer[amount:]
         return result
 
-    def readline(self):
-        # apparently pickle needs this?
-        while b'\n' not in self._buffer:
-            if not self._buffer_chunk():
-                break
-
-        line, sep, self._buffer = self._buffer.partition(b'\n')
-        return line + sep
-
-    def readinto(self, buffer):
-        chunk = self.read(len(buffer))
-        buffer[:len(chunk)] = chunk
-        return len(chunk)
-
     @property
     def md5(self):
         return self._md5.hexdigest()
@@ -134,6 +117,9 @@ class RingData(object):
                  next_part_power=None, version=None):
         normalize_devices(devs)
         self.devs = devs
+        for i, part2dev_id in enumerate(replica2part2dev_id):
+            if not isinstance(part2dev_id, array.array):
+                replica2part2dev_id[i] = array.array('H', part2dev_id)
         self._replica2part2dev_id = replica2part2dev_id
         self._part_shift = part_shift
         self.next_part_power = next_part_power
@@ -192,27 +178,22 @@ class RingData(object):
         with contextlib.closing(RingReader(filename)) as gz_file:
             # See if the file is in the new format
             magic = gz_file.read(4)
-            if magic == b'R1NG':
-                format_version, = struct.unpack('!H', gz_file.read(2))
-                if format_version == 1:
-                    ring_data = cls.deserialize_v1(
-                        gz_file, metadata_only=metadata_only)
-                else:
-                    raise Exception('Unknown ring format version %d' %
-                                    format_version)
-            else:
-                # Assume old-style pickled ring
-                gz_file.seek(0)
-                ring_data = pickle.load(gz_file)  # nosec: B301
+            if magic != b'R1NG':
+                raise Exception('Bad ring magic %r for %r' % (
+                    magic, filename))
 
-        if hasattr(ring_data, 'devs'):
-            # pickled RingData; make sure we've got region/replication info
-            normalize_devices(ring_data.devs)
-        else:
-            ring_data = RingData(ring_data['replica2part2dev_id'],
-                                 ring_data['devs'], ring_data['part_shift'],
-                                 ring_data.get('next_part_power'),
-                                 ring_data.get('version'))
+            format_version, = struct.unpack('!H', gz_file.read(2))
+            if format_version == 1:
+                ring_data = cls.deserialize_v1(
+                    gz_file, metadata_only=metadata_only)
+            else:
+                raise Exception('Unknown ring format version %d for %r' %
+                                (format_version, filename))
+
+        ring_data = RingData(ring_data['replica2part2dev_id'],
+                             ring_data['devs'], ring_data['part_shift'],
+                             ring_data.get('next_part_power'),
+                             ring_data.get('version'))
         for attr in ('md5', 'size', 'raw_size'):
             setattr(ring_data, attr, getattr(gz_file, attr))
         return ring_data
