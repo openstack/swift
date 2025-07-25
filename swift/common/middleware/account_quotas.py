@@ -102,6 +102,24 @@ class AccountQuotaMiddleware(object):
     def __init__(self, app, *args, **kwargs):
         self.app = app
 
+    def quota_exceeded(self, request, body):
+        # request.environ['swift.authorize'](req) is delayed and not called
+        # immediately to support container acls. However, the middleware should
+        # still return immediately if any quota is exceeded.
+        resp = HTTPRequestEntityTooLarge(body=body)
+        if 'swift.authorize' in request.environ:
+            orig_authorize = request.environ['swift.authorize']
+
+            def reject_authorize(*args, **kwargs):
+                aresp = orig_authorize(*args, **kwargs)
+                if aresp:
+                    return aresp
+                return resp
+            request.environ['swift.authorize'] = reject_authorize
+            return self.app
+        else:
+            return resp
+
     def validate_and_translate_quotas(self, request, quota_type):
         new_quotas = {}
         new_quotas[None] = request.headers.get(
@@ -209,18 +227,7 @@ class AccountQuotaMiddleware(object):
         if quota >= 0:
             new_size = int(account_info['bytes']) + content_length
             if quota < new_size:
-                resp = HTTPRequestEntityTooLarge(body='Upload exceeds quota.')
-                if 'swift.authorize' in request.environ:
-                    orig_authorize = request.environ['swift.authorize']
-
-                    def reject_authorize(*args, **kwargs):
-                        aresp = orig_authorize(*args, **kwargs)
-                        if aresp:
-                            return aresp
-                        return resp
-                    request.environ['swift.authorize'] = reject_authorize
-                else:
-                    return resp
+                return self.quota_exceeded(request, "Upload exceeds quota.")
 
         # Check for quota count violation
         try:
@@ -230,18 +237,7 @@ class AccountQuotaMiddleware(object):
         if quota >= 0:
             new_count = int(account_info['total_object_count']) + 1
             if quota < new_count:
-                resp = HTTPRequestEntityTooLarge(body='Upload exceeds quota.')
-                if 'swift.authorize' in request.environ:
-                    orig_authorize = request.environ['swift.authorize']
-
-                    def reject_authorize(*args, **kwargs):
-                        aresp = orig_authorize(*args, **kwargs)
-                        if aresp:
-                            return aresp
-                        return resp
-                    request.environ['swift.authorize'] = reject_authorize
-                else:
-                    return resp
+                return self.quota_exceeded(request, "Upload exceeds quota.")
 
         container_info = get_container_info(request.environ, self.app,
                                             swift_source='AQ')
@@ -259,19 +255,8 @@ class AccountQuotaMiddleware(object):
             policy_stats = account_info['storage_policies'].get(policy_idx, {})
             new_size = int(policy_stats.get('bytes', 0)) + content_length
             if policy_quota < new_size:
-                resp = HTTPRequestEntityTooLarge(
-                    body='Upload exceeds policy quota.')
-                if 'swift.authorize' in request.environ:
-                    orig_authorize = request.environ['swift.authorize']
-
-                    def reject_authorize(*args, **kwargs):
-                        aresp = orig_authorize(*args, **kwargs)
-                        if aresp:
-                            return aresp
-                        return resp
-                    request.environ['swift.authorize'] = reject_authorize
-                else:
-                    return resp
+                return self.quota_exceeded(
+                    request, "Upload exceeds policy quota.")
 
         # Check quota-count per policy
         sysmeta_key = 'quota-count-policy-%s' % policy_idx
@@ -283,19 +268,8 @@ class AccountQuotaMiddleware(object):
             policy_stats = account_info['storage_policies'].get(policy_idx, {})
             new_size = int(policy_stats.get('object_count', 0)) + 1
             if policy_quota < new_size:
-                resp = HTTPRequestEntityTooLarge(
-                    body='Upload exceeds policy quota.')
-                if 'swift.authorize' in request.environ:
-                    orig_authorize = request.environ['swift.authorize']
-
-                    def reject_authorize(*args, **kwargs):
-                        aresp = orig_authorize(*args, **kwargs)
-                        if aresp:
-                            return aresp
-                        return resp
-                    request.environ['swift.authorize'] = reject_authorize
-                else:
-                    return resp
+                return self.quota_exceeded(
+                    request, "Upload exceeds policy quota.")
 
         return self.app
 
