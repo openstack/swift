@@ -186,9 +186,12 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             'ResponseMetadata']['HTTPStatusCode'])
         return create_mpu_resp['UploadId']
 
-    def list_mpus(self):
+    def list_mpus(self, key_marker='', upload_id_marker=''):
         list_mpu_resp = self.client.list_multipart_uploads(
-            Bucket=self.bucket_name)
+            Bucket=self.bucket_name,
+            KeyMarker=key_marker,
+            UploadIdMarker=upload_id_marker
+        )
         self.assertEqual(200, list_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
         mpus = list_mpu_resp.get('Uploads', [])
@@ -905,6 +908,37 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             self.complete_mpu(key_name, upload_id, list(reversed(parts)))
         self.assertEqual(400, status_from_error(cm.exception))
         self.assertEqual('InvalidPartOrder', code_from_error(cm.exception))
+
+    def test_create_list_mpus_utf8(self):
+        key_1 = self.create_name('key\N{SNOWMAN}x')
+        key_2 = self.create_name('key\N{SNOWMAN}y')
+
+        uploaded = [(key, self.create_mpu(key))
+                    for key in (key_1, key_2, key_1)]
+
+        found_uploads = self.list_mpus()
+        # sort by key then created time
+        expected = [uploaded[i] for i in (0, 2, 1)]
+        self.assertEqual(expected, found_uploads)
+
+        # use key marker
+        found_uploads = self.list_mpus(key_marker=key_1)
+        expected = [uploaded[1]]
+        self.assertEqual(expected, found_uploads)
+
+        found_uploads = self.list_mpus(key_marker=key_2)
+        expected = []
+        self.assertEqual(expected, found_uploads)
+
+        # use upload_id marker
+        found_uploads = self.list_mpus(key_marker=key_1,
+                                       upload_id_marker=uploaded[0][1])
+        expected = [uploaded[i] for i in (2, 1)]
+        self.assertEqual(expected, found_uploads)
+        found_uploads = self.list_mpus(key_marker=key_1,
+                                       upload_id_marker=uploaded[2][1])
+        expected = [uploaded[1]]
+        self.assertEqual(expected, found_uploads)
 
     def test_create_list_mpus_abort_list_mpus(self):
         key_name = self.create_name('key')
