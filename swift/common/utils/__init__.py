@@ -4335,11 +4335,13 @@ class ShardRange(Namespace):
         self.timestamp = timestamp or Timestamp.now()
         return True
 
-    # A by-the-book implementation should probably hash the value, which
-    # in our case would be account+container+lower+upper (+timestamp ?).
-    # But we seem to be okay with just the identity.
-    def __hash__(self):
-        return id(self)
+    # It's a little funny that we're making this mutable class hashable, but
+    # we want to be able to map donor -> acceptor, shard range -> broker, etc.
+    # Since we override __eq__, we don't get Python's hashable-by-default,
+    # but we are happy to use their hash-derived-from-id().
+    # NB: this breaks Python's assumption that "Hashable objects which compare
+    # equal must have the same hash value."
+    __hash__ = object.__hash__
 
     def __repr__(self):
         return '%s<%r to %r as of %s, (%d, %d) as of %s, %s as of %s>' % (
