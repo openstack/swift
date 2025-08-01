@@ -1444,15 +1444,72 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(202, resp.status_int,
                          'replicas = %s' % self.replicas())
 
-    def test_POST_insufficient_primaries_succeed_others_404(self):
+    def test_POST_mixed_primaries_with_handoff_success(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
         primary_success = quorum_size(self.replicas()) - 1
         primary_failure = self.replicas() - primary_success
         primary_codes = [404] * primary_failure + [202] * primary_success
-        with mocked_http_conn(*primary_codes):
+        handoff_codes = [202] * primary_failure
+        codes = primary_codes + handoff_codes
+        with mocked_http_conn(*codes):
             resp = req.get_response(self.app)
-        # TODO: should this be a 503?
-        self.assertEqual(404, resp.status_int,
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+
+    def test_POST_mixed_primaries_with_partial_handoff_success(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
+        primary_success = quorum_size(self.replicas()) - 1
+        primary_failure = self.replicas() - primary_success
+        primary_codes = [404] * primary_failure + [202] * primary_success
+        handoff_codes = [404] * (primary_failure // 2) + \
+                        [202] * (primary_failure - primary_failure // 2)
+        codes = primary_codes + handoff_codes
+        # object-server POST responses have no backend timestamps anyway, but
+        # it's important the handoffs don't have timestamps so that
+        # is_useful_response replaces them with 503s
+        headers = [{'x-backend-timestamp': None}] * len(codes)
+        with mocked_http_conn(*codes, headers=headers) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+        requested_nodes = [r['ip'] for r in log.requests]
+        self.assertEqual(len(requested_nodes), len(set(requested_nodes)))
+
+    def test_POST_mixed_primaries_with_handoff_missing(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
+        primary_success = quorum_size(self.replicas()) - 1
+        primary_failure = self.replicas() - primary_success
+        primary_codes = [404] * primary_failure + [202] * primary_success
+        handoff_codes = [404] * primary_failure
+        codes = primary_codes + handoff_codes
+        # object-server POST responses have no backend timestamps anyway, but
+        # it's important the handoffs don't have timestamps so that
+        # is_useful_response replaces them with 503s
+        headers = [{'x-backend-timestamp': None}] * len(codes)
+        with mocked_http_conn(*codes, headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
 
     def test_POST_insufficient_primaries_others_fail_handoffs_404(self):
@@ -1470,6 +1527,27 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
+
+    def test_POST_primary_timeout_mixed_handoff(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        primary_success = 1
+        primary_failure = min(self.replicas() - 1, 1)
+        primary_missing = max(self.replicas() - 2, 0)
+        primary_codes = ([Timeout()] * primary_failure
+                         + [202] * primary_success
+                         + [404] * primary_missing)
+        handoff_codes = [404] * primary_failure + [202] * primary_missing
+        # make sure handoff 404 doesn't have a timestamp
+        headers = ([{}] * len(primary_codes)
+                   + [{'x-backend-timestamp': None}] * len(handoff_codes))
+        with mocked_http_conn(*(primary_codes + handoff_codes),
+                              headers=headers) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+        # we want to make sure we don't double up requests to any handoffs
+        requested_nodes = [r['ip'] for r in log.requests]
+        self.assertEqual(len(requested_nodes), len(set(requested_nodes)))
 
     def test_POST_insufficient_primaries_others_fail_handoffs_fail(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
