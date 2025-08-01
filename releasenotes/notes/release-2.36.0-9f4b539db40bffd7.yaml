@@ -1,0 +1,88 @@
+---
+features:
+  - |
+    S3 API
+
+    * Added support for aws-chunked transfers. Recent AWS clients recently
+      began defaulting to this mode. See also:
+      `Transferring Payload in Multiple Chunks (Chunked Upload)
+      <https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html>`__.
+
+    * Added support for verifying additional checksums during upload. All
+      algorithms currently supported by AWS are supported: CRC64NVME,
+      CRC32, CRC32C, SHA1, and SHA256. See also: `Checking object integrity
+      in Amazon S3
+      <https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html>`__.
+      Note that some algorithms require the availability of additional
+      libraries: ISA-L or anycrc.
+
+    * Added support for create-without-overwrite conditional writes.
+
+  - |
+    Let clients request heartbeats during COPYs by including
+    the query parameter ``heartbeat=on``.
+
+    With heartbeating turned on, the proxy will start its response
+    immediately with 202 Accepted then send a single whitespace
+    character periodically until the request completes. At that
+    point, a final summary chunk will be sent which includes a
+    ``Response Status`` key indicating success or failure.
+
+  - |
+    Labeled metrics
+
+    * Added support for emitting labeled statsd metrics in a variety of
+      formats. Middleware authors should see `the LabeledStatsdClient documentation
+      <https://docs.openstack.org/swift/latest/misc.html#swift.common.statsd_client.LabeledStatsdClient>`__
+      for more information.
+
+    * Instrumented proxy-logging with labeled metrics. See
+      ``proxy-server.conf-sample`` for more information.
+
+    * Instrumented the object-server with labeled metrics. See
+      ``object-server.conf-sample`` for more information.
+
+  - |
+    Added ``access_user_id`` logging field; out-of-tree auth middlewares should
+    use ``environ['swift.access_logging']['user_id']`` to populate this field.
+
+  - |
+    Introduced an extensible ring format. This allows both more than 65,536
+    devices and more data structures to be in a ring. For more information,
+    see `Ring File Formats -- Ring v2
+    <https://docs.openstack.org/swift/latest/overview_ring_format.html#ring-v2>`__.
+
+  - |
+    Python 3.13 (with the GIL enabled) is now supported. Free-threaded
+    builds remain untested.
+upgrade:
+  - |
+    Removed support for Python 3.6.
+
+  - |
+    Removed support for pickled ring files. These have not been written
+    since Swift 1.7.0.
+deprecations:
+  - |
+    Flamingo (2025.2) will be the final stable release to support Python 3.7 and 3.8.
+fixes:
+  - |
+    S3 API
+
+    * Fixed HTTP framing issues when returning errors for a request with
+      ``Expect: 100-continue``.
+
+    * Improved various error messages to better imitate AWS responses.
+
+  - |
+    SSYNC connections are now promptly terminated when subrequests timeout.
+
+  - |
+    Fixed a recursion error in the account-quota middleware.
+
+  - |
+    Fixed an error in ``invalidate_hash`` when the partition is deleted while
+    waiting for the partition lock.
+
+  - |
+    Various other minor bug fixes and improvements.
