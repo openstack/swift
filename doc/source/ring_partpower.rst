@@ -1,3 +1,5 @@
+.. _modify_part_power:
+
 ==============================
 Modifying Ring Partition Power
 ==============================

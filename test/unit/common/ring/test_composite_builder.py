@@ -36,7 +36,8 @@ def make_device_iter():
     x = 0
     base_port = 6000
     while True:
-        yield {'region': 0,  # Note that region may be replaced on the tests
+        yield {'id': 200 + x,
+               'region': 0,  # Note that region may be replaced on the tests
                'zone': 0,
                'ip': '10.0.0.%s' % x,
                'replication_ip': '10.0.0.%s' % x,
@@ -242,7 +243,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
 
     def test_composite_same_device_in_the_different_rings_error(self):
         builders = self.create_sample_ringbuilders(2)
-        same_device = copy.deepcopy(builders[0].devs[0])
+        same_device = copy.deepcopy(builders[0].devs[200])
 
         # create one more ring which duplicates a device in the first ring
         builder = RingBuilder(6, 3, 1)
@@ -987,7 +988,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         c = Counter(builder.devs[dev_id]['id']
                     for part2dev_id in builder._replica2part2dev
                     for dev_id in part2dev_id)
-        return [c[d['id']] for d in builder.devs]
+        return [c[d['id']] for d in builder.devs if d]
 
     def get_moved_parts(self, after, before):
         def uniqueness(dev):

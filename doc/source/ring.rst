@@ -4,6 +4,16 @@
 Partitioned Consistent Hash Ring
 ********************************
 
+.. _ring-io:
+
+Ring IO
+=======
+
+.. automodule:: swift.common.ring.io
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. _ring:
 
 Ring
