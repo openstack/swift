@@ -20,7 +20,6 @@ import json
 import os.path
 import unittest
 from unittest import mock
-import zlib
 
 from swift.common.ring.io import IndexEntry, RingReader, RingWriter
 
@@ -46,45 +45,6 @@ class TestRoundTrip(unittest.TestCase):
         except RuntimeError:
             pass
         self.assertEqual(0, len(os.listdir(tempd)))
-
-    def test_arbitrary_bytes(self):
-        buf = io.BytesIO()
-        with RingWriter(buf) as writer:
-            # Still need to write good magic, or we won't be able to read
-            writer.write_magic(1)
-            # but after that, we can kinda do whatever
-            writer.write(b'\xde\xad\xbe\xef' * 10240)
-            writer.write(b'\xda\x7a\xda\x7a' * 10240)
-            good_pos = writer.tell()
-
-            self.assertTrue(writer.flushed)
-            pos = writer.raw_fp.tell()
-            writer.write(b'')
-            self.assertTrue(writer.flushed)
-            self.assertEqual(pos, writer.raw_fp.tell())
-
-            writer.write(b'more' * 10240)
-            self.assertFalse(writer.flushed)
-
-        buf.seek(0)
-        reader = RingReader(buf)
-        self.assertEqual(reader.version, 1)
-        self.assertEqual(reader.raw_size, 6 + 12 * 10240)
-        self.assertEqual(reader.read(6), b'R1NG\x00\x01')
-        self.assertRepeats(reader.read(40960), b'\xde\xad\xbe\xef', 10240)
-        self.assertRepeats(reader.read(40960), b'\xda\x7a\xda\x7a', 10240)
-        self.assertRepeats(reader.read(40960), b'more', 10240)
-        # Can seek backwards
-        reader.seek(good_pos)
-        self.assertRepeats(reader.read(40960), b'more', 10240)
-        # Even all the way to the beginning
-        reader.seek(0)
-        self.assertEqual(reader.read(6), b'R1NG\x00\x01')
-        self.assertRepeats(reader.read(40960), b'\xde\xad\xbe\xef', 10240)
-        # but not arbitrarily
-        reader.seek(good_pos - 100)
-        with self.assertRaises(zlib.error):
-            reader.read(1)
 
     def test_sections(self):
         buf = io.BytesIO()
@@ -139,7 +99,7 @@ class TestRoundTrip(unittest.TestCase):
         self.assertEqual(reader.version, 2)
         # Order matters!
         self.assertEqual(list(reader.index), [
-            'foo', 'bar', 'baz', 'quux', 'swift/index'])
+            'foo', 'bar', 'baz', 'quux'])
         self.assertEqual({
             k: (v.uncompressed_start, v.uncompressed_end, v.checksum_method)
             for k, v in reader.index.items()
@@ -149,7 +109,6 @@ class TestRoundTrip(unittest.TestCase):
             'baz': (81942, 122910, 'sha256'),
             # note the gap between baz and quux for the raw bytes
             'quux': (122933, 163901, 'sha256'),
-            'swift/index': (163901, None, None),
         })
 
         self.assertIn('foo', reader)
@@ -166,7 +125,8 @@ class TestRoundTrip(unittest.TestCase):
         self.assertRepeats(reader.read_blob(), b'more', 10240)
         self.assertRepeats(reader.read_section('quux'),
                            b'data', 10240)
-        index_dict = json.loads(reader.read_section('swift/index'))
+        # Index is just a final (length-prefixed) JSON blob
+        index_dict = json.loads(reader.read_blob())
         self.assertEqual(reader.index, {
             section: IndexEntry(*entry)
             for section, entry in index_dict.items()})
@@ -178,7 +138,7 @@ class TestRoundTrip(unittest.TestCase):
         self.assertEqual("'foobar'", str(caught.exception))
 
         # seek to the end of baz
-        reader.seek(reader.index['baz'].compressed_end)
+        reader.compressed_seek(reader.index['baz'].compressed_end)
         # so we can read the raw bytes we stuffed in
         gap_length = (reader.index['quux'].uncompressed_start -
                       reader.index['baz'].uncompressed_end)
@@ -238,15 +198,9 @@ class TestRoundTrip(unittest.TestCase):
 
         buf.seek(0)
         reader = RingReader(buf)
-        with reader.open_section('foo') as s:
-            read_bytes = s.read(4)
-        self.assertEqual(b'\xde\xad\xbe\xef', read_bytes)
-        self.assertEqual(mock_logging.mock_calls, [
-            mock.call('swift.ring'),
-            mock.call('swift.ring').warning(
-                'Ignoring unsupported checksum %s:%s for section %s',
-                'not_a_digest', mock.ANY, 'foo'),
-        ])
+        with self.assertRaises(ValueError):
+            with reader.open_section('foo'):
+                pass
 
     def test_recompressed(self):
         buf = io.BytesIO()

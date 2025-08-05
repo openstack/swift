@@ -19,12 +19,10 @@ import dataclasses
 import gzip
 import hashlib
 import json
-import logging
 import os
 import string
 import struct
 import tempfile
-from typing import Optional
 import zlib
 
 from swift.common.ring.utils import BYTES_TO_TYPE_CODE, network_order_array, \
@@ -38,7 +36,7 @@ DEFAULT_BUFFER_SIZE = 2 ** 16
 V2_SIZE_FORMAT = "!Q"
 
 
-class GzipReader(object):
+class _RingGzReader(object):
     chunk_size = DEFAULT_BUFFER_SIZE
 
     def __init__(self, fileobj):
@@ -76,7 +74,7 @@ class GzipReader(object):
         self.decompressor = zlib.decompressobj(wbits)
         self.buffer = self.compressed_buffer = b""
 
-    def seek(self, pos, whence=os.SEEK_SET):
+    def compressed_seek(self, pos, whence=os.SEEK_SET):
         """
         Seek to the given point in the compressed stream.
 
@@ -85,7 +83,7 @@ class GzipReader(object):
         As a result, callers should be careful to ``seek()`` to flush
         boundaries, to ensure that subsequent ``read()`` calls work properly.
 
-        Note that when using ``GzipWriter``, all ``tell()`` results will be
+        Note that when using ``_RingGzWriter``, all ``tell()`` results will be
         flush boundaries and appropriate to later use as ``seek()`` arguments.
         """
         if (pos, whence) == (self.pos, os.SEEK_SET):
@@ -94,7 +92,7 @@ class GzipReader(object):
         self.fp.seek(pos, whence)
         self.reset_decompressor()
 
-    def tell(self):
+    def compressed_tell(self):
         return self.fp.tell()
 
     @classmethod
@@ -178,11 +176,11 @@ class SectionReader(object):
     """
     A file-like wrapper that limits how many bytes may be read.
 
-    Optionally, also verify data integrity.
+    Also verify data integrity.
 
     :param fp: a file-like object opened with mode "rb"
     :param length: the maximum number of bytes that should be read
-    :param digest: optional hex digest of the expected bytes
+    :param digest: hex digest of the expected bytes
     :param checksum: checksumming instance to be fed bytes and later compared
                      against ``digest``; e.g. ``hashlib.sha256()``
     """
@@ -201,8 +199,7 @@ class SectionReader(object):
         amt = min(amt, self._remaining)
         data = self._fp.read(amt)
         self._remaining -= len(data)
-        if self._checksum:
-            self._checksum.update(data)
+        self._checksum.update(data)
         return data
 
     def read_ring_table(self, itemsize, partition_count):
@@ -240,31 +237,25 @@ class SectionReader(object):
 class IndexEntry:
     compressed_start: int
     uncompressed_start: int
-    compressed_end: Optional[int] = None
-    uncompressed_end: Optional[int] = None
-    checksum_method: Optional[str] = None
-    checksum_value: Optional[str] = None
+    compressed_end: int
+    uncompressed_end: int
+    checksum_method: str
+    checksum_value: str
 
     @property
-    def uncompressed_length(self) -> Optional[int]:
-        if self.uncompressed_end is None:
-            return None
+    def uncompressed_length(self) -> int:
         return self.uncompressed_end - self.uncompressed_start
 
     @property
-    def compressed_length(self) -> Optional[int]:
-        if self.compressed_end is None:
-            return None
+    def compressed_length(self) -> int:
         return self.compressed_end - self.compressed_start
 
     @property
-    def compression_ratio(self) -> Optional[float]:
-        if self.uncompressed_end is None:
-            return None
+    def compression_ratio(self) -> float:
         return 1 - self.compressed_length / self.uncompressed_length
 
 
-class RingReader(GzipReader):
+class RingReader(_RingGzReader):
     """
     Helper for reading ring files.
 
@@ -293,7 +284,7 @@ class RingReader(GzipReader):
 
         self.load_index()
 
-        self.seek(0)
+        self.compressed_seek(0)
 
     def load_index(self):
         """
@@ -307,14 +298,14 @@ class RingReader(GzipReader):
 
         # See notes in RingWriter.write_index and RingWriter.__exit__ for
         # where this 31 (= 18 + 13) came from.
-        self.seek(-31, os.SEEK_END)
+        self.compressed_seek(-31, os.SEEK_END)
         try:
             index_start, = struct.unpack(V2_SIZE_FORMAT, self.read(8))
         except zlib.error:
             # TODO: we can still fix this if we're willing to read everything
             raise IOError("Could not read index offset "
                           "(was the file recompressed?)")
-        self.seek(index_start)
+        self.compressed_seek(index_start)
         # ensure index entries are sorted by position
         self.index = collections.OrderedDict(sorted(
             ((section, IndexEntry(*entry))
@@ -362,7 +353,7 @@ class RingReader(GzipReader):
         if not self.index:
             raise ValueError("No index loaded")
         entry = self.index[section]
-        self.seek(entry.compressed_start)
+        self.compressed_seek(entry.compressed_start)
         size_len = struct.calcsize(V2_SIZE_FORMAT)
         prefix = self.read(size_len)
         blob_length, = struct.unpack(V2_SIZE_FORMAT, prefix)
@@ -374,11 +365,8 @@ class RingReader(GzipReader):
             checksum = getattr(hashlib, entry.checksum_method)(prefix)
             checksum_value = entry.checksum_value
         else:
-            if entry.checksum_method is not None:
-                logging.getLogger('swift.ring').warning(
-                    "Ignoring unsupported checksum %s:%s for section %s",
-                    entry.checksum_method, entry.checksum_value, section)
-            checksum = checksum_value = None
+            raise ValueError(f"Unsupported checksum {entry.checksum_method}:"
+                             f"{entry.checksum_value} for section  {section}")
 
         with SectionReader(
             self,
@@ -389,7 +377,7 @@ class RingReader(GzipReader):
             yield reader
 
 
-class GzipWriter(object):
+class _RingGzWriter(object):
     def __init__(self, fileobj, filename='', mtime=1300507380.0):
         self.raw_fp = fileobj
         self.gzip_fp = gzip.GzipFile(
@@ -398,7 +386,6 @@ class GzipWriter(object):
             fileobj=self.raw_fp,
             mtime=mtime)
         self.flushed = True
-        self.pos = 0
 
     @classmethod
     @contextlib.contextmanager
@@ -408,7 +395,7 @@ class GzipWriter(object):
 
         Note that this also guarantees atomic writes using a temporary file
 
-        :returns: a context manager that provides a ``GzipWriter`` instance
+        :returns: a context manager that provides a ``_RingGzWriter`` instance
         """
         fp = tempfile.NamedTemporaryFile(
             dir=os.path.dirname(filename),
@@ -450,7 +437,6 @@ class GzipWriter(object):
         if not data:
             return 0
         self.flushed = False
-        self.pos += len(data)
         return self.gzip_fp.write(data)
 
     def flush(self):
@@ -469,18 +455,22 @@ class GzipWriter(object):
             self.gzip_fp.flush(zlib.Z_FULL_FLUSH)
             self.flushed = True
 
-    def tell(self):
+    def compressed_tell(self):
         """
         Return the position in the underlying (compressed) stream.
 
         Since this is primarily useful to get a position you may seek to later
         and start reading, flush the writer first.
-
-        If you want the position within the *uncompressed* stream, use the
-        ``pos`` attribute.
         """
         self.flush()
         return self.raw_fp.tell()
+
+    def tell(self):
+        """
+        Return the position in the decompressed stream.
+        """
+        self.flush()
+        return self.gzip_fp.tell()
 
     def _set_compression_level(self, lvl):
         # two valid deflate streams may be concatenated to produce another
@@ -491,7 +481,7 @@ class GzipWriter(object):
             lvl, zlib.DEFLATED, -zlib.MAX_WBITS, zlib.DEF_MEM_LEVEL, 0)
 
 
-class RingWriter(GzipWriter):
+class RingWriter(_RingGzWriter):
     """
     Helper for writing ring files to later be read by a ``RingReader``
 
@@ -544,16 +534,18 @@ class RingWriter(GzipWriter):
             raise ValueError('Cannot write duplicate section: %s' % name)
         self.flush()
         self.current_section = name
-        self.index[name] = IndexEntry(self.tell(), self.pos)
+        compressed_start = self.compressed_tell()
+        uncompressed_start = self.tell()
         checksum_class = getattr(hashlib, self.checksum_method)
         self.checksum = checksum_class()
         try:
             yield self
             self.flush()
-            self.index[name] = dataclasses.replace(
-                self.index[name],
-                compressed_end=self.tell(),
-                uncompressed_end=self.pos,
+            self.index[name] = IndexEntry(
+                compressed_start,
+                uncompressed_start,
+                compressed_end=self.compressed_tell(),
+                uncompressed_end=self.tell(),
                 checksum_method=self.checksum_method,
                 checksum_value=self.checksum.hexdigest(),
             )
@@ -579,7 +571,7 @@ class RingWriter(GzipWriter):
 
         :param version: the ring version; should be 1 or 2
         """
-        if self.pos != 0:
+        if self.tell() != 0:
             raise IOError("Magic must be written at the start of the file")
         # switch to uncompressed, so libmagic can know what to expect
         self._set_compression_level(0)
@@ -639,19 +631,20 @@ class RingWriter(GzipWriter):
         Callers should not need to use this themselves; it will be done
         automatically when using the writer as a context manager.
         """
-        with self.section('swift/index'):
-            self.write_json({
-                k: dataclasses.astuple(v)
-                for k, v in self.index.items()
-            })
+        uncompressed_start = self.tell()
+        compressed_start = self.compressed_tell()
+        self.write_json({
+            k: dataclasses.astuple(v)
+            for k, v in self.index.items()
+        })
         # switch to uncompressed
         self._set_compression_level(0)
         # ... which allows us to know that each of these write_size/flush pairs
         # will write exactly 18 bytes to disk
-        self.write_size(self.index['swift/index'].uncompressed_start)
+        self.write_size(uncompressed_start)
         self.flush()
         # This is the one we really care about in Swift code, but sometimes
         # ops write their own tools and sometimes those just buffer all the
         # decoded content
-        self.write_size(self.index['swift/index'].compressed_start)
+        self.write_size(compressed_start)
         self.flush()

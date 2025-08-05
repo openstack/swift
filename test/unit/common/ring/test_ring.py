@@ -16,6 +16,7 @@
 import array
 import collections
 from gzip import GzipFile
+import hashlib
 import json
 import os
 import unittest
@@ -216,9 +217,8 @@ class TestRingData(unittest.TestCase):
         self.assertEqual(loaded_rd['devs'], expected_devs)
         self.assertEqual(loaded_rd['part_shift'], 30)
         self.assertEqual(loaded_rd['replica_count'], 2)
-        self.assertEqual(loaded_rd['dev_id_bytes'], 2)
 
-        # but there is no replica2part2dev table
+        # but the replica2part2dev table is empty
         self.assertFalse(loaded_rd['replica2part2dev_id'])
 
         # But if we load it up with metadata_only = false
@@ -228,7 +228,6 @@ class TestRingData(unittest.TestCase):
         self.assertEqual(loaded_rd['devs'], expected_devs)
         self.assertEqual(loaded_rd['part_shift'], 30)
         self.assertEqual(loaded_rd['replica_count'], 2)
-        self.assertEqual(loaded_rd['dev_id_bytes'], 2)
         self.assertTrue(loaded_rd['replica2part2dev_id'])
 
     def test_deserialize_v2(self):
@@ -242,6 +241,12 @@ class TestRingData(unittest.TestCase):
              {'id': 1, 'region': 1, 'zone': 1, 'ip': '10.1.1.1',
               'port': 7000}],
             30)
+        rd.save(ring_fname, format_version=1)
+        with self.assertRaises(ValueError) as err:
+            ring.RingData.deserialize_v2(io.RingReader(open(ring_fname, 'rb')))
+        self.assertEqual("No index loaded", str(err.exception))
+
+        # Now let's save it as v2 then load it up metadata_only
         rd.save(ring_fname, format_version=2)
         loaded_rd = ring.RingData.deserialize_v2(
             io.RingReader(open(ring_fname, 'rb')),
@@ -252,7 +257,7 @@ class TestRingData(unittest.TestCase):
         # minimum size we use is 2 byte dev ids
         self.assertEqual(loaded_rd['dev_id_bytes'], 2)
 
-        # but there is no replica2part2dev table or devs
+        # but the replica2part2dev table and devs are both empty
         self.assertFalse(loaded_rd['devs'])
         self.assertFalse(loaded_rd['replica2part2dev_id'])
 
@@ -275,6 +280,17 @@ class TestRingData(unittest.TestCase):
         loaded_rd = ring.RingData.deserialize_v2(
             io.RingReader(open(ring_fname, 'rb')))
         self.assertEqual(loaded_rd['devs'], expected_devs)
+        self.assertEqual(loaded_rd['part_shift'], 30)
+        self.assertEqual(loaded_rd['replica_count'], 2)
+        self.assertEqual(loaded_rd['dev_id_bytes'], 2)
+        self.assertTrue(loaded_rd['replica2part2dev_id'])
+
+        # Can also load up assignments but not devs; idk why you'd want that
+        loaded_rd = ring.RingData.deserialize_v2(
+            io.RingReader(open(ring_fname, 'rb')),
+            metadata_only=False,
+            include_devices=False)
+        self.assertFalse(loaded_rd['devs'])
         self.assertEqual(loaded_rd['part_shift'], 30)
         self.assertEqual(loaded_rd['replica_count'], 2)
         self.assertEqual(loaded_rd['dev_id_bytes'], 2)
@@ -1191,20 +1207,26 @@ class TestRingV2(TestRing):
             fp.write(b'R1NG\x00\x02')
             fp.flush(zlib.Z_FULL_FLUSH)
 
-            index['swift/ring/metadata'] = [
-                os.fstat(fp.fileno()).st_size, fp.tell(),
-                None, None, None, None]
+            comp_start = os.fstat(fp.fileno()).st_size
+            uncomp_start = fp.tell()
             meta = json.dumps({
                 "dev_id_bytes": 4,
                 "part_shift": 29,
                 "replica_count": 1.5,
             }).encode('ascii')
-            fp.write(struct.pack('!Q', len(meta)) + meta)
+            to_write = struct.pack('!Q', len(meta)) + meta
+            fp.write(to_write)
             fp.flush(zlib.Z_FULL_FLUSH)
+            index['swift/ring/metadata'] = [
+                comp_start,
+                uncomp_start,
+                os.fstat(fp.fileno()).st_size,
+                fp.tell(),
+                'sha256',
+                hashlib.sha256(to_write).hexdigest()]
 
-            index['swift/ring/devices'] = [
-                os.fstat(fp.fileno()).st_size, fp.tell(),
-                None, None, None, None]
+            comp_start = os.fstat(fp.fileno()).st_size
+            uncomp_start = fp.tell()
             devs = json.dumps([
                 {"id": 0, "region": 1, "zone": 1, "ip": "127.0.0.1",
                  "port": 6200, "device": "sda", "weight": 1},
@@ -1214,28 +1236,44 @@ class TestRingV2(TestRing):
                 {"id": 3, "region": 1, "zone": 1, "ip": "127.0.0.1",
                  "port": 6202, "device": "sdc", "weight": 1},
             ]).encode('ascii')
-            fp.write(struct.pack('!Q', len(devs)) + devs)
+            to_write = struct.pack('!Q', len(devs)) + devs
+            fp.write(to_write)
             fp.flush(zlib.Z_FULL_FLUSH)
+            index['swift/ring/devices'] = [
+                comp_start,
+                uncomp_start,
+                os.fstat(fp.fileno()).st_size,
+                fp.tell(),
+                'sha256',
+                hashlib.sha256(to_write).hexdigest()]
 
-            index['swift/ring/assignments'] = [
-                os.fstat(fp.fileno()).st_size, fp.tell(),
-                None, None, None, None]
-            fp.write(struct.pack('!Q', 48) + 4 * (
+            comp_start = os.fstat(fp.fileno()).st_size
+            uncomp_start = fp.tell()
+            to_write = struct.pack('!Q', 48) + 4 * (
                 b'\x00\x00\x00\x03'
                 b'\x00\x00\x00\x02'
-                b'\x00\x00\x00\x00'))
+                b'\x00\x00\x00\x00')
+            fp.write(to_write)
             fp.flush(zlib.Z_FULL_FLUSH)
+            index['swift/ring/assignments'] = [
+                comp_start,
+                uncomp_start,
+                os.fstat(fp.fileno()).st_size,
+                fp.tell(),
+                'sha256',
+                hashlib.sha256(to_write).hexdigest()]
 
-            index['swift/index'] = [
-                os.fstat(fp.fileno()).st_size, fp.tell(),
-                None, None, None, None]
+            comp_start = os.fstat(fp.fileno()).st_size
+            uncomp_start = fp.tell()
             blob = json.dumps(index).encode('ascii')
             fp.write(struct.pack('!Q', len(blob)) + blob)
             fp.flush(zlib.Z_FULL_FLUSH)
 
             fp.compress = zlib.compressobj(
                 0, zlib.DEFLATED, -zlib.MAX_WBITS, zlib.DEF_MEM_LEVEL, 0)
-            fp.write(struct.pack('!Q', index['swift/index'][0]))
+            fp.write(struct.pack('!Q', uncomp_start))
+            fp.flush(zlib.Z_FULL_FLUSH)
+            fp.write(struct.pack('!Q', comp_start))
             fp.flush(zlib.Z_FULL_FLUSH)
 
         r = ring.Ring(ring_file)
