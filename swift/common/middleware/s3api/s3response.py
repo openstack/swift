@@ -395,7 +395,7 @@ class IllegalVersioningConfigurationException(ErrorResponse):
 class IncompleteBody(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'You did not provide the number of bytes specified by the ' \
-           'Content-Length HTTP header.'
+           'Content-Length HTTP header'
 
 
 class IncorrectNumberOfFilesInPostRequest(ErrorResponse):
@@ -442,6 +442,11 @@ class InvalidBucketName(ErrorResponse):
 class InvalidBucketState(ErrorResponse):
     _status = '409 Conflict'
     _msg = 'The request is not valid with the current state of the bucket.'
+
+
+class InvalidChunkSizeError(ErrorResponse):
+    _status = '403 Forbidden'
+    _msg = 'Only the last chunk is allowed to have a size less than 8192 bytes'
 
 
 class InvalidDigest(ErrorResponse):
@@ -563,6 +568,12 @@ class MalformedPOSTRequest(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'The body of your POST request is not well-formed ' \
            'multipart/form-data.'
+
+
+class MalformedTrailerError(ErrorResponse):
+    _status = '400 Bad Request'
+    _msg = 'The request contained trailing data that was not well-formed ' \
+           'or did not conform to our published schema.'
 
 
 class MalformedXML(ErrorResponse):
