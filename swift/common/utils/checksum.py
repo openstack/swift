@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+try:
+    import anycrc
+except ImportError:
+    anycrc = None
 import binascii
 import ctypes
 import ctypes.util
@@ -28,6 +32,15 @@ except ImportError:
     pkg_files = None
 
 
+# See if anycrc is available...
+if anycrc:
+    crc32c_anycrc = anycrc.Model('CRC32C').calc
+    crc64nvme_anycrc = anycrc.Model('CRC64-NVME').calc
+else:
+    crc32c_anycrc = None
+    crc64nvme_anycrc = None
+
+
 # If isal is available system-wide, great!
 isal_lib = ctypes.util.find_library('isal')
 if isal_lib is None and pkg_files is not None:
@@ -39,6 +52,7 @@ if isal_lib is None and pkg_files is not None:
         isal_lib = isal_libs[0].locate()
 
 isal = ctypes.CDLL(isal_lib) if isal_lib else None
+
 if hasattr(isal, 'crc32_iscsi'):  # isa-l >= 2.16
     isal.crc32_iscsi.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_uint]
     isal.crc32_iscsi.restype = ctypes.c_uint
@@ -55,7 +69,22 @@ if hasattr(isal, 'crc32_iscsi'):  # isa-l >= 2.16
 else:
     crc32c_isal = None
 
+if hasattr(isal, 'crc64_rocksoft_refl'):  # isa-l >= 2.31.0
+    isal.crc64_rocksoft_refl.argtypes = [
+        ctypes.c_uint64, ctypes.c_char_p, ctypes.c_uint64]
+    isal.crc64_rocksoft_refl.restype = ctypes.c_uint64
 
+    def crc64nvme_isal(data, value=0):
+        return isal.crc64_rocksoft_refl(
+            value,
+            data,
+            len(data),
+        )
+else:
+    crc64nvme_isal = None
+
+
+# The kernel may also provide crc32c
 AF_ALG = getattr(socket, 'AF_ALG', 38)
 try:
     _sock = socket.socket(AF_ALG, socket.SOCK_SEQPACKET)
@@ -98,9 +127,18 @@ def _select_crc32c_impl():
     # AMD 3900XT     | ~20GB/s   | ~5GB/s
     #
     # i.e., ISA-L is consistently 3-5x faster than kernel sockets
-    selected = crc32c_isal or crc32c_kern or None
+    selected = crc32c_isal or crc32c_kern or crc32c_anycrc or None
     if not selected:
-        raise NotImplementedError('no crc32c implementation, install isal')
+        raise NotImplementedError(
+            'no crc32c implementation, install isal or anycrc')
+    return selected
+
+
+def _select_crc64nvme_impl():
+    selected = crc64nvme_isal or crc64nvme_anycrc or None
+    if not selected:
+        raise NotImplementedError(
+            'no crc64nvme implementation, install isal or anycrc')
     return selected
 
 
@@ -145,7 +183,8 @@ class CRCHasher(object):
 
     def digest(self):
         """
-        Return the current CRC value as a 4-byte big-endian integer.
+        Return the current CRC value as a big-endian integer of length
+        ``width / 8`` bytes.
 
         :returns: Packed CRC value. (bytes)
         """
@@ -187,8 +226,11 @@ def crc32c(data=None, initial_value=0):
 
 
 def crc64nvme(data=None, initial_value=0):
-    '''Stub for s3api'''
-    raise NotImplementedError
+    return CRCHasher('crc64nvme',
+                     _select_crc64nvme_impl(),
+                     data=data,
+                     initial_value=initial_value,
+                     width=64)
 
 
 def log_selected_implementation(logger):
@@ -196,6 +238,16 @@ def log_selected_implementation(logger):
         impl = _select_crc32c_impl()
     except NotImplementedError:
         logger.warning(
-            'No implementation found for CRC32C; install ISA-L for support.')
+            'No implementation found for CRC32C; '
+            'install ISA-L or anycrc for support.')
     else:
         logger.info('Using %s implementation for CRC32C.' % impl.__name__)
+
+    try:
+        impl = _select_crc64nvme_impl()
+    except NotImplementedError:
+        logger.warning(
+            'No implementation found for CRC64NVME; '
+            'install ISA-L or anycrc for support.')
+    else:
+        logger.info('Using %s implementation for CRC64NVME.' % impl.__name__)
