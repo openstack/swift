@@ -11,6 +11,31 @@
             <element name="ETag">
               <data type="string"/>
             </element>
+            <optional>
+              <element name="ChecksumCRC32">
+                <data type="string"/>
+              </element>
+            </optional>
+            <optional>
+              <element name="ChecksumCRC32C">
+                <data type="string"/>
+              </element>
+            </optional>
+            <optional>
+              <element name="ChecksumCRC64NVME">
+                <data type="string"/>
+              </element>
+            </optional>
+            <optional>
+              <element name="ChecksumSHA1">
+                <data type="string"/>
+              </element>
+            </optional>
+            <optional>
+              <element name="ChecksumSHA256">
+                <data type="string"/>
+              </element>
+            </optional>
           </interleave>
         </element>
       </oneOrMore>

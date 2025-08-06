@@ -2450,6 +2450,28 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))
 
+    def test_strict_b64decode_allow_line_breaks(self):
+        with self.assertRaises(ValueError):
+            utils.strict_b64decode(b'AA\nA=')
+        self.assertEqual(
+            b'\x00\x00',
+            utils.strict_b64decode(b'AA\nA=', allow_line_breaks=True))
+
+    def test_strict_b64decode_exact_size(self):
+        self.assertEqual(b'\x00\x00',
+                         utils.strict_b64decode(b'AAA='))
+        self.assertEqual(b'\x00\x00',
+                         utils.strict_b64decode(b'AAA=', exact_size=2))
+        with self.assertRaises(ValueError):
+            utils.strict_b64decode(b'AAA=', exact_size=1)
+        with self.assertRaises(ValueError):
+            utils.strict_b64decode(b'AAA=', exact_size=3)
+
+    def test_base64_str(self):
+        self.assertEqual('Zm9v', utils.base64_str(b'foo'))
+        self.assertEqual('Zm9vZA==', utils.base64_str(b'food'))
+        self.assertEqual('IGZvbw==', utils.base64_str(b' foo'))
+
     def test_cap_length(self):
         self.assertEqual(utils.cap_length(None, 3), None)
         self.assertEqual(utils.cap_length('', 3), '')

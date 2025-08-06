@@ -159,7 +159,7 @@ from swift.common.middleware.s3api.s3response import ErrorResponse, \
     InternalError, MethodNotAllowed, S3ResponseBase, S3NotImplemented
 from swift.common.utils import get_logger, config_true_value, \
     config_positive_int_value, split_path, closing_if_possible, \
-    list_from_csv, parse_header
+    list_from_csv, parse_header, checksum
 from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.registry import register_swift_info, \
@@ -300,6 +300,7 @@ class S3ApiMiddleware(object):
         self.logger = get_logger(
             wsgi_conf, log_route='s3api', statsd_tail_prefix='s3api')
         self.check_pipeline(wsgi_conf)
+        checksum.log_selected_implementation(self.logger)
 
     def is_s3_cors_preflight(self, env):
         if env['REQUEST_METHOD'] != 'OPTIONS' or not env.get('HTTP_ORIGIN'):
