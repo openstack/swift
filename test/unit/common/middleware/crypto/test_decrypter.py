@@ -1223,6 +1223,18 @@ class TestDecrypter(unittest.TestCase):
         resp = req.get_response(app)
         self.assertEqual(resp.status_int, 404)
 
+    def test_invalid_swift_path(self):
+        path = '/v1/\xC0.\xC0./\xC0.\xC0./\xC0.\xC0./\xC0.\xC0./winnt/win.ini'
+        fake_swift = FakeSwift()
+        fake_swift.register('GET', path, HTTPNotFound, {})
+        app = keymaster.KeyMaster(decrypter.Decrypter(fake_swift, {}), {
+            'encryption_root_secret': 'A' * 80,
+        })
+        app.app.logger = debug_logger()
+        req = Request.blank(path)
+        resp = req.get_response(app)
+        self.assertEqual(resp.status_int, 404)
+
 
 if __name__ == '__main__':
     unittest.main()
