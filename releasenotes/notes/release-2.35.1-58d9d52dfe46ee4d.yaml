@@ -1,0 +1,16 @@
+---
+features:
+  - |
+    S3 API
+
+    * Added support for aws-chunked transfers. Recent AWS clients recently
+      began defaulting to this mode. See `Amazon's documentation
+      <https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html>`__.
+
+    * Added support for verifying additional checksums during upload. All
+      algorithms currently supported by AWS are supported: ``CRC64NVME``,
+      ``CRC32``, ``CRC32C``, ``SHA1``, and ``SHA256``. See `Amazon's documentation
+      <https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html>`__.
+      Note that some algorithms require the availability of additional
+      libraries: `ISA-L <https://github.com/intel/isa-l>`__ or
+      `anycrc <https://pypi.org/project/anycrc>`__.
