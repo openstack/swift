@@ -27,7 +27,7 @@ import sys
 from swift.common.exceptions import RingLoadError, DevIdBytesTooSmall
 from swift.common.utils import hash_path, validate_configuration, md5
 from swift.common.ring.io import RingReader, RingWriter
-from swift.common.ring.utils import tiers_for_dev, BYTES_TO_TYPE_CODE
+from swift.common.ring.utils import tiers_for_dev
 
 
 DEFAULT_RELOAD_TIME = 15
@@ -123,32 +123,26 @@ class RingData(object):
         `replica2part2dev_id` is not loaded and that key in the returned
         dictionary just has the value `[]`.
 
-        :param RingReader reader: An opened RingReader which has already
-                            loaded the index at the end, gone back to the
-                            front, and consumed the 6 bytes of magic and
-                            version.
+        :param RingReader reader: An opened RingReader at the start of the file
         :param bool metadata_only: If True, only load `devs` and `part_shift`
         :returns: A dict containing `devs`, `part_shift`, and
                   `replica2part2dev_id`
         """
-        if reader.tell() == 0:
-            magic = reader.read(6)
-            if magic != b'R1NG\x00\x01':
-                raise ValueError('unexpected magic: %r' % magic)
+        magic = reader.read(6)
+        if magic != b'R1NG\x00\x01':
+            raise ValueError('unexpected magic: %r' % magic)
 
         ring_dict = json.loads(reader.read_blob('!I'))
         ring_dict['replica2part2dev_id'] = []
-        ring_dict['dev_id_bytes'] = 2
 
         if metadata_only:
             return ring_dict
 
         byteswap = (ring_dict.get('byteorder', sys.byteorder) != sys.byteorder)
 
-        type_code = BYTES_TO_TYPE_CODE[ring_dict['dev_id_bytes']]
         partition_count = 1 << (32 - ring_dict['part_shift'])
         for x in range(ring_dict['replica_count']):
-            part2dev = array.array(type_code, reader.read(2 * partition_count))
+            part2dev = array.array('H', reader.read(2 * partition_count))
             if byteswap:
                 part2dev.byteswap()
             ring_dict['replica2part2dev_id'].append(part2dev)
@@ -169,12 +163,11 @@ class RingData(object):
         list is not loaded and that key in the returned dictionary just has
         the value ``[]``.
 
-        :param file reader: An opened file-like object which has already
-                            consumed the 6 bytes of magic and version.
+        :param RingReader reader: An opened RingReader which has already
+                                  loaded up the index at the end of the file.
         :param bool metadata_only: If True, skip loading
                                    ``replica2part2dev_id``
-        :param bool include_devices: If False and ``metadata_only`` is True,
-                                     skip loading ``devs``
+        :param bool include_devices: If False, skip loading ``devs``
         :returns: A dict containing ``devs``, ``part_shift``,
                   ``dev_id_bytes``, and ``replica2part2dev_id``
         """
@@ -183,7 +176,7 @@ class RingData(object):
         ring_dict['replica2part2dev_id'] = []
         ring_dict['devs'] = []
 
-        if not metadata_only or include_devices:
+        if include_devices:
             ring_dict['devs'] = json.loads(
                 reader.read_section('swift/ring/devices'))
 
@@ -253,8 +246,11 @@ class RingData(object):
         if next_part_power is not None:
             _text['next_part_power'] = next_part_power
 
-        writer.write_json(_text, '!I')
-
+        json_text = json.dumps(_text, sort_keys=True,
+                               ensure_ascii=True).encode('ascii')
+        json_len = len(json_text)
+        writer.write(struct.pack('!I', json_len))
+        writer.write(json_text)
         for part2dev_id in ring['replica2part2dev_id']:
             part2dev_id.tofile(writer)
 
