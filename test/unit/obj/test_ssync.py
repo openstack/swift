@@ -991,18 +991,22 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                 pass  # expected outcome
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
-        log_lines = self.logger.get_lines_for_level('error')
+        tx_error_log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Sent data length does not match content-length',
-                      log_lines[0])
-        self.assertFalse(log_lines[1:])
+                      tx_error_log_lines[0])
+        self.assertFalse(tx_error_log_lines[1:])
         # trampoline for the receiver to write a log
-        eventlet.sleep(0)
-        log_lines = self.rx_logger.get_lines_for_level('warning')
-        self.assertEqual(1, len(log_lines), self.rx_logger.all_log_lines())
+        eventlet.sleep(0.001)
+        rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(rx_warning_log_lines),
+                         self.rx_logger.all_log_lines())
         self.assertIn('ssync subrequest failed with 499',
-                      log_lines[0])
-        self.assertFalse(log_lines[1:])
-        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
+                      rx_warning_log_lines[0])
+        self.assertFalse(rx_warning_log_lines[1:])
+        rx_error_lines = self.rx_logger.get_lines_for_level('error')
+        self.assertEqual(1, len(rx_error_lines), rx_error_lines)
+        self.assertIn('127.0.0.1/dev/9 read failed in ssync.Receiver: Early '
+                      'termination for PUT', rx_error_lines[0])
 
     def test_sync_reconstructor_no_rebuilt_content(self):
         # First fragment to sync gets no content in any response to
@@ -1026,17 +1030,20 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                 pass  # expected outcome
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
-        log_lines = self.logger.get_lines_for_level('error')
+        tx_error_log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Sent data length does not match content-length',
-                      log_lines[0])
-        self.assertFalse(log_lines[1:])
+                      tx_error_log_lines[0])
+        self.assertFalse(tx_error_log_lines[1:])
         # trampoline for the receiver to write a log
-        eventlet.sleep(0)
-        log_lines = self.rx_logger.get_lines_for_level('warning')
+        eventlet.sleep(0.001)
+        rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
         self.assertIn('ssync subrequest failed with 499',
-                      log_lines[0])
-        self.assertFalse(log_lines[1:])
-        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
+                      rx_warning_log_lines[0])
+        self.assertFalse(rx_warning_log_lines[1:])
+        rx_error_lines = self.rx_logger.get_lines_for_level('error')
+        self.assertEqual(1, len(rx_error_lines), rx_error_lines)
+        self.assertIn('127.0.0.1/dev/9 read failed in ssync.Receiver: Early '
+                      'termination for PUT', rx_error_lines[0])
 
     def test_sync_reconstructor_exception_during_rebuild(self):
         # First fragment to sync has some reconstructor get responses raise
@@ -1071,18 +1078,21 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
 
-        log_lines = self.logger.get_lines_for_level('error')
-        self.assertIn('Error trying to rebuild', log_lines[0])
+        tx_error_log_lines = self.logger.get_lines_for_level('error')
+        self.assertIn('Error trying to rebuild', tx_error_log_lines[0])
         self.assertIn('Sent data length does not match content-length',
-                      log_lines[1])
-        self.assertFalse(log_lines[2:])
+                      tx_error_log_lines[1])
+        self.assertFalse(tx_error_log_lines[2:])
         # trampoline for the receiver to write a log
-        eventlet.sleep(0)
-        log_lines = self.rx_logger.get_lines_for_level('warning')
+        eventlet.sleep(0.001)
+        rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
         self.assertIn('ssync subrequest failed with 499',
-                      log_lines[0])
-        self.assertFalse(log_lines[1:])
-        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
+                      rx_warning_log_lines[0])
+        self.assertFalse(rx_warning_log_lines[1:])
+        rx_error_lines = self.rx_logger.get_lines_for_level('error')
+        self.assertEqual(1, len(rx_error_lines), rx_error_lines)
+        self.assertIn('127.0.0.1/dev/9 read failed in ssync.Receiver: Early '
+                      'termination for PUT', rx_error_lines[0])
 
     def test_sync_reconstructor_no_responses(self):
         # First fragment to sync gets no responses for reconstructor to rebuild
@@ -1131,7 +1141,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Unable to get enough responses', log_lines[0])
         # trampoline for the receiver to write a log
-        eventlet.sleep(0)
+        eventlet.sleep(0.001)
         self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
         self.assertFalse(self.rx_logger.get_lines_for_level('error'))
 
@@ -1234,7 +1244,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                 fd.read())
 
         # trampoline for the receiver to write a log
-        eventlet.sleep(0)
+        eventlet.sleep(0.001)
         self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
         self.assertFalse(self.rx_logger.get_lines_for_level('error'))
 
@@ -1270,7 +1280,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         self.assertFalse(
             self.logger.get_lines_for_level('error'))
         # trampoline for the receiver to write a log
-        eventlet.sleep(0)
+        eventlet.sleep(0.001)
         self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
         self.assertFalse(self.rx_logger.get_lines_for_level('error'))
 

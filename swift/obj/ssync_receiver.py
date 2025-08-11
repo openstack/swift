@@ -16,7 +16,7 @@
 
 import eventlet.greenio
 import eventlet.wsgi
-from eventlet import sleep
+from eventlet import sleep, Timeout
 import urllib
 
 from swift.common import exceptions
@@ -104,6 +104,93 @@ def encode_wanted(remote, local):
     return None
 
 
+class SsyncInputProxy:
+    """
+    Wraps a wsgi input to provide ssync specific read methods.
+
+    If any exception or timeout is raised while reading from the input then
+    subsequent calls will raise the same exception. Callers are thereby
+    prevented from reading the input after it has raised an exception, when its
+    state may be uncertain. This enables the input to be safely shared by
+    multiple callers (typically an ssync Receiver and an ObjectController) who
+    may otherwise each be unaware that the other has encountered an exception.
+
+    :param wsgi_input: a wsgi input
+    :param chunk_size: the number of bytes to read at a time
+    :param timeout: the timeout in seconds applied to each read
+    """
+    def __init__(self, wsgi_input, chunk_size, timeout):
+        self.wsgi_input = wsgi_input
+        self.chunk_size = chunk_size
+        self.timeout = timeout
+        self.exception = None
+
+    def read_line(self, context):
+        """
+        Try to read a line from the wsgi input; annotate any timeout or read
+        errors with a description of the calling context.
+
+        :param context: string to annotate any exception raised
+        """
+        if self.exception:
+            raise self.exception
+        try:
+            try:
+                with exceptions.MessageTimeout(self.timeout, context):
+                    line = self.wsgi_input.readline(self.chunk_size)
+            except (eventlet.wsgi.ChunkReadError, IOError) as err:
+                raise exceptions.ChunkReadError('%s: %s' % (context, err))
+        except (Exception, Timeout) as err:
+            self.exception = err
+            raise
+
+        if line and not line.endswith(b'\n'):
+            # Everywhere we would call readline, we should always get
+            # a clean end-of-line as we should be reading
+            # SSYNC-specific messages or HTTP request lines/headers.
+            # If we didn't, it indicates that the wsgi input readline reached a
+            # valid end of chunked body without finding a newline.
+            raise exceptions.ChunkReadError(
+                '%s: %s' % (context, 'missing newline'))
+
+        return line
+
+    def _read_chunk(self, context, size):
+        if self.exception:
+            raise self.exception
+        try:
+            try:
+                with exceptions.MessageTimeout(self.timeout, context):
+                    chunk = self.wsgi_input.read(size)
+            except (eventlet.wsgi.ChunkReadError, IOError) as err:
+                raise exceptions.ChunkReadError('%s: %s' % (context, err))
+            if not chunk:
+                raise exceptions.ChunkReadError(
+                    'Early termination for %s' % context)
+        except (Exception, Timeout) as err:
+            self.exception = err
+            raise
+        return chunk
+
+    def make_subreq_input(self, context, content_length):
+        """
+        Returns a wsgi input that will read up to the given ``content-length``
+        from the wrapped wsgi input.
+
+        :param context: string to annotate any exception raised
+        :param content_length: maximum number of bytes to read
+        """
+        def subreq_iter():
+            bytes_left = content_length
+            while bytes_left > 0:
+                size = min(bytes_left, self.chunk_size)
+                chunk = self._read_chunk(context, size)
+                bytes_left -= len(chunk)
+                yield chunk
+
+        return utils.FileLikeIter(subreq_iter())
+
+
 class Receiver(object):
     """
     Handles incoming SSYNC requests to the object server.
@@ -142,7 +229,7 @@ class Receiver(object):
         self.request = request
         self.device = None
         self.partition = None
-        self.fp = None
+        self.input = None
         # We default to dropping the connection in case there is any exception
         # raised during processing because otherwise the sender could send for
         # quite some time before realizing it was all in vain.
@@ -210,6 +297,8 @@ class Receiver(object):
                     '%s/%s/%s read failed in ssync.Receiver: %s' % (
                         self.request.remote_addr, self.device, self.partition,
                         err))
+                # Since the client (presumably) hung up, no point in trying to
+                # send anything about the error
             except swob.HTTPException as err:
                 body = b''.join(err({}, lambda *args: None))
                 yield (':ERROR: %d %r\n' % (
@@ -260,18 +349,9 @@ class Receiver(object):
         self.diskfile_mgr = self.app._diskfile_router[self.policy]
         if not self.diskfile_mgr.get_dev_path(self.device):
             raise swob.HTTPInsufficientStorage(drive=self.device)
-        self.fp = self.request.environ['wsgi.input']
-
-    def _readline(self, context):
-        # try to read a line from the wsgi input; annotate any timeout or read
-        # errors with a description of the calling context
-        with exceptions.MessageTimeout(
-                self.app.client_timeout, context):
-            try:
-                line = self.fp.readline(self.app.network_chunk_size)
-            except (eventlet.wsgi.ChunkReadError, IOError) as err:
-                raise exceptions.ChunkReadError('%s: %s' % (context, err))
-            return line
+        self.input = SsyncInputProxy(self.request.environ['wsgi.input'],
+                                     self.app.network_chunk_size,
+                                     self.app.client_timeout)
 
     def _check_local(self, remote, make_durable=True):
         """
@@ -382,7 +462,7 @@ class Receiver(object):
         have to read while it writes to ensure network buffers don't
         fill up and block everything.
         """
-        line = self._readline('missing_check start')
+        line = self.input.read_line('missing_check start')
         if not line:
             # Guess they hung up
             raise SsyncClientDisconnected
@@ -393,7 +473,7 @@ class Receiver(object):
         object_hashes = []
         nlines = 0
         while True:
-            line = self._readline('missing_check line')
+            line = self.input.read_line('missing_check line')
             if not line or line.strip() == b':MISSING_CHECK: END':
                 break
             want = self._check_missing(line)
@@ -446,7 +526,7 @@ class Receiver(object):
         success. This is so the sender knows if it can remove an out
         of place partition, for example.
         """
-        line = self._readline('updates start')
+        line = self.input.read_line('updates start')
         if not line:
             # Guess they hung up waiting for us to process the missing check
             raise SsyncClientDisconnected
@@ -457,11 +537,12 @@ class Receiver(object):
         failures = 0
         updates = 0
         while True:
-            line = self._readline('updates line')
+            line = self.input.read_line('updates line')
             if not line or line.strip() == b':UPDATES: END':
                 break
             # Read first line METHOD PATH of subrequest.
-            method, path = swob.bytes_to_wsgi(line.strip()).split(' ', 1)
+            context = swob.bytes_to_wsgi(line.strip())
+            method, path = context.split(' ', 1)
             subreq = swob.Request.blank(
                 '/%s/%s%s' % (self.device, self.partition, path),
                 environ={'REQUEST_METHOD': method})
@@ -469,10 +550,9 @@ class Receiver(object):
             content_length = None
             replication_headers = []
             while True:
-                line = self._readline('updates line')
+                line = self.input.read_line('updates line')
                 if not line:
-                    raise Exception(
-                        'Got no headers for %s %s' % (method, path))
+                    raise Exception('Got no headers for %s' % context)
                 line = line.strip()
                 if not line:
                     break
@@ -500,24 +580,9 @@ class Receiver(object):
                         % (method, path))
             elif method == 'PUT':
                 if content_length is None:
-                    raise Exception(
-                        'No content-length sent for %s %s' % (method, path))
-
-                def subreq_iter():
-                    left = content_length
-                    while left > 0:
-                        with exceptions.MessageTimeout(
-                                self.app.client_timeout,
-                                'updates content'):
-                            chunk = self.fp.read(
-                                min(left, self.app.network_chunk_size))
-                        if not chunk:
-                            raise exceptions.ChunkReadError(
-                                'Early termination for %s %s' % (method, path))
-                        left -= len(chunk)
-                        yield chunk
-                subreq.environ['wsgi.input'] = utils.FileLikeIter(
-                    subreq_iter())
+                    raise Exception('No content-length sent for %s' % context)
+                subreq.environ['wsgi.input'] = self.input.make_subreq_input(
+                    context, content_length)
             else:
                 raise Exception('Invalid subrequest method %s' % method)
             subreq.headers['X-Backend-Storage-Policy-Index'] = int(self.policy)
@@ -535,8 +600,8 @@ class Receiver(object):
                 successes += 1
             else:
                 self.app.logger.warning(
-                    'ssync subrequest failed with %s: %s %s (%s)' %
-                    (resp.status_int, method, subreq.path, resp.body))
+                    'ssync subrequest failed with %s: %s (%s)' %
+                    (resp.status_int, context, resp.body))
                 failures += 1
             if failures >= self.app.replication_failure_threshold and (
                     not successes or
@@ -546,8 +611,8 @@ class Receiver(object):
                     'Too many %d failures to %d successes' %
                     (failures, successes))
             # The subreq may have failed, but we want to read the rest of the
-            # body from the remote side so we can continue on with the next
-            # subreq.
+            # body from the remote side so we can either detect a broken input
+            # or continue on with the next subreq.
             for junk in subreq.environ['wsgi.input']:
                 pass
             if updates % 5 == 0:

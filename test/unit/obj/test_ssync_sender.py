@@ -82,12 +82,15 @@ class FakeResponse(ssync_sender.SsyncBufferedHTTPResponse):
 
 class FakeConnection(object):
 
-    def __init__(self):
+    def __init__(self, sleeps=None):
+        self.sleeps = sleeps
         self.sent = []
         self.closed = False
 
     def send(self, data):
         self.sent.append(data)
+        if self.sleeps:
+            eventlet.sleep(self.sleeps.pop(0))
 
     def close(self):
         self.closed = True
@@ -791,18 +794,16 @@ class TestSender(BaseTest):
         self.assertEqual(response.readline(), b'')
 
     def test_missing_check_timeout_start(self):
-        connection = FakeConnection()
+        connection = FakeConnection(sleeps=[1])
         response = FakeResponse()
         self.sender.daemon.node_timeout = 0.01
         self.assertFalse(self.sender.limited_by_max_objects)
-        with mock.patch.object(connection, 'send',
-                               side_effect=lambda *args: eventlet.sleep(1)):
-            with self.assertRaises(exceptions.MessageTimeout) as cm:
-                self.sender.missing_check(connection, response)
+        with self.assertRaises(exceptions.MessageTimeout) as cm:
+            self.sender.missing_check(connection, response)
         self.assertIn('0.01 seconds: missing_check start', str(cm.exception))
         self.assertFalse(self.sender.limited_by_max_objects)
 
-    def test_missing_check_timeout_send_line(self):
+    def test_call_and_missing_check_timeout_send_line(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             yield (
                 '9d41d8cd98f00b204e9800998ecf0abc',
@@ -810,23 +811,36 @@ class TestSender(BaseTest):
             yield (
                 '9d41d8cd98f00b204e9800998ecf0def',
                 {'ts_data': Timestamp(1380144471.00000)})
-        connection = FakeConnection()
+
         response = FakeResponse()
         # max_objects unlimited
-        self.sender = ssync_sender.Sender(self.daemon, None, self.job, None,
+        node = {'replication_ip': '1.2.3.4',
+                'replication_port': 5678,
+                'device': 'sda1'}
+        self.sender = ssync_sender.Sender(self.daemon, node, self.job, None,
                                           max_objects=0)
-        self.sender.daemon.node_timeout = 0.01
+        self.sender.suffixes = ['abc']
         self.sender.df_mgr.yield_hashes = yield_hashes
+        # arrange for timeout while sending first missing check item
+        self.sender.daemon.node_timeout = 0.01
+        connection = FakeConnection(sleeps=[0, 1])
+        self.sender.connect = mock.MagicMock(return_value=(connection,
+                                                           response))
+        self.sender.updates = mock.MagicMock()
         self.assertFalse(self.sender.limited_by_max_objects)
-        sleeps = [0, 0, 1]
-        with mock.patch.object(
-                connection, 'send',
-                side_effect=lambda *args: eventlet.sleep(sleeps.pop(0))):
-            with self.assertRaises(exceptions.MessageTimeout) as cm:
-                self.sender.missing_check(connection, response)
-        self.assertIn('0.01 seconds: missing_check send line: '
-                      '1 lines (57 bytes) sent', str(cm.exception))
+        success, candidates = self.sender()
+        self.assertFalse(success)
+        log_lines = self.daemon_logger.get_lines_for_level('error')
+        self.assertIn(
+            '1.2.3.4:5678/sda1/99 0.01 seconds: missing_check send line: '
+            '0 lines (0 bytes) sent', log_lines)
         self.assertFalse(self.sender.limited_by_max_objects)
+        # only the first missing check item was sent, plus a disconnect line
+        self.assertEqual(
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'0\r\n\r\n')
 
     def test_missing_check_has_empty_suffixes(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
