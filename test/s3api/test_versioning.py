@@ -670,9 +670,9 @@ class TestObjectVersioning(BaseS3TestCase):
         objs = resp.get('Contents', [])
         for obj in objs:
             owner = obj.pop('Owner')
-            self._sanitize_obj_listing(obj)
             # one difference seems to be the Owner key
-            self.assertEqual({'DisplayName', 'ID'}, set(owner.keys()))
+            self.check_owner(owner)
+            self._sanitize_obj_listing(obj)
         self.assertEqual(expected, objs)
         resp = self.client.list_objects_v2(Bucket=self.bucket_name)
         objs = resp.get('Contents', [])

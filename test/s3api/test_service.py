@@ -21,14 +21,12 @@ from test.s3api import BaseS3TestCase, ConfigError, \
 
 class TestGetServiceSigV4(BaseS3TestCase):
     def _do_test_empty_service(self, client):
-        access_key = client._request_signer._credentials.access_key
         resp = client.list_buckets()
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual([], resp['Buckets'])
         self.assertIn('x-amz-request-id',
                       resp['ResponseMetadata']['HTTPHeaders'])
-        self.assertIn('DisplayName', resp['Owner'])
-        self.assertEqual(access_key, resp['Owner']['DisplayName'])
+        self.check_owner(resp['Owner'])
         self.assertIn('ID', resp['Owner'])
 
     def test_empty_service(self):
@@ -59,10 +57,7 @@ class TestGetServiceSigV4(BaseS3TestCase):
                             for bucket in resp['Buckets']))
         self.assertIn('x-amz-request-id',
                       resp['ResponseMetadata']['HTTPHeaders'])
-        self.assertIn('DisplayName', resp['Owner'])
-        access_key = client._request_signer._credentials.access_key
-        self.assertEqual(access_key, resp['Owner']['DisplayName'])
-        self.assertIn('ID', resp['Owner'])
+        self.check_owner(resp['Owner'])
 
     def test_service_with_buckets(self):
         client = self.get_s3_client(1)
