@@ -89,7 +89,7 @@ class Timestamp(object):
             timestamp = timestamp.decode('ascii')
         if isinstance(timestamp, str):
             base, base_offset = timestamp.partition('_')[::2]
-            self.timestamp = float(base)
+            float_timestamp = float(base)
             if '_' in base_offset:
                 raise ValueError('invalid literal for int() with base 16: '
                                  '%r' % base_offset)
@@ -98,7 +98,7 @@ class Timestamp(object):
             else:
                 self.offset = 0
         else:
-            self.timestamp = float(timestamp)
+            float_timestamp = float(timestamp)
             self.offset = getattr(timestamp, 'offset', 0)
         # increment offset
         if offset >= 0:
@@ -107,14 +107,15 @@ class Timestamp(object):
             raise ValueError('offset must be non-negative')
         if self.offset > MAX_OFFSET:
             raise ValueError('offset must be smaller than %d' % MAX_OFFSET)
-        self.raw = int(round(self.timestamp / PRECISION))
+        self.raw = int(round(float_timestamp / PRECISION))
         # add delta
         if delta:
             self.raw = self.raw + delta
             if self.raw <= 0:
                 raise ValueError(
                     'delta must be greater than %d' % (-1 * self.raw))
-            self.timestamp = float(self.raw * PRECISION)
+
+        self.timestamp = round(float(self.raw * PRECISION), 5)
         if check_bounds:
             if self.timestamp < 0:
                 raise ValueError('timestamp cannot be negative')
