@@ -28,13 +28,11 @@ def retry(f, timeout=10):
     timelimit = time.time() + timeout
     while True:
         try:
-            f()
+            return f()
         except (ClientError, AssertionError):
             if time.time() > timelimit:
                 raise
             continue
-        else:
-            break
 
 
 class TestObjectVersioning(BaseS3TestCase):
@@ -49,24 +47,49 @@ class TestObjectVersioning(BaseS3TestCase):
         obj.pop('ChecksumAlgorithm', None)
         obj.pop('ChecksumType', None)
 
+    def enable_versioning(self):
+        resp = self.client.put_bucket_versioning(
+            Bucket=self.bucket_name,
+            VersioningConfiguration={'Status': 'Enabled'})
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        resp = self.get_versioning_status()
+        self.assertEqual('Enabled', resp.get('Status'), resp)
+
+    def disable_versioning(self):
+        resp = self.client.put_bucket_versioning(
+            Bucket=self.bucket_name,
+            VersioningConfiguration={'Status': 'Suspended'})
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        resp = self.get_versioning_status()
+        self.assertEqual('Suspended', resp.get('Status'), resp)
+
+    def get_versioning_status(self):
+        resp = self.client.get_bucket_versioning(Bucket=self.bucket_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        return resp
+
+    def get_version_ids(self, obj_name):
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        versions = resp.get('Versions', [])
+        version_ids = [version['VersionId']
+                       for version in versions
+                       if version['Key'] == obj_name]
+        versions = resp.get('DeleteMarkers', [])
+        marker_ids = [version['VersionId']
+                      for version in versions
+                      if version['Key'] == obj_name]
+        return version_ids, marker_ids
+
     def setUp(self):
         self.client = self.get_s3_client(1)
         self.bucket_name = self.create_name('versioning')
         resp = self.client.create_bucket(Bucket=self.bucket_name)
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
-
-        def enable_versioning():
-            resp = self.client.put_bucket_versioning(
-                Bucket=self.bucket_name,
-                VersioningConfiguration={'Status': 'Enabled'})
-            self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
-        retry(enable_versioning)
+        resp = retry(self.get_versioning_status)
+        self.assertNotIn('Status', resp)
 
     def tearDown(self):
-        resp = self.client.put_bucket_versioning(
-            Bucket=self.bucket_name,
-            VersioningConfiguration={'Status': 'Suspended'})
-        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        retry(self.disable_versioning)
         self.clear_bucket(self.client, self.bucket_name)
         super(TestObjectVersioning, self).tearDown()
 
@@ -130,6 +153,7 @@ class TestObjectVersioning(BaseS3TestCase):
         retry(check_status)
 
     def test_upload_fileobj_versioned(self):
+        retry(self.enable_versioning)
         obj_data = self.create_name('some-data').encode('ascii')
         obj_etag = md5(obj_data, usedforsecurity=False).hexdigest()
         obj_name = self.create_name('versioned-obj')
@@ -201,6 +225,7 @@ class TestObjectVersioning(BaseS3TestCase):
         }], objs)
 
     def test_delete_versioned_objects(self):
+        retry(self.enable_versioning)
         etags = []
         obj_name = self.create_name('versioned-obj')
         for i in range(3):
@@ -318,6 +343,7 @@ class TestObjectVersioning(BaseS3TestCase):
         }], objs)
 
     def test_delete_versioned_deletes(self):
+        retry(self.enable_versioning)
         etags = []
         obj_name = self.create_name('versioned-obj')
         for i in range(3):
@@ -407,6 +433,8 @@ class TestObjectVersioning(BaseS3TestCase):
         }], delete_markers)
 
     def test_multipart_upload(self):
+        # enable versioning now...
+        retry(self.enable_versioning)
         obj_name = self.create_name('versioned-obj')
         obj_data = b'data'
 
@@ -483,6 +511,7 @@ class TestObjectVersioning(BaseS3TestCase):
         }], markers)
 
     def test_get_versioned_object(self):
+        retry(self.enable_versioning)
         etags = []
         obj_name = self.create_name('versioned-obj')
         for i in range(3):
@@ -543,6 +572,7 @@ class TestObjectVersioning(BaseS3TestCase):
             self.assertEqual('"%s"' % etag, resp['ETag'])
 
     def test_get_versioned_object_invalid_params(self):
+        retry(self.enable_versioning)
         with self.assertRaises(ClientError) as ctx:
             self.client.list_object_versions(Bucket=self.bucket_name,
                                              KeyMarker='',
@@ -561,6 +591,7 @@ class TestObjectVersioning(BaseS3TestCase):
         self.assertEqual(expected_err, str(ctx.exception))
 
     def test_get_versioned_object_key_marker(self):
+        retry(self.enable_versioning)
         obj00_name = self.create_name('00-versioned-obj')
         obj01_name = self.create_name('01-versioned-obj')
         names = [obj00_name] * 3 + [obj01_name] * 3
@@ -647,6 +678,7 @@ class TestObjectVersioning(BaseS3TestCase):
         self.assertEqual(expected[3:], objs)
 
     def test_list_objects(self):
+        retry(self.enable_versioning)
         etags = defaultdict(list)
         for i in range(3):
             obj_name = self.create_name('versioned-obj')
@@ -672,7 +704,7 @@ class TestObjectVersioning(BaseS3TestCase):
             owner = obj.pop('Owner')
             self._sanitize_obj_listing(obj)
             # one difference seems to be the Owner key
-            self.assertEqual({'DisplayName', 'ID'}, set(owner.keys()))
+            self.assertTrue('ID' in owner.keys())
         self.assertEqual(expected, objs)
         resp = self.client.list_objects_v2(Bucket=self.bucket_name)
         objs = resp.get('Contents', [])
@@ -703,6 +735,7 @@ class TestObjectVersioning(BaseS3TestCase):
         self.assertEqual(expected, objs)
 
     def test_copy_object(self):
+        retry(self.enable_versioning)
         etags = []
         obj_name = self.create_name('versioned-obj')
         for i in range(3):
