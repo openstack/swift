@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 import unittest
 from unittest import mock
 
@@ -21,6 +22,19 @@ import zlib
 from swift.common.utils import checksum
 from test.debug_logger import debug_logger
 from test.unit import requires_crc32c, requires_crc64nvme
+
+
+class TestModuleFunctions(unittest.TestCase):
+    @unittest.skipIf(
+        sys.version_info.major == 3 and sys.version_info.minor < 8,
+        "importlib.metadata not available until py3.8")
+    def test_find_isal_pyeclib_dist_missing_files(self):
+        with mock.patch('ctypes.util.find_library', return_value=None):
+            with mock.patch('importlib.metadata.files', return_value=None):
+                with self.assertRaises(RuntimeError) as cm:
+                    checksum.find_isal()
+        self.assertEqual('pyeclib installed but missing files',
+                         str(cm.exception))
 
 
 # If you're curious about the 0xe3069283, see "check" at
