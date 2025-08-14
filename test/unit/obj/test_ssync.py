@@ -62,8 +62,10 @@ class TestBaseSsync(BaseTest):
         self.ts_iter = make_timestamp_iter()
         self.rx_ip = '127.0.0.1'
         sock = listen_zero()
+        self.rx_server_pool = eventlet.GreenPool(size=1)
         self.rx_server = eventlet.spawn(
-            eventlet.wsgi.server, sock, self.rx_controller, self.rx_logger)
+            eventlet.wsgi.server, sock, self.rx_controller, log=self.rx_logger,
+            custom_pool=self.rx_server_pool)
         self.rx_port = sock.getsockname()[1]
         self.rx_node = {'replication_ip': self.rx_ip,
                         'replication_port': self.rx_port,
@@ -73,6 +75,15 @@ class TestBaseSsync(BaseTest):
     def tearDown(self):
         self.rx_server.kill()
         super(TestBaseSsync, self).tearDown()
+
+    def _wait_for_rx_server(self):
+        # wait for receiver thread to complete before checking logs, but don't
+        # wait forever
+        with eventlet.Timeout(
+                seconds=1,
+                exception=AssertionError(
+                    'timed out waiting for ssync receiver thread')):
+            self.rx_server_pool.waitall()
 
     def make_connect_wrapper(self, sender):
         """
@@ -995,8 +1006,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         self.assertIn('Sent data length does not match content-length',
                       tx_error_log_lines[0])
         self.assertFalse(tx_error_log_lines[1:])
-        # trampoline for the receiver to write a log
-        eventlet.sleep(0.001)
+        self._wait_for_rx_server()
         rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
         self.assertEqual(1, len(rx_warning_log_lines),
                          self.rx_logger.all_log_lines())
@@ -1034,8 +1044,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         self.assertIn('Sent data length does not match content-length',
                       tx_error_log_lines[0])
         self.assertFalse(tx_error_log_lines[1:])
-        # trampoline for the receiver to write a log
-        eventlet.sleep(0.001)
+        self._wait_for_rx_server()
         rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
         self.assertIn('ssync subrequest failed with 499',
                       rx_warning_log_lines[0])
@@ -1083,8 +1092,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         self.assertIn('Sent data length does not match content-length',
                       tx_error_log_lines[1])
         self.assertFalse(tx_error_log_lines[2:])
-        # trampoline for the receiver to write a log
-        eventlet.sleep(0.001)
+        self._wait_for_rx_server()
         rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
         self.assertIn('ssync subrequest failed with 499',
                       rx_warning_log_lines[0])
@@ -1140,8 +1148,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
         log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Unable to get enough responses', log_lines[0])
-        # trampoline for the receiver to write a log
-        eventlet.sleep(0.001)
+        self._wait_for_rx_server()
         self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
         self.assertFalse(self.rx_logger.get_lines_for_level('error'))
 
@@ -1243,8 +1250,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                                       frag_index=self.tx_node_index),
                 fd.read())
 
-        # trampoline for the receiver to write a log
-        eventlet.sleep(0.001)
+        self._wait_for_rx_server()
         self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
         self.assertFalse(self.rx_logger.get_lines_for_level('error'))
 
@@ -1279,8 +1285,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         self.assertFalse(self.logger.get_lines_for_level('error'))
         self.assertFalse(
             self.logger.get_lines_for_level('error'))
-        # trampoline for the receiver to write a log
-        eventlet.sleep(0.001)
+        self._wait_for_rx_server()
         self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
         self.assertFalse(self.rx_logger.get_lines_for_level('error'))
 
