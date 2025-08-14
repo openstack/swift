@@ -25,12 +25,6 @@ import socket
 import struct
 import zlib
 
-try:
-    import pyeclib  # noqa
-    from importlib.metadata import files as pkg_files  # py38+
-except ImportError:
-    pkg_files = None
-
 
 # See if anycrc is available...
 if anycrc:
@@ -41,17 +35,30 @@ else:
     crc64nvme_anycrc = None
 
 
-# If isal is available system-wide, great!
-isal_lib = ctypes.util.find_library('isal')
-if isal_lib is None and pkg_files is not None:
-    # py38+: Hopefully pyeclib was installed from a manylinux wheel
-    # with isal baked in?
-    isal_libs = [f for f in pkg_files('pyeclib')
-                 if f.name.startswith("libisal")]
-    if len(isal_libs) == 1:
-        isal_lib = isal_libs[0].locate()
+def find_isal():
+    # If isal is available system-wide, great!
+    isal_lib = ctypes.util.find_library('isal')
+    if isal_lib is None:
+        # py38+: Hopefully pyeclib was installed from a manylinux wheel
+        # with isal baked in?
+        try:
+            import pyeclib  # noqa
+            from importlib.metadata import files as pkg_files  # py38+
+        except ImportError:
+            pass
+        else:
+            pyeclib_files = pkg_files('pyeclib')
+            if not pyeclib_files:
+                # see https://docs.python.org/3/library/importlib.metadata.html
+                raise RuntimeError('pyeclib installed but missing files')
+            isal_libs = [f for f in pyeclib_files
+                         if f.name.startswith("libisal")]
+            if len(isal_libs) == 1:
+                isal_lib = isal_libs[0].locate()
+    return ctypes.CDLL(isal_lib) if isal_lib else None
 
-isal = ctypes.CDLL(isal_lib) if isal_lib else None
+
+isal = find_isal()
 
 if hasattr(isal, 'crc32_iscsi'):  # isa-l >= 2.16
     isal.crc32_iscsi.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_uint]
