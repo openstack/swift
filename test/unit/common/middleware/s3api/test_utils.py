@@ -121,14 +121,19 @@ class TestS3Timestamp(unittest.TestCase):
         # integer
         ts = utils.S3Timestamp(1)
         self.assertEqual(expected, ts.s3xmlformat)
+        # microseconds digits are not included in Timestamp.normal so do not
+        # cause the timestamp to be rounded up
+        ts = utils.S3Timestamp(1.000001)
+        self.assertEqual(expected, ts.s3xmlformat)
+
         # milliseconds unit should be rounded up
         expected = '1970-01-01T00:00:02.000Z'
         ts = utils.S3Timestamp(1.1)
         self.assertEqual(expected, ts.s3xmlformat)
-        # float (microseconds) should be floored too
-        ts = utils.S3Timestamp(1.000001)
+        # float (deca-microseconds) should be rounded up too
+        ts = utils.S3Timestamp(1.000010)
         self.assertEqual(expected, ts.s3xmlformat)
-        # Bigger float (milliseconds) should be floored too
+        # Bigger float (milliseconds) should be rounded up too
         ts = utils.S3Timestamp(1.9)
         self.assertEqual(expected, ts.s3xmlformat)
 
