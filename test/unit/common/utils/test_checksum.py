@@ -20,7 +20,7 @@ import zlib
 
 from swift.common.utils import checksum
 from test.debug_logger import debug_logger
-from test.unit import requires_crc32c
+from test.unit import requires_crc32c, requires_crc64nvme
 
 
 # If you're curious about the 0xe3069283, see "check" at
@@ -32,10 +32,18 @@ class TestCRC32C(unittest.TestCase):
         partial = impl(b"12345")
         self.assertEqual(impl(b"6789", partial), 0xe3069283)
 
+    @unittest.skipIf(checksum.crc32c_anycrc is None, 'No anycrc CRC32C')
+    def test_anycrc(self):
+        self.check_crc_func(checksum.crc32c_anycrc)
+        # Check preferences -- beats out reference, but not kernel or ISA-L
+        if checksum.crc32c_isal is None and checksum.crc32c_kern is None:
+            self.assertIs(checksum._select_crc32c_impl(),
+                          checksum.crc32c_anycrc)
+
     @unittest.skipIf(checksum.crc32c_kern is None, 'No kernel CRC32C')
     def test_kern(self):
         self.check_crc_func(checksum.crc32c_kern)
-        # Check preferences -- beats out reference, but not ISA-L
+        # Check preferences -- beats out reference and anycrc, but not ISA-L
         if checksum.crc32c_isal is None:
             self.assertIs(checksum._select_crc32c_impl(), checksum.crc32c_kern)
 
@@ -126,6 +134,28 @@ class TestCRC32C(unittest.TestCase):
         self.check_crc_func(checksum.crc32c_isal)
         # Check preferences -- ISA-L always wins
         self.assertIs(checksum._select_crc32c_impl(), checksum.crc32c_isal)
+
+
+class TestCRC64NVME(unittest.TestCase):
+    def check_crc_func(self, impl):
+        self.assertEqual(impl(b"123456789"), 0xae8b14860a799888)
+        # Check that we can save/continue
+        partial = impl(b"12345")
+        self.assertEqual(impl(b"6789", partial), 0xae8b14860a799888)
+
+    @unittest.skipIf(checksum.crc64nvme_anycrc is None, 'No anycrc CRC64NVME')
+    def test_anycrc(self):
+        self.check_crc_func(checksum.crc64nvme_anycrc)
+        if checksum.crc64nvme_isal is None:
+            self.assertIs(checksum._select_crc64nvme_impl(),
+                          checksum.crc64nvme_anycrc)
+
+    @unittest.skipIf(checksum.crc64nvme_isal is None, 'No ISA-L CRC64NVME')
+    def test_isal(self):
+        self.check_crc_func(checksum.crc64nvme_isal)
+        # Check preferences -- ISA-L always wins
+        self.assertIs(checksum._select_crc64nvme_impl(),
+                      checksum.crc64nvme_isal)
 
 
 class TestCRCHasher(unittest.TestCase):
@@ -238,21 +268,101 @@ class TestCRCHasher(unittest.TestCase):
         self.assertEqual('6b2fc5b0', hasher_copy.hexdigest())
 
     def test_crc32c_hasher_selects_kern_impl(self):
-        with mock.patch('swift.common.utils.checksum.crc32c_isal', None), \
-                mock.patch(
-                    'swift.common.utils.checksum.crc32c_kern') as mock_kern:
+        scuc = 'swift.common.utils.checksum'
+        with mock.patch(scuc + '.crc32c_isal', None), \
+                mock.patch(scuc + '.crc32c_kern') as mock_kern, \
+                mock.patch(scuc + '.crc32c_anycrc', None):
             mock_kern.__name__ = 'crc32c_kern'
             self.assertIs(mock_kern, checksum.crc32c().crc_func)
             checksum.log_selected_implementation(self.logger)
         self.assertIn('Using crc32c_kern implementation for CRC32C.',
                       self.logger.get_lines_for_level('info'))
 
+    def test_crc32c_hasher_selects_anycrc_impl(self):
+        scuc = 'swift.common.utils.checksum'
+        with mock.patch(scuc + '.crc32c_isal', None), \
+                mock.patch(scuc + '.crc32c_kern', None), \
+                mock.patch(scuc + '.crc32c_anycrc') as mock_anycrc:
+            mock_anycrc.__name__ = 'crc32c_anycrc'
+            self.assertIs(mock_anycrc, checksum.crc32c().crc_func)
+            checksum.log_selected_implementation(self.logger)
+        self.assertIn('Using crc32c_anycrc implementation for CRC32C.',
+                      self.logger.get_lines_for_level('info'))
+
     def test_crc32c_hasher_selects_isal_impl(self):
-        with mock.patch(
-                'swift.common.utils.checksum.crc32c_isal') as mock_isal, \
-                mock.patch('swift.common.utils.checksum.crc32c_kern'):
+        scuc = 'swift.common.utils.checksum'
+        with mock.patch(scuc + '.crc32c_isal') as mock_isal, \
+                mock.patch(scuc + '.crc32c_kern'), \
+                mock.patch(scuc + '.crc32c_anycrc'):
             mock_isal.__name__ = 'crc32c_isal'
             self.assertIs(mock_isal, checksum.crc32c().crc_func)
             checksum.log_selected_implementation(self.logger)
         self.assertIn('Using crc32c_isal implementation for CRC32C.',
                       self.logger.get_lines_for_level('info'))
+
+    @requires_crc64nvme
+    def test_crc64nvme_hasher(self):
+        # See CRC-64/NVME at
+        # https://reveng.sourceforge.io/crc-catalogue/17plus.htm
+        hasher = checksum.crc64nvme()
+        self.assertEqual('crc64nvme', hasher.name)
+        self.assertEqual(8, hasher.digest_size)
+        self.assertEqual(64, hasher.width)
+        self.assertEqual(0, hasher.crc)
+        self.assertEqual(b'\x00\x00\x00\x00\x00\x00\x00\x00', hasher.digest())
+        self.assertEqual('0000000000000000', hasher.hexdigest())
+
+        hasher.update(b'123456789')
+        self.assertEqual(0xae8b14860a799888, hasher.crc)
+        self.assertEqual(b'\xae\x8b\x14\x86\x0a\x79\x98\x88', hasher.digest())
+        self.assertEqual('ae8b14860a799888', hasher.hexdigest())
+
+    @requires_crc64nvme
+    def test_crc64nvme_hasher_constructed_with_data(self):
+        hasher = checksum.crc64nvme(b'123456789')
+        self.assertEqual(b'\xae\x8b\x14\x86\x0a\x79\x98\x88', hasher.digest())
+        self.assertEqual('ae8b14860a799888', hasher.hexdigest())
+
+    @requires_crc64nvme
+    def test_crc64nvme_hasher_initial_value(self):
+        hasher = checksum.crc64nvme(initial_value=0xae8b14860a799888)
+        self.assertEqual(b'\xae\x8b\x14\x86\x0a\x79\x98\x88', hasher.digest())
+        self.assertEqual('ae8b14860a799888', hasher.hexdigest())
+
+    @requires_crc64nvme
+    def test_crc64nvme_hasher_copy(self):
+        hasher = checksum.crc64nvme(b'123456789')
+        self.assertEqual('ae8b14860a799888', hasher.hexdigest())
+        hasher_copy = hasher.copy()
+        self.assertEqual('crc64nvme', hasher_copy.name)
+        self.assertIs(hasher.crc_func, hasher_copy.crc_func)
+        self.assertEqual('ae8b14860a799888', hasher_copy.hexdigest())
+        hasher_copy.update(b'foo')
+        self.assertEqual('ae8b14860a799888', hasher.hexdigest())
+        self.assertEqual('673ece0d56523f46', hasher_copy.hexdigest())
+        hasher.update(b'bar')
+        self.assertEqual('0991d5edf1b0062e', hasher.hexdigest())
+        self.assertEqual('673ece0d56523f46', hasher_copy.hexdigest())
+
+    def test_crc64nvme_hasher_selects_anycrc_impl(self):
+        scuc = 'swift.common.utils.checksum'
+        with mock.patch(scuc + '.crc64nvme_isal', None), \
+                mock.patch(scuc + '.crc64nvme_anycrc') as mock_anycrc:
+            mock_anycrc.__name__ = 'crc64nvme_anycrc'
+            self.assertIs(mock_anycrc,
+                          checksum.crc64nvme().crc_func)
+            checksum.log_selected_implementation(self.logger)
+        self.assertIn(
+            'Using crc64nvme_anycrc implementation for CRC64NVME.',
+            self.logger.get_lines_for_level('info'))
+
+    def test_crc64nvme_hasher_selects_isal_impl(self):
+        scuc = 'swift.common.utils.checksum'
+        with mock.patch(scuc + '.crc64nvme_isal') as mock_isal, \
+                mock.patch(scuc + '.crc64nvme_anycrc'):
+            mock_isal.__name__ = 'crc64nvme_isal'
+            self.assertIs(mock_isal, checksum.crc64nvme().crc_func)
+            checksum.log_selected_implementation(self.logger)
+        self.assertIn(
+            'Using crc64nvme_isal implementation for CRC64NVME.',
+            self.logger.get_lines_for_level('info'))

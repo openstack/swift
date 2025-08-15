@@ -16,6 +16,7 @@
 import base64
 import json
 
+from swift.common.constraints import valid_api_version, check_utf8
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
@@ -25,7 +26,7 @@ from swift.common.request_helpers import get_object_transient_sysmeta, \
     get_sys_meta_prefix, get_user_meta_prefix, \
     get_container_update_override_key
 from swift.common.swob import Request, HTTPException, \
-    HTTPInternalServerError, wsgi_to_bytes, bytes_to_wsgi
+    HTTPInternalServerError, wsgi_to_bytes, bytes_to_wsgi, wsgi_to_str
 from swift.common.utils import get_logger, config_true_value, \
     parse_content_range, closing_if_possible, parse_content_type, \
     FileLikeIter, multipart_byteranges_to_document_iters
@@ -454,8 +455,17 @@ class Decrypter(object):
             is_cont_or_obj_req = True
         except ValueError:
             is_cont_or_obj_req = False
+
         if not is_cont_or_obj_req:
             return self.app(env, start_response)
+        if not valid_api_version(parts[0]):
+            # Not a swift request
+            return self.app(env, start_response)
+        if not check_utf8(wsgi_to_str(req.path_info),
+                          internal=req.allow_reserved_names):
+            # Not a valid swift request
+            return self.app(env, start_response)
+        # TODO any other invalid paths we want to ignore??
 
         if parts[3] and req.method in ('GET', 'HEAD'):
             handler = DecrypterObjContext(self, self.logger).handle

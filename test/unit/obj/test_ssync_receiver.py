@@ -20,19 +20,24 @@ import tempfile
 import unittest
 
 import eventlet
+import eventlet.wsgi
 from unittest import mock
 import itertools
 
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import swob
+from swift.common.exceptions import MessageTimeout, ChunkReadError
 from swift.common.storage_policy import POLICIES
 from swift.common import utils
-from swift.common.swob import HTTPException
+from swift.common.swob import HTTPException, HTTPCreated, Request, \
+    HTTPNoContent
+from swift.common.utils import public
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver, ssync_sender
 from swift.obj.reconstructor import ObjectReconstructor
+from swift.obj.ssync_receiver import SsyncInputProxy
 
 from test import listen_zero, unit
 from test.debug_logger import debug_logger
@@ -42,6 +47,70 @@ from test.unit.obj.common import write_diskfile
 
 
 UNPACK_ERR = b":ERROR: 0 'not enough values to unpack (expected 2, got 1)'"
+
+
+class FakeController(server.ObjectController):
+    def __init__(self, conf, logger=None):
+        super().__init__(conf, logger)
+        self.requests = []
+
+    def __call__(self, environ, start_response):
+        self.requests.append(Request(environ))
+        return super().__call__(environ, start_response)
+
+    @public
+    def PUT(self, req):
+        b''.join(req.environ['wsgi.input'])
+        return HTTPCreated()
+
+    @public
+    def DELETE(self, req):
+        b''.join(req.environ['wsgi.input'])
+        return HTTPNoContent()
+
+
+class SlowBytesIO(io.BytesIO):
+    """
+    A BytesIO that will sleep once for sleep_time before reading the byte at
+    sleep_index. If a read or readline call is completed by the byte at
+    (sleep_index - 1) then the call returns without sleeping, and the sleep
+    will occur at the start of the next read or readline call.
+    """
+    def __init__(self, value, sleep_index=-1, sleep_time=0.1):
+        io.BytesIO.__init__(self, value)
+        self.sleep_index = sleep_index
+        self.sleep_time = sleep_time
+        self.bytes_read = []
+        self.num_bytes_read = 0
+
+    def _read(self, size=-1, readline=False):
+        size = -1 if size is None else size
+        num_read = 0
+        data = b''
+        self.bytes_read.append(data)
+        while True:
+            if self.num_bytes_read == self.sleep_index:
+                self.sleep_index = -1
+                eventlet.sleep(self.sleep_time)
+            next_byte = io.BytesIO.read(self, 1)
+            data = data + next_byte
+            self.bytes_read[-1] = data
+            num_read += 1
+            self.num_bytes_read += 1
+            if len(data) < num_read:
+                break
+            if readline and data[-1:] == b'\n':
+                break
+            if 0 <= size <= num_read:
+                break
+
+        return data
+
+    def read(self, size=-1):
+        return self._read(size, False)
+
+    def readline(self, size=-1):
+        return self._read(size, True)
 
 
 @unit.patch_policies()
@@ -498,7 +567,7 @@ class TestReceiver(unittest.TestCase):
                 '/device/partition',
                 environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\nBad content is here')
+                     ':UPDATES: START\r\nBad content is here\n')
             req.remote_addr = '1.2.3.4'
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
@@ -533,7 +602,7 @@ class TestReceiver(unittest.TestCase):
                 '/device/partition',
                 environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\nBad content is here')
+                     ':UPDATES: START\r\nBad content is here\n')
             req.remote_addr = mock.MagicMock()
             req.remote_addr.__str__ = mock.Mock(
                 side_effect=Exception("can't stringify this"))
@@ -632,6 +701,22 @@ class TestReceiver(unittest.TestCase):
             self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.exception.assert_called_once_with(
                 '3.4.5.6/sda1/1 EXCEPTION in ssync.Receiver')
+
+    def test_MISSING_CHECK_partial_line(self):
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            # not sure this would ever be yielded by the wsgi input since the
+            # bytes read wouldn't match the chunk size that was sent
+            body=':MISSING_CHECK: START\r\nhash no_newline'
+        )
+        resp = req.get_response(self.controller)
+        self.assertFalse(self.body_lines(resp.body))
+        self.assertEqual(resp.status_int, 200)
+        lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['None/sda1/1 read failed in ssync.Receiver: missing_check line: '
+             'missing newline'], lines)
 
     def test_MISSING_CHECK_empty_list(self):
 
@@ -1308,6 +1393,133 @@ class TestReceiver(unittest.TestCase):
                 '2.3.4.5/device/partition TIMEOUT in ssync.Receiver: '
                 '0.01 seconds: updates line')
 
+    def test_UPDATES_timeout_reading_PUT_subreq_input_1(self):
+        # timeout reading from wsgi input part way through a PUT subreq body
+        body_chunks = [
+            ':MISSING_CHECK: START\r\n',
+            ':MISSING_CHECK: END\r\n',
+            ':UPDATES: START\r\n',
+            'PUT /a/c/o\r\nContent-Length: 28\r\n\r\n',
+            'body_chunk_one',
+            'body_chunk_two',
+            ':UPDATES: END\r\n',
+            ''
+        ]
+        chunked_body = ''.join([
+            '%x\r\n%s\r\n' % (len(line), line) for line in body_chunks
+        ])
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=chunked_body)
+        req.remote_addr = '2.3.4.5'
+        slow_down_index = chunked_body.find('chunk_one')
+        slow_io = SlowBytesIO(req.body, sleep_index=slow_down_index)
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=slow_io, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        req.environ['wsgi.input'] = wsgi_input
+        controller = FakeController(self.conf, logger=self.logger)
+        controller.client_timeout = 0.01
+        with mock.patch.object(
+                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                mock_shutdown_safe:
+            resp = req.get_response(controller)
+            resp_body_lines = self.body_lines(resp.body)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(
+            [b':MISSING_CHECK: START',
+             b':MISSING_CHECK: END',
+             b":ERROR: 408 '0.01 seconds: PUT /a/c/o'"], resp_body_lines)
+        self.assertEqual([
+            b'17\r\n',
+            b':MISSING_CHECK: START\r\n',
+            b'\r\n',
+            b'15\r\n',
+            b':MISSING_CHECK: END\r\n',
+            b'\r\n',
+            b'11\r\n',
+            b':UPDATES: START\r\n',
+            b'\r\n',
+            b'22\r\n',
+            b'PUT /a/c/o\r\n',
+            b'Content-Length: 28\r\n',
+            b'\r\n',
+            b'\r\n',
+            b'e\r\n',
+            b'body_',
+        ], slow_io.bytes_read)
+        # oops,the subreq body was not drained
+        self.assertEqual(
+            b'chunk_one\r\ne\r\nbody_chunk_two\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n'
+            b'0\r\n\r\n', slow_io.read())
+        mock_shutdown_safe.assert_called_once_with(
+            wsgi_input.get_socket())
+        self.assertTrue(wsgi_input.get_socket().closed)
+        log_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['ERROR __call__ error with PUT /device/partition/a/c/o : '
+             'MessageTimeout (0.01s) PUT /a/c/o',
+             '2.3.4.5/device/partition TIMEOUT in ssync.Receiver: '
+             '0.01 seconds: PUT /a/c/o'],
+            log_lines)
+
+    def test_UPDATES_timeout_reading_PUT_subreq_input_2(self):
+        # timeout immediately before reading PUT subreq chunk content
+        body_chunks = [
+            ':MISSING_CHECK: START\r\n',
+            ':MISSING_CHECK: END\r\n',
+            ':UPDATES: START\r\n',
+            'PUT /a/c/o\r\nContent-Length: 99\r\n\r\n',
+            'first body chunk',
+            # NB: this is still the PUT subreq body, it just happens to look
+            # like the start of another subreq...
+            'DELETE /in/second/body chunk\r\n'
+            'X-Timestamp: 123456789.12345\r\nContent-Length: 0\r\n\r\n',
+            ':UPDATES: END\r\n',
+        ]
+        chunked_body = ''.join([
+            '%x\r\n%s\r\n' % (len(line), line) for line in body_chunks
+        ])
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=chunked_body)
+        req.remote_addr = '2.3.4.5'
+        slow_down_index = chunked_body.find('DELETE /in/second/body chunk')
+        slow_io = SlowBytesIO(req.body, sleep_index=slow_down_index)
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=slow_io, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        req.environ['wsgi.input'] = wsgi_input
+        controller = FakeController(self.conf, logger=self.logger)
+        controller.client_timeout = 0.01
+        with mock.patch.object(
+                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                mock_shutdown_safe:
+            resp = req.get_response(controller)
+            resp_body_lines = self.body_lines(resp.body)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(['SSYNC', 'PUT'],
+                         [req.method for req in controller.requests])
+        self.assertEqual(chunked_body.encode('utf-8')[:slow_down_index],
+                         b''.join(slow_io.bytes_read))
+        self.assertEqual([
+            b':MISSING_CHECK: START',
+            b':MISSING_CHECK: END',
+            b":ERROR: 408 '0.01 seconds: PUT /a/c/o'"], resp_body_lines)
+        mock_shutdown_safe.assert_called_once_with(
+            wsgi_input.get_socket())
+        self.assertTrue(wsgi_input.get_socket().closed)
+        log_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['ERROR __call__ error with PUT /device/partition/a/c/o : '
+             'MessageTimeout (0.01s) PUT /a/c/o',
+             '2.3.4.5/device/partition TIMEOUT in ssync.Receiver: '
+             '0.01 seconds: PUT /a/c/o'],
+            log_lines)
+
     def test_UPDATES_other_exception(self):
 
         class _Wrapper(io.BytesIO):
@@ -1391,8 +1603,7 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(mock_shutdown_safe.called)
             self.assertFalse(mock_wsgi_input.mock_socket.close.called)
 
-    def test_UPDATES_bad_subrequest_line(self):
-        self.controller.logger = mock.MagicMock()
+    def test_UPDATES_bad_subrequest_line_1(self):
         req = swob.Request.blank(
             '/device/partition',
             environ={'REQUEST_METHOD': 'SSYNC'},
@@ -1405,13 +1616,16 @@ class TestReceiver(unittest.TestCase):
             [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
              UNPACK_ERR])
         self.assertEqual(resp.status_int, 200)
-        self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+        lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['None/device/partition EXCEPTION in ssync.Receiver: '], lines)
 
+    def test_UPDATES_bad_subrequest_line_2(self):
+        # If there's no line feed, we probably read a partial buffer
+        # because the client hung up
         with mock.patch.object(
                 self.controller, 'DELETE',
                 return_value=swob.HTTPNoContent()):
-            self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
                 environ={'REQUEST_METHOD': 'SSYNC'},
@@ -1424,11 +1638,14 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 UNPACK_ERR])
+                [b':MISSING_CHECK: START', b':MISSING_CHECK: END'])
+            # Since the client (presumably) hung up, no point in sending
+            # anything about the error
             self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['None/device/partition read failed in ssync.Receiver: '
+             'updates line: missing newline'], lines)
 
     def test_UPDATES_no_headers(self):
         self.controller.logger = mock.MagicMock()
@@ -2673,6 +2890,163 @@ class TestModuleMethods(unittest.TestCase):
         expected = 'theremotehash d'
         self.assertEqual(ssync_receiver.encode_wanted(remote, local),
                          expected)
+
+
+class TestSsyncInputProxy(unittest.TestCase):
+    def test_read_line(self):
+        body = io.BytesIO(b'f\r\nDELETE /a/c/o\r\n\r\n'
+                          b'10\r\nDELETE /a/c/o1\r\n\r\n'
+                          b'13\r\nDELETE /a/c/oh my\r\n\r\n')
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=60)
+        self.assertEqual(b'DELETE /a/c/o\r\n', inpt.read_line('ctxt'))
+        self.assertEqual(b'DELETE /a/c/o1\r\n', inpt.read_line('ctxt'))
+        self.assertEqual(b'DELETE /a/c/oh my\r\n', inpt.read_line('ctxt'))
+
+    def test_read_line_timeout(self):
+        body = SlowBytesIO(b'f\r\nDELETE /a/c/o\r\n\r\n'
+                           b'10\r\nDELETE /a/c/o1\r\n\r\n',
+                           # timeout reading second line...
+                           sleep_index=23)
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=0.01)
+        self.assertEqual(b'DELETE /a/c/o\r\n', inpt.read_line('ctxt'))
+        with self.assertRaises(MessageTimeout) as cm:
+            inpt.read_line('ctxt')
+        self.assertEqual('0.01 seconds: ctxt', str(cm.exception))
+        # repeat
+        with self.assertRaises(MessageTimeout) as cm:
+            inpt.read_line('ctxt')
+        self.assertEqual('0.01 seconds: ctxt', str(cm.exception))
+        # check subreq input will also fail
+        sub_input = inpt.make_subreq_input('ctxt2', 123)
+        with self.assertRaises(MessageTimeout) as cm:
+            sub_input.read()
+        self.assertEqual('0.01 seconds: ctxt', str(cm.exception))
+
+    def test_read_line_chunk_read_error(self):
+        body = SlowBytesIO(b'f\r\nDELETE /a/c/o\r\n\r\n'
+                           # bad chunk length...
+                           b'x\r\nDELETE /a/c/o1\r\n\r\n',
+                           sleep_index=23)
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=0.01)
+        self.assertEqual(b'DELETE /a/c/o\r\n', inpt.read_line('ctxt'))
+        with self.assertRaises(ChunkReadError) as cm:
+            inpt.read_line('ctxt')
+        self.assertEqual(
+            "ctxt: invalid literal for int() with base 16: b'x\\r\\n'",
+            str(cm.exception))
+        # repeat
+        with self.assertRaises(ChunkReadError) as cm:
+            inpt.read_line('ctxt')
+        self.assertEqual(
+            "ctxt: invalid literal for int() with base 16: b'x\\r\\n'",
+            str(cm.exception))
+        # check subreq input will also fail
+        sub_input = inpt.make_subreq_input('ctxt2', 123)
+        with self.assertRaises(ChunkReadError) as cm:
+            sub_input.read()
+        self.assertEqual(
+            "ctxt: invalid literal for int() with base 16: b'x\\r\\n'",
+            str(cm.exception))
+
+    def test_read_line_protocol_error(self):
+        body = io.BytesIO(
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n'
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'd\r\n:UPDATES: END\r\n'  # note: chunk is missing its newline
+            b'0\r\n\r\n'
+        )
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=0.01)
+        self.assertEqual(b':MISSING_CHECK: START\r\n', inpt.read_line('ctxt'))
+        self.assertEqual(b':MISSING_CHECK: END\r\n', inpt.read_line('ctxt'))
+        self.assertEqual(b':UPDATES: START\r\n', inpt.read_line('ctxt'))
+        with self.assertRaises(ChunkReadError) as cm:
+            inpt.read_line('ctxt')
+        self.assertEqual('ctxt: missing newline', str(cm.exception))
+
+    def test_subreq_input(self):
+        body = io.BytesIO(b'1a\r\nchunk1                    \r\n'
+                          b'1b\r\nchunktwo                   \r\n'
+                          b'1c\r\nchunkthree                  \r\n'
+                          b'f\r\nDELETE /a/c/o\r\n\r\n')
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
+        sub_input = inpt.make_subreq_input('ctxt', content_length=81)
+        self.assertEqual(b'chunk1                    '
+                         b'chunktwo                   '
+                         b'chunkthree                  ',
+                         sub_input.read())
+        # check next read_line (note: chunk_size needs to be big enough to read
+        # whole ssync protocol 'line'
+        self.assertEqual(b'DELETE /a/c/o\r\n', inpt.read_line('ctxt'))
+
+    def test_subreq_input_content_length_less_than_body(self):
+        body = io.BytesIO(b'1a\r\nchunk1                    \r\n'
+                          b'1b\r\nchunktwo                   \r\n')
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
+        sub_input = inpt.make_subreq_input('ctxt', content_length=3)
+        self.assertEqual(b'chu', sub_input.read())
+
+    def test_subreq_input_content_length_more_than_body(self):
+        body = io.BytesIO(b'1a\r\nchunk1                    \r\n')
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
+        sub_input = inpt.make_subreq_input('ctxt', content_length=81)
+        with self.assertRaises(ChunkReadError) as cm:
+            sub_input.read()
+        self.assertEqual("ctxt: invalid literal for int() with base 16: b''",
+                         str(cm.exception))
+
+    def test_subreq_input_early_termination(self):
+        body = io.BytesIO(b'1a\r\nchunk1                    \r\n'
+                          b'0\r\n\r\n')  # the sender disconnected
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
+        sub_input = inpt.make_subreq_input('ctxt', content_length=81)
+        with self.assertRaises(ChunkReadError) as cm:
+            sub_input.read()
+        self.assertEqual('Early termination for ctxt', str(cm.exception))
+
+    def test_subreq_input_timeout(self):
+        body = SlowBytesIO(b'1a\r\nchunk1                    \r\n'
+                           b'1b\r\nchunktwo                   \r\n',
+                           sleep_index=25)
+        wsgi_input = eventlet.wsgi.Input(
+            rfile=body, content_length=123, sock=mock.MagicMock(),
+            chunked_input=True)
+        inpt = SsyncInputProxy(wsgi_input, chunk_size=16, timeout=0.01)
+        sub_input = inpt.make_subreq_input('ctxt', content_length=81)
+        self.assertEqual(b'chunk1          ', sub_input.read(16))
+        with self.assertRaises(MessageTimeout) as cm:
+            sub_input.read()
+        self.assertEqual('0.01 seconds: ctxt', str(cm.exception))
+        # repeat
+        self.assertEqual(b'', sub_input.read())
+        # check next read_line
+        with self.assertRaises(MessageTimeout) as cm:
+            inpt.read_line('ctxt2')
+        self.assertEqual('0.01 seconds: ctxt', str(cm.exception))
 
 
 if __name__ == '__main__':

@@ -1,0 +1,20 @@
+#-------------------------------------------------------------------------------
+# Openstack swift
+# Note: add this snippet to either /etc/magic or ~/.magic
+#-------------------------------------------------------------------------------
+# gzip compressed
+0 beshort 0x1f8b
+# compress method: deflate, flags: FNAME
+>&0 beshort 0x0808
+# skip ahead another 6 (MTIME, XLF, OS); read FNAME
+>>&6 search/0x40 \0
+# Skip ahead five; should cover
+#   00    -- uncompressed block
+#   06 00 -- ... of length 6
+#   f9 ff -- (one's complement of length)
+>>>&5 string/4 R1NG     Swift ring,
+>>>>&0 clear x
+>>>>&0 beshort 1        version 1
+>>>>&0 beshort 2        version 2
+>>>>&0 default x
+>>>>>&0 beshort x       unknown version (0x%04x)

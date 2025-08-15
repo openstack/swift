@@ -6110,13 +6110,13 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         mocked.assert_not_called()
 
-        def assert_overlap_warning(line, state_text):
+        def assert_overlap_warning(line):
             self.assertIn('Audit failed for root', line)
             self.assertIn(broker.db_file, line)
             self.assertIn(broker.path, line)
             self.assertIn(
-                'overlapping ranges in state %r: k-t s-y, y-z y-z'
-                % state_text, line)
+                'overlapping ranges: 2 (use swift-manage-shard-ranges repair)',
+                line)
             # check for no duplicates in reversed order
             self.assertNotIn('s-z k-t', line)
 
@@ -6124,7 +6124,7 @@ class TestSharder(BaseTestSharder):
                           'has_overlap': 1, 'num_overlap': 2}
         shard_bounds = (('a', 'j'), ('k', 't'), ('s', 'y'),
                         ('y', 'z'), ('y', 'z'))
-        for state, state_text in ShardRange.STATES.items():
+        for state in ShardRange.STATES:
             if state in (ShardRange.SHRINKING,
                          ShardRange.SHARDED,
                          ShardRange.SHRUNK):
@@ -6137,7 +6137,7 @@ class TestSharder(BaseTestSharder):
                         sharder, '_audit_shard_container') as mocked:
                     sharder._audit_container(broker)
             lines = sharder.logger.get_lines_for_level('warning')
-            assert_overlap_warning(lines[0], state_text)
+            assert_overlap_warning(lines[0])
             self.assertFalse(lines[1:])
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
             self._assert_stats(expected_stats, sharder, 'audit_root')
@@ -6183,7 +6183,9 @@ class TestSharder(BaseTestSharder):
 
         def assert_missing_warning(line):
             self.assertIn('Audit failed for root', line)
-            self.assertIn('missing range(s): -a j-k z-', line)
+            self.assertIn(
+                'missing range(s): 3 (use swift-manage-shard-ranges repair)',
+                line)
             self.assertIn('path: %s, db: %s' % (broker.path, broker.db_file),
                           line)
 
@@ -6200,7 +6202,7 @@ class TestSharder(BaseTestSharder):
                         sharder._audit_container(broker)
                 lines = sharder.logger.get_lines_for_level('warning')
                 assert_missing_warning(lines[0])
-                assert_overlap_warning(lines[0], 'active')
+                assert_overlap_warning(lines[0])
                 self.assertFalse(lines[1:])
                 self.assertFalse(sharder.logger.get_lines_for_level('error'))
                 self._assert_stats(expected_stats, sharder, 'audit_root')

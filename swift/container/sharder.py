@@ -1296,9 +1296,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             paths_with_gaps = find_paths_with_gaps(shard_ranges)
             if paths_with_gaps:
                 warnings.append(
-                    'missing range(s): %s' %
-                    ' '.join(['%s-%s' % (gap.lower, gap.upper)
-                              for (_, gap, _) in paths_with_gaps]))
+                    'missing range(s): %s (use swift-manage-shard-ranges '
+                    'repair)' % len(paths_with_gaps))
 
         for state in ShardRange.STATES:
             if state == ShardRange.SHRINKING:
@@ -1322,13 +1321,9 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 self._increment_stat('audit_root', 'has_overlap')
                 self._update_stat('audit_root', 'num_overlap',
                                   step=len(overlaps))
-                all_overlaps = ', '.join(
-                    [' '.join(['%s-%s' % (sr.lower, sr.upper)
-                               for sr in overlapping_ranges])
-                     for overlapping_ranges in sorted(list(overlaps))])
                 warnings.append(
-                    'overlapping ranges in state %r: %s' %
-                    (ShardRange.STATES[state], all_overlaps))
+                    'overlapping ranges: %s (use swift-manage-shard-ranges '
+                    'repair)' % len(overlaps))
 
         # We've seen a case in production where the roots own_shard_range
         # epoch is reset to None, and state set to ACTIVE (like re-defaulted)

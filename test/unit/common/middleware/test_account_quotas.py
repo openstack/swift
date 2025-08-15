@@ -318,6 +318,22 @@ class TestAccountQuota(unittest.TestCase):
         self.assertEqual(res.status_int, 413)
         self.assertEqual(res.body, b'Upload exceeds quota.')
 
+    def test_exceed_multiple_quota_authorized(self):
+        self.app.register('HEAD', '/v1/a', HTTPOk, {
+            'x-account-bytes-used': '100',
+            'x-account-object-count': '10',
+            'x-account-sysmeta-quota-count': '10',
+            'x-account-sysmeta-quota-bytes': '10'})
+        app = FakeAuthFilter(account_quotas.AccountQuotaMiddleware(self.app))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'x-auth-token': 'secret',
+                                     'content-length': '901'},
+                            environ={'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, b'Upload exceeds quota.')
+
     def test_over_quota_container_create_still_works(self):
         self.app.register('HEAD', '/v1/a', HTTPOk, {
             'x-account-bytes-used': '1001',

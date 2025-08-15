@@ -133,6 +133,10 @@ class PathNotDir(OSError):
     pass
 
 
+class DevIdBytesTooSmall(ValueError):
+    pass
+
+
 class ChunkReadError(SwiftException):
     pass
 

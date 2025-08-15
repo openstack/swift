@@ -191,7 +191,11 @@ class ObjectChecksumMixin(object):
             'ChecksumAlgorithm': self.ALGORITHM,
         }
         if boto_at_least(1, 36):
-            checksum_kwargs['ChecksumType'] = 'COMPOSITE'
+            if self.ALGORITHM == 'CRC64NVME':
+                # crc64nvme only allows full-object
+                checksum_kwargs['ChecksumType'] = 'FULL_OBJECT'
+            else:
+                checksum_kwargs['ChecksumType'] = 'COMPOSITE'
 
         obj_name = self.create_name(self.ALGORITHM + '-mpu-complete-good')
         create_mpu_resp = self.client.create_multipart_upload(
@@ -244,6 +248,24 @@ class TestObjectChecksumCRC32C(ObjectChecksumMixin, BaseS3TestCaseWithBucket):
     def setUpClass(cls):
         if not botocore.httpchecksum.HAS_CRT:
             raise SkipTest('botocore cannot crc32c (run `pip install awscrt`)')
+        super().setUpClass()
+
+
+class TestObjectChecksumCRC64NVME(ObjectChecksumMixin,
+                                  BaseS3TestCaseWithBucket):
+    ALGORITHM = 'CRC64NVME'
+    EXPECTED = 'rosUhgp5mIg='
+    INVALID = 'rosUhgp5mIh='
+    BAD = 'sosUhgp5mIg='
+
+    @classmethod
+    def setUpClass(cls):
+        if [int(x) for x in botocore.__version__.split('.')] < [1, 36]:
+            raise SkipTest('botocore cannot crc64nvme (run '
+                           '`pip install -U boto3 botocore`)')
+        if not botocore.httpchecksum.HAS_CRT:
+            raise SkipTest('botocore cannot crc64nvme (run '
+                           '`pip install awscrt`)')
         super().setUpClass()
 
 

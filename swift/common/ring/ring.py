@@ -14,27 +14,37 @@
 # limitations under the License.
 
 import array
-import contextlib
 
-import pickle  # nosec: B403
 import json
 from collections import defaultdict
-from gzip import GzipFile
 from os.path import getmtime
 import struct
 from time import time
 import os
 from itertools import chain, count
-from tempfile import NamedTemporaryFile
 import sys
-import zlib
 
-from swift.common.exceptions import RingLoadError
+from swift.common.exceptions import RingLoadError, DevIdBytesTooSmall
 from swift.common.utils import hash_path, validate_configuration, md5
+from swift.common.ring.io import RingReader, RingWriter
 from swift.common.ring.utils import tiers_for_dev
 
 
 DEFAULT_RELOAD_TIME = 15
+RING_CODECS = {
+    1: {
+        "serialize": lambda ring_data, writer: ring_data.serialize_v1(writer),
+        "deserialize": lambda cls, reader, metadata_only, _include_devices:
+            cls.deserialize_v1(reader, metadata_only=metadata_only),
+    },
+    2: {
+        "serialize": lambda ring_data, writer: ring_data.serialize_v2(writer),
+        "deserialize": lambda cls, reader, metadata_only, include_devices:
+            cls.deserialize_v2(reader, metadata_only=metadata_only,
+                               include_devices=include_devices),
+    },
+}
+DEFAULT_RING_FORMAT_VERSION = 1
 
 
 def calc_replica_count(replica2part2dev_id):
@@ -50,81 +60,14 @@ def normalize_devices(devs):
     #                and replication_port are required for
     #                replication process. An old replication
     #                ring doesn't contain this parameters into
-    #                device. Old-style pickled rings won't have
-    #                region information.
+    #                device.
     for dev in devs:
         if dev is None:
             continue
-        dev.setdefault('region', 1)
         if 'ip' in dev:
             dev.setdefault('replication_ip', dev['ip'])
         if 'port' in dev:
             dev.setdefault('replication_port', dev['port'])
-
-
-class RingReader(object):
-    chunk_size = 2 ** 16
-
-    def __init__(self, filename):
-        self.fp = open(filename, 'rb')
-        self._reset()
-
-    def _reset(self):
-        self._buffer = b''
-        self.size = 0
-        self.raw_size = 0
-        self._md5 = md5(usedforsecurity=False)
-        self._decomp = zlib.decompressobj(32 + zlib.MAX_WBITS)
-
-    @property
-    def close(self):
-        return self.fp.close
-
-    def seek(self, pos, ref=0):
-        if (pos, ref) != (0, 0):
-            raise NotImplementedError
-        self._reset()
-        return self.fp.seek(pos, ref)
-
-    def _buffer_chunk(self):
-        chunk = self.fp.read(self.chunk_size)
-        if not chunk:
-            return False
-        self.size += len(chunk)
-        self._md5.update(chunk)
-        chunk = self._decomp.decompress(chunk)
-        self.raw_size += len(chunk)
-        self._buffer += chunk
-        return True
-
-    def read(self, amount=-1):
-        if amount < 0:
-            raise IOError("don't be greedy")
-
-        while amount > len(self._buffer):
-            if not self._buffer_chunk():
-                break
-
-        result, self._buffer = self._buffer[:amount], self._buffer[amount:]
-        return result
-
-    def readline(self):
-        # apparently pickle needs this?
-        while b'\n' not in self._buffer:
-            if not self._buffer_chunk():
-                break
-
-        line, sep, self._buffer = self._buffer.partition(b'\n')
-        return line + sep
-
-    def readinto(self, buffer):
-        chunk = self.read(len(buffer))
-        buffer[:len(chunk)] = chunk
-        return len(chunk)
-
-    @property
-    def md5(self):
-        return self._md5.hexdigest()
 
 
 class RingData(object):
@@ -134,19 +77,44 @@ class RingData(object):
                  next_part_power=None, version=None):
         normalize_devices(devs)
         self.devs = devs
+        for i, part2dev_id in enumerate(replica2part2dev_id):
+            if not isinstance(part2dev_id, array.array):
+                replica2part2dev_id[i] = array.array('H', part2dev_id)
         self._replica2part2dev_id = replica2part2dev_id
         self._part_shift = part_shift
         self.next_part_power = next_part_power
         self.version = version
-        self.md5 = self.size = self.raw_size = None
+        self.format_version = None
+        self.size = self.raw_size = None
+        # Next two are used when replica2part2dev is empty
+        self._dev_id_bytes = 2
+        self._replica_count = 0
+        self._num_devs = sum(1 if dev is not None else 0 for dev in self.devs)
 
     @property
     def replica_count(self):
         """Number of replicas (full or partial) used in the ring."""
-        return calc_replica_count(self._replica2part2dev_id)
+        if self._replica2part2dev_id:
+            return calc_replica_count(self._replica2part2dev_id)
+        else:
+            return self._replica_count
+
+    @property
+    def part_power(self):
+        return 32 - self._part_shift
+
+    @property
+    def dev_id_bytes(self):
+        if self._replica2part2dev_id:
+            # There's an assumption that these will all have the same itemsize,
+            # but just in case...
+            return max(part2dev_id.itemsize
+                       for part2dev_id in self._replica2part2dev_id)
+        else:
+            return self._dev_id_bytes
 
     @classmethod
-    def deserialize_v1(cls, gz_file, metadata_only=False):
+    def deserialize_v1(cls, reader, metadata_only=False):
         """
         Deserialize a v1 ring file into a dictionary with `devs`, `part_shift`,
         and `replica2part2dev_id` keys.
@@ -155,15 +123,16 @@ class RingData(object):
         `replica2part2dev_id` is not loaded and that key in the returned
         dictionary just has the value `[]`.
 
-        :param file gz_file: An opened file-like object which has already
-                             consumed the 6 bytes of magic and version.
+        :param RingReader reader: An opened RingReader at the start of the file
         :param bool metadata_only: If True, only load `devs` and `part_shift`
         :returns: A dict containing `devs`, `part_shift`, and
                   `replica2part2dev_id`
         """
+        magic = reader.read(6)
+        if magic != b'R1NG\x00\x01':
+            raise ValueError('unexpected magic: %r' % magic)
 
-        json_len, = struct.unpack('!I', gz_file.read(4))
-        ring_dict = json.loads(gz_file.read(json_len))
+        ring_dict = json.loads(reader.read_blob('!I'))
         ring_dict['replica2part2dev_id'] = []
 
         if metadata_only:
@@ -173,7 +142,7 @@ class RingData(object):
 
         partition_count = 1 << (32 - ring_dict['part_shift'])
         for x in range(ring_dict['replica_count']):
-            part2dev = array.array('H', gz_file.read(2 * partition_count))
+            part2dev = array.array('H', reader.read(2 * partition_count))
             if byteswap:
                 part2dev.byteswap()
             ring_dict['replica2part2dev_id'].append(part2dev)
@@ -181,7 +150,49 @@ class RingData(object):
         return ring_dict
 
     @classmethod
-    def load(cls, filename, metadata_only=False):
+    def deserialize_v2(cls, reader, metadata_only=False, include_devices=True):
+        """
+        Deserialize a v2 ring file into a dictionary with ``devs``,
+        ``part_shift``, and ``replica2part2dev_id`` keys.
+
+        If the optional kwarg ``metadata_only`` is True, then the
+        ``replica2part2dev_id`` is not loaded and that key in the returned
+        dictionary just has the value ``[]``.
+
+        If the optional kwarg ``include_devices`` is False, then the ``devs``
+        list is not loaded and that key in the returned dictionary just has
+        the value ``[]``.
+
+        :param RingReader reader: An opened RingReader which has already
+                                  loaded up the index at the end of the file.
+        :param bool metadata_only: If True, skip loading
+                                   ``replica2part2dev_id``
+        :param bool include_devices: If False, skip loading ``devs``
+        :returns: A dict containing ``devs``, ``part_shift``,
+                  ``dev_id_bytes``, and ``replica2part2dev_id``
+        """
+
+        ring_dict = json.loads(reader.read_section('swift/ring/metadata'))
+        ring_dict['replica2part2dev_id'] = []
+        ring_dict['devs'] = []
+
+        if include_devices:
+            ring_dict['devs'] = json.loads(
+                reader.read_section('swift/ring/devices'))
+
+        if metadata_only:
+            return ring_dict
+
+        partition_count = 1 << (32 - ring_dict['part_shift'])
+
+        with reader.open_section('swift/ring/assignments') as section:
+            ring_dict['replica2part2dev_id'] = section.read_ring_table(
+                ring_dict['dev_id_bytes'], partition_count)
+
+        return ring_dict
+
+    @classmethod
+    def load(cls, filename, metadata_only=False, include_devices=True):
         """
         Load ring data from a file.
 
@@ -189,37 +200,37 @@ class RingData(object):
         :param bool metadata_only: If True, only load `devs` and `part_shift`.
         :returns: A RingData instance containing the loaded data.
         """
-        with contextlib.closing(RingReader(filename)) as gz_file:
-            # See if the file is in the new format
-            magic = gz_file.read(4)
-            if magic == b'R1NG':
-                format_version, = struct.unpack('!H', gz_file.read(2))
-                if format_version == 1:
-                    ring_data = cls.deserialize_v1(
-                        gz_file, metadata_only=metadata_only)
-                else:
-                    raise Exception('Unknown ring format version %d' %
-                                    format_version)
-            else:
-                # Assume old-style pickled ring
-                gz_file.seek(0)
-                ring_data = pickle.load(gz_file)  # nosec: B301
+        with RingReader.open(filename) as reader:
+            if reader.version not in RING_CODECS:
+                raise Exception('Unknown ring format version %d for %r' % (
+                                reader.version, filename))
+            ring_data = RING_CODECS[reader.version]['deserialize'](
+                cls, reader, metadata_only, include_devices)
 
-        if hasattr(ring_data, 'devs'):
-            # pickled RingData; make sure we've got region/replication info
-            normalize_devices(ring_data.devs)
-        else:
-            ring_data = RingData(ring_data['replica2part2dev_id'],
-                                 ring_data['devs'], ring_data['part_shift'],
-                                 ring_data.get('next_part_power'),
-                                 ring_data.get('version'))
-        for attr in ('md5', 'size', 'raw_size'):
-            setattr(ring_data, attr, getattr(gz_file, attr))
+        ring_data = cls.from_dict(ring_data)
+        ring_data.format_version = reader.version
+        for attr in ('size', 'raw_size'):
+            setattr(ring_data, attr, getattr(reader, attr))
         return ring_data
 
-    def serialize_v1(self, file_obj):
+    @classmethod
+    def from_dict(cls, ring_data):
+        ring = cls(ring_data['replica2part2dev_id'],
+                   ring_data['devs'], ring_data['part_shift'],
+                   ring_data.get('next_part_power'),
+                   ring_data.get('version'))
+        # For loading with metadata_only=True
+        if 'replica_count' in ring_data:
+            ring._replica_count = ring_data['replica_count']
+        # dev_id_bytes only written down in v2 and above
+        ring._dev_id_bytes = ring_data.get('dev_id_bytes', 2)
+        return ring
+
+    def serialize_v1(self, writer):
+        if self.dev_id_bytes != 2:
+            raise DevIdBytesTooSmall('Ring v1 only supports 2-byte dev IDs')
         # Write out new-style serialization magic and version:
-        file_obj.write(struct.pack('!4sH', b'R1NG', 1))
+        writer.write_magic(version=1)
         ring = self.to_dict()
 
         # Only include next_part_power if it is set in the
@@ -238,37 +249,62 @@ class RingData(object):
         json_text = json.dumps(_text, sort_keys=True,
                                ensure_ascii=True).encode('ascii')
         json_len = len(json_text)
-        file_obj.write(struct.pack('!I', json_len))
-        file_obj.write(json_text)
+        writer.write(struct.pack('!I', json_len))
+        writer.write(json_text)
         for part2dev_id in ring['replica2part2dev_id']:
-            part2dev_id.tofile(file_obj)
+            part2dev_id.tofile(writer)
 
-    def save(self, filename, mtime=1300507380.0):
+    def serialize_v2(self, writer):
+        writer.write_magic(version=2)
+        ring = self.to_dict()
+
+        # Only include next_part_power if it is set in the
+        # builder, otherwise just ignore it
+        _text = {
+            'part_shift': ring['part_shift'],
+            'dev_id_bytes': ring['dev_id_bytes'],
+            'replica_count': calc_replica_count(ring['replica2part2dev_id']),
+            'version': ring['version']}
+
+        next_part_power = ring.get('next_part_power')
+        if next_part_power is not None:
+            _text['next_part_power'] = next_part_power
+
+        with writer.section('swift/ring/metadata'):
+            writer.write_json(_text)
+
+        with writer.section('swift/ring/devices'):
+            writer.write_json(ring['devs'])
+
+        with writer.section('swift/ring/assignments'):
+            writer.write_ring_table(ring['replica2part2dev_id'])
+
+    def save(self, filename, mtime=1300507380.0,
+             format_version=DEFAULT_RING_FORMAT_VERSION):
         """
         Serialize this RingData instance to disk.
 
         :param filename: File into which this instance should be serialized.
         :param mtime: time used to override mtime for gzip, default or None
                       if the caller wants to include time
+        :param format_version: one of 0, 1, or 2. Older versions are retained
+                               for the sake of clusters on older versions
         """
+        if format_version not in RING_CODECS:
+            raise ValueError("format_version must be one of %r" % (tuple(
+                RING_CODECS.keys()),))
         # Override the timestamp so that the same ring data creates
         # the same bytes on disk. This makes a checksum comparison a
         # good way to see if two rings are identical.
-        tempf = NamedTemporaryFile(dir=".", prefix=filename, delete=False)
-        gz_file = GzipFile(filename, mode='wb', fileobj=tempf, mtime=mtime)
-        self.serialize_v1(gz_file)
-        gz_file.close()
-        tempf.flush()
-        os.fsync(tempf.fileno())
-        tempf.close()
-        os.chmod(tempf.name, 0o644)
-        os.rename(tempf.name, filename)
+        with RingWriter.open(filename, mtime) as writer:
+            RING_CODECS[format_version]['serialize'](self, writer)
 
     def to_dict(self):
         return {'devs': self.devs,
                 'replica2part2dev_id': self._replica2part2dev_id,
                 'part_shift': self._part_shift,
                 'next_part_power': self.next_part_power,
+                'dev_id_bytes': self.dev_id_bytes,
                 'version': self.version}
 
 
@@ -315,13 +351,13 @@ class Ring(object):
 
             self._mtime = getmtime(self.serialized_path)
             self._devs = ring_data.devs
+            self._dev_id_bytes = ring_data._dev_id_bytes
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
             self._update_bookkeeping()
             self._next_part_power = ring_data.next_part_power
             self._version = ring_data.version
-            self._md5 = ring_data.md5
             self._size = ring_data.size
             self._raw_size = ring_data.raw_size
 
@@ -360,6 +396,16 @@ class Ring(object):
         self._num_ips = len(ips)
 
     @property
+    def dev_id_bytes(self):
+        if self._replica2part2dev_id:
+            # There's an assumption that these will all have the same itemsize,
+            # but just in case...
+            return max(part2dev_id.itemsize
+                       for part2dev_id in self._replica2part2dev_id)
+        else:
+            return self._dev_id_bytes
+
+    @property
     def next_part_power(self):
         if time() > self._rtime:
             self._reload()
@@ -372,10 +418,6 @@ class Ring(object):
     @property
     def version(self):
         return self._version
-
-    @property
-    def md5(self):
-        return self._md5
 
     @property
     def size(self):

@@ -47,6 +47,7 @@ Overview and Concepts
     overview_architecture
     overview_wsgi_management
     overview_ring
+    overview_ring_format
     overview_policies
     overview_reaper
     overview_auth

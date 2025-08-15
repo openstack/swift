@@ -33,12 +33,12 @@ from time import time
 from swift.common import exceptions
 from swift.common.ring.ring import RingData
 from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
-    validate_and_normalize_address, validate_replicas_by_tier, pretty_dev
+    validate_and_normalize_address, validate_replicas_by_tier, pretty_dev, \
+    none_dev_id, calc_dev_id_bytes, BYTES_TO_TYPE_CODE, resize_array
 
 # we can't store None's in the replica2part2dev array, so we high-jack
 # the max value for magic to represent the part is not currently
 # assigned to any device.
-NONE_DEV = 2 ** 16 - 1
 MAX_BALANCE = 999.99
 MAX_BALANCE_GATHER_COUNT = 3
 
@@ -155,6 +155,31 @@ class RingBuilder(object):
     @property
     def part_shift(self):
         return 32 - self.part_power
+
+    @property
+    def dev_id_bytes(self):
+        if not self._replica2part2dev:
+            max_dev_id = len(self.devs) - 1 if self.devs else 0
+            return calc_dev_id_bytes(max_dev_id)
+        return self._replica2part2dev[0].itemsize
+
+    def set_dev_id_bytes(self, new_dev_id_bytes):
+        if self._replica2part2dev:
+            self._replica2part2dev = [
+                resize_array(p2d, new_dev_id_bytes)
+                for p2d in self._replica2part2dev]
+
+    @property
+    def dev_id_type_code(self):
+        return BYTES_TO_TYPE_CODE[self.dev_id_bytes]
+
+    @property
+    def max_dev_id(self):
+        return none_dev_id(self.dev_id_bytes) - 1
+
+    @property
+    def none_dev_id(self):
+        return none_dev_id(self.dev_id_bytes)
 
     @property
     def ever_rebalanced(self):
@@ -295,6 +320,7 @@ class RingBuilder(object):
                 'parts': self.parts,
                 'devs': self.devs,
                 'devs_changed': self.devs_changed,
+                'dev_id_bytes': self.dev_id_bytes,
                 'version': self.version,
                 'overload': self.overload,
                 '_replica2part2dev': self._replica2part2dev,
@@ -369,8 +395,8 @@ class RingBuilder(object):
                                       version=self.version)
             else:
                 self._ring = \
-                    RingData([array('H', p2d) for p2d in
-                              self._replica2part2dev],
+                    RingData([array(self.dev_id_type_code, p2d)
+                              for p2d in self._replica2part2dev],
                              devs, self.part_shift,
                              self.next_part_power,
                              self.version)
@@ -417,6 +443,9 @@ class RingBuilder(object):
         if dev['id'] < len(self.devs) and self.devs[dev['id']] is not None:
             raise exceptions.DuplicateDeviceError(
                 'Duplicate device id: %d' % dev['id'])
+        if dev['id'] > self.max_dev_id:
+            self.set_dev_id_bytes(calc_dev_id_bytes(dev['id']))
+
         # Add holes to self.devs to ensure self.devs[dev['id']] will be the dev
         while dev['id'] >= len(self.devs):
             self.devs.append(None)
@@ -559,10 +588,11 @@ class RingBuilder(object):
             # gather parts from replica count adjustment
             self._adjust_replica2part2dev_size(assign_parts)
             # gather parts from failed devices
-            removed_devs = self._gather_parts_from_failed_devices(assign_parts)
+            self._gather_parts_from_failed_devices(assign_parts)
             # gather parts for dispersion (N.B. this only picks up parts that
             # *must* disperse according to the replica plan)
             self._gather_parts_for_dispersion(assign_parts, replica_plan)
+            removed_devs = self._remove_failed_devices()
 
             # we'll gather a few times, or until we archive the plan
             for gather_count in range(MAX_BALANCE_GATHER_COUNT):
@@ -747,7 +777,8 @@ class RingBuilder(object):
                             ))
                     break
                 dev_id = self._replica2part2dev[replica][part]
-                if dev_id >= dev_len or not self.devs[dev_id]:
+                if dev_id == self.none_dev_id or dev_id >= dev_len or \
+                        self.devs[dev_id] is None:
                     raise exceptions.RingValidationError(
                         "Partition %d, replica %d was not allocated "
                         "to a device." %
@@ -987,24 +1018,45 @@ class RingBuilder(object):
         # reassign these partitions. However, we mark them as moved so later
         # choices will skip other replicas of the same partition if possible.
 
+        gathered_parts = 0
         if self._remove_devs:
             dev_ids = [d['id'] for d in self._remove_devs if d['parts']]
             if dev_ids:
                 for part, replica in self._each_part_replica():
                     dev_id = self._replica2part2dev[replica][part]
                     if dev_id in dev_ids:
-                        self._replica2part2dev[replica][part] = NONE_DEV
+                        self._replica2part2dev[replica][part] = \
+                            self.none_dev_id
                         self._set_part_moved(part)
                         assign_parts[part].append(replica)
+                        gathered_parts += 1
                         self.logger.debug(
                             "Gathered %d/%d from dev %d [dev removed]",
                             part, replica, dev_id)
+        return gathered_parts
+
+    def _remove_failed_devices(self):
         removed_devs = 0
         while self._remove_devs:
             remove_dev_id = self._remove_devs.pop()['id']
             self.logger.debug("Removing dev %d", remove_dev_id)
             self.devs[remove_dev_id] = None
             removed_devs += 1
+
+        # Trim the dev list
+        while self.devs and self.devs[-1] is None:
+            self.devs.pop()
+
+        if self.dev_id_bytes > 2:
+            # Consider shrinking the device IDs themselves
+            new_dev_id_bytes = self.dev_id_bytes // 2
+            new_none_dev_id = none_dev_id(new_dev_id_bytes)
+            # Only shrink if the IDs all fit in the lower half of the next size
+            # down; this avoids excess churn when adding/removing devices near
+            # the limit of a particular dev_id_bytes
+            if len(self.devs) < new_none_dev_id // 2:
+                self.set_dev_id_bytes(new_dev_id_bytes)
+
         return removed_devs
 
     def _adjust_replica2part2dev_size(self, to_assign):
@@ -1052,7 +1104,7 @@ class RingBuilder(object):
                     # newly-added pieces assigned to devices.
                     for part in range(len(part2dev), desired_length):
                         to_assign[part].append(replica)
-                        part2dev.append(NONE_DEV)
+                        part2dev.append(self.none_dev_id)
                         new_parts += 1
                 elif len(part2dev) > desired_length:
                     # Too long: truncate this mapping.
@@ -1068,7 +1120,8 @@ class RingBuilder(object):
                     to_assign[part].append(replica)
                     new_parts += 1
                 self._replica2part2dev.append(
-                    array('H', itertools.repeat(NONE_DEV, desired_length)))
+                    array(self.dev_id_type_code,
+                          itertools.repeat(self.none_dev_id, desired_length)))
 
         self.logger.debug(
             "%d new parts and %d removed parts from replica-count change",
@@ -1095,7 +1148,7 @@ class RingBuilder(object):
             undispersed_dev_replicas = []
             for replica in self._replicas_for_part(part):
                 dev_id = self._replica2part2dev[replica][part]
-                if dev_id == NONE_DEV:
+                if dev_id == self.none_dev_id:
                     continue
                 dev = self.devs[dev_id]
                 if all(replicas_at_tier[tier] <=
@@ -1123,7 +1176,7 @@ class RingBuilder(object):
                 self.logger.debug(
                     "Gathered %d/%d from dev %s [dispersion]",
                     part, replica, pretty_dev(dev))
-                self._replica2part2dev[replica][part] = NONE_DEV
+                self._replica2part2dev[replica][part] = self.none_dev_id
                 for tier in dev['tiers']:
                     replicas_at_tier[tier] -= 1
                 self._set_part_moved(part)
@@ -1158,7 +1211,7 @@ class RingBuilder(object):
             replicas_at_tier = defaultdict(int)
             for replica in self._replicas_for_part(part):
                 dev_id = self._replica2part2dev[replica][part]
-                if dev_id == NONE_DEV:
+                if dev_id == self.none_dev_id:
                     continue
                 dev = self.devs[dev_id]
                 for tier in dev['tiers']:
@@ -1195,7 +1248,7 @@ class RingBuilder(object):
                 self.logger.debug(
                     "Gathered %d/%d from dev %s [weight disperse]",
                     part, replica, pretty_dev(dev))
-                self._replica2part2dev[replica][part] = NONE_DEV
+                self._replica2part2dev[replica][part] = self.none_dev_id
                 for tier in dev['tiers']:
                     replicas_at_tier[tier] -= 1
                     parts_wanted_in_tier[tier] -= 1
@@ -1249,7 +1302,7 @@ class RingBuilder(object):
             overweight_dev_replica = []
             for replica in self._replicas_for_part(part):
                 dev_id = self._replica2part2dev[replica][part]
-                if dev_id == NONE_DEV:
+                if dev_id == self.none_dev_id:
                     continue
                 dev = self.devs[dev_id]
                 if dev['parts_wanted'] < 0:
@@ -1271,7 +1324,7 @@ class RingBuilder(object):
             self.logger.debug(
                 "Gathered %d/%d from dev %s [weight forced]",
                 part, replica, pretty_dev(dev))
-            self._replica2part2dev[replica][part] = NONE_DEV
+            self._replica2part2dev[replica][part] = self.none_dev_id
             self._set_part_moved(part)
 
     def _reassign_parts(self, reassign_parts, replica_plan):
@@ -1692,7 +1745,7 @@ class RingBuilder(object):
             if part >= len(part2dev):
                 continue
             dev_id = part2dev[part]
-            if dev_id == NONE_DEV:
+            if dev_id == self.none_dev_id:
                 continue
             devs.append(self.devs[dev_id])
         return devs
@@ -1863,7 +1916,7 @@ class RingBuilder(object):
 
         new_replica2part2dev = []
         for replica in self._replica2part2dev:
-            new_replica = array('H')
+            new_replica = array(self.dev_id_type_code)
             for device in replica:
                 new_replica.append(device)
                 new_replica.append(device)  # append device a second time

@@ -22,7 +22,7 @@ from unittest import mock
 from swift.common.request_helpers import is_object_transient_sysmeta
 from swift.common.utils import MD5_OF_EMPTY_STRING
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.middleware.crypto import decrypter
+from swift.common.middleware.crypto import decrypter, keymaster
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK, \
     dump_crypto_meta, Crypto, load_crypto_meta
 from swift.common.swob import Request, HTTPException, HTTPOk, \
@@ -1210,6 +1210,30 @@ class TestDecrypter(unittest.TestCase):
         with self.assertRaises(HTTPException) as catcher:
             req.get_response(app)
         self.assertEqual(FakeAppThatExcepts.MESSAGE, catcher.exception.body)
+
+    def test_non_swift_path(self):
+        path = '/\xC0.\xC0./\xC0.\xC0./\xC0.\xC0./\xC0.\xC0./winnt/win.ini'
+        fake_swift = FakeSwift()
+        fake_swift.register('GET', path, HTTPNotFound, {})
+        app = keymaster.KeyMaster(decrypter.Decrypter(fake_swift, {}), {
+            'encryption_root_secret': 'A' * 80,
+        })
+        app.app.logger = debug_logger()
+        req = Request.blank(path)
+        resp = req.get_response(app)
+        self.assertEqual(resp.status_int, 404)
+
+    def test_invalid_swift_path(self):
+        path = '/v1/\xC0.\xC0./\xC0.\xC0./\xC0.\xC0./\xC0.\xC0./winnt/win.ini'
+        fake_swift = FakeSwift()
+        fake_swift.register('GET', path, HTTPNotFound, {})
+        app = keymaster.KeyMaster(decrypter.Decrypter(fake_swift, {}), {
+            'encryption_root_secret': 'A' * 80,
+        })
+        app.app.logger = debug_logger()
+        req = Request.blank(path)
+        resp = req.get_response(app)
+        self.assertEqual(resp.status_int, 404)
 
 
 if __name__ == '__main__':

@@ -248,11 +248,15 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         with mock.patch('swift.common.middleware.s3api.s3api.get_logger',
                         return_value=self.logger), \
                 mock.patch('swift.common.utils.checksum.crc32c_isal') \
-                as mock_crc32c:
+                as mock_crc32c, \
+                mock.patch('swift.common.utils.checksum.crc64nvme_isal') \
+                as mock_crc64nvme:
             mock_crc32c.__name__ = 'crc32c_isal'
+            mock_crc64nvme.__name__ = 'crc64nvme_isal'
             S3ApiMiddleware(None, {})
         self.assertEqual(
-            {'info': ['Using crc32c_isal implementation for CRC32C.']},
+            {'info': ['Using crc32c_isal implementation for CRC32C.',
+                      'Using crc64nvme_isal implementation for CRC64NVME.']},
             self.logger.all_log_lines())
 
     def test_non_s3_request_passthrough(self):

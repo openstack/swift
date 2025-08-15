@@ -865,7 +865,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
         self.assertFalse(rb.ever_rebalanced)
-        builder_file = os.path.join(self.testdir, 'test.buider')
+        builder_file = os.path.join(self.testdir, 'test.builder')
         rb.save(builder_file)
         rb = ring.RingBuilder.load(builder_file)
         self.assertFalse(rb.ever_rebalanced)
@@ -2055,12 +2055,18 @@ class TestRingBuilder(unittest.TestCase):
         for d in devs:
             rb.add_dev(d)
         rb.rebalance()
+        # There are so few devs, they should fit into 1 byte dev_ids but we
+        # store in a minimum of 2 for backwards compat.
+        self.assertEqual(rb.dev_id_bytes, 2)
+        self.assertEqual(rb._replica2part2dev[0].itemsize, 2)
         builder_file = os.path.join(self.testdir, 'test_save.builder')
         rb.save(builder_file)
         loaded_rb = ring.RingBuilder.load(builder_file)
         self.maxDiff = None
         self.assertEqual(loaded_rb.to_dict(), rb.to_dict())
         self.assertEqual(loaded_rb.overload, 3.14159)
+        self.assertEqual(loaded_rb.dev_id_bytes, 2)
+        self.assertEqual(loaded_rb._replica2part2dev[0].itemsize, 2)
 
     @mock.patch('builtins.open', autospec=True)
     @mock.patch('swift.common.ring.builder.pickle.dump', autospec=True)
@@ -2718,13 +2724,14 @@ class TestRingBuilder(unittest.TestCase):
         # try with contiguous holes at beginning
         add_dev_count = 6
         rb = self._add_dev_delete_first_n(add_dev_count, add_dev_count - 3)
+        self.assertEqual([None, None, None, 3, 4, 5], [
+            None if d is None else d['id'] for d in rb.devs])
         new_dev_id = rb.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
                                  'port': 6200, 'weight': 1.0,
                                  'device': 'sda'})
         self.assertLess(new_dev_id, add_dev_count)
 
         # try with non-contiguous holes
-        # [0, 1, None, 3, 4, None]
         rb2 = ring.RingBuilder(8, 3, 1)
         for i in range(6):
             rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
@@ -2735,23 +2742,33 @@ class TestRingBuilder(unittest.TestCase):
         rb2.remove_dev(5)
         rb2.pretend_min_part_hours_passed()
         rb2.rebalance()
+        # List gets trimmed during rebalance
+        self.assertEqual([0, 1, None, 3, 4], [
+            None if d is None else d['id'] for d in rb2.devs])
         first = rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
                              'port': 6200, 'weight': 1.0, 'device': 'sda'})
+        self.assertEqual(first, 2)
+        self.assertEqual([0, 1, 2, 3, 4], [
+            None if d is None else d['id'] for d in rb2.devs])
         second = rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
                               'port': 6200, 'weight': 1.0, 'device': 'sda'})
+        self.assertEqual(second, 5)
+        self.assertEqual([0, 1, 2, 3, 4, 5], [
+            None if d is None else d['id'] for d in rb2.devs])
         # add a new one (without reusing a hole)
         third = rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
                              'port': 6200, 'weight': 1.0, 'device': 'sda'})
-        self.assertEqual(first, 2)
-        self.assertEqual(second, 5)
         self.assertEqual(third, 6)
+        self.assertEqual([0, 1, 2, 3, 4, 5, 6], [
+            None if d is None else d['id'] for d in rb2.devs])
 
     def test_reuse_of_dev_holes_with_id(self):
         add_dev_count = 6
         rb = self._add_dev_delete_first_n(add_dev_count, add_dev_count - 3)
+        self.assertEqual([None, None, None, 3, 4, 5], [
+            None if d is None else d['id'] for d in rb.devs])
         # add specifying id
         exp_new_dev_id = 2
-        # [dev, dev, None, dev, dev, None]
         try:
             new_dev_id = rb.add_dev({'id': exp_new_dev_id, 'region': 0,
                                      'zone': 0, 'ip': '127.0.0.1',
@@ -2760,6 +2777,41 @@ class TestRingBuilder(unittest.TestCase):
             self.assertEqual(new_dev_id, exp_new_dev_id)
         except exceptions.DuplicateDeviceError:
             self.fail("device hole not reused")
+        self.assertEqual([None, None, 2, 3, 4, 5], [
+            None if d is None else d['id'] for d in rb.devs])
+
+    def test_wide_device_limits(self):
+        rb = ring.RingBuilder(8, 2, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                    'port': 6200, 'weight': 1.0, 'device': 'sda'})
+        new_id = 2 ** 16 - 2
+        rb.add_dev({'id': new_id, 'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                    'port': 6200, 'weight': 1.0, 'device': 'sdb'})
+        rb.rebalance()
+        self.assertEqual(rb._replica2part2dev[0].itemsize, 2)
+        self.assertEqual([0] + [None] * (new_id - 1) + [new_id], [
+            None if d is None else d['id'] for d in rb.devs])
+
+        # Special value used for removed devices in 2-byte-dev-id rings
+        new_id = 2 ** 16 - 1
+        rb.add_dev({'id': new_id, 'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                    'port': 6200, 'weight': 1.0, 'device': 'sdc'})
+        rb.rebalance()
+        # so we get kicked over to 4
+        self.assertEqual(rb._replica2part2dev[0].itemsize, 4)
+        self.assertEqual([0] + [None] * (new_id - 2) + [new_id - 1, new_id], [
+            None if d is None else d['id'] for d in rb.devs])
+
+
+class TestPartPowerIncrease(unittest.TestCase):
+
+    FORMAT_VERSION = 1
+
+    def setUp(self):
+        self.testdir = mkdtemp()
+
+    def tearDown(self):
+        rmtree(self.testdir, ignore_errors=1)
 
     def test_prepare_increase_partition_power(self):
         ring_file = os.path.join(self.testdir, 'test_partpower.ring.gz')
@@ -2788,7 +2840,7 @@ class TestRingBuilder(unittest.TestCase):
 
         # Save .ring.gz, and load ring from it to ensure prev/next is set
         rd = rb.get_ring()
-        rd.save(ring_file)
+        rd.save(ring_file, format_version=self.FORMAT_VERSION)
 
         r = ring.Ring(ring_file)
         expected_part_shift = 32 - 8
@@ -2809,7 +2861,7 @@ class TestRingBuilder(unittest.TestCase):
         # Let's save the ring, and get the nodes for an object
         ring_file = os.path.join(self.testdir, 'test_partpower.ring.gz')
         rd = rb.get_ring()
-        rd.save(ring_file)
+        rd.save(ring_file, format_version=self.FORMAT_VERSION)
         r = ring.Ring(ring_file)
         old_part, old_nodes = r.get_nodes("acc", "cont", "obj")
         old_version = rb.version
@@ -2828,7 +2880,7 @@ class TestRingBuilder(unittest.TestCase):
 
         old_ring = r
         rd = rb.get_ring()
-        rd.save(ring_file)
+        rd.save(ring_file, format_version=self.FORMAT_VERSION)
         r = ring.Ring(ring_file)
         new_part, new_nodes = r.get_nodes("acc", "cont", "obj")
 
@@ -2900,7 +2952,7 @@ class TestRingBuilder(unittest.TestCase):
 
         # Save .ring.gz, and load ring from it to ensure prev/next is set
         rd = rb.get_ring()
-        rd.save(ring_file)
+        rd.save(ring_file, format_version=self.FORMAT_VERSION)
 
         r = ring.Ring(ring_file)
         expected_part_shift = 32 - 9
@@ -2967,6 +3019,10 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(8, rb.part_power)
         self.assertEqual(8, rb.next_part_power)
         self.assertEqual(rb.version, old_version + 2)
+
+
+class TestPartPowerIncreaseV2(TestPartPowerIncrease):
+    FORMAT_VERSION = 2
 
 
 class TestGetRequiredOverload(unittest.TestCase):
