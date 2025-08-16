@@ -722,6 +722,7 @@
         - swift-tox-py37
         - swift-tox-py39
         - swift-tox-py312
+        - swift-tox-py313
         - swift-tox-func-py312
         - swift-tox-func-encryption-py312
         - swift-tox-func-ec-py312
