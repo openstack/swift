@@ -16,6 +16,7 @@
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
+    ansible-version: 9
     description: |
       Run unit-tests for swift under cPython version 3.6.
 
@@ -31,7 +32,6 @@
 - job:
     name: swift-tox-py37
     parent: swift-tox-base
-    nodeset: ubuntu-bionic
     description: |
       Run unit-tests for swift under cPython version 3.7.
 
@@ -41,6 +41,7 @@
     vars:
       tox_envlist: py37
       bindep_profile: test py37
+      python_use_pyenv: True
       python_version: 3.7
     post-run: tools/playbooks/common/cover-post.yaml
 
@@ -467,6 +468,7 @@
     parent: openstack-tox-lower-constraints
     # This seems defensible for a l-c job
     nodeset: ubuntu-bionic
+    ansible-version: 9
     vars:
       bindep_profile: test py36
       python_version: 3.6
