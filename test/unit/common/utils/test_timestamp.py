@@ -172,10 +172,13 @@ class TestTimestamp(unittest.TestCase):
     def test_ceil(self):
         self.assertEqual(0.0, timestamp.Timestamp(0).ceil())
         self.assertEqual(1.0, timestamp.Timestamp(0.00001).ceil())
-        self.assertEqual(1.0, timestamp.Timestamp(0.000001).ceil())
+        self.assertEqual(0.0, timestamp.Timestamp(0.000001).ceil())
+        self.assertEqual(1.0, timestamp.Timestamp(0.000006).ceil())
         self.assertEqual(12345678.0, timestamp.Timestamp(12345678.0).ceil())
-        self.assertEqual(12345679.0,
+        self.assertEqual(12345678.0,
                          timestamp.Timestamp(12345678.000001).ceil())
+        self.assertEqual(12345679.0,
+                         timestamp.Timestamp(12345678.000006).ceil())
 
     def test_not_equal(self):
         ts = '1402436408.91203_0000000000000001'
@@ -332,10 +335,16 @@ class TestTimestamp(unittest.TestCase):
         expected = 140243640891203
         ts = timestamp.Timestamp(1402436408.91203)
         self.assertEqual(expected, ts.raw)
+        self.assertEqual('1402436408.91203', ts.normal)
 
         # 'raw' does not include offset
         ts = timestamp.Timestamp(1402436408.91203, 0xf0)
         self.assertEqual(expected, ts.raw)
+
+        expected = 175507756652338
+        ts = timestamp.Timestamp(1755077566.523385)
+        self.assertEqual(expected, ts.raw)
+        self.assertEqual('1755077566.52338', ts.normal)
 
     def test_delta(self):
         def _assertWithinBounds(expected, timestamp):
@@ -800,6 +809,23 @@ class TestTimestamp(unittest.TestCase):
             ~ts
         self.assertEqual(caught.exception.args[0],
                          'Cannot invert timestamps with offsets')
+
+    def test_inversion_reversibility(self):
+        ts = timestamp.Timestamp(1755077566.523385)
+        inv = ~ts
+        inv_inv = ~inv
+        self.assertEqual(ts, inv_inv)
+        self.assertEqual(ts.normal, inv_inv.normal)
+
+        inv_inv_inv = ~inv_inv
+        self.assertEqual(inv, inv_inv_inv)
+        self.assertEqual(inv.normal, inv_inv_inv.normal)
+
+        ts = timestamp.Timestamp.now()
+        inv = ~ts
+        inv_inv = ~inv
+        self.assertEqual(ts, inv_inv)
+        self.assertEqual(ts.normal, inv_inv.normal)
 
 
 class TestTimestampEncoding(unittest.TestCase):
