@@ -12,7 +12,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import sys
 import unittest
 from unittest import mock
@@ -25,16 +24,52 @@ from test.unit import requires_crc32c, requires_crc64nvme
 
 
 class TestModuleFunctions(unittest.TestCase):
+    def test_find_isal_sys_package_preferred(self):
+        with mock.patch('ctypes.util.find_library', return_value='my-isal.so'):
+            with mock.patch('ctypes.CDLL', return_value='fake') as mock_cdll:
+                self.assertEqual('fake', checksum.find_isal())
+        self.assertEqual([mock.call('my-isal.so')], mock_cdll.call_args_list)
+
+    @unittest.skipIf(
+        sys.version_info.major == 3 and sys.version_info.minor < 8,
+        "importlib.metadata not available until py3.8")
+    def test_find_isal_pyeclib_install_found(self):
+        mock_pkg = mock.MagicMock()
+        mock_pkg.locate = mock.MagicMock(return_value='fake-pkg')
+        with mock.patch('ctypes.util.find_library', return_value=None):
+            with mock.patch('ctypes.CDLL', return_value='fake') as mock_cdll:
+                with mock.patch('importlib.metadata.files',
+                                return_value=[mock_pkg]):
+                    self.assertEqual('fake', checksum.find_isal())
+        self.assertEqual([mock.call('fake-pkg')], mock_cdll.call_args_list)
+
+    @unittest.skipIf(
+        sys.version_info.major == 3 and sys.version_info.minor < 8,
+        "importlib.metadata not available until py3.8")
+    def test_find_isal_pyeclib_install_not_found(self):
+        mock_pkg = mock.MagicMock()
+        mock_pkg.locate = mock.MagicMock(return_value='fake-pkg')
+        with mock.patch('ctypes.util.find_library', return_value=None):
+            with mock.patch('importlib.metadata.files', return_value=[]):
+                self.assertIsNone(checksum.find_isal())
+
     @unittest.skipIf(
         sys.version_info.major == 3 and sys.version_info.minor < 8,
         "importlib.metadata not available until py3.8")
     def test_find_isal_pyeclib_dist_missing_files(self):
         with mock.patch('ctypes.util.find_library', return_value=None):
             with mock.patch('importlib.metadata.files', return_value=None):
-                with self.assertRaises(RuntimeError) as cm:
-                    checksum.find_isal()
-        self.assertEqual('pyeclib installed but missing files',
-                         str(cm.exception))
+                self.assertIsNone(checksum.find_isal())
+
+    @unittest.skipIf(
+        sys.version_info.major == 3 and sys.version_info.minor < 8,
+        "importlib.metadata not available until py3.8")
+    def test_find_isal_pyeclib_dist_info_missing(self):
+        from importlib.metadata import PackageNotFoundError
+        with mock.patch('ctypes.util.find_library', return_value=None):
+            with mock.patch('importlib.metadata.files',
+                            side_effect=PackageNotFoundError):
+                self.assertIsNone(checksum.find_isal())
 
 
 # If you're curious about the 0xe3069283, see "check" at
