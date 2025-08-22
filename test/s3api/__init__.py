@@ -266,6 +266,12 @@ class BaseS3TestCase(BaseS3Mixin, unittest.TestCase):
         else:
             self.clear_account(client)
 
+    def check_owner(self, owner):
+        # as of July 2025, S3 may or may not send DisplayName
+        # https://docs.aws.amazon.com/AmazonS3/latest/API/API_Owner.html
+        owner.pop('DisplayName', None)
+        self.assertEqual(['ID'], list(owner.keys()))
+
 
 class BaseS3TestCaseWithBucket(BaseS3Mixin, unittest.TestCase):
     @classmethod
