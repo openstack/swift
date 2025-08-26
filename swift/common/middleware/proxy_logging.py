@@ -120,7 +120,8 @@ class ProxyLoggingMiddleware(object):
                 '{path} {protocol} {status_int} {referer} {user_agent} '
                 '{auth_token} {bytes_recvd} {bytes_sent} {client_etag} '
                 '{transaction_id} {headers} {request_time} {source} '
-                '{log_info} {start_time} {end_time} {policy_index}'))
+                '{log_info} {start_time} {end_time} {policy_index} '
+                '{access_user_id}'))
         # The salt is only used in StrAnonymizer. This class requires bytes,
         # convert it now to prevent useless convertion later.
         self.anonymization_method = conf.get('log_anonymization_method', 'md5')
@@ -210,6 +211,9 @@ class ProxyLoggingMiddleware(object):
             'ttfb': '0.05',
             'pid': '42',
             'wire_status_int': '200',
+            'access_user_id': StrAnonymizer('AKIAIOSFODNN7EXAMPLE',
+                                            self.anonymization_method,
+                                            self.anonymization_salt),
         }
         try:
             self.log_formatter.format(self.log_msg_template, **replacements)
@@ -245,6 +249,15 @@ class ProxyLoggingMiddleware(object):
                 new_params.append((k, v))
         if any_obscured:
             req.params = new_params
+
+    def get_access_user_id(self, req):
+        """
+        Get access user ID from request environ.
+
+        :param req: swob.Request object for the request
+        :returns: User ID for logging if available, None otherwise
+        """
+        return req.environ.get('swift.access_logging', {}).get('user_id')
 
     def log_request(self, req, status_int, bytes_received, bytes_sent,
                     start_time, end_time, resp_headers=None, ttfb=0,
@@ -333,6 +346,9 @@ class ProxyLoggingMiddleware(object):
             'ttfb': ttfb,
             'pid': self.pid,
             'wire_status_int': wire_status_int or status_int,
+            'access_user_id': StrAnonymizer(
+                self.get_access_user_id(req), self.anonymization_method,
+                self.anonymization_salt),
         }
         self.access_logger.info(
             self.log_formatter.format(self.log_msg_template,

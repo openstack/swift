@@ -84,7 +84,10 @@ class BaseS3ApiObj(object):
                             environ={'REQUEST_METHOD': method},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
+        self.assertNotIn('swift.access_logging', req.environ)
         status, headers, body = self.call_s3api(req)
+        self.assertEqual(req.environ['swift.access_logging'],
+                         {'user_id': 'test:tester'})
         self.assertEqual(status.split()[0], '200')
         # we'll want this for logging
         self._assert_policy_index(req.headers, headers,
@@ -204,7 +207,8 @@ class BaseS3ApiObj(object):
         parts = access_lines[0].split()
         self.assertEqual(' '.join(parts[3:7]),
                          'GET /bucket/object HTTP/1.0 200')
-        self.assertEqual(parts[-1], str(bucket_policy_index))
+        self.assertEqual(parts[-2], str(bucket_policy_index))
+        self.assertEqual(parts[-1], 'test:tester')  # access_user_id
 
     def _test_object_HEAD_Range(self, range_value):
         req = Request.blank('/bucket/object',
@@ -784,6 +788,8 @@ class BaseS3ApiObj(object):
             body=self.object_body)
         req.date = datetime.now()
         req.content_type = 'text/plain'
+
+        # Test V4 signature processing and access_user_id setting
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         # Check that s3api returns an etag header.
@@ -795,6 +801,10 @@ class BaseS3ApiObj(object):
         self.assertNotIn('etag', headers)
         self.assertEqual('/v1/AUTH_test/bucket/object',
                          req.environ.get('swift.backend_path'))
+
+        # Verify access_user_id is set correctly in environ for V4 signature
+        self.assertEqual(req.environ['swift.access_logging']['user_id'],
+                         'test:tester')
 
     def test_object_PUT_v4_bad_hash(self):
         orig_app = self.s3api.app
@@ -826,7 +836,10 @@ class BaseS3ApiObj(object):
             body=self.object_body)
         req.date = datetime.now()
         req.content_type = 'text/plain'
+        self.assertNotIn('swift.access_logging', req.environ)
         status, headers, body = self.call_s3api(req)
+        self.assertEqual(req.environ['swift.access_logging'],
+                         {'user_id': 'test:tester'})
         self.assertEqual(status.split()[0], '400')
         self.assertEqual(self._get_error_code(body),
                          'XAmzContentSHA256Mismatch')
@@ -877,6 +890,9 @@ class BaseS3ApiObj(object):
             body=self.object_body)
         req.date = datetime.now()
         req.content_type = 'text/plain'
+
+        # Test V4 UNSIGNED-PAYLOAD signature processing and access_user_id
+        # setting
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         # Check that s3api returns an etag header.
@@ -888,6 +904,11 @@ class BaseS3ApiObj(object):
         self.assertNotIn('etag', headers)
         self.assertIn(b'UNSIGNED-PAYLOAD', SigV4Request(
             req.environ, self.s3api.conf)._canonical_request())
+
+        # Verify access_user_id is set correctly in environ for V4
+        # UNSIGNED-PAYLOAD
+        self.assertEqual(req.environ['swift.access_logging']['user_id'],
+                         'test:tester')
 
     def _test_object_PUT_copy(self, head_resp, put_header=None,
                               src_path='/some/source', timestamp=None):
