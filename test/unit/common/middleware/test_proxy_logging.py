@@ -1906,7 +1906,7 @@ class TestProxyLogging(unittest.TestCase):
             resp = app(req.environ, start_response)
             resp_body = b''.join(resp)
         log_parts = self._log_parts(app)
-        self.assertEqual(len(log_parts), 21)
+        self.assertEqual(len(log_parts), 22)
         self.assertEqual(log_parts[0], '-')
         self.assertEqual(log_parts[1], '-')
         self.assertEqual(log_parts[2], '26/Apr/1970/17/46/41')
@@ -1929,6 +1929,7 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[18], '10000000.000000000')
         self.assertEqual(log_parts[19], '10000001.000000000')
         self.assertEqual(log_parts[20], '-')
+        self.assertEqual(log_parts[21], '-')
 
     def test_dual_logging_middlewares(self):
         # Since no internal request is being made, outer most proxy logging
@@ -2148,3 +2149,43 @@ class TestProxyLogging(unittest.TestCase):
         obscured_test(params, headers, ['param_two', 'param_one'],
                       ['X-Auth-Token', 'X-Other-Header'],
                       expected_params, expected_headers)
+
+    def test_access_user_id_field(self):
+        """Test that access_user_id field is logged correctly."""
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = debug_logger()
+        req = Request.blank('/', environ={
+            'REQUEST_METHOD': 'GET',
+            'swift.access_logging': {'user_id': 'test:tester'},
+        })
+        resp = app(req.environ, start_response)
+        b''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[21], 'test:tester')
+
+        # test that user_id is not logged if it is not present
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = debug_logger()
+        req = Request.blank('/', environ={
+            'REQUEST_METHOD': 'GET',
+        })
+        resp = app(req.environ, start_response)
+        b''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[21], '-')
+
+    def test_access_user_id_field_with_anonymization(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'log_anonymization_salt': 'secret_salt',
+            'log_msg_template': '{method} {path} {access_user_id.anonymized}'
+        })
+        app.access_logger = debug_logger()
+        req = Request.blank('/', environ={
+            'REQUEST_METHOD': 'GET',
+            'swift.access_logging': {'user_id': 'test:tester'},
+        })
+        resp = app(req.environ, start_response)
+        b''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[-1],
+                         '{SMD5}14fe1612c332096e282486e4baa37e63')

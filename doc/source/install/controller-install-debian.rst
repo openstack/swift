@@ -31,8 +31,8 @@ Install and configure components
 
    .. code-block:: console
 
-      # apt-get install swift swift-proxy python-swiftclient \
-        python-keystoneclient python-keystonemiddleware \
+      # apt-get install swift swift-proxy python3-swiftclient \
+        python3-keystoneclient python3-keystonemiddleware \
         memcached
 
    .. note::

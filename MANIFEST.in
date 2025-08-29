@@ -1,0 +1,13 @@
+include AUTHORS LICENSE .functests .unittests .probetests test/__init__.py
+include CHANGELOG CONTRIBUTING.rst README.rst
+include babel.cfg
+include test/sample.conf
+include tox.ini
+include requirements.txt test-requirements.txt
+graft doc
+graft etc
+graft swift/locale
+recursive-include swift/common/middleware/s3api/schema *.rng
+graft test/functional
+graft test/probe
+graft test/unit

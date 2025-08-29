@@ -43,14 +43,20 @@ def find_isal():
         # with isal baked in?
         try:
             import pyeclib  # noqa
-            from importlib.metadata import files as pkg_files  # py38+
+            from importlib.metadata import \
+                files as pkg_files, PackageNotFoundError  # py38+
         except ImportError:
             pass
         else:
-            pyeclib_files = pkg_files('pyeclib')
-            if not pyeclib_files:
-                # see https://docs.python.org/3/library/importlib.metadata.html
-                raise RuntimeError('pyeclib installed but missing files')
+            # Assume busted installs won't have it
+            try:
+                pyeclib_files = pkg_files('pyeclib')
+                if pyeclib_files is None:
+                    # Have a dist-info, but no RECORD file??
+                    pyeclib_files = []
+            except PackageNotFoundError:
+                # Could import pyeclib, but no dist-info directory??
+                pyeclib_files = []
             isal_libs = [f for f in pyeclib_files
                          if f.name.startswith("libisal")]
             if len(isal_libs) == 1:

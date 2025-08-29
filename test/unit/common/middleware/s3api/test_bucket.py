@@ -471,7 +471,8 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         self.assertEqual(1, len(access_lines))
         parts = access_lines[0].split()
         self.assertEqual(' '.join(parts[3:7]), 'HEAD /junk HTTP/1.0 200')
-        self.assertEqual(parts[-1], str(bucket_policy_index))
+        self.assertEqual(parts[-2], str(bucket_policy_index))
+        self.assertEqual(parts[-1], 'test:tester')  # access_user_id
 
     def test_bucket_HEAD_policy_index_logging(self):
         self._do_test_bucket_HEAD_policy_index_logging(0)
@@ -1494,8 +1495,15 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers,
                             body=req_body)
+
+        # Test V4 bucket creation and access_user_id setting
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200', body)
+
+        # Verify access_user_id is set correctly in environ for V4 bucket
+        # creation
+        self.assertEqual(req.environ['swift.access_logging']['user_id'],
+                         'test:tester')
 
     def test_bucket_PUT_v4_with_body_bad_hash(self):
         elem = Element('CreateBucketConfiguration')

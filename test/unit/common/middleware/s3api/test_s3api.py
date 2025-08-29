@@ -536,7 +536,11 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             headers={'Date': self.get_date_header()},
             environ={'REQUEST_METHOD': 'GET'})
         req.content_type = 'text/plain'
-        status, headers, body = self.call_s3api(req)
+
+        # Test with ProxyLoggingMiddleware for access_user_id logging for
+        # presigned URLs
+        app = ProxyLoggingMiddleware(self.s3api, {}, logger=self.logger)
+        status, headers, body = self.call_app(req, app=app)
         self.assertIn('swift.backend_path', req.environ)
         self.assertEqual('/v1/AUTH_test/bucket/object',
                          req.environ['swift.backend_path'])
@@ -544,6 +548,16 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         for _, _, headers in self.swift.calls_with_headers:
             self.assertNotIn('Authorization', headers)
             self.assertNotIn('X-Auth-Token', headers)
+
+        # Verify access_user_id is logged correctly for V4 presigned URLs
+        access_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(1, len(access_lines))
+        parts = access_lines[0].split()
+        # For presigned URLs, the logged path includes query parameters
+        self.assertTrue(' '.join(parts[3:6]).startswith('GET /bucket/object'))
+        self.assertEqual(parts[5], 'HTTP/1.0')
+        self.assertEqual(parts[6], '200')
+        self.assertEqual(parts[-1], 'test:tester')  # access_user_id
 
     def test_signed_urls_v4_bad_credential(self):
         def test(credential, message, extra=b''):
@@ -1131,7 +1145,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'X-Amz-Content-SHA256': '0' * 64}
         req = Request.blank('/bucket/object', environ=environ, headers=headers)
         req.content_type = 'text/plain'
-        status, headers, body = self.call_s3api(req)
+
+        # Test with ProxyLoggingMiddleware to verify access_user_id logging
+        app = ProxyLoggingMiddleware(self.s3api, {}, logger=self.logger)
+        status, headers, body = self.call_app(req, app=app)
         self.assertEqual(status.split()[0], '200', body)
         self.assertIn('swift.backend_path', req.environ)
         self.assertEqual('/v1/AUTH_test/bucket/object',
@@ -1139,6 +1156,14 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         for _, _, headers in self.swift.calls_with_headers:
             self.assertEqual(authz_header, headers['Authorization'])
             self.assertNotIn('X-Auth-Token', headers)
+
+        # Verify access_user_id is logged correctly for V4 signature
+        access_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(1, len(access_lines))
+        parts = access_lines[0].split()
+        self.assertEqual(' '.join(parts[3:7]),
+                         'GET /bucket/object HTTP/1.0 200')
+        self.assertEqual(parts[-1], 'test:tester')  # access_user_id
 
     def test_signature_v4_no_date(self):
         environ = {
@@ -1749,7 +1774,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req.content_type = 'text/plain'
         log_conf = {'log_msg_template': '{method} {path} {log_info}'}
         app = ProxyLoggingMiddleware(self.s3api, log_conf, self.logger)
+        self.assertNotIn('swift.access_logging', req.environ)
         status, headers, body = self.call_app(req, app=app)
+        self.assertNotIn('swift.access_logging', req.environ)
 
         self.assertEqual(
             ['403.AccessDenied.invalid_credential'],
@@ -1759,6 +1786,32 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(
             ['HEAD /bucket/object s3:err:AccessDenied.invalid_credential'],
             self.logger.get_lines_for_level('info'))
+
+    def test_access_user_id_logging(self):
+        # verify that proxy logging gets access_user_id from S3 requests
+        environ = {'REQUEST_METHOD': 'GET'}
+        headers = {
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': self.get_date_header()}
+        req = Request.blank('/bucket/object', environ=environ,
+                            headers=headers)
+
+        # Use a log template that includes access_user_id
+        log_conf = {
+            'log_msg_template':
+                '{method} {path} {account} {container} {object} '
+                '{status_int} {access_user_id}'
+        }
+        app = ProxyLoggingMiddleware(self.s3api, log_conf, self.logger)
+        status, headers, body = self.call_app(req, app=app)
+
+        # Should be successful GET
+        self.assertEqual(status.split()[0], '200')
+        # Verify the access_user_id is logged correctly
+        expected_log = ('GET /bucket/object AUTH_test bucket object '
+                        '200 test:tester')
+        self.assertEqual([expected_log],
+                         self.logger.get_lines_for_level('info'))
 
 
 if __name__ == '__main__':

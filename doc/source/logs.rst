@@ -34,6 +34,7 @@ The default log format is::
         {status_int} {referer} {user_agent} {auth_token} {bytes_recvd}
         {bytes_sent} {client_etag} {transaction_id} {headers} {request_time}
         {source} {log_info} {start_time} {end_time} {policy_index}
+        {access_user_id}
 
 Some keywords, signaled by the (anonymizable) flag, can be anonymized by
 using the transformer 'anonymized'. The data are applied the hashing method of
@@ -99,6 +100,12 @@ pid                 PID of the process emitting the log line.
 wire_status_int     The status sent to the client, which may be different than
                     the logged response code if there was an error during the
                     body of the request or a disconnect.
+access_user_id      The user ID for logging. Middlewares should set
+                    environ['swift.access_logging']['user_id'] to identify the user
+                    for logging purposes. For S3 API requests, this contains the S3
+                    access key ID. Other auth middlewares should set user-specific
+                    identifiers. For requests without auth middleware support, this
+                    field will be "-".
 =================== ==========================================================
 
 In one log line, all of the above fields are space-separated and url-encoded.

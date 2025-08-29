@@ -24,7 +24,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py37
-      bindep_profile: test py37
       python_use_pyenv: True
       python_version: 3.7
     post-run: tools/playbooks/common/cover-post.yaml
@@ -41,7 +40,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py38
-      bindep_profile: test py38
       python_version: 3.8
     post-run: tools/playbooks/common/cover-post.yaml
 
@@ -75,7 +73,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py39
-      bindep_profile: test py39
       python_version: 3.9
     post-run: tools/playbooks/common/cover-post.yaml
 
@@ -91,7 +88,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py310
-      bindep_profile: test py310
       python_version: '3.10'
     post-run: tools/playbooks/common/cover-post.yaml
 
@@ -107,7 +103,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py311
-      bindep_profile: test py311
       python_version: '3.11'
 
 - job:
@@ -122,7 +117,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py312
-      bindep_profile: test py312
       python_use_pyenv: True
       python_version: '3.12'
 
@@ -138,7 +132,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: py313
-      bindep_profile: test py313
       python_use_pyenv: True
       python_version: '3.13'
 
@@ -154,7 +147,6 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: func
-      bindep_profile: test py312
       python_version: 3.12
 
 - job:
@@ -162,7 +154,6 @@
     parent: swift-tox-func-py312
     nodeset: centos-9-stream
     vars:
-      bindep_profile: test py39
       python_version: 3.9
 
 - job:
@@ -280,7 +271,6 @@
       tox_environment:
         COLUMNS: 240
       s3_acl: yes
-      bindep_profile: test py39
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -303,7 +293,6 @@
       tox_environment:
         COLUMNS: 240
       s3_acl: yes
-      bindep_profile: test py39
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -326,7 +315,6 @@
       tox_environment:
         COLUMNS: 240
       s3_acl: no
-      bindep_profile: test py39
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -408,7 +396,6 @@
     timeout: 5400
     vars:
       tox_envlist: func
-      bindep_profile: test py39
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
       - tools/playbooks/common/install_dependencies.yaml
@@ -490,7 +477,6 @@
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
     vars:
-      bindep_profile: test py37
       python_use_pyenv: True
       python_version: 3.7
       tox_environment:

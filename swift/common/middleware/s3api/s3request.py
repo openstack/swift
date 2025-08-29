@@ -1102,6 +1102,14 @@ class S3Request(swob.Request):
             'string_to_sign': self.sig_checker.string_to_sign,
             'check_signature': self.sig_checker.check_signature,
         }
+        # Set the logging field (if not set already)
+        # Because auth mw to our right will only see a copy of the SwiftRequest
+        # environ we use a mutable value to back-propagate updates to proxy-log
+        access_key_value = (self.access_key[:125] + '...'
+                            if len(self.access_key) > 128
+                            else self.access_key)
+        self.environ.setdefault('swift.access_logging', {}).setdefault(
+            'user_id', access_key_value)
         self.account = None
         self.user_id = None
         self.policy_index = None
