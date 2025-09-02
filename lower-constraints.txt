@@ -26,6 +26,7 @@ future==0.16.0
 gitdb2==2.0.3
 GitPython==2.1.8
 greenlet==0.4.14
+gunicorn==20.0.0
 idna==2.6
 imagesize==1.0.0
 iso8601==0.1.12

@@ -47,6 +47,13 @@ import glob
 import itertools
 import stat
 
+from swift.common.utils.config import config_true_value
+
+
+def eventlet_disabled():
+    return config_true_value(os.environ.get('DISABLE_EVENTLET'))
+
+
 import eventlet
 import eventlet.debug
 import eventlet.greenthread

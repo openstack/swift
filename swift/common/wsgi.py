@@ -33,6 +33,8 @@ from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
 from io import BytesIO, StringIO
 
+import gunicorn.app.base
+
 from swift.common import utils, constraints
 from swift.common.http_protocol import SwiftHttpProtocol, \
     SwiftHttpProxiedProtocol
@@ -41,7 +43,8 @@ from swift.common.swob import Request, wsgi_unquote
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
-    reiterate, clean_up_daemon_hygiene, systemd_notify, NicerInterpolation
+    reiterate, clean_up_daemon_hygiene, systemd_notify, NicerInterpolation, \
+    eventlet_disabled
 
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
@@ -401,8 +404,8 @@ def load_app_config(conf_file):
     return app_conf
 
 
-def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
-               allow_modify_pipeline=True):
+def _run_server_eventlet(conf, logger, sock, global_conf=None,
+                         ready_callback=None, allow_modify_pipeline=True):
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
     # some platforms. This locks in reported times to UTC.
     os.environ['TZ'] = 'UTC+0'
@@ -460,6 +463,60 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
         pool.waitall()
         if hasattr(app._pipeline_final_app, 'watchdog'):
             app._pipeline_final_app.watchdog.kill()
+
+
+def _run_server_gunicorn(conf, logger, sock, global_conf=None,
+                         ready_callback=None, allow_modify_pipeline=True):
+    # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
+    # some platforms. This locks in reported times to UTC.
+    os.environ['TZ'] = 'UTC+0'
+    time.tzset()
+
+    options = {
+        'bind': '%s:%s' % (
+            conf.get('bind_ip', '0.0.0.0'),
+            int(conf.get('bind_port')),
+        ),
+        'workers': conf.get('workers', CPU_COUNT),
+        'keepalive': int(conf.get('keepalive_timeout', 2)),
+        'limit_request_line': constraints.MAX_HEADER_SIZE,
+        'backlog': int(conf.get('max_clients', '1024')),
+    }
+
+    if sock:
+        fd = sock.fileno()
+        options['bind'] = f'fd://{fd}'
+
+    if not global_conf:
+        if hasattr(logger, 'server'):
+            log_name = logger.server
+        else:
+            log_name = logger.name
+        global_conf = {'log_name': log_name}
+    app = loadapp(conf['__file__'], global_conf=global_conf,
+                  allow_modify_pipeline=allow_modify_pipeline)
+
+    if ready_callback:
+        ready_callback()
+
+    try:
+        GunicornApplication(app, options).run()
+    except socket.error as err:
+        if err.errno != errno.EINVAL:
+            raise
+    finally:
+        if hasattr(app._pipeline_final_app, 'watchdog'):
+            app._pipeline_final_app.watchdog.kill()
+
+
+def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
+               allow_modify_pipeline=True):
+    if not eventlet_disabled():
+        _run_server_eventlet(conf, logger, sock, global_conf, ready_callback,
+                             allow_modify_pipeline)
+    else:
+        _run_server_gunicorn(conf, logger, sock, global_conf, ready_callback,
+                             allow_modify_pipeline)
 
 
 class StrategyBase(object):
@@ -1436,3 +1493,21 @@ def make_pre_authed_request(env, method=None, path=None, body=None,
     return make_subrequest(
         env, method=method, path=path, body=body, headers=headers, agent=agent,
         swift_source=swift_source, make_env=make_pre_authed_env)
+
+
+# https://docs.gunicorn.org/en/latest/custom.html#custom-application
+class GunicornApplication(gunicorn.app.base.BaseApplication):
+
+    def __init__(self, app, options=None):
+        self.options = options or {}
+        self.application = app
+        super().__init__()
+
+    def load_config(self):
+        config = {key: value for key, value in self.options.items()
+                  if key in self.cfg.settings and value is not None}
+        for key, value in config.items():
+            self.cfg.set(key.lower(), value)
+
+    def load(self):
+        return self.application
