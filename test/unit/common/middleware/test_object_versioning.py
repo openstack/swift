@@ -3621,7 +3621,8 @@ class TestModuleFunctions(unittest.TestCase):
 class TestObjectContext(unittest.TestCase):
     def setUp(self):
         app = FakeSwift()
-        self.obj_context = object_versioning.ObjectContext(app, app.logger)
+        self.obj_context = object_versioning.ObjectContext(
+            app, app.logger, 'v1', 'c', 'a', 'o', None, False)
         self.ts_iter = make_timestamp_iter()
 
     def test_get_version(self):
