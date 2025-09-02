@@ -628,6 +628,9 @@ user_test5_tester5 = testing5 service
 # An identity that has this role can read anything in a project, so it is
 # basically a swiftoperator, but read-only.
 # project_reader_roles =
+#
+# Number of threads per worker when using Gunicorn
+# threads = 4
 
 [filter:s3api]
 use = egg:swift#s3api

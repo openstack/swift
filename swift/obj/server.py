@@ -26,6 +26,7 @@ import traceback
 import socket
 
 from swift.common.concurrency import sleep, wsgi, Timeout, tpool, spawn
+from swift.common.wsgi import run_wsgi, wsgi_input_class
 
 from swift.common.utils import public, get_logger, \
     config_true_value, config_percent_value, \
@@ -60,7 +61,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
     HTTPServerError, bytes_to_wsgi, wsgi_to_bytes, wsgi_to_str, \
     normalize_etag, HTTPServiceUnavailable
-from swift.common.wsgi import run_wsgi
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj, embed_expirer_bytes_in_ctype, \
     X_DELETE_TYPE
@@ -1487,7 +1487,7 @@ class ObjectController(BaseStorageServer):
         # but the common case is sending the whole object, so we'll start
         # there.
         if req.method == 'GET' and res.status_int == 200 and \
-           isinstance(env['wsgi.input'], wsgi.Input):
+           isinstance(env['wsgi.input'], wsgi_input_class):
             app_iter = getattr(res, 'app_iter', None)
             checker = getattr(app_iter, 'can_zero_copy_send', None)
             if checker and checker():

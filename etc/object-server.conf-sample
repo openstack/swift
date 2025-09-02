@@ -113,6 +113,9 @@ bind_port = 6200
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
+#
+# Number of threads per worker when using Gunicorn
+# threads = 4
 
 [pipeline:main]
 pipeline = healthcheck recon backend_ratelimit object-server

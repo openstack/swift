@@ -24,7 +24,7 @@ from time import time
 import functools
 import sys
 
-from swift.common.concurrency import Timeout
+from swift.common.concurrency import Timeout, USE_EVENTLET
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints
@@ -54,7 +54,6 @@ from swift.common.exceptions import APIVersionError
 from swift.common.wsgi import run_wsgi
 from swift.obj import expirer
 
-from swift.common.concurrency import USE_EVENTLET
 if USE_EVENTLET:
     from swift.common.utils import Watchdog
 else:

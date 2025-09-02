@@ -53,6 +53,11 @@ CHILD_STATE_FD_ENV_KEY = '__SWIFT_SERVER_CHILD_STATE_FD'
 # Set maximum line size of message headers to be accepted.
 if USE_EVENTLET:
     wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
+    # Used by obj/server.py to detect the raw server input stream.
+    wsgi_input_class = wsgi.Input
+else:
+    from gunicorn.http.body import Body
+    wsgi_input_class = Body
 
 try:
     import multiprocessing
@@ -1018,6 +1023,11 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         load and validate the config but do not run the server.
     :returns: 0 if successful, nonzero otherwise
     """
+    # When eventlet is disabled, hand off to the gunicorn/gthread server.
+    if not USE_EVENTLET:
+        from swift.common.wsgi_gunicorn import run_wsgi as gunicorn_run_wsgi
+        return gunicorn_run_wsgi(conf_path, app_section, *args, **kwargs)
+
     try:
         conf, logger, global_conf, strategy = check_config(
             conf_path, app_section, *args, **kwargs)

@@ -36,7 +36,7 @@ import random
 from copy import deepcopy
 from types import SimpleNamespace
 
-from swift.common.concurrency import Timeout
+from swift.common.concurrency import Timeout, CooperativeLock
 
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
@@ -1429,6 +1429,17 @@ class GetOrHeadHandler(GetterBase):
             policy_options.rebalance_missing_suppression_count,
             node_iter.num_primary_nodes - 1)
 
+        # Without eventlet, concurrent_gets runs _make_node_request in real
+        # pool threads that append to the parallel statuses/bodies/... lists
+        # and the 404 counters; interleaving misaligns status[i] from body[i]
+        # and drops counter updates. Guard with a lock (no-op nullcontext under
+        # eventlet).
+        self._lock = CooperativeLock()
+        # Round id, bumped per _find_source. A worker tags its results with the
+        # round it ran in and drops (closes) them once superseded, so a prior
+        # round's straggler can't inject a stale-Range source into a resume.
+        self._round = 0
+
         # populated when finding source
         self.statuses = []
         self.reasons = []
@@ -1556,13 +1567,24 @@ class GetOrHeadHandler(GetterBase):
         else:
             return None
 
-    def _make_node_request(self, node, logger_thread_locals):
+    def _reject_if_stale(self, current_round, possible_source):
+        # Caller holds self._lock. If the round was superseded, close the
+        # now-stale response and tell the caller to drop it (see __init__).
+        if current_round == self._round:
+            return False
+        close_swift_conn(possible_source)
+        return True
+
+    def _make_node_request(self, node, current_round, logger_thread_locals):
         # make a backend request; return True if the response is deemed good
         # (has an acceptable status code), useful (matches any previously
         # discovered etag) and sufficient (a single good response is
         # insufficient when we're searching for the newest timestamp)
         self.logger.thread_locals = logger_thread_locals
         if node in self.used_nodes:
+            return False
+        if current_round != self._round:
+            # a newer round superseded this worker before it ran
             return False
 
         req_headers = dict(self.backend_headers)
@@ -1594,19 +1616,26 @@ class GetOrHeadHandler(GetterBase):
         if is_good_source(possible_source.status, self.server_type):
             # 404 if we know we don't have a synced copy
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
-                self.statuses.append(HTTP_NOT_FOUND)
-                self.reasons.append('')
-                self.bodies.append('')
-                self.source_headers.append([])
+                with self._lock:
+                    if self._reject_if_stale(current_round, possible_source):
+                        return False
+                    self.statuses.append(HTTP_NOT_FOUND)
+                    self.reasons.append('')
+                    self.bodies.append('')
+                    self.source_headers.append([])
                 close_swift_conn(possible_source)
             else:
                 if self.used_source_etag and \
                         self.used_source_etag != normalize_etag(
                             src_headers.get('etag', '')):
-                    self.statuses.append(HTTP_NOT_FOUND)
-                    self.reasons.append('')
-                    self.bodies.append('')
-                    self.source_headers.append([])
+                    with self._lock:
+                        if self._reject_if_stale(
+                                current_round, possible_source):
+                            return False
+                        self.statuses.append(HTTP_NOT_FOUND)
+                        self.reasons.append('')
+                        self.bodies.append('')
+                        self.source_headers.append([])
                     return False
 
                 # a possible source should only be added as a valid source
@@ -1617,15 +1646,19 @@ class GetOrHeadHandler(GetterBase):
                     src_headers.get('x-put-timestamp') or
                     src_headers.get('x-timestamp') or
                     Timestamp.zero())
-                if ps_timestamp >= self.latest_404_timestamp:
-                    self.statuses.append(possible_source.status)
-                    self.reasons.append(possible_source.reason)
-                    self.bodies.append(None)
-                    self.source_headers.append(possible_source.getheaders())
-                    self.sources.append(
-                        GetterSource(self.app, possible_source, node))
-                    if not self.newest:  # one good source is enough
-                        return True
+                with self._lock:
+                    if self._reject_if_stale(current_round, possible_source):
+                        return False
+                    if ps_timestamp >= self.latest_404_timestamp:
+                        self.statuses.append(possible_source.status)
+                        self.reasons.append(possible_source.reason)
+                        self.bodies.append(None)
+                        self.source_headers.append(
+                            possible_source.getheaders())
+                        self.sources.append(
+                            GetterSource(self.app, possible_source, node))
+                        if not self.newest:  # one good source is enough
+                            return True
         else:
             if 'handoff_index' in node and \
                     (is_server_error(possible_source.status) or
@@ -1636,47 +1669,72 @@ class GetOrHeadHandler(GetterBase):
                 # really on disk and had been DELETEd
                 return False
 
-            if self.rebalance_missing_suppression_count > 0 and \
-                    possible_source.status == HTTP_NOT_FOUND and \
-                    not Timestamp(src_headers.get('x-backend-timestamp',
-                                                  Timestamp.zero())):
-                self.rebalance_missing_suppression_count -= 1
-                return False
+            with self._lock:
+                if self._reject_if_stale(current_round, possible_source):
+                    return False
+                if self.rebalance_missing_suppression_count > 0 and \
+                        possible_source.status == HTTP_NOT_FOUND and \
+                        not Timestamp(src_headers.get('x-backend-timestamp',
+                                                      Timestamp.zero())):
+                    self.rebalance_missing_suppression_count -= 1
+                    return False
 
-            self.statuses.append(possible_source.status)
-            self.reasons.append(possible_source.reason)
-            self.bodies.append(possible_source.read())
-            self.source_headers.append(possible_source.getheaders())
+            try:
+                # A backend that returns an error status then stalls or
+                # dribbles its body must not pin this thread and connection.
+                # Bound the read on the response socket (getresponse()
+                # detached conn.sock into it) and abandon it on timeout.
+                with Timeout(self.node_timeout,
+                             socket=getattr(possible_source, 'sock', None)):
+                    body = possible_source.read()
+            except (Exception, Timeout):
+                self.app.exception_occurred(
+                    node, self.server_type,
+                    'Trying to read %(method)s %(path)s response' %
+                    {'method': self.req.method, 'path': self.req.path})
+                close_swift_conn(possible_source)
+                return False
 
             # if 404, record the timestamp. If a good source shows up, its
             # timestamp will be compared to the latest 404.
             # For now checking only on objects, but future work could include
             # the same check for account and containers. See lp 1560574.
+            ts_404 = None
             if self.server_type == 'Object' and \
                     possible_source.status == HTTP_NOT_FOUND:
                 hdrs = HeaderKeyDict(possible_source.getheaders())
-                ts = Timestamp(hdrs.get('X-Backend-Timestamp',
-                                        Timestamp.zero()))
-                if ts > self.latest_404_timestamp:
-                    self.latest_404_timestamp = ts
+                ts_404 = Timestamp(hdrs.get('X-Backend-Timestamp',
+                                            Timestamp.zero()))
+            with self._lock:
+                if self._reject_if_stale(current_round, possible_source):
+                    return False
+                self.statuses.append(possible_source.status)
+                self.reasons.append(possible_source.reason)
+                self.bodies.append(body)
+                self.source_headers.append(possible_source.getheaders())
+                if ts_404 is not None and ts_404 > self.latest_404_timestamp:
+                    self.latest_404_timestamp = ts_404
             self.app.check_response(node, self.server_type, possible_source,
-                                    self.req.method, self.path,
-                                    self.bodies[-1])
+                                    self.req.method, self.path, body)
         return False
 
     def _find_source(self):
-        self.statuses = []
-        self.reasons = []
-        self.bodies = []
-        self.source_headers = []
-        self.sources = []
+        with self._lock:
+            # start a new round; workers below tag their results with it
+            self._round += 1
+            current_round = self._round
+            self.statuses = []
+            self.reasons = []
+            self.bodies = []
+            self.source_headers = []
+            self.sources = []
 
         nodes = GreenthreadSafeIterator(self.node_iter)
 
         pile = GreenAsyncPile(self.concurrency)
 
         for node in nodes:
-            pile.spawn(self._make_node_request, node,
+            pile.spawn(self._make_node_request, node, current_round,
                        self.logger.thread_locals)
             _timeout = self.app.get_policy_options(
                 self.policy).concurrency_timeout \
@@ -1687,29 +1745,35 @@ class GetOrHeadHandler(GetterBase):
             # ran out of nodes, see if any stragglers will finish
             any(pile)
 
-        # this helps weed out any sucess status that were found before a 404
-        # and added to the list in the case of x-newest.
-        if self.sources:
-            self.sources = [s for s in self.sources
-                            if s.timestamp >= self.latest_404_timestamp]
+        # Select under the lock so filter/sort/pop is atomic w.r.t. worker
+        # appends; bump the round first so any straggler now drops its response
+        # instead of appending here. No-op under eventlet.
+        with self._lock:
+            self._round += 1
+            # weed out any success status found before a 404 and added to the
+            # list in the x-newest case.
+            if self.sources:
+                self.sources = [s for s in self.sources
+                                if s.timestamp >= self.latest_404_timestamp]
 
-        if self.sources:
-            self.sources.sort(key=operator.attrgetter('timestamp'))
-            source = self.sources.pop()
-            for unused_source in self.sources:
-                unused_source.close()
-            self.used_nodes.append(source.node)
+            if self.sources:
+                self.sources.sort(key=operator.attrgetter('timestamp'))
+                source = self.sources.pop()
+                for unused_source in self.sources:
+                    unused_source.close()
+                self.used_nodes.append(source.node)
 
-            # Save off the source etag so that, if we lose the connection
-            # and have to resume from a different node, we can be sure that
-            # we have the same object (replication). Otherwise, if the cluster
-            # has two versions of the same object, we might end up switching
-            # between old and new mid-stream and giving garbage to the client.
-            if self.used_source_etag is None:
-                self.used_source_etag = normalize_etag(
-                    source.resp.getheader('etag', ''))
-            self.source = source
-            return True
+                # Save off the source etag so that, if we lose the connection
+                # and have to resume from a different node, we can be sure that
+                # we have the same object (replication). Otherwise, if the
+                # cluster has two versions of the same object, we might end up
+                # switching between old and new mid-stream and giving garbage
+                # to the client.
+                if self.used_source_etag is None:
+                    self.used_source_etag = normalize_etag(
+                        source.resp.getheader('etag', ''))
+                self.source = source
+                return True
         return False
 
     def _make_app_iter(self):

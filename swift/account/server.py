@@ -20,6 +20,7 @@ import time
 import traceback
 
 from swift.common.concurrency import Timeout
+from swift.common.wsgi import run_wsgi
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
@@ -44,7 +45,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPException, wsgi_to_str
 from swift.common.request_helpers import is_sys_or_user_meta
-from swift.common.wsgi import run_wsgi
 
 
 def get_account_name_and_placement(req):

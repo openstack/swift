@@ -20,6 +20,7 @@ import time
 import traceback
 
 from swift.common.concurrency import Timeout
+from swift.common.wsgi import run_wsgi
 
 from urllib.parse import quote
 
@@ -52,7 +53,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPException, HTTPMovedPermanently, \
     wsgi_to_str, str_to_wsgi
-from swift.common.wsgi import run_wsgi
 
 
 def gen_resp_headers(info, is_deleted=False):

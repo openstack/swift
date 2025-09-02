@@ -271,6 +271,14 @@ class DebugLogger(FakeLogger):
         print(formatted)
         self.records[record.levelname].append(formatted)
 
+    # Required by Gunicorn
+    def access(self, *args, **kwargs):
+        pass
+
+    # Required by Gunicorn
+    def close_on_exec(self):
+        pass
+
 
 class DebugLogAdapter(utils.logs.SwiftLogAdapter):
     def __init__(self, *args, **kwargs):

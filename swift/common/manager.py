@@ -28,6 +28,7 @@ import tempfile
 from shutil import which
 
 from swift.common.utils import search_tree, remove_file, write_file, readconf
+from swift.common.concurrency import USE_EVENTLET
 from swift.common.exceptions import InvalidPidFileException
 
 SWIFT_DIR = '/etc/swift'
@@ -735,7 +736,10 @@ class Server(object):
         if graceful and self.server in GRACEFUL_SHUTDOWN_SERVERS:
             sig = signal.SIGHUP
         elif seamless and self.server in SEAMLESS_SHUTDOWN_SERVERS:
-            sig = signal.SIGUSR1
+            if USE_EVENTLET:
+                sig = signal.SIGUSR1
+            else:
+                sig = signal.SIGHUP
         else:
             sig = signal.SIGTERM
         return self.signal_pids(sig, **kwargs)
@@ -752,11 +756,20 @@ class Server(object):
         graceful = kwargs.get('graceful')
         seamless = kwargs.get('seamless')
         if graceful and self.server in GRACEFUL_SHUTDOWN_SERVERS:
-            sig = signal.SIGHUP
+            if USE_EVENTLET:
+                sig = signal.SIGHUP
+            else:
+                sig = signal.SIGTERM
         elif seamless and self.server in SEAMLESS_SHUTDOWN_SERVERS:
-            sig = signal.SIGUSR1
+            if USE_EVENTLET:
+                sig = signal.SIGUSR1
+            else:
+                sig = signal.SIGTERM
         else:
-            sig = signal.SIGTERM
+            if USE_EVENTLET:
+                sig = signal.SIGTERM
+            else:
+                sig = signal.SIGINT
         return self.signal_children(sig, **kwargs)
 
     def status(self, pids=None, **kwargs):

@@ -37,6 +37,11 @@ from configparser import ConfigParser
 import http.client
 from http.client import HTTPException
 
+from swift.common.concurrency import USE_EVENTLET
+if USE_EVENTLET:
+    from eventlet import wsgi
+else:
+    import swift.common.wsgi_gunicorn as wsgi
 from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError
 from swift.common.utils import set_swift_dir
@@ -674,18 +679,18 @@ def in_process_setup(the_object_server=object_server):
     nl = utils.NullLogger()
     global proxy_srv
     proxy_srv = prolis
-    prospa = spawn(eventlet.wsgi.server, prolis, app, nl,
+    prospa = spawn(wsgi.server, prolis, app, nl,
                    protocol=SwiftHttpProtocol)
-    acc1spa = spawn(eventlet.wsgi.server, acc1lis, acc1srv, nl,
+    acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl,
                     protocol=SwiftHttpProtocol)
-    acc2spa = spawn(eventlet.wsgi.server, acc2lis, acc2srv, nl,
+    acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl,
                     protocol=SwiftHttpProtocol)
-    con1spa = spawn(eventlet.wsgi.server, con1lis, con1srv, nl,
+    con1spa = spawn(wsgi.server, con1lis, con1srv, nl,
                     protocol=SwiftHttpProtocol)
-    con2spa = spawn(eventlet.wsgi.server, con2lis, con2srv, nl,
+    con2spa = spawn(wsgi.server, con2lis, con2srv, nl,
                     protocol=SwiftHttpProtocol)
 
-    objspa = [spawn(eventlet.wsgi.server, objsrv[0], objsrv[1], nl,
+    objspa = [spawn(wsgi.server, objsrv[0], objsrv[1], nl,
                     protocol=SwiftHttpProtocol)
               for objsrv in objsrvs]
 

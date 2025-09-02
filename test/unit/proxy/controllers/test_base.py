@@ -32,6 +32,7 @@ from swift.proxy.controllers.base import headers_to_container_info, \
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
+from swift.common.concurrency import Timeout
 from swift.common.utils import split_path, Timestamp, \
     GreenthreadSafeIterator, GreenAsyncPile, NamespaceBoundList
 from swift.common.header_key_dict import HeaderKeyDict
@@ -1753,6 +1754,89 @@ class TestGetOrHeadHandler(BaseTest):
                          factory.captured_calls)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         self.assertEqual([], self.logger.get_lines_for_level('info'))
+
+    def test_find_source_rejects_stale_round(self):
+        # Regression: a straggler from a prior round (holding the previous
+        # Range) must not append its source into a resumed GET's round. When
+        # superseded mid-request it closes its response and appends nothing.
+        req = Request.blank('/v1/a/c/o')
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            'some-path', {})
+        handler._round = 1
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+
+        possible_source = mock.MagicMock()
+        possible_source.status = 200
+        possible_source.reason = 'OK'
+        possible_source.getheaders.return_value = [('etag', 'abc')]
+        possible_source.getheader.side_effect = (
+            lambda h, *default: '1' if h == 'X-PUT-Timestamp'
+            else (default[0] if default else None))
+        conn = mock.MagicMock()
+        conn.getresponse.return_value = possible_source
+
+        def fake_http_connect(*a, **kw):
+            # a concurrent resume begins a new round while we're in flight
+            handler._round = 2
+            return conn
+
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect):
+            result = handler._make_node_request(node, 1, (None, None))
+
+        self.assertFalse(result)
+        self.assertEqual([], handler.sources)
+        possible_source.nuke_from_orbit.assert_called_once_with()
+
+    def test_find_source_skips_superseded_worker_early(self):
+        # A worker scheduled after its round was superseded makes no backend
+        # request at all.
+        req = Request.blank('/v1/a/c/o')
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            'some-path', {})
+        handler._round = 2
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+        with mock.patch('swift.proxy.controllers.base.http_connect') as conn:
+            result = handler._make_node_request(node, 1, (None, None))
+        self.assertFalse(result)
+        self.assertFalse(conn.called)
+        self.assertEqual([], handler.sources)
+
+    def test_make_node_request_bounds_error_body_read(self):
+        # A backend that returns an error status then stalls or dribbles its
+        # body (both surface as the bounded read timing out) must not pin the
+        # getter thread: the response is abandoned and nothing recorded.
+        req = Request.blank('/v1/a/c/o')
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            'some-path', {})
+        handler._round = 1
+        handler.statuses = []
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+
+        possible_source = mock.MagicMock()
+        possible_source.status = 500
+        possible_source.reason = 'Internal Error'
+        possible_source.getheaders.return_value = []
+        possible_source.getheader.side_effect = (
+            lambda h, *default: default[0] if default else None)
+        # seconds=None: under eventlet a Timeout(seconds) arms a live hub
+        # timer that would fire during a later test.
+        possible_source.read.side_effect = Timeout(None)
+        conn = mock.MagicMock()
+        conn.getresponse.return_value = possible_source
+
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        return_value=conn):
+            result = handler._make_node_request(node, 1, (None, None))
+
+        self.assertFalse(result)
+        self.assertTrue(possible_source.read.called)
+        # error not recorded and the connection is force-closed
+        self.assertEqual([], handler.statuses)
+        possible_source.nuke_from_orbit.assert_called_once_with()
 
     def test_range_fast_forward(self):
         req = Request.blank('/')
