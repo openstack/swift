@@ -19,7 +19,27 @@ All modules that need eventlet functionality should import from here
 rather than importing directly from eventlet.
 """
 
-import eventlet
+import importlib.util
+import os
+
+# Used when reading config values
+FALSE_VALUES = {'false', '0', 'no', 'off', 'f', 'n'}
+
+
+def config_false_value(value):
+    return value is False or \
+        (isinstance(value, str) and value.lower() in FALSE_VALUES)
+
+
+# Use eventlet by default if it is installed
+USE_EVENTLET = importlib.util.find_spec('eventlet') is not None
+
+# Check if eventlet is manually disabled even if installed
+if USE_EVENTLET:
+    if config_false_value(os.environ.get('USE_EVENTLET')):
+        USE_EVENTLET = False
+
+import eventlet  # noqa: E402
 import eventlet.debug
 import eventlet.greenio
 import eventlet.greenthread
@@ -59,6 +79,9 @@ ChunkReadError = eventlet.wsgi.ChunkReadError
 
 # flake8 raises a F401 without this
 __all__ = [
+    'USE_EVENTLET',
+    'FALSE_VALUES',
+    'config_false_value',
     'debug',
     'greenio',
     'greenthread',
