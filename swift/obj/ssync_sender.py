@@ -245,9 +245,10 @@ class Sender(object):
         connection = response = None
         node_addr = '%s:%s' % (self.node['replication_ip'],
                                self.node['replication_port'])
+        connection = SsyncBufferedHTTPConnection(node_addr)
         with exceptions.MessageTimeout(
-                self.daemon.conn_timeout, 'connect send'):
-            connection = SsyncBufferedHTTPConnection(node_addr)
+                self.daemon.conn_timeout, 'connect send',
+                socket=connection.sock):
             connection.putrequest('SSYNC', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             connection.putheader('Transfer-Encoding', 'chunked')
@@ -263,7 +264,8 @@ class Sender(object):
                 connection.putheader('X-Backend-Ssync-Node-Index', frag_index)
             connection.endheaders()
         with exceptions.MessageTimeout(
-                self.daemon.node_timeout, 'connect receive'):
+                self.daemon.node_timeout, 'connect receive',
+                socket=connection.sock):
             response = connection.getresponse()
             if response.status != http.HTTP_OK:
                 err_msg = utils.cap_length(response.read(), 1024)
@@ -293,7 +295,8 @@ class Sender(object):
         send_map = {}
         # First, send our list.
         with exceptions.MessageTimeout(
-                self.daemon.node_timeout, 'missing_check start'):
+                self.daemon.node_timeout, 'missing_check start',
+                socket=connection.sock):
             msg = b':MISSING_CHECK: START\r\n'
             connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         # an empty frag_prefs list is sufficient to get non-durable frags
@@ -317,7 +320,8 @@ class Sender(object):
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
                     'missing_check send line: %d lines (%d bytes) sent'
-                    % (nlines, nbytes)):
+                    % (nlines, nbytes),
+                    socket=connection.sock):
                 msg = b'%s\r\n' % encode_missing(object_hash, **timestamps)
                 msg = b'%x\r\n%s\r\n' % (len(msg), msg)
                 connection.send(msg)
@@ -338,13 +342,15 @@ class Sender(object):
                 object_hash)
             break
         with exceptions.MessageTimeout(
-                self.daemon.node_timeout, 'missing_check end'):
+                self.daemon.node_timeout, 'missing_check end',
+                socket=connection.sock):
             msg = b':MISSING_CHECK: END\r\n'
             connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         # Now, retrieve the list of what they want.
         while True:
             with exceptions.MessageTimeout(
-                    self.daemon.http_timeout, 'missing_check start wait'):
+                    self.daemon.http_timeout, 'missing_check start wait',
+                    socket=connection.sock):
                 line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
@@ -360,7 +366,8 @@ class Sender(object):
                     'Unexpected response: %r' % utils.cap_length(line, 1024))
         while True:
             with exceptions.MessageTimeout(
-                    self.daemon.http_timeout, 'missing_check line wait'):
+                    self.daemon.http_timeout, 'missing_check line wait',
+                    socket=connection.sock):
                 line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
@@ -382,7 +389,8 @@ class Sender(object):
         """
         # First, send all our subrequests based on the send_map.
         with exceptions.MessageTimeout(
-                self.daemon.node_timeout, 'updates start'):
+                self.daemon.node_timeout, 'updates start',
+                socket=connection.sock):
             msg = b':UPDATES: START\r\n'
             connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         frag_prefs = [] if self.include_non_durable else None
@@ -426,13 +434,15 @@ class Sender(object):
                 sleep()  # Gives a chance for other greenthreads to run
             updates += 1
         with exceptions.MessageTimeout(
-                self.daemon.node_timeout, 'updates end'):
+                self.daemon.node_timeout, 'updates end',
+                socket=connection.sock):
             msg = b':UPDATES: END\r\n'
             connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         # Now, read their response for any issues.
         while True:
             with exceptions.MessageTimeout(
-                    self.daemon.http_timeout, 'updates start wait'):
+                    self.daemon.http_timeout, 'updates start wait',
+                    socket=connection.sock):
                 line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
@@ -448,7 +458,8 @@ class Sender(object):
                     'Unexpected response: %r' % utils.cap_length(line, 1024))
         while True:
             with exceptions.MessageTimeout(
-                    self.daemon.http_timeout, 'updates line wait'):
+                    self.daemon.http_timeout, 'updates line wait',
+                    socket=connection.sock):
                 line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
@@ -469,7 +480,8 @@ class Sender(object):
             msg.append(wsgi_to_bytes('%s: %s' % (key, value)))
         msg = b'\r\n'.join(msg) + b'\r\n\r\n'
         with exceptions.MessageTimeout(self.daemon.node_timeout,
-                                       'send_%s' % method.lower()):
+                                       'send_%s' % method.lower(),
+                                       socket=connection.sock):
             connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
 
         if df:
@@ -478,7 +490,8 @@ class Sender(object):
                 bytes_read += len(chunk)
                 with exceptions.MessageTimeout(self.daemon.node_timeout,
                                                'send_%s chunk' %
-                                               method.lower()):
+                                               method.lower(),
+                                               socket=connection.sock):
                     connection.send(b'%x\r\n%s\r\n' % (len(chunk), chunk))
             if bytes_read != df.content_length:
                 # Since we may now have partial state on the receiver we have
@@ -528,7 +541,8 @@ class Sender(object):
             return
         try:
             with exceptions.MessageTimeout(
-                    self.daemon.node_timeout, 'disconnect'):
+                    self.daemon.node_timeout, 'disconnect',
+                    socket=connection.sock):
                 connection.send(b'0\r\n\r\n')
         except (Exception, exceptions.Timeout):
             pass  # We're okay with the above failing.

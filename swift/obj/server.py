@@ -37,7 +37,7 @@ from swift.common.utils import public, get_logger, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_metadata, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
-from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
+from swift.common.exceptions import DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
     ChunkReadError, DiskFileXattrNotSupported, DiskFileStateChanged
@@ -317,11 +317,11 @@ class ObjectController(BaseStorageServer):
         redirect_data = None
         if all([host, partition, contdevice]):
             try:
-                with ConnectionTimeout(self.conn_timeout):
-                    ip, port = host.rsplit(':', 1)
-                    conn = http_connect(ip, port, contdevice, partition, op,
-                                        full_path, headers_out)
-                with Timeout(self.node_timeout):
+                ip, port = host.rsplit(':', 1)
+                conn = http_connect(ip, port, contdevice, partition,
+                                    op, full_path, headers_out,
+                                    timeout=self.conn_timeout)
+                with Timeout(self.node_timeout, socket=conn.sock):
                     response = conn.getresponse()
                     response.read()
                 if is_success(response.status):

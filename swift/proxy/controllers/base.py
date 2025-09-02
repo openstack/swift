@@ -48,7 +48,7 @@ from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
-    ConnectionTimeout, RangeAlreadyComplete, ShortReadError
+    RangeAlreadyComplete, ShortReadError
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
@@ -1556,15 +1556,15 @@ class GetOrHeadHandler(GetterBase):
         ip, port = get_ip_port(node, req_headers)
         start_node_timing = time.time()
         try:
-            with ConnectionTimeout(self.app.conn_timeout):
-                conn = http_connect(
-                    ip, port, node['device'],
-                    self.partition, self.req.method, self.path,
-                    headers=req_headers,
-                    query_string=self.req.query_string)
+            conn = http_connect(
+                ip, port, node['device'],
+                self.partition, self.req.method, self.path,
+                headers=req_headers,
+                query_string=self.req.query_string,
+                timeout=self.app.conn_timeout)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
-            with Timeout(self.node_timeout):
+            with Timeout(self.node_timeout, socket=conn.sock):
                 possible_source = conn.getresponse()
                 # See NOTE: swift_conn at top of file about this.
                 possible_source.swift_conn = conn
@@ -2084,17 +2084,18 @@ class Controller(object):
             try:
                 ip, port = get_ip_port(node, headers)
                 start_node_timing = time.time()
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(
-                        ip, port, node['device'], part, method, path,
-                        headers=headers, query_string=query)
-                    conn.node = node
+                conn = http_connect(
+                    ip, port, node['device'], part, method, path,
+                    headers=headers, query_string=query,
+                    timeout=self.app.conn_timeout)
+                conn.node = node
                 self.app.set_node_timing(node, time.time() - start_node_timing)
                 if body:
-                    with Timeout(self.app.node_timeout):
+                    with Timeout(self.app.node_timeout, socket=conn.sock):
                         conn.send(body)
-                with Timeout(self.app.node_timeout):
+                with Timeout(self.app.node_timeout, socket=conn.sock) as to:
                     resp = conn.getresponse()
+                    to.check_time()
                     if (self.app.check_response(node, self.server_type, resp,
                                                 method, path)
                             and not is_informational(resp.status)):

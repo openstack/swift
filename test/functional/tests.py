@@ -27,6 +27,7 @@ from swift.common.concurrency import eventlet
 from swift.common.http import is_success, is_client_error
 from swift.common.swob import normalize_etag
 from swift.common.utils import md5
+from swift.common.exceptions import Timeout
 from email.utils import parsedate
 
 from email.parser import BytesFeedParser as FeedParser
@@ -2280,9 +2281,9 @@ class TestFile(Base):
 
         def timeout(seconds, method, *args, **kwargs):
             try:
-                with eventlet.Timeout(seconds):
+                with Timeout(seconds):
                     method(*args, **kwargs)
-            except eventlet.Timeout:
+            except Timeout:
                 return True
             else:
                 return False

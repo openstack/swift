@@ -27,7 +27,6 @@ from tempfile import mkdtemp
 from shutil import rmtree
 import json
 
-from swift.common.exceptions import ConnectionTimeout
 from test import listen_zero
 from test.debug_logger import debug_logger
 from test.unit import patch_policies, mocked_http_conn, BaseUnitTestCase
@@ -860,27 +859,6 @@ class TestObjectUpdater(BaseUnitTestCase):
             sorted([
                 (('updater.timing.status.499', mock.ANY), {})]))
 
-        # final update has ConnectionTimeout
-        ou.logger.clear()
-        with ConnectionTimeout(9) as exc, \
-                mock.patch('swift.obj.updater.http_connect') as mock_connect:
-            mock_connect.return_value.getresponse.side_effect = exc
-            ou._process_device_in_child(self.sda1, 'sda1')
-        self.assertTrue(os.path.exists(op_path))
-        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
-                         {'failures': 1})
-        self.assertEqual([0, 2],
-                         unpickle(open(op_path, 'rb')).get('successes'))
-        self.assertEqual([], ou.logger.get_lines_for_level('error'))
-        self.assertIn(
-            'Timeout connecting to remote server 127.0.0.1:%d/sda1: 9 seconds'
-            % bindsock.getsockname()[1], ou.logger.get_lines_for_level('info'))
-        self.assertEqual(
-            sorted(ou.logger.statsd_client.calls['timing']),
-            sorted([
-                (('updater.timing.status.500', mock.ANY), {})
-            ]))
-
         # final update succeeds
         event = spawn(accept, [201])
         ou.logger.clear()
@@ -1483,7 +1461,8 @@ class TestObjectUpdater(BaseUnitTestCase):
 
             self.assertEqual(len(fake_status_codes), len(request_log))
             for request_args, request_kwargs in request_log:
-                ip, part, method, path, headers, qs, ssl = request_args
+                ip, part, method, path, headers, qs, ssl, timeout = \
+                    request_args
                 self.assertEqual(method, op)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  str(int(policy)))
@@ -1546,7 +1525,8 @@ class TestObjectUpdater(BaseUnitTestCase):
                 daemon._process_device_in_child(self.sda1, 'sda1')
             self.assertEqual(len(fake_status_codes), len(request_log))
             for request_args, request_kwargs in request_log:
-                ip, part, method, path, headers, qs, ssl = request_args
+                ip, part, method, path, headers, qs, ssl, timeout = \
+                    request_args
                 self.assertEqual(method, 'PUT')
                 self.assertDictEqual(expected, headers)
             self.assertEqual(

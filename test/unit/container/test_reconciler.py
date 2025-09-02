@@ -666,7 +666,7 @@ class TestReconcilerUtils(BaseUnitTestCase):
         connect_args = []
 
         def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
+                         headers=None, query_string=None, timeout=None):
             connect_args.append({
                 'ipaddr': ipaddr, 'port': port, 'device': device,
                 'partition': partition, 'method': method, 'path': path,
@@ -713,7 +713,7 @@ class TestReconcilerUtils(BaseUnitTestCase):
         connect_args = []
 
         def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
+                         headers=None, query_string=None, timeout=None):
             connect_args.append({
                 'ipaddr': ipaddr, 'port': port, 'device': device,
                 'partition': partition, 'method': method, 'path': path,
@@ -746,7 +746,7 @@ class TestReconcilerUtils(BaseUnitTestCase):
         connect_args = []
 
         def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
+                         headers=None, query_string=None, timeout=None):
             connect_args.append({
                 'ipaddr': ipaddr, 'port': port, 'device': device,
                 'partition': partition, 'method': method, 'path': path,

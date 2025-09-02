@@ -16,7 +16,6 @@ import json
 import random
 import argparse
 
-from swift.common.concurrency import eventlet
 import os
 import shutil
 from contextlib import contextmanager
@@ -32,6 +31,7 @@ import time
 from copy import deepcopy
 
 from swift.common import internal_client
+from swift.common.concurrency import Timeout
 from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.container import replicator
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
@@ -5505,7 +5505,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([True, True], [
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
-        res, sharder, _ = do_test(replicas, Exception, eventlet.Timeout(), 202)
+        res, sharder, _ = do_test(replicas, Exception, Timeout(), 202)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
@@ -5553,7 +5553,7 @@ class TestSharder(BaseTestSharder):
             'Failed to put shard ranges to %s a/c: FakeStatus Error, '
             'path: a/c, db: %s: ' % (host, broker.db_file) for host in hosts),
             set(sharder.logger.get_lines_for_level('error')))
-        res, sharder, _ = do_test(replicas, eventlet.Timeout(), Exception)
+        res, sharder, _ = do_test(replicas, Timeout(), Exception)
         self.assertFalse(res)
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
         self.assertEqual([True, True], [
@@ -5619,7 +5619,7 @@ class TestSharder(BaseTestSharder):
             'path: a/c, db: %s' % broker.db_file in line for line in
             sharder.logger.get_lines_for_level('error')])
         res, sharder, _ = do_test(
-            replicas, eventlet.Timeout(), eventlet.Timeout(), 202, 404)
+            replicas, Timeout(), Timeout(), 202, 404)
         self.assertFalse(res)
         self.assertEqual([True], [
             all(msg in line for msg in ('Failed to put shard ranges', '404'))

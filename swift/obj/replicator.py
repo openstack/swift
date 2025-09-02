@@ -476,16 +476,16 @@ class ObjectReplicator(Daemon):
         if success or not job['delete']:
             headers = dict(self.default_headers)
             headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-            with Timeout(self.conn_timeout):
-                conn = http_connect(
-                    node['replication_ip'], node['replication_port'],
-                    node['device'], job['partition'], 'REPLICATE',
-                    '/' + '-'.join(suffixes), headers=headers)
-            with Timeout(self.http_timeout):
-                try:
+            conn = http_connect(
+                node['replication_ip'], node['replication_port'],
+                node['device'], job['partition'], 'REPLICATE',
+                '/' + '-'.join(suffixes), headers=headers,
+                timeout=self.conn_timeout)
+            try:
+                with Timeout(self.http_timeout, socket=conn.sock):
                     conn.getresponse().read()
-                finally:
-                    conn.close()
+            finally:
+                conn.close()
         return success, {}
 
     def ssync(self, node, job, suffixes, remote_check_objs=None):
@@ -688,13 +688,12 @@ class ObjectReplicator(Daemon):
                 if node['region'] in synced_remote_regions:
                     continue
                 try:
-                    with Timeout(self.conn_timeout):
-                        conn = http_connect(
-                            node['replication_ip'], node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
-                            '', headers=headers)
-                    with Timeout(self.http_timeout):
-                        try:
+                    conn = http_connect(
+                        node['replication_ip'], node['replication_port'],
+                        node['device'], job['partition'], 'REPLICATE',
+                        '', headers=headers, timeout=self.conn_timeout)
+                    try:
+                        with Timeout(self.http_timeout, socket=conn.sock):
                             resp = conn.getresponse()
                             if resp.status == HTTP_INSUFFICIENT_STORAGE:
                                 self.logger.error('%s responded as unmounted',
@@ -726,9 +725,9 @@ class ObjectReplicator(Daemon):
                                                        node['device']))
                                 continue
                             remote_hash = unpickle(resp.read())
-                        finally:
-                            conn.close()
-                        del resp
+                    finally:
+                        conn.close()
+                    del resp
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]

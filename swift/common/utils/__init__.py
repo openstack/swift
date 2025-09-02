@@ -1301,8 +1301,9 @@ def lock_path(directory, timeout=None, timeout_class=None,
     slowdown_at = timeout * 0.01
     time_slept = 0
     try:
-        with timeout_class(timeout, lockpath):
+        with timeout_class(timeout, lockpath) as to:
             while True:
+                to.check_time()
                 if _get_any_lock(fds):
                     break
                 if time_slept > slowdown_at:
@@ -1340,7 +1341,7 @@ def lock_file(filename, timeout=None, append=False, unlink=True):
         fd = os.open(filename, flags)
         file_obj = os.fdopen(fd, mode)
         try:
-            with swift.common.exceptions.LockTimeout(timeout, filename):
+            with swift.common.exceptions.LockTimeout(timeout, filename) as to:
                 while True:
                     try:
                         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1349,6 +1350,7 @@ def lock_file(filename, timeout=None, append=False, unlink=True):
                         if err.errno != errno.EAGAIN:
                             raise
                     sleep(0.01)
+                    to.check_time()
             try:
                 if os.stat(filename).st_ino != os.fstat(fd).st_ino:
                     continue
@@ -2209,11 +2211,12 @@ class GreenAsyncPile(object):
     def _wait(self, timeout, first_n=None):
         results = []
         try:
-            with GreenAsyncPileWaitallTimeout(timeout):
+            with GreenAsyncPileWaitallTimeout(timeout) as to:
                 while True:
                     results.append(next(self))
                     if first_n and len(results) >= first_n:
                         break
+                    to.check_time()
         except (GreenAsyncPileWaitallTimeout, StopIteration):
             pass
         return results
@@ -3261,7 +3264,7 @@ class _MultipartMimeFileLikeObject(object):
                 try:
                     chunk = self.wsgi_input.read(to_read)
                 except (IOError, ValueError) as e:
-                    raise swift.common.exceptions.ChunkReadError(str(e))
+                    raise swift.common.exceptions.ChunkReadError(e)
                 to_read -= len(chunk)
                 self.input_buffer += chunk
                 if not chunk:
@@ -3290,7 +3293,7 @@ class _MultipartMimeFileLikeObject(object):
             try:
                 chunk = self.wsgi_input.read(self.read_chunk_size)
             except (IOError, ValueError) as e:
-                raise swift.common.exceptions.ChunkReadError(str(e))
+                raise swift.common.exceptions.ChunkReadError(e)
             self.input_buffer += chunk
             newline_pos = self.input_buffer.find(b'\r\n')
             boundary_pos = self.input_buffer.find(self.boundary)
@@ -3335,7 +3338,7 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
         while got == b'\r\n':
             got = wsgi_input.readline(blen)
     except (IOError, ValueError) as e:
-        raise swift.common.exceptions.ChunkReadError(str(e))
+        raise swift.common.exceptions.ChunkReadError(e)
 
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(

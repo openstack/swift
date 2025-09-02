@@ -34,7 +34,7 @@ import http.client
 from test.unit import with_tempdir
 from test.unit import quiet_eventlet_exceptions
 from test.unit.common.test_utils import MockOs, MockSys
-from swift.common.exceptions import Timeout, MessageTimeout, ConnectionTimeout
+from swift.common.exceptions import Timeout, MessageTimeout, ResponseTimeout
 
 from swift.common import utils
 
@@ -534,16 +534,16 @@ class TestUtilsLogs(BaseTestCase):
             self.assertIn('my error message', log_msg)
 
             # test eventlet.Timeout
-            with ConnectionTimeout(42, 'my error message') \
-                    as connection_timeout:
+            with ResponseTimeout(42, 'my error message') \
+                    as response_timeout:
                 now = time.time()
-                connection_timeout.created_at = now - 123.456
+                response_timeout.created_at = now - 123.456
                 with mock.patch('swift.common.utils.time.time',
                                 return_value=now):
-                    log_exception(connection_timeout)
+                    log_exception(response_timeout)
                 log_msg = strip_value(sio)
                 self.assertNotIn('Traceback', log_msg)
-                self.assertTrue('ConnectionTimeout' in log_msg)
+                self.assertTrue('ResponseTimeout' in log_msg)
                 self.assertTrue('(42s after 123.46s)' in log_msg)
                 self.assertNotIn('my error message', log_msg)
 
@@ -787,11 +787,11 @@ class TestUtilsLogs(BaseTestCase):
             self.assertEqual("some prefix: blah: %r" % exc, log_msg_lines[0])
 
             # Timeout
-            with ConnectionTimeout(99) as exc:
+            with ResponseTimeout(99) as exc:
                 log_msg_lines = log_exception(exc)
             self.assertEqual(1, len(log_msg_lines))
             self.assertNotIn('Traceback', log_msg_lines[0])
-            self.assertEqual("some prefix: blah: ConnectionTimeout (99s)",
+            self.assertEqual("some prefix: blah: ResponseTimeout (99s)",
                              log_msg_lines[0])
 
             # unfiltered

@@ -21,11 +21,10 @@ import tempfile
 import unittest
 
 from unittest.mock import patch, call, DEFAULT
-from swift.common.concurrency import eventlet
 
 from swift.account import reaper
 from swift.account.backend import DATADIR
-from swift.common.exceptions import ClientException
+from swift.common.exceptions import ClientException, Timeout
 from swift.common.utils.timestamp import Timestamp
 
 from test import unit
@@ -159,7 +158,7 @@ class TestReaper(unittest.TestCase):
             self.amount_fail += 1
             raise self.myexp
         if self.reap_obj_timeout:
-            raise eventlet.Timeout()
+            raise Timeout()
 
     def fake_direct_delete_container(self, *args, **kwargs):
         if self.amount_delete_fail < self.max_delete_fail:
@@ -170,7 +169,7 @@ class TestReaper(unittest.TestCase):
         if self.get_fail:
             raise self.myexp
         if self.timeout:
-            raise eventlet.Timeout()
+            raise Timeout()
         objects = [{'name': u'o1'},
                    {'name': u'o2'},
                    {'name': u'o3'},

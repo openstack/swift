@@ -28,7 +28,6 @@ from swift.common.concurrency import spawn, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_drive
-from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils.pickle import unpickle, write_pickle
 from swift.common.utils import get_logger, renamer, \
@@ -950,11 +949,11 @@ class ObjectUpdater(Daemon):
         # Assume an error until we hear otherwise
         status = 500
         try:
-            with ConnectionTimeout(self.conn_timeout):
-                conn = http_connect(
-                    node['replication_ip'], node['replication_port'],
-                    node['device'], part, op, path, headers_out)
-            with Timeout(self.node_timeout):
+            conn = http_connect(
+                node['replication_ip'], node['replication_port'],
+                node['device'], part, op, path, headers_out,
+                timeout=self.conn_timeout)
+            with Timeout(self.node_timeout, socket=conn.sock):
                 resp = conn.getresponse()
                 resp.read()
             status = resp.status
@@ -979,15 +978,13 @@ class ObjectUpdater(Daemon):
             self.logger.exception('ERROR with remote server %s',
                                   node_to_string(node, replication=True))
         except Timeout as exc:
-            action = 'connecting to'
-            if not isinstance(exc, ConnectionTimeout):
-                # i.e., we definitely made the request but gave up
-                # waiting for the response
-                status = 499
-                action = 'waiting on'
+            # Connect timeouts are bounded by http_connect(timeout=...) and
+            # surface via ``except Exception`` above; only the response-wait
+            # Timeout(node_timeout, socket=...) reaches here.
+            status = 499
             self.logger.info(
-                'Timeout %s remote server %s: %s',
-                action, node_to_string(node, replication=True), exc)
+                'Timeout waiting on remote server %s: %s',
+                node_to_string(node, replication=True), exc)
         finally:
             elapsed = time.time() - start
             self.logger.timing('updater.timing.status.%s' % status,

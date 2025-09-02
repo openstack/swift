@@ -140,7 +140,7 @@ class MemcacheConnPool(Pool):
         sock = socket.socket(family, socket.SOCK_STREAM)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         try:
-            with Timeout(self._connect_timeout):
+            with Timeout(self._connect_timeout, socket=sock):
                 sock.connect(sockaddr)
             if self._tls_context:
                 sock = self._tls_context.wrap_socket(sock,
@@ -409,7 +409,7 @@ class MemcacheRing(object):
         for (server, fp, sock) in self._get_conns(cmd):
             conn_start_time = tm.time()
             try:
-                with Timeout(self._io_timeout):
+                with Timeout(self._io_timeout, socket=sock):
                     sock.sendall(set_msg(cmd.hash_key, flags, timeout, value))
                     # Wait for the set to complete
                     msg = fp.readline().strip()
@@ -441,10 +441,11 @@ class MemcacheRing(object):
         for (server, fp, sock) in self._get_conns(cmd):
             conn_start_time = tm.time()
             try:
-                with Timeout(self._io_timeout):
+                with Timeout(self._io_timeout, socket=sock) as to:
                     sock.sendall(b'get ' + cmd.hash_key + b'\r\n')
                     line = fp.readline().strip().split()
                     while True:
+                        to.check_time()
                         if not line:
                             raise MemcacheConnectionError('incomplete read')
                         if line[0].upper() == b'END':
@@ -509,7 +510,7 @@ class MemcacheRing(object):
         for (server, fp, sock) in self._get_conns(cmd):
             conn_start_time = tm.time()
             try:
-                with Timeout(self._io_timeout):
+                with Timeout(self._io_timeout, socket=sock):
                     new_val = self._incr_or_decr(fp, sock, cmd, delta_val)
                     if new_val is None:
                         add_val = b'0' if cmd.method == 'decr' else delta_val
@@ -562,7 +563,7 @@ class MemcacheRing(object):
         for (server, fp, sock) in self._get_conns(server_cmd):
             conn_start_time = tm.time()
             try:
-                with Timeout(self._io_timeout):
+                with Timeout(self._io_timeout, socket=sock):
                     sock.sendall(b'delete ' + cmd.hash_key + b'\r\n')
                     # Wait for the delete to complete
                     fp.readline()
@@ -604,10 +605,11 @@ class MemcacheRing(object):
         for (server, fp, sock) in self._get_conns(cmd):
             conn_start_time = tm.time()
             try:
-                with Timeout(self._io_timeout):
+                with Timeout(self._io_timeout, socket=sock) as to:
                     sock.sendall(b''.join(msg))
                     # Wait for the set to complete
                     for line in range(len(mapping)):
+                        to.check_time()
                         fp.readline()
                     self._return_conn(server, fp, sock)
                     return
@@ -630,11 +632,12 @@ class MemcacheRing(object):
         for (server, fp, sock) in self._get_conns(cmd):
             conn_start_time = tm.time()
             try:
-                with Timeout(self._io_timeout):
+                with Timeout(self._io_timeout, socket=sock) as to:
                     sock.sendall(b'get ' + b' '.join(hash_keys) + b'\r\n')
                     line = fp.readline().strip().split()
                     responses = {}
                     while True:
+                        to.check_time()
                         if not line:
                             raise MemcacheConnectionError('incomplete read')
                         if line[0].upper() == b'END':

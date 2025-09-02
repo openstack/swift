@@ -170,7 +170,8 @@ class ContainerReplicator(db_replicator.Replicator):
         return shard_range_success and success
 
     def _fetch_and_merge_shard_ranges(self, http, broker):
-        with Timeout(self.node_timeout):
+        http.timeout = self.node_timeout
+        with Timeout(self.node_timeout, socket=http.sock):
             response = http.replicate('get_shard_ranges')
         if response and is_success(response.status):
             shards = json.loads(response.data.decode('ascii'))

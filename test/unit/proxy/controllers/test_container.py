@@ -84,7 +84,7 @@ class BaseTestContainerController(TestRingBase):
 
     def _make_callback_func(self, context):
         def callback(ipaddr, port, device, partition, method, path,
-                     headers=None, query_string=None, ssl=False):
+                     headers=None, query_string=None, ssl=False, timeout=None):
             context['method'] = method
             context['path'] = path
             context['headers'] = headers or {}

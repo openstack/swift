@@ -326,13 +326,14 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
                 emsg = 'Host unreachable'
             elif exc.errno == errno.ENETUNREACH:
                 emsg = 'Network unreachable'
-            elif exc.errno == errno.ETIMEDOUT:
+            elif exc.errno == errno.ETIMEDOUT or \
+                    isinstance(exc, socket.timeout):
                 emsg = 'Connection timeout'
             elif exc.errno == errno.EPIPE:
                 emsg = 'Broken pipe'
             else:
                 call = self._exception
-        elif isinstance(exc, eventlet.Timeout):
+        elif isinstance(exc, swift.common.exceptions.Timeout):
             emsg = exc.__class__.__name__
             detail = '%ss' % exc.seconds
             if hasattr(exc, 'created_at'):

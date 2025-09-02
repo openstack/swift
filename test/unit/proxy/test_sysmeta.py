@@ -39,6 +39,7 @@ class FakeServerConnection(WSGIContext):
     def __init__(self, app):
         super(FakeServerConnection, self).__init__(app)
         self.data = b''
+        self.sock = None
 
     def getheaders(self):
         return self._response_headers
@@ -91,7 +92,7 @@ def get_http_connect(account_func, container_func, object_func):
     entity-specific http_connect methods based on request path.
     '''
     def http_connect(ipaddr, port, device, partition, method, path,
-                     headers=None, query_string=None):
+                     headers=None, query_string=None, timeout=None):
         a, c, o = split_path(path, 1, 3, True)
         if o:
             func = object_func

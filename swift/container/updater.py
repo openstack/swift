@@ -27,7 +27,7 @@ import swift.common.db
 from swift.common.constraints import check_drive
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.bufferedhttp import http_connect
-from swift.common.exceptions import ConnectionTimeout, LockTimeout
+from swift.common.exceptions import LockTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, majority_size, Timestamp, EventletRateLimiter, \
@@ -325,27 +325,28 @@ class ContainerUpdater(Daemon):
         :param bytes: bytes used in the container
         :param storage_policy_index: the policy index for the container
         """
-        with ConnectionTimeout(self.conn_timeout):
-            try:
-                headers = {
-                    'X-Put-Timestamp': put_timestamp,
-                    'X-Delete-Timestamp': delete_timestamp,
-                    'X-Object-Count': count,
-                    'X-Bytes-Used': bytes,
-                    'X-Account-Override-Deleted': 'yes',
-                    'X-Backend-Storage-Policy-Index': storage_policy_index,
-                    'user-agent': self.user_agent}
-                conn = http_connect(
-                    node['replication_ip'], node['replication_port'],
-                    node['device'], part, 'PUT', container, headers=headers)
-            except (Exception, Timeout):
-                self.logger.exception(
-                    'ERROR account update failed with %s (will retry later):',
-                    node_to_string(node, replication=True))
-                return HTTP_INTERNAL_SERVER_ERROR
-        with Timeout(self.node_timeout):
+        try:
+            headers = {
+                'X-Put-Timestamp': put_timestamp,
+                'X-Delete-Timestamp': delete_timestamp,
+                'X-Object-Count': count,
+                'X-Bytes-Used': bytes,
+                'X-Account-Override-Deleted': 'yes',
+                'X-Backend-Storage-Policy-Index': storage_policy_index,
+                'user-agent': self.user_agent}
+            conn = http_connect(
+                node['replication_ip'], node['replication_port'],
+                node['device'], part, 'PUT', container, headers=headers,
+                timeout=self.conn_timeout)
+        except (Exception, Timeout):
+            self.logger.exception(
+                'ERROR account update failed with %s (will retry later):',
+                node_to_string(node, replication=True))
+            return HTTP_INTERNAL_SERVER_ERROR
+        with Timeout(self.node_timeout, socket=conn.sock) as to:
             try:
                 resp = conn.getresponse()
+                to.check_time()
                 resp.read()
                 return resp.status
             except (Exception, Timeout):

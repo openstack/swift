@@ -419,7 +419,7 @@ class TestRelinker(unittest.TestCase):
             self.logger.get_lines_for_level('error'))
         formatted_errors = '\n'.join(self.logger.records['ERROR'])
         self.assertIn('Traceback (most recent call last):', formatted_errors)
-        self.assertIn('eventlet.timeout.Timeout', formatted_errors)
+        self.assertIn('swift.common.concurrency.Timeout', formatted_errors)
 
     def _do_test_relinker_drop_privileges(self, command):
         @contextmanager

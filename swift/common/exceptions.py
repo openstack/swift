@@ -13,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from socket import timeout as socket_timeout
+
 from swift.common.concurrency import Timeout
 from swift.common.utils.timestamp import Timestamp
 
 
 class MessageTimeout(Timeout):
 
-    def __init__(self, seconds=None, msg=None):
-        Timeout.__init__(self, seconds=seconds)
+    def __init__(self, seconds=None, msg=None, socket=None):
+        Timeout.__init__(self, seconds=seconds, socket=socket)
         self.msg = msg
 
     def __str__(self):
@@ -138,7 +140,10 @@ class DevIdBytesTooSmall(ValueError):
 
 
 class ChunkReadError(SwiftException):
-    pass
+    def __init__(self, *args):
+        if args and isinstance(args[0], socket_timeout):
+            raise args[0]
+        super().__init__(*args)
 
 
 class ShortReadError(SwiftException):
@@ -150,10 +155,6 @@ class ChunkReadTimeout(Timeout):
 
 
 class ChunkWriteTimeout(Timeout):
-    pass
-
-
-class ConnectionTimeout(Timeout):
     pass
 
 

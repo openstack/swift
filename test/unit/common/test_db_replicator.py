@@ -16,7 +16,6 @@ import shutil
 import unittest
 from contextlib import contextmanager
 
-from swift.common.concurrency import eventlet
 import os
 import logging
 import errno
@@ -31,7 +30,7 @@ from unittest.mock import patch, call
 
 from swift.common.db_replicator import BrokerAnnotatedLogger
 from swift.container.backend import DATADIR
-from swift.common import db_replicator
+from swift.common import db_replicator, utils
 from swift.common.utils import (hash_path, storage_directory, Timestamp, quote,
                                 mkdirs, listdir)
 from swift.common.exceptions import DriveNotMounted
@@ -39,7 +38,7 @@ from swift.common.swob import HTTPException
 
 from test import unit
 from test.debug_logger import debug_logger
-from test.unit import attach_fake_replication_rpc, BaseUnitTestCase
+from test.unit import attach_fake_replication_rpc, BaseUnitTestCase, FakeSocket
 from test.unit.common.test_db import ExampleBroker
 
 
@@ -161,6 +160,7 @@ class ReplHttp(object):
             response = response.encode('ascii')
         self.response = response
         self.set_status = set_status
+        self.sock = FakeSocket()
     replicated = False
     host = 'localhost'
     node = {
@@ -169,8 +169,9 @@ class ReplHttp(object):
         'device': 'sdb',
     }
 
-    def replicate(self, *args):
+    def replicate(self, *args, timeout=None):
         self.replicated = True
+        self.timeout = timeout
 
         class Response(object):
             status = self.set_status
@@ -481,6 +482,9 @@ class TestDBReplicator(unittest.TestCase):
                 'device': 'sdb1'}
         conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
                                             logging.getLogger())
+        # replicate() connects a fresh connection up front; keep the test
+        # off the network
+        conn.connect = mock.MagicMock()
 
         def req(method, path, body, headers):
             self.assertEqual(method, 'REPLICATE')
@@ -508,6 +512,44 @@ class TestDBReplicator(unittest.TestCase):
         self.assertIsNone(conn.replicate(1, 2, 3))
         self.assertTrue(fake_sock.closed)
         self.assertEqual(None, conn.sock)
+
+    def test_repl_connection_connects_before_arming_timeout(self):
+        # A fresh connection must connect before entering the timeout
+        # context: request() would connect lazily, after Timeout(socket=...)
+        # had already found sock is None and armed nothing.
+        node = {'replication_ip': '127.0.0.1', 'replication_port': 80,
+                'device': 'sdb1'}
+        conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
+                                            logging.getLogger())
+        conn.timeout = 7
+        calls = []
+
+        def fake_connect():
+            calls.append('connect')
+            conn.sock = mock.MagicMock()
+
+        conn.connect = fake_connect
+        conn.request = lambda *args: calls.append('request')
+        resp = mock.MagicMock()
+        conn.getresponse = lambda: resp
+        with mock.patch('swift.common.db_replicator.Timeout') as mock_to:
+            self.assertEqual(conn.replicate(1), resp)
+        self.assertEqual(['connect', 'request'], calls)
+        mock_to.assert_called_once_with(7, socket=conn.sock)
+
+    def test_repl_connection_explicit_timeout_overrides(self):
+        # An explicit per-call timeout wins over the connection's own timeout.
+        node = {'replication_ip': '127.0.0.1', 'replication_port': 80,
+                'device': 'sdb1'}
+        conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
+                                            logging.getLogger())
+        conn.timeout = 7
+        conn.sock = mock.MagicMock()
+        conn.request = lambda *args: None
+        conn.getresponse = lambda: mock.MagicMock()
+        with mock.patch('swift.common.db_replicator.Timeout') as mock_to:
+            conn.replicate(1, timeout=42)
+        mock_to.assert_called_once_with(42, socket=conn.sock)
 
     def test_rsync_file(self):
         replicator = ConcreteReplicator({})
@@ -879,7 +921,7 @@ class TestDBReplicator(unittest.TestCase):
 
             @property
             def status(self):
-                if isinstance(self._status, (Exception, eventlet.Timeout)):
+                if isinstance(self._status, (Exception, utils.Timeout)):
                     raise self._status
                 return self._status
 
@@ -902,7 +944,7 @@ class TestDBReplicator(unittest.TestCase):
         with mock.patch(replicate) as fake_replicate:
             fake_replicate.side_effect = [
                 FakeResponse(Exception('ugh'), None),
-                FakeResponse(eventlet.Timeout(), None),
+                FakeResponse(utils.Timeout(), None),
                 FakeResponse(200, rinfo)]
             with mock.patch.object(replicator, 'delete_db') as mock_delete:
                 res = replicator._replicate_object('0', db_path, 'node_id')
@@ -2005,7 +2047,8 @@ class TestDBReplicator(unittest.TestCase):
         expected_hsh = os.path.basename(db_file).split('.', 1)[0]
         expected_hsh = expected_hsh.split('_', 1)[0]
         db_replicator.ReplConnection.assert_has_calls([
-            mock.call(node, partition, expected_hsh, replicator.logger)])
+            mock.call(node, partition, expected_hsh, replicator.logger,
+                      timeout=replicator.node_timeout)])
 
     @unit.with_tempdir
     def test_reclaim_tmp_files(self, tmpdir):

@@ -152,27 +152,35 @@ class ReplConnection(BufferedHTTPConnection):
     Helper to simplify REPLICATEing to a remote server.
     """
 
-    def __init__(self, node, partition, hash_, logger):
+    def __init__(self, node, partition, hash_, logger, timeout=None):
         self.logger = logger
         self.node = node
         host = "%s:%s" % (node['replication_ip'], node['replication_port'])
-        BufferedHTTPConnection.__init__(self, host)
+        BufferedHTTPConnection.__init__(self, host, timeout=timeout)
         self.path = '/%s/%s/%s' % (node['device'], partition, hash_)
 
-    def replicate(self, *args):
+    def replicate(self, *args, timeout=None):
         """
         Make an HTTP REPLICATE request
 
         :param args: list of json-encodable objects
+        :param timeout: seconds to bound the request; falls back to the
+                        connection's own timeout when not given
 
         :returns: bufferedhttp response object
         """
         try:
             body = json.dumps(args)
-            self.request('REPLICATE', self.path, body,
-                         {'Content-Type': 'application/json'})
-            response = self.getresponse()
-            response.data = response.read()
+            if self.sock is None:
+                # connect now: request() would connect lazily, after the
+                # Timeout below has already found no socket to arm.
+                self.connect()
+            # Own the timeout context here so the socket exists when it arms.
+            with Timeout(timeout or self.timeout, socket=self.sock):
+                self.request('REPLICATE', self.path, body,
+                             {'Content-Type': 'application/json'})
+                response = self.getresponse()
+                response.data = response.read()
             return response
         except (Exception, Timeout):
             self.close()
@@ -406,14 +414,13 @@ class Replicator(Daemon):
                 if not self._rsync_file(broker, remote_file, whole_file=False,
                                         different_region=different_region):
                     return False
-        with Timeout(replicate_timeout or self.node_timeout):
-            response = http.replicate(replicate_method, local_id,
-                                      os.path.basename(broker.db_file))
+        response = http.replicate(
+            replicate_method, local_id, os.path.basename(broker.db_file),
+            timeout=replicate_timeout or self.node_timeout)
         return response and 200 <= response.status < 300
 
     def _send_replicate_request(self, http, *repl_args):
-        with Timeout(self.node_timeout):
-            response = http.replicate(*repl_args)
+        response = http.replicate(*repl_args, timeout=self.node_timeout)
         if not response or not is_success(response.status):
             if response:
                 self.logger.error('ERROR Bad response %s from %s',
@@ -469,8 +476,8 @@ class Replicator(Daemon):
             self.stats['diff_capped'] += 1
             self.logger.increment('diff_caps')
         else:
-            with Timeout(self.node_timeout):
-                response = http.replicate('merge_syncs', sync_table)
+            response = http.replicate('merge_syncs', sync_table,
+                                      timeout=self.node_timeout)
             if response and 200 <= response.status < 300:
                 broker.merge_syncs([{'remote_id': remote_id,
                                      'sync_point': point}],
@@ -513,7 +520,8 @@ class Replicator(Daemon):
         :returns: ReplConnection object
         """
         hsh, other, ext = parse_db_filename(db_file)
-        return ReplConnection(node, partition, hsh, self.logger)
+        return ReplConnection(node, partition, hsh, self.logger,
+                              timeout=self.node_timeout)
 
     def _gather_sync_args(self, info):
         """
@@ -541,8 +549,8 @@ class Replicator(Daemon):
         """
         http = self._http_connect(node, partition, broker.db_file)
         sync_args = self._gather_sync_args(info)
-        with Timeout(self.node_timeout):
-            response = http.replicate('sync', *sync_args)
+        response = http.replicate('sync', *sync_args,
+                                  timeout=self.node_timeout)
         if not response:
             return False
         return self._handle_sync_response(node, response, info, broker, http,

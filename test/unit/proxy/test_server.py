@@ -188,7 +188,8 @@ def set_http_connect(*args, **kwargs):
 
 def _make_callback_func(calls):
     def callback(ipaddr, port, device, partition, method, path,
-                 headers=None, query_string=None, ssl=False):
+                 headers=None, query_string=None, ssl=False,
+                 timeout=None):
         context = {}
         context['method'] = method
         context['path'] = path
@@ -1039,6 +1040,7 @@ class TestProxyServer(unittest.TestCase):
                 self.ip = ip
                 self.args = args
                 self.kargs = kargs
+                self.sock = None
 
             def getresponse(self):
                 body = 'Response from %s' % self.ip
@@ -3433,7 +3435,7 @@ class TestReplicatedObjectController(
         test_errors = []
 
         def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
+                         headers=None, query_string=None, timeout=None):
             if path == '/a/c/o.jpg':
                 if headers.get('Transfer-Encoding') != 'chunked':
                     test_errors.append('"Transfer-Encoding: chunked" should '
@@ -3471,7 +3473,7 @@ class TestReplicatedObjectController(
         test_errors = []
 
         def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
+                         headers=None, query_string=None, timeout=None):
             if path == '/a/c/o.jpg':
                 if 'Expect' not in headers:
                     test_errors.append('Expect was not in headers for '
@@ -5331,7 +5333,7 @@ class TestReplicatedObjectController(
 
             def verify_content_type(ipaddr, port, device, partition,
                                     method, path, headers=None,
-                                    query_string=None):
+                                    query_string=None, timeout=None):
                 if path == '/a/c/o.html':
                     it_worked.append(
                         headers['Content-Type'].startswith('something/right'))
@@ -5353,7 +5355,7 @@ class TestReplicatedObjectController(
 
             def verify_content_type(ipaddr, port, device, partition,
                                     method, path, headers=None,
-                                    query_string=None):
+                                    query_string=None, timeout=None):
                 if path == '/a/c/o.html':
                     it_worked.append(
                         headers['Content-Type'].startswith('text/html'))
@@ -5493,7 +5495,7 @@ class TestReplicatedObjectController(
         # we don't use mocked_http_conn because we return before the code_iter
         # is empty and would get a "left over status" AssertionError
         def capture_req(ipaddr, port, device, partition, method, path,
-                        headers=None, query_string=None):
+                        headers=None, query_string=None, timeout=None):
             request_log.append((method, path))
 
         # account HEAD, container HEAD, obj GET x 3
@@ -6857,7 +6859,7 @@ class TestReplicatedObjectController(
         actual_nodes = []
 
         def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
+                         headers=None, query_string=None, timeout=None):
             if path == '/a/c/o.jpg':
                 actual_nodes.append(ipaddr)
 
@@ -7399,7 +7401,8 @@ class TestReplicatedObjectController(
         seen_headers = []
 
         def capture_headers(ipaddr, port, device, partition, method,
-                            path, headers=None, query_string=None):
+                            path, headers=None, query_string=None,
+                            timeout=None):
             captured = {}
             for header in header_list:
                 captured[header] = headers.get(header)
@@ -10197,7 +10200,8 @@ class TestContainerController(BaseTestCase):
         backend_requests = []
 
         def capture_requests(ipaddr, port, device, partition, method,
-                             path, headers=None, query_string=None):
+                             path, headers=None, query_string=None,
+                             timeout=None):
             if method == 'PUT':
                 backend_requests.append(headers)
 
@@ -11199,7 +11203,8 @@ class TestContainerController(BaseTestCase):
                       'X-Account-Device')
 
         def capture_headers(ipaddr, port, device, partition, method,
-                            path, headers=None, query_string=None):
+                            path, headers=None, query_string=None,
+                            timeout=None):
             captured = {}
             for header in to_capture:
                 captured[header] = headers.get(header)

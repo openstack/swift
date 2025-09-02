@@ -29,13 +29,14 @@ from swift.obj.replicator import ObjectReplicator
 
 from test.debug_logger import debug_logger
 from test.unit.obj.common import BaseTest
-from test.unit import patch_policies, make_timestamp_iter, skip_if_no_xattrs
+from test.unit import patch_policies, make_timestamp_iter, skip_if_no_xattrs, \
+    FakeSocket
 
 
 class NullBufferedHTTPConnection(object):
 
     def __init__(*args, **kwargs):
-        pass
+        args[0].sock = FakeSocket()
 
     def putrequest(*args, **kwargs):
         pass
@@ -85,6 +86,7 @@ class FakeConnection(object):
         self.sleeps = sleeps
         self.sent = []
         self.closed = False
+        self.sock = FakeSocket()
 
     def send(self, data):
         self.sent.append(data)

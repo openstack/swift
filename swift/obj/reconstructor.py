@@ -46,8 +46,8 @@ from swift.common.http import HTTP_OK, HTTP_NOT_FOUND, \
 from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
     get_tmp_dir, DEFAULT_RECLAIM_AGE
 from swift.common.storage_policy import POLICIES, EC_POLICY
-from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
-    SuffixSyncError, PartitionLockTimeout, DiskFileNotExist
+from swift.common.exceptions import DiskFileError, SuffixSyncError, \
+    PartitionLockTimeout, DiskFileNotExist
 
 SYNC, REVERT = ('sync_only', 'sync_revert')
 UNKNOWN_RESPONSE_STATUS = 0  # used as response status for timeouts, exceptions
@@ -389,11 +389,11 @@ class ObjectReconstructor(Daemon):
         full_path = _full_path(node, partition, path, policy)
         resp = None
         try:
-            with ConnectionTimeout(self.conn_timeout):
-                conn = http_connect(
-                    node['replication_ip'], node['replication_port'],
-                    node['device'], partition, 'GET', path, headers=headers)
-            with Timeout(self.node_timeout):
+            conn = http_connect(
+                node['replication_ip'], node['replication_port'],
+                node['device'], partition, 'GET', path, headers=headers,
+                timeout=self.conn_timeout)
+            with Timeout(self.node_timeout, socket=conn.sock):
                 resp = conn.getresponse()
                 resp.full_path = full_path
                 resp.node = node
@@ -917,12 +917,11 @@ class ObjectReconstructor(Daemon):
             attempts_remaining -= 1
             conn = None
             try:
-                with Timeout(self.conn_timeout):
-                    conn = http_connect(
-                        node['replication_ip'], node['replication_port'],
-                        node['device'], job['partition'], 'REPLICATE',
-                        '', headers=headers)
-                with Timeout(self.http_timeout):
+                conn = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], job['partition'], 'REPLICATE',
+                    '', headers=headers, timeout=self.conn_timeout)
+                with Timeout(self.http_timeout, socket=conn.sock):
                     resp = conn.getresponse()
                 if resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.logger.error(

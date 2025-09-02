@@ -49,7 +49,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
-    ChunkWriteTimeout, ConnectionTimeout, ResponseTimeout, \
+    ChunkWriteTimeout, ResponseTimeout, \
     InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
     PutterConnectError, ChunkReadError, RangeAlreadyComplete, ShortReadError
 from swift.common.header_key_dict import HeaderKeyDict
@@ -1864,7 +1864,7 @@ class Putter(object):
         # don't do this update of self.resp if the Expect response during
         # connect() was actually a final response
         if not self.final_resp:
-            with Timeout(timeout):
+            with Timeout(timeout, socket=self.conn.sock):
                 if informational:
                     self.resp = self.conn.getexpect()
                 else:
@@ -1929,12 +1929,12 @@ class Putter(object):
                          node_timeout):
         ip, port = get_ip_port(node, headers)
         start_time = time.time()
-        with ConnectionTimeout(conn_timeout):
-            conn = http_connect(ip, port, node['device'],
-                                part, 'PUT', path, headers)
+        conn = http_connect(ip, port, node['device'],
+                            part, 'PUT', path, headers,
+                            timeout=conn_timeout)
         connect_duration = time.time() - start_time
 
-        with ResponseTimeout(node_timeout):
+        with ResponseTimeout(node_timeout, socket=conn.sock):
             resp = conn.getexpect()
 
         if resp.status == HTTP_INSUFFICIENT_STORAGE:
@@ -1961,7 +1961,6 @@ class Putter(object):
 
         :returns: Putter instance
 
-        :raises ConnectionTimeout: if initial connection timed out
         :raises ResponseTimeout: if header retrieval timed out
         :raises InsufficientStorage: on 507 response from node
         :raises PutterConnectError: on non-507 server error response from node
@@ -2746,15 +2745,15 @@ class ECFragGetter(GetterBase):
         req_headers.update(self.header_provider())
         start_node_timing = time.time()
         try:
-            with ConnectionTimeout(self.app.conn_timeout):
-                conn = http_connect(
-                    ip, port, node['device'],
-                    self.partition, 'GET', self.path,
-                    headers=req_headers,
-                    query_string=self.req.query_string)
+            conn = http_connect(
+                ip, port, node['device'],
+                self.partition, 'GET', self.path,
+                headers=req_headers,
+                query_string=self.req.query_string,
+                timeout=self.app.conn_timeout)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
-            with Timeout(self.node_timeout):
+            with Timeout(self.node_timeout, socket=conn.sock):
                 possible_source = conn.getresponse()
                 # See NOTE: swift_conn at top of file about this.
                 possible_source.swift_conn = conn

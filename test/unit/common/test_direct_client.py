@@ -51,6 +51,7 @@ class FakeConn(object):
         if headers:
             self.resp_headers.update(headers)
         self.etag = None
+        self.sock = None
 
     def _update_raw_call_args(self, *args, **kwargs):
         capture_attrs = ('host', 'port', 'method', 'path', 'req_headers',
@@ -120,6 +121,9 @@ class TestDirectClient(BaseTestCase):
         self.user_agent = 'direct-client %s' % os.getpid()
 
         class FakeTimeout(BaseException):
+            def __init__(self, *args, **kwargs):
+                pass
+
             def __enter__(self):
                 return self
 

@@ -25,6 +25,7 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
     DiskFileDeleted, DiskFileExpired
 from swift.common import swob
 from swift.common import utils
+from swift.common.exceptions import Timeout
 from swift.common.storage_policy import POLICIES, EC_POLICY
 from swift.obj import ssync_sender, server, diskfile
 from swift.obj.reconstructor import RebuildingECDiskFileStream, \
@@ -79,7 +80,7 @@ class TestBaseSsync(BaseTest):
     def _wait_for_rx_server(self):
         # wait for receiver thread to complete before checking logs, but don't
         # wait forever
-        with eventlet.Timeout(
+        with Timeout(
                 seconds=1,
                 exception=AssertionError(
                     'timed out waiting for ssync receiver thread')):

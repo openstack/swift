@@ -794,6 +794,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'path': '/sda0/%s/nada' % part,
                 'qs': None,
                 'headers': {},
+                'timeout': 0.5,
             }])
             return resp
 

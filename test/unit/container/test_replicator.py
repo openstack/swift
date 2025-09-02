@@ -1912,8 +1912,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(['sync', 'get_shard_ranges'], replicate_calls)
         error_lines = daemon.db_logger.logger.get_lines_for_level('error')
         self.assertEqual('ERROR syncing with %s, '
-                         'path: %s, db: %s: Timeout (0.001s)'
-                         % (node, broker.path, broker.db_file),
+                         'path: %s, db: %s: Timeout (%ss)'
+                         % (node, broker.path, broker.db_file,
+                            '0.001'),
                          error_lines[0])
         self.assertFalse(error_lines[1:])
         self.assertEqual(0, daemon.stats['diff'])

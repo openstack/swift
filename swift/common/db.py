@@ -78,9 +78,10 @@ def zero_like(count):
 
 
 def _db_timeout(timeout, db_file, call):
-    with LockTimeout(timeout, db_file):
+    with LockTimeout(timeout, db_file) as to:
         retry_wait = 0.001
         while True:
+            to.check_time()
             try:
                 return call()
             except sqlite3.OperationalError as e:

@@ -121,6 +121,7 @@ class SsyncInputProxy:
         self.chunk_size = chunk_size
         self.timeout = timeout
         self.exception = None
+        self.socket = getattr(wsgi_input, 'get_socket', lambda: None)()
 
     def read_line(self, context):
         """
@@ -133,7 +134,8 @@ class SsyncInputProxy:
             raise self.exception
         try:
             try:
-                with exceptions.MessageTimeout(self.timeout, context):
+                with exceptions.MessageTimeout(self.timeout, context,
+                                               socket=self.socket):
                     line = self.wsgi_input.readline(self.chunk_size)
             except (eventlet.wsgi.ChunkReadError, IOError) as err:
                 raise exceptions.ChunkReadError('%s: %s' % (context, err))
@@ -157,7 +159,8 @@ class SsyncInputProxy:
             raise self.exception
         try:
             try:
-                with exceptions.MessageTimeout(self.timeout, context):
+                with exceptions.MessageTimeout(self.timeout, context,
+                                               socket=self.socket):
                     chunk = self.wsgi_input.read(size)
             except (eventlet.wsgi.ChunkReadError, IOError) as err:
                 raise exceptions.ChunkReadError('%s: %s' % (context, err))

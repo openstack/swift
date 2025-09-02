@@ -30,7 +30,7 @@ from swift.common.concurrency import subprocess, Timeout, sleep
 
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, mocked_http_conn, mock_check_drive,
-                       skip_if_no_xattrs, BaseUnitTestCase)
+                       skip_if_no_xattrs, BaseUnitTestCase, FakeSocket)
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, storage_directory
 from swift.common import ring
@@ -57,6 +57,7 @@ def mock_http_connect(status):
             self.path = args[5]
             self.with_exc = False
             self.headers = kwargs.get('headers', {})
+            self.sock = None
 
         def getresponse(self):
             if self.with_exc:
@@ -1953,6 +1954,8 @@ class TestObjectReplicator(BaseUnitTestCase):
         jobs = [job for job in all_jobs if not job['delete']]
 
         mock_http.return_value = answer = mock.MagicMock()
+        # update() arms a Timeout on conn.sock, which must answer gettimeout()
+        answer.sock = FakeSocket()
         answer.getresponse.return_value = resp = mock.MagicMock()
         # Check incorrect http_connect with status 507 and
         # count of attempts and call args
@@ -1998,7 +2001,8 @@ class TestObjectReplicator(BaseUnitTestCase):
             for node in job['nodes']:
                 reqs.append(mock.call(node['ip'], node['port'], node['device'],
                                       job['partition'], 'REPLICATE', '',
-                                      headers=self.headers))
+                                      headers=self.headers,
+                                      timeout=self.replicator.conn_timeout))
             if job['partition'] == '0':
                 self.assertEqual(self.replicator.suffix_hash, 0)
             mock_http.assert_has_calls(reqs, any_order=True)
@@ -2120,7 +2124,8 @@ class TestObjectReplicator(BaseUnitTestCase):
             reqs.append(mock.call(node['replication_ip'],
                                   node['replication_port'], node['device'],
                                   repl_job['partition'], 'REPLICATE',
-                                  '', headers=self.headers))
+                                  '', headers=self.headers,
+                                  timeout=self.replicator.conn_timeout))
         mock_http.assert_has_calls(reqs, any_order=True)
 
     @mock.patch('swift.obj.replicator.tpool.execute')
@@ -2152,6 +2157,8 @@ class TestObjectReplicator(BaseUnitTestCase):
         bad_resp = mock.MagicMock()
         bad_resp.status = 507
         mock_http.return_value = answer = mock.MagicMock()
+        # update() arms a Timeout on conn.sock, which must answer gettimeout()
+        answer.sock = FakeSocket()
         expected_listdir_calls = [
             mock.call(int(job['partition']),
                       self.replicator.replication_cycle)
@@ -2184,7 +2191,8 @@ class TestObjectReplicator(BaseUnitTestCase):
             for node in job['nodes']:
                 reqs.append(mock.call(node['ip'], node['port'], node['device'],
                                       job['partition'], 'REPLICATE', '',
-                                      headers=self.headers))
+                                      headers=self.headers,
+                                      timeout=self.replicator.conn_timeout))
             if job['partition'] == '0':
                 self.assertEqual(self.replicator.suffix_hash, 0)
             mock_http.assert_has_calls(reqs, any_order=True)
@@ -2215,7 +2223,8 @@ class TestObjectReplicator(BaseUnitTestCase):
             for node in job['nodes']:
                 reqs.append(mock.call(node['ip'], node['port'], node['device'],
                                       job['partition'], 'REPLICATE', '',
-                                      headers=self.headers))
+                                      headers=self.headers,
+                                      timeout=self.replicator.conn_timeout))
             if job['partition'] == '0':
                 self.assertEqual(self.replicator.suffix_hash, 0)
             mock_http.assert_has_calls(reqs, any_order=True)
@@ -2230,6 +2239,8 @@ class TestObjectReplicator(BaseUnitTestCase):
     def test_update_local_hash_changes_during_replication(
             self, mock_do_listdir, mock_http, mock_tpool_execute):
         mock_http.return_value = answer = mock.MagicMock()
+        # update() arms a Timeout on conn.sock, which must answer gettimeout()
+        answer.sock = FakeSocket()
         answer.getresponse.return_value = resp = mock.MagicMock()
         resp.status = 200
         resp.read.return_value = pickle.dumps({

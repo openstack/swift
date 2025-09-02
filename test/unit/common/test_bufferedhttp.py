@@ -29,7 +29,7 @@ from test import listen_zero
 
 class MockHTTPSConnection(object):
 
-    def __init__(self, hostport):
+    def __init__(self, hostport, timeout=None):
         pass
 
     def putrequest(self, method, path, skip_host=0):
@@ -270,6 +270,22 @@ class TestBufferedHTTP(unittest.TestCase):
                          resp.headers.items())
         self.assertIs(resp.headers, resp.msg)
         self.assertIs(resp._headers, resp.headers)
+
+    def test_http_connect_passes_timeout(self):
+        with mock.patch.object(bufferedhttp, 'BufferedHTTPConnection') \
+                as mock_conn_cls:
+            bufferedhttp.http_connect(
+                '127.0.0.1', 8080, 'sda', 0, 'GET', '/path', timeout=1)
+            mock_conn_cls.assert_called_once_with(
+                '127.0.0.1:8080', timeout=1)
+
+    def test_http_connect_timeout_default_none(self):
+        with mock.patch.object(bufferedhttp, 'BufferedHTTPConnection') \
+                as mock_conn_cls:
+            bufferedhttp.http_connect(
+                '127.0.0.1', 8080, 'sda', 0, 'GET', '/path')
+            mock_conn_cls.assert_called_once_with(
+                '127.0.0.1:8080', timeout=None)
 
 
 if __name__ == '__main__':

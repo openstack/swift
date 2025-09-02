@@ -118,14 +118,13 @@ def _make_req(node, part, method, path, headers, stype,
     ip, port = get_ip_port(node, headers)
     headers.setdefault('X-Backend-Allow-Reserved-Names', 'true')
     headers.setdefault('X-Timestamp', Timestamp.now().internal)
-    with Timeout(conn_timeout):
-        conn = http_connect(ip, port, node['device'], part,
-                            method, path, headers=headers)
+    conn = http_connect(ip, port, node['device'], part,
+                        method, path, headers=headers, timeout=conn_timeout)
 
     if contents is not None:
         contents_f = FileLikeIter(contents)
 
-        with Timeout(send_timeout):
+        with Timeout(send_timeout, socket=conn.sock):
             if content_length is None:
                 chunk = contents_f.read(chunk_size)
                 while chunk:
@@ -144,7 +143,7 @@ def _make_req(node, part, method, path, headers, stype,
                     conn.send(chunk)
                     left -= len(chunk)
 
-    with Timeout(response_timeout):
+    with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
         resp.read()
     if not is_success(resp.status):
@@ -198,11 +197,11 @@ def _get_direct_account_container(path, stype, node, part,
     qs = '&'.join('%s=%s' % (k, v) for k, v in params.items())
 
     ip, port = get_ip_port(node, headers)
-    with Timeout(conn_timeout):
-        conn = http_connect(ip, port, node['device'], part,
-                            'GET', path, query_string=qs,
-                            headers=gen_headers(hdrs_in=headers))
-    with Timeout(response_timeout):
+    conn = http_connect(ip, port, node['device'], part,
+                        'GET', path, query_string=qs,
+                        headers=gen_headers(hdrs_in=headers),
+                        timeout=conn_timeout)
+    with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
     if not is_success(resp.status):
         resp.read()
@@ -479,10 +478,10 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
 
     ip, port = get_ip_port(node, headers)
     path = _make_path(account, container, obj)
-    with Timeout(conn_timeout):
-        conn = http_connect(ip, port, node['device'], part,
-                            'GET', path, headers=gen_headers(headers))
-    with Timeout(response_timeout):
+    conn = http_connect(ip, port, node['device'], part,
+                        'GET', path, headers=gen_headers(headers),
+                        timeout=conn_timeout)
+    with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
     if not is_success(resp.status):
         resp.read()
@@ -609,11 +608,10 @@ def direct_get_suffix_hashes(node, part, suffixes, conn_timeout=5,
     headers.setdefault(USE_REPLICATION_NETWORK_HEADER, 'true')
     ip, port = get_ip_port(node, headers)
     path = '/%s' % '-'.join(suffixes)
-    with Timeout(conn_timeout):
-        conn = http_connect(ip, port,
-                            node['device'], part, 'REPLICATE', path,
-                            headers=gen_headers(headers))
-    with Timeout(response_timeout):
+    conn = http_connect(ip, port,
+                        node['device'], part, 'REPLICATE', path,
+                        headers=gen_headers(headers), timeout=conn_timeout)
+    with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
     if not is_success(resp.status):
         raise DirectClientException('Object', 'REPLICATE',
@@ -687,10 +685,9 @@ def direct_get_recon(node, recon_command, conn_timeout=5, response_timeout=15,
 
     ip, port = get_ip_port(node, headers)
     path = '/recon/%s' % recon_command
-    with Timeout(conn_timeout):
-        conn = http_connect_raw(ip, port, 'GET', path,
-                                headers=gen_headers(headers))
-    with Timeout(response_timeout):
+    conn = http_connect_raw(ip, port, 'GET', path,
+                            headers=gen_headers(headers), timeout=conn_timeout)
+    with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
     if not is_success(resp.status):
         raise DirectClientReconException('GET', node, path, resp)
