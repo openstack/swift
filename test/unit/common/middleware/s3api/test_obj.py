@@ -1508,7 +1508,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         ], self.swift.calls)
 
     def test_object_DELETE_current_version_id(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        resp_headers = {'X-Object-Current-Version-Id': 'none'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1560,7 +1560,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             self.assertEqual(status.split()[0], '501', body)
 
     def test_object_DELETE_current_version_id_is_delete_marker(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        resp_headers = {'X-Object-Current-Version-Id': 'none'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1593,7 +1593,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         ], self.swift.calls)
 
     def test_object_DELETE_current_version_id_is_missing(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        resp_headers = {'X-Object-Current-Version-Id': 'none'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1640,7 +1640,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         ], self.swift.calls)
 
     def test_object_DELETE_current_version_id_GET_error(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        resp_headers = {'X-Object-Current-Version-Id': 'none'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1668,7 +1668,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         ], self.swift.calls)
 
     def test_object_DELETE_current_version_id_PUT_error(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        resp_headers = {'X-Object-Current-Version-Id': 'none'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)

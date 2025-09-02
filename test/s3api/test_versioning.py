@@ -15,6 +15,7 @@
 
 import time
 from collections import defaultdict
+from unittest import mock
 
 from botocore.exceptions import ClientError
 import io
@@ -93,6 +94,21 @@ class TestObjectVersioning(BaseS3TestCase):
         self.clear_bucket(self.client, self.bucket_name)
         super(TestObjectVersioning, self).tearDown()
 
+    def assert_no_such_key(self, bucket_name, obj_name):
+        with self.assertRaises(ClientError) as caught:
+            self.client.get_object(Bucket=bucket_name, Key=obj_name)
+        expected_err = 'An error occurred (NoSuchKey) when calling the ' \
+            'GetObject operation: The specified key does not exist.'
+        self.assertEqual(expected_err, str(caught.exception))
+
+    def assert_no_such_version(self, bucket_name, obj_name, version_id):
+        with self.assertRaises(ClientError) as caught:
+            self.client.get_object(Bucket=bucket_name, Key=obj_name,
+                                   VersionId=version_id)
+        expected_err = 'An error occurred (NoSuchVersion) when calling the ' \
+            'GetObject operation: The specified version does not exist.'
+        self.assertEqual(expected_err, str(caught.exception))
+
     def test_setup(self):
         bucket_name = self.create_name('new-bucket')
         resp = self.client.create_bucket(Bucket=bucket_name)
@@ -151,6 +167,296 @@ class TestObjectVersioning(BaseS3TestCase):
             self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
             self.assertEqual('Suspended', resp['Status'])
         retry(check_status)
+
+    def test_no_overwrite_while_versioning_enabled(self):
+        # verify that the null version prior to versioning being enabled will
+        # *not* become a version if it is not overwritten while versioning is
+        # enabled.
+        obj_name = self.create_name('unversioned-obj')
+        self.client.upload_fileobj(io.BytesIO(b'some-data'),
+                                   self.bucket_name, obj_name)
+
+        self.enable_versioning()
+        resp = self.get_versioning_status()
+        self.assertEqual('Enabled', resp.get('Status'), resp)
+
+        self.disable_versioning()
+        resp = self.get_versioning_status()
+        self.assertEqual('Suspended', resp.get('Status'), resp)
+
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        objs = resp.get('Versions', [])
+        self.assertEqual(1, len(objs))
+        self.assertEqual(obj_name, objs[0]['Key'])
+
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        self.assertNotIn('Versions', resp)
+        markers = resp.get('DeleteMarkers', [])
+        self.assertEqual(1, len(markers))
+        self.assertEqual(obj_name, markers[0]['Key'])
+
+    def test_null_versions_replaced(self):
+        # verify that there is only ever one null version retained
+        obj_name = self.create_name('versioned-obj')
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'some-data'),
+                                   self.bucket_name, obj_name)
+
+        # there's a 'null' version even before versioning has been enabled
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(['null'], version_ids)
+        self.assertFalse(marker_ids)
+
+        self.enable_versioning()
+        # put version
+        self.client.upload_fileobj(io.BytesIO(b'some-data'),
+                                   self.bucket_name, obj_name)
+        self.disable_versioning()
+
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(2, len(version_ids))
+        vers0 = version_ids[0]
+        self.assertEqual([vers0, 'null'], version_ids, version_ids)
+        self.assertFalse(marker_ids)
+
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'some-data'),
+                                   self.bucket_name, obj_name)
+
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(['null', vers0], version_ids)
+        self.assertFalse(marker_ids)
+
+        # delete
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        # null version gone...
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual([vers0], version_ids)
+        self.assertEqual(['null'], marker_ids)
+
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'some-data'),
+                                   self.bucket_name, obj_name)
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertFalse(marker_ids)
+        self.assertEqual(['null', vers0], version_ids)
+
+        self.enable_versioning()
+        # put version
+        self.client.upload_fileobj(io.BytesIO(b'some-data'),
+                                   self.bucket_name, obj_name)
+        self.disable_versioning()
+
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertFalse(marker_ids)
+        self.assertEqual(3, len(version_ids), version_ids)
+        vers1 = version_ids[0]
+        self.assertEqual([vers1, 'null', vers0], version_ids)
+
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'some-data'),
+                                   self.bucket_name, obj_name)
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertFalse(marker_ids)
+        self.assertEqual(['null', vers1, vers0], version_ids)
+
+    def test_null_version_listing(self):
+        # verify that null version is positioned in listing according to its
+        # created time
+        obj_name = self.create_name('versioned-obj')
+        self.enable_versioning()
+        # put version
+        self.client.upload_fileobj(io.BytesIO(b'retained-version'),
+                                   self.bucket_name, obj_name)
+        version_ids_0, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(1, len(version_ids_0), version_ids_0)
+        self.assertFalse(marker_ids)
+
+        self.disable_versioning()
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+        version_ids_1, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(2, len(version_ids_1), version_ids_1)
+        self.assertFalse(marker_ids)
+        # null version is first in listing
+        self.assertEqual(version_ids_0, version_ids_1[1:])
+
+        self.enable_versioning()
+        # put version
+        self.client.upload_fileobj(io.BytesIO(b'retained-version'),
+                                   self.bucket_name, obj_name)
+        version_ids_2, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(3, len(version_ids_2), version_ids_2)
+        self.assertFalse(marker_ids)
+        # null version is middle of listing
+        self.assertEqual(version_ids_1, version_ids_2[1:])
+
+        self.disable_versioning()
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+        version_ids_3, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(3, len(version_ids_3), version_ids_3)
+        self.assertFalse(marker_ids)
+        # null version is first in listing
+        self.assertEqual([version_ids_2[0], version_ids_2[2]],
+                         version_ids_3[1:])
+
+    def _do_test_null_version_is_latest_delete(self, obj_name):
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertEqual(['null'], version_ids)
+        self.assertFalse(marker_ids)
+
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name,
+                                      VersionId='null')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        # delete the null version
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name,
+                                         VersionId='null')
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        version_ids, marker_ids = self.get_version_ids(obj_name)
+        self.assertFalse(version_ids)
+        self.assertFalse(marker_ids)
+        self.assert_no_such_version(self.bucket_name, obj_name, 'null')
+
+    def test_null_version_is_latest_delete_before_versioning_enabled(self):
+        obj_name = self.create_name('versioned-obj')
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+
+        self._do_test_null_version_is_latest_delete(obj_name)
+
+    def test_null_version_is_latest_delete_while_versioning_enabled(self):
+        obj_name = self.create_name('versioned-obj')
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+
+        self.enable_versioning()
+
+        self._do_test_null_version_is_latest_delete(obj_name)
+
+    def test_null_version_is_latest_delete_while_versioning_suspended(self):
+        obj_name = self.create_name('versioned-obj')
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+
+        self.enable_versioning()
+        self.disable_versioning()
+
+        self._do_test_null_version_is_latest_delete(obj_name)
+
+    def test_null_version_delete_while_versioning_enabled(self):
+        obj_name = self.create_name('versioned-obj')
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+
+        self.enable_versioning()
+        # get the null version
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name,
+                                      VersionId='null')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        # put version
+        self.client.upload_fileobj(io.BytesIO(b'retained-version'),
+                                   self.bucket_name, obj_name)
+        version_ids_0, marker_ids_0 = self.get_version_ids(obj_name)
+        self.assertEqual(2, len(version_ids_0), version_ids_0)
+        self.assertFalse(marker_ids_0)
+        vers1, null_vers1 = version_ids_0
+
+        # get the null version
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name,
+                                      VersionId='null')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        # delete the null version
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name,
+                                         VersionId=null_vers1)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        version_ids_1, marker_ids_1 = self.get_version_ids(obj_name)
+        self.assertEqual(version_ids_0[:1], version_ids_1)
+
+        # check the latest version is intact
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        exp_etag = md5(b'retained-version', usedforsecurity=False).hexdigest()
+        self.assertEqual('"%s"' % exp_etag, resp['ETag'])
+
+    def test_null_version_delete_while_versioning_suspended(self):
+        obj_name = self.create_name('versioned-obj')
+        # put null version
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+
+        self.enable_versioning()
+        # put version
+        self.client.upload_fileobj(io.BytesIO(b'retained-version'),
+                                   self.bucket_name, obj_name)
+        version_ids_0, marker_ids_0 = self.get_version_ids(obj_name)
+        self.assertEqual(2, len(version_ids_0), version_ids_0)
+        self.assertFalse(marker_ids_0)
+        vers1, null_vers1 = version_ids_0
+
+        self.disable_versioning()
+        # delete the null version
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name,
+                                         VersionId=null_vers1)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        version_ids_1, marker_ids_1 = self.get_version_ids(obj_name)
+        self.assertEqual(version_ids_0[:1], version_ids_1)
+
+        # check the latest version is intact
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        exp_etag = md5(b'retained-version', usedforsecurity=False).hexdigest()
+        self.assertEqual('"%s"' % exp_etag, resp['ETag'])
+
+    def test_null_version_get(self):
+        # verify that null version is always valid
+        obj_name = self.create_name('versioned-obj')
+
+        # before object exists...
+        self.assert_no_such_version(self.bucket_name, obj_name, 'null')
+
+        # before versioning is enabled...
+        self.client.upload_fileobj(io.BytesIO(b'null-version'),
+                                   self.bucket_name, obj_name)
+        self.assertEqual((['null'], []), self.get_version_ids(obj_name))
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name,
+                                      VersionId='null')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        # while versioning is enabled...
+        self.enable_versioning()
+        self.assertEqual((['null'], []), self.get_version_ids(obj_name))
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name,
+                                      VersionId='null')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        # while versioning is suspended...
+        self.disable_versioning()
+        self.assertEqual((['null'], []), self.get_version_ids(obj_name))
+        resp = self.client.get_object(Bucket=self.bucket_name, Key=obj_name,
+                                      VersionId='null')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
 
     def test_upload_fileobj_versioned(self):
         retry(self.enable_versioning)
@@ -224,16 +530,7 @@ class TestObjectVersioning(BaseS3TestCase):
             'StorageClass': 'STANDARD',
         }], objs)
 
-    def test_delete_versioned_objects(self):
-        retry(self.enable_versioning)
-        etags = []
-        obj_name = self.create_name('versioned-obj')
-        for i in range(3):
-            obj_data = self.create_name('some-data-%s' % i).encode('ascii')
-            etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
-            self.client.upload_fileobj(io.BytesIO(obj_data),
-                                       self.bucket_name, obj_name)
-
+    def _do_test_delete_versioned_objects(self, obj_name, obj_data, etags):
         # only one object appears in the listing
         resp = self.client.list_objects_v2(Bucket=self.bucket_name)
         objs = resp.get('Contents', [])
@@ -245,6 +542,12 @@ class TestObjectVersioning(BaseS3TestCase):
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
         }], objs)
+
+        # ...and that's the object that a plain GET will return
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[0], resp['ETag'])
 
         # but everything is layed out in the object versions listing
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
@@ -272,6 +575,7 @@ class TestObjectVersioning(BaseS3TestCase):
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
         }], objs)
+        self.assertFalse(resp.get('DeleteMarkers'))
 
         # we can delete a specific version
         resp = self.client.delete_object(Bucket=self.bucket_name,
@@ -283,20 +587,22 @@ class TestObjectVersioning(BaseS3TestCase):
         objs = resp.get('Versions', [])
         for obj in objs:
             self._sanitize_obj_listing(obj)
-            obj.pop('VersionId')
         self.assertEqual([{
             'ETag': '"%s"' % etags[0],
             'IsLatest': True,
             'Key': obj_name,
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
+            'VersionId': versions[0],
         }, {
             'ETag': '"%s"' % etags[2],
             'IsLatest': False,
             'Key': obj_name,
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
+            'VersionId': versions[2],
         }], objs)
+        self.assertFalse(resp.get('DeleteMarkers'))
 
         # ... but the current listing is unaffected
         resp = self.client.list_objects_v2(Bucket=self.bucket_name)
@@ -310,25 +616,33 @@ class TestObjectVersioning(BaseS3TestCase):
             'StorageClass': 'STANDARD',
         }], objs)
 
+        # ...and that's still the object that a plain GET will return
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[0], resp['ETag'])
+
         # OTOH, if you delete specifically the latest version
         # we can delete a specific version
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=versions[0])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
         # the versions listing has a new IsLatest
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
         objs = resp.get('Versions', [])
         for obj in objs:
             self._sanitize_obj_listing(obj)
-            obj.pop('VersionId')
         self.assertEqual([{
             'ETag': '"%s"' % etags[2],
             'IsLatest': True,
             'Key': obj_name,
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
+            'VersionId': versions[2],
         }], objs)
+        self.assertFalse(resp.get('DeleteMarkers'))
 
         # and the stack pops
         resp = self.client.list_objects_v2(Bucket=self.bucket_name)
@@ -341,6 +655,305 @@ class TestObjectVersioning(BaseS3TestCase):
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
         }], objs)
+
+        # ...and the restored version is now what a plain GET will return
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[2], resp['ETag'])
+
+    def test_delete_versioned_objects_while_versioning_enabled(self):
+        # verify DELETE?versionId=xxx and restore-on-delete
+        retry(self.enable_versioning)
+        etags = []
+        obj_name = self.create_name('versioned-obj')
+        for i in range(3):
+            obj_data = self.create_name('some-data-%s' % i).encode('ascii')
+            etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
+            self.client.upload_fileobj(io.BytesIO(obj_data),
+                                       self.bucket_name, obj_name)
+
+        self._do_test_delete_versioned_objects(obj_name, obj_data, etags)
+
+    def test_delete_versioned_objects_while_versioning_suspended(self):
+        # verify DELETE?versionId=xxx and restore-on-delete
+        retry(self.enable_versioning)
+        etags = []
+        obj_name = self.create_name('versioned-obj')
+        for i in range(3):
+            obj_data = self.create_name('some-data-%s' % i).encode('ascii')
+            etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
+            self.client.upload_fileobj(io.BytesIO(obj_data),
+                                       self.bucket_name, obj_name)
+
+        retry(self.disable_versioning)
+        self._do_test_delete_versioned_objects(obj_name, obj_data, etags)
+
+    def _test_delete_version_previous_restored(
+            self, obj_name, obj_data, etags, expected_versions):
+        # only latest version appears in the listing
+        resp = self.client.list_objects_v2(Bucket=self.bucket_name)
+        objs = resp.get('Contents', [])
+        for obj in objs:
+            self._sanitize_obj_listing(obj)
+        self.assertEqual([{
+            'ETag': '"%s"' % etags[0],
+            'Key': obj_name,
+            'Size': len(obj_data),
+            'StorageClass': 'STANDARD',
+        }], objs)
+
+        # ...and that's the object that a plain GET will return
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[0], resp['ETag'])
+
+        # but everything is layed out in the object versions listing
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        objs = resp.get('Versions', [])
+        versions = []
+        for obj in objs:
+            self._sanitize_obj_listing(obj)
+            versions.append(obj.pop('VersionId'))
+        self.assertEqual([{
+            'ETag': '"%s"' % etags[0],
+            'IsLatest': True,
+            'Key': obj_name,
+            'Size': len(obj_data),
+            'StorageClass': 'STANDARD',
+        }, {
+            'ETag': '"%s"' % etags[1],
+            'IsLatest': False,
+            'Key': obj_name,
+            'Size': len(obj_data),
+            'StorageClass': 'STANDARD',
+        }], objs)
+        self.assertEqual(expected_versions, versions)
+        self.assertFalse(resp.get('DeleteMarkers'))
+
+        # delete the latest version
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name,
+                                         VersionId=versions[0])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+        # and that pulls it out of the versions listing
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        objs = resp.get('Versions', [])
+        for obj in objs:
+            self._sanitize_obj_listing(obj)
+        self.assertEqual([{
+            'ETag': '"%s"' % etags[1],
+            'IsLatest': True,
+            'Key': obj_name,
+            'Size': len(obj_data),
+            'StorageClass': 'STANDARD',
+            'VersionId': versions[1],
+        }], objs)
+        self.assertFalse(resp.get('DeleteMarkers'))
+
+        # ...and the previous version is restored
+        resp = self.client.list_objects_v2(Bucket=self.bucket_name)
+        objs = resp.get('Contents', [])
+        for obj in objs:
+            self._sanitize_obj_listing(obj)
+        self.assertEqual([{
+            'ETag': '"%s"' % etags[1],
+            'Key': obj_name,
+            'Size': len(obj_data),
+            'StorageClass': 'STANDARD',
+        }], objs)
+
+        # ...and a plain GET will now return the previous version
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[1], resp['ETag'])
+
+        # delete the current version and it's gone
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name,
+                                         VersionId=versions[1])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        self.assertFalse(resp.get('Versions'))
+        self.assertFalse(resp.get('DeleteMarkers'))
+        self.assert_no_such_version(self.bucket_name, obj_name, versions[1])
+        self.assert_no_such_key(self.bucket_name, obj_name)
+
+    def test_delete_version_null_restored_while_versioning_enabled(self):
+        # verify DELETE?versionId=xxx and null restore-on-delete
+        # create a null version
+        obj_name = self.create_name('versioned-obj')
+        obj_data = self.create_name('some-data-0').encode('ascii')
+        etags = [md5(obj_data, usedforsecurity=False).hexdigest()]
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        retry(self.enable_versioning)
+
+        # create a non-null version
+        obj_data = self.create_name('some-data-1').encode('ascii')
+        etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        self._test_delete_version_previous_restored(
+            obj_name, obj_data, etags, [mock.ANY, 'null'])
+
+    def test_delete_version_null_restored_while_versioning_suspended(self):
+        # verify DELETE?versionId=xxx and null restore-on-delete
+        # create a null version
+        obj_name = self.create_name('versioned-obj')
+        obj_data = self.create_name('some-data-0').encode('ascii')
+        etags = [md5(obj_data, usedforsecurity=False).hexdigest()]
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        retry(self.enable_versioning)
+
+        # create a non-null version
+        obj_data = self.create_name('some-data-1').encode('ascii')
+        etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        retry(self.disable_versioning)
+
+        self._test_delete_version_previous_restored(
+            obj_name, obj_data, etags, [mock.ANY, 'null'])
+
+    def test_delete_null_version_older_version_restored(self):
+        # verify DELETE?versionId=null and restore-on-delete
+        retry(self.enable_versioning)
+
+        # create a non-null version
+        obj_name = self.create_name('versioned-obj')
+        obj_data = self.create_name('some-data-0').encode('ascii')
+        etags = [md5(obj_data, usedforsecurity=False).hexdigest()]
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        retry(self.disable_versioning)
+
+        # create a null version
+        obj_data = self.create_name('some-data-1').encode('ascii')
+        etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        self._test_delete_version_previous_restored(
+            obj_name, obj_data, etags, ['null', mock.ANY])
+
+    def _test_delete_anon_does_not_restore(self, obj_name):
+        orig_versions = []
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        objs = resp.get('Versions', [])
+        for obj in objs:
+            orig_versions.append(obj.pop('VersionId'))
+        self.assertEqual(2, len(orig_versions))
+        self.assertFalse(resp.get('DeleteMarkers'))
+
+        # delete without a version id does NOT restore the previous version
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assert_no_such_key(self.bucket_name, obj_name)
+
+        # versions remain
+        versions = []
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        objs = resp.get('Versions', [])
+        for obj in objs:
+            versions.append(obj.pop('VersionId'))
+        self.assertEqual(orig_versions, versions)
+        # ... but there's also a delete marker
+        markers = resp.get('DeleteMarkers', [])
+        for marker in markers:
+            self._sanitize_obj_listing(marker)
+        self.assertEqual([{
+            'Key': obj_name,
+            'VersionId': mock.ANY,
+            'IsLatest': True,
+        }], markers)
+        self.assertNotIn(markers[0]['VersionId'], orig_versions)
+
+    def test_delete_anon_no_restore_while_versioning_enabled(self):
+        # verify DELETE without versionId does not restore
+        retry(self.enable_versioning)
+
+        # create two versions
+        obj_name = self.create_name('versioned-obj')
+        for i in range(2):
+            obj_data = self.create_name('some-data-%d' % i).encode('ascii')
+            self.client.upload_fileobj(io.BytesIO(obj_data),
+                                       self.bucket_name, obj_name)
+
+        self._test_delete_anon_does_not_restore(obj_name)
+
+    def test_delete_anon_no_restore_while_versioning_suspended(self):
+        # verify DELETE without versionId does not restore
+        retry(self.enable_versioning)
+
+        # create two versions
+        obj_name = self.create_name('versioned-obj')
+        for i in range(2):
+            obj_data = self.create_name('some-data-%d' % i).encode('ascii')
+            self.client.upload_fileobj(io.BytesIO(obj_data),
+                                       self.bucket_name, obj_name)
+
+        retry(self.disable_versioning)
+
+        self._test_delete_anon_does_not_restore(obj_name)
+
+    def test_delete_anon_current_is_null_no_restore(self):
+        # verify DELETE of null version without versionId does not restore
+        retry(self.enable_versioning)
+
+        # create version
+        obj_name = self.create_name('versioned-obj')
+        obj_data = self.create_name('some-data-0').encode('ascii')
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        retry(self.disable_versioning)
+
+        # create null version
+        obj_data = self.create_name('some-data-1').encode('ascii')
+        self.client.upload_fileobj(io.BytesIO(obj_data),
+                                   self.bucket_name, obj_name)
+
+        orig_versions = []
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        objs = resp.get('Versions', [])
+        for obj in objs:
+            orig_versions.append(obj.pop('VersionId'))
+        self.assertEqual(['null', mock.ANY], orig_versions)
+        self.assertFalse(resp.get('DeleteMarkers'))
+
+        # delete without a version id does NOT restore the previous version
+        resp = self.client.delete_object(Bucket=self.bucket_name,
+                                         Key=obj_name)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assert_no_such_key(self.bucket_name, obj_name)
+
+        # non-null version remains
+        versions = []
+        resp = self.client.list_object_versions(Bucket=self.bucket_name)
+        objs = resp.get('Versions', [])
+        for obj in objs:
+            versions.append(obj.pop('VersionId'))
+        self.assertEqual(orig_versions[1:], versions)
+        # ... but there's also a delete marker
+        markers = resp.get('DeleteMarkers', [])
+        for marker in markers:
+            self._sanitize_obj_listing(marker)
+        self.assertEqual([{
+            'Key': obj_name,
+            'VersionId': 'null',
+            'IsLatest': True,
+        }], markers)
 
     def test_delete_versioned_deletes(self):
         retry(self.enable_versioning)
@@ -388,21 +1001,18 @@ class TestObjectVersioning(BaseS3TestCase):
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=marker_versions[2])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
-        # since IsLatest is still marker we'll raise NoSuchKey
-        with self.assertRaises(ClientError) as caught:
-            resp = self.client.get_object(Bucket=self.bucket_name,
-                                          Key=obj_name)
-        expected_err = 'An error occurred (NoSuchKey) when calling the ' \
-            'GetObject operation: The specified key does not exist.'
-        self.assertEqual(expected_err, str(caught.exception))
+        # since IsLatest is still a delete marker we'll raise NoSuchKey
+        self.assert_no_such_key(self.bucket_name, obj_name)
 
         # now delete the delete marker (IsLatest)
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=marker_versions[0])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
-        # most recent version is now latest
+        # most recent version is now restored to be the latest
         resp = self.client.get_object(Bucket=self.bucket_name,
                                       Key=obj_name)
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
@@ -412,14 +1022,10 @@ class TestObjectVersioning(BaseS3TestCase):
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=versions[0])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
         # and object is deleted again
-        with self.assertRaises(ClientError) as caught:
-            resp = self.client.get_object(Bucket=self.bucket_name,
-                                          Key=obj_name)
-        expected_err = 'An error occurred (NoSuchKey) when calling the ' \
-            'GetObject operation: The specified key does not exist.'
-        self.assertEqual(expected_err, str(caught.exception))
+        self.assert_no_such_key(self.bucket_name, obj_name)
 
         # delete marker IsLatest
         resp = self.client.list_object_versions(Bucket=self.bucket_name)

@@ -306,6 +306,17 @@ class BaseS3ApiBucket(object):
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Location'], '/bucket')
 
+    def test_bucket_PUT_s3_compat(self):
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        self.assertTrue(self.swift.call_list)
+        self.assertEqual('true', self.swift.call_list[0].headers.get(
+            'X-Container-Sysmeta-S3-Compatible-Versions'))
+
     def test_bucket_PUT_with_location(self):
         self._test_bucket_PUT_with_location('CreateBucketConfiguration')
 
