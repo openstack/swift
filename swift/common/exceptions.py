@@ -13,8 +13,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from eventlet import Timeout
 import swift.common.utils
+
+from swift.common.utils import eventlet_disabled
+if not eventlet_disabled():
+    from eventlet import Timeout
+else:
+    class Timeout(BaseException):
+        """Dummy eventlet.Timeout-like that should never get raised"""
+
+        def __init__(self, seconds=None, exception=None):
+            self.start()
+
+        def start(self):
+            return self
+
+        @property
+        def pending(self):
+            return False
+
+        def cancel(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, typ, value, tb):
+            return True
+
+        @property
+        def is_timeout(self):
+            return True
 
 
 class MessageTimeout(Timeout):
