@@ -47,9 +47,9 @@ import itertools
 import stat
 
 from swift.common.concurrency import (
-    eventlet, SwiftPool, sleep, Timeout, Event, socket,
-    report_worker_exception, CooperativeLock, reset_pool, Empty,
-    make_pile_queue, socket_timeout_enter, socket_timeout_exit
+    eventlet, SwiftPool, sleep, Timeout, Event, socket, Semaphore, Empty,
+    socket_timeout_enter, report_worker_exception, CooperativeLock,
+    socket_timeout_exit, reset_pool, make_pile_queue
 )
 try:
     import importlib.metadata
@@ -973,7 +973,7 @@ class GreenthreadSafeIterator(object):
 
     def __init__(self, unsafe_iterable):
         self.unsafe_iter = iter(unsafe_iterable)
-        self.semaphore = eventlet.semaphore.Semaphore(value=1)
+        self.semaphore = Semaphore(value=1)
 
     def __iter__(self):
         return self

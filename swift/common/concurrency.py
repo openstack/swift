@@ -63,18 +63,9 @@ from eventlet import GreenPile
 from eventlet import greenio, greenpool, hubs, patcher, queue, wsgi
 from eventlet import debug, listen, timeout, websocket
 from eventlet import greenthread
-from eventlet.event import Event
-from eventlet.green import socket, ssl, subprocess
-from eventlet.green import os as green_os
-from eventlet.green import threading as green_threading
-from eventlet.green.http import client as green_http_client
 from eventlet.green.http.client import CONTINUE, HTTPConnection, \
     HTTPResponse, HTTPSConnection, ImproperConnectionState, _UNKNOWN
-from eventlet.green.urllib import request as urllib_request
 from eventlet.greenthread import getcurrent
-from eventlet.queue import Empty, LightQueue, Queue
-from eventlet.semaphore import Semaphore
-from eventlet.support.greenlets import GreenletExit
 import eventlet.green.profile as eprofile  # noqa: F401
 hub_exceptions = eventlet.debug.hub_exceptions
 hub_prevent_multiple_readers = eventlet.debug.hub_prevent_multiple_readers
@@ -83,14 +74,24 @@ shutdown_safe = eventlet.greenio.shutdown_safe
 ChunkReadError = eventlet.wsgi.ChunkReadError
 
 if USE_EVENTLET:
+    from eventlet import sleep
     from eventlet import tpool
+    from eventlet.event import Event
+    from eventlet.green import socket, ssl, subprocess
+    from eventlet.green import os as green_os
+    from eventlet.green import threading as green_threading
+    from eventlet.green.http import client as green_http_client
+    from eventlet.green.urllib import request as urllib_request
     from eventlet.hubs import trampoline
     from eventlet.pools import Pool
-    from eventlet import sleep
+    from eventlet.queue import Empty, LightQueue, Queue
+    from eventlet.semaphore import Semaphore
+    from eventlet.support.greenlets import GreenletExit
 
     from eventlet import Timeout as _Timeout
     from eventlet import GreenPool as _GreenPool
     from eventlet import GreenPile as SwiftPile
+    from eventlet.green.threading import Event as ThreadingEvent
 
     class SwiftPool(_GreenPool):
         # GreenPool already blocks spawn when full, so the threading-only
@@ -101,6 +102,9 @@ if USE_EVENTLET:
     # No real lock needed under eventlet (cooperative scheduling)
     from contextlib import nullcontext
     CooperativeLock = nullcontext
+
+    # Return an un-monkeypatched stdlib module (eventlet patches several).
+    original = eventlet.patcher.original
 
     def make_pile_queue(size):
         # Bounded result queue for GreenAsyncPile: producers are greenthreads,
@@ -153,15 +157,18 @@ if USE_EVENTLET:
                 pass
 
 else:
-    import os as green_os  # noqa: F811
-    import socket  # noqa: F811
-    import ssl  # noqa: F811
-    import threading as green_threading  # noqa: F811
-    import urllib.request as urllib_request  # noqa: F811
-    from queue import Empty, Queue as _StdQueue  # noqa: F811
+    import http.client as green_http_client
+    import subprocess
+    import os as green_os
+    import socket
+    import ssl
+    import threading as green_threading
+    import urllib.request as urllib_request
+    from queue import Empty, Queue as _StdQueue
+    from threading import Event, Event as ThreadingEvent, Semaphore
     from threading import Lock as CooperativeLock
 
-    class Queue(_StdQueue):  # noqa: F811
+    class Queue(_StdQueue):
         def resize(self, size):
             # Match eventlet's LightQueue.resize(): set maxsize and wake
             # blocked putters. stdlib Queue has no resize(); callers use it
@@ -170,7 +177,12 @@ else:
                 self.maxsize = size
                 self.not_full.notify_all()
 
-    LightQueue = Queue  # noqa: F811
+    LightQueue = Queue
+
+    def original(name):
+        # No monkeypatching without eventlet, so the imported module already
+        # is the "original".
+        return importlib.import_module(name)
 
     def make_pile_queue(size):
         # Unbounded result queue for GreenAsyncPile: producers are real pool
@@ -180,7 +192,7 @@ else:
         return LightQueue()
 
     try:
-        from greenlet import GreenletExit  # noqa: F811
+        from greenlet import GreenletExit
     except ImportError:
         class GreenletExit(BaseException):
             pass
@@ -896,6 +908,7 @@ def report_worker_exception():
 __all__ = [
     'USE_EVENTLET',
     'reset_pool',
+    'original',
     'make_pile_queue',
     'debug',
     'greenio',
@@ -916,6 +929,7 @@ __all__ = [
     'websocket',
     'CooperativeLock',
     'Event',
+    'ThreadingEvent',
     'socket',
     'ssl',
     'subprocess',

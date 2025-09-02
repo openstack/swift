@@ -2537,7 +2537,8 @@ class TestObjectReplicator(BaseUnitTestCase):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)), \
                 mock.patch.object(self.replicator, 'rsync_timeout', 0.01), \
-                mock.patch('eventlet.green.subprocess.Popen', new_mock):
+                mock.patch.object(object_replicator.subprocess,
+                                  'Popen', new_mock):
             self.replicator.rsync_error_log_line_length = 40
             self.replicator.run_once()
         for proc in mock_procs:
@@ -2572,7 +2573,8 @@ class TestObjectReplicator(BaseUnitTestCase):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)), \
                 mock.patch.object(self.replicator, 'rsync_timeout', 0.01), \
-                mock.patch('eventlet.green.subprocess.Popen', new_mock):
+                mock.patch.object(object_replicator.subprocess,
+                                  'Popen', new_mock):
             self.replicator.run_once()
         for proc in mock_procs:
             self.assertEqual(proc._calls, [

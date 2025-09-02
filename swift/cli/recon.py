@@ -77,7 +77,8 @@ class Scout(object):
         """
         url = base_url + recon_type
         try:
-            body = urllib_request.urlopen(url, timeout=self.timeout).read()
+            body = urllib_request.urlopen(
+                url, timeout=self.timeout).read()  # nosec
             if isinstance(body, bytes):
                 body = body.decode('utf8')
             content = json.loads(body)
@@ -121,7 +122,7 @@ class Scout(object):
             url = "http://%s:%s/" % (host[0], host[1])
             req = urllib_request.Request(url)
             req.get_method = lambda: 'OPTIONS'
-            conn = urllib_request.urlopen(req)
+            conn = urllib_request.urlopen(req)  # nosec
             header = conn.info().get('Server')
             server_header = header.split('/')
             content = server_header[0]

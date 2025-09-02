@@ -31,7 +31,9 @@ from urllib.parse import urlparse
 from swift.common.ring import Ring
 from swift.common.manager import Manager
 
-from swift.common.concurrency import SwiftPool
+from swift.common.concurrency import (
+    SwiftPool, USE_EVENTLET, sleep, Queue, socket
+)
 
 from test.probe import PROXY_BASE_URL
 from test.probe.common import resetswift, ReplProbeTest, client
@@ -449,20 +451,26 @@ class TestProxyServerReloadChild(ChildReloadMixin,
 
 @contextmanager
 def spawn_services(ip_ports, timeout=10):
-    q = eventlet.Queue()
+    q = Queue()
 
     def service(sock):
         try:
             conn, address = sock.accept()
             q.put(address)
-            eventlet.sleep(timeout)
+            sleep(timeout)
             conn.close()
         finally:
             sock.close()
 
     pool = SwiftPool()
     for ip, port in ip_ports:
-        sock = eventlet.listen((ip, port))
+        if USE_EVENTLET:
+            sock = eventlet.listen((ip, port))
+        else:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((ip, port))
+            sock.listen(1)
         pool.spawn(service, sock)
 
     try:

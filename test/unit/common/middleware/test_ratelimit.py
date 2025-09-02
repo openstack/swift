@@ -15,7 +15,6 @@
 
 import unittest
 import time
-from swift.common.concurrency import eventlet
 from unittest import mock
 
 from test.debug_logger import debug_logger
@@ -25,8 +24,13 @@ from swift.proxy.controllers.base import get_cache_key, \
     headers_to_container_info
 from swift.common.swob import Request
 from swift.common import registry
+from swift.common.concurrency import USE_EVENTLET
 
-threading = eventlet.patcher.original('threading')
+if USE_EVENTLET:
+    import eventlet
+    threading = eventlet.patcher.original('threading')
+else:
+    import threading
 
 
 class FakeApp(object):

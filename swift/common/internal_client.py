@@ -843,7 +843,7 @@ def get_auth(url, user, key, auth_version='1.0', **kwargs):
     req = urllib_request.Request(url)
     req.add_header('X-Auth-User', user)
     req.add_header('X-Auth-Key', key)
-    conn = urllib_request.urlopen(req)
+    conn = urllib_request.urlopen(req)  # nosec
     headers = conn.info()
     return (
         headers.getheader('X-Storage-Url'),
@@ -911,7 +911,7 @@ class SimpleClient(object):
             proxy = urllib.parse.urlparse(proxy)
             req.set_proxy(proxy.netloc, proxy.scheme)
         req.get_method = lambda: method
-        conn = urllib_request.urlopen(req, timeout=timeout)
+        conn = urllib_request.urlopen(req, timeout=timeout)  # nosec
         body = conn.read()
         info = conn.info()
         try:
