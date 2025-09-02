@@ -15,16 +15,18 @@
 
 import functools
 import json
+import math
 import os
 import time
 from unittest import mock
 import unittest
 import urllib.parse
 from swift.common import swob, utils
+from swift.common.exceptions import InvalidTimestamp
 from swift.common.middleware import versioned_writes, copy, symlink, \
     listing_formats
 from swift.common.middleware.versioned_writes import object_versioning
-from swift.common.swob import Request, wsgi_quote, str_to_wsgi
+from swift.common.swob import Request, wsgi_quote, str_to_wsgi, Response
 from swift.common.middleware.symlink import TGT_OBJ_SYSMETA_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES, SYMLOOP_EXTEND
 from swift.common.middleware.versioned_writes.object_versioning import \
@@ -3538,6 +3540,133 @@ class TestModuleFunctions(unittest.TestCase):
         self.assertEqual(
             expected,
             object_versioning.build_versions_object_name('foo', ts.normal))
+
+    def test_build_versions_object_marker(self):
+        expected = '\x00foo\x00:'
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_marker('foo'))
+        expected = '\x00bar\x00:'
+        self.assertEqual(
+            expected,
+            object_versioning.build_versions_object_marker('bar'))
+
+    def test_parse_versions_object_name(self):
+        ts = utils.Timestamp.now()
+        name = '\x00foo\x00%s' % (~ts).normal
+        self.assertEqual(
+            ('foo', ts.normal),
+            object_versioning.parse_versions_object_name(name),
+            (ts.normal, (~ts).normal, (~(~ts)).normal)
+        )
+
+        name = '\x00foo\x00bar'
+        self.assertEqual(
+            (name, None),
+            object_versioning.parse_versions_object_name(name))
+
+        name = '\x00foo'
+        self.assertEqual(
+            (name, None),
+            object_versioning.parse_versions_object_name(name))
+
+        name = 'foo'
+        self.assertEqual(
+            (name, None),
+            object_versioning.parse_versions_object_name(name))
+
+    def test_validate_version_ok(self):
+        def do_test(version):
+            try:
+                object_versioning.validate_version(version)
+            except ValueError as err:
+                self.fail('Unexpected exception: %s' % err)
+
+        ts = utils.Timestamp.now()
+        do_test(ts.internal)
+        do_test(ts.normal)
+
+    def test_validate_version_bad(self):
+        def do_test(version):
+            with self.assertRaises(ValueError) as cm:
+                object_versioning.validate_version(version)
+            self.assertEqual('Invalid version: %s' % version,
+                             str(cm.exception))
+        do_test('null')
+        do_test('-123.4')
+        do_test(None)
+
+    def test_split_versions_container_name(self):
+        self.assertEqual('foo',
+                         object_versioning.split_versions_container_name(
+                             '\x00versions\x00foo'))
+        self.assertEqual('',
+                         object_versioning.split_versions_container_name(
+                             '\x00versions\x00'))
+
+        self.assertEqual('\x00versions',
+                         object_versioning.split_versions_container_name(
+                             '\x00versions'))
+        self.assertEqual('\x00not-versions\x00foo',
+                         object_versioning.split_versions_container_name(
+                             '\x00not-versions\x00foo'))
+        self.assertEqual('not-versions\x00foo',
+                         object_versioning.split_versions_container_name(
+                             'not-versions\x00foo'))
+        self.assertEqual('not-versions',
+                         object_versioning.split_versions_container_name(
+                             'not-versions'))
+
+
+class TestObjectContext(unittest.TestCase):
+    def setUp(self):
+        app = FakeSwift()
+        self.obj_context = object_versioning.ObjectContext(app, app.logger)
+        self.ts_iter = make_timestamp_iter()
+
+    def test_get_version(self):
+        req = Request.blank('/', headers={})
+        with self.assertRaises(InvalidTimestamp) as cm:
+            self.obj_context.get_version(req)
+        self.assertEqual('Missing X-Timestamp header', str(cm.exception))
+
+        ts = next(self.ts_iter)
+        headers = {'x-timestamp': ts.internal}
+        req = Request.blank('/', headers=headers)
+        self.assertEqual(ts.normal, self.obj_context.get_version(req))
+
+        ts.offset = 1234
+        headers = {'x-timestamp': ts.internal}
+        req = Request.blank('/', headers=headers)
+        self.assertEqual(ts.normal, self.obj_context.get_version(req))
+
+    def test_get_null_version(self):
+        ts_iter = make_timestamp_iter()
+        ts_last_modified = next(ts_iter)
+        last_modified = time.strftime(
+            '%a, %d %b %Y %H:%M:%S GMT',
+            time.gmtime(math.ceil(float(ts_last_modified))))
+        ts = next(ts_iter)
+        ts_backend = next(ts_iter)
+        ts_backend.offset = 123
+
+        headers = {'last-modified': last_modified}
+        resp = Response(headers=headers)
+        self.assertEqual(ts_last_modified.normal,
+                         self.obj_context.get_null_version(resp))
+
+        headers = {'last-modified': last_modified,
+                   'x-timestamp': ts.normal}
+        resp = Response(headers=headers)
+        self.assertEqual(ts.normal,
+                         self.obj_context.get_null_version(resp))
+
+        headers = {'last-modified': last_modified,
+                   'x-timestamp': ts.normal,
+                   'x-backend-data-timestamp': ts_backend.internal}
+        resp = Response(headers=headers)
+        self.assertEqual(ts_backend.normal,
+                         self.obj_context.get_null_version(resp))
 
 
 if __name__ == '__main__':

@@ -21,9 +21,8 @@ from urllib.parse import quote
 from swift.common import swob
 from swift.common.http import HTTP_OK
 from swift.common.middleware.versioned_writes.object_versioning import \
-    DELETE_MARKER_CONTENT_TYPE
-from swift.common.utils import json, public, config_true_value, Timestamp, \
-    cap_length
+    DELETE_MARKER_CONTENT_TYPE, validate_version
+from swift.common.utils import json, public, config_true_value, cap_length
 from swift.common.registry import get_swift_info
 
 from swift.common.middleware.s3api.controllers.base import Controller
@@ -127,7 +126,7 @@ class BucketController(Controller):
                 if version_marker is not None:
                     if version_marker != 'null':
                         try:
-                            Timestamp(version_marker)
+                            validate_version(version_marker)
                         except ValueError:
                             raise InvalidArgument(
                                 'version-id-marker', version_marker,

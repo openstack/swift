@@ -183,15 +183,86 @@ SYSMETA_VERSIONS_SYMLINK = get_sys_meta_prefix('object') + 'versions-symlink'
 
 
 def build_versions_container_name(container_name):
+    """
+    Get the name of the versions container for given ``container_name``.
+
+    :param container_name: name of container
+    :return: name of associated versions container in the reserved namespace
+    """
     return get_reserved_name('versions', container_name)
 
 
-def build_versions_object_name(object_name, ts):
+def split_versions_container_name(versions_container):
+    """
+    Extract the user namespace container name from a versions container name.
+
+    :param versions_container: name of versions container
+    :return: the user namespace container
+    """
+    try:
+        versions, container_name = split_reserved_name(versions_container)
+    except ValueError:
+        return versions_container
+
+    if versions != 'versions':
+        return versions_container
+
+    return container_name
+
+
+def build_versions_object_name(object_name, version):
+    """
+    Get the name of the versions object for given ``object_name`` and
+    ``version``.
+
+    :param object_name: name of object
+    :param version: version of object
+    :return: a version name in the reserved namespace
+    """
     # Drop any offset from ts. Timestamp offsets are never exposed to
     # clients, so Timestamp.normal is sufficient to define a version as
     # perceived by clients.
-    inv = ~Timestamp(Timestamp(ts).normal)
+    inv = ~Timestamp(Timestamp(version).normal)
     return get_reserved_name(object_name, inv.internal)
+
+
+def build_versions_object_marker(object_name):
+    """
+    Get the name of a versions object for given ``object_name`` that will sort
+    after any regular version of ``object_name``.
+
+    :param object_name: name of object
+    :return: a version name in the reserved namespace
+    """
+    return get_reserved_name(object_name, '') + ':'  # just past all numbers
+
+
+def parse_versions_object_name(versioned_name):
+    """
+    Parse a version name into the user object name and the version.
+
+    :param versioned_name: version name
+    :return: a tuple of (user object name, version).
+    """
+    try:
+        name, suffix = split_reserved_name(versioned_name)
+        version = (~Timestamp(suffix)).internal
+    except ValueError:
+        return versioned_name, None
+    return name, version
+
+
+def validate_version(version):
+    """
+    Validate a version.
+
+    :param version: version string to validate
+    :raises ValueError: if the version is invalid
+    """
+    try:
+        Timestamp(version)
+    except (ValueError, TypeError):
+        raise ValueError('Invalid version: %s' % version)
 
 
 def build_listing(*to_splice, **kwargs):
@@ -239,30 +310,39 @@ class ObjectVersioningContext(WSGIContext):
         super(ObjectVersioningContext, self).__init__(wsgi_app)
         self.logger = logger
 
-    def _build_versions_object_prefix(self, object_name):
-        return get_reserved_name(object_name, '')
-
-    def _split_version_from_name(self, versioned_name):
-        try:
-            name, inv = split_reserved_name(versioned_name)
-            ts = ~Timestamp(inv)
-        except ValueError:
-            return versioned_name, None
-        return name, ts
-
-    def _split_versions_container_name(self, versions_container):
-        try:
-            versions, container_name = split_reserved_name(versions_container)
-        except ValueError:
-            return versions_container
-
-        if versions != 'versions':
-            return versions_container
-
-        return container_name
-
 
 class ObjectContext(ObjectVersioningContext):
+    def get_version(self, req):
+        """
+        Get version to use for a client request.
+
+        :param: a swob.Request instance
+        :return: a version string
+        """
+        # Drop any offset from ts. Timestamp offsets are never exposed to
+        # clients, so Timestamp.normal is sufficient to define a version as
+        # perceived by clients.
+        return req.timestamp.normal
+
+    def get_null_version(self, resp):
+        """
+        Get version to use when copying a null version from the user container
+        to the versions container.
+
+        :param: a swob.Response instance for the existing object GET
+        :return: a version string
+        """
+        timestamp_str = resp.headers.get(
+            'x-backend-data-timestamp',
+            resp.headers.get(
+                'x-timestamp',
+                calendar.timegm(time.strptime(
+                    resp.headers['last-modified'],
+                    '%a, %d %b %Y %H:%M:%S GMT'))))
+        # Drop any offset from ts. Timestamp offsets are never exposed to
+        # clients, so Timestamp.normal is sufficient to define a version as
+        # perceived by clients.
+        return Timestamp(timestamp_str).normal
 
     def _get_source_object(self, req, path_info):
         # make a pre_auth request in case the user has write access
@@ -302,8 +382,8 @@ class ObjectContext(ObjectVersioningContext):
 
     def _put_versioned_obj_from_client(self, req, versions_cont, api_version,
                                        account_name, object_name):
-        vers_obj_name = build_versions_object_name(
-            object_name, req.timestamp.internal)
+        version = self.get_version(req)
+        vers_obj_name = build_versions_object_name(object_name, version)
         put_path_info = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, vers_obj_name)
         # Consciously *do not* set swift_source here -- this req is in charge
@@ -387,8 +467,8 @@ class ObjectContext(ObjectVersioningContext):
         req.body = b''
         resp = req.get_response(self.app)
         resp.headers['ETag'] = put_etag
-        resp.headers['X-Object-Version-Id'] = self._split_version_from_name(
-            put_vers_obj_name)[1].internal
+        resp.headers['X-Object-Version-Id'] = parse_versions_object_name(
+            put_vers_obj_name)[1]
         return resp
 
     def _check_response_error(self, req, resp):
@@ -450,14 +530,8 @@ class ObjectContext(ObjectVersioningContext):
 
         # if there's an existing object, then copy it to
         # X-Versions-Location
-        ts_source = get_resp.headers.get(
-            'x-backend-data-timestamp',
-            get_resp.headers.get(
-                'x-timestamp',
-                calendar.timegm(time.strptime(
-                    get_resp.headers['last-modified'],
-                    '%a, %d %b %Y %H:%M:%S GMT'))))
-        vers_obj_name = build_versions_object_name(object_name, ts_source)
+        version = self.get_null_version(get_resp)
+        vers_obj_name = build_versions_object_name(object_name, version)
 
         put_path_info = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, vers_obj_name)
@@ -536,8 +610,8 @@ class ObjectContext(ObjectVersioningContext):
                            account_name, object_name)
 
         req.ensure_x_timestamp()
-        marker_name = build_versions_object_name(
-            object_name, req.timestamp.internal)
+        version = self.get_version(req)
+        marker_name = build_versions_object_name(object_name, version)
         marker_path = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, marker_name)
         marker_headers = {
@@ -562,7 +636,7 @@ class ObjectContext(ObjectVersioningContext):
         resp = req.get_response(self.app)
         if resp.is_success or resp.status_int == 404:
             resp.headers['X-Object-Version-Id'] = \
-                self._split_version_from_name(marker_name)[1].internal
+                parse_versions_object_name(marker_name)[1]
             resp.headers['X-Backend-Content-Type'] = DELETE_MARKER_CONTENT_TYPE
         drain_and_close(resp)
         return resp
@@ -650,8 +724,8 @@ class ObjectContext(ObjectVersioningContext):
                 resp_version_id = 'null'
             else:
                 _, vers_obj_name = wsgi_unquote(symlink_target).split('/', 1)
-                resp_version_id = self._split_version_from_name(
-                    vers_obj_name)[1].internal
+                resp_version_id = parse_versions_object_name(
+                    vers_obj_name)[1]
         else:
             # if version-id is the latest version, delete the link too
             # First, kill the link...
@@ -753,7 +827,7 @@ class ObjectContext(ObjectVersioningContext):
                 'versioned', request=req)
         if version != 'null':
             try:
-                Timestamp(version)
+                validate_version(version)
             except ValueError:
                 raise HTTPBadRequest('Invalid version parameter', request=req)
 
@@ -824,22 +898,22 @@ class ObjectContext(ObjectVersioningContext):
         if loc:
             _, acct, cont, version_obj = split_path(loc, 4, 4, True)
             if acct == account and cont == versions_cont:
-                _, version = self._split_version_from_name(version_obj)
+                _, version = parse_versions_object_name(version_obj)
                 if version is not None:
-                    resp.headers['X-Object-Version-Id'] = version.internal
+                    resp.headers['X-Object-Version-Id'] = version
                     content_loc = wsgi_quote('/%s/%s/%s/%s' % (
                         api_version, account, container, obj,
-                    )) + '?version-id=%s' % (version.internal,)
+                    )) + '?version-id=%s' % (version,)
                     resp.headers['Content-Location'] = content_loc
         symlink_target = wsgi_unquote(resp.headers.get('X-Symlink-Target', ''))
         if symlink_target:
             cont, version_obj = split_path('/%s' % symlink_target, 2, 2, True)
             if cont == versions_cont:
-                _, version = self._split_version_from_name(version_obj)
+                _, version = parse_versions_object_name(version_obj)
                 if version is not None:
-                    resp.headers['X-Object-Version-Id'] = version.internal
+                    resp.headers['X-Object-Version-Id'] = version
                     symlink_target = wsgi_quote('%s/%s' % (container, obj)) + \
-                        '?version-id=%s' % (version.internal,)
+                        '?version-id=%s' % (version,)
                     resp.headers['X-Symlink-Target'] = symlink_target
         return resp
 
@@ -926,11 +1000,11 @@ class ContainerContext(ObjectVersioningContext):
                     item['version_symlink'] = True
                     item['hash'] = item.pop('symlink_etag') + ''.join(
                         '; %s=%s' % (k, v) for k, v in meta.items())
-                    tgt_obj, version = self._split_version_from_name(tgt_obj)
+                    tgt_obj, version = parse_versions_object_name(tgt_obj)
                     if version is not None and 'versions' not in req.params:
                         sp = wsgi_quote('/v1/%s/%s/%s' % (
                             tgt_acct, container, tgt_obj,
-                        )) + '?version-id=' + version.internal
+                        )) + '?version-id=' + version
                         item['symlink_path'] = sp
 
                 if 'versions' in req.params:
@@ -1125,15 +1199,15 @@ class ContainerContext(ObjectVersioningContext):
 
             if params['version_marker'] != 'null':
                 try:
-                    ts = Timestamp(params.pop('version_marker'))
+                    version = params.pop('version_marker')
+                    validate_version(version)
                 except ValueError:
                     raise HTTPBadRequest('invalid version_marker param')
 
                 params['marker'] = build_versions_object_name(
-                    params['marker'], ts)
+                    params['marker'], version)
         elif 'marker' in params:
-            params['marker'] = self._build_versions_object_prefix(
-                params['marker']) + ':'  # just past all numbers
+            params['marker'] = build_versions_object_marker(params['marker'])
 
         delim = params.get('delimiter', '')
         # Exclude the set of chars used in version_id from user delimiters
@@ -1191,8 +1265,8 @@ class ContainerContext(ObjectVersioningContext):
             for item in current_versions.values():
                 linked_name = wsgi_to_str(wsgi_unquote(bytes_to_wsgi(
                     item['symlink_path'].encode('utf8')))).split('/', 4)[-1]
-                name, ts = self._split_version_from_name(linked_name)
-                if ts is None:
+                name, version = parse_versions_object_name(linked_name)
+                if version is None:
                     continue
                 is_latest = False
                 if name not in is_latest_set:
@@ -1201,7 +1275,7 @@ class ContainerContext(ObjectVersioningContext):
                 broken_listing.append({
                     'name': name,
                     'is_latest': is_latest,
-                    'version_id': ts.internal,
+                    'version_id': version,
                     'content_type': item['content_type'],
                     'bytes': item['bytes'],
                     'hash': item['hash'],
@@ -1228,8 +1302,9 @@ class ContainerContext(ObjectVersioningContext):
                         subdir = split_reserved_name(item['subdir'])[0]
                         subdir_set.add(subdir)
                     else:
-                        name, ts = self._split_version_from_name(item['name'])
-                        if ts is None:
+                        name, version = parse_versions_object_name(
+                            item['name'])
+                        if version is None:
                             continue
                         path = '/v1/%s/%s/%s' % (
                             wsgi_to_str(account),
@@ -1249,7 +1324,7 @@ class ContainerContext(ObjectVersioningContext):
                             item['is_latest'] = False
 
                         item['name'] = name
-                        item['version_id'] = ts.internal
+                        item['version_id'] = version
                         versions_listing.append(item)
 
                 subdir_listing = [{'subdir': s} for s in subdir_set]
@@ -1257,14 +1332,14 @@ class ContainerContext(ObjectVersioningContext):
                 for item in current_versions.values():
                     link_path = wsgi_to_str(wsgi_unquote(bytes_to_wsgi(
                         item['symlink_path'].encode('utf-8'))))
-                    name, ts = self._split_version_from_name(
+                    name, version = parse_versions_object_name(
                         link_path.split('/', 1)[1])
-                    if ts is None:
+                    if version is None:
                         continue
                     broken_listing.append({
                         'name': name,
                         'is_latest': True,
-                        'version_id': ts.internal,
+                        'version_id': version,
                         'content_type': item['content_type'],
                         'bytes': item['bytes'],
                         'hash': item['hash'],
@@ -1344,7 +1419,7 @@ class AccountContext(ObjectVersioningContext):
                 # look-up by name. Ignore 'subdir' items
                 for item in [item for item in versions_listing
                              if 'name' in item]:
-                    container_name = self._split_versions_container_name(
+                    container_name = split_versions_container_name(
                         item['name'])
                     versions_dict[container_name] = item
 
