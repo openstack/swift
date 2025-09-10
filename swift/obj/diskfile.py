@@ -3293,6 +3293,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
             new_durable_data_file_path = replace_partition_in_path(
                 self.manager.devices, durable_data_file_path,
                 self.next_part_power)
+        error_in_ppi_rename = False
         try:
             try:
                 os.rename(data_file_path, durable_data_file_path)
@@ -3302,11 +3303,9 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                     try:
                         os.rename(new_data_file_path,
                                   new_durable_data_file_path)
-                    except OSError as exc:
-                        self.manager.logger.exception(
-                            'Renaming new path %s to %s failed: %s',
-                            new_data_file_path, new_durable_data_file_path,
-                            exc)
+                    except OSError:
+                        error_in_ppi_rename = True
+                        raise  # Still translate to a DiskFileError below
 
             except (OSError, IOError) as err:
                 if err.errno == errno.ENOENT:
@@ -3324,6 +3323,10 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                              for frag in durables):
                         return
 
+                if error_in_ppi_rename:
+                    self.manager.logger.error(
+                        'Renaming new path %s to %s failed',
+                        new_data_file_path, new_durable_data_file_path)
                 if err.errno not in (errno.ENOSPC, errno.EDQUOT):
                     # re-raise to catch all handler
                     raise
