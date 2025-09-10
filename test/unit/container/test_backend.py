@@ -58,11 +58,20 @@ class TestContainerBroker(test_db.TestDbBase):
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
                           'sqlite_sequence', 'policy_stat',
                           'container_info', 'shard_range'}
+    expected_object_table_columns = {'name', 'created_at', 'size',
+                                     'content_type', 'etag', 'deleted',
+                                     'storage_policy_index', 'systags'}
     server_type = 'container'
 
     def setUp(self):
         super(TestContainerBroker, self).setUp()
         self.ts = make_timestamp_iter()
+
+    def _make_broker(self, ts_init):
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(ts_init.internal, 0)
+        return broker
 
     def _assert_shard_ranges(self, broker, expected, include_own=False):
         actual = broker.get_shard_ranges(include_deleted=True,
@@ -97,6 +106,32 @@ class TestContainerBroker(test_db.TestDbBase):
         with broker.get() as conn:
             broker.create_shard_range_table(conn)
 
+    def assert_column_in_table(self, broker, column, table):
+        # confirm that the table does have the column
+        try:
+            with broker.get() as conn:
+                conn.execute('SELECT %s FROM %s' % (column, table))
+        except Exception as err:
+            self.fail('Exception selecting column %s: %s' % (column, err))
+
+    def assert_column_not_in_table(self, broker, column, table):
+        # confirm that the table doesn't have the column
+        with broker.get() as conn:
+            with self.assertRaises(sqlite3.OperationalError) as cm:
+                conn.execute(
+                    '''SELECT %s FROM %s''' % (column, table)
+                ).fetchone()
+        self.assertIn('no such column: %s' % column, str(cm.exception))
+
+    def assert_table_not_exists(self, broker, column, table):
+        # confirm that the table doesn't have the column
+        with broker.get() as conn:
+            with self.assertRaises(sqlite3.OperationalError) as cm:
+                conn.execute(
+                    '''SELECT %s FROM %s''' % (column, table)
+                ).fetchone()
+        self.assertIn('no such table: %s' % table, str(cm.exception))
+
     def test_creation(self):
         # Test ContainerBroker.__init__
         db_file = self.get_db_path()
@@ -108,8 +143,11 @@ class TestContainerBroker(test_db.TestDbBase):
             curs.execute('SELECT 1')
             self.assertEqual(curs.fetchall()[0][0], 1)
             curs.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            self.assertEqual(self.expected_db_tables,
-                             {row[0] for row in curs.fetchall()})
+            actual_tables = {row[0] for row in curs.fetchall()}
+            self.assertEqual(self.expected_db_tables, actual_tables)
+        self.assertIn('object', actual_tables)  # sanity check
+        for column in self.expected_object_table_columns:
+            self.assert_column_in_table(broker, column, 'object')
         # check the update trigger
         broker.put_object('blah', Timestamp.now().internal, 0, 'text/plain',
                           'etag', 0, 0)
@@ -1546,24 +1584,25 @@ class TestContainerBroker(test_db.TestDbBase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
-                  'meta_timestamp': None}
+                  'meta_timestamp': None,
+                  'systags': 'a=b'}
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
 
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', None, None)
+                  '1', '2', None, None, 'a=b')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['ctype_timestamp'] = '2233445566.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', None)
+                  '1', '2', '2233445566.00000', None, 'a=b')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['meta_timestamp'] = '5566778899.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', '5566778899.00000')
+                  '1', '2', '2233445566.00000', '5566778899.00000', 'a=b')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
@@ -1582,7 +1621,8 @@ class TestContainerBroker(test_db.TestDbBase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
-                  'meta_timestamp': None}
+                  'meta_timestamp': None,
+                  'systags': None}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))
@@ -1627,7 +1667,8 @@ class TestContainerBroker(test_db.TestDbBase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': '1234567890.44444',
-                  'meta_timestamp': '1234567890.99999'}
+                  'meta_timestamp': '1234567890.99999',
+                  'systags': 'a=b'}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))
@@ -2702,7 +2743,8 @@ class TestContainerBroker(test_db.TestDbBase):
                       'etag': 'etag_%d' % i,
                       'size': 1024 * i,
                       'deleted': i % 2,
-                      'storage_policy_index': 0
+                      'storage_policy_index': 0,
+                      'systags': '0=%d' % i,
                       } for i in range(1, 8)]
         objects_1 = [{'name': 'obj_1_%d' % i,
                       'created_at': next(self.ts).normal,
@@ -2710,7 +2752,8 @@ class TestContainerBroker(test_db.TestDbBase):
                       'etag': 'etag_%d' % i,
                       'size': 1024 * i,
                       'deleted': i % 2,
-                      'storage_policy_index': 1
+                      'storage_policy_index': 1,
+                      'systags': '1=%d' % i,
                       } for i in range(1, 8)]
         # merge_objects mutates items
         broker.merge_items([dict(obj) for obj in objects_0 + objects_1])
@@ -3597,6 +3640,41 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(len(items), 3)
         self.assertEqual(['a', 'b', 'c'],
                          sorted([rec['name'] for rec in items]))
+
+    def test_merge_items_with_systags(self):
+        broker1 = ContainerBroker(self.get_db_path(), account='a',
+                                  container='c')
+        broker1.initialize(Timestamp('1').internal, 0)
+        broker2 = ContainerBroker(self.get_db_path(),
+                                  account='a', container='c')
+        broker2.initialize(Timestamp('1').internal, 0)
+        broker1.put_object('a', Timestamp(1).internal, 0,
+                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e',
+                           systags='a=b1&x=\N{SNOWMAN}')
+        broker1.put_object('b', Timestamp(2).internal, 0,
+                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e',
+                           systags='a=b2&x=y')
+        # commit pending file into db
+        broker1._commit_puts()
+        id = broker1.get_info()['id']
+        broker2.merge_items(broker1.get_items_since(
+            broker2.get_sync(id), 1000), id)
+        items = broker2.get_items_since(-1, 1000)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
+        broker1.put_object('c', Timestamp(3).internal, 0,
+                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e',
+                           systags='a=\N{SNOWMAN}')
+        broker1._commit_puts()
+        broker2.merge_items(broker1.get_items_since(
+            broker2.get_sync(id), 1000), id)
+        items = broker2.get_items_since(-1, 1000)
+        self.assertEqual(len(items), 3)
+        self.assertEqual(
+            [('a', 'a=b1&x=\N{SNOWMAN}'),
+             ('b', 'a=b2&x=y'),
+             ('c', 'a=\N{SNOWMAN}')],
+            sorted([(rec['name'], rec['systags']) for rec in items]))
 
     @with_tempdir
     def test_merge_items_is_green(self, tempdir):
@@ -5265,6 +5343,7 @@ class TestContainerBroker(test_db.TestDbBase):
                     'size': 1024 * i,
                     'deleted': 0,
                     'storage_policy_index': 0,
+                    'systags': 'x=%d' % i,
                     } for i in range(1, 6)]
         # merge_items mutates items
         broker.merge_items([dict(obj) for obj in objects])
@@ -5967,6 +6046,9 @@ class ContainerBrokerMigrationMixin(test_db.TestDbBase):
     Mixin for running ContainerBroker against databases created with
     older schemas.
     """
+    expected_object_table_columns = {'name', 'created_at', 'size',
+                                     'content_type', 'etag', 'deleted'}
+
     class OverrideCreateShardRangesTable(object):
         def __init__(self, func):
             self.func = func
@@ -6213,6 +6295,58 @@ def prespi_create_object_table(self, conn, *args, **kwargs):
     """)
 
 
+def pre_systags_create_object_table(self, conn, *args, **kwargs):
+    conn.executescript("""
+        CREATE TABLE object (
+            ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            created_at TEXT,
+            size INTEGER,
+            content_type TEXT,
+            etag TEXT,
+            deleted INTEGER DEFAULT 0,
+            storage_policy_index INTEGER DEFAULT 0
+        );
+
+        CREATE INDEX ix_object_deleted_name ON object (deleted, name);
+
+        CREATE TRIGGER object_update BEFORE UPDATE ON object
+        BEGIN
+            SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+        END;
+
+        CREATE TRIGGER object_insert_policy_stat AFTER INSERT ON object
+        BEGIN
+            UPDATE policy_stat
+            SET object_count = object_count + (1 - new.deleted),
+                bytes_used = bytes_used + new.size
+            WHERE storage_policy_index = new.storage_policy_index;
+            INSERT INTO policy_stat (
+                storage_policy_index, object_count, bytes_used)
+            SELECT new.storage_policy_index,
+                   (1 - new.deleted),
+                   new.size
+            WHERE NOT EXISTS(
+                SELECT changes() as change
+                FROM policy_stat
+                WHERE change <> 0
+            );
+            UPDATE container_info
+            SET hash = chexor(hash, new.name, new.created_at);
+        END;
+
+        CREATE TRIGGER object_delete_policy_stat AFTER DELETE ON object
+        BEGIN
+            UPDATE policy_stat
+            SET object_count = object_count - (1 - old.deleted),
+                bytes_used = bytes_used - old.size
+            WHERE storage_policy_index = old.storage_policy_index;
+            UPDATE container_info
+            SET hash = chexor(hash, old.name, old.created_at);
+        END;
+    """)
+
+
 def prespi_create_container_info_table(self, conn, put_timestamp,
                                        _spi=None):
     """
@@ -6273,72 +6407,38 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         super(TestContainerBrokerBeforeSPI, self).setUp()
         ContainerBroker.create_container_info_table = \
             prespi_create_container_info_table
-
-        broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
-        broker.initialize(Timestamp('1').internal, 0)
-        with self.assertRaises(sqlite3.DatabaseError) as raised, \
-                broker.get() as conn:
-            conn.execute('''SELECT storage_policy_index
-                            FROM container_stat''')
-        self.assertIn('no such column: storage_policy_index',
-                      str(raised.exception))
+        # initialize an un-migrated database
+        self.ts_init = next(self.ts)
+        self.broker = self._make_broker(self.ts_init)
+        self.assert_column_not_in_table(
+            self.broker, 'storage_policy_index', 'object')
 
     def tearDown(self):
         super(TestContainerBrokerBeforeSPI, self).tearDown()
-        broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
-        broker.initialize(Timestamp('1').internal, 0)
-        with broker.get() as conn:
-            conn.execute('SELECT storage_policy_index FROM container_stat')
+        self.broker = self._make_broker(next(self.ts))
+        self.assert_column_in_table(
+            self.broker, 'storage_policy_index', 'object')
         test_db.TestDbBase.tearDown(self)
 
-    @patch_policies
-    @with_tempdir
-    def test_object_table_migration(self, tempdir):
-        db_path = os.path.join(tempdir, 'container.db')
-
-        # initialize an un-migrated database
-        broker = ContainerBroker(db_path, account='a', container='c')
-        put_timestamp = Timestamp(int(time())).internal
-        broker.initialize(put_timestamp, None)
-        with broker.get() as conn:
-            try:
-                conn.execute('''
-                    SELECT storage_policy_index FROM object
-                    ''').fetchone()[0]
-            except sqlite3.OperationalError as err:
-                # confirm that the table doesn't have this column
-                self.assertTrue('no such column: storage_policy_index' in
-                                str(err))
-            else:
-                self.fail('broker did not raise sqlite3.OperationalError '
-                          'trying to select from storage_policy_index '
-                          'from object table!')
-
-        # manually insert an existing row to avoid automatic migration
-        obj_put_timestamp = Timestamp.now().internal
+    def _insert_object_row(self, broker, name, ts_put):
+        # manually insert a row, without storage_policy_index, to avoid
+        # automatic migration
         with broker.get() as conn:
             conn.execute('''
                 INSERT INTO object (name, created_at, size,
                     content_type, etag, deleted)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', ('test_name', obj_put_timestamp, 123,
+            ''', (name, ts_put.internal, 123,
                   'text/plain', '8f4c680e75ca4c81dc1917ddab0a0b5c', 0))
             conn.commit()
 
-        # make sure we can iter objects without performing migration
-        for o in broker.list_objects_iter(1, None, None, None, None):
-            self.assertEqual(o, ('test_name', obj_put_timestamp, 123,
-                                 'text/plain',
-                                 '8f4c680e75ca4c81dc1917ddab0a0b5c'))
-
+    def _check_pre_migration(self, broker):
         # get_info
         info = broker.get_info()
         expected = {
             'account': 'a',
             'container': 'c',
-            'put_timestamp': put_timestamp,
+            'put_timestamp': self.ts_init.internal,
             'delete_timestamp': '0',
             'status_changed_at': '0',
             'bytes_used': 123,
@@ -6355,8 +6455,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
             self.assertEqual(info[k], v,
                              'The value for %s was %r not %r' % (
                                  k, info[k], v))
-        self.assertTrue(
-            Timestamp(info['created_at']) > Timestamp(put_timestamp))
+        self.assertGreater(Timestamp(info['created_at']), self.ts_init)
         self.assertNotEqual(int(info['hash'], 16), 0)
         orig_hash = info['hash']
         # get_replication_info
@@ -6365,8 +6464,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         expected['count'] = expected.pop('object_count')
         for k, v in expected.items():
             self.assertEqual(info[k], v)
-        self.assertTrue(
-            Timestamp(info['created_at']) > Timestamp(put_timestamp))
+        self.assertGreater(Timestamp(info['created_at']), self.ts_init)
         self.assertEqual(info['hash'], orig_hash)
         self.assertEqual(info['max_row'], 1)
         self.assertEqual(info['metadata'], '')
@@ -6379,67 +6477,43 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         # empty & is_deleted
         self.assertEqual(broker.empty(), False)
         self.assertEqual(broker.is_deleted(), False)
-
-        # no migrations have occurred yet
-
         # container_stat table
-        with broker.get() as conn:
-            try:
-                conn.execute('''
-                    SELECT storage_policy_index FROM container_stat
-                    ''').fetchone()[0]
-            except sqlite3.OperationalError as err:
-                # confirm that the table doesn't have this column
-                self.assertTrue('no such column: storage_policy_index' in
-                                str(err))
-            else:
-                self.fail('broker did not raise sqlite3.OperationalError '
-                          'trying to select from storage_policy_index '
-                          'from container_stat table!')
-
+        self.assert_column_not_in_table(
+            broker, 'storage_policy_index', 'container_stat')
         # object table
-        with broker.get() as conn:
-            try:
-                conn.execute('''
-                    SELECT storage_policy_index FROM object
-                    ''').fetchone()[0]
-            except sqlite3.OperationalError as err:
-                # confirm that the table doesn't have this column
-                self.assertTrue('no such column: storage_policy_index' in
-                                str(err))
-            else:
-                self.fail('broker did not raise sqlite3.OperationalError '
-                          'trying to select from storage_policy_index '
-                          'from object table!')
-
+        self.assert_column_not_in_table(
+            broker, 'storage_policy_index', 'object')
         # policy_stat table
-        with broker.get() as conn:
-            try:
-                conn.execute('''
-                    SELECT storage_policy_index FROM policy_stat
-                    ''').fetchone()[0]
-            except sqlite3.OperationalError as err:
-                # confirm that the table does not exist yet
-                self.assertTrue('no such table: policy_stat' in str(err))
-            else:
-                self.fail('broker did not raise sqlite3.OperationalError '
-                          'trying to select from storage_policy_index '
-                          'from policy_stat table!')
+        self.assert_table_not_exists(
+            broker, 'storage_policy_index', 'policy_stat')
+
+    @patch_policies
+    def test_put_object_table_migration(self):
+        # manually insert an existing row to avoid automatic migration
+        ts_put = next(self.ts)
+        self._insert_object_row(self.broker, 'test_name', ts_put)
+        # no migrations have occurred yet
+        self._check_pre_migration(self.broker)
 
         # now do a PUT with a different value for storage_policy_index
         # which will update the DB schema as well as update policy_stats
         # for legacy objects in the DB (those without an SPI)
-        second_object_put_timestamp = Timestamp.now().internal
+        second_object_ts_put = next(self.ts)
         other_policy = [p for p in POLICIES if p.idx != 0][0]
-        broker.put_object('test_second', second_object_put_timestamp,
-                          456, 'text/plain',
-                          'cbac50c175793513fa3c581551c876ab',
-                          storage_policy_index=other_policy.idx)
-        broker._commit_puts_stale_ok()
+        self.broker.put_object('test_second', second_object_ts_put.internal,
+                               456, 'text/plain',
+                               'cbac50c175793513fa3c581551c876ab',
+                               storage_policy_index=other_policy.idx)
+        self.broker._commit_puts_stale_ok()
+
+        self.assert_column_in_table(
+            self.broker, 'storage_policy_index', 'container_stat')
+        self.assert_column_in_table(
+            self.broker, 'storage_policy_index', 'object')
 
         # we are fully migrated and both objects have their
         # storage_policy_index
-        with broker.get() as conn:
+        with self.broker.get() as conn:
             storage_policy_index = conn.execute('''
                 SELECT storage_policy_index FROM container_stat
                 ''').fetchone()[0]
@@ -6447,14 +6521,12 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
             rows = conn.execute('''
                 SELECT name, storage_policy_index FROM object
                 ''').fetchall()
-            for row in rows:
-                if row[0] == 'test_name':
-                    self.assertEqual(row[1], 0)
-                else:
-                    self.assertEqual(row[1], other_policy.idx)
+            self.assertEqual([('test_name', 0),
+                              ('test_second', other_policy.idx)],
+                             [(row[0], row[1]) for row in rows])
 
         # and all stats tracking is in place
-        stats = broker.get_policy_stats()
+        stats = self.broker.get_policy_stats()
         self.assertEqual(len(stats), 2)
         self.assertEqual(stats[0]['object_count'], 1)
         self.assertEqual(stats[0]['bytes_used'], 123)
@@ -6462,15 +6534,128 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         self.assertEqual(stats[other_policy.idx]['bytes_used'], 456)
 
         # get info still reports on the legacy storage policy
-        info = broker.get_info()
+        info = self.broker.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 123)
 
         # unless you change the storage policy
-        broker.set_storage_policy_index(other_policy.idx)
-        info = broker.get_info()
+        self.broker.set_storage_policy_index(other_policy.idx)
+        info = self.broker.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 456)
+
+    @patch_policies
+    def test_list_objects_iter_table_migration(self):
+        # manually insert an existing row to avoid automatic migration
+        ts_put = next(self.ts)
+        self._insert_object_row(self.broker, 'test_name', ts_put)
+        # no migrations have occurred yet
+        self._check_pre_migration(self.broker)
+        # a list will NOT trigger migration
+        for o in self.broker.list_objects_iter(1, None, None, None, None):
+            self.assertEqual(o, ('test_name', ts_put.internal, 123,
+                                 'text/plain',
+                                 '8f4c680e75ca4c81dc1917ddab0a0b5c'))
+        self._check_pre_migration(self.broker)
+
+
+class TestContainerBrokerBeforeSystags(TestContainerBroker):
+    """
+    Tests for ContainerBroker against databases created before the systags
+    column was added.
+    """
+    expected_object_table_columns = {'name', 'created_at', 'size',
+                                     'content_type', 'etag', 'deleted',
+                                     'storage_policy_index'}
+
+    def setUp(self):
+        super().setUp()
+        self._orig_create_object_table = ContainerBroker.create_object_table
+        ContainerBroker.create_object_table = pre_systags_create_object_table
+        self.broker = self._make_broker(next(self.ts))
+        self.assert_column_not_in_table(self.broker, 'systags', 'object')
+
+    def tearDown(self):
+        ContainerBroker.create_object_table = self._orig_create_object_table
+        super().tearDown()
+        # sanity check ...
+        broker = self._make_broker(next(self.ts))
+        self.assert_column_in_table(broker, 'systags', 'object')
+        test_db.TestDbBase.tearDown(self)
+
+    def _insert_object_row(self, broker, name, ts_put):
+        # manually insert a row, without systags, to avoid automatic migration
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO object (name, created_at, size,
+                    content_type, etag, deleted, storage_policy_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (name, ts_put.internal, 123,
+                  'text/plain', '8f4c680e75ca4c81dc1917ddab0a0b5c', 0, 0))
+            conn.commit()
+
+    def test_put_object_table_migration(self):
+        ts_put = next(self.ts)
+        self._insert_object_row(self.broker, 'test1', ts_put)
+        self.assert_column_not_in_table(self.broker, 'systags', 'object')
+        second_object_put_timestamp = Timestamp.now().internal
+        self.broker.put_object('test2', second_object_put_timestamp,
+                               456, 'text/plain',
+                               'cbac50c175793513fa3c581551c876ab',
+                               storage_policy_index=0, systags='a=b')
+        # commit_puts will trigger migration
+        self.broker._commit_puts_stale_ok()
+        self.assert_column_in_table(self.broker, 'systags', 'object')
+
+        with self.broker.get() as conn:
+            rows = conn.execute('''
+                SELECT name, systags FROM object
+                ''').fetchall()
+        self.assertEqual([('test1', None), ('test2', 'a=b')],
+                         [(row[0], row[1]) for row in rows])
+
+        # check that it's ok to attempt the migration again (e.g. if there was
+        # a race)
+        try:
+            with self.broker.get() as conn:
+                self.broker._migrate_add_object_systags(conn)
+        except sqlite3.OperationalError as err:
+            self.fail('Unexpected exception raised: %s' % err)
+        self.assert_column_in_table(self.broker, 'systags', 'object')
+
+    def test_put_object_table_migration_only_tries_once(self):
+        ts_put = next(self.ts)
+        self._insert_object_row(self.broker, 'test1', ts_put)
+        self.assert_column_not_in_table(self.broker, 'systags', 'object')
+        second_object_put_timestamp = Timestamp.now().internal
+        self.broker.put_object('test2', second_object_put_timestamp,
+                               456, 'text/plain',
+                               'cbac50c175793513fa3c581551c876ab',
+                               storage_policy_index=0, systags='a=b')
+
+        # pretend the migration has no effect; the AssertionError prevents an
+        # infinte loop of migrations if there's a regression
+        with mock.patch.object(
+                self.broker, '_migrate_add_object_systags',
+                side_effect=[None, AssertionError('too many calls')]
+        ) as mock_migrate:
+            with self.assertRaises(sqlite3.OperationalError) as cm:
+                # commit_puts will trigger migration
+                self.broker._commit_puts_stale_ok()
+
+        self.assertIn('no such column: systags', str(cm.exception))
+        self.assertEqual([mock.call(mock.ANY)], mock_migrate.call_args_list)
+
+    def test_list_objects_iter_table_migration(self):
+        ts_put = next(self.ts)
+        self._insert_object_row(self.broker, 'test1', ts_put)
+        self.assert_column_not_in_table(self.broker, 'systags', 'object')
+        # iter objects will NOT trigger migration
+        for o in self.broker.list_objects_iter(1, None, None, None, None):
+            self.assertEqual(o, ('test1', ts_put.internal, 123,
+                                 'text/plain',
+                                 '8f4c680e75ca4c81dc1917ddab0a0b5c'))
+        self.assert_column_not_in_table(self.broker, 'systags', 'object')
 
 
 class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
@@ -6825,11 +7010,13 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
     base_new_item = {'etag': 'New_item',
                      'size': 'nEw_item',
                      'content_type': 'neW_item',
-                     'deleted': '0'}
+                     'deleted': '0',
+                     'systags': 'x=neW'}
     base_existing = {'etag': 'Existing',
                      'size': 'eXisting',
                      'content_type': 'exIsting',
-                     'deleted': '0'}
+                     'deleted': '0',
+                     'systags': 'x=existIng'}
     #
     # each scenario is a tuple of:
     #    (existing time, new item times, expected updated item)
@@ -6840,6 +7027,8 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
     # expected -> {'created_at': t,
     #              'etag': <val>, 'size': <val>, 'content_type': <val>})
     #
+    expected = {'created_at': t3, 'etag': 'Existing', 'size': 'eXisting',
+                'content_type': 'exIsting', 'systags': 'x=existIng'}
     scenarios_when_all_existing_wins = (
         #
         # all new_item times <= all existing times -> existing values win
@@ -6848,38 +7037,31 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         ({'created_at': t3},
          {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
-         {'created_at': t3,
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3)),
 
         ({'created_at': t3},
          {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t1},
-         {'created_at': t3,
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3)),
 
         ({'created_at': t3},
          {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t1},
-         {'created_at': t3,
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3)),
 
         ({'created_at': t3},
          {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t2},
-         {'created_at': t3,
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3)),
 
         ({'created_at': t3},
          {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t3},
-         {'created_at': t3,
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3)),
 
         ({'created_at': t3},
          {'created_at': t0, 'ctype_timestamp': t3, 'meta_timestamp': t3},
-         {'created_at': t3,
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3)),
 
         ({'created_at': t3},
          {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
-         {'created_at': t3,
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3)),
 
         #
         # existing has attrs at multiple times:
@@ -6887,71 +7069,58 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         ({'created_at': t3 + '+2+2'},
          {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
-         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         dict(base_existing, created_at=t3 + '+2+2')),
     )
 
     scenarios_when_all_new_item_wins = (
         # no existing record
         (None,
          {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t4,
-          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4)),
 
         (None,
          {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t4 + '+0+1',
-          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+0+1')),
 
         (None,
          {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t4 + '+1+0',
-          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+1+0')),
 
         (None,
          {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+1',
-          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+1+1')),
 
         #
         # all new_item times > all existing times -> new item values win
@@ -6960,23 +7129,19 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         ({'created_at': t3},
          {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t4,
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4)),
 
         ({'created_at': t3},
          {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t4 + '+0+1',
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+0+1')),
 
         ({'created_at': t3},
          {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t4 + '+1+0',
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+1+0')),
 
         ({'created_at': t3},
          {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+1',
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+1+1')),
 
         #
         # existing has attrs at multiple times:
@@ -6984,28 +7149,23 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         ({'created_at': t3 + '+2+2'},
          {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t4 + '+2+2',
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+2+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t6, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t6 + '+0+2',
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t6 + '+0+2')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t4, 'ctype_timestamp': t8, 'meta_timestamp': t8},
-         {'created_at': t4 + '+4+0',
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t4 + '+4+0')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t6, 'ctype_timestamp': t8, 'meta_timestamp': t8},
-         {'created_at': t6 + '+2+0',
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t6 + '+2+0')),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t8, 'ctype_timestamp': t8, 'meta_timestamp': t8},
-         {'created_at': t8,
-         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         dict(base_new_item, created_at=t8)),
     )
 
     scenarios_when_some_new_item_wins = (
@@ -7016,18 +7176,18 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         ({'created_at': t3},
          {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t4},
-         {'created_at': t3 + '+0+1',
-          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         {'created_at': t3 + '+0+1', 'etag': 'Existing', 'size': 'eXisting',
+          'content_type': 'exIsting', 'systags': 'x=existIng'}),
 
         ({'created_at': t3},
          {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t3 + '+1+0',
-          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+         {'created_at': t3 + '+1+0', 'etag': 'Existing', 'size': 'eXisting',
+          'content_type': 'neW_item', 'systags': 'x=existIng'}),
 
         ({'created_at': t3},
          {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t3 + '+1+1',
-          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+         {'created_at': t3 + '+1+1', 'etag': 'Existing', 'size': 'eXisting',
+          'content_type': 'neW_item', 'systags': 'x=existIng'}),
 
         #
         # existing has attrs at multiple times:
@@ -7035,34 +7195,34 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t8},
-         {'created_at': t3 + '+2+3',
-          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+         {'created_at': t3 + '+2+3', 'etag': 'Existing', 'size': 'eXisting',
+          'content_type': 'exIsting', 'systags': 'x=existIng'}),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t3, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t3 + '+3+2',
-          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+         {'created_at': t3 + '+3+2', 'etag': 'Existing', 'size': 'eXisting',
+          'content_type': 'neW_item', 'systags': 'x=existIng'}),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+2',
-          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
+         {'created_at': t4 + '+1+2', 'etag': 'New_item', 'size': 'nEw_item',
+          'content_type': 'exIsting', 'systags': 'x=neW'}),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t6},
-         {'created_at': t4 + '+2+1',
-          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+         {'created_at': t4 + '+2+1', 'etag': 'New_item', 'size': 'nEw_item',
+          'content_type': 'neW_item', 'systags': 'x=neW'}),
 
         ({'created_at': t3 + '+2+2'},
          {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t8},
-         {'created_at': t4 + '+1+3',
-          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
+         {'created_at': t4 + '+1+3', 'etag': 'New_item', 'size': 'nEw_item',
+          'content_type': 'exIsting', 'systags': 'x=neW'}),
 
         # this scenario is to check that the deltas are in hex
         ({'created_at': t3 + '+2+2'},
          {'created_at': t2, 'ctype_timestamp': t20, 'meta_timestamp': t30},
-         {'created_at': t3 + '+11+a',
-          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+         {'created_at': t3 + '+11+a', 'etag': 'Existing', 'size': 'eXisting',
+          'content_type': 'neW_item', 'systags': 'x=existIng'}),
     )
 
     def _test_scenario(self, scenario, newer):
@@ -7087,9 +7247,10 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
                           update_new_item_from_existing(new_item, existing))
             self.assertDictEqual(expected, new_item)
         except AssertionError as e:
+            self.maxDiff = None
             msg = ('Scenario: existing %s, new_item %s, expected %s.'
                    % scenario)
-            msg = '%s Failed with: %s' % (msg, e.message)
+            msg = '%s Failed with: %s' % (msg, e)
             raise AssertionError(msg)
 
     def test_update_new_item_from_existing(self):
@@ -7355,6 +7516,7 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
             'name': '1234-a/c/o',
             'size': 0,
             'storage_policy_index': self.policy.idx,
+            'systags': None,
         }], broker.get_objects())
 
     def test_out_of_order_expirer_bytes_ctype(self):
@@ -7386,6 +7548,7 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
             'name': '1234-a/c/o',
             'size': 0,
             'storage_policy_index': self.policy.idx,
+            'systags': None,
         }], broker.get_objects())
 
     def test_unupgraded_expirer_bytes_ctype(self):
@@ -7420,4 +7583,5 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
             'name': '1234-a/c/o',
             'size': 0,
             'storage_policy_index': self.policy.idx,
+            'systags': None,
         }], broker.get_objects())

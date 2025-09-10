@@ -217,7 +217,7 @@ class MPUItem(object):
     def __init__(self, name, meta_timestamp, data_timestamp=None,
                  ctype_timestamp=None,
                  size=0, content_type='', etag='', deleted=0,
-                 storage_policy_index=0, **kwargs):
+                 storage_policy_index=0, systags=None, **kwargs):
         self._name = name
         self.meta_timestamp = meta_timestamp
         self.data_timestamp = data_timestamp or meta_timestamp
@@ -227,6 +227,7 @@ class MPUItem(object):
         self.etag = etag
         self.deleted = deleted
         self.storage_policy_index = storage_policy_index
+        self.systags = systags
         self.kwargs = kwargs
 
     @property
@@ -243,6 +244,7 @@ class MPUItem(object):
         yield 'deleted', self.deleted
         yield 'content_type', self.content_type
         yield 'storage_policy_index', self.storage_policy_index
+        yield 'systags', self.systags
         for k, v in self.kwargs.items():
             yield k, v
 
@@ -268,7 +270,8 @@ class MPUItem(object):
                 'deleted': self.deleted,
                 'storage_policy_index': self.storage_policy_index,
                 'ctype_timestamp': self.ctype_timestamp.internal,
-                'meta_timestamp': self.meta_timestamp.internal}
+                'meta_timestamp': self.meta_timestamp.internal,
+                'systags': self.systags}
 
 
 class MPUSession(MPUItem):

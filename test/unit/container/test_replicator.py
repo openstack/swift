@@ -1977,7 +1977,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         objs = [{'name': 'blah%03d' % i, 'created_at': next(ts_iter).internal,
                  'size': i, 'content_type': 'text/plain', 'etag': 'etag%s' % i,
-                 'deleted': 0, 'storage_policy_index': policy_idx}
+                 'deleted': 0, 'storage_policy_index': policy_idx,
+                 'systags': 'a=\N{SNOWMAN}'}
                 for i in range(20)]
         bounds = (('', 'a'), ('a', 'b'), ('b', 'c'), ('c', ''))
         shard_ranges = [

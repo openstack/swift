@@ -2413,6 +2413,22 @@ def csv_append(csv_string, item):
         return item
 
 
+def param_str_from_dict(param_dict):
+    if not param_dict:
+        return None
+    else:
+        return '&'.join(['%s=%s' % (k, v)
+                         for k, v in param_dict.items()])
+
+
+def param_str_to_dict(param_str):
+    if not param_str:
+        return {}
+    else:
+        kv_pairs = [f.split('=') for f in param_str.split('&')]
+        return {k: v for (k, v) in kv_pairs}
+
+
 class ClosingIterator(object):
     """
     Wrap another iterator and close it, if possible, on completion/exception.

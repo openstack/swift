@@ -232,8 +232,9 @@ def update_new_item_from_existing(new_item, existing):
     newer_than_existing = [True, True, True]
     if rec_ts_data >= item_ts_data:
         # apply data attributes from existing record
-        new_item.update([(k, existing[k])
-                         for k in ('size', 'etag', 'deleted', 'swift_bytes')])
+        new_item.update(
+            [(k, existing[k])
+             for k in ('size', 'etag', 'deleted', 'swift_bytes', 'systags')])
         item_ts_data = rec_ts_data
         newer_than_existing[0] = False
     if rec_ts_ctype >= item_ts_ctype:
@@ -564,7 +565,8 @@ class ContainerBroker(DatabaseBroker):
                 content_type TEXT,
                 etag TEXT,
                 deleted INTEGER DEFAULT 0,
-                storage_policy_index INTEGER DEFAULT 0
+                storage_policy_index INTEGER DEFAULT 0,
+                systags TEXT
             );
 
             CREATE INDEX ix_object_deleted_name ON object (deleted, name);
@@ -691,11 +693,13 @@ class ContainerBroker(DatabaseBroker):
             storage_policy_index = entry[6]
         else:
             storage_policy_index = 0
-        content_type_timestamp = meta_timestamp = None
+        content_type_timestamp = meta_timestamp = systags = None
         if len(entry) > 7:
             content_type_timestamp = entry[7]
         if len(entry) > 8:
             meta_timestamp = entry[8]
+        if len(entry) > 9:
+            systags = entry[9]
         item_list.append({'name': name,
                           'created_at': timestamp,
                           'size': size,
@@ -704,7 +708,8 @@ class ContainerBroker(DatabaseBroker):
                           'deleted': deleted,
                           'storage_policy_index': storage_policy_index,
                           'ctype_timestamp': content_type_timestamp,
-                          'meta_timestamp': meta_timestamp})
+                          'meta_timestamp': meta_timestamp,
+                          'systags': systags})
 
     def _empty(self):
         self._commit_puts_stale_ok()
@@ -757,11 +762,12 @@ class ContainerBroker(DatabaseBroker):
                 record['content_type'], record['etag'], record['deleted'],
                 record['storage_policy_index'],
                 record['ctype_timestamp'],
-                record['meta_timestamp'])
+                record['meta_timestamp'],
+                record['systags'])
 
     def put_object(self, name, timestamp, size, content_type, etag, deleted=0,
                    storage_policy_index=0, ctype_timestamp=None,
-                   meta_timestamp=None):
+                   meta_timestamp=None, systags=None):
         """
         Creates an object in the DB with its metadata.
 
@@ -776,13 +782,15 @@ class ContainerBroker(DatabaseBroker):
         :param ctype_timestamp: timestamp of when content_type was last
                                 updated
         :param meta_timestamp: timestamp of when metadata was last updated
+        :param systags: optional internal metadata for the object
         """
         record = {'name': name, 'created_at': timestamp, 'size': size,
                   'content_type': content_type, 'etag': etag,
                   'deleted': deleted,
                   'storage_policy_index': storage_policy_index,
                   'ctype_timestamp': ctype_timestamp,
-                  'meta_timestamp': meta_timestamp}
+                  'meta_timestamp': meta_timestamp,
+                  'systags': systags}
         self.put_record(record)
 
     def remove_objects(self, lower, upper, max_row=None):
@@ -1124,7 +1132,7 @@ class ContainerBroker(DatabaseBroker):
         :param allow_reserved: exclude names with reserved-byte by default
 
         :returns: list of tuples of (name, created_at, size, content_type,
-                  etag, deleted)
+                  etag, deleted, systags)
         """
         if include_deleted is True:
             deleted_arg = ' = 1'
@@ -1194,25 +1202,41 @@ class ContainerBroker(DatabaseBroker):
                     return query + tail_query, args + [limit - len(results)]
 
                 # storage policy filter
-                if all_policies:
-                    query, args = build_query(
-                        query_keys + ['storage_policy_index'],
+                query, args = build_query(
+                    query_keys + ['storage_policy_index', 'systags'],
+                    query_conditions + ([] if all_policies
+                                        else ['storage_policy_index = ?']),
+                    query_args + ([] if all_policies
+                                  else [storage_policy_index]))
+                # map missing column -> alternative query
+                fallbacks = {
+                    # note: systags was added after storage_policy_index
+                    'storage_policy_index': build_query(
+                        query_keys + ['0 as storage_policy_index',
+                                      'NULL as systags'],
                         query_conditions,
-                        query_args)
-                else:
-                    query, args = build_query(
-                        query_keys + ['storage_policy_index'],
-                        query_conditions + ['storage_policy_index = ?'],
-                        query_args + [storage_policy_index])
-                try:
-                    curs = conn.execute(query, tuple(args))
-                except sqlite3.OperationalError as err:
-                    if 'no such column: storage_policy_index' not in str(err):
-                        raise
-                    query, args = build_query(
-                        query_keys + ['0 as storage_policy_index'],
-                        query_conditions, query_args)
-                    curs = conn.execute(query, tuple(args))
+                        query_args),
+                    'systags': build_query(
+                        query_keys + ['storage_policy_index',
+                                      'NULL as systags'],
+                        query_conditions + ([] if all_policies
+                                            else ['storage_policy_index = ?']),
+                        query_args + ([] if all_policies
+                                      else [storage_policy_index])),
+                }
+                while True:
+                    try:
+                        curs = conn.execute(query, tuple(args))
+                    except sqlite3.OperationalError as err:
+                        for column in fallbacks:
+                            if ('no such column: %s' % column) in str(err):
+                                break
+                        else:
+                            raise
+                        query, args = fallbacks.pop(column)
+                    else:
+                        break
+
                 curs.row_factory = None
 
                 # Delimiters without a prefix is ignored, further if there
@@ -1315,9 +1339,55 @@ class ContainerBroker(DatabaseBroker):
     def _record_to_dict(self, rec):
         if rec:
             keys = ('name', 'created_at', 'size', 'content_type', 'etag',
-                    'deleted', 'storage_policy_index')
+                    'deleted', 'storage_policy_index', 'systags')
             return dict(zip(keys, rec))
         return None
+
+    def _execute_with_migrations(
+            self, conn, migrations, func, *args, **kwargs):
+        migrations_done = set()
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except sqlite3.OperationalError as err:
+                # Without the rollback, new enough (>= py37) python/sqlite3
+                # will panic:
+                #   sqlite3.OperationalError: cannot start a transaction
+                #   within a transaction
+                conn.rollback()
+                for err_str, migration in migrations.items():
+                    if err_str in migrations_done:
+                        continue
+                    if err_str in str(err):
+                        migration(conn)
+                        migrations_done.add(err_str)
+                        break
+                else:
+                    raise
+
+    def _execute_with_object_table_migrations(
+            self, conn, func, *args, **kwargs):
+        migrations = {
+            'no such column: storage_policy_index':
+                self._migrate_add_storage_policy,
+            'no such column: systags':
+                self._migrate_add_object_systags,
+        }
+        return self._execute_with_migrations(
+            conn, migrations, func, *args, **kwargs)
+
+    def _execute_with_shard_range_migrations(
+            self, conn, func, *args, **kwargs):
+        migrations = {
+            'no such column: reported':
+                self._migrate_add_shard_range_reported,
+            'no such column: tombstones':
+                self._migrate_add_shard_range_tombstones,
+            ('no such table: %s' % SHARD_RANGE_TABLE):
+                self.create_shard_range_table,
+        }
+        return self._execute_with_migrations(
+            conn, migrations, func, *args, **kwargs)
 
     def merge_items(self, item_list, source=None):
         """
@@ -1349,7 +1419,7 @@ class ContainerBroker(DatabaseBroker):
                 records.update(
                     ((rec[0], rec[6]), rec) for rec in curs.execute(
                         'SELECT name, created_at, size, content_type,'
-                        'etag, deleted, storage_policy_index '
+                        'etag, deleted, storage_policy_index, systags '
                         'FROM object WHERE ' + query_mod + ' name IN (%s)' %
                         ','.join('?' * len(chunk)), chunk))
             # Sort item_list into things that need adding and deleting, based
@@ -1374,11 +1444,11 @@ class ContainerBroker(DatabaseBroker):
             if to_add:
                 curs.executemany(
                     'INSERT INTO object (name, created_at, size, content_type,'
-                    'etag, deleted, storage_policy_index) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    'etag, deleted, storage_policy_index, systags) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                     ((rec['name'], rec['created_at'], rec['size'],
                       rec['content_type'], rec['etag'], rec['deleted'],
-                      rec['storage_policy_index'])
+                      rec['storage_policy_index'], rec.get('systags'))
                      for rec in to_add.values()))
             if source:
                 # for replication we rely on the remote end sending merges in
@@ -1399,13 +1469,8 @@ class ContainerBroker(DatabaseBroker):
             return tpool.execute(_really_really_merge_items, conn)
 
         with self.get() as conn:
-            try:
-                return _really_merge_items(conn)
-            except sqlite3.OperationalError as err:
-                if 'no such column: storage_policy_index' not in str(err):
-                    raise
-                self._migrate_add_storage_policy(conn)
-                return _really_merge_items(conn)
+            return self._execute_with_object_table_migrations(
+                conn, _really_merge_items, conn)
 
     def merge_shard_ranges(self, shard_ranges):
         """
@@ -1464,34 +1529,9 @@ class ContainerBroker(DatabaseBroker):
                           for item in to_add))
             conn.commit()
 
-        migrations = {
-            'no such column: reported':
-                self._migrate_add_shard_range_reported,
-            'no such column: tombstones':
-                self._migrate_add_shard_range_tombstones,
-            ('no such table: %s' % SHARD_RANGE_TABLE):
-                self.create_shard_range_table,
-        }
-        migrations_done = set()
         with self.get() as conn:
-            while True:
-                try:
-                    return _really_merge_items(conn)
-                except sqlite3.OperationalError as err:
-                    # Without the rollback, new enough (>= py37) python/sqlite3
-                    # will panic:
-                    #   sqlite3.OperationalError: cannot start a transaction
-                    #   within a transaction
-                    conn.rollback()
-                    for err_str, migration in migrations.items():
-                        if err_str in migrations_done:
-                            continue
-                        if err_str in str(err):
-                            migration(conn)
-                            migrations_done.add(err_str)
-                            break
-                    else:
-                        raise
+            self._execute_with_shard_range_migrations(
+                conn, _really_merge_items, conn)
 
     def get_reconciler_sync(self):
         with self.get() as conn:
@@ -1638,6 +1678,23 @@ class ContainerBroker(DatabaseBroker):
             ''' % (column_names, column_names) +
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
+
+    def _migrate_add_object_systags(self, conn):
+        """
+        Add the systags column to the 'object' table.
+        """
+        try:
+            conn.executescript('''
+                BEGIN;
+                ALTER TABLE object
+                ADD COLUMN systags TEXT;
+                COMMIT;
+            ''')
+        except sqlite3.OperationalError as e:
+            if 'duplicate column' in str(e):
+                conn.rollback()
+            else:
+                raise
 
     def _migrate_add_shard_range_reported(self, conn):
         """

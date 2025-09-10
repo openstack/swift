@@ -2963,6 +2963,27 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.skipTest('get_ppid can only be functionally tested on Linux')
         self.assertEqual(os.getppid(), utils.get_ppid(os.getpid()))
 
+    def test_param_str_from_dict(self):
+        self.assertIsNone(utils.param_str_from_dict({}))
+        self.assertIsNone(utils.param_str_from_dict(None))
+        self.assertEqual('x=y',
+                         utils.param_str_from_dict({'x': 'y'}))
+        self.assertEqual('x=y&a=b',
+                         utils.param_str_from_dict({'x': 'y', 'a': 'b'}))
+
+    def test_param_str_to_dict(self):
+        self.assertEqual({}, utils.param_str_to_dict(None))
+        self.assertEqual({}, utils.param_str_to_dict(''))
+        self.assertEqual({'x': 'y'}, utils.param_str_to_dict('x=y'))
+        self.assertEqual({'x': 'y', 'a': 'b'},
+                         utils.param_str_to_dict('x=y&a=b'))
+
+        with self.assertRaises(ValueError):
+            utils.param_str_to_dict('x=y;a=b')
+
+        with self.assertRaises(ValueError):
+            utils.param_str_to_dict('x&a=b')
+
 
 class TestUnlinkOlder(unittest.TestCase):
 

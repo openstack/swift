@@ -35,7 +35,7 @@ from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
     HTTPNotFound, HTTPAccepted, HTTPServerError
 from swift.common.utils import md5, Timestamp, decode_timestamps, \
-    encode_timestamps, MD5_OF_EMPTY_STRING
+    encode_timestamps, MD5_OF_EMPTY_STRING, param_str_from_dict
 from swift.container.backend import ContainerBroker
 from swift.container.mpu_auditor import MpuAuditor, \
     extract_upload_prefix, yield_item_batches, BaseMpuAuditor, \
@@ -152,7 +152,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.broker.get_info()
 
     def _create_item(self, name, ts_data, ts_ctype=None, ts_meta=None,
-                     ctype='text/plain', size=0, etag=''):
+                     ctype='text/plain', size=0, etag='', systags=None):
         created_at = encode_timestamps(ts_data, ts_ctype, ts_meta)
         item = {
             'name': str(name),
@@ -162,6 +162,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
             'size': size,
             'deleted': 0,
             'storage_policy_index': 0,
+            'systags': param_str_from_dict(systags),
         }
         return item
 

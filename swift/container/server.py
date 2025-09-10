@@ -524,14 +524,18 @@ class ContainerController(BaseStorageServer):
         if response:
             return response
 
-        broker.put_object(obj, req_timestamp.internal,
-                          int(req.headers['x-size']),
-                          wsgi_to_str(req.headers['x-content-type']),
-                          wsgi_to_str(req.headers['x-etag']), 0,
-                          obj_policy_index,
-                          wsgi_to_str(req.headers.get(
-                              'x-content-type-timestamp')),
-                          wsgi_to_str(req.headers.get('x-meta-timestamp')))
+        broker.put_object(
+            obj,
+            req_timestamp.internal,
+            int(req.headers['x-size']),
+            wsgi_to_str(req.headers['x-content-type']),
+            wsgi_to_str(req.headers['x-etag']),
+            0,
+            obj_policy_index,
+            wsgi_to_str(req.headers.get('x-content-type-timestamp')),
+            wsgi_to_str(req.headers.get('x-meta-timestamp')),
+            wsgi_to_str(req.headers.get('x-systags'))
+        )
         return HTTPCreated(request=req)
 
     def _create_ok_resp(self, req, broker, created):

@@ -4143,7 +4143,7 @@ class TestContainerController(unittest.TestCase):
         resp = assert_GET_objects(req, [])
         self.assertEqual(headers, resp.headers)
 
-    def test_PUT_GET_to_sharding_container(self):
+    def test_PUT_GET_object_to_sharding_container(self):
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         headers = {'X-Timestamp': next(self.ts).normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
@@ -4919,7 +4919,7 @@ class TestContainerController(unittest.TestCase):
         result = resp.body.split(b'\n')
         self.assertEqual(result, [b''])
 
-    def test_weird_content_types(self):
+    def test_PUT_GET_object_with_weird_content_types(self):
         snowman = u'\u2603'
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
@@ -4943,7 +4943,7 @@ class TestContainerController(unittest.TestCase):
         result = [x['content_type'] for x in json.loads(resp.body)]
         self.assertEqual(result, [u'\u2603', 'text/plain;charset="utf-8"'])
 
-    def test_swift_bytes_in_content_type(self):
+    def test_PUT_GET_object_with_swift_bytes_in_content_type(self):
         # create container
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
@@ -4984,6 +4984,48 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('text/plain;charset="utf-8"',
                          listing[1]['content_type'])
         self.assertEqual(12345678, listing[1]['bytes'])
+
+    def test_PUT_GET_object_with_systags(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                                    'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        headers = {
+            'X-Timestamp': '1',
+            'X-Content-Type': 'text/plain; charset="utf-8"',
+            'X-Etag': 'my-etag',
+            'X-Size': '0',
+            'X-Systags': 'a=b&x=\N{SNOWMAN}'.encode('utf8')
+        }
+        req = Request.blank('/sda1/p/a/c/o', headers=headers)
+        req.method = 'PUT'
+        self._update_object_put_headers(req)
+        exp_policy_idx = req.headers.get('X-Backend-Storage-Policy-Index', 0)
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        expected = [{'content_type': 'text/plain; charset="utf-8"',
+                     'created_at': '0000000001.00000',
+                     'deleted': 0,
+                     'etag': 'my-etag',
+                     'name': 'o',
+                     'size': 0,
+                     'storage_policy_index': int(exp_policy_idx),
+                     'systags': 'a=b&x=\N{SNOWMAN}'}]
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertEqual(broker.get_objects(), expected)
+
+        expected = [{'bytes': 0,
+                     'content_type': 'text/plain;charset="utf-8"',
+                     'hash': 'my-etag',
+                     'last_modified': '1970-01-01T00:00:01.000000',
+                     'name': 'o'}]
+        req = Request.blank('/sda1/p/a/c?format=json',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        # note: systags are not (yet) returned in listings
+        self.assertEqual(json.loads(resp.body), expected)
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={

@@ -1174,8 +1174,17 @@ class TestSharder(BaseTestSharder):
         for shard_db in shard_dbs:
             shard_broker = ContainerBroker(shard_db)
             shard_objs.extend(self._get_raw_object_records(shard_broker))
-        expected_objs = [list(obj) for obj in expected_objs]
-        self.assertEqual(expected_objs, shard_objs)
+        # TODO: yuk! expected object tuples are *almost always* the args to
+        #   put_object which don't include systags, but sometimes are the
+        #   values returned from list_objects_iter which do include systags;
+        #   actual objects returned by list_objects_iter always have systags
+        modified_expected_objs = []
+        for obj in expected_objs:
+            obj = list(obj)
+            if len(obj) < 8:
+                obj.append(None)  # systag value
+            modified_expected_objs.append(obj)
+        self.assertEqual(modified_expected_objs, shard_objs)
 
     def _check_shard_range(self, expected, actual):
         expected_dict = dict(expected)
@@ -2603,6 +2612,7 @@ class TestSharder(BaseTestSharder):
                     'size': 1024 * i,
                     'deleted': i % 2,
                     'storage_policy_index': 0,
+                    'systags': 'a=b',
                     } for i in range(1, 8)]
         broker.merge_items([dict(obj) for obj in objects])
         broker.enable_sharding(Timestamp.now())
@@ -2674,6 +2684,7 @@ class TestSharder(BaseTestSharder):
                     'size': 1024 * i,
                     'deleted': i % 2,
                     'storage_policy_index': i % 2,
+                    'systags': 'a=b',
                     } for i in range(1, 8)]
         # merge_items mutates items
         broker.merge_items([dict(obj) for obj in objects])
@@ -2714,7 +2725,7 @@ class TestSharder(BaseTestSharder):
         objects = [
             {'name': 'obj%03d' % i, 'created_at': next(self.ts_iter),
              'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
-             'deleted': 0, 'storage_policy_index': 0}
+             'deleted': 0, 'storage_policy_index': 0, 'systags': 'a=b'}
             for i in range(10)
         ]
         broker.merge_items([dict(obj) for obj in objects])
@@ -2733,7 +2744,8 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(broker.set_sharding_state())
         new_object = {'name': 'alpha', 'created_at': next(self.ts_iter),
                       'size': 0, 'content_type': 'text/plain', 'etag': 'etag',
-                      'deleted': 0, 'storage_policy_index': 0}
+                      'deleted': 0, 'storage_policy_index': 0,
+                      'systags': 'a=b'}
         broker.merge_items([dict(new_object)])
 
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
@@ -3054,7 +3066,7 @@ class TestSharder(BaseTestSharder):
         objects = [
             {'name': 'obj%03d' % i, 'created_at': next(self.ts_iter),
              'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
-             'deleted': 0, 'storage_policy_index': 0}
+             'deleted': 0, 'storage_policy_index': 0, 'systags': 'a=b'}
             for i in range(10)
         ]
         # local db gets 4 objects
