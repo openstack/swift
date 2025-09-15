@@ -5029,19 +5029,18 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertEqual(raised.exception.errno, errno.EACCES)
 
     def test_create_close_oserror(self):
-        # This is a horrible hack so you can run this test in isolation.
-        # Some of the ctypes machinery calls os.close(), and that runs afoul
-        # of our mock.
-        with mock.patch.object(utils, '_sys_fallocate', None):
-            utils.disable_fallocate()
-
+        err = OSError(errno.EACCES, os.strerror(errno.EACCES))
+        # Disable fallocate for this test. Otherwise, the ctypes machinery may
+        # also call os.close (for example, when this test is run in isolation),
+        # but we're only interested in what diskfile is doing.
+        with mock.patch.object(utils, '_fallocate_enabled', False):
             df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc',
                                           '123', 'xyz', policy=POLICIES.legacy)
-            with mock.patch("swift.obj.diskfile.os.close",
-                            mock.MagicMock(side_effect=OSError(
-                                errno.EACCES, os.strerror(errno.EACCES)))):
-                with df.create(size=200):
-                    pass
+            with mock.patch("swift.obj.diskfile.os.close") as mock_close:
+                mock_close.side_effect = err
+                with df.create(size=200) as dfw:
+                    fd = dfw._fd
+        self.assertEqual([mock.call(fd)], mock_close.call_args_list)
 
     def test_write_metadata(self):
         df, df_data = self._create_test_file(b'1234567890')
