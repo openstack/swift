@@ -27,16 +27,12 @@ It covers all the basics that are common to all OpenStack projects: the accounts
 you need, the basics of interacting with our Gerrit review system, how we
 communicate as a community, etc.
 
-If you want more Swift related project documentation make sure you checkout
-the Swift developer (contributor) documentation at
-https://docs.openstack.org/swift/latest/
+For more project information, feel free to check out the `Swift documentation <https://docs.openstack.org/swift/latest/>`__.
 
 Filing a Bug
 ~~~~~~~~~~~~
 
-Filing a bug is the easiest way to contribute. We use Launchpad as a bug
-tracker; you can find currently-tracked bugs at
-https://bugs.launchpad.net/swift.
+Filing a bug is the easiest way to contribute. You can find currently-tracked bugs on our `Launchpad. <https://bugs.launchpad.net/swift>`__
 Use the `Report a bug <https://bugs.launchpad.net/swift/+filebug>`__ link to
 file a new bug.
 
@@ -61,21 +57,20 @@ It lets us all know that the bug is very likely to be valid.
 Reviewing Someone Else's Code
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-All code reviews in OpenStack projects are done on
-https://review.opendev.org/. Reviewing patches is one of the most effective
-ways you can contribute to the community.
+All code reviews in OpenStack projects are done on our Gerrit instance at
+`review.opendev.org <https://review.opendev.org/q/project:openstack/swift+is:open>`__.
+Reviewing patches is one of the most effective ways you can contribute to the community.
 
-We've written REVIEW_GUIDELINES.rst (found in this source tree) to help you
+We've written a set of `Review Guidelines <https://docs.openstack.org/swift/latest/contributor/review_guidelines.html>`__ to help you
 give good reviews.
 
-https://wiki.openstack.org/wiki/Swift/PriorityReviews is a starting point to
-find what reviews are priority in the community.
+To find out what reviews are priortiy in the community, you can read `Priority Reviews <https://wiki.openstack.org/wiki/Swift/PriorityReviews>`__ on our wiki.
 
 What do I work on?
 ------------------
 
 If you're looking for a way to write and contribute code, but you're not sure
-what to work on, check out the "wishlist" bugs in the bug tracker. These are
+what to work on, check out the `"wishlist" bugs <https://bugs.launchpad.net/swift/+bugs?field.importance%3Alist=WISHLIST>`__ in the bug tracker. These are
 normally smaller items that someone took the time to write down but didn't
 have time to implement.
 
@@ -87,9 +82,7 @@ Getting Started
 https://docs.openstack.org/swift/latest/first_contribution_swift.html
 
 Once those steps have been completed, changes to OpenStack
-should be submitted for review via the Gerrit tool, following
-the workflow documented at
-http://docs.openstack.org/infra/manual/developers.html#development-workflow.
+should be submitted for review via the Gerrit tool, following our `Development Workflow. <http://docs.openstack.org/infra/manual/developers.html#development-workflow>`__
 
 Gerrit is the review system used in the OpenStack projects. We're sorry, but
 we won't be able to respond to pull requests submitted through GitHub.
@@ -100,7 +93,7 @@ not in GitHub's issue tracker.
 Swift Design Principles
 =======================
 
--  `The Zen of Python <http://legacy.python.org/dev/peps/pep-0020/>`__
+-  `The Zen of Python <https://peps.python.org/pep-0020>`__
 -  Simple Scales
 -  Minimal dependencies
 -  Re-use existing tools and libraries when reasonable
@@ -118,7 +111,7 @@ advocate for your change and iterate on it based on feedback. Reach out
 to other people working on the project on
 `IRC <http://eavesdrop.openstack.org/irclogs/%23openstack-swift/>`__ or
 the `mailing
-list <http://lists.openstack.org/pipermail/openstack-discuss/>`__ - we want
+list <https://lists.openstack.org/archives/list/openstack-discuss@lists.openstack.org/>`__ - we want
 to help.
 
 Recommended workflow
