@@ -6359,6 +6359,89 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         self._test_commit_raises_DiskFileError_for_fsync_dir_errors(
             OSError(100, 'Some Error'))
 
+    def test_commit_raises_DiskFileError_for_error_in_ppi_rename(self):
+        df = self._simple_get_diskfile(account='a', container='c',
+                                       obj='o_fsync_dir_err',
+                                       policy=POLICIES.default,
+                                       next_part_power=11)
+
+        orig_rename = os.rename
+        captured_renames = []
+
+        def exploding_rename(*args):
+            captured_renames.append(args)
+            if len(captured_renames) >= 2:
+                raise IOError(21, 'Some IO Error')
+            else:
+                return orig_rename(*args)
+        timestamp = Timestamp.now()
+        with df.create() as writer:
+            metadata = {
+                'ETag': 'bogus_etag',
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': '0',
+            }
+            writer.put(metadata)
+            with mock.patch('swift.obj.diskfile.os.rename',
+                            side_effect=exploding_rename):
+                with self.assertRaises(DiskFileError) as cm:
+                    writer.commit(timestamp)
+        self.assertEqual(2, len(captured_renames))
+        dl = os.listdir(df._datadir)
+        datafile = _make_datafilename(
+            timestamp, POLICIES.default, frag_index=2, durable=True)
+        self.assertEqual([datafile], dl)
+        self.assertIn('Problem making data file durable', str(cm.exception))
+        error_lines = df.manager.logger.get_lines_for_level('error')
+        self.assertEqual(2, len(error_lines), error_lines)
+        self.assertTrue(error_lines[0].startswith('Renaming new path'))
+        self.assertTrue(error_lines[1].startswith(
+            'Problem making data file durable'))
+
+    def test_commit_overwritten_before_ppi_rename(self):
+        df = self._simple_get_diskfile(account='a', container='c',
+                                       obj='o_fsync_dir_err',
+                                       policy=POLICIES.default,
+                                       next_part_power=11)
+
+        orig_rename = os.rename
+        captured_renames = []
+
+        def overwriting_rename(*args):
+            captured_renames.append(args)
+            if len(captured_renames) == 2:
+                # Overwrite!
+                with df.create() as writer:
+                    metadata = {
+                        'ETag': 'also_bogus_etag',
+                        'X-Timestamp': ts2.internal,
+                        'Content-Length': '0',
+                    }
+                    writer.put(metadata)
+                    writer.commit(ts2)
+                os.unlink(args[0])
+            return orig_rename(*args)
+
+        timestamp = Timestamp.now()
+        ts2 = Timestamp(timestamp, delta=1)
+        with df.create() as writer:
+            metadata = {
+                'ETag': 'bogus_etag',
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': '0',
+            }
+            writer.put(metadata)
+            with mock.patch('swift.obj.diskfile.os.rename',
+                            side_effect=overwriting_rename):
+                writer.commit(timestamp)
+        self.assertEqual(4, len(captured_renames))
+        dl = os.listdir(df._datadir)
+        datafile = _make_datafilename(
+            ts2, POLICIES.default, frag_index=2, durable=True)
+        self.assertEqual([datafile], dl)
+        error_lines = df.manager.logger.get_lines_for_level('error')
+        self.assertEqual(0, len(error_lines), error_lines)
+
     def test_data_file_has_frag_index(self):
         policy = POLICIES.default
         for good_value in (0, '0', 2, '2', 13, '13'):
