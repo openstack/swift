@@ -720,33 +720,78 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.complete_mpu(key_name, upload_id, parts)
         self.assert_object_not_found(key_name)
 
-    def test_complete_newer_then_complete_older(self):
-        # verify that the newer create time trumps later completion time
+    def test_complete_newer_mpu_then_complete_older_mpu(self):
+        # verify that newer mpu create time trumps later mpu complete time
         key_name = self.create_name('key')
 
+        # start first mpu...
         upload_id1 = self.create_mpu(key_name)
-        parts1 = self.upload_parts(key_name, upload_id1, 2)
+        parts1 = self.upload_parts(key_name, upload_id1, 1)
 
+        # start and complete second mpu...
         upload_id2 = self.create_mpu(key_name)
-        parts2 = self.upload_parts(key_name, upload_id2, 3)
+        parts2 = self.upload_parts(key_name, upload_id2, 2)
         self.complete_mpu(key_name, upload_id2, parts2)
 
         head_resp = self.client.head_object(
-            Bucket=self.bucket_name, Key=key_name, PartNumber=3,
-        )
-        self.assertEqual(206, head_resp[
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(200, head_resp[
             'ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(2 * self.part_size, head_resp['ContentLength'])
         last_modified = head_resp['LastModified']
+        etag2 = head_resp['ETag']
 
-        self.complete_mpu(key_name, upload_id1, parts1)
+        # now complete the first mpu...which succeeds!
+        resp1 = self.complete_mpu(key_name, upload_id1, parts1)
+        etag1 = resp1['ETag']
+        self.assertNotEqual(etag1, etag2)
 
+        # but HEAD still returns the second mpu
         head_resp = self.client.head_object(
-            Bucket=self.bucket_name, Key=key_name, PartNumber=3,
-        )
-        self.assertEqual(206, head_resp[
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(200, head_resp[
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual(last_modified.timestamp(),
                          head_resp['LastModified'].timestamp())
+        self.assertEqual(2 * self.part_size, head_resp['ContentLength'])
+        self.assertEqual(etag2, head_resp['ETag'])
+
+    def test_put_newer_non_mpu_then_complete_older_mpu(self):
+        # verify that newer non-mpu create time trumps later mpu complete time
+        key_name = self.create_name('key')
+
+        # start an mpu...
+        upload_id1 = self.create_mpu(key_name)
+        parts1 = self.upload_parts(key_name, upload_id1, 1)
+
+        # upload a non-mpu object...
+        upload_resp = self.client.put_object(
+            Body='', Bucket=self.bucket_name, Key=key_name)
+        non_mpu_etag = upload_resp['ETag']
+
+        head_resp = self.client.head_object(
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(200, head_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(0, head_resp['ContentLength'])
+        last_modified = head_resp['LastModified']
+        etag2 = head_resp['ETag']
+        self.assertEqual(non_mpu_etag, etag2)
+
+        # now complete the mpu...which succeeds!
+        resp1 = self.complete_mpu(key_name, upload_id1, parts1)
+        etag1 = resp1['ETag']
+        self.assertNotEqual(etag1, etag2)
+
+        # but HEAD still returns the non mpu
+        head_resp = self.client.head_object(
+            Bucket=self.bucket_name, Key=key_name)
+        self.assertEqual(200, head_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(last_modified.timestamp(),
+                         head_resp['LastModified'].timestamp())
+        self.assertEqual(0, head_resp['ContentLength'])
+        self.assertEqual(non_mpu_etag, head_resp['ETag'])
 
     def test_create_upload_complete_complete(self):
         key_name = self.create_name('key')
