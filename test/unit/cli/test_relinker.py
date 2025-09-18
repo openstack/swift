@@ -520,6 +520,7 @@ class TestRelinker(unittest.TestCase):
             'partitions': set(),
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
+            'clobber_hardlink_collisions': False,
         }
         mock_relinker.assert_called_once_with(
             exp_conf, mock.ANY, ['sdx'], do_cleanup=False)
@@ -566,6 +567,7 @@ class TestRelinker(unittest.TestCase):
             'workers': 'auto',
             'recon_cache_path': '/var/cache/swift-foo',
             'stats_interval': 111.0,
+            'clobber_hardlink_collisions': False,
         }, mock.ANY, ['sdx'], do_cleanup=False)
         logger = mock_relinker.call_args[0][1]
         self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
@@ -598,6 +600,7 @@ class TestRelinker(unittest.TestCase):
             'workers': 2,
             'recon_cache_path': '/var/cache/swift-foo',
             'stats_interval': 222.0,
+            'clobber_hardlink_collisions': False,
         }, mock.ANY, ['sdx'], do_cleanup=False)
 
         with mock.patch('swift.cli.relinker.Relinker') as mock_relinker, \
@@ -616,6 +619,7 @@ class TestRelinker(unittest.TestCase):
             'workers': 'auto',
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
+            'clobber_hardlink_collisions': False,
         }, mock.ANY, ['sdx'], do_cleanup=False)
         mock_logging_config.assert_called_once_with(
             format='%(message)s', level=logging.INFO, filename=None)
@@ -643,6 +647,7 @@ class TestRelinker(unittest.TestCase):
             'workers': 'auto',
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
+            'clobber_hardlink_collisions': False,
         }, mock.ANY, ['sdx'], do_cleanup=False)
         # --debug is now effective
         mock_logging_config.assert_called_once_with(
@@ -682,6 +687,7 @@ class TestRelinker(unittest.TestCase):
             'workers': 'auto',
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
+            'clobber_hardlink_collisions': False,
         }, mock.ANY, ['sdx'], do_cleanup=False)
         logger = mock_relinker.call_args[0][1]
         self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
@@ -717,10 +723,101 @@ class TestRelinker(unittest.TestCase):
             'workers': 'auto',
             'recon_cache_path': '/var/cache/swift',
             'stats_interval': 300.0,
+            'clobber_hardlink_collisions': False,
         }, mock.ANY, ['sdx'], do_cleanup=False)
         logger = mock_relinker.call_args[0][1]
         self.assertEqual(logging.WARNING, logger.getEffectiveLevel())
         self.assertEqual('test-relinker', logger.logger.name)
+
+    def test_relinker_clobber_hardlink_collisions_default(self):
+        config = """
+        [DEFAULT]
+        swift_dir = %(swift_dir)s
+        devices = /test/node
+        mount_check = false
+
+        [object-relinker]
+        log_name = test-relinker
+        """ % {
+            'swift_dir': self.testdir,
+        }
+
+        conf_file = os.path.join(self.testdir, 'relinker.conf')
+        with open(conf_file, 'w') as f:
+            f.write(dedent(config))
+
+        captured_relinker_instance = None
+
+        def capture_relinker(instance_self):
+            nonlocal captured_relinker_instance
+            captured_relinker_instance = instance_self
+
+        with mock.patch('swift.cli.relinker.Relinker.run', capture_relinker):
+            relinker.main(['relink', conf_file, '--device', 'sdx'])
+
+        self.assertFalse(
+            captured_relinker_instance.conf['clobber_hardlink_collisions'])
+
+    def test_relinker_clobber_hardlink_collisions_config(self):
+        config = """
+        [DEFAULT]
+        swift_dir = %(swift_dir)s
+        devices = /test/node
+        mount_check = false
+
+        [object-relinker]
+        log_name = test-relinker
+        clobber_hardlink_collisions = true
+        """ % {
+            'swift_dir': self.testdir,
+        }
+
+        conf_file = os.path.join(self.testdir, 'relinker.conf')
+        with open(conf_file, 'w') as f:
+            f.write(dedent(config))
+
+        captured_relinker_instance = None
+
+        def capture_relinker(instance_self):
+            nonlocal captured_relinker_instance
+            captured_relinker_instance = instance_self
+
+        with mock.patch('swift.cli.relinker.Relinker.run', capture_relinker):
+            relinker.main(['relink', conf_file, '--device', 'sdx'])
+
+        self.assertTrue(
+            captured_relinker_instance.conf['clobber_hardlink_collisions'])
+
+    def test_relinker_clobber_hardlink_collisions_arg(self):
+        config = """
+        [DEFAULT]
+        swift_dir = %(swift_dir)s
+        devices = /test/node
+        mount_check = false
+
+        [object-relinker]
+        log_name = test-relinker
+        clobber_hardlink_collisions = false
+        """ % {
+            'swift_dir': self.testdir,
+        }
+
+        conf_file = os.path.join(self.testdir, 'relinker.conf')
+        with open(conf_file, 'w') as f:
+            f.write(dedent(config))
+
+        captured_relinker_instance = None
+
+        def capture_relinker(instance_self):
+            nonlocal captured_relinker_instance
+            captured_relinker_instance = instance_self
+
+        with mock.patch('swift.cli.relinker.Relinker.run', capture_relinker):
+            relinker.main(['relink', conf_file, '--device', 'sdx',
+                           '--clobber-hardlink-collisions'])
+
+        self.assertTrue(
+            captured_relinker_instance.conf['clobber_hardlink_collisions'])
 
     def test_relinker_utils_get_hub(self):
         cli_cmd = ['relink', '--device', 'sdx', '--workers', 'auto',
@@ -880,7 +977,18 @@ class TestRelinker(unittest.TestCase):
             self.assertEqual(sorted(exp_filenames), sorted(actual_old))
         else:
             self.assertFalse(os.path.exists(self.objdir))
-        self.assertEqual([], self.logger.get_lines_for_level('error'))
+        if exp_ret_code == 0:
+            # a successful relink should not have logged errors
+            self.assertEqual([], self.logger.get_lines_for_level('error'))
+        elif conflict_file_specs:
+            # if a conflict was an error, we should have logged it
+            error_lines = self.logger.get_lines_for_level('error')
+            self.assertEqual(len(conflict_file_specs), len(error_lines))
+            for err_msg in error_lines:
+                self.assertTrue(err_msg.startswith("Error relinking"))
+                self.assertIn("hardlink collision", err_msg)
+                self.assertTrue(err_msg.endswith(
+                    "(consider enabling clobber_hardlink_collisions)"))
 
     def _relink_test(self, old_file_specs, new_file_specs,
                      exp_old_specs, exp_new_specs):
@@ -1081,15 +1189,138 @@ class TestRelinker(unittest.TestCase):
                 '--skip-mount',
             ]))
 
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual([
+            'Error relinking: hardlink collision: %s to %s '
+            '(consider enabling clobber_hardlink_collisions)' % (
+                self.objname,
+                self.expected_file,
+            ),
+        ], error_lines)
+        self.assertEqual([
+            '1 hash dirs processed (cleanup=False) '
+            '(1 files, 0 linked, 0 removed, 1 errors)',
+        ], self.logger.get_lines_for_level('warning'))
+
+    def test_relink_link_already_exists_clobber_hardlink_collisions(self):
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+
+        # make a file where we'd expect the link to be created
+        os.makedirs(self.expected_dir)
+        with open(self.expected_file, 'w'):
+            pass
+
+        # expect no error w/ --clobber-hardlink-collisions
+        with self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--clobber-hardlink-collisions',
+            ]))
+
+        for level in ['error', 'warning']:
+            self.assertEqual([], self.logger.get_lines_for_level(level))
+        # ... just info about clobbering your hardlink collisions
+        info_lines = self.logger.get_lines_for_level('info')
+        clobbering_lines = [
+            line for line in info_lines
+            if line.startswith('Relinking: clobbering hardlink collision')]
+        self.assertEqual(1, len(clobbering_lines), info_lines)
+        quarantine_dir = os.path.join(
+            self.devices, 'sda1', 'quarantined', 'objects')
+        self.assertIn(quarantine_dir, clobbering_lines[0])
+        self.assertEqual(
+            '1 hash dirs processed (cleanup=False) '
+            '(1 files, 1 linked, 0 removed, 0 errors)',
+            info_lines[-2])
+
+    def test_relink_clobber_hardlink_collisions_after_quarantine(self):
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+
+        # make a file where we'd expect the link to be created
+        os.makedirs(self.expected_dir)
+        with open(self.expected_file, 'w'):
+            pass
+
+        # expect error
+        with mock.patch(
+                'swift.obj.diskfile.quarantine_renamer') as mock_quarantine, \
+                self._mock_relinker():
+            mock_quarantine.return_value = '/the/quarantine/dir'
+            self.assertEqual(1, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--clobber-hardlink-collisions',
+            ]))
+
+        dev_path = os.path.join(self.devices, 'sda1')
+        self.assertEqual([
+            mock.call(dev_path, self.expected_file)
+        ], mock_quarantine.call_args_list)
+
+        # we still log info about clobbering hardlink collisions
+        info_lines = self.logger.get_lines_for_level('info')
+        clobbering_lines = [
+            line for line in info_lines
+            if line.startswith('Relinking: clobbering hardlink collision')]
+        self.assertEqual(1, len(clobbering_lines), info_lines)
+        self.assertIn('/the/quarantine/dir', clobbering_lines[0])
+
+        # but there was a *another* hardlink collision (!?)
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('Error relinking: failed to relink %s to %s: '
-                      '[Errno 17] File exists'
-                      % (self.objname, self.expected_file),
-                      warning_lines[0])
-        self.assertIn('1 hash dirs processed (cleanup=False) '
-                      '(1 files, 0 linked, 0 removed, 1 errors)',
-                      warning_lines)
+        collision_lines = [
+            line for line in warning_lines
+            if line.startswith('Relinking: hardlink collision')]
+        self.assertEqual(1, len(collision_lines), warning_lines)
+        self.assertIn('persists after quarantine', collision_lines[0])
+
+        # XXX this is kind of sketch: we got exit code 1 but no *error* lines;
+        # does relinker just treat errors as warnings?
         self.assertEqual([], self.logger.get_lines_for_level('error'))
+        self.assertEqual(
+            '1 hash dirs processed (cleanup=False) '
+            '(1 files, 0 linked, 0 removed, 1 errors)',
+            warning_lines[-1])
+
+    def test_cleanup_link_already_exists_clobber_hardlink_collisions(self):
+        self.rb.prepare_increase_partition_power()
+        self.rb.increase_partition_power()
+        self._save_ring()
+
+        # make a file where we'd expect the link to be created
+        os.makedirs(self.expected_dir)
+        with open(self.expected_file, 'w'):
+            pass
+
+        with self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--debug',
+                '--clobber-hardlink-collisions',
+            ]))
+
+        for level in ['error', 'warning']:
+            self.assertEqual([], self.logger.get_lines_for_level(level))
+        debug_lines = self.logger.get_lines_for_level('debug')
+        relinking_lines = [
+            line for line in debug_lines
+            if line.startswith('Relinking (cleanup):')]
+        self.assertEqual(1, len(relinking_lines), debug_lines)
+        self.assertIn('tolerating hardlink collision', relinking_lines[0])
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(
+            '1 hash dirs processed (cleanup=True) '
+            '(1 files, 0 linked, 1 removed, 0 errors)',
+            info_lines[-2])
 
     def test_relink_link_already_exists(self):
         self.rb.prepare_increase_partition_power()
@@ -2026,6 +2257,11 @@ class TestRelinker(unittest.TestCase):
                            relink_errors={'data': OSError(errno.EPERM, 'oops'),
                                           'meta': OSError(errno.EPERM, 'oops')}
                            )
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(2, len(error_lines))
+        for err_msg in error_lines:
+            self.assertTrue(err_msg.startswith("Error relinking"))
+            self.assertIn("failed to relink", err_msg)
         warning_lines = self.logger.get_lines_for_level('warning')
         self.assertIn('1 hash dirs processed (cleanup=True) '
                       '(2 files, 0 linked, 0 removed, 2 errors)',
@@ -3095,17 +3331,20 @@ class TestRelinker(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.expected_file))
         with open(self.expected_file, 'r') as fd:
             self.assertEqual('same but different', fd.read())
-        warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertEqual(2, len(warning_lines), warning_lines)
-        self.assertIn('Error relinking (cleanup): failed to relink %s to %s'
-                      % (self.objname, self.expected_file), warning_lines[0])
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual([
+            'Error relinking (cleanup): hardlink collision: %s to %s'
+            ' (consider enabling clobber_hardlink_collisions)'
+            % (self.objname, self.expected_file),
+        ], error_lines)
         # suffix should not be invalidated in new partition
         hashes_invalid = os.path.join(self.next_part_dir, 'hashes.invalid')
         self.assertFalse(os.path.exists(hashes_invalid))
-        self.assertEqual('1 hash dirs processed (cleanup=True) '
-                         '(1 files, 0 linked, 0 removed, 1 errors)',
-                         warning_lines[1])
-        self.assertEqual([], self.logger.get_lines_for_level('error'))
+        warning_lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual([
+            '1 hash dirs processed (cleanup=True) '
+            '(1 files, 0 linked, 0 removed, 1 errors)',
+        ], warning_lines)
 
     def test_cleanup_older_object_in_new_partition(self):
         # relink of the current object failed, but there is an older version of
@@ -3411,7 +3650,7 @@ class TestRelinker(unittest.TestCase):
                       '(1 files, 1 linked, 1 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
-    def test_cleanup_new_does_not_exist_and_relink_fails(self):
+    def test_cleanup_new_does_not_exist_and_relink_raises_os_error(self):
         # force rehash of new partition to not happen during cleanup
         self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
         self._common_test_cleanup()
@@ -3422,7 +3661,8 @@ class TestRelinker(unittest.TestCase):
         # cleanup: cleanup attempts to re-create the link but fails
         os.remove(self.expected_file)
 
-        with mock.patch('swift.obj.diskfile.os.link', side_effect=OSError):
+        with mock.patch('swift.obj.diskfile.os.link',
+                        side_effect=OSError('os-error!')):
             with self._mock_relinker():
                 self.assertEqual(1, relinker.main([
                     'cleanup',
@@ -3432,9 +3672,11 @@ class TestRelinker(unittest.TestCase):
                 ]))
         self.assertFalse(os.path.isfile(self.expected_file))
         self.assertTrue(os.path.isfile(self.objname))  # old file intact
-        self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Error relinking (cleanup): failed to relink %s to %s: '
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error relinking (cleanup): failed to relink %s to %s: os-error!'
             % (self.objname, self.expected_file),
+        ])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
             '1 hash dirs processed (cleanup=True) '
             '(1 files, 0 linked, 0 removed, 1 errors)',
         ])
@@ -3445,7 +3687,44 @@ class TestRelinker(unittest.TestCase):
         # nor in the old partition
         old_hashes_invalid = os.path.join(self.part_dir, 'hashes.invalid')
         self.assertFalse(os.path.exists(old_hashes_invalid))
-        self.assertEqual([], self.logger.get_lines_for_level('error'))
+
+    def test_cleanup_new_does_not_exist_and_relink_raises_other_error(self):
+        # force rehash of new partition to not happen during cleanup
+        self._setup_object(lambda part: part >= 2 ** (PART_POWER - 1))
+        self._common_test_cleanup()
+        # rehash during relink creates hashes.invalid...
+        hashes_invalid = os.path.join(self.next_part_dir, 'hashes.invalid')
+        self.assertTrue(os.path.exists(hashes_invalid))
+        # Pretend the file in the new place got deleted in between relink and
+        # cleanup: cleanup attempts to re-create the link but fails
+        os.remove(self.expected_file)
+
+        with mock.patch('swift.obj.diskfile.os.link',
+                        side_effect=ValueError('kaboom!')):
+            with self._mock_relinker():
+                self.assertEqual(1, relinker.main([
+                    'cleanup',
+                    '--swift-dir', self.testdir,
+                    '--devices', self.devices,
+                    '--skip-mount',
+                ]))
+        self.assertFalse(os.path.isfile(self.expected_file))
+        self.assertTrue(os.path.isfile(self.objname))  # old file intact
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error relinking (cleanup): failed to relink %s to %s: kaboom!'
+            % (self.objname, self.expected_file),
+        ])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            '1 hash dirs processed (cleanup=True) '
+            '(1 files, 0 linked, 0 removed, 1 errors)',
+        ])
+        # suffix should not be invalidated in new partition
+        self.assertTrue(os.path.exists(hashes_invalid))
+        with open(hashes_invalid, 'r') as fd:
+            self.assertEqual('', fd.read().strip())
+        # nor in the old partition
+        old_hashes_invalid = os.path.join(self.part_dir, 'hashes.invalid')
+        self.assertFalse(os.path.exists(old_hashes_invalid))
 
     def test_cleanup_remove_fails(self):
         meta_file = utils.Timestamp(int(self.obj_ts) + 1).internal + '.meta'
