@@ -629,7 +629,8 @@ class CleavingContext(object):
     """
     def __init__(self, ref, cursor='', max_row=None, cleave_to_row=None,
                  last_cleave_to_row=None, cleaving_done=False,
-                 misplaced_done=False, ranges_done=0, ranges_todo=0):
+                 misplaced_done=False, ranges_done=0, ranges_todo=0,
+                 replication_time=0):
         self.ref = ref
         self._cursor = None
         self.cursor = cursor
@@ -640,6 +641,7 @@ class CleavingContext(object):
         self.misplaced_done = misplaced_done
         self.ranges_done = ranges_done
         self.ranges_todo = ranges_todo
+        self.replication_time = replication_time
 
     def __iter__(self):
         yield 'ref', self.ref
@@ -651,6 +653,7 @@ class CleavingContext(object):
         yield 'misplaced_done', self.misplaced_done
         yield 'ranges_done', self.ranges_done
         yield 'ranges_todo', self.ranges_todo
+        yield 'replication_time', self.replication_time
 
     def __repr__(self):
         return '%s(%s)' % (self.__class__.__name__, ', '.join(
@@ -728,6 +731,7 @@ class CleavingContext(object):
         self.cleaving_done = False
         self.misplaced_done = False
         self.last_cleave_to_row = self.cleave_to_row
+        self.replication_time = 0
 
     def start(self):
         self.cursor = ''
@@ -735,6 +739,7 @@ class CleavingContext(object):
         self.ranges_todo = 0
         self.cleaving_done = False
         self.cleave_to_row = self.max_row
+        self.replication_time = 0
 
     def range_done(self, new_cursor):
         self.ranges_done += 1
@@ -965,6 +970,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 'container': broker.container,
                 'root': broker.root_path,
                 'object_count': own_shard_range.object_count,
+                'tombstones': own_shard_range.tombstones,
                 'meta_timestamp': own_shard_range.meta_timestamp.internal,
                 'file_size': file_size}
 
@@ -1002,7 +1008,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         else:
             category['top'] = candidates
 
-    def _record_sharding_progress(self, broker, node, error):
+    def _record_sharding_progress(self, broker, node, error, processing_time):
         db_state = broker.get_db_state()
         if db_state not in (UNSHARDED, SHARDING, SHARDED):
             return
@@ -1010,6 +1016,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         if own_shard_range.state not in ShardRange.CLEAVING_STATES:
             return
 
+        sharded_ctx = None
         if db_state == SHARDED:
             contexts = CleavingContext.load_all(broker)
             if not contexts:
@@ -1021,8 +1028,21 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 # broker to be recorded
                 return
 
+            contexts_sorted = sorted(contexts, key=lambda x: float(x[1]))
+            sharded_ctx = contexts_sorted[-1]
+
         update_own_shard_range_stats(broker, own_shard_range)
         info = self._make_stats_info(broker, node, own_shard_range)
+
+        if sharded_ctx:
+            info["total_replicate_time"] = sharded_ctx[0].replication_time
+            sharding_total_elapsed = (float(sharded_ctx[1])
+                                      - float(own_shard_range.epoch))
+            info['total_sharding_time'] = sharding_total_elapsed
+
+        if processing_time:
+            info['processing_time'] = processing_time
+
         info['state'] = own_shard_range.state_text
         info['db_state'] = broker.get_db_state()
         states = [ShardRange.FOUND, ShardRange.CREATED,
@@ -2058,8 +2078,10 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 broker, 'Replicating new shard container %s for %s',
                 quote(shard_broker.path), own_shard_range)
 
+            replicate_start = time.time()
             success, responses = self._replicate_object(
                 shard_part, shard_broker.db_file, node_id)
+            cleaving_context.replication_time += time.time() - replicate_start
 
             replication_successes = responses.count(True)
             if (not success and (not responses or
@@ -2523,12 +2545,16 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
 
             broker = ContainerBroker(path, logger=self.logger,
                                      timeout=self.broker_timeout)
-            error = None
+            error = processing_time = None
             try:
                 self._identify_sharding_candidate(broker, node)
                 if sharding_enabled(broker):
                     self._increment_stat('visited', 'attempted')
+
+                    process_start = time.time()
                     self._process_broker(broker, node, part)
+                    processing_time = time.time() - process_start
+
                     self._increment_stat('visited', 'success', statsd=True)
                 else:
                     self._increment_stat('visited', 'skipped')
@@ -2539,7 +2565,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                     '%s', err)
                 error = err
             try:
-                self._record_sharding_progress(broker, node, error)
+                self._record_sharding_progress(broker, node, error,
+                                               processing_time)
             except (Exception, Timeout) as error:
                 self.db_logger.exception(
                     broker, 'Unhandled exception while dumping '
