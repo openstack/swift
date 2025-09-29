@@ -23,7 +23,7 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 import sys
 import socket
 import locale
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import eventlet, spawn
 import functools
 import random
 import base64
@@ -674,19 +674,19 @@ def in_process_setup(the_object_server=object_server):
     nl = utils.NullLogger()
     global proxy_srv
     proxy_srv = prolis
-    prospa = eventlet.spawn(eventlet.wsgi.server, prolis, app, nl,
-                            protocol=SwiftHttpProtocol)
-    acc1spa = eventlet.spawn(eventlet.wsgi.server, acc1lis, acc1srv, nl,
-                             protocol=SwiftHttpProtocol)
-    acc2spa = eventlet.spawn(eventlet.wsgi.server, acc2lis, acc2srv, nl,
-                             protocol=SwiftHttpProtocol)
-    con1spa = eventlet.spawn(eventlet.wsgi.server, con1lis, con1srv, nl,
-                             protocol=SwiftHttpProtocol)
-    con2spa = eventlet.spawn(eventlet.wsgi.server, con2lis, con2srv, nl,
-                             protocol=SwiftHttpProtocol)
+    prospa = spawn(eventlet.wsgi.server, prolis, app, nl,
+                   protocol=SwiftHttpProtocol)
+    acc1spa = spawn(eventlet.wsgi.server, acc1lis, acc1srv, nl,
+                    protocol=SwiftHttpProtocol)
+    acc2spa = spawn(eventlet.wsgi.server, acc2lis, acc2srv, nl,
+                    protocol=SwiftHttpProtocol)
+    con1spa = spawn(eventlet.wsgi.server, con1lis, con1srv, nl,
+                    protocol=SwiftHttpProtocol)
+    con2spa = spawn(eventlet.wsgi.server, con2lis, con2srv, nl,
+                    protocol=SwiftHttpProtocol)
 
-    objspa = [eventlet.spawn(eventlet.wsgi.server, objsrv[0], objsrv[1], nl,
-                             protocol=SwiftHttpProtocol)
+    objspa = [spawn(eventlet.wsgi.server, objsrv[0], objsrv[1], nl,
+                    protocol=SwiftHttpProtocol)
               for objsrv in objsrvs]
 
     global _test_coros

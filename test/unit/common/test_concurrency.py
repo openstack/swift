@@ -17,7 +17,7 @@ import socket
 import time
 import unittest
 
-from swift.common.concurrency import USE_EVENTLET, Timeout
+from swift.common.concurrency import USE_EVENTLET, Timeout, spawn
 
 
 @unittest.skipIf(USE_EVENTLET, "threading Timeout only")
@@ -100,3 +100,26 @@ class TestTimeoutRestore(unittest.TestCase):
                 # inner must not loosen the bound past the outer 5s
                 self.assertEqual(rd.gettimeout(), 5)  # min(30, 5)
             self.assertEqual(rd.gettimeout(), 5)
+
+
+class TestSpawn(unittest.TestCase):
+    def test_with_args(self):
+        f = lambda x, y: x * y
+        result = spawn(f, 6, 7)
+        self.assertEqual(result.wait(), 42)
+
+    def test_with_kwargs(self):
+        def dummy(a, b=1):
+            return (a, b)
+
+        result = spawn(dummy, 0, b=2)
+        self.assertEqual(result.wait(), (0, 2))
+
+    def test_exception(self):
+        def fail():
+            raise Exception('reason')
+
+        result = spawn(fail)
+        with self.assertRaises(Exception) as ctx:
+            result.wait()
+        self.assertEqual(str(ctx.exception), 'reason')

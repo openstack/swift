@@ -18,7 +18,7 @@ from unittest import mock
 import os
 import unittest
 
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import eventlet, spawn
 import urllib.parse
 
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
@@ -64,7 +64,7 @@ class TestBaseSsync(BaseTest):
         self.rx_ip = '127.0.0.1'
         sock = listen_zero()
         self.rx_server_pool = eventlet.GreenPool(size=1)
-        self.rx_server = eventlet.spawn(
+        self.rx_server = spawn(
             eventlet.wsgi.server, sock, self.rx_controller, log=self.rx_logger,
             custom_pool=self.rx_server_pool)
         self.rx_port = sock.getsockname()[1]

@@ -17,7 +17,7 @@
 from unittest import mock
 import unittest
 import urllib.parse
-from swift.common.concurrency import eventlet, sleep
+from swift.common.concurrency import sleep, spawn, Timeout
 
 from swift.common import swob
 from swift.common.middleware import copy
@@ -1469,7 +1469,7 @@ class TestServerSideCopyHeartbeat(unittest.TestCase):
         return status[0], headers[0], body
 
     def test_copy_with_heartbeat_success(self):
-        original_spawn = eventlet.spawn
+        original_spawn = spawn
         self.app.register('GET', '/v1/a/c/o?heartbeat=true', swob.HTTPOk,
                           {'Content-Length': '10'}, b'X' * 10)
         self.app.register('PUT', '/v1/a/c/o2?heartbeat=true',
@@ -1486,7 +1486,7 @@ class TestServerSideCopyHeartbeat(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'Content-Length': '0', 'X-Copy-From': 'c/o'})
 
-        with mock.patch('eventlet.spawn', mock_spawn):
+        with mock.patch('swift.common.middleware.copy.spawn', mock_spawn):
             status = [None]
             headers_list = [None]
 
@@ -1516,8 +1516,49 @@ class TestServerSideCopyHeartbeat(unittest.TestCase):
         self.assertEqual(('PUT', '/v1/a/c/o2?heartbeat=true'),
                          self.app.calls[1])
 
+    def test_copy_with_heartbeat_task_timeout_terminates(self):
+        # A COPY task that itself raises Timeout must not make the heartbeat
+        # iterator loop forever: gt.wait() re-raises the stored Timeout on
+        # every call, so a `while True` loop would emit spaces forever. The
+        # `while not gt.dead` guard makes it terminate.
+        original_spawn = spawn
+        self.app.register('GET', '/v1/a/c/o?heartbeat=true', swob.HTTPOk,
+                          {'Content-Length': '10'}, b'X' * 10)
+        self.app.register('PUT', '/v1/a/c/o2?heartbeat=true',
+                          swob.HTTPCreated, {})
+
+        def mock_spawn(func, *args, **kwargs):
+            def raising_func(*a, **kw):
+                sleep(1.5)  # let a heartbeat or two go out first
+                raise Timeout()
+            return original_spawn(raising_func, *args, **kwargs)
+
+        req = swob.Request.blank(
+            '/v1/a/c/o2?heartbeat=true',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Content-Length': '0', 'X-Copy-From': 'c/o'})
+
+        with mock.patch('swift.common.middleware.copy.spawn', mock_spawn):
+            def start_response(s, h, ei=None):
+                pass
+            body_iter = self.ssc(req.environ, start_response)
+            chunks = []
+            try:
+                for chunk in body_iter:
+                    chunks.append(chunk)
+                    # guard: pre-fix this loops forever
+                    self.assertLess(len(chunks), 50,
+                                    'heartbeat iterator did not terminate')
+            finally:
+                close_if_possible(body_iter)
+        # it terminated (didn't hit the guard) after a few heartbeats, and
+        # reported the failure rather than looping forever
+        self.assertTrue(chunks)
+        self.assertEqual(chunks[0], b' ')
+        self.assertIn(b'500 Internal Error', chunks[-1])
+
     def test_copy_with_heartbeat_failure(self):
-        original_spawn = eventlet.spawn
+        original_spawn = spawn
         self.app.register('GET', '/v1/a/c/o?heartbeat=true', swob.HTTPOk,
                           {'Content-Length': '10'}, b'X' * 10)
         self.app.register('PUT', '/v1/a/c/o2?heartbeat=true',
@@ -1536,7 +1577,7 @@ class TestServerSideCopyHeartbeat(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'Content-Length': '0', 'X-Copy-From': 'c/o'})
 
-        with mock.patch('eventlet.spawn', mock_spawn):
+        with mock.patch('swift.common.middleware.copy.spawn', mock_spawn):
             status = [None]
             headers_list = [None]
 

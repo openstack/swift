@@ -440,10 +440,11 @@ class ObjectController(BaseStorageServer):
         # after getting a successful response to the object create. The
         # `container_update_timeout` bounds the length of time we wait so that
         # one slow container server doesn't make the entire request lag.
+        deadline = time.monotonic() + self.container_update_timeout
         try:
-            with Timeout(self.container_update_timeout):
-                for gt in update_greenthreads:
-                    gt.wait()
+            for gt in update_greenthreads:
+                remaining = deadline - time.monotonic()
+                gt.wait(timeout=max(0, remaining))
         except Timeout:
             # updates didn't go through, log it and return
             self.logger.debug(

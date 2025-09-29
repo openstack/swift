@@ -21,6 +21,7 @@ rather than importing directly from eventlet.
 
 import importlib.util
 import os
+import threading
 import time
 from socket import timeout as socket_timeout
 
@@ -54,7 +55,7 @@ import eventlet.semaphore
 import eventlet.wsgi
 from eventlet import GreenPile, GreenPool  # noqa: F401
 from eventlet import greenio, greenpool, hubs, patcher, queue, tpool, wsgi
-from eventlet import debug, listen, spawn, timeout, websocket  # noqa: F401
+from eventlet import debug, listen, timeout, websocket
 from eventlet import greenthread
 from eventlet.event import Event
 from eventlet.green import socket, ssl, subprocess
@@ -75,7 +76,6 @@ hub_exceptions = eventlet.debug.hub_exceptions
 hub_prevent_multiple_readers = eventlet.debug.hub_prevent_multiple_readers
 monkey_patch = eventlet.patcher.monkey_patch
 shutdown_safe = eventlet.greenio.shutdown_safe
-spawn_n = eventlet.spawn_n
 ChunkReadError = eventlet.wsgi.ChunkReadError
 
 if USE_EVENTLET:
@@ -93,6 +93,30 @@ if USE_EVENTLET:
             # Only needed without eventlet
             pass
 
+    # Helper functions to replace eventlet spawn with a threading equivalent
+    class EventletResult(object):
+        """Wrapper to support timeout arg when using eventlet """
+        def __init__(self, gt):
+            self._gt = gt
+
+        @property
+        def dead(self):
+            return self._gt.dead
+
+        def wait(self, timeout=None):
+            if timeout is not None:
+                with Timeout(timeout):
+                    return self._gt.wait()
+            return self._gt.wait()
+
+        def kill(self):
+            self._gt.kill()
+
+    def spawn(func, *args, **kwargs):
+        return EventletResult(eventlet.spawn(func, *args, **kwargs))
+
+    # spawn_n is not used with a kwarg, just use the unwrapped function
+    spawn_n = eventlet.spawn_n
 
 else:
     import os as green_os  # noqa: F811
@@ -166,6 +190,55 @@ else:
         if seconds:
             time.sleep(seconds)
 
+    # Helper functions to replace eventlet spawn with a threading equivalent
+    _spawn_kill_local = threading.local()
+
+    class ThreadResult(object):
+        def __init__(self, func, args, kwargs):
+            self.result = None
+            self.exc = None
+            self._kill_hook = None
+            self.thread = threading.Thread(
+                target=self.run, args=(func, args, kwargs))
+            self.thread.daemon = True
+            self.thread.start()
+
+        def run(self, func, args, kwargs):
+            _spawn_kill_local.handle = self
+            try:
+                self.result = func(*args, **kwargs)
+            except BaseException as e:
+                self.exc = e
+            finally:
+                _spawn_kill_local.handle = None
+
+        def wait(self, timeout=None):
+            self.thread.join(timeout=timeout)
+            if self.thread.is_alive():
+                raise Timeout(timeout)
+            if self.exc:
+                raise self.exc
+            return self.result
+
+        @property
+        def dead(self):
+            return not self.thread.is_alive()
+
+        def kill(self):
+            # Real threads can't be interrupted, but a stoppable callable can
+            # register a stop hook via register_kill_hook() -- the threading
+            # analogue of GreenThread.kill(). With no hook the daemon thread
+            # keeps running: it won't block interpreter exit, but it may
+            # still mutate shared state or hold resources until it returns.
+            if self._kill_hook is not None:
+                self._kill_hook()
+
+    def spawn(func, *args, **kwargs):
+        return ThreadResult(func, args, kwargs)
+
+    # eventlet spawn_n is spawn without a return value; reuse spawn here.
+    spawn_n = spawn
+
 
 def clear_connect_timeout(sock):
     # Once a backend connection is established (the connect was bounded by the
@@ -195,6 +268,7 @@ __all__ = [
     'tpool',
     'listen',
     'sleep',
+    'spawn',
     'timeout',
     'websocket',
     'Event',

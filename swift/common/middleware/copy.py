@@ -125,7 +125,7 @@ from swift.common.request_helpers import copy_header_subset, remove_items, \
     is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
     check_path_header, OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.common.wsgi import WSGIContext, make_subrequest
-from swift.common.concurrency import eventlet, Timeout
+from swift.common.concurrency import Timeout, spawn
 from swift.common.request_helpers import get_heartbeat_response_body
 
 
@@ -201,8 +201,7 @@ class ServerSideCopyWebContext(WSGIContext):
             out_content_type = 'text/plain'
 
         if heartbeat:
-            gt = eventlet.spawn(self._app_call,
-                                req.environ)
+            gt = spawn(self._app_call, req.environ)
             start_response('202 Accepted',
                            [('Content-Type', out_content_type)])
 
@@ -211,15 +210,33 @@ class ServerSideCopyWebContext(WSGIContext):
                 yield b' '
                 app_iter = [b'']
                 try:
+                    # Loop until the task is done, emitting a heartbeat each
+                    # time the wait times out. Guard on gt.dead, not `while
+                    # True`: a task that itself raises Timeout (e.g.
+                    # ChunkReadTimeout) makes gt.wait() re-raise it on every
+                    # call, which a `while True` loop would treat as a
+                    # heartbeat deadline and emit spaces forever, never ending.
                     while not gt.dead:
                         try:
-                            with Timeout(self.yield_frequency):
-                                app_iter = gt.wait()
+                            app_iter = gt.wait(
+                                timeout=self.yield_frequency)
                         except Timeout:
-                            yield b' '
-                except Exception as e:
-                    # Send back the status to the client if error
+                            if gt.dead:
+                                # The task finished as the wait elapsed; fetch
+                                # its real result (re-raising if it failed) so
+                                # a task that raised Timeout isn't mistaken for
+                                # a heartbeat deadline.
+                                app_iter = gt.wait()
+                            else:
+                                yield b' '
+                except (Timeout, Exception) as e:
+                    # Task failed (Timeout is a BaseException, so name it
+                    # explicitly); report it rather than crash in the finally
+                    # below, which reads _response_status/_response_headers
+                    # that a task failing before its response never set.
                     self._response_status = '500 Internal Error'
+                    if not hasattr(self, '_response_headers'):
+                        self._response_headers = []
                     app_iter = [str(e).encode('utf8')]
                 finally:
                     response_body = b''.join(app_iter).decode('utf8')

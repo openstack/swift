@@ -33,7 +33,7 @@ from contextlib import contextmanager
 from textwrap import dedent
 
 from swift.common.concurrency import (
-    sleep, spawn, wsgi, Timeout, tpool, greenthread,
+    sleep, spawn, wsgi, Timeout, tpool,
     green_http_client as http_client
 )
 
@@ -92,7 +92,7 @@ def fake_spawn():
     greenlets = []
 
     def _inner_fake_spawn(func, *a, **kw):
-        gt = greenthread.spawn(func, *a, **kw)
+        gt = spawn(func, *a, **kw)
         greenlets.append(gt)
         return gt
 
@@ -7403,7 +7403,7 @@ class TestObjectController(BaseUnitTestCase):
         def local_fake_spawn(func, *a, **kw):
             m = mock.MagicMock()
 
-            def wait_with_error():
+            def wait_with_error(timeout=None):
                 raise Timeout()
             m.wait = wait_with_error  # because raise can't be in a lambda
             return m
