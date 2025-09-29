@@ -224,18 +224,6 @@ class AccountBroker(DatabaseBroker):
                 record['bytes_used'], record['deleted'],
                 record['storage_policy_index'])
 
-    @property
-    def path(self):
-        """
-        Logical namespace path used for logging.
-
-        For ContainerBroker this is "<account>/<container>";
-        for AccountBroker we return just "<account>".
-        """
-        if self.account is None:
-            self._populate_instance_cache()
-        return self.account or ''
-
     def put_container(self, name, put_timestamp, delete_timestamp,
                       object_count, bytes_used, storage_policy_index):
         """
@@ -348,7 +336,7 @@ class AccountBroker(DatabaseBroker):
 
     def get_info(self):
         """
-        Return a dict with account name for this broker.
+        Get global data for the account.
 
         :returns: dict with keys: account, created_at, put_timestamp,
                   delete_timestamp, status_changed_at, container_count,
@@ -362,8 +350,27 @@ class AccountBroker(DatabaseBroker):
                        bytes_used, hash, id
                 FROM account_stat
             ''').fetchone())
-        self.account = data.get('account')
+        self.account = data['account']
         return data
+
+    def _populate_instance_cache(self):
+        """
+        Lazily hydrate instance attributes used for logging and other
+        read-mostly flows. Use `self.account is None` as the only
+        indicator that we haven't populated yet.
+        """
+        if self.account is None:
+            self.get_info()
+
+    @property
+    def path(self):
+        """
+        Logical namespace path used for logging.
+
+        For AccountBroker we return just "<account>".
+        """
+        self._populate_instance_cache()
+        return self.account
 
     def list_containers_iter(self, limit, marker, end_marker, prefix,
                              delimiter, reverse=False, allow_reserved=False):
@@ -653,15 +660,3 @@ class AccountBroker(DatabaseBroker):
             ALTER TABLE container
             ADD COLUMN storage_policy_index INTEGER DEFAULT 0;
         ''' + POLICY_STAT_TRIGGER_SCRIPT)
-
-    def _populate_instance_cache(self):
-        """
-        Lazily hydrate instance attributes used for logging and other
-        read-mostly flows. Use `self.account is None` as the only
-        indicator that we haven't populated yet.
-
-        On failure, we leave `self.account` as-is (likely None) so that
-        a future caller can try again.
-        """
-        if self.account is None:
-            self.get_info()
