@@ -1120,6 +1120,71 @@ class TestAccountBroker(test_db.TestDbBase):
         self.assertFalse(new_broker.get_info()['id'].endswith('d1234'))
         self.assertTrue(new_broker.get_info()['id'].endswith('d5678'))
 
+    def _create_db(self, account='a'):
+        db_file = self.get_db_path()
+        b = AccountBroker(db_file, account=account)
+        b.initialize(Timestamp('1').internal)
+        return db_file
+
+    def test_path_caches_account(self):
+        db_file = self._create_db()
+        b = AccountBroker(db_file)
+        self.assertIsNone(b.account)
+        called = {'n': 0}
+
+        orig_get_info = AccountBroker.get_info
+
+        def capture_get_info(self):
+            called['n'] += 1
+            return orig_get_info(self)
+
+        self.assertEqual(0, called['n'])
+        with mock.patch.object(AccountBroker, 'get_info', capture_get_info):
+            self.assertEqual('a', b.path)
+            # accessing path will call get_info!
+            self.assertEqual(1, called['n'])
+            # and populate the account attribute
+            self.assertEqual('a', b.account)
+            # it's cached
+            for i in range(3):
+                self.assertEqual('a', b.path)
+                self.assertEqual('a', b.account)
+        # we only call get_info once
+        self.assertEqual(1, called['n'])
+
+    def test_path_uses_account_kwag(self):
+        db_file = self._create_db()
+        b = AccountBroker(db_file, account='a')
+        called = {'n': 0}
+
+        orig_get_info = AccountBroker.get_info
+
+        def capture_get_info(self):
+            called['n'] += 1
+            return orig_get_info(self)
+
+        self.assertEqual(0, called['n'])
+        with mock.patch.object(AccountBroker, 'get_info', capture_get_info):
+            self.assertEqual('a', b.path)
+        # we never call get_info
+        self.assertEqual(0, called['n'])
+
+    def test_path_on_uninitialized_broker(self):
+        db_file = self.get_db_path()
+        b = AccountBroker(db_file)
+        self.assertEqual(b.db_file, db_file)
+        with self.assertRaises(DatabaseConnectionError) as ctx:
+            getattr(b, 'path')
+        self.assertIn("DB doesn't exist", str(ctx.exception))
+        self.assertIn(db_file, str(ctx.exception))
+        with self.assertRaises(ValueError) as ctx:
+            b.initialize(next(self.ts))
+        self.assertEqual(
+            'Attempting to create a new database with no account set',
+            str(ctx.exception))
+        b.account = 'a'
+        self.assertEqual('a', b.path)
+
 
 def prespi_AccountBroker_initialize(self, conn, put_timestamp, **kwargs):
     """
@@ -1214,25 +1279,6 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
             except BaseException as err:
                 exc = err
         self.assertIn('no such column: metadata', str(exc))
-
-    def test_path_lazy_populates_from_db(self):
-        b = AccountBroker(self.get_db_path(), account=None)
-        self.assertIsNone(getattr(b, 'account', None))
-        called = {'n': 0}
-
-        def stub_populate(self, conn=None):
-            called['n'] += 1
-            self.account = 'a'
-
-        with mock.patch.object(AccountBroker, '_populate_instance_cache',
-                               stub_populate):
-            self.assertEqual('a', b.path)
-            self.assertEqual('a', b.account)
-            self.assertEqual(1, called['n'])
-
-    def test_path_best_effort_when_partial_attrs(self):
-        b = AccountBroker(self.get_db_path(), account='a')
-        self.assertEqual('a', b.path)
 
     def tearDown(self):
         AccountBroker.create_account_stat_table = \
