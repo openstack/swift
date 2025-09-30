@@ -108,6 +108,7 @@ from swift.common.utils.config import (  # noqa
     non_negative_float,
     non_negative_int,
     config_positive_int_value,
+    config_positive_float_value,
     config_float_value,
     config_auto_int_value,
     config_percent_value,
@@ -3886,6 +3887,12 @@ class NamespaceBoundList(object):
         if not isinstance(other, NamespaceBoundList):
             return False
         return self.bounds == other.bounds
+
+    def __len__(self):
+        """
+        Return the number of namespaces in the NamespaceBoundList.
+        """
+        return len(self.bounds)
 
     @classmethod
     def parse(cls, namespaces):
