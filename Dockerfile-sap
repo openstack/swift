@@ -1,0 +1,29 @@
+# build Go binaries in a separate container
+FROM golang:1.25-alpine3.22 AS builder
+RUN apk add --no-cache git musl-dev gcc make
+# GO_LDFLAGS='-s -w' not needed here, already in the respective Makefiles
+# GO_BUILDFLAGS='-mod vendor' not needed here, already in the respective Makefiles
+RUN git clone https://github.com/sapcc/syslog-stdout && \
+    make -C ./syslog-stdout install PREFIX=/pkg GO_LDFLAGS='-linkmode external -extldflags -static'
+RUN git clone https://github.com/sapcc/swift-health-exporter && \
+    make -C ./swift-health-exporter install PREFIX=/pkg GO_LDFLAGS='-linkmode external -extldflags -static'
+RUN git clone https://github.com/sapcc/swift-s3-cache-prewarmer && \
+    make -C ./swift-s3-cache-prewarmer install PREFIX=/pkg GO_LDFLAGS='-linkmode external -extldflags -static'
+RUN git clone https://github.com/sapcc/swift-ring-artisan && \
+    make -C ./swift-ring-artisan install PREFIX=/pkg GO_LDFLAGS='-linkmode external -extldflags -static'
+
+################################################################################
+
+FROM python:3.11.8-slim-bullseye
+LABEL source_repository="https://github.com/sapcc/swift"
+
+ENV PATH=/opt/venv/bin:$PATH
+
+COPY --from=builder /pkg/bin/* /usr/bin/
+COPY . /opt/swift
+
+# give --build-arg BUILD_MODE=sap to install components required by required by
+# the Helm chart at https://github.com/sapcc/helm-charts/tree/master/openstack/swift
+ARG BUILD_MODE=normal
+
+RUN /opt/swift/docker-sap/build.sh
