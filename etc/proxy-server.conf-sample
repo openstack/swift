@@ -182,13 +182,15 @@ use = egg:swift#proxy
 # require_proxy_protocol = false
 #
 # log_handoffs = true
-# How long (in seconds) to cache account existence information
+# How long (in seconds) to cache account existence information. Account
+# non-existence will be cached one-tenth as long.
 # recheck_account_existence = 60
-# How long (in seconds) to cache container existence information
+# How long (in seconds) to cache container existence information. Container
+# non-existence will be cached one-tenth as long.
 # recheck_container_existence = 60
 #
-# How long the proxy should cache a set of shard ranges for a container when
-# the set is to be used for directing object updates.
+# How long (in seconds) the proxy should cache a set of shard ranges for
+# a container when the set is to be used for directing object updates.
 # Note that stale shard range info should be fine; updates will still
 # eventually make their way to the correct shard. As a result, you can
 # usually set this much higher than the existence checks above.
