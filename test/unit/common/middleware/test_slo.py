@@ -133,7 +133,13 @@ class TestSloMiddleware(SloTestCase):
         self.app.register('PUT', path, swob.HTTPCreated, {})
         resp_iter = self.slo(req.environ, start_response)
         self.assertEqual(b'', b''.join(resp_iter))
-        self.assertEqual(self.app.calls, [('PUT', path)])
+        self.assertEqual([
+            ('PUT', path, {
+                'Host': 'localhost:80',
+                'Content-Length': str(len(body)),
+                'X-Static-Large-Object': 'true',
+            }),
+        ], self.app.calls_with_headers)
         self.assertEqual(body, self.app.uploaded[path][1])
         self.assertEqual(resp_status[0], '201 Created')
 
