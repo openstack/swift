@@ -48,7 +48,7 @@ from swift.proxy.controllers.base import \
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
 from swift.common.swob import Request, Response, wsgi_to_str
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, debug_labeled_statsd_client
 from test.unit import (
     FakeRing, fake_http_connect, patch_policies, SlowBody, FakeStatus,
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub,
@@ -8240,9 +8240,6 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
 
     def setUp(self):
         super(TestCooperativeToken, self).setUp()
-        # Import needed modules from test_server.py context
-        from test.debug_logger import debug_labeled_statsd_client
-
         conf = {
             'log_statsd_host': 'host',
             'log_statsd_port': 8125,
