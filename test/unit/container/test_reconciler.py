@@ -25,7 +25,7 @@ import os
 import errno
 import itertools
 import random
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import sleep
 
 from collections import defaultdict
 import urllib.parse
@@ -982,7 +982,7 @@ class TestReconciler(BaseUnitTestCase):
             if obj == 'o1':
                 # o1 takes longer than o2 for some reason
                 for i in range(10):
-                    eventlet.sleep(0.0)
+                    sleep(0.0)
             return True
 
         self.reconciler._reconcile_object = fake_reconcile_object

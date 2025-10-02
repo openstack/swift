@@ -16,7 +16,7 @@ import io
 import os
 import unittest
 
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import sleep
 from unittest import mock
 import urllib.parse
 
@@ -91,7 +91,7 @@ class FakeConnection(object):
     def send(self, data):
         self.sent.append(data)
         if self.sleeps:
-            eventlet.sleep(self.sleeps.pop(0))
+            sleep(self.sleeps.pop(0))
 
     def close(self):
         self.closed = True
@@ -704,7 +704,7 @@ class TestSender(SenderBase):
         self.sender.suffixes = ['abc']
 
         def putrequest(*args, **kwargs):
-            eventlet.sleep(0.1)
+            sleep(0.1)
 
         with mock.patch.object(
                 ssync_sender.bufferedhttp.BufferedHTTPConnection,
@@ -728,7 +728,7 @@ class TestSender(SenderBase):
         class FakeBufferedHTTPConnection(NullBufferedHTTPConnection):
 
             def getresponse(*args, **kwargs):
-                eventlet.sleep(0.1)
+                sleep(0.1)
 
         with mock.patch.object(
                 ssync_sender, 'SsyncBufferedHTTPConnection',
@@ -1305,7 +1305,7 @@ class TestSender(SenderBase):
 
     def test_updates_timeout(self):
         connection = FakeConnection()
-        connection.send = lambda d: eventlet.sleep(1)
+        connection.send = lambda d: sleep(1)
         response = FakeResponse()
         self.sender.daemon.node_timeout = 0.01
         self.assertRaises(exceptions.MessageTimeout, self.sender.updates,
@@ -1610,7 +1610,7 @@ class TestSender(SenderBase):
         orig_readline = response.readline
 
         def delayed_readline(*args, **kwargs):
-            eventlet.sleep(1)
+            sleep(1)
             return orig_readline(*args, **kwargs)
 
         response.readline = delayed_readline
@@ -1661,7 +1661,7 @@ class TestSender(SenderBase):
         def delayed_readline(*args, **kwargs):
             rv = orig_readline(*args, **kwargs)
             if rv == b':UPDATES: END\r\n':
-                eventlet.sleep(1)
+                sleep(1)
             return rv
 
         response.readline = delayed_readline
@@ -1706,7 +1706,7 @@ class TestSender(SenderBase):
 
     def test_send_delete_timeout(self):
         connection = FakeConnection()
-        connection.send = lambda d: eventlet.sleep(1)
+        connection.send = lambda d: sleep(1)
         self.sender.daemon.node_timeout = 0.01
         exc = None
         try:
@@ -1729,7 +1729,7 @@ class TestSender(SenderBase):
         df = self._make_open_diskfile()
         df._disk_chunk_size = 2
         connection = FakeConnection()
-        connection.send = lambda d: eventlet.sleep(1)
+        connection.send = lambda d: sleep(1)
         self.sender.daemon.node_timeout = 0.01
         exc = None
         try:
@@ -1749,7 +1749,7 @@ class TestSender(SenderBase):
             try:
                 one_shot.pop()
             except IndexError:
-                eventlet.sleep(1)
+                sleep(1)
 
         connection.send = mock_send
 
@@ -1858,7 +1858,7 @@ class TestSender(SenderBase):
 
     def test_disconnect_timeout(self):
         connection = FakeConnection()
-        connection.send = lambda d: eventlet.sleep(1)
+        connection.send = lambda d: sleep(1)
         self.sender.daemon.node_timeout = 0.01
         self.sender.disconnect(connection)
         self.assertEqual(b''.join(connection.sent), b'')

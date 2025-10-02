@@ -54,8 +54,7 @@ import eventlet.semaphore
 import eventlet.wsgi
 from eventlet import GreenPile, GreenPool  # noqa: F401
 from eventlet import greenio, greenpool, hubs, patcher, queue, tpool, wsgi
-from eventlet import (  # noqa: F401
-    debug, listen, sleep, spawn, timeout, websocket)
+from eventlet import debug, listen, spawn, timeout, websocket  # noqa: F401
 from eventlet import greenthread
 from eventlet.event import Event
 from eventlet.green import socket, ssl, subprocess
@@ -80,6 +79,7 @@ spawn_n = eventlet.spawn_n
 ChunkReadError = eventlet.wsgi.ChunkReadError
 
 if USE_EVENTLET:
+    from eventlet import sleep
 
     from eventlet import Timeout as _Timeout
 
@@ -162,6 +162,10 @@ else:
         def cancel(self):
             self.restore_timeout()
 
+    def sleep(seconds=0):
+        if seconds:
+            time.sleep(seconds)
+
 
 def clear_connect_timeout(sock):
     # Once a backend connection is established (the connect was bounded by the
@@ -190,6 +194,7 @@ __all__ = [
     'greenpool',
     'tpool',
     'listen',
+    'sleep',
     'timeout',
     'websocket',
     'Event',

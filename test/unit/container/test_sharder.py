@@ -762,7 +762,7 @@ class TestSharder(BaseTestSharder):
                                       0, 'text/plain', 'etag', 0)
 
             # check only sharding enabled containers are processed
-            with mock.patch('eventlet.sleep'), mock.patch.object(
+            with mock.patch('swift.common.utils.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
                 sharder._local_device_ids = {'stale_node_id': {}}
@@ -836,7 +836,7 @@ class TestSharder(BaseTestSharder):
 
             # check exceptions are handled
             sharder.logger.clear()
-            with mock.patch('eventlet.sleep'), mock.patch.object(
+            with mock.patch('swift.common.utils.sleep'), mock.patch.object(
                     sharder, '_process_broker', side_effect=mock_processing
             ) as mock_process_broker:
                 sharder._local_device_ids = {'stale_node_id': {}}
@@ -896,8 +896,8 @@ class TestSharder(BaseTestSharder):
             brokers[0].merge_shard_ranges([own_shard_range])
             for i in range(10):
                 brokers[1].delete_object(
-                    'o%s' % i, self.ts().internal)
-            with mock.patch('eventlet.sleep'), mock.patch.object(
+                    'o%s' % i, next(self.ts_iter).internal)
+            with mock.patch('swift.common.utils.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
                 sharder._local_device_ids = {999: {}}
@@ -924,7 +924,7 @@ class TestSharder(BaseTestSharder):
                 sr.update_state(ShardRange.CLEAVED)
             brokers[0].merge_shard_ranges(shard_ranges)
 
-            with mock.patch('eventlet.sleep'), mock.patch.object(
+            with mock.patch('swift.common.utils.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
                 sharder._local_device_ids = {999: {}}
@@ -966,7 +966,7 @@ class TestSharder(BaseTestSharder):
                 cxt.store(brokers[0])
             self.assertTrue(brokers[0].set_sharded_state())
 
-            with mock.patch('eventlet.sleep'), \
+            with mock.patch('swift.common.utils.sleep'), \
                     mock.patch.object(sharder, '_process_broker') \
                     as mock_process_broker, mock_timestamp_now(ts_now):
                 sharder._local_device_ids = {999: {}}
@@ -1001,7 +1001,7 @@ class TestSharder(BaseTestSharder):
             # future to check that the completed broker is still reported
             ts_now = Timestamp(ts_now.timestamp +
                                sharder.recon_sharded_timeout)
-            with mock.patch('eventlet.sleep'), \
+            with mock.patch('swift.common.utils.sleep'), \
                     mock.patch.object(sharder, '_process_broker') \
                     as mock_process_broker, mock_timestamp_now(ts_now):
                 sharder._local_device_ids = {999: {}}
@@ -1013,7 +1013,7 @@ class TestSharder(BaseTestSharder):
             # broker 1 will be removed from the progress report
             ts_now = Timestamp(ts_now.timestamp +
                                sharder.recon_sharded_timeout + 1)
-            with mock.patch('eventlet.sleep'), \
+            with mock.patch('swift.common.utils.sleep'), \
                     mock.patch.object(sharder, '_process_broker') \
                     as mock_process_broker, mock_timestamp_now(ts_now):
                 sharder._local_device_ids = {999: {}}
@@ -1079,7 +1079,7 @@ class TestSharder(BaseTestSharder):
                 mock.patch('swift.common.db_replicator.roundrobin_datadirs',
                            stub_iter), \
                 mock.patch('time.time', fake_time), \
-                mock.patch('eventlet.sleep', fake_sleep):
+                mock.patch('swift.common.utils.sleep', fake_sleep):
             list(sharder.roundrobin_datadirs(None))
         # 100 db at 1/s should take ~100s
         run_time = sum(clock['sleeps'])
@@ -1096,7 +1096,7 @@ class TestSharder(BaseTestSharder):
                 mock.patch('swift.common.db_replicator.roundrobin_datadirs',
                            stub_iter), \
                 mock.patch('time.time', fake_time), \
-                mock.patch('eventlet.sleep', fake_sleep):
+                mock.patch('swift.common.utils.sleep', fake_sleep):
             list(sharder.roundrobin_datadirs(None))
         # 1000 db at 50/s
         run_time = sum(clock['sleeps'])

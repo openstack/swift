@@ -28,7 +28,7 @@ from numbers import Number
 from tempfile import NamedTemporaryFile
 import time
 from swift.common.concurrency import (
-    eventlet, greenpool, debug as eventlet_debug, socket
+    greenpool, debug as eventlet_debug, socket, sleep
 )
 from tempfile import mkdtemp, mkstemp, gettempdir
 import traceback
@@ -772,7 +772,7 @@ class FakeStatus(object):
     """
     This will work with our fake_http_connect, if you hand in one of these
     instead of a status int or status int tuple to the "codes" iter you can
-    add some eventlet sleep to the expect and response stages of the
+    add some sleep to the expect and response stages of the
     connection.
     """
 
@@ -780,9 +780,9 @@ class FakeStatus(object):
         """
         :param status: the response status int, or a tuple of
                        ([expect_status, ...], response_status)
-        :param expect_sleep: float, time to eventlet sleep during expect, can
+        :param expect_sleep: float, time to sleep during expect, can
                              be a iter of floats
-        :param response_sleep: float, time to eventlet sleep during response
+        :param response_sleep: float, time to sleep during response
         """
         # connect exception
         if inspect.isclass(status) and issubclass(status, Exception):
@@ -825,7 +825,7 @@ class FakeStatus(object):
 
     def get_response_status(self):
         if self.response_sleep is not None:
-            eventlet.sleep(self.response_sleep)
+            sleep(self.response_sleep)
         if self.expect_status and self.explicit_expect_list:
             raise Exception('Test did not consume all fake '
                             'expect status: %r' % (self.expect_status,))
@@ -836,7 +836,7 @@ class FakeStatus(object):
     def get_expect_status(self):
         expect_sleep = self.expect_sleep_list.pop(0)
         if expect_sleep is not None:
-            eventlet.sleep(expect_sleep)
+            sleep(expect_sleep)
         expect_status = self.expect_status.pop(0)
         if isinstance(expect_status, (Exception, utils.Timeout)):
             raise expect_status
@@ -860,7 +860,7 @@ class SlowBody(object):
         self.slowness = slowness
 
     def slowdown(self):
-        eventlet.sleep(self.slowness)
+        sleep(self.slowness)
 
     def __getitem__(self, s):
         return SlowBody(self.body[s], self.slowness)
@@ -932,7 +932,7 @@ def fake_http_connect(*code_iter, **kwargs):
                 self.body += b" " * (self.SLOW_READS - len(self.body))
 
             # be nice to trixy bits with node_iter's
-            eventlet.sleep()
+            sleep()
 
         def getresponse(self):
             exc = kwargs.get('raise_exc')
@@ -1009,7 +1009,7 @@ def fake_http_connect(*code_iter, **kwargs):
                 if self.sent < self.SLOW_READS:
                     slowly_read_byte = self.body[self.sent:self.sent + 1]
                     self.sent += 1
-                    eventlet.sleep(value)
+                    sleep(value)
                     return slowly_read_byte
             if amt is None:
                 rv = self.body[self.sent:]
@@ -1025,7 +1025,7 @@ def fake_http_connect(*code_iter, **kwargs):
             if am_slow:
                 if self.received < self.SLOW_WRITES:
                     self.received += 1
-                    eventlet.sleep(value)
+                    sleep(value)
 
         def getheader(self, name, default=None):
             return HeaderKeyDict(self.getheaders()).get(name, default)
@@ -1269,7 +1269,7 @@ class StubResponse(object):
         except StopIteration:
             wait = None
         if wait is not None:
-            eventlet.sleep(wait)
+            sleep(wait)
 
     def nuke_from_orbit(self):
         if hasattr(self, 'swift_conn'):

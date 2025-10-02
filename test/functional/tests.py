@@ -23,7 +23,7 @@ import time
 import unittest
 import uuid
 from copy import deepcopy
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import sleep
 from swift.common.http import is_success, is_client_error
 from swift.common.swob import normalize_etag
 from swift.common.utils import md5
@@ -949,7 +949,7 @@ class TestContainer(Base):
         t0 = info['last_modified']
         # last modified header is in date format which supports in second
         # so we need to wait to increment a sec in the header.
-        eventlet.sleep(1)
+        sleep(1)
 
         # POST container change last modified timestamp
         self.assertTrue(
@@ -957,14 +957,14 @@ class TestContainer(Base):
         info = container.info()
         t1 = info['last_modified']
         self.assertNotEqual(t0, t1)
-        eventlet.sleep(1)
+        sleep(1)
 
         # PUT container (overwrite) also change last modified
         self.assertTrue(container.create())
         info = container.info()
         t2 = info['last_modified']
         self.assertNotEqual(t1, t2)
-        eventlet.sleep(1)
+        sleep(1)
 
         # PUT object doesn't change container last modified timestamp
         obj = container.file(Utils.create_name())

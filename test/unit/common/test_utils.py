@@ -28,7 +28,7 @@ from test.unit import temptree, with_tempdir, DebugMemcacheRing, \
 
 import contextlib
 import errno
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import eventlet, sleep
 import grp
 import logging
 import os
@@ -186,7 +186,7 @@ class TestUtils(unittest.TestCase):
                 thread.start()
                 self.assertTrue(thread.isAlive())
                 # we should timeout while the thread is still blocking on lock
-                eventlet.sleep()
+                sleep()
                 thread.join(timeout=0.1)
                 self.assertTrue(thread.isAlive())
 
@@ -965,7 +965,7 @@ class TestUtils(unittest.TestCase):
 
         with patch('time.time', my_time), \
                 patch('time.sleep', my_sleep), \
-                patch('eventlet.sleep', my_sleep):
+                patch('swift.common.utils.sleep', my_sleep):
             start = time.time()
             func(*args, **kwargs)
             # make sure it's accurate to 10th of a second, converting the time
@@ -2875,7 +2875,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
 
         def do_fetch_backend(self):
             if self._backend_delay:
-                eventlet.sleep(self._backend_delay)
+                sleep(self._backend_delay)
             if self._fetch_backend_failure:
                 return None, FakeResponse(status_int=503)
             else:
@@ -3560,7 +3560,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
                 }
             )
             if exec_delay:
-                eventlet.sleep(exec_delay)
+                sleep(exec_delay)
             data = populator.fetch_data()
 
             try:
@@ -3644,7 +3644,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
                 }
             )
             if exec_delay:
-                eventlet.sleep(exec_delay)
+                sleep(exec_delay)
             data = populator.fetch_data()
 
             try:
@@ -4129,7 +4129,7 @@ class UnsafeXrange(object):
             else:
                 val = self.current
                 self.current += 1
-                eventlet.sleep()   # yield control
+                sleep()   # yield control
                 return val
         finally:
             self.concurrent_calls -= 1
@@ -4165,7 +4165,7 @@ class TestEventletRateLimiter(unittest.TestCase):
     def test_non_blocking(self):
         rate_limiter = utils.EventletRateLimiter(0.1, rate_buffer=0)
         with patch('time.time',) as mock_time:
-            with patch('eventlet.sleep') as mock_sleep:
+            with patch('swift.common.utils.sleep') as mock_sleep:
                 mock_time.return_value = 0
                 self.assertTrue(rate_limiter.is_allowed())
                 mock_sleep.assert_not_called()
@@ -4183,7 +4183,7 @@ class TestEventletRateLimiter(unittest.TestCase):
 
         rate_limiter = utils.EventletRateLimiter(0.1, rate_buffer=20)
         with patch('time.time',) as mock_time:
-            with patch('eventlet.sleep') as mock_sleep:
+            with patch('swift.common.utils.sleep') as mock_sleep:
                 mock_time.return_value = 20.0
                 self.assertTrue(rate_limiter.is_allowed())
                 mock_sleep.assert_not_called()
@@ -4197,7 +4197,7 @@ class TestEventletRateLimiter(unittest.TestCase):
     def test_non_blocking_max_rate_adjusted(self):
         rate_limiter = utils.EventletRateLimiter(0.1, rate_buffer=0)
         with patch('time.time',) as mock_time:
-            with patch('eventlet.sleep') as mock_sleep:
+            with patch('swift.common.utils.sleep') as mock_sleep:
                 mock_time.return_value = 0
                 self.assertTrue(rate_limiter.is_allowed())
                 self.assertFalse(rate_limiter.is_allowed())
@@ -4242,7 +4242,7 @@ class TestEventletRateLimiter(unittest.TestCase):
             current_time[0] += duration
 
         with patch('time.time', mock_time):
-            with patch('eventlet.sleep', mock_sleep):
+            with patch('swift.common.utils.sleep', mock_sleep):
                 for i in range(5):
                     rate_limiter.wait(incr_by=incr_by)
                     grant_times.append(current_time[0])
@@ -4329,7 +4329,7 @@ class TestRateLimitedIterator(unittest.TestCase):
             curr_time[0] += duration
 
         with patch('time.time', my_time), \
-                patch('eventlet.sleep', my_sleep):
+                patch('swift.common.utils.sleep', my_sleep):
             return func(*args, **kwargs)
 
     def test_rate_limiting(self):
@@ -4883,7 +4883,7 @@ class TestGreenAsyncPile(unittest.TestCase):
 
     def test_waitall_timeout_timesout(self):
         def run_test(sleep_duration):
-            eventlet.sleep(sleep_duration)
+            sleep(sleep_duration)
             completed[0] += 1
             return sleep_duration
 
@@ -4896,7 +4896,7 @@ class TestGreenAsyncPile(unittest.TestCase):
 
     def test_waitall_timeout_completes(self):
         def run_test(sleep_duration):
-            eventlet.sleep(sleep_duration)
+            sleep(sleep_duration)
             completed[0] += 1
             return sleep_duration
 
@@ -4909,7 +4909,7 @@ class TestGreenAsyncPile(unittest.TestCase):
 
     def test_waitfirst_only_returns_first(self):
         def run_test(name):
-            eventlet.sleep(0)
+            sleep(0)
             completed.append(name)
             return name
 
@@ -4924,7 +4924,7 @@ class TestGreenAsyncPile(unittest.TestCase):
 
     def test_wait_with_firstn(self):
         def run_test(name):
-            eventlet.sleep(0)
+            sleep(0)
             completed.append(name)
             return name
 
@@ -8430,7 +8430,7 @@ class TestContextPool(unittest.TestCase):
         pool = utils.ContextPool(size)
         with pool:
             for _ in range(size):
-                pool.spawn(eventlet.sleep, 10)
+                pool.spawn(sleep, 10)
             self.assertEqual(pool.running(), size)
         self.assertEqual(pool.running(), 0)
 
@@ -8438,7 +8438,7 @@ class TestContextPool(unittest.TestCase):
         size = 10
         pool = utils.ContextPool(size)
         for _ in range(size):
-            pool.spawn(eventlet.sleep, 10)
+            pool.spawn(sleep, 10)
         self.assertEqual(pool.running(), size)
         pool.close()
         self.assertEqual(pool.running(), 0)

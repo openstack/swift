@@ -31,7 +31,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common import utils
 from swift.common.swob import HTTPException, HTTPCreated, Request, \
     HTTPNoContent
-from swift.common.utils import public, Timestamp
+from swift.common.utils import public, Timestamp, sleep
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver, ssync_sender
@@ -90,7 +90,7 @@ class SlowBytesIO(io.BytesIO):
         while True:
             if self.num_bytes_read == self.sleep_index:
                 self.sleep_index = -1
-                eventlet.sleep(self.sleep_time)
+                sleep(self.sleep_time)
             next_byte = io.BytesIO.read(self, 1)
             data = data + next_byte
             self.bytes_read[-1] = data
@@ -430,7 +430,7 @@ class TestReceiver(unittest.TestCase):
     def test_SSYNC_replication_lock_fail(self):
         def _mock(path, policy, partition):
             with exceptions.ReplicationLockTimeout(0.01, '/somewhere/' + path):
-                eventlet.sleep(0.05)
+                sleep(0.05)
         with mock.patch.object(
                 self.controller._diskfile_router[POLICIES.legacy],
                 'replication_lock', _mock):
@@ -694,7 +694,7 @@ class TestReceiver(unittest.TestCase):
             def readline(self, sizehint=-1):
                 line = io.BytesIO.readline(self)
                 if line.startswith(b'hash'):
-                    eventlet.sleep(0.1)
+                    sleep(0.1)
                 return line
 
             def get_socket(self):
@@ -1424,7 +1424,7 @@ class TestReceiver(unittest.TestCase):
             def readline(self, sizehint=-1):
                 line = io.BytesIO.readline(self)
                 if line.startswith(b'DELETE'):
-                    eventlet.sleep(0.1)
+                    sleep(0.1)
                 return line
 
             def get_socket(self):

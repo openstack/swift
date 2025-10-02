@@ -1354,7 +1354,8 @@ class TestObjectExpirer(BaseUnitTestCase):
         stub_pop_queue = stub_pop_queue or memory_efficient_noop
         memory_efficient_time = lambda: now
         with mock.patch.object(self.expirer, 'pop_queue', stub_pop_queue), \
-                mock.patch('eventlet.sleep', memory_efficient_noop), \
+                mock.patch('swift.common.utils.sleep',
+                           memory_efficient_noop), \
                 mock.patch('swift.common.utils.timestamp.time.time',
                            memory_efficient_time), \
                 mock.patch('swift.obj.expirer.time', memory_efficient_time):

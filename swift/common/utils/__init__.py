@@ -2083,7 +2083,7 @@ class EventletRateLimiter(AbstractRateLimiter):
             burst_after_idle=burst_after_idle)
 
     def _sleep(self, seconds):
-        eventlet.sleep(seconds)
+        sleep(seconds)
 
 
 def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):

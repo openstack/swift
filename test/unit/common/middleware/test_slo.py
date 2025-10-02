@@ -2742,7 +2742,7 @@ class TestSloGetManifests(SloGETorHEADTestCase):
             the_time[0] += duration
 
         with patch('time.time', mock_time), \
-                patch('eventlet.sleep', mock_sleep), \
+                patch('swift.common.utils.sleep', mock_sleep), \
                 patch.object(self.slo, 'rate_limit_under_size', 999999999), \
                 patch.object(self.slo, 'rate_limit_after_segment', 0):
             status, headers, body = self.call_slo(req)
@@ -2754,7 +2754,7 @@ class TestSloGetManifests(SloGETorHEADTestCase):
         # sleep less
         del sleeps[:]
         with patch('time.time', mock_time), \
-                patch('eventlet.sleep', mock_sleep), \
+                patch('swift.common.utils.sleep', mock_sleep), \
                 patch.object(self.slo, 'rate_limit_under_size', 999999999), \
                 patch.object(self.slo, 'rate_limit_after_segment', 4):
             status, headers, body = self.call_slo(req)
@@ -2765,7 +2765,7 @@ class TestSloGetManifests(SloGETorHEADTestCase):
         # ratelimit segments under 35 bytes; this affects a-f
         del sleeps[:]
         with patch('time.time', mock_time), \
-                patch('eventlet.sleep', mock_sleep), \
+                patch('swift.common.utils.sleep', mock_sleep), \
                 patch.object(self.slo, 'rate_limit_under_size', 35), \
                 patch.object(self.slo, 'rate_limit_after_segment', 0):
             status, headers, body = self.call_slo(req)
@@ -2777,7 +2777,7 @@ class TestSloGetManifests(SloGETorHEADTestCase):
         # us one more sleep than before
         del sleeps[:]
         with patch('time.time', mock_time), \
-                patch('eventlet.sleep', mock_sleep), \
+                patch('swift.common.utils.sleep', mock_sleep), \
                 patch.object(self.slo, 'rate_limit_under_size', 36), \
                 patch.object(self.slo, 'rate_limit_after_segment', 0):
             status, headers, body = self.call_slo(req)

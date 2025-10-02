@@ -17,7 +17,7 @@
 from unittest import mock
 import unittest
 import urllib.parse
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import eventlet, sleep
 
 from swift.common import swob
 from swift.common.middleware import copy
@@ -1478,7 +1478,7 @@ class TestServerSideCopyHeartbeat(unittest.TestCase):
 
         def mock_spawn(func, *args, **kwargs):
             def delayed_func(*a, **kw):
-                eventlet.sleep(2.5)
+                sleep(2.5)
                 return func(*a, **kw)
             return original_spawn(delayed_func, *args, **kwargs)
         req = swob.Request.blank(
@@ -1527,7 +1527,7 @@ class TestServerSideCopyHeartbeat(unittest.TestCase):
         def mock_spawn(func, *args, **kwargs):
 
             def delayed_func(*a, **kw):
-                eventlet.sleep(2.5)
+                sleep(2.5)
                 return func(*a, **kw)
             return original_spawn(delayed_func, *args, **kwargs)
 
