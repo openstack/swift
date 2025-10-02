@@ -17,7 +17,82 @@ import socket
 import time
 import unittest
 
-from swift.common.concurrency import USE_EVENTLET, Timeout, spawn
+import threading
+from swift.common.concurrency import Pool, USE_EVENTLET, Timeout, spawn
+
+
+@unittest.skipIf(USE_EVENTLET, "Only tested when eventlet is disabled")
+class TestPool(unittest.TestCase):
+
+    def _make_pool(self, max_size=2):
+        class TestPool(Pool):
+            created = 0
+
+            def create(self):
+                TestPool.created += 1
+                return TestPool.created
+
+        return TestPool(max_size=max_size)
+
+    def test_get_returns_new_item(self):
+        # get() on an empty pool creates a fresh item
+        pool = self._make_pool(max_size=2)
+        self.assertEqual(pool.get(), 1)
+
+    def test_get_returns_cached_item(self):
+        # a put() item is handed back by the next get(), with no new create
+        pool = self._make_pool(max_size=2)
+        pool.put('cached')
+        self.assertEqual(pool.get(), 'cached')
+
+    def test_concurrent_get_put(self):
+        pool = self._make_pool(max_size=2)
+        results = []
+        errors = []
+
+        def worker():
+            try:
+                item = pool.get()
+                results.append(item)
+                pool.put(item)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        self.assertFalse(errors)
+        self.assertEqual(len(results), 4, results)
+
+    def test_get_timeout_on_exhausted_pool(self):
+        pool = self._make_pool(max_size=1)
+        item = pool.get()  # exhaust pool
+        with self.assertRaises(Timeout):
+            pool.get(timeout=0.01)
+        pool.put(item)
+        self.assertEqual(pool.get(timeout=0.01), item)
+
+    def test_put_notifies_waiting_get(self):
+        pool = self._make_pool(max_size=1)
+        first = pool.get()  # exhaust pool
+        result = []
+        e = threading.Event()
+
+        def getter():
+            e.set()
+            result.append(pool.get())
+
+        t = threading.Thread(target=getter)
+        t.start()
+        e.wait()
+        self.assertTrue(t.is_alive())
+        self.assertEqual(result, [])
+        pool.put(first)  # return item, unblock getter
+        t.join(timeout=5)
+        self.assertEqual(result, [first])
 
 
 @unittest.skipIf(USE_EVENTLET, "threading Timeout only")
@@ -123,3 +198,52 @@ class TestSpawn(unittest.TestCase):
         with self.assertRaises(Exception) as ctx:
             result.wait()
         self.assertEqual(str(ctx.exception), 'reason')
+
+
+@unittest.skipIf(USE_EVENTLET, "threading Pool only")
+class TestPoolCreateFailure(unittest.TestCase):
+    def test_create_failure_wakes_capacity_waiter(self):
+        first_in_create = threading.Event()
+        release_first = threading.Event()
+
+        class P(Pool):
+            attempts = 0
+
+            def create(self):
+                P.attempts += 1
+                if P.attempts == 1:
+                    # First caller reserves the only slot, then fails once B
+                    # is waiting for capacity.
+                    first_in_create.set()
+                    release_first.wait(5)
+                    raise RuntimeError('boom')
+                return 'conn'
+
+        pool = P(max_size=1)
+        a_err = []
+
+        def worker_a():
+            try:
+                pool.get()
+            except RuntimeError as e:
+                a_err.append(e)
+
+        ta = threading.Thread(target=worker_a)
+        ta.start()
+        self.assertTrue(first_in_create.wait(5))
+
+        b_res = []
+
+        def worker_b():
+            b_res.append(pool.get(timeout=5))
+
+        tb = threading.Thread(target=worker_b)
+        tb.start()
+        time.sleep(0.1)  # let B reach the capacity wait
+        release_first.set()  # A fails: frees the slot and must notify B
+
+        ta.join(5)
+        tb.join(5)
+        self.assertEqual(len(a_err), 1)
+        # B must create once the slot frees, not hang until its timeout
+        self.assertEqual(b_res, ['conn'])

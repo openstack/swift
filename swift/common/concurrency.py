@@ -19,10 +19,12 @@ All modules that need eventlet functionality should import from here
 rather than importing directly from eventlet.
 """
 
+import collections
 import importlib.util
 import os
 import threading
 import time
+from contextlib import contextmanager
 from socket import timeout as socket_timeout
 
 
@@ -67,7 +69,6 @@ from eventlet.green.http.client import CONTINUE, HTTPConnection, \
 from eventlet.green.urllib import request as urllib_request
 from eventlet.greenthread import getcurrent
 from eventlet.hubs import trampoline  # noqa: F401
-from eventlet.pools import Pool  # noqa: F401
 from eventlet.queue import Empty, LightQueue, Queue  # noqa: F401
 from eventlet.semaphore import Semaphore
 from eventlet.support.greenlets import GreenletExit  # noqa: F401
@@ -79,6 +80,7 @@ shutdown_safe = eventlet.greenio.shutdown_safe
 ChunkReadError = eventlet.wsgi.ChunkReadError
 
 if USE_EVENTLET:
+    from eventlet.pools import Pool
     from eventlet import sleep
 
     from eventlet import Timeout as _Timeout
@@ -239,6 +241,89 @@ else:
     # eventlet spawn_n is spawn without a return value; reuse spawn here.
     spawn_n = spawn
 
+    class Pool(object):
+        """
+        Thread-safe connection pool replacement for eventlet.pools.Pool.
+
+        This code is very similar to eventlet/eventlet/pools.py, but uses
+        threading.Condition to maintain thread-safety.
+        """
+        def __init__(self, min_size=0, max_size=4, create=None):
+            self.min_size = min_size
+            self.max_size = max_size
+            self.current_size = 0
+            self.free_items = collections.deque()
+            self.available = threading.Condition()
+
+            if create is not None:
+                self.create = create
+
+            for x in range(min_size):
+                self.current_size += 1
+                self.free_items.append(self.create())
+
+        def get(self, timeout=None):
+            deadline = None
+            if timeout is not None:
+                deadline = time.monotonic() + timeout
+            with self.available:
+                while True:
+                    if self.free_items:
+                        return self.free_items.popleft()
+                    if self.current_size < self.max_size:
+                        # Reserve a slot and create below, outside the lock.
+                        self.current_size += 1
+                        break
+                    # At capacity; wait for an item to be returned or for a
+                    # reserved slot to be freed (e.g. a failed create()).
+                    remaining = None
+                    if deadline is not None:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise Timeout(timeout)
+                    self.available.wait(remaining)
+
+            # We hold a reserved slot. create() may block (e.g. opening a
+            # socket); run it without the lock so up to max_size create
+            # concurrently (like eventlet.pools.Pool).
+            try:
+                return self.create()
+            except BaseException:
+                with self.available:
+                    self.current_size -= 1
+                    # The slot we reserved is free again; wake a waiter so it
+                    # can create in our place instead of blocking until its
+                    # pool_timeout even though capacity is now available.
+                    self.available.notify()
+                raise
+
+        def put(self, item):
+            with self.available:
+                if self.current_size > self.max_size:
+                    # max_size never changes, so get() cannot hand out more
+                    # than it: this item did not come from this pool.
+                    self.current_size -= 1
+                    raise RuntimeError(
+                        'put() called on a pool that is over capacity '
+                        '(%d > %d)' % (self.current_size + 1, self.max_size))
+
+                self.free_items.append(item)
+
+                # Notify self.available.wait() in get() to re-acquire lock
+                self.available.notify()
+
+        def create(self):
+            raise NotImplementedError()
+
+        # dispersion_populate and dispersion_report require this
+        @contextmanager
+        def item(self):
+            item = self.get()
+            try:
+                yield item
+            finally:
+                self.put(item)
+
 
 def clear_connect_timeout(sock):
     # Once a backend connection is established (the connect was bounded by the
@@ -286,6 +371,7 @@ __all__ = [
     '_UNKNOWN',
     'urllib_request',
     'getcurrent',
+    'Pool',
     'Empty',
     'LightQueue',
     'Semaphore',
