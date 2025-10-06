@@ -50,7 +50,8 @@ from io import BytesIO
 from urllib.parse import quote, parse_qsl
 
 from test import listen_zero
-from test.debug_logger import debug_logger, FakeStatsdClient
+from test.debug_logger import debug_logger, FakeStatsdClient, \
+    debug_labeled_statsd_client
 from test.unit import (
     connect_tcp, readuntil2crlfs, fake_http_connect, FakeRing,
     FakeMemcache, patch_policies, write_fake_ring, mocked_http_conn,
@@ -2568,9 +2569,17 @@ class TestReplicatedObjectController(
         skip_if_no_xattrs()
         _test_servers[0].error_limiter.stats.clear()  # clear out errors
         self.logger = debug_logger('proxy-ut')
+        conf = {
+            'log_statsd_host': 'host',
+            'log_statsd_port': 8125,
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_legacy': True,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
         self.app = proxy_server.Application(
-            None,
+            conf,
             logger=self.logger,
+            statsd=self.statsd,
             account_ring=FakeRing(),
             container_ring=FakeRing())
         self.policy = POLICIES[0]
@@ -4380,9 +4389,11 @@ class TestReplicatedObjectController(
         self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
         self.app.recheck_updating_shard_ranges = 3600
+        self.app.namespace_cache_tokens_per_session = 0
 
         def do_test(method, sharding_state):
             self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
             req = Request.blank(
                 '/v1/a/c/o', {'swift.cache': FakeMemcache()},
                 method=method, body='', headers={'Content-Type': 'text/plain'})
@@ -4411,13 +4422,26 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.miss.200': 1,
-                              'account.info.infocache.hit': 2,
-                              'container.info.cache.miss.200': 1,
-                              'container.info.infocache.hit': 1,
-                              'object.shard_updating.cache.miss.200': 1,
-                              'object.shard_updating.cache.set': 1},
-                             stats)
+            self.assertEqual(stats, {
+                'account.info.cache.miss.200': 1,
+                'account.info.infocache.hit': 2,
+                'container.info.cache.miss.200': 1,
+                'container.info.infocache.hit': 1,
+                'object.shard_updating.cache.miss.200': 1,
+                'object.shard_updating.cache.set': 1
+            })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
             info_lines = self.logger.get_lines_for_level('info')
             self.assertIn(
@@ -4603,10 +4627,13 @@ class TestReplicatedObjectController(
                 utils.ShardRange(
                     '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
             ]
+            cache = FakeMemcache()
             infocache = {
                 'shard-updating-v2/a/c':
                 NamespaceBoundList.parse(shard_ranges)}
-            req = Request.blank('/v1/a/c/o', {'swift.infocache': infocache},
+            req = Request.blank('/v1/a/c/o',
+                                {'swift.cache': cache,
+                                 'swift.infocache': infocache},
                                 method=method, body='',
                                 headers={'Content-Type': 'text/plain'})
 
@@ -4625,9 +4652,9 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
 
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.disabled.200': 1,
+            self.assertEqual({'account.info.cache.miss.200': 1,
                               'account.info.infocache.hit': 1,
-                              'container.info.cache.disabled.200': 1,
+                              'container.info.cache.miss.200': 1,
                               'container.info.infocache.hit': 1,
                               'object.shard_updating.infocache.hit': 1}, stats)
             # verify statsd prefix is not mutated
@@ -4692,9 +4719,11 @@ class TestReplicatedObjectController(
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
         self.app.recheck_updating_shard_ranges = 3600
         self.app.container_updating_shard_ranges_skip_cache = 0.001
+        self.app.namespace_cache_tokens_per_session = 0
 
         def do_test(method, sharding_state):
             self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
             cached_shard_ranges = [
                 utils.ShardRange(
                     '.shards_a/c_nope', utils.Timestamp.now(), '', 'l'),
@@ -4773,16 +4802,29 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
 
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.miss.200': 1,
-                              'account.info.infocache.hit': 1,
-                              'container.info.cache.miss.200': 1,
-                              'container.info.infocache.hit': 2,
-                              'object.shard_updating.cache.hit': 1,
-                              'container.info.cache.hit': 1,
-                              'account.info.cache.hit': 1,
-                              'object.shard_updating.cache.skip.200': 1,
-                              'object.shard_updating.cache.set': 1},
-                             stats)
+            self.assertEqual(stats, {
+                'account.info.cache.miss.200': 1,
+                'account.info.infocache.hit': 1,
+                'container.info.cache.miss.200': 1,
+                'container.info.infocache.hit': 2,
+                'object.shard_updating.cache.hit': 1,
+                'container.info.cache.hit': 1,
+                'account.info.cache.hit': 1,
+                'object.shard_updating.cache.skip.200': 1,
+                'object.shard_updating.cache.set': 1
+            })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
 
@@ -4854,6 +4896,18 @@ class TestReplicatedObjectController(
                 'object.shard_updating.cache.error.200': 1,
                 'object.shard_updating.cache.set': 2
             })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 2,
+            }, stats)
 
         do_test('POST', 'sharding')
         do_test('POST', 'sharded')
@@ -4874,9 +4928,11 @@ class TestReplicatedObjectController(
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
         self.app.recheck_updating_shard_ranges = 3600
         self.app.container_updating_shard_ranges_skip_cache = 0.001
+        self.app.namespace_cache_tokens_per_session = 0
 
         def do_test(method, sharding_state):
             self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
             # simulate memcache error when setting updating namespaces;
             # expect 4 memcache sets: account info, container info, container
             # info again from namespaces GET subrequest, namespaces
@@ -4908,13 +4964,26 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
 
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.miss.200': 1,
-                              'account.info.infocache.hit': 2,
-                              'container.info.cache.miss.200': 1,
-                              'container.info.infocache.hit': 1,
-                              'object.shard_updating.cache.skip.200': 1,
-                              'object.shard_updating.cache.set_error': 1},
-                             stats)
+            self.assertEqual(stats, {
+                'account.info.cache.miss.200': 1,
+                'account.info.infocache.hit': 2,
+                'container.info.cache.miss.200': 1,
+                'container.info.infocache.hit': 1,
+                'object.shard_updating.cache.skip.200': 1,
+                'object.shard_updating.cache.set_error': 1
+            })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set_error'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
             # sanity check: namespaces not in cache

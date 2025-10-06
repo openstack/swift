@@ -948,6 +948,26 @@ def _add_prompt_args(parser):
              'Cannot be used with --yes option.')
 
 
+def _add_skip_or_force_commits_arg(parser):
+    """
+    We merge in the pending file by default, this is always correct and
+    useful for probe tests where shard containers have unrealistically low
+    numbers of objects, of which a significant proportion may still be in the
+    pending file.  If you have 10GB databases with 100M objects you can use
+    --skip-commits and the selected shard ranges probably won't be that
+    different. The --force-commits option is redundant and may be deprecated.
+    """
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        '--skip-commits', action='store_true', dest='skip_commits',
+        default=False,
+        help='Skip commits for pending object updates. By default the broker'
+             ' will commit pending object updates.')
+    group.add_argument(
+        '--force-commits', action='store_false', dest='skip_commits',
+        default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+
 def _add_max_expanding_arg(parser):
     parser.add_argument(
         '--max-expanding', nargs='?',
@@ -974,13 +994,8 @@ def _make_parser():
                              'expansion_limit')
     parser.add_argument('--verbose', '-v', action='count', default=0,
                         help='Increase output verbosity')
-    # this is useful for probe tests that shard containers with unrealistically
-    # low numbers of objects, of which a significant proportion may still be in
-    # the pending file
-    parser.add_argument(
-        '--force-commits', action='store_true', default=False,
-        help='Force broker to commit pending object updates before finding '
-             'shard ranges. By default the broker will skip commits.')
+    _add_skip_or_force_commits_arg(parser)
+
     subparsers = parser.add_subparsers(
         dest='subcommand', help='Sub-command help', title='Sub-commands')
 
@@ -1185,7 +1200,7 @@ def main(cli_args=None):
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
     broker = ContainerBroker(os.path.realpath(args.path_to_file),
                              logger=logger,
-                             skip_commits=not args.force_commits)
+                             skip_commits=args.skip_commits)
     try:
         broker.get_info()
     except Exception as exc:

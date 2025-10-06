@@ -1,7 +1,9 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
 bind_port = 8080
+# Connection idle timeout (in seconds)
 # keep_idle = 600
+# Socket bind timeout (in seconds)
 # bind_timeout = 30
 # backlog = 4096
 # swift_dir = /etc/swift
@@ -180,11 +182,15 @@ use = egg:swift#proxy
 # require_proxy_protocol = false
 #
 # log_handoffs = true
+# How long (in seconds) to cache account existence information. Account
+# non-existence will be cached one-tenth as long.
 # recheck_account_existence = 60
+# How long (in seconds) to cache container existence information. Container
+# non-existence will be cached one-tenth as long.
 # recheck_container_existence = 60
 #
-# How long the proxy should cache a set of shard ranges for a container when
-# the set is to be used for directing object updates.
+# How long (in seconds) the proxy should cache a set of shard ranges for
+# a container when the set is to be used for directing object updates.
 # Note that stale shard range info should be fine; updates will still
 # eventually make their way to the correct shard. As a result, you can
 # usually set this much higher than the existence checks above.
@@ -207,16 +213,30 @@ use = egg:swift#proxy
 # container_listing_shard_ranges_skip_cache_pct = 0.0
 # account_existence_skip_cache_pct = 0.0
 #
+# Use cooperative token on updating namespace cache to coalesce the requests
+# which fetch updating namespaces from the backend and set them in memcached.
+# Number of cooperative tokens per each token session, 0 means to disable the
+# usage of cooperative token and directly talk to the backend and memcache.
+# namespace_cache_tokens_per_session = 3
+#
+# The average time spent (in seconds) on getting updating namespaces from the
+# container servers, this will be used as basic unit for cooperative token to
+# figure out intervals for the retries when requests didn't acquire a token and
+# are waiting for other requests to fill in the cache; and a cooperative token
+# session (`token_ttl`) will be 10 times of this value.
+# namespace_avg_backend_fetch_time = 0.3
+#
 # object_chunk_size = 65536
 # client_chunk_size = 65536
 #
-# How long the proxy server will wait on responses from the a/c/o servers.
+# How long (in seconds) the proxy server will wait on responses from the a/c/o
+# servers.
 # node_timeout = 10
 #
-# How long the proxy server will wait for an initial response and to read a
-# chunk of data from the object servers while serving GET / HEAD requests.
-# Timeouts from these requests can be recovered from so setting this to
-# something lower than node_timeout would provide quicker error recovery
+# How long (in seconds) the proxy server will wait for an initial response and
+# to read a chunk of data from the object servers while serving GET / HEAD
+# requests.  Timeouts from these requests can be recovered from so setting this
+# to something lower than node_timeout would provide quicker error recovery
 # while allowing for a longer timeout for non-recoverable requests (PUTs).
 # Does not apply to requests with a truthy X-Newest header value.
 # Defaults to node_timeout, should be overridden if node_timeout is set to a
@@ -224,13 +244,16 @@ use = egg:swift#proxy
 # has a chance to retry.
 # recoverable_node_timeout = node_timeout
 #
+# Connection timeout (in seconds)
 # conn_timeout = 0.5
 #
-# How long to wait for requests to finish after a quorum has been established.
+# How long (in seconds) to wait for requests to finish after a quorum has been
+# established.
 # post_quorum_timeout = 0.5
 #
-# How long without an error before a node's error count is reset. This will
-# also be how long before a node is reenabled after suppression is triggered.
+# How long (in seconds) without an error before a node's error count is reset.
+# This will also be how long before a node is reenabled after suppression is
+# triggered.
 # Set to 0 to disable error-limiting.
 # error_suppression_interval = 60.0
 #
@@ -288,11 +311,11 @@ use = egg:swift#proxy
 # contexts this will be the first backend replica to respond.
 # concurrent_gets = off
 #
-# This parameter controls how long to wait before firing off the next
-# concurrent_get thread. A value of 0 would be fully concurrent, any other
-# number will stagger the firing of the threads. This number should be
-# between 0 and node_timeout. The default is what ever you set for the
-# conn_timeout parameter.
+# This parameter controls how long (in seconds) to wait before firing off the
+# next concurrent_get thread. A value of 0 would be fully concurrent, any other
+# number will stagger the firing of the threads. This number should be between
+# 0 and node_timeout. The default is what ever you set for the conn_timeout
+# parameter.
 # concurrency_timeout = 0.5
 #
 # By default on a EC GET request swift will connect to a minimum number of
@@ -446,6 +469,7 @@ use = egg:swift#tempauth
 # The auth prefix will cause requests beginning with this prefix to be routed
 # to the auth subsystem, for granting tokens, etc.
 # auth_prefix = /auth/
+# Token lifetime (in seconds)
 # token_life = 86400
 #
 # This allows middleware higher in the WSGI pipeline to override auth
@@ -758,7 +782,7 @@ delay_auth_decision = False
 # configured: in particular, the Keystone API version must be included.
 auth_uri = http://keystonehost:5000/v3
 
-# Connect/read timeout to use when communicating with Keystone
+# Connect/read timeout (in seconds) to use when communicating with Keystone
 http_timeout = 10.0
 
 # Number of seconds to cache the S3 secret. By setting this to a positive
@@ -822,9 +846,9 @@ use = egg:swift#memcache
 # Sets the maximum number of connections to each memcached server per worker
 # memcache_max_connections = 2
 #
-# How long without an error before a server's error count is reset. This will
-# also be how long before a server is reenabled after suppression is triggered.
-# Set to 0 to disable error-limiting.
+# How long (in seconds) without an error before a server's error count is
+# reset. This will also be how long before a server is reenabled after
+# suppression is triggered.  Set to 0 to disable error-limiting.
 # error_suppression_interval = 60.0
 #
 # How many errors can accumulate before a server is temporarily ignored.
@@ -1253,7 +1277,7 @@ use = egg:swift#xprofile
 # log_filename_prefix = /tmp/log/swift/profile/default.profile
 #
 # the profile data will be dumped to local disk based on above naming rule
-# in this interval.
+# in this interval (in seconds).
 # dump_interval = 5.0
 #
 # Be careful, this option will enable profiler to dump data into the file with

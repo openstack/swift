@@ -2066,6 +2066,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(S3InputChecksumMismatch):
             sigv4_req.environ['wsgi.input'].read()
 
+    @requires_crc32c
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_unsupported(self):
         body = 'a\r\nabcdefghij\r\n' \
@@ -2892,9 +2893,19 @@ class TestModuleFunctions(unittest.TestCase):
             self.assertEqual(crc, hasher.name)
 
         do_test('crc32')
-        do_test('crc32c')
         do_test('sha1')
         do_test('sha256')
+
+        try:
+            checksum._select_crc32c_impl()
+        except NotImplementedError:
+            # This *should* always have a kernel implementation available as
+            # a fallback, but debian packaging (at least) has bumped into
+            # issues with even *that* not being available before
+            pass
+        else:
+            do_test('crc32c')
+
         try:
             checksum._select_crc64nvme_impl()
         except NotImplementedError:

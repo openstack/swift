@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """ Tests for swift.account.backend """
-
 from collections import defaultdict
 import json
 import pickle
@@ -1215,6 +1214,25 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
             except BaseException as err:
                 exc = err
         self.assertIn('no such column: metadata', str(exc))
+
+    def test_path_lazy_populates_from_db(self):
+        b = AccountBroker(self.get_db_path(), account=None)
+        self.assertIsNone(getattr(b, 'account', None))
+        called = {'n': 0}
+
+        def stub_populate(self, conn=None):
+            called['n'] += 1
+            self.account = 'a'
+
+        with mock.patch.object(AccountBroker, '_populate_instance_cache',
+                               stub_populate):
+            self.assertEqual('a', b.path)
+            self.assertEqual('a', b.account)
+            self.assertEqual(1, called['n'])
+
+    def test_path_best_effort_when_partial_attrs(self):
+        b = AccountBroker(self.get_db_path(), account='a')
+        self.assertEqual('a', b.path)
 
     def tearDown(self):
         AccountBroker.create_account_stat_table = \

@@ -182,7 +182,7 @@ class ContainerController(Controller):
 
         :param req: the request object.
         :param namespaces:  a list of :class:`~swift.common.utils.Namespace`
-            objects.
+            objects; must be not None or empty.
         :return: a list of :class:`~swift.common.utils.Namespace` objects.
         """
         cache_key = get_cache_key(self.account_name, self.container_name,

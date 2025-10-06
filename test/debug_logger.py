@@ -76,6 +76,7 @@ class BaseFakeStatsdClient:
         self.calls = defaultdict(list)
         self.recording_socket = RecordingSocket()
         self.counters = defaultdict(int)
+        self.labeled_stats_counters = defaultdict(int)
 
     @property
     def sendto_calls(self):
@@ -94,7 +95,14 @@ class BaseFakeStatsdClient:
         Hook into base class primitive to track all "counter" metrics
         """
         self.counters[metric] += value
+        labels = kwargs.get('labels', None)
+        if labels is not None:
+            hashable_labels = frozenset(labels.items())
+            self.labeled_stats_counters[(metric, hashable_labels)] += value
         return super()._update_stats(metric, value, *args, **kwargs)
+
+    def get_labeled_stats_counts(self):
+        return self.labeled_stats_counters
 
     # getter for backwards compat
     def get_stats_counts(self):
