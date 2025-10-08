@@ -56,7 +56,7 @@ import eventlet.queue
 import eventlet.semaphore
 import eventlet.wsgi
 from eventlet import GreenPile, GreenPool  # noqa: F401
-from eventlet import greenio, greenpool, hubs, patcher, queue, tpool, wsgi
+from eventlet import greenio, greenpool, hubs, patcher, queue, wsgi
 from eventlet import debug, listen, timeout, websocket
 from eventlet import greenthread
 from eventlet.event import Event
@@ -80,6 +80,7 @@ shutdown_safe = eventlet.greenio.shutdown_safe
 ChunkReadError = eventlet.wsgi.ChunkReadError
 
 if USE_EVENTLET:
+    from eventlet import tpool
     from eventlet.pools import Pool
     from eventlet import sleep
 
@@ -235,6 +236,32 @@ else:
             if self._kill_hook is not None:
                 self._kill_hook()
 
+    class Executor:
+        """Drop-in replacement for eventlet.tpool running in the current
+        thread.
+
+        All calls to execute will run in the current thread and not in a
+        separate thread pool. Eventlet uses a threadpool to be able to yield
+        to other coros and not block the current one, but without eventlet
+        this is not needed - it is already running in a thread.
+
+        Note this has no concurrency limit, where eventlet.tpool bounds
+        concurrent calls to its threadpool size. Swift does not rely on that
+        bound - the work it hands to tpool is per-request disk I/O, already
+        capped by the worker's thread count - but out-of-tree code that used
+        tpool to cap expensive work (auth middleware limiting concurrent
+        password hashing, say) must not swap to this: the cap is gone, and a
+        long call blocks the worker thread it runs on. Bound such work with
+        its own pool, or with the server's ``threads`` setting.
+        """
+        # No-op to be compatible with eventlet call
+        def set_num_threads(self, *args, **kwargs):
+            pass
+
+        @staticmethod
+        def execute(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
     def spawn(func, *args, **kwargs):
         return ThreadResult(func, args, kwargs)
 
@@ -323,6 +350,8 @@ else:
                 yield item
             finally:
                 self.put(item)
+    # No need for a threadpool when already running in threads.
+    tpool = Executor()
 
 
 def clear_connect_timeout(sock):

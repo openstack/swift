@@ -34,7 +34,7 @@ from textwrap import dedent
 
 from swift.common.concurrency import (
     sleep, spawn, wsgi, Timeout, tpool,
-    green_http_client as http_client
+    green_http_client as http_client, USE_EVENTLET
 )
 
 from swift import __version__ as swift_version
@@ -105,6 +105,7 @@ def fake_spawn():
                 gt.wait()
 
 
+@unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
 class TestTpoolSize(unittest.TestCase):
     def test_default_config(self):
         with mock.patch('eventlet.tpool.set_num_threads') as mock_snt:

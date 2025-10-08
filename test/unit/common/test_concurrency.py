@@ -18,7 +18,7 @@ import time
 import unittest
 
 import threading
-from swift.common.concurrency import Pool, USE_EVENTLET, Timeout, spawn
+from swift.common.concurrency import Pool, USE_EVENTLET, Timeout, spawn, tpool
 
 
 @unittest.skipIf(USE_EVENTLET, "Only tested when eventlet is disabled")
@@ -93,6 +93,35 @@ class TestPool(unittest.TestCase):
         pool.put(first)  # return item, unblock getter
         t.join(timeout=5)
         self.assertEqual(result, [first])
+
+
+class TestTpool(unittest.TestCase):
+    def test_with_args(self):
+        f = lambda x, y: x * y
+        result = tpool.execute(f, 6, 7)
+        self.assertEqual(result, 42)
+
+    def test_with_kwargs(self):
+        def dummy(a, b=1):
+            return (a, b)
+
+        result = tpool.execute(dummy, 0, b=2)
+        self.assertEqual(result, (0, 2))
+
+    def test_exception(self):
+        class DummyException(Exception):
+            pass
+
+        def fail():
+            raise DummyException('reason')
+
+        with self.assertRaises(DummyException):
+            tpool.execute(fail)
+
+    @unittest.skipIf(USE_EVENTLET, "tests the threading tpool shim")
+    def test_set_num_threads_is_a_no_op(self):
+        self.assertIsNone(tpool.set_num_threads(10))
+        self.assertIsNone(tpool.set_num_threads(num_threads=5))
 
 
 @unittest.skipIf(USE_EVENTLET, "threading Timeout only")
