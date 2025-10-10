@@ -7013,6 +7013,250 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
         test_db.TestDbBase.tearDown(self)
 
 
+class TestCurrentContainerBroker(test_db.TestDbBase):
+    def test_merge_items_hidden_row(self):
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(self.ts().internal, 0)
+        ts1 = self.ts()
+        broker.put_object('o1', ts1.internal, 123,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e',
+                          deleted=0)
+        ts2 = self.ts()
+        broker.put_object('o2', ts2.internal, 456,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e',
+                          deleted=2)
+        broker._commit_puts()
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            [{'ROWID': 1,
+              'name': 'o1',
+              'created_at': ts1.internal,
+              'size': 123,
+              'content_type': 'text/plain',
+              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+              'deleted': 0,
+              'storage_policy_index': 0,
+              'systags': None},
+             # "hidden" object row...
+             {'ROWID': 2,
+              'name': 'o2',
+              'created_at': ts2.internal,
+              'size': 456,
+              'content_type': 'text/plain',
+              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+              'deleted': 2,
+              'storage_policy_index': 0,
+              'systags': None}
+             ],
+            items)
+        info = broker.get_info()
+        self.assertEqual(123, info['bytes_used'])
+        self.assertEqual(1, info['object_count'])
+        self.assertEqual({0: {'object_count': 1, 'bytes_used': 123}},
+                         broker.get_policy_stats())
+
+        ts3 = self.ts()
+        broker.delete_object('o1', ts3.internal)
+        broker._commit_puts()
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            [{'ROWID': 2,
+              'name': 'o2',
+              'created_at': ts2.internal,
+              'size': 456,
+              'content_type': 'text/plain',
+              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+              'deleted': 2,
+              'storage_policy_index': 0,
+              'systags': None},
+             {'ROWID': 3,
+              'name': 'o1',
+              'created_at': ts3.internal,
+              'size': 0,
+              'content_type': 'application/deleted',
+              'etag': 'noetag',
+              'deleted': 1,
+              'storage_policy_index': 0,
+              'systags': None},
+             ],
+            items)
+        info = broker.get_info()
+        self.assertEqual(0, info['bytes_used'])
+        self.assertEqual(0, info['object_count'])
+
+        ts4 = self.ts()
+        broker.delete_object('o2', ts4.internal)
+        broker._commit_puts()
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            [{'ROWID': 3,
+              'name': 'o1',
+              'created_at': ts3.internal,
+              'size': 0,
+              'content_type': 'application/deleted',
+              'etag': 'noetag',
+              'deleted': 1,
+              'storage_policy_index': 0,
+              'systags': None},
+             {'ROWID': 4,
+              'name': 'o2',
+              'created_at': ts4.internal,
+              'size': 0,
+              'content_type': 'application/deleted',
+              'etag': 'noetag',
+              'deleted': 1,
+              'storage_policy_index': 0,
+              'systags': None},
+             ], items)
+        info = broker.get_info()
+        self.assertEqual(0, info['bytes_used'])
+        self.assertEqual(0, info['object_count'])
+
+    def test_merge_items_hidden_row_non_existent_policy(self):
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(self.ts().internal, 0)
+        # putting object in wrong policy causes the sql trigger to insert into
+        # policy_stat rather than update
+        ts1 = self.ts()
+        broker.put_object('o1', ts1.internal, 456,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e',
+                          storage_policy_index=1, deleted=2)
+        broker._commit_puts()
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            [{'ROWID': 1,
+              'name': 'o1',
+              'created_at': ts1.internal,
+              'size': 456,
+              'content_type': 'text/plain',
+              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+              'deleted': 2,
+              'storage_policy_index': 1,
+              'systags': None},
+             ],
+            items)
+        info = broker.get_info()
+        self.assertEqual(0, info['bytes_used'])
+        self.assertEqual(0, info['object_count'])
+        self.assertEqual({0: {'object_count': 0, 'bytes_used': 0},
+                          1: {'object_count': 0, 'bytes_used': 0}},
+                         broker.get_policy_stats())
+
+    def test_list_object_iter_hidden_row(self):
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(self.ts().internal, 0)
+        # putting object in wrong policy causes the sql trigger to insert into
+        # policy_stat rather than update
+        ts1 = self.ts()
+        broker.put_object('o1', ts1.internal, 123, 'text/plain', 'my-etag',
+                          storage_policy_index=0, deleted=0)
+        ts2 = self.ts()
+        broker.put_object('o2', ts2.internal, 456, 'text/plain', 'my-etag',
+                          storage_policy_index=0, deleted=2)
+        ts3 = self.ts()
+        broker.put_object('o3', ts3.internal, 0, 'application/deleted',
+                          'noetag', storage_policy_index=0, deleted=1)
+        broker._commit_puts()
+
+        # undeleted
+        expected = [('o1', ts1.internal, 123, 'text/plain', 'my-etag')]
+        actual = list(broker.list_objects_iter(10, None, None, None, None))
+        self.assertEqual(expected, actual)
+        actual = list(broker.list_objects_iter(
+            10, None, None, None, None, include_states={0}))
+        self.assertEqual(expected, actual)
+
+        # deleted
+        expected = [('o3', ts3.internal, 0, 'application/deleted', 'noetag')]
+        actual = list(broker.list_objects_iter(
+            10, None, None, None, None, include_deleted=True))
+        self.assertEqual(expected, actual)
+        actual = list(broker.list_objects_iter(10, None, None, None, None,
+                                               include_states={1}))
+        self.assertEqual(expected, actual)
+
+        # obsolete
+        expected = [('o2', ts2.internal, 456, 'text/plain', 'my-etag')]
+        actual = list(broker.list_objects_iter(
+            10, None, None, None, None, include_states={2}))
+        self.assertEqual(expected, actual)
+
+        # all states
+        expected = [('o1', ts1.internal, 123, 'text/plain', 'my-etag'),
+                    ('o2', ts2.internal, 456, 'text/plain', 'my-etag'),
+                    ('o3', ts3.internal, 0, 'application/deleted', 'noetag')]
+        actual = list(broker.list_objects_iter(
+            10, None, None, None, None, include_states={0, 1, 2}))
+        self.assertEqual(expected, actual)
+
+    def test_get_objects_hidden_row(self):
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(self.ts().internal, 0)
+        # putting object in wrong policy causes the sql trigger to insert into
+        # policy_stat rather than update
+        ts1 = self.ts()
+        broker.put_object('o1', ts1.internal, 123, 'text/plain', 'my-etag',
+                          storage_policy_index=0, deleted=0)
+        ts2 = self.ts()
+        broker.put_object('o2', ts2.internal, 456, 'text/plain', 'my-etag',
+                          storage_policy_index=0, deleted=2,
+                          systags='my-systag')
+        ts3 = self.ts()
+        broker.put_object('o3', ts3.internal, 0, 'application/deleted',
+                          'noetag', storage_policy_index=0, deleted=1)
+        broker._commit_puts()
+
+        # undeleted
+        expected = [
+            {'name': 'o1', 'created_at': ts1.internal, 'size': 123,
+             'content_type': 'text/plain', 'etag': 'my-etag',
+             'storage_policy_index': 0, 'deleted': 0, 'systags': None},
+        ]
+        actual = broker.get_objects(include_deleted=False)
+        self.assertEqual(expected, actual)
+        actual = broker.get_objects(include_states={0})
+        self.assertEqual(expected, actual)
+
+        # deleted
+        expected = [
+            {'name': 'o3', 'created_at': ts3.internal, 'size': 0,
+             'content_type': 'application/deleted', 'etag': 'noetag',
+             'storage_policy_index': 0, 'deleted': 1, 'systags': None},
+        ]
+        actual = broker.get_objects(include_deleted=True)
+        self.assertEqual(expected, actual)
+        actual = broker.get_objects(include_states={1})
+        self.assertEqual(expected, actual)
+
+        # obsolete
+        expected = [
+            {'name': 'o2', 'created_at': ts2.internal, 'size': 456,
+             'content_type': 'text/plain', 'etag': 'my-etag',
+             'storage_policy_index': 0, 'deleted': 2, 'systags': 'my-systag'},
+        ]
+        actual = broker.get_objects(include_states={2})
+        self.assertEqual(expected, actual)
+
+        # all states
+        expected = [
+            {'name': 'o1', 'created_at': ts1.internal, 'size': 123,
+             'content_type': 'text/plain', 'etag': 'my-etag',
+             'storage_policy_index': 0, 'deleted': 0, 'systags': None},
+            {'name': 'o2', 'created_at': ts2.internal, 'size': 456,
+             'content_type': 'text/plain', 'etag': 'my-etag',
+             'storage_policy_index': 0, 'deleted': 2, 'systags': 'my-systag'},
+            {'name': 'o3', 'created_at': ts3.internal, 'size': 0,
+             'content_type': 'application/deleted', 'etag': 'noetag',
+             'storage_policy_index': 0, 'deleted': 1, 'systags': None},
+        ]
+        actual = broker.get_objects(include_states={0, 1, 2})
+        self.assertEqual(expected, actual)
+
+
 class TestUpdateNewItemFromExisting(unittest.TestCase):
     # TODO: add test scenarios that have swift_bytes in content_type
     t0 = Timestamp(1234567890.00000)

@@ -81,18 +81,20 @@ POLICY_STAT_TABLE_CREATE = '''
     );
 '''
 
+# note: sqlite booleans are in fact integer 0 or 1, so in the following
+# statement (new.deleted == 0) is an int with value 0 or 1.
 POLICY_STAT_TRIGGER_SCRIPT = '''
     CREATE TRIGGER object_insert_policy_stat AFTER INSERT ON object
     BEGIN
         UPDATE policy_stat
-        SET object_count = object_count + (1 - new.deleted),
-            bytes_used = bytes_used + new.size
+        SET object_count = object_count + (new.deleted == 0),
+            bytes_used = bytes_used + new.size * (new.deleted == 0)
         WHERE storage_policy_index = new.storage_policy_index;
         INSERT INTO policy_stat (
             storage_policy_index, object_count, bytes_used)
         SELECT new.storage_policy_index,
-               (1 - new.deleted),
-               new.size
+               (new.deleted == 0),
+               new.size * (new.deleted == 0)
         WHERE NOT EXISTS(
             SELECT changes() as change
             FROM policy_stat
@@ -105,8 +107,8 @@ POLICY_STAT_TRIGGER_SCRIPT = '''
     CREATE TRIGGER object_delete_policy_stat AFTER DELETE ON object
     BEGIN
         UPDATE policy_stat
-        SET object_count = object_count - (1 - old.deleted),
-            bytes_used = bytes_used - old.size
+        SET object_count = object_count - (old.deleted == 0),
+            bytes_used = bytes_used - old.size * (old.deleted == 0)
         WHERE storage_policy_index = old.storage_policy_index;
         UPDATE container_info
         SET hash = chexor(hash, old.name, old.created_at);
@@ -1112,7 +1114,7 @@ class ContainerBroker(DatabaseBroker):
                           path=None, storage_policy_index=0, reverse=False,
                           include_deleted=False, since_row=None,
                           transform_func=None, all_policies=False,
-                          allow_reserved=False):
+                          allow_reserved=False, include_states=None):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1139,16 +1141,19 @@ class ContainerBroker(DatabaseBroker):
         :param all_policies: if True, include objects for all storage policies
             ignoring any value given for ``storage_policy_index``
         :param allow_reserved: exclude names with reserved-byte by default
-
+        :param include_states: a set of integer states to include in the
+            listing; overrides include_deleted.
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag, deleted, systags)
         """
         if include_deleted is True:
-            deleted_arg = ' = 1'
+            states = {1}
         elif include_deleted is False:
-            deleted_arg = ' = 0'
+            states = {0}
         else:
-            deleted_arg = ' in (0, 1)'
+            states = {0, 1}
+        states = include_states or states
+        deleted_arg = ' in (%s)' % ','.join(str(s) for s in states)
 
         if transform_func is None:
             transform_func = self._transform_record
@@ -1305,7 +1310,7 @@ class ContainerBroker(DatabaseBroker):
             return results
 
     def get_objects(self, limit=None, marker='', end_marker='',
-                    include_deleted=None, since_row=None):
+                    include_deleted=None, since_row=None, include_states=None):
         """
         Returns a list of objects, including deleted objects, in all policies.
         Each object in the list is described by a dict with keys {'name',
@@ -1330,7 +1335,8 @@ class ContainerBroker(DatabaseBroker):
             limit, marker, end_marker, prefix=None, delimiter=None, path=None,
             reverse=False, include_deleted=include_deleted,
             transform_func=self._record_to_dict, since_row=since_row,
-            all_policies=True, allow_reserved=True
+            all_policies=True, allow_reserved=True,
+            include_states=include_states
         )
 
     def _transform_record(self, record):
