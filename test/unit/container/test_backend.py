@@ -34,7 +34,7 @@ import itertools
 
 from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
-    update_new_item_from_existing, UNSHARDED, SHARDING, SHARDED, \
+    merge_item_with_existing, UNSHARDED, SHARDING, SHARDED, \
     COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES, sift_shard_ranges, \
     merge_shards
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
@@ -7238,14 +7238,19 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         new_item.update(new_item_times)
 
         # this is the expected result of the update
+        orig_new_item = dict(new_item)
         expected = dict(new_item)
         expected.update(expected_attrs)
         expected['data_timestamp'] = new_item['created_at']
 
         try:
-            self.assertIs(newer,
-                          update_new_item_from_existing(new_item, existing))
-            self.assertDictEqual(expected, new_item)
+            updated_item = merge_item_with_existing(new_item, existing)
+            if newer:
+                self.assertEqual(expected, updated_item)
+            else:
+                self.assertIsNone(updated_item)
+            # new_item should not be mutated
+            self.assertEqual(orig_new_item, new_item)
         except AssertionError as e:
             self.maxDiff = None
             msg = ('Scenario: existing %s, new_item %s, expected %s.'
@@ -7253,7 +7258,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
             msg = '%s Failed with: %s' % (msg, e)
             raise AssertionError(msg)
 
-    def test_update_new_item_from_existing(self):
+    def test_merge_item_with_existing(self):
         for scenario in self.scenarios_when_all_existing_wins:
             self._test_scenario(scenario, False)
 

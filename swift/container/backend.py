@@ -176,43 +176,43 @@ CONTAINER_STAT_VIEW_SCRIPT = '''
 '''
 
 
-def update_new_item_from_existing(new_item, existing):
+def merge_item_with_existing(new_item, existing):
     """
     Compare the data and meta related timestamps of a new object item with
-    the timestamps of an existing object record, and update the new item
-    with data and/or meta related attributes from the existing record if
-    their timestamps are newer.
+    the timestamps of an existing object record, and gather
+    whichever data and/or meta related attributes are newer into a new dict.
 
     The multiple timestamps are encoded into a single string for storing
     in the 'created_at' column of the objects db table.
 
     :param new_item: A dict of object update attributes
     :param existing: A dict of existing object attributes
-    :return: True if any attributes of the new item dict were found to be
-             newer than the existing and therefore not updated, otherwise
-             False implying that the updated item is equal to the existing.
+    :return: A new dict if any attributes of the new item dict were found to be
+        newer than the existing, otherwise None implying that there are no
+        changes to apply to the existing.
     """
 
     # item[created_at] may be updated so keep a copy of the original
     # value in case we process this item again
-    new_item.setdefault('data_timestamp', new_item['created_at'])
+    updated = dict(new_item)
+    updated.setdefault('data_timestamp', updated['created_at'])
 
     # content-type and metadata timestamps may be encoded in
     # item[created_at], or may be set explicitly.
     item_ts_data, item_ts_ctype, item_ts_meta = decode_timestamps(
-        new_item['data_timestamp'])
+        updated['data_timestamp'])
 
-    if new_item.get('ctype_timestamp'):
-        item_ts_ctype = Timestamp(new_item.get('ctype_timestamp'))
+    if updated.get('ctype_timestamp'):
+        item_ts_ctype = Timestamp(updated.get('ctype_timestamp'))
         item_ts_meta = item_ts_ctype
-    if new_item.get('meta_timestamp'):
-        item_ts_meta = Timestamp(new_item.get('meta_timestamp'))
+    if updated.get('meta_timestamp'):
+        item_ts_meta = Timestamp(updated.get('meta_timestamp'))
 
     if not existing:
-        # encode new_item timestamps into one string for db record
-        new_item['created_at'] = encode_timestamps(
+        # encode updated timestamps into one string for db record
+        updated['created_at'] = encode_timestamps(
             item_ts_data, item_ts_ctype, item_ts_meta)
-        return True
+        return updated
 
     # decode existing timestamp into separate data, content-type and
     # metadata timestamps
@@ -224,7 +224,7 @@ def update_new_item_from_existing(new_item, existing):
     # most recent data timestamp whereas the content-type value to persist is
     # that at the most recent content-type timestamp. The two values happen to
     # be stored in the same database column for historical reasons.
-    for item in (new_item, existing):
+    for item in (updated, existing):
         content_type, swift_bytes = extract_swift_bytes(item['content_type'])
         item['content_type'] = content_type
         item['swift_bytes'] = swift_bytes
@@ -232,14 +232,14 @@ def update_new_item_from_existing(new_item, existing):
     newer_than_existing = [True, True, True]
     if rec_ts_data >= item_ts_data:
         # apply data attributes from existing record
-        new_item.update(
+        updated.update(
             [(k, existing[k])
              for k in ('size', 'etag', 'deleted', 'swift_bytes', 'systags')])
         item_ts_data = rec_ts_data
         newer_than_existing[0] = False
     if rec_ts_ctype >= item_ts_ctype:
         # apply content-type attribute from existing record
-        new_item['content_type'] = existing['content_type']
+        updated['content_type'] = existing['content_type']
         item_ts_ctype = rec_ts_ctype
         newer_than_existing[1] = False
     if rec_ts_meta >= item_ts_meta:
@@ -248,17 +248,17 @@ def update_new_item_from_existing(new_item, existing):
         newer_than_existing[2] = False
 
     # encode updated timestamps into one string for db record
-    new_item['created_at'] = encode_timestamps(
+    updated['created_at'] = encode_timestamps(
         item_ts_data, item_ts_ctype, item_ts_meta)
 
     # append the most recent swift_bytes onto the most recent content_type in
-    # new_item and restore existing to its original state
-    for item in (new_item, existing):
+    # updated and restore existing to its original state
+    for item in (updated, existing):
         if item['swift_bytes']:
             item['content_type'] += ';swift_bytes=%s' % item['swift_bytes']
         del item['swift_bytes']
 
-    return any(newer_than_existing)
+    return updated if any(newer_than_existing) else None
 
 
 def merge_shards(shard_data, existing):
@@ -1389,6 +1389,71 @@ class ContainerBroker(DatabaseBroker):
         return self._execute_with_migrations(
             conn, migrations, func, *args, **kwargs)
 
+    def _really_really_merge_items(self, conn, item_list, source):
+        curs = conn.cursor()
+        if self.get_db_version(conn) >= 1:
+            query_mod = ' deleted IN (0, 1, 2) AND '
+        else:
+            query_mod = ''
+        curs.execute('BEGIN IMMEDIATE')
+        # Get sqlite records for objects in item_list that already exist.
+        # We must chunk it up to avoid sqlite's limit of 999 args.
+        records = {}
+        for offset in range(0, len(item_list), SQLITE_ARG_LIMIT):
+            chunk = [rec['name'] for rec in
+                     item_list[offset:offset + SQLITE_ARG_LIMIT]]
+            records.update(
+                ((rec[0], rec[6]), rec) for rec in curs.execute(
+                    'SELECT name, created_at, size, content_type,'
+                    'etag, deleted, storage_policy_index, systags '
+                    'FROM object WHERE ' + query_mod + ' name IN (%s)' %
+                    ','.join('?' * len(chunk)), chunk))
+        # Sort item_list into things that need adding and deleting, based
+        # on results of created_at query.
+        to_delete = set()
+        to_add = {}
+        for item in item_list:
+            item.setdefault('storage_policy_index', 0)  # legacy
+            item_ident = (item['name'], item['storage_policy_index'])
+            existing = self._record_to_dict(records.get(item_ident))
+            update = merge_item_with_existing(item, existing)
+            already_added = to_add.get(item_ident)
+            if update and already_added:
+                # duplicate entries in item_list
+                update = merge_item_with_existing(update, already_added)
+            if update:
+                to_add[item_ident] = update
+                if existing:
+                    to_delete.add(item_ident)
+        if to_delete:
+            curs.executemany(
+                'DELETE FROM object WHERE ' + query_mod +
+                'name=? AND storage_policy_index=?',
+                (item_ident for item_ident in to_delete))
+        if to_add:
+            curs.executemany(
+                'INSERT INTO object (name, created_at, size, content_type,'
+                'etag, deleted, storage_policy_index, systags) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                ((rec['name'], rec['created_at'], rec['size'],
+                  rec['content_type'], rec['etag'], rec['deleted'],
+                  rec['storage_policy_index'], rec.get('systags'))
+                 for rec in to_add.values()))
+        if source:
+            # for replication we rely on the remote end sending merges in
+            # order with no gaps to increment sync_points
+            sync_point = item_list[-1]['ROWID']
+            curs.execute('''
+                UPDATE incoming_sync SET
+                sync_point=max(?, sync_point) WHERE remote_id=?
+            ''', (sync_point, source))
+            if curs.rowcount < 1:
+                curs.execute('''
+                    INSERT INTO incoming_sync (sync_point, remote_id)
+                    VALUES (?, ?)
+                ''', (sync_point, source))
+        conn.commit()
+
     def merge_items(self, item_list, source=None):
         """
         Merge items into the object table.
@@ -1403,70 +1468,9 @@ class ContainerBroker(DatabaseBroker):
             if isinstance(item['name'], bytes):
                 item['name'] = item['name'].decode('utf-8')
 
-        def _really_really_merge_items(conn):
-            curs = conn.cursor()
-            if self.get_db_version(conn) >= 1:
-                query_mod = ' deleted IN (0, 1) AND '
-            else:
-                query_mod = ''
-            curs.execute('BEGIN IMMEDIATE')
-            # Get sqlite records for objects in item_list that already exist.
-            # We must chunk it up to avoid sqlite's limit of 999 args.
-            records = {}
-            for offset in range(0, len(item_list), SQLITE_ARG_LIMIT):
-                chunk = [rec['name'] for rec in
-                         item_list[offset:offset + SQLITE_ARG_LIMIT]]
-                records.update(
-                    ((rec[0], rec[6]), rec) for rec in curs.execute(
-                        'SELECT name, created_at, size, content_type,'
-                        'etag, deleted, storage_policy_index, systags '
-                        'FROM object WHERE ' + query_mod + ' name IN (%s)' %
-                        ','.join('?' * len(chunk)), chunk))
-            # Sort item_list into things that need adding and deleting, based
-            # on results of created_at query.
-            to_delete = set()
-            to_add = {}
-            for item in item_list:
-                item.setdefault('storage_policy_index', 0)  # legacy
-                item_ident = (item['name'], item['storage_policy_index'])
-                existing = self._record_to_dict(records.get(item_ident))
-                if update_new_item_from_existing(item, existing):
-                    if item_ident in records:  # exists with older timestamp
-                        to_delete.add(item_ident)
-                    if item_ident in to_add:  # duplicate entries in item_list
-                        update_new_item_from_existing(item, to_add[item_ident])
-                    to_add[item_ident] = item
-            if to_delete:
-                curs.executemany(
-                    'DELETE FROM object WHERE ' + query_mod +
-                    'name=? AND storage_policy_index=?',
-                    (item_ident for item_ident in to_delete))
-            if to_add:
-                curs.executemany(
-                    'INSERT INTO object (name, created_at, size, content_type,'
-                    'etag, deleted, storage_policy_index, systags) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    ((rec['name'], rec['created_at'], rec['size'],
-                      rec['content_type'], rec['etag'], rec['deleted'],
-                      rec['storage_policy_index'], rec.get('systags'))
-                     for rec in to_add.values()))
-            if source:
-                # for replication we rely on the remote end sending merges in
-                # order with no gaps to increment sync_points
-                sync_point = item_list[-1]['ROWID']
-                curs.execute('''
-                    UPDATE incoming_sync SET
-                    sync_point=max(?, sync_point) WHERE remote_id=?
-                ''', (sync_point, source))
-                if curs.rowcount < 1:
-                    curs.execute('''
-                        INSERT INTO incoming_sync (sync_point, remote_id)
-                        VALUES (?, ?)
-                    ''', (sync_point, source))
-            conn.commit()
-
         def _really_merge_items(conn):
-            return tpool.execute(_really_really_merge_items, conn)
+            return tpool.execute(
+                self._really_really_merge_items, conn, item_list, source)
 
         with self.get() as conn:
             return self._execute_with_object_table_migrations(
