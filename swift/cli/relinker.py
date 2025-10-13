@@ -395,11 +395,128 @@ class Relinker(object):
                 hashes.remove(hsh)
         return hashes
 
-    def process_location(self, hash_path, new_hash_path):
-        # Compare the contents of each hash dir with contents of same hash
-        # dir in its new partition to verify that the new location has the
-        # most up to date set of files. The new location may have newer
-        # files if it has been updated since relinked.
+    def do_relink(self, device, hash_path, new_hash_path, filename,
+                  already_quarantined=False):
+        """
+        Attempt to relink a file from old location to new location.
+
+        :param device: device name
+        :param hash_path: source hash directory path
+        :param new_hash_path: destination hash directory path
+        :param filename: filename to relink
+        :param already_quarantined: whether quarantine has already been
+                                    attempted
+        :returns: tuple of (success, created) where success is True if the link
+                  is successfully verified, and created is True if a new link
+                  needed to be created for successful verification (if created
+                  is True for any new link in any hash_path some caller above
+                  us should ideally invalidate the whole suffix)
+        """
+        old_file = os.path.join(hash_path, filename)
+        new_file = os.path.join(new_hash_path, filename)
+        success = created = False
+        try:
+            created = diskfile.relink_paths(old_file, new_file)
+            success = True
+        except FileExistsError:
+            # we've detected a hardlink collision, so we need to handle it
+            # depending on what kind of file it is and our mode and
+            # configuration
+            if filename.endswith('.ts'):
+                # special case for duplicate tombstones, see:
+                # https://bugs.launchpad.net/swift/+bug/1921718
+                # https://bugs.launchpad.net/swift/+bug/1934142
+                self.logger.debug(
+                    "Relinking%s: tolerating different inodes for "
+                    "tombstone with same timestamp: %s to %s",
+                    ' (cleanup)' if self.do_cleanup else '',
+                    old_file, new_file)
+                success = True
+            elif self.conf['clobber_hardlink_collisions']:
+                if self.do_cleanup:
+                    # At this point your clients are already *in* the new part
+                    # dir, if the "better" data was in the old part dir you're
+                    # already hurting and maybe flipped back to retry the
+                    # relink phase again?  If you're moving forward with the
+                    # cleanup presumably you're ready for this circus to be
+                    # over and doing extra io to quarantine the data you're
+                    # currently using and replace it with old data seems less
+                    # attractive than letting the un-referenced data get
+                    # cleaned up.  But there might be a case to argue that
+                    # clobber_hardlink_collision should quarantine old_file
+                    # here before returning success.
+                    self.logger.debug(
+                        "Relinking%s: tolerating hardlink collision: "
+                        "%s to %s",
+                        ' (cleanup)' if self.do_cleanup else '',
+                        old_file, new_file)
+                    success = True
+                elif already_quarantined:
+                    # Already attempted quarantine, this is a failure, but user
+                    # can retry (or already_quarantined becomes a counter?)
+                    # N.B. this can exit non-zero w/o logging at "error"
+                    self.logger.warning(
+                        "Relinking%s: hardlink collision persists after "
+                        "quarantine: %s to %s",
+                        ' (cleanup)' if self.do_cleanup else '',
+                        old_file, new_file)
+                else:
+                    # During relink phase, quarantine and retry once
+                    dev_path = os.path.join(self.diskfile_mgr.devices, device)
+                    to_dir = diskfile.quarantine_renamer(dev_path, new_file)
+                    self.logger.info(
+                        "Relinking%s: clobbering hardlink collision: "
+                        "%s moved to %s",
+                        ' (cleanup)' if self.do_cleanup else '',
+                        new_file, to_dir)
+                    # retry with quarantine flag set
+                    return self.do_relink(
+                        device, hash_path, new_hash_path, filename,
+                        already_quarantined=True)
+            else:
+                self.logger.error(
+                    "Error relinking%s: hardlink collision: "
+                    "%s to %s (consider enabling clobber_hardlink_collisions)",
+                    ' (cleanup)' if self.do_cleanup else '',
+                    old_file, new_file)
+        except Exception as exc:
+            # Depending on what kind of errors these are, it might be
+            # reasonable to consider them "warnings" if we expect re-running
+            # the relinker would be able to fix them (like if it's just a
+            # general file-system corruption error and your auditor is still
+            # running maybe it will quarantine bad paths to clear the way).
+            # But AFAIK all currently known/observed error conditions are
+            # enumerated above and any unknown error conditions may not be
+            # fixable by simply re-running the relinker: so we log them as
+            # error to match the expected non-zero return code.
+            self.logger.error(
+                "Error relinking%s: failed to relink %s to %s: %s",
+                ' (cleanup)' if self.do_cleanup else '',
+                old_file, new_file, exc)
+        if created:
+            self.logger.debug(
+                "Relinking%s created link: %s to %s",
+                ' (cleanup)' if self.do_cleanup else '',
+                old_file, new_file)
+        return success, created
+
+    def process_location(self, device, hash_path, new_hash_path):
+        """
+        Handle relink of all files in a hash_dir path.
+
+        Compare the contents of each hash dir with contents of same hash
+        dir in its new partition to verify that the new location has the
+        most up to date set of files. The new location may have newer
+        files if it has been updated since relinked.
+
+        If any new links are created the suffix will be invalidated.
+        In cleanup mode, the unwanted files in the old hash_path will be
+        removed as long as there are no errors.
+
+        :param device: device name
+        :param hash_path: old hash directory path
+        :param new_hash_path: new hash directory path
+        """
         self.stats['hash_dirs'] += 1
 
         # Get on disk data for new and old locations, cleaning up any
@@ -449,33 +566,15 @@ class Relinker(object):
             #    no longer required. The new file will eventually be
             #    cleaned up again.
             self.stats['files'] += 1
-            old_file = os.path.join(hash_path, filename)
-            new_file = os.path.join(new_hash_path, filename)
-            try:
-                if diskfile.relink_paths(old_file, new_file):
-                    self.logger.debug(
-                        "Relinking%s created link: %s to %s",
-                        ' (cleanup)' if self.do_cleanup else '',
-                        old_file, new_file)
+            success, created = self.do_relink(
+                device, hash_path, new_hash_path, filename)
+            if success:
+                if created:
                     created_links += 1
                     self.stats['linked'] += 1
-            except OSError as exc:
-                if exc.errno == errno.EEXIST and filename.endswith('.ts'):
-                    # special case for duplicate tombstones, see:
-                    # https://bugs.launchpad.net/swift/+bug/1921718
-                    # https://bugs.launchpad.net/swift/+bug/1934142
-                    self.logger.debug(
-                        "Relinking%s: tolerating different inodes for "
-                        "tombstone with same timestamp: %s to %s",
-                        ' (cleanup)' if self.do_cleanup else '',
-                        old_file, new_file)
-                else:
-                    self.logger.warning(
-                        "Error relinking%s: failed to relink %s to %s: %s",
-                        ' (cleanup)' if self.do_cleanup else '',
-                        old_file, new_file, exc)
-                    self.stats['errors'] += 1
-                    missing_links += 1
+            else:
+                self.stats['errors'] += 1
+                missing_links += 1
         if created_links:
             self.linked_into_partitions.add(get_partition_from_path(
                 self.conf['devices'], new_hash_path))
@@ -503,6 +602,8 @@ class Relinker(object):
             try:
                 os.remove(old_file)
             except OSError as exc:
+                # N.B. if we want to allow old_file to get quarantined this
+                # should probably be robust to ENOENT
                 self.logger.warning('Error cleaning up %s: %r', old_file, exc)
                 self.stats['errors'] += 1
             else:
@@ -560,13 +661,13 @@ class Relinker(object):
         if self.conf['files_per_second'] > 0:
             locations = RateLimitedIterator(
                 locations, self.conf['files_per_second'])
-        for hash_path, device, partition in locations:
+        for hash_path, device, _part_num in locations:
             # note, in cleanup step next_part_power == part_power
             new_hash_path = replace_partition_in_path(
                 self.conf['devices'], hash_path, self.next_part_power)
             if new_hash_path == hash_path:
                 continue
-            self.process_location(hash_path, new_hash_path)
+            self.process_location(device, hash_path, new_hash_path)
 
         # any unmounted devices don't trigger the pre_device trigger.
         # so we'll deal with them here.
@@ -793,6 +894,14 @@ def main(args=None):
                         help='Set log file name. Ignored if using conf_file.')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Enable debug mode')
+    parser.add_argument('--clobber-hardlink-collisions', action='store_true',
+                        help='Tolerate hard link collisions when relinking'
+                             'object files. If the action is relink then the '
+                             'file in the new target part dir is quarantined '
+                             'and the relink is retried. If the action is '
+                             'cleanup then the file in the new target dir is '
+                             'retained and the file in the old target dir is '
+                             'removed. (default: false)')
 
     args = parser.parse_args(args)
     hubs.use_hub(get_hub())
@@ -835,6 +944,10 @@ def main(args=None):
         'stats_interval': non_negative_float(
             args.stats_interval or conf.get('stats_interval',
                                             DEFAULT_STATS_INTERVAL)),
+        'clobber_hardlink_collisions': (
+            args.clobber_hardlink_collisions or
+            config_true_value(conf.get('clobber_hardlink_collisions',
+                                       'false'))),
     })
     return parallel_process(
         args.action == 'cleanup', conf, logger, args.device_list)
