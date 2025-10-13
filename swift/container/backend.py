@@ -31,15 +31,16 @@ from swift.common.utils.timestamp import NormalTimestamp, Timestamp, \
 from swift.common.utils import extract_swift_bytes, storage_directory, \
     hash_path, ShardRange, renamer, MD5_OF_EMPTY_STRING, get_db_files, \
     parse_db_filename, make_db_file_path, split_path, RESERVED_BYTE, \
-    ShardRangeList, Namespace
+    ShardRangeList, Namespace, param_str_to_dict, param_str_from_dict
 from swift.common.db import DatabaseBroker, BROKER_TIMEOUT, \
-    zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT
+    zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT, dict_factory
 
 DATADIR = 'containers'
 
 RECORD_TYPE_OBJECT = 'object'
 RECORD_TYPE_SHARD = 'shard'
 SHARD_RANGE_TABLE = 'shard_range'
+ACTION_TABLE = 'action'
 
 NOTFOUND = 'not_found'
 UNSHARDED = 'unsharded'
@@ -179,6 +180,39 @@ CONTAINER_STAT_VIEW_SCRIPT = '''
 '''
 
 
+def expand_item(item):
+    expanded = dict(item)
+    expanded.setdefault('data_timestamp', expanded['created_at'])
+    item_ts_data, item_ts_ctype, item_ts_meta = decode_timestamps(
+        expanded['data_timestamp'])
+    if expanded.get('ctype_timestamp'):
+        item_ts_ctype = Timestamp(expanded.get('ctype_timestamp'))
+        item_ts_meta = item_ts_ctype
+    if expanded.get('meta_timestamp'):
+        item_ts_meta = Timestamp(expanded.get('meta_timestamp'))
+    expanded['data_timestamp'] = item_ts_data
+    expanded['ctype_timestamp'] = item_ts_ctype
+    expanded['meta_timestamp'] = item_ts_meta
+
+    content_type, swift_bytes = extract_swift_bytes(item['content_type'])
+    expanded['content_type'] = content_type
+    expanded['swift_bytes'] = swift_bytes
+    expanded['systags'] = param_str_to_dict(item.get('systags'))
+    return expanded
+
+
+def compact_item(item):
+    item['created_at'] = encode_timestamps(
+        item.pop('data_timestamp'),
+        item.pop('ctype_timestamp'),
+        item.pop('meta_timestamp'))
+    swift_bytes = item.pop('swift_bytes', None)
+    if swift_bytes:
+        item['content_type'] += ';swift_bytes=%s' % swift_bytes
+    item['systags'] = param_str_from_dict(item['systags'])
+    return item
+
+
 def merge_item_with_existing(new_item, existing):
     """
     Compare the data and meta related timestamps of a new object item with
@@ -197,69 +231,47 @@ def merge_item_with_existing(new_item, existing):
 
     # item[created_at] may be updated so keep a copy of the original
     # value in case we process this item again
-    updated = dict(new_item)
-    updated.setdefault('data_timestamp', updated['created_at'])
-
-    # content-type and metadata timestamps may be encoded in
-    # item[created_at], or may be set explicitly.
-    item_ts_data, item_ts_ctype, item_ts_meta = decode_timestamps(
-        updated['data_timestamp'])
-
-    if updated.get('ctype_timestamp'):
-        item_ts_ctype = Timestamp(updated.get('ctype_timestamp'))
-        item_ts_meta = item_ts_ctype
-    if updated.get('meta_timestamp'):
-        item_ts_meta = Timestamp(updated.get('meta_timestamp'))
+    updated = expand_item(new_item)
 
     if not existing:
         # encode updated timestamps into one string for db record
-        updated['created_at'] = encode_timestamps(
-            item_ts_data, item_ts_ctype, item_ts_meta)
-        return updated
+        return compact_item(updated)
 
     # decode existing timestamp into separate data, content-type and
     # metadata timestamps
-    rec_ts_data, rec_ts_ctype, rec_ts_meta = decode_timestamps(
-        existing['created_at'])
-
+    existing = expand_item(existing)
     # Extract any swift_bytes values from the content_type values. This is
     # necessary because the swift_bytes value to persist should be that at the
     # most recent data timestamp whereas the content-type value to persist is
     # that at the most recent content-type timestamp. The two values happen to
     # be stored in the same database column for historical reasons.
-    for item in (updated, existing):
-        content_type, swift_bytes = extract_swift_bytes(item['content_type'])
-        item['content_type'] = content_type
-        item['swift_bytes'] = swift_bytes
 
     newer_than_existing = [True, True, True]
-    if rec_ts_data >= item_ts_data:
+    if Timestamp(existing['data_timestamp']) >= \
+            Timestamp(updated['data_timestamp']):
         # apply data attributes from existing record
         updated.update(
             [(k, existing[k])
              for k in ('size', 'etag', 'deleted', 'swift_bytes', 'systags')])
-        item_ts_data = rec_ts_data
+        updated['data_timestamp'] = existing['data_timestamp']
         newer_than_existing[0] = False
-    if rec_ts_ctype >= item_ts_ctype:
+    if Timestamp(existing['ctype_timestamp']) >= \
+            Timestamp(updated['ctype_timestamp']):
         # apply content-type attribute from existing record
         updated['content_type'] = existing['content_type']
-        item_ts_ctype = rec_ts_ctype
+        updated['ctype_timestamp'] = existing['ctype_timestamp']
         newer_than_existing[1] = False
-    if rec_ts_meta >= item_ts_meta:
+    if Timestamp(existing['meta_timestamp']) >= \
+            Timestamp(updated['meta_timestamp']):
         # apply metadata timestamp from existing record
-        item_ts_meta = rec_ts_meta
+        updated['meta_timestamp'] = existing['meta_timestamp']
         newer_than_existing[2] = False
 
     # encode updated timestamps into one string for db record
-    updated['created_at'] = encode_timestamps(
-        item_ts_data, item_ts_ctype, item_ts_meta)
+    updated = compact_item(updated)
 
     # append the most recent swift_bytes onto the most recent content_type in
     # updated and restore existing to its original state
-    for item in (updated, existing):
-        if item['swift_bytes']:
-            item['content_type'] += ';swift_bytes=%s' % item['swift_bytes']
-        del item['swift_bytes']
 
     return updated if any(newer_than_existing) else None
 
@@ -552,17 +564,17 @@ class ContainerBroker(DatabaseBroker):
         self.create_container_info_table(conn, put_timestamp,
                                          storage_policy_index)
         self.create_shard_range_table(conn)
+        self.create_action_table(conn)
         self._db_files = None
 
-    def create_object_table(self, conn):
+    def _create_object_like_table(self, table, conn):
         """
-        Create the object table which is specific to the container DB.
-        Not a part of Pluggable Back-ends, internal to the baseline code.
+        Create a table for object like rows.
 
         :param conn: DB connection object
         """
-        conn.executescript("""
-            CREATE TABLE object (
+        conn.execute("""
+            CREATE TABLE %s (
                 ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
                 created_at TEXT,
@@ -573,15 +585,39 @@ class ContainerBroker(DatabaseBroker):
                 storage_policy_index INTEGER DEFAULT 0,
                 systags TEXT
             );
+        """ % table)
+        conn.execute("""
+            CREATE INDEX ix_%s_deleted_name ON %s (deleted, name);
+        """ % (table, table))
 
-            CREATE INDEX ix_object_deleted_name ON object (deleted, name);
-
-            CREATE TRIGGER object_update BEFORE UPDATE ON object
+        conn.execute("""
+            CREATE TRIGGER %s_update BEFORE UPDATE ON %s
             BEGIN
                 SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
             END;
+        """ % (table, table))
 
-        """ + POLICY_STAT_TRIGGER_SCRIPT)
+    def create_object_table(self, conn):
+        """
+        Create the object table which is specific to the container DB.
+        Not a part of Pluggable Back-ends, internal to the baseline code.
+
+        :param conn: DB connection object
+        """
+        self._create_object_like_table('object', conn)
+        conn.executescript(POLICY_STAT_TRIGGER_SCRIPT)
+
+    def create_action_table(self, conn):
+        """
+        Create the action table which is specific to the container DB.
+
+        :param conn: DB connection object
+        """
+        # The action table has same columns as the object table. We don't yet
+        # use all the columns for mpu cleanup, but there's no need to throw
+        # information away that may become useful, for example if we want to
+        # replicate action items between nodes, or sum action bytes.
+        self._create_object_like_table(ACTION_TABLE, conn)
 
     def create_container_info_table(self, conn, put_timestamp,
                                     storage_policy_index):
@@ -753,7 +789,8 @@ class ContainerBroker(DatabaseBroker):
             return self.get_shard_usage()['object_count'] <= 0
         return True
 
-    def delete_object(self, name, timestamp, storage_policy_index=0):
+    def delete_object(self, name, timestamp, storage_policy_index=0,
+                      systags=None):
         """
         Mark an object deleted.
 
@@ -763,7 +800,8 @@ class ContainerBroker(DatabaseBroker):
         :param storage_policy_index: the storage policy index for the object
         """
         self.put_object(name, timestamp, 0, 'application/deleted', 'noetag',
-                        deleted=1, storage_policy_index=storage_policy_index)
+                        deleted=1, storage_policy_index=storage_policy_index,
+                        systags=systags)
 
     def make_tuple_for_pickle(self, record):
         return (record['name'], record['created_at'], record['size'],
@@ -1114,7 +1152,8 @@ class ContainerBroker(DatabaseBroker):
                           path=None, storage_policy_index=0, reverse=False,
                           include_deleted=False, since_row=None,
                           transform_func=None, all_policies=False,
-                          allow_reserved=False, include_states=None):
+                          allow_reserved=False, include_states=None,
+                          table='object'):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1207,7 +1246,7 @@ class ContainerBroker(DatabaseBroker):
                     query_args.append(since_row)
 
                 def build_query(keys, conditions, args):
-                    query = 'SELECT ' + ', '.join(keys) + ' FROM object '
+                    query = 'SELECT %s FROM %s ' % (', '.join(keys), table)
                     if conditions:
                         query += 'WHERE ' + ' AND '.join(conditions)
                     tail_query = '''
@@ -1310,7 +1349,8 @@ class ContainerBroker(DatabaseBroker):
             return results
 
     def get_objects(self, limit=None, marker='', end_marker='',
-                    include_deleted=None, since_row=None, include_states=None):
+                    include_deleted=None, since_row=None, include_states=None,
+                    table='object'):
         """
         Returns a list of objects, including deleted objects, in all policies.
         Each object in the list is described by a dict with keys {'name',
@@ -1336,7 +1376,7 @@ class ContainerBroker(DatabaseBroker):
             reverse=False, include_deleted=include_deleted,
             transform_func=self._record_to_dict, since_row=since_row,
             all_policies=True, allow_reserved=True,
-            include_states=include_states
+            include_states=include_states, table=table
         )
 
     def _transform_record(self, record):
@@ -1404,10 +1444,34 @@ class ContainerBroker(DatabaseBroker):
         return self._execute_with_migrations(
             conn, migrations, func, *args, **kwargs)
 
-    def _really_really_merge_items(self, conn, item_list, source):
+    def _make_relic(self, item, relic_id, timestamp=None):
+        relic_name = '%s\x00%s' % (item['name'].rstrip('\x00'), relic_id)
+        relic = dict(item, name=relic_name, deleted=2)
+        if timestamp:
+            relic['created_at'] = timestamp
+        return relic
+
+    def _apply_changes(self, table, curs, query_mod, to_add, to_delete):
+        if to_delete:
+            curs.executemany(
+                'DELETE FROM %s WHERE %sname=? AND storage_policy_index=?'
+                % (table, query_mod),
+                (item_ident for item_ident in to_delete))
+        if to_add:
+            curs.executemany(
+                'INSERT INTO %s (name, created_at, size, content_type,'
+                'etag, deleted, storage_policy_index, systags) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?)' % table,
+                ((rec['name'], rec['created_at'], rec['size'],
+                  rec['content_type'], rec['etag'], rec['deleted'],
+                  rec['storage_policy_index'], rec.get('systags'))
+                 for rec in to_add.values()))
+
+    def _really_really_merge_items(self, table, conn, item_list, source):
+        ts_merge = Timestamp.now()
         curs = conn.cursor()
         if self.get_db_version(conn) >= 1:
-            query_mod = ' deleted IN (0, 1, 2) AND '
+            query_mod = ' deleted IN (0, 1, 2, 3) AND '
         else:
             query_mod = ''
         curs.execute('BEGIN IMMEDIATE')
@@ -1421,39 +1485,100 @@ class ContainerBroker(DatabaseBroker):
                 ((rec[0], rec[6]), rec) for rec in curs.execute(
                     'SELECT name, created_at, size, content_type,'
                     'etag, deleted, storage_policy_index, systags '
-                    'FROM object WHERE ' + query_mod + ' name IN (%s)' %
+                    'FROM %s WHERE ' % table + query_mod + ' name IN (%s)' %
                     ','.join('?' * len(chunk)), chunk))
         # Sort item_list into things that need adding and deleting, based
         # on results of created_at query.
         to_delete = set()
         to_add = {}
+        action_required = {}
+        unversions = []
+        parents = set()
+
+        def get_ident(item):
+            return (item['name'], item['storage_policy_index'])
+
         for item in item_list:
+            older_items = []
             item.setdefault('storage_policy_index', 0)  # legacy
-            item_ident = (item['name'], item['storage_policy_index'])
-            existing = self._record_to_dict(records.get(item_ident))
-            update = merge_item_with_existing(item, existing)
-            already_added = to_add.get(item_ident)
-            if update and already_added:
-                # duplicate entries in item_list
-                update = merge_item_with_existing(update, already_added)
-            if update:
-                to_add[item_ident] = update
-                if existing:
-                    to_delete.add(item_ident)
-        if to_delete:
-            curs.executemany(
-                'DELETE FROM object WHERE ' + query_mod +
-                'name=? AND storage_policy_index=?',
-                (item_ident for item_ident in to_delete))
-        if to_add:
-            curs.executemany(
-                'INSERT INTO object (name, created_at, size, content_type,'
-                'etag, deleted, storage_policy_index, systags) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                ((rec['name'], rec['created_at'], rec['size'],
-                  rec['content_type'], rec['etag'], rec['deleted'],
-                  rec['storage_policy_index'], rec.get('systags'))
-                 for rec in to_add.values()))
+            existing = self._record_to_dict(records.get(get_ident(item)))
+            already_added = to_add.get(get_ident(item))
+            if already_added:
+                update = merge_item_with_existing(item, already_added)
+                if update:
+                    to_add[get_ident(update)] = update
+                    older_items.append((already_added, item))
+                else:
+                    older_items.append((item, already_added))
+            else:
+                # note: we must run the item through merge_item_with_existing
+                # even if there is no existing to ensure the composite
+                # created_at time gets encoded!
+                update = merge_item_with_existing(item, existing)
+                if update:
+                    to_add[get_ident(update)] = update
+                    if existing:
+                        older_items.append((existing, item))
+                        to_delete.add(get_ident(existing))
+                else:
+                    older_items.append((item, existing))
+
+            if update and update['deleted'] == 2:
+                # adding a relic row
+                action_required[get_ident(update)] = update
+
+            # create relics
+            for (older, newer) in older_items:
+                older_systags = param_str_to_dict(older.get('systags'))
+                newer_systags = param_str_to_dict(newer.get('systags'))
+                older_version = older_systags.get('version')
+                newer_version = newer_systags.get('version')
+                if newer_version and older_version is None:
+                    unversion = dict(
+                        older, name=older['name'] + '\x00', deleted=3)
+                    unversions.append(unversion)
+                    continue
+                if older_version and newer_version is None:
+                    # unexpected: once versioning starts all variants should
+                    # have a version even if it is 'null'
+                    unversion = dict(
+                        newer, name=newer['name'] + '\x00', deleted=3)
+                    unversions.append(unversion)
+                    continue
+                if older_version and newer_version:
+                    continue
+                if older['deleted'] in (1, 2):
+                    # don't create a relic of a relic or tombstone!
+                    continue
+                relic_id = older_systags.get('relic_id')
+                if not relic_id:
+                    continue
+                if relic_id == newer_systags.get('relic_id'):
+                    continue
+                relic = self._make_relic(older, unquote(relic_id))
+                to_add[get_ident(relic)] = relic
+                action_required[get_ident(relic)] = relic
+
+            # identify parents
+            item_systags = param_str_to_dict(item.get('systags'))
+            parent = item_systags.get('parent')
+            if parent and item['deleted'] == 0:
+                parents.add((unquote(parent), item['storage_policy_index']))
+
+        self._apply_changes(table, curs, query_mod, to_add, to_delete)
+
+        if parents:
+            query = ('SELECT name, created_at, size, content_type,'
+                     'etag, deleted, storage_policy_index, systags '
+                     'FROM object WHERE deleted=2 AND name IN (%s)' %
+                     ','.join('?' * len(parents)))
+            # TODO: this assumes all children have same relic for same parent
+            action_required.update(
+                ((rec[0], rec[6]), self._record_to_dict(rec))
+                for rec in curs.execute(query, [k[0] for k in parents])
+                if (rec[0], rec[6]) in parents
+            )
+
         if source:
             # for replication we rely on the remote end sending merges in
             # order with no gaps to increment sync_points
@@ -1469,6 +1594,16 @@ class ContainerBroker(DatabaseBroker):
                 ''', (sync_point, source))
         conn.commit()
 
+        actions = [dict(item, created_at=ts_merge.internal, deleted=0)
+                   for item in action_required.values()]
+        return actions, unversions
+
+    def _really_merge_items(self, table, conn, item_list, source=None):
+        if not item_list:
+            return [], []
+        return tpool.execute(
+            self._really_really_merge_items, table, conn, item_list, source)
+
     def merge_items(self, item_list, source=None):
         """
         Merge items into the object table.
@@ -1483,13 +1618,14 @@ class ContainerBroker(DatabaseBroker):
             if isinstance(item['name'], bytes):
                 item['name'] = item['name'].decode('utf-8')
 
-        def _really_merge_items(conn):
-            return tpool.execute(
-                self._really_really_merge_items, conn, item_list, source)
-
         with self.get() as conn:
-            return self._execute_with_object_table_migrations(
-                conn, _really_merge_items, conn)
+            actions, unversions = self._execute_with_object_table_migrations(
+                conn, self._really_merge_items, 'object', conn, item_list,
+                source)
+            more_actions, _ = self._execute_with_object_table_migrations(
+                conn, self._really_merge_items, 'object', conn, unversions,
+                None)
+        self.merge_actions(actions + more_actions)
 
     def merge_shard_ranges(self, shard_ranges):
         """
@@ -2669,3 +2805,50 @@ class ContainerBroker(DatabaseBroker):
             index += 1
 
         return found_ranges, False
+
+    def _execute_with_action_table_migrations(
+            self, conn, func, *args, **kwargs):
+        migrations = {
+            'no such table: %s' % ACTION_TABLE:
+                self.create_action_table,
+        }
+        return self._execute_with_migrations(
+            conn, migrations, func, *args, **kwargs)
+
+    def merge_actions(self, actions):
+        """
+        Merge action items into the action table.
+
+        :param actions: a list of action items; each item must be a dict
+        """
+        if not actions:
+            return
+
+        self._populate_instance_cache()
+        with self.get() as conn:
+            self._execute_with_action_table_migrations(
+                conn, self._really_merge_items, ACTION_TABLE, conn, actions)
+
+    def get_actions(self, start, count, include_states=None):
+        """
+        Returns a list of action rows.
+
+        :return: a list of dicts.
+        """
+        states = include_states if include_states else {0}
+        sql = '''
+        SELECT * FROM %s
+        WHERE ROWID > ? AND deleted IN (%s)
+        ORDER BY ROWID ASC LIMIT ?
+        ''' % (ACTION_TABLE, ','.join(str(s) for s in states))
+        self._commit_puts_stale_ok()
+        try:
+            with self.get() as conn:
+                curs = conn.execute(sql, (start, count))
+                curs.row_factory = dict_factory
+                return [r for r in curs]
+        except sqlite3.OperationalError as err:
+            if ('no such table: %s' % ACTION_TABLE) in str(err):
+                return []
+            else:
+                raise

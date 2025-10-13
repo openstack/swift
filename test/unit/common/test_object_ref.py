@@ -135,23 +135,28 @@ class TestHistoryId(unittest.TestCase):
             HistoryId(Timestamp(123.45678), null=False),
             HistoryId(Timestamp(123.45678), null=True))
 
+    def test_default(self):
+        obj_id = HistoryId.default()
+        self.assertEqual('-null-&$&0000000000.00000', str(obj_id))
+        self.assertEqual(HistoryId(Timestamp.max(), null=True), obj_id)
+
 
 class TestObjectRef(unittest.TestCase):
     def test_serialize(self):
         obj_ref = ObjectRef('foo', HistoryId(123.45678), '000001')
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&/000001',
+            'foo/9999999876.54321&$&/000001',
             str(obj_ref))
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&/000001',
+            'foo/9999999876.54321&$&/000001',
             obj_ref.serialize())
-        self.assertEqual('\x00foo\x009999999876.54321&$&',
+        self.assertEqual('foo/9999999876.54321&$&',
                          obj_ref.serialize(drop_tail=True))
 
     def _do_test_init(self, obj, obj_id):
         obj_ref = ObjectRef(obj, obj_id)
         self.assertEqual(obj, obj_ref.user_name)
-        self.assertEqual('\x00%s' % obj, obj_ref.basename)
+        self.assertEqual('%s' % obj, obj_ref.basename)
         self.assertEqual(str(obj_id), obj_ref.obj_id)
         self.assertIsNone(obj_ref.tail)
         return obj_ref
@@ -160,65 +165,79 @@ class TestObjectRef(unittest.TestCase):
         obj_id = HistoryId(123.45678, null=False)
         obj_ref = self._do_test_init('foo', obj_id.serialize())
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&', str(obj_ref))
+            'foo/9999999876.54321&$&', str(obj_ref))
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&', obj_ref.serialize())
+            'foo/9999999876.54321&$&', obj_ref.serialize())
+
+    def test_init_reserved(self):
+        obj_ref = ObjectRef('foo', 'bar', reserved=True)
+        self.assertEqual('\x00foo/bar', str(obj_ref))
+        self.assertEqual('\x00foo/bar', obj_ref.serialize())
+
+    def test_init_no_obj_id(self):
+        obj_ref = ObjectRef('foo')
+        self.assertEqual('foo', str(obj_ref))
+        self.assertEqual('foo', obj_ref.serialize())
+
+        obj_ref = ObjectRef('foo', reserved=False)
+        self.assertEqual('foo', str(obj_ref))
+        self.assertEqual('foo', obj_ref.serialize())
 
     def test_init_utf8_name(self):
         obj_id = HistoryId(123.45678, null=False)
         obj_ref = self._do_test_init('foo\N{SNOWMAN}', obj_id)
         self.assertEqual(
-            '\x00foo\N{SNOWMAN}\x009999999876.54321&$&', str(obj_ref))
+            'foo\N{SNOWMAN}/9999999876.54321&$&', str(obj_ref))
         self.assertEqual(
-            '\x00foo\N{SNOWMAN}\x009999999876.54321&$&', obj_ref.serialize())
-        obj_ref = self._do_test_init('fooünicode', obj_id)
+            'foo\N{SNOWMAN}/9999999876.54321&$&', obj_ref.serialize())
+        obj_ref = self._do_test_init('fünicode', obj_id)
         self.assertEqual(
-            '\x00fooünicode\x009999999876.54321&$&', str(obj_ref))
+            'fünicode/9999999876.54321&$&', str(obj_ref))
         self.assertEqual(
-            '\x00fooünicode\x009999999876.54321&$&', obj_ref.serialize())
+            'fünicode/9999999876.54321&$&', obj_ref.serialize())
 
     def test_init_with_history_id_instance(self):
         # it's ok to pass in a HistoryId instance...
         obj_id = HistoryId(123.45678, null=False)
         obj_ref = self._do_test_init('foo', obj_id)
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&', str(obj_ref))
+            'foo/9999999876.54321&$&', str(obj_ref))
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&', obj_ref.serialize())
+            'foo/9999999876.54321&$&', obj_ref.serialize())
 
     def test_init_with_upload_id_instance(self):
         # it's ok to pass in a UploadId instance...
         obj_id = UploadId(123.45678)
         obj_ref = self._do_test_init('foo', obj_id)
         self.assertEqual(
-            '\x00foo\x000000000123.45678&$', str(obj_ref))
+            'foo/0000000123.45678&$', str(obj_ref))
         self.assertEqual(
-            '\x00foo\x000000000123.45678&$', obj_ref.serialize())
+            'foo/0000000123.45678&$', obj_ref.serialize())
 
     def test_init_no_object_id(self):
         obj_ref = ObjectRef('foo')
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('\x00foo', obj_ref.basename)
+        self.assertEqual('foo', obj_ref.basename)
         self.assertIsNone(obj_ref.obj_id)
         self.assertIsNone(obj_ref.tail)
-        self.assertEqual('\x00foo', str(obj_ref))
+        self.assertEqual('foo', str(obj_ref))
 
     def test_init_with_tail(self):
         obj_ref = ObjectRef('foo', HistoryId(123.45678), '000001')
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('\x00foo', obj_ref.basename)
+        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(HistoryId(123.45678), obj_ref.obj_id)
         self.assertEqual('000001', obj_ref.tail)
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&/000001', str(obj_ref))
+            'foo/9999999876.54321&$&/000001', str(obj_ref))
 
         obj_ref = ObjectRef('foo', HistoryId(123.45678), '')
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('\x00foo', obj_ref.basename)
+        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(HistoryId(123.45678), obj_ref.obj_id)
         self.assertEqual('', obj_ref.tail)
         self.assertEqual(
-            '\x00foo\x009999999876.54321&$&/', str(obj_ref))
+            'foo/9999999876.54321&$&/', str(obj_ref))
 
     def _do_test_user_name(self, obj):
         # check that ObjectRef.user_name results in identical Request.path
@@ -236,7 +255,7 @@ class TestObjectRef(unittest.TestCase):
     def test_clone(self):
         obj_ref = ObjectRef('foo', HistoryId(123.45678))
         clone = obj_ref.clone()
-        self.assertEqual('\x00foo\x009999999876.54321&$&',
+        self.assertEqual('foo/9999999876.54321&$&',
                          str(clone))
 
     def test_eq(self):
@@ -250,51 +269,39 @@ class TestObjectRef(unittest.TestCase):
         self.assertNotEqual(obj_ref1, obj_ref4)
 
     def test_parse(self):
-        obj_ref_str = '\x00foo\x009999999876.54321&$&'
+        obj_ref_str = 'foo/9999999876.54321&$&'
         obj_ref = ObjectRef.parse(obj_ref_str)
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('\x00foo', obj_ref.basename)
+        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(HistoryId(123.45678), obj_ref.obj_id)
         self.assertIsNone(obj_ref.tail)
         self.assertEqual(obj_ref_str, str(obj_ref))
 
-        obj_ref_str = '\x00foo\x00-null-&$&9999999876.54321'
+        obj_ref_str = 'foo/-null-&$&9999999876.54321'
         obj_ref = ObjectRef.parse(obj_ref_str)
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('\x00foo', obj_ref.basename)
+        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(HistoryId(123.45678, null=True), obj_ref.obj_id)
         self.assertIsNone(obj_ref.tail)
         self.assertEqual(obj_ref_str, str(obj_ref))
 
     def test_parse_with_tail(self):
-        obj_ref_str = '\x00foo\x009999999876.54321&$&/000001'
+        obj_ref_str = 'foo/9999999876.54321&$&/000001'
         obj_ref = ObjectRef.parse(obj_ref_str)
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('\x00foo', obj_ref.basename)
+        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(HistoryId(123.45678), obj_ref.obj_id)
         self.assertEqual('000001', obj_ref.tail)
         self.assertEqual(obj_ref_str, str(obj_ref))
 
     def test_parse_with_empty_tail(self):
-        obj_ref_str = '\x00foo\x009999999876.54321&$&/'
+        obj_ref_str = 'foo/9999999876.54321&$&/'
         obj_ref = ObjectRef.parse(obj_ref_str)
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('\x00foo', obj_ref.basename)
+        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(HistoryId(123.45678), obj_ref.obj_id)
         self.assertEqual('', obj_ref.tail)
         self.assertEqual(obj_ref_str, str(obj_ref))
-
-    def test_parse_bad(self):
-        with self.assertRaises(AttributeError):
-            ObjectRef.parse(None)
-
-        def do_test(value):
-            with self.assertRaises(ValueError):
-                ObjectRef.parse(value)
-
-        do_test('')
-        do_test('foo')
-        do_test('\x00foo')
 
     def test_sort_order(self):
         obj_refs = [
@@ -305,10 +312,10 @@ class TestObjectRef(unittest.TestCase):
         ]
         # null history ids sort ahead of non-null history ids
         self.assertEqual([
-            '\x00foo\x00-null-&$&9999999873.99999',
-            '\x00foo\x00-null-&$&9999999875.99999',
-            '\x00foo\x009999999874.99999&$&',
-            '\x00foo\x009999999876.54321&$&',
+            'foo/-null-&$&9999999873.99999',
+            'foo/-null-&$&9999999875.99999',
+            'foo/9999999874.99999&$&',
+            'foo/9999999876.54321&$&',
         ], sorted([str(obj_ref) for obj_ref in obj_refs]))
 
     def test_aligned_sharding(self):
@@ -337,13 +344,13 @@ class TestObjectRef(unittest.TestCase):
             str(obj_ref)
             for obj_ref in obj_refs_null + obj_refs_123 + obj_refs_125]
         self.assertEqual([
-            '\x00foo\x00-null-&$&9999999871.99999/PUT',
-            '\x00foo\x00-null-&$&9999999872.99999/PUT',
-            '\x00foo\x00-null-&$&9999999873.99999/PUT',
-            '\x00foo\x00-null-&$&9999999875.99999/PUT',
-            '\x00foo\x009999999874.99999&$&/PUT',
-            '\x00foo\x009999999876.99999&$&/DELETE',
-            '\x00foo\x009999999876.99999&$&/PUT',
+            'foo/-null-&$&9999999871.99999/PUT',
+            'foo/-null-&$&9999999872.99999/PUT',
+            'foo/-null-&$&9999999873.99999/PUT',
+            'foo/-null-&$&9999999875.99999/PUT',
+            'foo/9999999874.99999&$&/PUT',
+            'foo/9999999876.99999&$&/DELETE',
+            'foo/9999999876.99999&$&/PUT',
         ], sorted(history_names))
 
         random.shuffle(history_names)

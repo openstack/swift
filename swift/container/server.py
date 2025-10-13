@@ -396,8 +396,11 @@ class ContainerController(BaseStorageServer):
         if redirect:
             return redirect
 
-        broker.delete_object(obj, req.headers.get('x-timestamp'),
-                             obj_policy_index)
+        broker.delete_object(
+            obj,
+            req.headers.get('x-timestamp'),
+            storage_policy_index=obj_policy_index,
+            systags=wsgi_to_str(req.headers.get('x-systags')))
         return HTTPNoContent(request=req)
 
     def _update_or_create(self, req, broker, timestamp, new_container_policy,
@@ -535,14 +538,14 @@ class ContainerController(BaseStorageServer):
         response = self._redirect_to_shard(req, broker, obj)
         if response:
             return response
-
+        state = int(req.headers.get('X-Backend-Object-State', 0))
         broker.put_object(
             obj,
             req_timestamp.internal,
             int(req.headers['x-size']),
             wsgi_to_str(req.headers['x-content-type']),
             wsgi_to_str(req.headers['x-etag']),
-            0,
+            state,
             obj_policy_index,
             wsgi_to_str(req.headers.get('x-content-type-timestamp')),
             wsgi_to_str(req.headers.get('x-meta-timestamp')),
@@ -900,6 +903,9 @@ class ContainerController(BaseStorageServer):
         delimiter = params.get('delimiter')
         limit = params['limit']
         requested_policy_index = self.get_and_validate_policy_index(req)
+        # listing response items do not include the deleted/state field so it
+        # doesn't make sense to support requesting *multiple* states...
+        state = int(req.headers.get('X-Backend-Include-State', 0))
         resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
         if is_deleted:
             return HTTPNotFound(request=req, headers=resp_headers)
@@ -915,7 +921,8 @@ class ContainerController(BaseStorageServer):
             container_list = src_broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=storage_policy_index,
-                reverse=reverse, allow_reserved=req.allow_reserved_names)
+                reverse=reverse, allow_reserved=req.allow_reserved_names,
+                include_states={state})
         listing = [self.update_object_record(record)
                    for record in container_list]
         return self._create_GET_response(req, out_content_type, info,

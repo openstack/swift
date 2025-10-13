@@ -231,7 +231,7 @@ def get_db_connection(path, timeout=30, logger=None, okay_to_create=False):
 
 class TombstoneReclaimer(object):
     """Encapsulates reclamation of deleted rows in a database."""
-    def __init__(self, broker, age_timestamp):
+    def __init__(self, broker, age_timestamp, table=None):
         """
         Encapsulates reclamation of deleted rows in a database.
 
@@ -241,6 +241,7 @@ class TombstoneReclaimer(object):
         """
         self.broker = broker
         self.age_timestamp = age_timestamp
+        self.table = table or self.broker.db_contains_type
         self.marker = ''
         self.remaining_tombstones = self.reclaimed = 0
         self.finished = False

@@ -667,6 +667,23 @@ def with_tempdir(f):
     return wrapped
 
 
+def mock_execute(execute='eventlet.tpool.execute'):
+    """
+    Decorator to bypass tpool.execute and execute the function in same thread
+    to assist debugging.
+    """
+    def executor(*ex_args, **ex_kwargs):
+        return ex_args[0](*ex_args[1:], **ex_kwargs)
+
+    def _mock_execute(func):
+        @functools.wraps(func)
+        def wrapped(*args, **kwargs):
+            with mocklib.patch(execute, executor):
+                return func(*args, **kwargs)
+        return wrapped
+    return _mock_execute
+
+
 class NullLoggingHandler(logging.Handler):
 
     def emit(self, record):

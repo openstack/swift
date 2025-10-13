@@ -15,15 +15,16 @@
 import functools
 import json
 import time
+from urllib.parse import unquote
 from collections import defaultdict
 
 from swift.common.internal_client import InternalClient, UnexpectedResponse
-from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
-    MPU_MARKER_CONTENT_TYPE, MPUSession, MPUItem, MPU_SYSMETA_UPLOAD_ID_KEY
-from swift.common.object_ref import ObjectRef, HistoryId, UploadId
+from swift.common.middleware.mpu import MPUSession, MPUItem, \
+    MPU_SYSMETA_UPLOAD_ID_KEY
+from swift.common.object_ref import ObjectRef
 from swift.common.request_helpers import split_reserved_name, get_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
-    non_negative_int, config_positive_int_value, param_str_to_dict
+    non_negative_int, config_positive_int_value
 from swift.container.backend import ContainerBroker
 
 
@@ -36,14 +37,18 @@ def safe_split_reserved_name(reserved_name):
         return None, reserved_name
 
 
-def yield_item_batches(broker, start_row, max_batches, batch_size):
+def yield_item_batches(broker, max_batches, batch_size, include_states, table):
     remaining = max_batches * batch_size
+    marker = None
     while remaining > 0:
         batch_limit = min(batch_size, remaining)
-        items = broker.get_items_since(start_row, batch_limit)
+        items = broker.get_objects(
+            marker=marker, limit=batch_limit, include_states=include_states,
+            table=table
+        )
         if items:
             remaining -= len(items)
-            start_row = items[-1]['ROWID']
+            marker = items[-1]['name']
             yield items
         else:
             remaining = 0
@@ -113,6 +118,8 @@ class MpuAuditorConfig:
 
 class BaseMpuAuditor:
     resource_type = 'base'
+    audit_table = 'action'
+    audit_states = {0}
 
     def __init__(self, config, client, logger, broker, user_container):
         self.config = config
@@ -124,12 +131,13 @@ class BaseMpuAuditor:
                                                  self.user_container)
         self.statsd_client = logger.logger.statsd_client
         self.stats = defaultdict(int)
-        self.already_checked = {}
+        self.ts_audit = Timestamp.now()
+        self.completed_items = None
 
     def _dump_stats(self):
         return ', '.join(
             ['%s=%s' % (key, self.stats[key])
-             for key in ('processed', 'audited', 'skipped', 'errors')])
+             for key in ('processed', 'audited', 'errors')])
 
     def log(self, log_func, msg):
         data = {
@@ -159,33 +167,22 @@ class BaseMpuAuditor:
         self.stats[key] += 1
         self.statsd_client.increment('%s.%s' % (self.resource_type, key))
 
-    def _put_delete_marker(self, obj):
-        account = self.broker.account.lstrip('.')
-        self.debug('putting marker %s/%s/%s',
-                   account, self.parts_container, obj)
-        self.client.upload_object(
-            None, account, self.parts_container, obj,
-            headers={'Content-Type': MPU_MARKER_CONTENT_TYPE,
-                     'Content-Length': '0',
-                     'X-Backend-Allow-Reserved-Names': 'true'}
-        )
-
-    def _get_items_with_prefix(self, prefix, limit, include_deleted=False):
+    def _get_items_with_prefix(self, prefix, limit, include_states=None):
         # get results as dicts...
         # TODO: broker.get_objects doesn't support prefix so working around...
         transform_func = functools.partial(ContainerBroker._record_to_dict,
                                            self.broker)
         rows = self.broker.list_objects_iter(
-            limit, '', '', prefix, None, include_deleted=include_deleted,
+            limit, '', '', prefix, None, include_states=include_states,
             transform_func=transform_func, allow_reserved=True)
         self.debug('get_items_with_prefix %s (%d): %s',
                    prefix, len(rows), rows)
         return [MPUItem.from_db_record(row) for row in rows]
 
-    def _get_item_with_prefix(self, name, include_deleted=False):
+    def _get_item_with_prefix(self, name, include_states=None):
         self.debug('get_item prefix %s', name)
         items = self._get_items_with_prefix(
-            name, limit=1, include_deleted=include_deleted)
+            name, limit=1, include_states=include_states)
         if items:
             return items[0]
         return None
@@ -205,51 +202,45 @@ class BaseMpuAuditor:
         item.meta_timestamp.offset += 1
         self.broker.put_record(item.to_db_record())
 
-    def _delete_item(self, item):
+    def _complete_item(self, item, ts=None):
         item.deleted = 1
-        item.data_timestamp.offset += 1
-        self.broker.put_record(item.to_db_record())
+        if ts:
+            item.data_timestamp = ts
+        else:
+            item.data_timestamp.offset += 1
+        self.completed_items.append(item.to_db_record())
 
-    def _audit_item(self, item, upload):
+    def _audit_item(self, item):
         raise NotImplementedError
+
+    def _audit_batch(self, batch):
+        for item_dict in batch:
+            self.increment('processed')
+            try:
+                item = MPUItem.from_db_record(item_dict)
+                self.debug('auditing item %s', dict(item))
+                if not item.deleted == 1:
+                    self._audit_item(item)
+                    self.increment('audited')
+            except Exception as err:  # noqa
+                self.exception('Error while auditing %s: %s',
+                               item_dict['name'], str(err))
+                self.increment('errors')
+                # TODO: hmmm, should we revisit?
 
     def audit(self):
         self.broker.get_info()
-        max_row = self.broker.get_max_row()
-        self.debug('visiting container %s', self.broker.path)
+        self.debug('visiting container')
         context = MpuAuditorContext.load(self.broker)
-        self.debug('auditing from row %s to row %s' %
-                   (context.last_audit_row, max_row))
         for batch in yield_item_batches(self.broker,
-                                        context.last_audit_row,
                                         self.config.max_batches,
-                                        self.config.batch_size):
-            for item_dict in batch:
-                self.increment('processed')
-                try:
-                    item = MPUItem.from_db_record(item_dict)
-                    self.debug('auditing item %s', dict(item))
-                    if not item.deleted:
-                        obj_ref = ObjectRef.parse(item.name)
-                        obj_ref_prefix = obj_ref.serialize(drop_tail=True)
-                        if obj_ref_prefix in self.already_checked:
-                            self.increment('skipped')
-                        else:
-                            self._audit_item(item, obj_ref)
-                            self.already_checked[obj_ref_prefix] = True
-                            self.increment('audited')
-                except Exception as err:  # noqa
-                    self.exception('Error while auditing %s: %s',
-                                   item_dict['name'], str(err))
-                    self.increment('errors')
-                    # TODO: hmmm, should we revisit?
-                row_id = item_dict['ROWID']
-                context.last_audit_row = row_id
-                if row_id == max_row:
-                    break
-            else:
-                continue
-            break
+                                        self.config.batch_size,
+                                        include_states=self.audit_states,
+                                        table=self.audit_table):
+            self.completed_items = []
+            self._audit_batch(batch)
+            self.broker.merge_actions(self.completed_items)
+        # TODO: run a TombstoneReclaimer on the action table
         context.store(self.broker)
         self.info('%s', self._dump_stats())
         return None
@@ -258,128 +249,48 @@ class BaseMpuAuditor:
 class MpuHistoryAuditor(BaseMpuAuditor):
     resource_type = 'history'
 
-    def _cleanup_obsolete_mpu(self, item, obj_ref, mpu_policy):
+    def _cleanup_obsolete_item(self, item):
         # TODO: vary parts container according to policy OR put explicit path
         #  to parts in systags
-        history_id = HistoryId.parse(obj_ref.obj_id)
-        upload_id = UploadId(history_id.timestamp)
-        marker_ref = ObjectRef(obj_ref.user_name,
-                               upload_id.serialize(),
-                               tail=MPU_DELETED_MARKER_SUFFIX)
-        try:
-            self._put_delete_marker(marker_ref.serialize())
-        except Exception as err:  # noqa
-            self.warning('Failed to put delete marker to %s/%s: %s',
-                         self.parts_container, str(marker_ref), err)
-            # move to a new row to ensure it is revisited
-            self._bump_item_meta_offset(item)
-        else:
-            self.increment('marked')
-            self._delete_item(item)
-
-    def _cleanup_obsolete_item(self, item, obj_ref):
-        if item.deleted:
-            return
         self.debug('cleaning up obsolete item %s', item.name)
-        mpu_policy = param_str_to_dict(item.systags).get('mpu_policy')
-        if mpu_policy is None:
-            self._delete_item(item)
-        elif obj_ref.tail == 'DELETE':
-            self._delete_item(item)
+        child = item.systags.get('child')
+        child = unquote(child)
+        child_container = item.systags.get('child_container')
+        if child_container:
+            child_container = unquote(child_container)
         else:
-            self._cleanup_obsolete_mpu(item, obj_ref, mpu_policy)
-
-    def _audit_null_version(self, items):
-        for i, item in enumerate(items):
-            if item.deleted:
-                continue
-
-            obj_ref = ObjectRef.parse(item.name)
-            if i == 0:
-                # latest version may be a deletion
-                if obj_ref.tail == 'DELETE':
-                    # the delete version tombstone row will linger for reclaim
-                    # age in case other rows turn up for older versions.
-                    self._delete_item(item)
-                continue
-
-            # older versions are cleaned up
-            self._cleanup_obsolete_item(item, obj_ref)
-
-    def _audit_retained_version(self, items):
-        self.debug('_audit_retained_version %s', [item.name for item in items])
-        item_obj_refs = [(item, ObjectRef.parse(item.name)) for item in items]
-        if any(obj_ref.tail == 'DELETE' for item, obj_ref in item_obj_refs):
-            for item, obj_ref in item_obj_refs:
-                self._cleanup_obsolete_item(item, obj_ref)
-
-    def _audit_item(self, item, obj_ref):
-        # TODO: iterate over batches...
-        obj_id = HistoryId.parse(obj_ref.obj_id)
-        prefix_obj_ref = ObjectRef(obj_ref.user_name,
-                                   obj_id.serialize(prefix_only=True))
-        item_versions = self._get_items_with_prefix(
-            prefix_obj_ref.serialize(), limit=1000, include_deleted=None)
-        if not item_versions:
-            # possible if racing with replicator?
-            return
-
-        if obj_id.null:
-            self._audit_null_version(item_versions)
+            child_container = self.broker.container
+        account = self.broker.account.lstrip('.')
+        try:
+            self.client.delete_object(account, child_container, child)
+            self.increment('marked')
+        except Exception as err:  # noqa
+            self.increment('errors')
+            self.warning('Failed to delete child %s: %s', item, err)
         else:
-            self._audit_retained_version(item_versions)
+            self._complete_item(item, self.ts_audit)
+
+    def _audit_item(self, item):
+        if item.systags.get('child'):
+            return self._cleanup_obsolete_item(item)
+        else:
+            self.increment('noop')
+            return None
 
 
 class MpuPartMarkerAuditor(BaseMpuAuditor):
     resource_type = 'part'
 
-    def _delete_marker(self, marker_item):
-        # TODO: do we do this even if we didn't find any part rows yet?
-        # Delete the marker now so that it will eventually be reclaimed. We
-        # can still find the marker row for subsequent checks until it is
-        # reclaimed.
-        # Note: Delete the marker by applying an offset to its data_timestamp.
-        # There may be a version of the marker at a later data_timestamp which
-        # has not yet been merged into this DB and must be merged and processed
-        # independently, for example a marker due to a version object being
-        # deleted.
-        # Note: This deletion will be replicated to other DB replicas which
-        # may have not yet had an undeleted marker row. The auditor may
-        # have already passed over the matching resource row in the other
-        # DBs, and so will never detect the marked resource, because the
-        # auditor only inspects rows once and does not inspect deleted
-        # rows. This is OK because the matching resource was either
-        # detected by the auditor on this cycle of this DB, or it will be
-        # replicated to this DB from the other DBs and detected on a
-        # subsequent cycle of this DB.
-        # TODO: we could make the auditor process deleted marker rows so
-        #   that other DBs in the state described in the above note would
-        #   detect the marked resource. That would also mean that auditors
-        #   might process each marker twice in each DB, particularly this
-        #   DB: first as an undeleted row and then in a subsequent cycle as
-        #   a deleted row. Apart from incurring extra work, that would be
-        #   ok. I'm not yet sure if that redundancy is necessary, or
-        #   desirable.
-        self.debug('deleting marker %s/%s',
-                   self.broker.container, marker_item.name)
-        ts_delete = marker_item.data_timestamp
-        ts_delete.offset += 1
-        headers = {'X-Timestamp': ts_delete.internal}
-        self.client.delete_object(
-            self.broker.account, self.broker.container, marker_item.name,
-            headers=headers)
-
-    def _find_orphans(self, marker_item, marker_name):
+    def _find_orphans(self, marker_item, prefix):
         # TODO: prefix query may scoop up some alien objects??
         #   need to check that each orphan is an MPU resource
-        prefix = marker_name.serialize(drop_tail=True)
         return [
             item for item in
-            self._get_items_with_prefix(prefix, limit=1000)
+            self._get_items_with_prefix(prefix, limit=1000, include_states={0})
             if item.name != marker_item.name]
 
-    def _delete_resources(self, marker_item, marker_name):
-        orphan_parts = self._find_orphans(marker_item, marker_name)
+    def _delete_resources(self, marker_item, prefix):
+        orphan_parts = self._find_orphans(marker_item, prefix)
         err_to_raise = None
         for orphan in orphan_parts:
             self.debug('deleting part %s', orphan.name)
@@ -395,49 +306,33 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
         if err_to_raise:
             raise err_to_raise
 
-    def _process_marker(self, marker_item, marker_name):
+    def _process_marker(self, marker_item):
         try:
-            self._delete_resources(marker_item, marker_name)
+            child_prefix = marker_item.systags.get('child_prefix')
+            if child_prefix:
+                self._delete_resources(marker_item, unquote(child_prefix))
+            else:
+                self.increment('noop')
         except UnexpectedResponse:
-            self._bump_item(marker_item)
+            self.warning('failed to delete resources %s', marker_item.name)
         except Exception as err:  # noqa
             self.exception('Error deleting resources: %s', err)
-            self._bump_item(marker_item)
         else:
-            if not marker_item.deleted:
+            if marker_item.deleted != 1:
                 try:
-                    self._delete_marker(marker_item)
+                    self._complete_item(marker_item, ts=self.ts_audit)
                 except Exception as err:  # noqa
                     self.warning('Error deleting marker: %s', err)
-                    self._bump_item(marker_item)
 
-    def _audit_item(self, item, obj_ref):
-        # split name/<part_number> or name/delete-marker
-        if obj_ref.tail == MPU_DELETED_MARKER_SUFFIX:
-            self.debug('found marker %s %s', item.name, item.content_type)
-            self.increment('marker')
-            self._process_marker(item, obj_ref)
-        else:
-            self.debug('found resource %s', item.name)
-            # Look for a potentially deleted marker in a previous or later row.
-            # TODO: try to make this more efficient.
-            #   If we find one we'll do another DB query to find all matching
-            #   resources, but for manifest audit we already have the single
-            #   expected manifest item. Also, when we expect multiple matching
-            #   resources, we could just do one query now for all matches and
-            #   look in the results for a marker.
-            marker_ref = obj_ref.clone()
-            marker_ref.tail = MPU_DELETED_MARKER_SUFFIX
-            marker_item = self._get_item_with_prefix(str(marker_ref),
-                                                     include_deleted=None)
-            if marker_item:
-                self._process_marker(marker_item, marker_ref)
-
-        return False
+    def _audit_item(self, item):
+        self.debug('found marker %s %s', item.name, item.content_type)
+        self.increment('marker')
+        self._process_marker(item)
 
 
 class MpuSessionAuditor(BaseMpuAuditor):
     resource_type = 'session'
+    audit_table = 'object'
 
     def __init__(self, conf, client, logger, broker, user_container):
         super().__init__(conf, client, logger, broker, user_container)
@@ -469,7 +364,6 @@ class MpuSessionAuditor(BaseMpuAuditor):
                 session.set_completed(Timestamp(now))
                 return
         except UnexpectedResponse:
-            self._bump_item(session)
             return
 
         if ctype_age < self.config.completing_period:
@@ -492,25 +386,23 @@ class MpuSessionAuditor(BaseMpuAuditor):
                 return
         except UnexpectedResponse:
             # can't be certain about the symlink so defer and revisit
-            self._bump_item(session)
             return
 
         if ctype_age > self.config.purge_delay:
             # time to clean-up everything
-            marker_ref = obj_ref.clone()
-            marker_ref.tail = MPU_DELETED_MARKER_SUFFIX
             try:
                 self.debug('deleting aborted session %s', session.name)
-                self._put_delete_marker(marker_ref.serialize())
+                lifeline_name = '%s/%s/' % (obj_ref.user_name, obj_ref.obj_id)
+                account = self.broker.account.lstrip('.')
+                self.client.delete_object(
+                    account, self.parts_container, lifeline_name)
                 self._delete_session(session)
             except Exception as err:  # noqa
                 self.warning('Failed to delete aborted session %s: %s',
                              session.name, err)
-                self._bump_item(session)
         else:
             # recheck later
             self.debug('aborted session deferred (age=%s)', ctype_age)
-            self._bump_item(session)
 
     def _audit_completed_session(self, session, obj_ref):
         try:
@@ -519,9 +411,9 @@ class MpuSessionAuditor(BaseMpuAuditor):
         except Exception as err:  # noqa
             self.warning('Failed to prune completed session %s: %s',
                          session.name, err)
-            self._bump_item(session)
 
-    def _audit_item(self, item, obj_ref):
+    def _audit_item(self, item):
+        obj_ref = ObjectRef.parse(item.name)
         session = MPUSession(**dict(item))
         if session.is_completing:
             self._audit_completing_session(session, obj_ref)
@@ -558,14 +450,15 @@ class MpuAuditor:
         elif reserved_prefix == 'mpu_sessions':
             mpu_auditor_class = MpuSessionAuditor
             user_container = container
-        elif reserved_prefix == 'history':
+        elif reserved_prefix == 'versions':
             mpu_auditor_class = MpuHistoryAuditor
             user_container = container
         elif broker.path.endswith('+segments'):
             mpu_auditor_class = MpuPartMarkerAuditor
             user_container = broker.container[:-1 * len('+segments')]
         else:
-            return
+            mpu_auditor_class = MpuHistoryAuditor
+            user_container = container
 
         mpu_auditor = mpu_auditor_class(
             self.config, self.client, self.logger, broker, user_container)

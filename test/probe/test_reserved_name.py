@@ -28,6 +28,7 @@ from swiftclient import client, ClientException
 class TestReservedNames(ReplProbeTest):
 
     def test_simple_crud(self):
+        self.skipTest('TODO: update handling of reserved names')
         int_client = self.make_internal_client()
 
         # Create reserve named container

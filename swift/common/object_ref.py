@@ -12,7 +12,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from swift.common.request_helpers import split_reserved_name
 from swift.common.utils import RESERVED, Timestamp
 
 
@@ -144,6 +143,7 @@ class HistoryId(BaseObjectId):
         is enabled.
     """
     NULL_AFFIX = '-null-'
+    _default = None
 
     def __init__(self, timestamp, null=False):
         super().__init__(timestamp)
@@ -197,6 +197,12 @@ class HistoryId(BaseObjectId):
             inv_timestamp = params[0]
         return cls(~Timestamp(inv_timestamp), null=null)
 
+    @classmethod
+    def default(cls):
+        if cls._default is None:
+            cls._default = cls(Timestamp.max(), null=True)
+        return cls._default
+
 
 class ObjectRef:
     """
@@ -222,13 +228,13 @@ class ObjectRef:
     # TODO: the reserved 0x00 character doesn't play well with sqlite3 cli
     # https://www.sqlite.org/nulinstr.html
     # is there a better way to delimit the user name from the object id?
-    DELIMITER = RESERVED
-    TAIL_DELIMITER = '/'
+    DELIMITER = '/'
 
-    def __init__(self, user_name, obj_id=None, tail=None):
+    def __init__(self, user_name, obj_id=None, tail=None, reserved=False):
         self.user_name = user_name
         self.obj_id = str(obj_id) if obj_id else None
         self.tail = tail
+        self.reserved = reserved
 
     def __eq__(self, other):
         return isinstance(other, ObjectRef) and str(other) == str(self)
@@ -236,12 +242,16 @@ class ObjectRef:
     def clone(self):
         return ObjectRef(self.user_name, self.obj_id, self.tail)
 
+    @property
+    def _prefix(self):
+        return RESERVED if self.reserved else ''
+
     def serialize(self, drop_tail=False):
-        val = self.DELIMITER + self.user_name
+        val = self.basename
         if self.obj_id:
-            val = val + self.DELIMITER + self.obj_id
+            val += (self.DELIMITER + self.obj_id)
             if self.tail is not None and not drop_tail:
-                val = val + self.TAIL_DELIMITER + self.tail
+                val += (self.DELIMITER + self.tail)
         return val
 
     def __str__(self):
@@ -249,14 +259,15 @@ class ObjectRef:
 
     @property
     def basename(self):
-        return self.DELIMITER + self.user_name
+        return self._prefix + self.user_name
 
     @classmethod
     def _parse(cls, name):
-        name, rest = split_reserved_name(name, maxsplit=1)
-        uid_str, delimiter, tail = rest.partition(cls.TAIL_DELIMITER)
+        reserved = name.startswith(RESERVED)
+        name, _, rest = name[1 if reserved else 0:].partition(cls.DELIMITER)
+        uid_str, delimiter, tail = rest.partition(cls.DELIMITER)
         tail = tail if delimiter else None
-        return cls(name, uid_str, tail)
+        return cls(name, obj_id=uid_str, tail=tail, reserved=reserved)
 
     @classmethod
     def parse(cls, name):

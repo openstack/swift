@@ -32,6 +32,8 @@ import pickle
 import json
 import itertools
 
+import eventlet
+
 from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
     merge_item_with_existing, UNSHARDED, SHARDING, SHARDED, \
@@ -43,7 +45,7 @@ from swift.common.request_helpers import get_reserved_name
 from swift.common.utils.timestamp import NormalTimestamp, Timestamp, \
     encode_timestamps
 from swift.common.utils import hash_path, ShardRange, make_db_file_path, md5, \
-    ShardRangeList, Namespace, MD5_OF_EMPTY_STRING
+    ShardRangeList, Namespace, MD5_OF_EMPTY_STRING, quote
 from swift.common.storage_policy import POLICIES
 
 from unittest import mock
@@ -51,7 +53,7 @@ from unittest import mock
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, with_tempdir, mock_timestamp_now,
                        mock_normal_timestamp_now, BaseUnitTestCase,
-                       check_db_connections_get_closed)
+                       check_db_connections_get_closed, mock_execute)
 from test.unit.common import test_db
 
 
@@ -59,7 +61,7 @@ class TestContainerBroker(test_db.TestDbBase):
     """Tests for ContainerBroker"""
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
                           'sqlite_sequence', 'policy_stat',
-                          'container_info', 'shard_range'}
+                          'container_info', 'shard_range', 'action'}
     expected_object_table_columns = {'name', 'created_at', 'size',
                                      'content_type', 'etag', 'deleted',
                                      'storage_policy_index', 'systags'}
@@ -67,6 +69,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def setUp(self):
         super(TestContainerBroker, self).setUp()
+        self.ts_init = self.ts()
+        self.broker = self._make_broker(self.ts_init)
 
     def _make_broker(self, ts_init):
         broker = ContainerBroker(self.get_db_path(), account='a',
@@ -2996,10 +3000,11 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.initialize(self.ts().internal, 0)
 
         broker.put_object(
-            'foo', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
+            'foo', self.ts().internal, 0,
+            'text/plain', 0, POLICIES.default.idx)
         broker.put_object(
-            get_reserved_name('foo'), self.ts().internal, 0, 0, 0,
-            POLICIES.default.idx)
+            get_reserved_name('foo'), self.ts().internal, 0,
+            'text/plain', 0, POLICIES.default.idx)
 
         listing = broker.list_objects_iter(100, None, None, '', '')
         self.assertEqual([row[0] for row in listing], ['foo'])
@@ -3681,6 +3686,601 @@ class TestContainerBroker(test_db.TestDbBase):
              ('c', 'a=\N{SNOWMAN}')],
             sorted([(rec['name'], rec['systags']) for rec in items]))
 
+    def _do_merge_items(self, objs, ts_merge):
+        shuffled_objs = random.sample(objs, len(objs))
+        for name, ts, etag, state, systags, spi in shuffled_objs:
+            self.broker.put_object(name, ts.internal, 0, 'text/plain', etag,
+                                   deleted=state, systags=systags,
+                                   storage_policy_index=spi)
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=ts_merge):
+            self.broker._commit_puts()
+        items = sorted([(rec['name'], Timestamp(rec['created_at']),
+                         rec['etag'], rec['deleted'], rec['systags'],
+                         rec['storage_policy_index'])
+                        for rec in self.broker.get_items_since(-1, 1000)])
+        actions = sorted([(rec['name'], Timestamp(rec['created_at']),
+                           rec['etag'], rec['deleted'], rec['systags'],
+                           rec['storage_policy_index'])
+                          for rec in self.broker.get_actions(-1, 1000)])
+        return items, actions
+
+    def test_merge_items_overwrite_adds_relic_and_action(self):
+        ts = [self.ts() for _ in range(4)]
+        merge1 = [
+            ('a', ts[1], 'etag0', 0, 'relic_id=my-uid0&foo=bar', 0),
+            ('a', ts[2], 'etag1', 0, 'relic_id=my-uid1', 0),
+        ]
+        exp_relics = [
+            ('a\x00my-uid0', ts[1], 'etag0', 2, 'relic_id=my-uid0&foo=bar', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[3], 'etag0', 0, 'relic_id=my-uid0&foo=bar', 0)
+        ]
+        expected = merge1[1:] + exp_relics
+        items, actions = self._do_merge_items(merge1, ts[3])
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_overwrite_adds_relic_and_action_utf8_relic_id(self):
+        ts = [self.ts() for _ in range(4)]
+        systags = 'relic_id=%s' % quote('\N{SNOWMAN}')
+        merge1 = [
+            ('a', ts[1], 'etag0', 0, systags, 0),
+            ('a', ts[2], 'etag1', 0, None, 0),
+        ]
+        exp_relics = [
+            ('a\x00\N{SNOWMAN}', ts[1], 'etag0', 2, systags, 0)
+        ]
+        exp_actions = [
+            ('a\x00\N{SNOWMAN}', ts[3], 'etag0', 0, systags, 0)
+        ]
+        expected = merge1[1:] + exp_relics
+        items, actions = self._do_merge_items(merge1, ts[3])
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_dup_overwrite_adds_only_one_relic_and_action(self):
+        ts = [self.ts() for _ in range(5)]
+        merge1 = [
+            ('a', ts[1], 'etag0', 0, 'relic_id=my-uid0', 0),
+            ('a', ts[2], 'etag1', 0, 'relic_id=my-uid1', 0),
+            ('a', ts[3], 'etag2', 0, 'relic_id=my-uid1', 0),
+        ]
+        exp_relics = [
+            ('a\x00my-uid0', ts[1], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[4], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        expected = merge1[2:] + exp_relics
+        items, actions = self._do_merge_items(merge1, ts[4])
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_overwrite_adds_relic_and_action_older_in_db(self):
+        ts = [self.ts() for _ in range(4)]
+        merge0 = [
+            ('a', ts[0], 'etag0', 0, 'relic_id=my-uid0', 0),
+        ]
+        merge1 = [
+            ('a', ts[2], 'etag1', 0, 'relic_id=my-uid1', 0),
+        ]
+        exp_relics = [
+            ('a\x00my-uid0', ts[0], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[3], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        items, actions = self._do_merge_items(merge0, ts[1])
+        self.assertEqual(merge0, items)
+        self.assertEqual([], actions)
+        items, actions = self._do_merge_items(merge1, ts[3])
+        expected = merge1 + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_overwrite_adds_relic_and_action_newer_in_db(self):
+        ts = [self.ts() for _ in range(4)]
+        merge0 = [
+            ('a', ts[1], 'etag1', 0, 'relic_id=my-uid1', 0),
+        ]
+        merge1 = [
+            ('a', ts[0], 'etag0', 0, 'relic_id=my-uid0', 0),
+        ]
+        exp_relics = [
+            ('a\x00my-uid0', ts[0], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[3], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        items, actions = self._do_merge_items(merge0, ts[2])
+        self.assertEqual(merge0, items)
+        self.assertEqual([], actions)
+        items, actions = self._do_merge_items(merge1, ts[3])
+        expected = merge0 + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_tombstone_adds_relic_and_action(self):
+        ts = [self.ts() for _ in range(4)]
+        merge1 = [
+            ('a', ts[1], 'etag0', 0, 'relic_id=my-uid0', 0),
+            ('a', ts[2], 'noetag', 1, None, 0),
+        ]
+        exp_relics = [
+            ('a\x00my-uid0', ts[1], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[2], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        items, actions = self._do_merge_items(merge1, ts[2])
+        expected = merge1[1:] + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_overwrite_dup_older_adds_one_relic_and_action(self):
+        ts = [self.ts() for _ in range(4)]
+        merge0 = [
+            ('a', ts[0], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        merge1 = [
+            ('a', ts[0], 'etag0', 0, 'relic_id=my-uid0', 0),
+            ('a', ts[2], 'etag1', 0, 'relic_id=my-uid1', 0),
+        ]
+        exp_relics = [
+            ('a\x00my-uid0', ts[0], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[3], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        items, actions = self._do_merge_items(merge0, ts[0])
+        self.assertEqual(merge0, items)
+        self.assertEqual([], actions)
+        items, actions = self._do_merge_items(merge1, ts[3])
+        expected = merge1[1:] + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_no_relic_and_action_for_identical_variants(self):
+        ts = [self.ts() for _ in range(3)]
+        merge1 = [
+            # somehow there's two identical updates
+            ('a', ts[1], 'etag0', 0, 'relic_id=my-uid0&foo=bar', 0),
+            ('a', ts[1], 'etag0', 0, 'relic_id=my-uid0&foo=bar', 0),
+        ]
+        items, actions = self._do_merge_items(merge1, ts[2])
+        expected = merge1[-1:]
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual([], actions)
+
+    def test_merge_items_merging_relic_adds_action(self):
+        # verify that relics are merged and create an action
+        ts = [self.ts() for _ in range(3)]
+        merge1 = [
+            ('a\x00my-uid0', ts[1], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[2], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        expected = merge1
+        items, actions = self._do_merge_items(merge1, ts[2])
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_merging_dup_relic_does_not_update_action(self):
+        # verify that relics are merged and create an action
+        ts = [self.ts() for _ in range(3)]
+        merge0 = [
+            ('a\x00my-uid0', ts[0], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        merge1 = [
+            ('a\x00my-uid0', ts[0], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        # the action is created during the first merge and not updated by the
+        # second because the second does not update the relic
+        exp_actions = [
+            ('a\x00my-uid0', ts[1], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        items, actions = self._do_merge_items(merge0, ts[1])
+        self.assertEqual(merge0, items)
+        self.assertEqual(exp_actions, actions)
+        items, actions = self._do_merge_items(merge1, ts[2])
+        expected = merge1
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_merges_relic_tombstone(self):
+        # verify that relics can be deleted without creating another relic
+        ts = [self.ts() for _ in range(5)]
+        merge0 = [
+            ('a\x00my-uid0', ts[0], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[1], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        merge1 = [
+            ('a\x00my-uid0', ts[2], 'noetag', 1, None, 0)
+        ]
+        items, actions = self._do_merge_items(merge0, ts[1])
+        self.assertEqual(merge0, items)
+        self.assertEqual(exp_actions, actions)
+        items, actions = self._do_merge_items(merge1, ts[3])
+        expected = merge1
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_merges_relic_overwritten(self):
+        # verify that relics can be overwritten without creating another relic
+        # note: unexpected case
+        ts = [self.ts() for _ in range(4)]
+        merge0 = [
+            ('a\x00my-uid0', ts[0], 'etag0', 2, 'relic_id=my-uid0', 0)
+        ]
+        merge1 = [
+            ('a\x00my-uid0', ts[2], 'etag1', 2, 'relic_id=my-uid0&foo=bar', 0),
+        ]
+        exp_actions = [
+            ('a\x00my-uid0', ts[1], 'etag0', 0, 'relic_id=my-uid0', 0)
+        ]
+        items, actions = self._do_merge_items(merge0, ts[1])
+        self.assertEqual(merge0, items)
+        self.assertEqual(exp_actions, actions)
+        items, actions = self._do_merge_items(merge1, ts[3])
+        expected = merge1
+        # action is updated because the relic was updated in db
+        exp_actions = [
+            ('a\x00my-uid0', ts[3], 'etag1', 0, 'relic_id=my-uid0&foo=bar', 0)
+        ]
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    @mock_execute('swift.container.backend.tpool.execute')
+    def _do_test_merge_items_version_overwrite_unversions_in_batch(self, obj):
+        ts = [self.ts() for _ in range(6)]
+        systags1 = 'relic_id=my-uid1'
+        systags2 = 'relic_id=my-uid%s' % quote('\N{SNOWMAN}')
+        systags3 = 'relic_id=my-uid3'
+        systags4 = 'version=v4'
+        merge1 = [
+            (obj, ts[1], 'etag1', 0, systags1, 0),
+            (obj, ts[2], 'etag2', 0, systags2, 0),
+            (obj, ts[3], 'etag3', 0, systags3, 0),
+            (obj, ts[4], 'etag4', 0, systags4, 0),
+        ]
+        exp_unversions = [
+            ('%s\x00' % obj, ts[3], 'etag3', 3, systags3, 0)
+        ]
+        exp_relics = [
+            ('%s\x00my-uid1' % obj, ts[1], 'etag1', 2, systags1, 0),
+            ('%s\x00my-uid\N{SNOWMAN}' % obj, ts[2], 'etag2', 2, systags2, 0)
+        ]
+        exp_actions = [
+            ('%s\x00my-uid1' % obj, ts[4], 'etag1', 0, systags1, 0),
+            ('%s\x00my-uid\N{SNOWMAN}' % obj, ts[4], 'etag2', 0, systags2, 0)
+        ]
+        expected = merge1[-1:] + exp_unversions + exp_relics
+        items, actions = self._do_merge_items(merge1, ts[4])
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_version_overwrite_unversions_in_batch(self):
+        self._do_test_merge_items_version_overwrite_unversions_in_batch('obj')
+
+    def test_merge_items_version_overwrite_unversions_in_batch_reserved(self):
+        self._do_test_merge_items_version_overwrite_unversions_in_batch(
+            '\x00obj\x00version')
+
+    @mock_execute('swift.container.backend.tpool.execute')
+    def test_merge_items_version_overwrite_in_batch_unversions_in_db(self):
+        ts = [self.ts() for _ in range(6)]
+        systags1 = 'relic_id=my-uid1'
+        systags2 = 'relic_id=my-uid%s' % quote('\N{SNOWMAN}')
+        systags3 = 'relic_id=my-uid3'
+        systags4 = 'version=v4'
+        merge0 = [
+            ('a', ts[1], 'etag1', 0, systags1, 0),
+            ('a', ts[2], 'etag2', 0, systags2, 0),
+        ]
+        merge1 = [
+            ('a', ts[3], 'etag3', 0, systags3, 0),
+            ('a', ts[4], 'etag4', 0, systags4, 0),
+        ]
+        items, actions = self._do_merge_items(merge0, ts[2])
+        exp_relics = [('a\x00my-uid1', ts[1], 'etag1', 2, systags1, 0)]
+        exp_actions = [('a\x00my-uid1', ts[2], 'etag1', 0, systags1, 0)]
+        expected = merge0[-1:] + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+        items, actions = self._do_merge_items(merge1, ts[4])
+        exp_unversions = [('a\x00', ts[3], 'etag3', 3, systags3, 0)]
+        exp_relics = [
+            ('a\x00my-uid1', ts[1], 'etag1', 2, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[2], 'etag2', 2, systags2, 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid1', ts[2], 'etag1', 0, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[4], 'etag2', 0, systags2, 0)
+        ]
+        expected = merge1[-1:] + exp_unversions + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    @mock_execute('swift.container.backend.tpool.execute')
+    def test_merge_items_version_overwrite_in_db_unversions_in_batch(self):
+        ts = [self.ts() for _ in range(7)]
+        systags1 = 'relic_id=my-uid1'
+        systags2 = 'relic_id=my-uid%s' % quote('\N{SNOWMAN}')
+        systags3 = 'relic_id=my-uid3'
+        systags4 = 'version=v4'
+        merge0 = [
+            ('a', ts[2], 'etag2', 0, systags2, 0),
+            ('a', ts[4], 'etag4', 0, systags4, 0),
+        ]
+        merge1 = [
+            ('a', ts[1], 'etag1', 0, systags1, 0),
+            ('a', ts[3], 'etag3', 0, systags3, 0),
+        ]
+
+        items, actions = self._do_merge_items(merge0, ts[5])
+        exp_unversions = [('a\x00', ts[2], 'etag2', 3, systags2, 0)]
+        expected = merge0[-1:] + exp_unversions
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual([], actions)
+
+        items, actions = self._do_merge_items(merge1, ts[6])
+        exp_unversions = [('a\x00', ts[3], 'etag3', 3, systags3, 0)]
+        exp_relics = [
+            ('a\x00my-uid1', ts[1], 'etag1', 2, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[2], 'etag2', 2, systags2, 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid1', ts[6], 'etag1', 0, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[6], 'etag2', 0, systags2, 0)
+        ]
+        expected = merge0[-1:] + exp_unversions + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    @mock_execute('swift.container.backend.tpool.execute')
+    def test_merge_items_version_overwrite_tombstone_in_batch(self):
+        ts = [self.ts() for _ in range(6)]
+        systags1 = 'relic_id=my-uid1'
+        systags2 = 'relic_id=my-uid%s' % quote('\N{SNOWMAN}')
+        systags4 = 'version=v4'
+        merge1 = [
+            ('a', ts[1], 'etag1', 0, systags1, 0),
+            ('a', ts[2], 'etag2', 0, systags2, 0),
+            ('a', ts[3], 'noetag', 1, None, 0),
+            ('a', ts[4], 'etag4', 0, systags4, 0),
+        ]
+        items, actions = self._do_merge_items(merge1, ts[5])
+        exp_unversions = [('a\x00', ts[3], 'noetag', 3, None, 0)]
+        exp_relics = [
+            ('a\x00my-uid1', ts[1], 'etag1', 2, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[2], 'etag2', 2, systags2, 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid1', ts[5], 'etag1', 0, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[5], 'etag2', 0, systags2, 0)
+        ]
+        expected = merge1[-1:] + exp_unversions + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    @mock_execute('swift.container.backend.tpool.execute')
+    def test_merge_items_version_overwrite_tombstone_in_db(self):
+        ts = [self.ts() for _ in range(6)]
+        systags1 = 'relic_id=my-uid1'
+        systags2 = 'relic_id=my-uid%s' % quote('\N{SNOWMAN}')
+        systags4 = 'version=v4'
+        merge0 = [
+            ('a', ts[1], 'etag1', 0, systags1, 0),
+            ('a', ts[3], 'noetag', 1, None, 0),
+        ]
+        merge1 = [
+            ('a', ts[2], 'etag2', 0, systags2, 0),
+            ('a', ts[4], 'etag4', 0, systags4, 0),
+        ]
+        items, actions = self._do_merge_items(merge0, ts[3])
+        items, actions = self._do_merge_items(merge1, ts[5])
+        exp_unversions = [('a\x00', ts[3], 'noetag', 3, None, 0)]
+        exp_relics = [
+            ('a\x00my-uid1', ts[1], 'etag1', 2, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[2], 'etag2', 2, systags2, 0)
+        ]
+        exp_actions = [
+            ('a\x00my-uid1', ts[3], 'etag1', 0, systags1, 0),
+            ('a\x00my-uid\N{SNOWMAN}', ts[5], 'etag2', 0, systags2, 0)
+        ]
+        expected = merge1[-1:] + exp_unversions + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    @mock_execute('swift.container.backend.tpool.execute')
+    def test_merge_items_version_overwrite_version_in_batch(self):
+        # version does not cause relic of another version
+        ts = [self.ts() for _ in range(6)]
+        systags1 = 'relic_id=my-uid1'
+        systags2 = 'relic_id=my-uid%s' % quote('\N{SNOWMAN}')
+        systags3 = 'relic_id=my-uid3&version=v3'
+        systags4 = 'relic_id=my-uid4&version=v4'
+        merge1 = [
+            ('a', ts[1], 'etag1', 0, systags1, 0),
+            ('a', ts[2], 'etag2', 0, systags2, 0),
+            ('a', ts[3], 'etag3', 0, systags3, 0),
+            ('a', ts[4], 'etag4', 0, systags4, 0),
+        ]
+        items, actions = self._do_merge_items(merge1, ts[5])
+        exp_unversions = [('a\x00', ts[2], 'etag2', 3, systags2, 0)]
+        exp_relics = [('a\x00my-uid1', ts[1], 'etag1', 2, systags1, 0)]
+        exp_actions = [('a\x00my-uid1', ts[5], 'etag1', 0, systags1, 0)]
+        expected = merge1[-1:] + exp_unversions + exp_relics
+        self.assertEqual(sorted(expected), items)
+        self.assertEqual(exp_actions, actions)
+
+    def test_merge_items_child_finds_relic_in_db_and_creates_action(self):
+        # verify that if a child row is merged when there is already a matching
+        # relic then an action is also added
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(self.ts().internal, 0)
+        ts = [self.ts() for _ in range(8)]
+
+        # merge overwrite and relic...
+        relic = ('a/123/\x00my-uid', ts[0], 'etag0', 2, 'relic_id=my-uid')
+        obj = ('a/123/', ts[1], 'etag1', 0, None)
+        for name, timestamp, etag, state, systags in [obj, relic]:
+            broker.put_object(name, timestamp.internal, 0, 'text/plain', etag,
+                              deleted=state, systags=systags)
+        ts_merge1 = ts[2]
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=ts_merge1):
+            broker._commit_puts()
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            sorted([obj, relic]),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]))
+        # an action is created...
+        exp_action = ('a/123/\x00my-uid', ts_merge1, 'etag0', 0,
+                      'relic_id=my-uid')
+        items = broker.get_actions(-1, 1000)
+        self.assertEqual(
+            sorted([exp_action]),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]), items)
+
+        # merge children...
+        children1 = [
+            ('a/123/000002', ts[3], 'etag2', 0, 'parent=a/123/\x00my-uid'),
+            ('a/123/000003', ts[4], 'etag3', 0, 'parent=a/123/\x00my-uid'),
+        ]
+        for name, timestamp, etag, state, systags in children1:
+            broker.put_object(name, timestamp.internal, 0, 'text/plain', etag,
+                              deleted=state, systags=systags)
+        ts_merge2 = ts[5]
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=ts_merge2):
+            broker._commit_puts()
+
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            sorted([obj, relic] + children1),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]))
+        # expect action to be updated...
+        exp_action = ('a/123/\x00my-uid', ts_merge2, 'etag0', 0,
+                      'relic_id=my-uid')
+        items = broker.get_actions(-1, 1000)
+        self.assertEqual(
+            sorted([exp_action]),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]), items)
+
+        # merge more children...
+        children2 = [
+            ('a/123/000004', ts[5], 'etag4', 0, 'parent=a/123/\x00my-uid'),
+            ('a/123/000005', ts[6], 'etag5', 0, 'parent=a/123/\x00my-uid'),
+        ]
+        for name, timestamp, etag, state, systags in children2:
+            broker.put_object(name, timestamp.internal, 0, 'text/plain', etag,
+                              deleted=state, systags=systags)
+        ts_merge3 = ts[7]
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=ts_merge3):
+            broker._commit_puts()
+
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            sorted([obj, relic] + children1 + children2),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]), items)
+        # expect action to be updated...
+        items = broker.get_actions(-1, 1000)
+        exp_action = ('a/123/\x00my-uid', ts_merge3, 'etag0', 0,
+                      'relic_id=my-uid')
+        self.assertEqual(
+            sorted([exp_action]),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]), items)
+
+    def test_merge_items_child_finds_relic_in_batch_and_creates_action(self):
+        # verify that if a child row is merged when there a matching relic in
+        # the same merge batch then an action is also added
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(self.ts().internal, 0)
+        ts = [self.ts() for _ in range(6)]
+
+        # merge overwrite, relic and children in single batch...
+        relic = ('a/123/\x00my-uid', ts[0], 'etag0', 2,
+                 'relic_id=my-uid')
+        obj = ('a/123/', ts[1], 'etag1', 0, None)
+        child_systags = 'parent=a/123/\x00my-uid'
+        children = [
+            ('a/123/000002', ts[2], 'etag2', 0, child_systags),
+            ('a/123/000003', ts[3], 'etag3', 0, child_systags),
+        ]
+        for name, timestamp, etag, state, systags in [relic, obj] + children:
+            broker.put_object(name, timestamp.internal, 0, 'text/plain', etag,
+                              deleted=state, systags=systags)
+        ts_merge = ts[4]
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=ts_merge):
+            broker._commit_puts()
+
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            sorted([obj, relic] + children),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]))
+        # expect action to be added...
+        exp_action = ('a/123/\x00my-uid', ts_merge, 'etag0', 0,
+                      'relic_id=my-uid')
+        items = broker.get_actions(-1, 1000)
+        self.assertEqual(
+            sorted([exp_action]),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]))
+
+    def test_merge_items_child_finds_no_relic_creates_no_action(self):
+        broker = ContainerBroker(self.get_db_path(), account='a',
+                                 container='c')
+        broker.initialize(self.ts().internal, 0)
+        ts = [self.ts() for _ in range(4)]
+
+        # merge overwrite, relic and children in single batch...
+        parent = ('a/123/', ts[0], 'etag1', 0, 'relic_id=my-uid')
+        children = [
+            ('a/123/000002', ts[1], 'etag2', 0, 'parent=a/123/\x00my-uid'),
+            ('a/123/000003', ts[2], 'etag3', 0, 'parent=a/123/\x00my-uid'),
+        ]
+        for name, timestamp, etag, state, systags in [parent] + children:
+            broker.put_object(name, timestamp.internal, 0, 'text/plain', etag,
+                              deleted=state, systags=systags)
+        ts_merge = ts[3]
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=ts_merge):
+            broker._commit_puts()
+
+        items = broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            sorted([parent] + children),
+            sorted(
+                [(rec['name'], Timestamp(rec['created_at']), rec['etag'],
+                  rec['deleted'], rec['systags']) for rec in items]))
+        self.assertFalse(broker.get_actions(-1, 1000))
+
     @with_tempdir
     def test_merge_items_is_green(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
@@ -3691,9 +4291,28 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.put_object('b', self.ts().internal, 0, 'text/plain',
                           MD5_OF_EMPTY_STRING)
 
-        with mock.patch('swift.container.backend.tpool') as mock_tpool:
+        with mock.patch('swift.container.backend.tpool.execute',
+                        wraps=eventlet.tpool.execute) as mock_execute:
             broker.get_info()
-        mock_tpool.execute.assert_called_once()
+        exp_items = [{'name': 'b',
+                      'created_at': mock.ANY,
+                      'size': 0,
+                      'content_type': 'text/plain',
+                      'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                      'deleted': 0,
+                      'storage_policy_index': 0,
+                      'ctype_timestamp': None,
+                      'meta_timestamp': None,
+                      'systags': None}]
+        exp_conn = mock.ANY
+        # subclasses of the TestCase may provoke multiple calls to
+        # tpool.execute when handling exceptions and migrating the db; the
+        # point of this test is to establish that tpool is being called at all,
+        # so just check for at least one call...
+        self.assertIn(
+            mock.call(broker._really_really_merge_items, 'object', exp_conn,
+                      exp_items, None),
+            mock_execute.call_args_list)
 
     def test_merge_items_overwrite_unicode(self):
         # test DatabaseBroker.merge_items
@@ -6068,7 +6687,7 @@ class ContainerBrokerMigrationMixin(test_db.TestDbBase):
     expected_object_table_columns = {'name', 'created_at', 'size',
                                      'content_type', 'etag', 'deleted'}
 
-    class OverrideCreateShardRangesTable(object):
+    class OverrideCreateTable(object):
         def __init__(self, func):
             self.func = func
 
@@ -6094,9 +6713,19 @@ class ContainerBrokerMigrationMixin(test_db.TestDbBase):
         self._imported_create_shard_range_table = \
             ContainerBroker.create_shard_range_table
         if 'shard_range' not in self.expected_db_tables:
-            ContainerBroker.create_shard_range_table = \
-                self.OverrideCreateShardRangesTable(
-                    ContainerBroker.create_shard_range_table)
+            p = mock.patch.object(
+                ContainerBroker, 'create_shard_range_table',
+                self.OverrideCreateTable(
+                    ContainerBroker.create_shard_range_table))
+            p.start()
+            self.addCleanup(p.stop)
+        if 'action' not in self.expected_db_tables:
+            p = mock.patch.object(
+                ContainerBroker, 'create_action_table',
+                self.OverrideCreateTable(
+                    ContainerBroker.create_action_table))
+            p.start()
+            self.addCleanup(p.stop)
 
     @classmethod
     @contextmanager
@@ -6108,6 +6737,7 @@ class ContainerBrokerMigrationMixin(test_db.TestDbBase):
             yield ContainerBroker
         finally:
             case.tearDown()
+            case.doCleanups()
 
     def tearDown(self):
         ContainerBroker.create_container_info_table = \
@@ -6426,7 +7056,6 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         ContainerBroker.create_container_info_table = \
             prespi_create_container_info_table
         # initialize an un-migrated database
-        self.ts_init = self.ts()
         self.broker = self._make_broker(self.ts_init)
         self.assert_column_not_in_table(
             self.broker, 'storage_policy_index', 'object')
@@ -7014,6 +7643,69 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
 
 
 class TestCurrentContainerBroker(test_db.TestDbBase):
+    def setUp(self):
+        super().setUp()
+        self.broker = ContainerBroker(
+            self.get_db_path(), account='a', container='c')
+        self.broker.initialize(self.ts().internal, 0)
+
+    def do_test(self, size, state):
+        timestamp = self.ts().internal
+        self.broker.put_object('"{<object \'&\' name>}"', timestamp, size,
+                               'application/x-test',
+                               '5af83e3196bf99f440f31f2e1a6c9afe',
+                               deleted=state)
+        self.broker._commit_puts()
+        with self.broker.get() as conn:
+            actual = [row[:] for row in conn.execute(
+                "SELECT name, created_at, size, etag, deleted FROM object"
+            ).fetchall()]
+        self.assertEqual(
+            [('"{<object \'&\' name>}"', timestamp, size,
+             '5af83e3196bf99f440f31f2e1a6c9afe', state)], actual)
+        return self.broker
+
+    def test_put_object_state_0_overwrites_state_0(self):
+        broker = self.do_test(123, 0)
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(123, broker.get_info()['bytes_used'])
+        broker = self.do_test(456, 0)
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(456, broker.get_info()['bytes_used'])
+
+    def test_put_object_state_1_overwrites_state_0(self):
+        broker = self.do_test(123, 0)
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(123, broker.get_info()['bytes_used'])
+        broker = self.do_test(0, 1)
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+
+    def test_put_object_state_2_overwrites_state_0(self):
+        broker = self.do_test(123, 0)
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(123, broker.get_info()['bytes_used'])
+        # deleted=2 with non-zero size is NOT counted...
+        broker = self.do_test(123, 2)
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+
+    def test_put_object_state_1_overwrites_state_2(self):
+        broker = self.do_test(123, 2)
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+        broker = self.do_test(0, 1)
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+
+    def test_put_object_state_2_overwrites_state_2(self):
+        broker = self.do_test(123, 2)
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+        broker = self.do_test(456, 2)
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+
     def test_merge_items_hidden_row(self):
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
@@ -7204,7 +7896,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
         ts2 = self.ts()
         broker.put_object('o2', ts2.internal, 456, 'text/plain', 'my-etag',
                           storage_policy_index=0, deleted=2,
-                          systags='my-systag')
+                          systags='foo=bar')
         ts3 = self.ts()
         broker.put_object('o3', ts3.internal, 0, 'application/deleted',
                           'noetag', storage_policy_index=0, deleted=1)
@@ -7236,7 +7928,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
         expected = [
             {'name': 'o2', 'created_at': ts2.internal, 'size': 456,
              'content_type': 'text/plain', 'etag': 'my-etag',
-             'storage_policy_index': 0, 'deleted': 2, 'systags': 'my-systag'},
+             'storage_policy_index': 0, 'deleted': 2, 'systags': 'foo=bar'},
         ]
         actual = broker.get_objects(include_states={2})
         self.assertEqual(expected, actual)
@@ -7248,7 +7940,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
              'storage_policy_index': 0, 'deleted': 0, 'systags': None},
             {'name': 'o2', 'created_at': ts2.internal, 'size': 456,
              'content_type': 'text/plain', 'etag': 'my-etag',
-             'storage_policy_index': 0, 'deleted': 2, 'systags': 'my-systag'},
+             'storage_policy_index': 0, 'deleted': 2, 'systags': 'foo=bar'},
             {'name': 'o3', 'created_at': ts3.internal, 'size': 0,
              'content_type': 'application/deleted', 'etag': 'noetag',
              'storage_policy_index': 0, 'deleted': 1, 'systags': None},
@@ -7585,9 +8277,8 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
 
         # this is the expected result of the update
         orig_new_item = dict(new_item)
-        expected = dict(new_item)
+        expected = dict(self.base_new_item)
         expected.update(expected_attrs)
-        expected['data_timestamp'] = new_item['created_at']
 
         try:
             updated_item = merge_item_with_existing(new_item, existing)

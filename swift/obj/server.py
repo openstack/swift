@@ -708,10 +708,10 @@ class ObjectController(BaseStorageServer):
         """
         Applies any overrides to the container update headers.
 
-        Overrides may be in the x-object-sysmeta-container-update- namespace or
-        the x-backend-container-update-override- namespace. The former is
-        preferred and is used by proxy middlewares. The latter is historical
-        but is still used with EC policy PUT requests; for backwards
+        Overrides may be in the x-object-sysmeta-container-update-override-
+        namespace or the x-backend-container-update-override- namespace. The
+        former is preferred and is used by proxy middlewares. The latter is
+        historical but is still used with EC policy PUT requests; for backwards
         compatibility the header names used with EC policy requests have not
         been changed to the sysmeta namespace - that way the EC PUT path of a
         newer proxy will remain compatible with an object server that pre-dates
@@ -1467,6 +1467,8 @@ class ObjectController(BaseStorageServer):
 
             update_headers = HeaderKeyDict(
                 {'x-timestamp': req_timestamp.internal})
+            # apply any container update header overrides sent with request
+            self._check_container_override(update_headers, request.headers)
             self.container_update(
                 'DELETE', account, container, obj, request, update_headers,
                 device, policy)

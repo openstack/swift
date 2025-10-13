@@ -41,7 +41,8 @@ from swift.common.utils import split_path, validate_device_partition, \
     maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
     parse_content_range, csv_append, list_from_csv, Spliterator, quote, \
-    RESERVED, config_true_value, md5, CloseableChain, select_ip_port
+    RESERVED, config_true_value, md5, CloseableChain, select_ip_port, \
+    param_str_to_dict, param_str_from_dict
 from swift.common.wsgi import make_subrequest, make_pre_authed_request
 
 OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
@@ -212,12 +213,12 @@ def validate_internal_obj(account, container, obj):
     if obj and not (account.startswith(AUTO_CREATE_ACCOUNT_PREFIX) or
                     account == MISPLACED_OBJECTS_ACCOUNT):
         _validate_internal_name(obj, 'object')
-        if container.startswith(RESERVED) and not obj.startswith(RESERVED):
-            raise HTTPBadRequest(body='Invalid user-namespace object '
-                                 'in reserved-namespace container')
-        elif obj.startswith(RESERVED) and not container.startswith(RESERVED):
-            raise HTTPBadRequest(body='Invalid reserved-namespace object '
-                                 'in user-namespace container')
+        # if container.startswith(RESERVED) and not obj.startswith(RESERVED):
+        #     raise HTTPBadRequest(body='Invalid user-namespace object '
+        #                          'in reserved-namespace container')
+        # elif obj.startswith(RESERVED) and not container.startswith(RESERVED):
+        #     raise HTTPBadRequest(body='Invalid reserved-namespace object '
+        #                          'in user-namespace container')
 
 
 def get_name_and_placement(request, minsegs=1, maxsegs=None,
@@ -1101,3 +1102,21 @@ def get_heartbeat_response_body(data_format, data_dict, error_list, root_tag):
         '%s, %s\n' % (name, status)
         for name, status in error_list)
     return ''.join(output).encode('utf-8')
+
+
+def update_systags(request, systags):
+    """
+    Update or create the systags header for this request.
+
+    :param request: request object
+    :param systags: systags dict
+    """
+    systag_header = OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX + 'Systags'
+    header_systags = param_str_to_dict(request.headers.get(systag_header))
+    header_systags.update(systags)
+    request.headers[systag_header] = param_str_from_dict(header_systags)
+
+
+def get_systags(request):
+    systag_header = OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX + 'Systags'
+    return param_str_to_dict(request.headers.get(systag_header))

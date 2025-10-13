@@ -32,7 +32,7 @@ from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \
     PreconditionFailed, KeyTooLongError, ErrorResponse
-from swift.container.mpu_auditor import MPU_DELETED_MARKER_SUFFIX
+from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX
 
 
 class ObjectController(Controller):

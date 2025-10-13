@@ -14,7 +14,6 @@
 # limitations under the License.
 import contextlib
 import itertools
-import json
 import os
 import shutil
 import time
@@ -27,14 +26,15 @@ from swift.common.internal_client import InternalClient
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_MARKER_CONTENT_TYPE, MPU_SESSION_CREATED_CONTENT_TYPE, \
     MPU_SESSION_COMPLETED_CONTENT_TYPE, MPU_SESSION_ABORTED_CONTENT_TYPE, \
-    MPU_SESSION_COMPLETING_CONTENT_TYPE, MPUItem
+    MPU_SESSION_COMPLETING_CONTENT_TYPE, normalize_part_number, MPUItem
 from swift.common.middleware.s3api.utils import unique_id
 from swift.common.object_ref import HistoryId, ObjectRef, UploadId
 from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
-    HTTPNotFound, HTTPAccepted, HTTPServerError, wsgi_quote
+    HTTPNotFound, HTTPAccepted, HTTPServerError, wsgi_quote, \
+    HTTPInternalServerError
 from swift.common.utils import md5, Timestamp, decode_timestamps, \
-    encode_timestamps, MD5_OF_EMPTY_STRING, param_str_from_dict
+    encode_timestamps, MD5_OF_EMPTY_STRING, param_str_from_dict, quote
 from swift.container.backend import ContainerBroker
 from swift.container.mpu_auditor import MpuAuditor, yield_item_batches, \
     BaseMpuAuditor, MpuAuditorConfig
@@ -51,11 +51,12 @@ class BaseTestMpuAuditor(unittest.TestCase):
     def setUp(self):
         self.tempdir = mkdtemp()
         self.ts_iter = make_timestamp_iter()
-        self.name_iter = map(lambda x: 'obj%06d', itertools.count())
+        self.name_iter = map(lambda x: 'obj%06d' % x, itertools.count())
         self.logger = debug_logger('mpu-auditor-test')
         self.fake_statsd_client = self.logger.logger.statsd_client
         self.account = 'a'
         self.obj_name = 'obj'
+        self.upload_id = UploadId(next(self.ts_iter))
         self.vers_name = self._create_history_ref(self.obj_name, null=True)
         self.obj_path = '/v1/%s/%s/%s' % (self.account,
                                           self.user_container,
@@ -115,6 +116,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
             'x-etag': obj['etag'],
             'x-size': obj['size'],
             'x-systags': obj['systags'],
+            'x-backend-object-state': obj['deleted']
         }
         path = '/sda1/p/a/%s/%s' % (self.audit_container, obj['name'])
         # Request.blank unquotes path so quote it before passing in ?
@@ -150,7 +152,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.broker.get_info()
 
     def _create_item(self, name, ts_data, ts_ctype=None, ts_meta=None,
-                     ctype='text/plain', size=0, etag='', systags=None):
+                     ctype='text/plain', size=0, etag='', systags=None,
+                     state=0):
         created_at = encode_timestamps(ts_data, ts_ctype, ts_meta)
         item = {
             'name': str(name),
@@ -160,7 +163,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
             'content_type': ctype,
             'etag': etag,
             'size': size,
-            'deleted': 0,
+            'deleted': state,
             'storage_policy_index': 0,
             'systags': param_str_from_dict(systags),
         }
@@ -172,21 +175,25 @@ class BaseTestMpuAuditor(unittest.TestCase):
         return self._create_item(marker_name,
                                  ts_data,
                                  ctype=MPU_MARKER_CONTENT_TYPE,
-                                 etag=MD5_OF_EMPTY_STRING)
+                                 etag=MD5_OF_EMPTY_STRING,
+                                 state=2)
 
-    def _assert_context(self, exp):
-        broker_id = self.broker.get_info()['id']
-        ctxt_key = 'X-Container-Sysmeta-Mpu-Auditor-Context-' + broker_id
-        self.assertIn(ctxt_key, self.broker.metadata)
-        ctxt_value = json.loads(self.broker.metadata[ctxt_key][0])
-        for k, v in exp.items():
-            self.assertEqual(v, ctxt_value[k])
-
-    def _check_broker_rows(self, expected_items):
-        rows = self.broker.get_objects(include_deleted=False)
+    def _check_broker_rows(self, expected_items, include_states=None,
+                           table='object'):
+        include_states = include_states or {0}
+        rows = self.broker.get_objects(
+            include_states=include_states, table=table)
         self.assertEqual(sorted([o['name'] for o in expected_items]),
                          sorted([row['name'] for row in rows]))
         return rows
+
+    def _check_object_rows(self, expected_items, include_states=None):
+        return self._check_broker_rows(
+            expected_items, include_states=include_states, table='object')
+
+    def _check_action_rows(self, expected_items, include_states=None):
+        return self._check_broker_rows(
+            expected_items, include_states=include_states, table='action')
 
     def _check_deleted_broker_rows(self, expected_items):
         rows = self.broker.get_objects(include_deleted=True)
@@ -196,47 +203,96 @@ class BaseTestMpuAuditor(unittest.TestCase):
 
 
 class TestModuleFunctions(BaseTestMpuAuditor):
-    def _setup_for_yield_item_batches(self):
-        timestamps = [next(self.ts_iter) for _ in range(123)]
+    def _setup_for_yield_item_batches(self, table, state):
+        timestamps = [next(self.ts_iter) for _ in range(12)]
         vers_names = [
             self._create_history_ref(next(self.name_iter), ts)
             for ts in timestamps]
-        items = [self._create_item(str(vers_name), ts)
+        items = [self._create_item(str(vers_name), ts, state=state)
                  for vers_name, ts in zip(vers_names, timestamps)]
-        self.put_objects(items, shuffle_order=False)
-        self._check_broker_rows(items)
+        with self.broker.get() as conn:
+            self.broker._really_merge_items(table, conn, items)
+
+        # sanity check...
+        self._check_broker_rows(items, include_states=[state], table=table)
         return items
 
+    def test_yield_item_batches_from_object_table(self):
+        items = self._setup_for_yield_item_batches(table='object', state=0)
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 10, 5, include_states=[0], table='object')]
+        self.assertEqual(3, len(actual))
+        sorted_names = [it['name']
+                        for it in sorted(items, key=lambda i: i['name'])]
+        self.assertEqual(sorted_names[:5], [a['name'] for a in actual[0]])
+        self.assertEqual(sorted_names[5:10], [a['name'] for a in actual[1]])
+        self.assertEqual(sorted_names[10:], [a['name'] for a in actual[2]])
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 10, 5, include_states=[0], table='action')]
+        self.assertFalse(actual)
+
+    def test_yield_item_batches_from_action_table(self):
+        items = self._setup_for_yield_item_batches(table='action', state=0)
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 10, 5, include_states=[0], table='action')]
+        self.assertEqual(3, len(actual))
+        sorted_names = [it['name']
+                        for it in sorted(items, key=lambda i: i['name'])]
+        self.assertEqual(sorted_names[:5], [a['name'] for a in actual[0]])
+        self.assertEqual(sorted_names[5:10], [a['name'] for a in actual[1]])
+        self.assertEqual(sorted_names[10:], [a['name'] for a in actual[2]])
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 10, 5, include_states=[0], table='object')]
+        self.assertFalse(actual)
+
     def test_yield_item_batches_stops_at_max_batches(self):
-        items = self._setup_for_yield_item_batches()
-        actual = [b for b in yield_item_batches(self.broker, 0, 2, 50)]
+        items = self._setup_for_yield_item_batches(table='object', state=0)
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 2, 5, include_states=[0], table='object')]
         self.assertEqual(2, len(actual))
-        self.assertEqual([it['name'] for it in items[:50]],
-                         [a['name'] for a in actual[0]])
-        self.assertEqual([it['name'] for it in items[50:100]],
-                         [a['name'] for a in actual[1]])
-        self.assertEqual(1, actual[0][0]['ROWID'])
-        self.assertEqual(100, actual[-1][-1]['ROWID'])
+        sorted_names = [it['name']
+                        for it in sorted(items, key=lambda i: i['name'])]
+        self.assertEqual(sorted_names[:5], [a['name'] for a in actual[0]])
+        self.assertEqual(sorted_names[5:10], [a['name'] for a in actual[1]])
 
     def test_yield_item_batches_stops_at_end_of_items(self):
-        items = self._setup_for_yield_item_batches()
-        actual = [b for b in yield_item_batches(self.broker, 0, 1000, 100)]
+        items = self._setup_for_yield_item_batches(table='action', state=0)
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 1000, 10, include_states=[0], table='action')]
         self.assertEqual(2, len(actual))
-        self.assertEqual([it['name'] for it in items[:100]],
-                         [a['name'] for a in actual[0]])
-        self.assertEqual([it['name'] for it in items[100:]],
-                         [a['name'] for a in actual[1]])
-        self.assertEqual(1, actual[0][0]['ROWID'])
-        self.assertEqual(123, actual[-1][-1]['ROWID'])
+        sorted_names = [it['name']
+                        for it in sorted(items, key=lambda i: i['name'])]
+        self.assertEqual(sorted_names[:10], [a['name'] for a in actual[0]])
+        self.assertEqual(sorted_names[10:], [a['name'] for a in actual[1]])
 
-    def test_yield_item_batches_starts_at_start_row(self):
-        items = self._setup_for_yield_item_batches()
-        actual = [b for b in yield_item_batches(self.broker, 114, 100, 10)]
-        self.assertEqual(1, len(actual))
-        self.assertEqual([it['name'] for it in items[114:]],
-                         [a['name'] for a in actual[0]])
-        self.assertEqual(115, actual[0][0]['ROWID'])
-        self.assertEqual(123, actual[-1][-1]['ROWID'])
+    def test_yield_item_batches_items_added(self):
+        items = self._setup_for_yield_item_batches(table='object', state=0)
+        it = yield_item_batches(
+            self.broker, 1000, 10, include_states=[0], table='object')
+        actual = [next(it)]
+        new_items = [dict(item, created_at=next(self.ts_iter).internal)
+                     for item in items[:3]]
+        self.put_objects(new_items)
+        self._check_broker_rows(items[3:] + new_items, include_states=[0])
+        actual.extend([batch for batch in it])
+        sorted_names = [it['name']
+                        for it in sorted(items, key=lambda i: i['name'])]
+        self.assertEqual(sorted_names[:10], [a['name'] for a in actual[0]])
+        self.assertEqual(sorted_names[10:], [a['name'] for a in actual[1]])
+
+    def test_yield_item_batches_selects_state(self):
+        items = self._setup_for_yield_item_batches(state=3, table='action')
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 2, 5, include_states=[2], table='action')]
+        self.assertEqual([], actual)
+
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 2, 5, include_states=[3], table='action')]
+        self.assertEqual(2, len(actual))
+        sorted_names = [it['name']
+                        for it in sorted(items, key=lambda i: i['name'])]
+        self.assertEqual(sorted_names[:5], [a['name'] for a in actual[0]])
+        self.assertEqual(sorted_names[5:10], [a['name'] for a in actual[1]])
 
 
 class TestMpuAuditor(BaseTestMpuAuditor):
@@ -283,225 +339,54 @@ class TestMpuAuditor(BaseTestMpuAuditor):
         self.assertEqual([mock.call()],
                          mocked.return_value.audit.call_args_list)
 
+    def test_audit_objects(self):
+        def do_test(container):
+            broker = self._make_broker(container)
+            with mock.patch('swift.container.mpu_auditor.MpuHistoryAuditor'
+                            ) as mocked:
+                self.auditor.audit(broker)
+            self.assertEqual(
+                [mock.call(self.auditor.config, self.auditor.client,
+                           self.auditor.logger, broker, 'test')],
+                mocked.call_args_list)
+            self.assertEqual([mock.call()],
+                             mocked.return_value.audit.call_args_list)
+
+        do_test('test')
+        do_test(get_reserved_name('versions', 'test'))
+
 
 class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
     # test abstract auditor behavior not specific to the type of resource
     # being audited
     def test_audit_stats(self):
-        timestamps = [next(self.ts_iter) for _ in range(2)]
-        vers_names = [
-            self._create_history_ref(next(self.name_iter), ts)
-            for ts in timestamps]
-        items = [self._create_item(str(vers_name), ts)
-                 for vers_name, ts in zip(vers_names, timestamps)]
-        marker = self._create_marker_spec(items[0]['name'], next(self.ts_iter))
-        self.put_objects(items + [marker], shuffle_order=False)
-        self.assertEqual(3, self.broker.get_max_row())  # sanity check
-        calls = []
-
-        def mock_audit_item(auditor, item, parsed_name):
-            calls.append((item.to_db_record(), str(parsed_name)))
-            if item.name == items[1]['name']:
-                raise ValueError('kaboom')
-            return False
-
+        timestamps = [next(self.ts_iter) for _ in range(3)]
+        items = [self._create_item(next(self.name_iter), ts, state=0)
+                 for ts in timestamps]
+        self.broker.merge_actions(items)
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
             MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
             self.user_container)
+
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
-                mock_audit_item):
+                side_effect=[False, ValueError('kaboom'), False]) \
+                as mock_audit_item:
             auditor.audit()
-        self.assertEqual([z for z in zip(items, [str(v) for v in vers_names])],
-                         calls)
-        exp_stats = {'processed': 3, 'audited': 1, 'skipped': 1, 'errors': 1}
-        log_lines = auditor.logger.get_lines_for_level('info')
-        self.assertEqual(1, len(log_lines), log_lines)
-        self.assertIn('processed=3, audited=1, skipped=1, errors=1',
-                      log_lines[0])
+
+        self.assertEqual([mock.call(MPUItem(**item)) for item in items],
+                         mock_audit_item.call_args_list)
+        info_lines = auditor.logger.get_lines_for_level('info')
+        self.assertEqual(1, len(info_lines), info_lines)
+        self.assertIn('processed=3, audited=2, errors=1', info_lines[0])
+        error_lines = auditor.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('Error while auditing ', error_lines[0])
+        self.assertIn('boom', error_lines[0])
+        exp_stats = {'processed': 3, 'audited': 2, 'errors': 1}
         exp_metrics = dict(('base.%s' % k, v) for k, v in exp_stats.items())
         self.assertEqual(exp_metrics, self.fake_statsd_client.counters)
-
-    def test_audit_stops_at_max_row_other_items_merged(self):
-        timestamps = [next(self.ts_iter) for _ in range(20)]
-        vers_names = [
-            self._create_history_ref(next(self.name_iter), ts)
-            for ts in timestamps]
-        items = [self._create_item(str(vers_name), ts)
-                 for vers_name, ts in zip(vers_names[:10], timestamps[:10])]
-        other_items = [self._create_item(str(vn), ts)
-                       for vn, ts in zip(vers_names[10:], timestamps[10:])]
-        self.put_objects(items, shuffle_order=False)
-        self.assertEqual(10, self.broker.get_max_row())  # sanity check
-
-        calls = []
-
-        def mock_audit_item(auditor, item, parsed_name):
-            # merge another item into the db
-            self.put_objects([other_items[len(calls)]])
-            calls.append((item.to_db_record(), str(parsed_name)))
-            return False
-
-        fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
-        auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
-            self.user_container)
-        with mock.patch(
-                'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
-                mock_audit_item):
-            auditor.audit()
-
-        self.assertEqual(
-            [z for z in zip(items[:10], [str(v) for v in vers_names[:10]])],
-            calls)
-        self._check_broker_rows(items + other_items)
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 10})
-        self.assertEqual(20, self.broker.get_max_row())
-
-    def test_audit_stops_at_max_row_audited_items_deferred(self):
-        old_ts_iter = make_timestamp_iter(-10000)
-        timestamps = [next(old_ts_iter) for _ in range(10)]
-        vers_names = [
-            self._create_history_ref(next(self.name_iter), ts)
-            for ts in timestamps]
-        items = [self._create_item(str(vers_name), ts)
-                 for vers_name, ts in zip(vers_names, timestamps)]
-        self.put_objects(items, shuffle_order=False)
-        self.assertEqual(10, self.broker.get_max_row())  # sanity check
-        calls = []
-
-        def mock_audit_item(auditor, item, parsed_name):
-            # defer item to be revisited
-            auditor._bump_item(item)
-            calls.append((item.to_db_record(), str(parsed_name)))
-            return True
-
-        fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
-        auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
-            self.user_container)
-        with mock.patch(
-                'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
-                mock_audit_item):
-            auditor.audit()
-
-        self.assertEqual(
-            [z for z in zip(
-                [dict(item, meta_timestamp=mock.ANY) for item in items],
-                [str(v) for v in vers_names])],
-            calls)
-        rows = self._check_broker_rows(items)
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 10})
-        self.assertEqual(20, self.broker.get_max_row())
-        name_to_item = dict((item['name'], item) for item in items)
-        for row in rows:
-            ts_data, ts_ctype, ts_meta = decode_timestamps(row['created_at'])
-            exp = name_to_item[row['name']]
-            self.assertEqual(exp['created_at'], ts_data)
-            self.assertEqual(exp['created_at'], ts_ctype)
-            self.assertLess(exp['created_at'], ts_meta)
-
-    def test_deferred_item_content_type_modified(self):
-        # verify that when the auditor defers an item by moving it to a new row
-        # it does not prevent a subsequent update of the item's content_type
-        # using an earlier content_type_timestamp.
-        old_ts_iter = make_timestamp_iter(-10000)
-        old_ts = next(old_ts_iter)
-        vers_name = self._create_history_ref(next(self.name_iter), old_ts)
-        item = self._create_item(str(vers_name), old_ts)
-        self.put_objects([item])
-        self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        calls = []
-
-        def mock_audit_item(auditor, item, parsed_name):
-            # defer item to be revisited
-            auditor._bump_item(item)
-            calls.append((item.to_db_record(), str(parsed_name)))
-            return True
-
-        fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
-        auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
-            self.user_container)
-        with mock.patch(
-                'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
-                mock_audit_item):
-            auditor.audit()
-
-        self.assertEqual(
-            [(dict(item, meta_timestamp=mock.ANY), str(vers_name))], calls)
-        rows = self._check_broker_rows([item])
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
-        self.assertEqual(2, self.broker.get_max_row())
-        row_id_2 = rows[0]
-        ts_data, ts_ctype, bumped_ts_meta = decode_timestamps(
-            row_id_2['created_at'])
-        self.assertEqual(item['created_at'], ts_data)
-        self.assertEqual(item['created_at'], ts_ctype)
-        self.assertLess(item['created_at'], bumped_ts_meta)
-        self.assertEqual('text/plain', row_id_2['content_type'])
-
-        # after the auditor has deferred the item, simulate an object update
-        # modifying the content_type with a timestamp *older* than the
-        # deferred item's meta_timestamp...
-        ts_ctype_modified = next(old_ts_iter)
-        self.assertLess(float(ts_ctype_modified), bumped_ts_meta)
-        updated_ts = encode_timestamps(Timestamp(item['created_at']),
-                                       ts_ctype_modified,
-                                       ts_ctype_modified)
-        updated_item = dict(item,
-                            created_at=updated_ts,
-                            content_type='modified')
-        self.put_objects([updated_item])
-        rows = self._check_broker_rows([item])
-        self.assertEqual(3, self.broker.get_max_row())
-        row_id_3 = rows[0]
-        ts_data, ts_ctype, ts_meta = decode_timestamps(row_id_3['created_at'])
-        self.assertEqual(item['created_at'], ts_data)
-        self.assertEqual(ts_ctype_modified, ts_ctype)
-        self.assertEqual(ts_meta, bumped_ts_meta)
-        self.assertEqual('modified', row_id_3['content_type'])
-
-    def test_audit_cycle_continues_past_error(self):
-        timestamps = [next(self.ts_iter) for _ in range(2)]
-        vers_names = [
-            self._create_history_ref(next(self.name_iter), ts)
-            for ts in timestamps]
-        items = [self._create_item(str(vers_name), ts)
-                 for vers_name, ts in zip(vers_names, timestamps)]
-        calls = []
-
-        def mock_audit_item(auditor, item, parsed_name):
-            calls.append((item.to_db_record(), str(parsed_name)))
-            if len(calls) == 1:
-                raise Exception('boom')
-            return False
-
-        self.put_objects(items, shuffle_order=False)
-        self.assertEqual(2, self.broker.get_max_row())  # sanity check
-        fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
-        auditor = BaseMpuAuditor(
-            MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
-            self.user_container)
-        with mock.patch(
-                'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
-                mock_audit_item):
-            auditor.audit()
-        self.assertEqual(
-            [z for z in zip(
-                [dict(item, meta_timestamp=mock.ANY) for item in items],
-                [str(v) for v in vers_names])],
-            calls)
-        log_lines = auditor.logger.get_lines_for_level('error')
-        self.assertEqual(1, len(log_lines))
-        self.assertIn('Error while auditing ', log_lines[0])
-        self.assertIn('boom', log_lines[0])
-        self._assert_context({'last_audit_row': 2})
-        self.assertEqual(2, self.broker.get_max_row())
 
 
 class TestMpuHistoryAuditor(BaseTestMpuAuditor):
@@ -513,52 +398,79 @@ class TestMpuHistoryAuditor(BaseTestMpuAuditor):
         self.parts_container = get_reserved_name(
             'mpu_parts', self.user_container)
 
-    def _create_history_item(self, obj, history_id, op, systags=None):
-        vers_name = ObjectRef(obj, history_id, tail=op)
+    def _create_history_item(self, name, timestamp, systags=None, state=0):
         return self._create_item(
-            vers_name.serialize(),
-            history_id.timestamp,
+            name,
+            timestamp,
             ctype='application/x-phony',
             size=0,
             etag=MD5_OF_EMPTY_STRING,
+            state=state,
             systags=systags
         )
 
     def test_audit_null_versions(self):
-        non_mpu_history_ids = [HistoryId(next(self.ts_iter), null=True)
-                               for _ in range(5)]
+        timestamps = [next(self.ts_iter) for _ in range(5)]
+        random.shuffle(timestamps)
         non_mpu_history_items = [
-            self._create_history_item(
-                self.obj_name, history_id, op='PUT')
-            for history_id in non_mpu_history_ids
+            self._create_history_item(self.obj_name, ts)
+            for ts in timestamps[:2]
         ]
-        mpu_history_ids = [HistoryId(next(self.ts_iter), null=True)
-                           for _ in range(6)]
+        older_upload_ids = [UploadId(ts) for ts in timestamps[2:]]
         mpu_history_items = [
             self._create_history_item(
-                self.obj_name, mpu_history_ids[0], op='DELETE',
-                systags={'mpu_policy': 0})
+                self.obj_name,
+                upload_id.timestamp,
+                systags={
+                    'relic_id': quote(upload_id.serialize()),
+                    'child': quote('%s/%s/' % (self.obj_name, upload_id)),
+                    'child_container': quote(self.parts_container),
+                }
+            )
+            for upload_id in older_upload_ids
         ]
-        mpu_history_items.extend([
+        # the most recent variant is always an mpu
+        latest_upload_id = UploadId(next(self.ts_iter))
+        mpu_history_items += [
             self._create_history_item(
-                self.obj_name, history_id, op='PUT',
-                systags={'mpu_policy': 0})
-            for history_id in mpu_history_ids[1:]])
+                self.obj_name,
+                latest_upload_id.timestamp,
+                systags={
+                    'relic_id': quote(latest_upload_id.serialize()),
+                    'child': quote('%s/%s/%s/' % (
+                        self.parts_container, self.obj_name, latest_upload_id))
+                }
+            )
+            for ts in [next(self.ts_iter)]
+        ]
+
+        # as these are merged they'll generate relics for all but latest mpu
         self.put_objects(non_mpu_history_items + mpu_history_items,
                          shuffle_order=True)
-        self._check_broker_rows(non_mpu_history_items + mpu_history_items)
-
-        # expect all but the most recent undeleted mpu versions to generate a
-        # delete marker PUT
-        registered_calls = [
-            ('PUT', '/v1/a/%s/%s'
-             % (self.parts_container,
-                ObjectRef(self.obj_name, UploadId(history_id.timestamp),
-                          'marker-deleted').serialize()),
-             HTTPOk, {})
-            for history_id in mpu_history_ids[1:-1]
+        self._check_broker_rows(mpu_history_items[-1:], include_states={0})
+        exp_relic_items = [
+            self._create_history_item(
+                '%s\x00%s' % (self.obj_name, upload_id),
+                upload_id.timestamp,
+                systags={
+                    'relic_id': quote(upload_id.serialize()),
+                    'child': quote('%s/%s/%s/' % (
+                        self.parts_container, self.obj_name, upload_id))})
+            for upload_id in older_upload_ids
         ]
+        exp_action_items = [
+            dict(exp_relic_item) for exp_relic_item in exp_relic_items
+        ]
+        self._check_broker_rows(exp_relic_items, include_states={2})
+        self._check_action_rows(exp_action_items, include_states={0})
 
+        # when the auditor runs each relic generates a parts delete marker...
+        registered_calls = [
+            ('DELETE', '/v1/a/%s/%s/%s/'
+             % (self.parts_container, self.obj_name, upload_id),
+             HTTPNoContent, {})
+            for upload_id in older_upload_ids
+        ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
@@ -568,44 +480,69 @@ class TestMpuHistoryAuditor(BaseTestMpuAuditor):
         expected_calls = list(sorted([call[:2] for call in registered_calls]))
         self.assertEqual(expected_calls, list(sorted(fake_swift.calls)))
         self._check_broker_rows(mpu_history_items[-1:])
-        self._check_deleted_broker_rows(
-            non_mpu_history_items + mpu_history_items[:-1])
-        self._assert_context({'last_audit_row': 11})
+        self._check_broker_rows([], include_states={1})
+        self._check_broker_rows(exp_relic_items, include_states={2})
+        self._check_action_rows(exp_action_items, include_states={1})
+
+        # repeat audit does nothing...
+        with self._mock_internal_client([]) as fake_swift:
+            with mock.patch('swift.container.mpu_auditor.time.time',
+                            return_value=float(next(self.ts_iter))):
+                auditor = MpuAuditor({}, self.logger)
+                auditor.audit(self.broker)
+
+        self.assertFalse(fake_swift.calls)
+        self._check_broker_rows(mpu_history_items[-1:])
+        self._check_broker_rows([], include_states={1})
+        self._check_broker_rows(exp_relic_items, include_states={2})
+        self._check_action_rows(exp_action_items, include_states={1})
 
     def test_audit_retained_versions(self):
-        non_mpu_history_ids = [HistoryId(next(self.ts_iter), null=False)
-                               for _ in range(2)]
-        non_mpu_history_items = [
-            self._create_history_item(self.obj_name, history_id, 'PUT')
-            for history_id in non_mpu_history_ids]
-        # add a delete event for one of the non-mpu versions
-        non_mpu_history_items.append(
-            self._create_history_item(
-                self.obj_name, non_mpu_history_ids[0], 'DELETE')
-        )
-        mpu_history_ids = [HistoryId(next(self.ts_iter), null=False)
-                           for _ in range(2)]
+        # verify cleanup with versioned object names
+        ts_vers = next(self.ts_iter)
+        upload_id = UploadId(ts_vers)
+        vers_name = '\x00%s\x00%s' % (self.obj_name, (~(ts_vers)).normal)
         mpu_history_items = [
             self._create_history_item(
-                self.obj_name, history_id, systags={'mpu_policy': 0}, op='PUT')
-            for history_id in mpu_history_ids]
-        # add a delete event for one of the mpu versions
-        mpu_history_items.append(
+                vers_name,
+                ts_vers,
+                systags={
+                    'relic_id': quote(upload_id.serialize()),
+                    'child': quote('%s/%s/' % (vers_name, upload_id)),
+                    'child_container': quote(self.parts_container),
+                }
+            ),
             self._create_history_item(
-                self.obj_name, mpu_history_ids[0], op='DELETE')
-        )
-        self.put_objects(non_mpu_history_items + mpu_history_items,
-                         shuffle_order=True)
-        self._check_broker_rows(non_mpu_history_items + mpu_history_items)
+                vers_name,
+                next(self.ts_iter),
+                state=1
+            ),
+        ]
+        # as these are merged they'll generate a relic and action
+        self.put_objects(mpu_history_items, shuffle_order=True)
+        exp_relic_items = [
+            self._create_history_item(
+                '%s\x00%s' % (vers_name, upload_id),
+                ts_vers,
+                systags={
+                    'relic_id': quote(upload_id.serialize()),
+                    'child': quote('%s/%s/' % (vers_name, upload_id)),
+                    'child_container': quote(self.parts_container),
+                }
+            )
+        ]
+        exp_action_items = [
+            dict(exp_relic_item) for exp_relic_item in exp_relic_items
+        ]
+        self._check_broker_rows([], include_states={0})
+        self._check_broker_rows(mpu_history_items[1:], include_states={1})
+        self._check_broker_rows(exp_relic_items, include_states={2})
+        self._check_action_rows(exp_action_items, include_states={0})
 
-        # expect one delete marker to be PUT to the parts container
         registered_calls = [
-            ('PUT', '/v1/a/%s/%s'
-             % (self.parts_container,
-                ObjectRef(
-                    self.obj_name, UploadId(mpu_history_ids[0].timestamp),
-                    'marker-deleted').serialize()),
-             HTTPOk, {})
+            ('DELETE', '/v1/a/%s/%s/%s/'
+             % (self.parts_container, vers_name, upload_id),
+             HTTPNoContent, {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
@@ -615,105 +552,102 @@ class TestMpuHistoryAuditor(BaseTestMpuAuditor):
 
         expected_calls = list(sorted([call[:2] for call in registered_calls]))
         self.assertEqual(expected_calls, list(sorted(fake_swift.calls)))
-        self._check_broker_rows(
-            [non_mpu_history_items[1], mpu_history_items[1]])
-        self._check_deleted_broker_rows(
-            [non_mpu_history_items[0], non_mpu_history_items[2],
-             mpu_history_items[0], mpu_history_items[2]])
-        self._assert_context({'last_audit_row': 6})
+        self._check_broker_rows([], include_states={0})
+        self._check_broker_rows(mpu_history_items[1:], include_states={1})
+        self._check_broker_rows(exp_relic_items, include_states={2})
+        self._check_action_rows(exp_action_items, include_states={1})
+
+        # repeat audit does nothing...
+        with self._mock_internal_client([]) as fake_swift:
+            with mock.patch('swift.container.mpu_auditor.time.time',
+                            return_value=float(next(self.ts_iter))):
+                auditor = MpuAuditor({}, self.logger)
+                auditor.audit(self.broker)
+
+        self.assertFalse(fake_swift.calls)
+        self._check_broker_rows([], include_states={0})
+        self._check_broker_rows(mpu_history_items[1:], include_states={1})
+        self._check_broker_rows(exp_relic_items, include_states={2})
+        self._check_action_rows(exp_action_items, include_states={1})
 
 
 class TestMpuAuditorParts(BaseTestMpuAuditor):
     audit_container = get_reserved_name(
         'mpu_parts', BaseTestMpuAuditor.user_container)
 
-    def _create_part_spec(self, vers_name, part_number, ts_data=None):
+    def _create_part_spec(self, obj_name, upload_id, part_number, ts_data=None,
+                          systags=None, state=0):
+        systags = systags or {}
         ts_data = ts_data or next(self.ts_iter)
-        part_name = '%s/%06d' % (vers_name, part_number)
+        part_prefix = '%s/%s/' % (obj_name, upload_id)
+        part_name = '%s%s' % (part_prefix, normalize_part_number(part_number))
+        relic_name = '%s\x00%s' % (part_prefix, upload_id)
+        systags['parent'] = quote(relic_name)
         return self._create_item(part_name,
                                  ts_data,
                                  ctype='application/octet-stream',
-                                 size=123456)
+                                 size=123456,
+                                 systags=systags,
+                                 state=state)
 
-    def test_audit_delete_marker(self):
-        parts = [self._create_part_spec(self.vers_name, i)
-                 for i in range(1, 6)]
-        marker = self._create_marker_spec(self.vers_name)
-        self.put_objects(parts + [marker], shuffle_order=True)
-        registered_calls = [
-            ('DELETE',
-             '/'.join([self.audit_container_path, part['name']]),
-             HTTPNoContent,
-             {})
-            for part in parts
-        ] + [
-            ('DELETE',
-             '/'.join([self.audit_container_path, marker['name']]),
-             HTTPNoContent,
-             {})
-        ]
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
+    def _create_lifeline_spec(self, obj_name, upload_id, ts_data=None,
+                              systags=None, state=0):
+        systags = systags or {}
+        ts_data = ts_data or next(self.ts_iter)
+        part_prefix = '%s/%s/' % (obj_name, upload_id)
+        systags.update({
+            'relic_id': quote(str(upload_id)),
+            'child_prefix': quote(part_prefix),
+        })
+        return self._create_item(part_prefix,
+                                 ts_data,
+                                 ctype='application/octet-stream',
+                                 size=123456,
+                                 systags=systags,
+                                 state=state)
 
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        # rows aren't deleted yet (object DELETE updates will do that)
-        self._check_broker_rows(parts + [marker])
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 6})
-
-        exp_marker_ts = Timestamp(marker['created_at'], offset=1)
-        self.assertEqual(exp_marker_ts.internal,
-                         fake_swift.headers[-1].get('X-Timestamp'))
-
-    def test_audit_delete_marker_previously_deleted(self):
-        marker = self._create_marker_spec(self.vers_name)
-        ts_marker = Timestamp(marker['created_at'], offset=1)
-        self.delete_object(marker, ts=ts_marker)
-        self._check_deleted_broker_rows([marker])  # sanity
-        parts = [self._create_part_spec(self.vers_name, i)
-                 for i in range(1, 6)]
-        self.put_objects(parts, shuffle_order=True)
-        registered_calls = [
-            ('DELETE',
-             '/'.join([self.audit_container_path, part['name']]),
-             HTTPNoContent,
-             {})
-            for part in parts
-        ]
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows(parts)
-        self._check_deleted_broker_rows([marker])
-        self._assert_context({'last_audit_row': 6})
-
-    def test_audit_delete_marker_some_parts_previously_deleted(self):
-        parts = [self._create_part_spec(self.vers_name, i)
-                 for i in range(1, 6)]
-        marker = self._create_marker_spec(self.vers_name)
+    def test_audit_lifeline_deleted_after_parts_merged(self):
+        # verify that deletion of the lifeline will result in existing
+        # *undeleted* parts being cleaned up
+        lifeline = self._create_lifeline_spec(
+            self.obj_name, self.upload_id)
+        parts = [
+            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            for i in range(1, 6)]
+        # merge parts and lifeline...
+        self.put_objects(parts + [lifeline], shuffle_order=True)
         self.delete_objects(parts[:3])
-        self.put_objects(parts[3:] + [marker], shuffle_order=True)
-        self._check_deleted_broker_rows(parts[:3])  # sanity check
+        self._check_broker_rows(parts[3:] + [lifeline], include_states={0})
+        # run cleanup... nothing to do
+        with self._mock_internal_client([]) as fake_swift:
+            with mock.patch('swift.container.mpu_auditor.time.time',
+                            return_value=float(next(self.ts_iter))):
+                auditor = MpuAuditor({}, self.logger)
+                auditor.audit(self.broker)
+        self.assertFalse(fake_swift.calls)
+        self._check_broker_rows(parts[3:] + [lifeline], include_states={0})
+        self._check_broker_rows(parts[:3], include_states={1})
+
+        # delete lifeline...
+        self.delete_objects([lifeline])
+
+        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
+        exp_relic = dict(lifeline, name=exp_relic_name, state=2)
+        exp_action = dict(exp_relic, state=0)
+        self._check_broker_rows(parts[3:], include_states={0})
+        self._check_broker_rows(parts[:3] + [lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([exp_action], include_states={0})
+        self._check_action_rows([], include_states={1})
+
+        # run cleanup...
         registered_calls = [
             ('DELETE',
              '/'.join([self.audit_container_path, part['name']]),
              HTTPNoContent,
              {})
             for part in parts[3:]
-        ] + [
-            ('DELETE',
-             '/'.join([self.audit_container_path, marker['name']]),
-             HTTPNoContent,
-             {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
@@ -721,29 +655,68 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
                 auditor = MpuAuditor({}, self.logger)
                 auditor.audit(self.broker)
 
+        # expect DELETEs for parts...
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows([marker] + parts[3:])
-        self._check_deleted_broker_rows(parts[:3])
-        self._assert_context({'last_audit_row': 6})
+        # part rows aren't deleted yet (object DELETE updates will do that)
+        self._check_broker_rows(parts[3:], include_states={0})
+        self._check_broker_rows(parts[:3] + [lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([], include_states={0})
+        self._check_action_rows([exp_action], include_states={1})
 
-    def test_audit_delete_marker_parts_not_found(self):
-        # verify that 404s don't prevent progress
-        parts = [self._create_part_spec(self.vers_name, i)
-                 for i in range(1, 6)]
-        marker = self._create_marker_spec(self.vers_name)
-        self.put_objects(parts + [marker], shuffle_order=True)
+    def test_audit_lifeline_deleted_before_parts_merged(self):
+        # verify that deletion of the lifeline will result in subsequent parts
+        # being cleaned up
+        lifeline = self._create_lifeline_spec(
+            self.obj_name, self.upload_id)
+        parts = [
+            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            for i in range(1, 6)]
+        # merge lifeline then delete it to create a relic...
+        self.put_objects([lifeline])
+        self.delete_objects([lifeline])
+
+        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
+        exp_relic = dict(lifeline, name=exp_relic_name, state=2)
+        exp_action = dict(exp_relic, state=0)
+        self._check_broker_rows([], include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([exp_action], include_states={0})
+        self._check_action_rows([], include_states={1})
+
+        # run cleanup - nothing to do
+        with self._mock_internal_client([]) as fake_swift:
+            with mock.patch('swift.container.mpu_auditor.time.time',
+                            return_value=float(next(self.ts_iter))):
+                auditor = MpuAuditor({}, self.logger)
+                auditor.audit(self.broker)
+        self.assertFalse(fake_swift.calls)
+        self._check_broker_rows([], include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([], include_states={0})
+        self._check_action_rows([exp_action], include_states={1})
+
+        # merge parts...which creates an action
+        with mock.patch('swift.container.mpu_auditor.time.time',
+                        return_value=float(next(self.ts_iter))):
+            self.put_objects(parts)
+        self._check_broker_rows(parts, include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([exp_action], include_states={0})
+        self._check_action_rows([], include_states={1})
+
+        # run cleanup...
         registered_calls = [
             ('DELETE',
              '/'.join([self.audit_container_path, part['name']]),
-             HTTPNotFound,
-             {})
-            for part in parts
-        ] + [
-            ('DELETE',
-             '/'.join([self.audit_container_path, marker['name']]),
              HTTPNoContent,
              {})
+            for part in parts
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
@@ -754,99 +727,108 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
         # rows aren't deleted yet (object DELETE updates will do that)
-        self._check_broker_rows(parts + [marker])
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 6})
+        self._check_broker_rows(parts, include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([], include_states={0})
+        self._check_action_rows([exp_action], include_states={1})
 
-    def test_audit_delete_marker_some_part_deletes_fail(self):
-        parts = [self._create_part_spec(self.vers_name, i)
-                 for i in range(1, 6)]
-        ts_marker = next(self.ts_iter)
-        marker = self._create_marker_spec(self.vers_name, ts_data=ts_marker)
-        self.put_objects(parts + [marker], shuffle_order=True)
-        self.assertEqual(6, self.broker.get_max_row())  # sanity check
-        # note: marker DELETE is NOT expected
+    def test_audit_delete_marker_parts_not_found(self):
+        # verify that part DELETE 404s don't prevent progress
+        lifeline = self._create_lifeline_spec(self.obj_name, self.upload_id)
+        parts = [
+            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            for i in range(1, 6)]
+        # merge parts and lifeline then delete lifeline to create a relic...
+        self.put_objects(parts + [lifeline])
+        self.delete_objects([lifeline])
+        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
+        exp_relic = dict(lifeline, name=exp_relic_name, state=2)
+        exp_action = dict(exp_relic, state=0)
+        self._check_broker_rows(parts, include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([exp_action], include_states={0})
+        self._check_action_rows([], include_states={1})
+
         registered_calls = [
             ('DELETE',
              '/'.join([self.audit_container_path, part['name']]),
-             HTTPNoContent,
+             HTTPNotFound,
              {})
-            for part in parts[:2]
+            for part in parts[:3]
         ] + [
             ('DELETE',
              '/'.join([self.audit_container_path, part['name']]),
-             HTTPServerError,
-             {})
-            for part in parts[2:]
-        ]
-        ts_now = next(self.ts_iter)
-        with self._mock_internal_client(registered_calls) as fake_swift:
-            with mock.patch('swift.container.mpu_auditor.time.time',
-                            return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
-                auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        self._assert_context({'last_audit_row': 6})
-        self.assertEqual(7, self.broker.get_max_row())  # sanity check
-        rows = self._check_broker_rows(parts + [marker])
-        self._check_deleted_broker_rows([])
-        # check that marker was bumped to a new row...
-        exp_marker = dict(marker, meta_timestamp=ts_now)
-        self.assertEqual(exp_marker,
-                         MPUItem.from_db_record(rows[-1]).to_db_record())
-
-    def test_audit_delete_marker_part_update_delayed(self):
-        # delete marker row is in db but part row is not yet in db;
-        # initially only the marker row is in DB
-        part = self._create_part_spec(self.vers_name, 1)
-        ts_marker = next(self.ts_iter)
-        marker = self._create_marker_spec(self.vers_name, ts_data=ts_marker)
-        self.put_objects([marker])
-        self.assertEqual(1, self.broker.get_max_row())  # sanity check
-
-        registered_calls = [
-            ('DELETE',
-             '/'.join([self.audit_container_path, marker['name']]),
              HTTPNoContent,
              {})
+            for part in parts[3:]
         ]
 
+        # run cleanup, expect action to be deleted
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
                 auditor = MpuAuditor({}, self.logger)
                 auditor.audit(self.broker)
+
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows([marker])
-        self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
-        self.assertEqual(1, self.broker.get_max_row())
+        self._check_broker_rows(parts, include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([], include_states={0})
+        self._check_action_rows([exp_action], include_states={1})
 
-        # insert parts PUT update and marker DELETE update into container;
-        self.delete_objects([marker])
-        self.put_objects([part])
-        self._check_deleted_broker_rows([marker])  # sanity check
-        self.assertEqual(3, self.broker.get_max_row())  # sanity check
+    def test_audit_delete_marker_parts_fail(self):
+        # verify that part DELETE 503s don't prevent progress, but action
+        # remains intact
+        lifeline = self._create_lifeline_spec(self.obj_name, self.upload_id)
+        parts = [
+            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            for i in range(1, 6)]
+        # merge parts and lifeline then delete lifeline to create a relic...
+        self.put_objects(parts + [lifeline])
+        self.delete_objects([lifeline])
+        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
+        exp_relic = dict(lifeline, name=exp_relic_name, state=2)
+        exp_action = dict(exp_relic, state=0)
+        self._check_broker_rows(parts, include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([exp_action], include_states={0})
+        self._check_action_rows([], include_states={1})
+
         registered_calls = [
             ('DELETE',
-             '%s/%s' % (self.audit_container_path, part['name']),
-             HTTPNotFound,
-             {}),
+             '/'.join([self.audit_container_path, part['name']]),
+             HTTPInternalServerError,
+             {})
+            for part in parts[:3]
+        ] + [
+            ('DELETE',
+             '/'.join([self.audit_container_path, part['name']]),
+             HTTPNoContent,
+             {})
+            for part in parts[3:]
         ]
+
+        # run cleanup, expect action to be deleted
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
                 auditor = MpuAuditor({}, self.logger)
                 auditor.audit(self.broker)
+
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self._check_broker_rows([part])
-        self._check_deleted_broker_rows([marker])
-        self._assert_context({'last_audit_row': 3})
-        self.assertEqual(3, self.broker.get_max_row())
+        self._check_broker_rows(parts, include_states={0})
+        self._check_broker_rows([lifeline], include_states={1})
+        self._check_broker_rows([exp_relic], include_states={2})
+        self._check_action_rows([exp_action], include_states={0})
+        self._check_action_rows([], include_states={1})
 
 
 class TestMpuAuditorSessions(BaseTestMpuAuditor):
@@ -881,7 +863,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         rows = self._check_broker_rows([session])
         self.assertEqual(self.ts_data, rows[0]['created_at'])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_completing_session_is_recent(self):
         # verify that a recent completing session is deferred for revisit; the
@@ -912,7 +893,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual((ts_data, ts_ctype, ts_now),
                          decode_timestamps(rows[0]['created_at']))
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_completing_session_is_old(self):
         # verify that an old completing session is passed over; the
@@ -944,7 +924,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual((ts_data, ts_ctype, ts_meta),
                          decode_timestamps(rows[0]['created_at']))
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_completing_session_is_old_error_checking_user_obj(self):
         # verify that an old completing session is not passed over if the
@@ -967,11 +946,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self.assertEqual(2, self.broker.get_max_row())
-        rows = self._check_broker_rows([session])
-        self.assertNotEqual(ts_data.internal, rows[0]['created_at'])
+        self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_completing_session_and_user_obj_is_mpu(self):
         # verify that a completing session that is found to be completed is
@@ -998,7 +974,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(1, self.broker.get_max_row())  # no new rows
         self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_completing_session_is_completed_but_delete_fails(self):
         # verify that a completing session that is found to be completed
@@ -1027,16 +1002,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self.assertEqual(2, self.broker.get_max_row())
-        rows = self._check_broker_rows([session])
-        # both ctype_timestamp and meta_timestamp have been bumped
-        exp_session = dict(session,
-                           ctype_timestamp=ts_now, meta_timestamp=ts_now,
-                           content_type=MPU_SESSION_COMPLETED_CONTENT_TYPE)
-        self.assertEqual(exp_session,
-                         MPUItem.from_db_record(rows[-1]).to_db_record())
+        self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_completed_session(self):
         # verify that a completed session is removed
@@ -1059,7 +1026,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(1, self.broker.get_max_row())  # no new rows
         self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_aborted_session_and_user_obj_is_mpu(self):
         # verify that an aborted session is cleaned up if mpu exists
@@ -1085,7 +1051,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(1, self.broker.get_max_row())  # no new rows
         self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_aborted_session_is_not_yet_purged(self):
         # verify that an aborted session younger than purge_delay is deferred
@@ -1107,13 +1072,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self.assertEqual(2, self.broker.get_max_row())  # new row
-        rows = self._check_broker_rows([session])
-        self.assertEqual(
-            encode_timestamps(ts_data, ts_data, ts_now),
-            rows[0]['created_at'])
+        self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_aborted_session_error_checking_user_obj(self):
         session = self._create_session_spec(
@@ -1130,10 +1090,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self.assertEqual(2, self.broker.get_max_row())  # new row
         self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_aborted_session_is_purged(self):
         # verify that an aborted session older than purge_delay is cleaned up
@@ -1141,12 +1099,11 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
             self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        marker = self._create_marker_spec(self.vers_name)
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, {}),
-            ('PUT',
-             '/'.join([self.part_container_path, marker['name']]),
-             HTTPOk,
+            ('DELETE',
+             '/'.join([self.part_container_path, session['name'] + '/']),
+             HTTPNoContent,
              {}),
             ('DELETE',
              '/'.join([self.audit_container_path, session['name']]),
@@ -1163,7 +1120,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(1, self.broker.get_max_row())  # no new rows
         self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_aborted_session_error_putting_part_delete_marker(self):
         # verify that an aborted session older than purge_delay is cleaned up
@@ -1171,12 +1127,11 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
             self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        marker = self._create_marker_spec(self.vers_name)
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, {}),
-            ('PUT',
-             '/'.join([self.part_container_path, marker['name']]),
-             HTTPServerError,
+            ('DELETE',
+             '/'.join([self.part_container_path, session['name'] + '/']),
+             HTTPInternalServerError,
              {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
@@ -1186,10 +1141,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self.assertEqual(2, self.broker.get_max_row())
         self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_aborted_session_error_deleting_session(self):
         # verify that an aborted session older than purge_delay is cleaned up
@@ -1197,12 +1150,11 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
             self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
-        marker = self._create_marker_spec(self.vers_name)
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, {}),
-            ('PUT',
-             '/'.join([self.part_container_path, marker['name']]),
-             HTTPOk,
+            ('DELETE',
+             '/'.join([self.part_container_path, session['name'] + '/']),
+             HTTPNoContent,
              {}),
             ('DELETE',
              '/'.join([self.audit_container_path, session['name']]),
@@ -1216,10 +1168,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self.assertEqual(2, self.broker.get_max_row())
         self._check_broker_rows([session])
         self._check_deleted_broker_rows([])
-        self._assert_context({'last_audit_row': 1})
 
     def test_audit_aborted_session_is_eventually_purged(self):
         # verify that an aborted session younger than purge_delay is deferred,
@@ -1235,7 +1185,6 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, {}),
         ]
-        exp_max_row = 1
         for audit_time_offset in [0, 1000, 8600]:
             audit_time = now + audit_time_offset
             with self._mock_internal_client(registered_calls) as fake_swift:
@@ -1243,28 +1192,16 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
                                 return_value=audit_time):
                     auditor = MpuAuditor({}, self.logger)
                     auditor.audit(self.broker)
-            self._assert_context({'last_audit_row': exp_max_row})
-            exp_max_row += 1
-            self.assertEqual(exp_max_row, self.broker.get_max_row(),
-                             'audit_time_offset=%s' % audit_time_offset)
-            rows = self._check_broker_rows([session])
-            # it's just the meta_timestamp that is bumped...
-            self.assertEqual(
-                encode_timestamps(ts_data,
-                                  ts_ctype,
-                                  Timestamp(audit_time)),
-                rows[0]['created_at'],
-                'audit_time_offset=%s' % audit_time_offset)
+            self._check_broker_rows([session])
 
         # this time the session will be purged...
         audit_time = now + 86400  # purge_delay in the future
         self.assertGreater(audit_time, float(ts_ctype) + 86400)  # sanity check
-        marker = self._create_marker_spec(self.vers_name)
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, {}),
-            ('PUT',
-             '/'.join([self.part_container_path, marker['name']]),
-             HTTPOk,
+            ('DELETE',
+             '/'.join([self.part_container_path, session['name'] + '/']),
+             HTTPNoContent,
              {}),
             ('DELETE',
              '/'.join([self.audit_container_path, session['name']]),
@@ -1278,15 +1215,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
                 auditor.audit(self.broker)
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
-        self._assert_context({'last_audit_row': exp_max_row})
-        self.assertEqual(exp_max_row, self.broker.get_max_row())
-        # row has NOT been bumped...
-        rows = self._check_broker_rows([session])
-        self.assertEqual(
-            encode_timestamps(ts_data,
-                              ts_ctype,
-                              Timestamp(now + 8600)),
-            rows[0]['created_at'])
+        # row is not updated until the object server forwards DELETE update
+        self._check_broker_rows([session])
 
 
 @unittest.skip
@@ -1343,7 +1273,6 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
                          sorted([row['name'] for row in rows]))
         rows = self.broker.get_objects(include_deleted=True)
         self.assertEqual([], rows)
-        self._assert_context({'last_audit_row': 5})
 
         # remove deleted object rows and add another orphaned upload part to
         # the DB...
@@ -1365,4 +1294,3 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
         self.assertEqual(sorted([o['name'] for o in parts_1[2:] + parts_2]),
                          sorted([row['name'] for row in rows]))
         # 3 rows deleted, 1 row added
-        self._assert_context({'last_audit_row': 9})

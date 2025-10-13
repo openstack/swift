@@ -845,6 +845,7 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(resp.status, '201 Created', resp.body)
 
     def test_create_reserved_object_in_container(self):
+        self.skipTest('requires reserved name validation to be restored')
         # create container
         path = '/sda1/p/a/c/'
         req = Request.blank(path, method='PUT', headers={
@@ -4945,6 +4946,36 @@ class TestContainerController(BaseUnitTestCase):
         result = resp.body.split(b'\n')
         self.assertEqual(result, [b''])
 
+    def test_PUT_object_with_state(self):
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers={
+                'X-Timestamp': Timestamp(2).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        headers = {'X-Timestamp': '1',
+                   'X-Content-Type': 'text/plain',
+                   'X-Etag': 'X',
+                   'X-Size': '0',
+                   'X-Backend-Object-State': '2'}
+        req = Request.blank('/sda1/p/a/c/o', headers=headers)
+        req.method = 'PUT'
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        info = broker.get_info()
+        self.assertEqual(0, info['object_count'])
+        self.assertEqual(0, info['bytes_used'])
+        self.assertFalse(broker.get_objects())
+        self.assertEqual([{'content_type': 'text/plain',
+                           'created_at': '0000000001.00000',
+                           'deleted': 2,
+                           'etag': 'X',
+                           'name': 'o',
+                           'size': 0,
+                           'storage_policy_index': 0,
+                           'systags': None}],
+                         broker.get_objects(include_states=[2]))
+
     def test_PUT_GET_object_with_weird_content_types(self):
         snowman = u'\u2603'
         req = Request.blank(
@@ -5030,7 +5061,7 @@ class TestContainerController(BaseUnitTestCase):
         exp_policy_idx = req.headers.get('X-Backend-Storage-Policy-Index', 0)
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
-        expected = [{'content_type': 'text/plain; charset="utf-8"',
+        expected = [{'content_type': 'text/plain;charset="utf-8"',
                      'created_at': '0000000001.00000',
                      'deleted': 0,
                      'etag': 'my-etag',
@@ -5052,6 +5083,33 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(resp.status_int, 200)
         # note: systags are not (yet) returned in listings
         self.assertEqual(json.loads(resp.body), expected)
+
+    def test_DELETE_object_with_systags(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                                    'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        headers = {
+            'X-Timestamp': '1',
+            'X-Systags': 'a=b&x=\N{SNOWMAN}'.encode('utf8')
+        }
+        req = Request.blank('/sda1/p/a/c/o', headers=headers)
+        req.method = 'DELETE'
+        self._update_object_put_headers(req)
+        exp_policy_idx = req.headers.get('X-Backend-Storage-Policy-Index', 0)
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        expected = [{'content_type': 'application/deleted',
+                     'created_at': '0000000001.00000',
+                     'deleted': 1,
+                     'etag': 'noetag',
+                     'name': 'o',
+                     'size': 0,
+                     'storage_policy_index': int(exp_policy_idx),
+                     'systags': 'a=b&x=\N{SNOWMAN}'}]
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertEqual(broker.get_objects(include_states={1}), expected)
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={

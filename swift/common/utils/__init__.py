@@ -2641,7 +2641,8 @@ def param_str_from_dict(param_dict):
         return None
     else:
         return '&'.join(['%s=%s' % (k, v)
-                         for k, v in param_dict.items()])
+                         for k, v in param_dict.items()
+                         if v is not None])
 
 
 def param_str_to_dict(param_str):

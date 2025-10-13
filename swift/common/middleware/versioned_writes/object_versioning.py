@@ -153,7 +153,7 @@ from swift.common.http import is_success, is_client_error, HTTP_NOT_FOUND, \
     HTTP_CONFLICT
 from swift.common.request_helpers import get_sys_meta_prefix, \
     copy_header_subset, get_reserved_name, split_reserved_name, \
-    constrain_req_limit
+    constrain_req_limit, update_systags
 from swift.common.middleware import app_property
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     TGT_ETAG_SYSMETA_SYMLINK_HDR, SYMLOOP_EXTEND, ALLOW_RESERVED_NAMES, \
@@ -496,6 +496,8 @@ class ObjectContext(ObjectVersioningContext):
         for header in not_for_symlink_headers:
             req.headers.pop(header, None)
 
+        update_systags(req, {'version': 'yes'})
+
         # *do* set swift_source here; this PUT is an implementation detail
         req.environ['swift.source'] = 'OV'
         req.body = b''
@@ -626,10 +628,12 @@ class ObjectContext(ObjectVersioningContext):
             # then put to versions container
             req.ensure_x_timestamp()
             version = self.get_version(req)
+            systags = {'version': 'yes'}
         elif self.s3_compat:
             # put to versions container while versioning is suspended
             req.ensure_x_timestamp()
             version = 'null'
+            systags = {}
         else:
             # put to user container while versioning is suspended
             return req.get_response(self.app)
@@ -656,7 +660,9 @@ class ObjectContext(ObjectVersioningContext):
         self._check_response_error(req, marker_resp)
         drain_and_close(marker_resp)
 
-        # successfully copied and created delete marker; safe to delete
+        # successfully copied and created delete marker in versions container;
+        # safe to delete in the user container...
+        update_systags(req, systags)
         resp = req.get_response(self.app)
         if resp.is_success or resp.status_int == 404:
             resp.headers['X-Object-Version-Id'] = \
@@ -765,9 +771,11 @@ class ObjectContext(ObjectVersioningContext):
             # if version-id is the latest version, delete the link too
             # First, kill the link...
             req.environ['QUERY_STRING'] = ''
+            update_systags(req, {'version': 'yes'})
             link_resp = req.get_response(self.app)
             self._check_response_error(req, link_resp)
             drain_and_close(link_resp)
+            update_systags(req, {'version': None})
 
             # *then* the backing data
             req.path_info = "/%s/%s/%s/%s" % (
