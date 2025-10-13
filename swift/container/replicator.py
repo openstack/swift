@@ -32,7 +32,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPOk, HTTPAccepted
 from swift.common.http import is_success
 from swift.common.utils import Timestamp, majority_size, get_db_files, \
-    parse_options
+    parse_options, node_to_string
 
 
 def check_merge_own_shard_range(shards, broker, logger, source):
@@ -127,38 +127,39 @@ class ContainerReplicator(db_replicator.Replicator):
             if not self._send_replicate_request(
                     http, 'merge_shard_ranges', shard_range_data, local_id):
                 return False
-            self.logger.debug('%s synced %s shard ranges to %s',
-                              broker.db_file, len(shard_range_data),
-                              '%(ip)s:%(port)s/%(device)s' % http.node)
+            node_str = node_to_string(http.node, False)
+            self.db_logger.debug(broker, 'synced %s shard ranges to %s',
+                                 len(shard_range_data), node_str)
         return True
 
     def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
                                  http, different_region):
+        node_str = node_to_string(node, False)
         if 'shard_max_row' in rinfo:
             # Always replicate shard ranges to new-enough swift
             shard_range_success = self._sync_shard_ranges(
                 broker, http, info['id'])
         else:
             shard_range_success = False
-            self.logger.warning(
-                '%s is unable to replicate shard ranges to peer %s; '
-                'peer may need upgrading', broker.db_file,
-                '%(ip)s:%(port)s/%(device)s' % node)
+            self.db_logger.warning(
+                broker,
+                'unable to replicate shard ranges to peer %s; '
+                'peer may need upgrading', node_str)
         if broker.sharding_initiated():
             if info['db_state'] == SHARDED and len(
                     broker.get_objects(limit=1)) == 0:
-                self.logger.debug('%s is sharded and has nothing more to '
-                                  'replicate to peer %s',
-                                  broker.db_file,
-                                  '%(ip)s:%(port)s/%(device)s' % node)
+                self.db_logger.debug(
+                    broker,
+                    'sharded and has nothing more to replicate to peer %s',
+                    node_str)
             else:
                 # Only print the scary warning if there was something that
                 # didn't get replicated
-                self.logger.warning(
-                    '%s is able to shard -- refusing to replicate objects to '
+                self.db_logger.warning(
+                    broker,
+                    'able to shard -- refusing to replicate objects to '
                     'peer %s; have shard ranges and will wait for cleaving',
-                    broker.db_file,
-                    '%(ip)s:%(port)s/%(device)s' % node)
+                    node_str)
             self.stats['deferred'] += 1
             return shard_range_success
 
@@ -303,8 +304,7 @@ class ContainerReplicator(db_replicator.Replicator):
         try:
             self.sync_store.update_sync_store(broker)
         except Exception:
-            self.logger.exception('Failed to update sync_store %s' %
-                                  broker.db_file)
+            self.db_logger.exception(broker, 'Failed to update sync_store')
 
         point = broker.get_reconciler_sync()
         if not broker.has_multiple_policies() and info['max_row'] != point:
@@ -322,9 +322,10 @@ class ContainerReplicator(db_replicator.Replicator):
             # despite being a handoff, since we're sharding we're not going to
             # do any cleanup so we can continue cleaving - this is still
             # considered "success"
-            self.logger.debug(
-                'Not deleting db %s (requires sharding, state %s)',
-                broker.db_file, broker.get_db_state())
+            self.db_logger.debug(
+                broker,
+                'Not deleting db (requires sharding, state %s)',
+                broker.get_db_state())
             return True
         return super(ContainerReplicator, self).cleanup_post_replicate(
             broker, orig_info, responses)
@@ -344,8 +345,8 @@ class ContainerReplicator(db_replicator.Replicator):
                 # DB is going to get deleted. Be preemptive about it
                 self.sync_store.remove_synced_container(broker)
             except Exception:
-                self.logger.exception('Failed to remove sync_store entry %s' %
-                                      broker.db_file)
+                self.db_logger.exception(
+                    broker, 'Failed to remove sync_store entry')
 
         return super(ContainerReplicator, self).delete_db(broker)
 

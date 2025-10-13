@@ -30,7 +30,7 @@ from swift.container import replicator, backend, server, sync_store
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
 from swift.common.utils import Timestamp, encode_timestamps, ShardRange, \
-    get_db_files, make_db_file_path, MD5_OF_EMPTY_STRING
+    get_db_files, make_db_file_path, MD5_OF_EMPTY_STRING, quote, node_to_string
 from swift.common.storage_policy import POLICIES
 
 from test.debug_logger import debug_logger
@@ -114,6 +114,99 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertTrue(success)
         self.assertEqual(1, daemon.stats['no_change'])
 
+    def test_sync_shard_ranges_logs_via_db_log_debug(self):
+        daemon = replicator.ContainerReplicator({}, logger=self.logger)
+        broker = mock.Mock()
+        broker.db_file = '/path/to/db'
+        broker.path = '/v1/AUTH_a/c'
+        # The implementation uses get_all_shard_range_data()
+        broker.get_all_shard_range_data.return_value = [mock.Mock(),
+                                                        mock.Mock()]
+
+        http = mock.Mock()
+        http.node = {'ip': '10.0.0.1', 'port': 6201, 'device': 'sda1'}
+
+        with mock.patch.object(daemon, '_send_replicate_request',
+                               return_value=True) as mock_send:
+
+            success = daemon._sync_shard_ranges(broker, http,
+                                                local_id='local-uuid')
+
+        self.assertTrue(success)
+        mock_send.assert_called_once()
+        node_str = node_to_string(http.node, False)
+        lines = self.logger.get_lines_for_level('debug')
+        self.assertEqual(
+            ['synced 2 shard ranges to %s, path: /v1/AUTH_a/c, '
+             'db: /path/to/db'
+             % node_str], lines)
+
+    def test_choose_replication_mode_warning_for_old_peer(self):
+        daemon = replicator.ContainerReplicator({}, logger=self.logger)
+
+        broker = mock.Mock()
+        broker.db_file = '/path/to/db'
+        broker.path = '/v1/AUTH_a/c'
+        broker.sharding_initiated.return_value = False
+
+        node = {'ip': '10.0.0.2', 'port': 6201, 'device': 'sdb1'}
+        http = mock.Mock()
+        rinfo = {}  # no 'shard_max_row'
+        info = {'id': 'local-uuid'}
+        local_sync = mock.Mock()
+        different_region = False
+
+        with mock.patch.object(daemon, '_sync_shard_ranges') as mock_sync, \
+             mock.patch.object(db_replicator.Replicator,
+                               '_choose_replication_mode',
+                               return_value=True) as mock_choose_repl_mode:
+            daemon._choose_replication_mode(
+                node, rinfo, info, local_sync, broker, http, different_region)
+            mock_sync.assert_not_called()
+            mock_choose_repl_mode.assert_called_once_with(
+                node, rinfo, info, local_sync, broker, http, different_region
+            )
+
+        node_str = '%(ip)s:%(port)s/%(device)s' % node
+        lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(
+            ['unable to replicate shard ranges to peer %s; '
+             'peer may need upgrading, path: /v1/AUTH_a/c, db: /path/to/db'
+             % node_str], lines)
+
+    def test_choose_replication_mode_sharded_nothing_more_to_replicate(self):
+        daemon = replicator.ContainerReplicator({}, logger=self.logger)
+
+        broker = mock.Mock()
+        broker.db_file = '/path/to/db'
+        broker.path = '/v1/AUTH_a/c'
+        broker.sharding_initiated.return_value = True
+        broker.get_objects.return_value = []
+
+        node = {'ip': '10.0.0.3', 'port': 6201, 'device': 'sdc1'}
+        http = mock.Mock()
+        info = {'id': 'local-uuid', 'db_state': backend.SHARDED}
+        rinfo = {'shard_max_row': 123}
+        local_sync = mock.Mock()
+        different_region = False
+
+        with mock.patch.object(daemon, '_sync_shard_ranges',
+                               return_value=True), \
+                mock.patch.object(db_replicator.Replicator,
+                                  '_choose_replication_mode',
+                                  return_value=True):
+
+            daemon._choose_replication_mode(
+                node, rinfo, info, local_sync, broker, http, different_region)
+
+        node_str = '%(ip)s:%(port)s/%(device)s' % node
+        lines = self.logger.get_lines_for_level('debug')
+        self.assertEqual(
+            ['sharded and has nothing more to replicate to peer %s, '
+             'path: /v1/AUTH_a/c, db: /path/to/db'
+             % node_str], lines)
+        broker.get_objects.assert_called_once_with(limit=1)
+
     def test_sync_remote_with_timings(self):
         ts_iter = make_timestamp_iter()
         # setup a local container
@@ -183,9 +276,10 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # "replicate" to different device
         daemon = replicator.ContainerReplicator({})
 
-        def _rsync_file(*args, **kwargs):
+        def _rsync_file_stub(broker_arg, *args, **kwargs):
+            self.assertIs(broker_arg, broker)
             return False
-        daemon._rsync_file = _rsync_file
+        daemon._rsync_file = _rsync_file_stub
 
         # replicate
         part, local_node = self._get_broker_part_node(broker)
@@ -211,10 +305,10 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         node = {'device': 'sdc', 'replication_ip': '127.0.0.1'}
         daemon = replicator.ContainerReplicator({'per_diff': 1})
 
-        def _rsync_file(db_file, remote_file, **kwargs):
+        def _rsync_file(broker_arg, remote_file, **kwargs):
             remote_server, remote_path = remote_file.split('/', 1)
             dest_path = os.path.join(self.root, remote_path)
-            shutil.copy(db_file, dest_path)
+            shutil.copy(broker_arg.db_file, dest_path)
             return True
         daemon._rsync_file = _rsync_file
         part, node = self._get_broker_part_node(remote_broker)
@@ -363,6 +457,12 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(daemon.max_diffs, 3)
         # run once and verify diff capped
         self._run_once(node, daemon=daemon)
+        self.assertEqual(
+            'Synchronization has fallen more than '
+            '30 rows behind; moving on and will try '
+            'again next pass, path: %s, db: %s' % (quote(broker.path),
+                                                   broker.db_file),
+            daemon.logger.get_lines_for_level('debug')[-1])
         self.assertEqual(1, daemon.stats['diff'])
         self.assertEqual(1, daemon.stats['diff_capped'])
         # run again and verify fully synced
@@ -1230,9 +1330,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker.initialize(timestamp.internal, POLICIES.default.idx)
         info = broker.get_replication_info()
         daemon._post_replicate_hook(broker, info, [])
-        log_lines = self.logger.get_lines_for_level('error')
-        self.assertEqual(1, len(log_lines))
-        self.assertIn('Failed to update sync_store', log_lines[0])
+        lines = self.logger.get_lines_for_level('error')
+        expected = 'Failed to update sync_store, path: %s, db: %s: ' % (
+            quote(broker.path), broker.db_file
+        )
+        self.assertEqual(lines, [expected])
 
     def test_update_sync_store(self):
         klass = 'swift.container.sync_store.ContainerSyncStore'
@@ -1356,7 +1458,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
         self.assertFalse(os.path.exists(broker.db_file))
-        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+        self.assertEqual(['Successfully deleted db, path: %s, db: %s' %
+                          (broker.path, broker.db_file)],
                          daemon.logger.get_lines_for_level('debug'))
         daemon.logger.clear()
 
@@ -1367,7 +1470,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                                             [False, True, True])
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
-        self.assertEqual(['Not deleting db %s (2/3 success)' % broker.db_file],
+        self.assertEqual(['Not deleting db (2/3 success), path: %s, '
+                          'db: %s' % (broker.path, broker.db_file)],
                          daemon.logger.get_lines_for_level('debug'))
         daemon.logger.clear()
 
@@ -1380,8 +1484,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
         self.assertEqual(
-            ['Not deleting db %s (requires sharding, state unsharded)' %
-             broker.db_file],
+            ['Not deleting db (requires sharding, state unsharded), '
+             'path: a/c, db: %s' % broker.db_file],
             daemon.logger.get_lines_for_level('debug'))
         daemon.logger.clear()
 
@@ -1393,8 +1497,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
         self.assertEqual(
-            ['Not deleting db %s (requires sharding, state sharding)' %
-             broker.db_file],
+            ['Not deleting db (requires sharding, state sharding), '
+             'path: a/c, db: %s' % broker.db_file],
             daemon.logger.get_lines_for_level('debug'))
         daemon.logger.clear()
 
@@ -1405,8 +1509,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                                             [True, False, True])
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
-        self.assertEqual(['Not deleting db %s (2/3 success)' %
-                          broker.db_file],
+        self.assertEqual(['Not deleting db (2/3 success), path: %s, '
+                          'db: %s' % (broker.path, broker.db_file)],
                          daemon.logger.get_lines_for_level('debug'))
         daemon.logger.clear()
 
@@ -1426,7 +1530,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
         self.assertFalse(os.path.exists(broker.db_file))
-        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+        self.assertEqual(['Successfully deleted db, path: %s, db: %s' %
+                          (broker.path, broker.db_file)],
                          daemon.logger.get_lines_for_level('debug'))
         daemon.logger.clear()
 
@@ -1483,6 +1588,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                            if local_osr else local_osr)
             self.assertEqual(exp_osr, actual_osr)
             lines = daemon.logger.get_lines_for_level('warning')
+            debug_lines = daemon.logger.get_lines_for_level('debug')
             if exp_warning:
                 self.assertEqual(len(lines), 1, lines)
                 self.assertIn("Ignoring remote osr w/o epoch", lines[0])
@@ -1497,6 +1603,13 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                 self.assertIn("source: %s" % url, lines[0])
             else:
                 self.assertFalse(lines)
+                expected_tail = ", path: %s, db: %s" % (
+                    quote(broker.path), broker.db_file)
+                self.assertTrue(
+                    any(dl.endswith(expected_tail) for dl in debug_lines),
+                    "Expected tail %r not found in debug lines: %r"
+                    % (expected_tail, debug_lines),
+                )
             lines = self.rpc.logger.get_lines_for_level('warning')
             if exp_rpc_warning:
                 self.assertEqual(len(lines), 1, lines)
@@ -1767,6 +1880,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         part, node = self._get_broker_part_node(remote_broker)
         daemon = replicator.ContainerReplicator({'node_timeout': '0.001'})
         daemon.logger = debug_logger()
+        daemon.db_logger.logger = daemon.logger
         with mock.patch.object(daemon.ring, 'get_part_nodes',
                                return_value=[node]), \
                 mock.patch.object(daemon, '_post_replicate_hook'):
@@ -1775,8 +1889,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertFalse(success)
         # broker only has its own shard range so expect objects to be sync'd
         self.assertEqual(['sync', 'get_shard_ranges'], replicate_calls)
-        error_lines = daemon.logger.get_lines_for_level('error')
-        self.assertIn('ERROR syncing /', error_lines[0])
+        error_lines = daemon.db_logger.logger.get_lines_for_level('error')
+        self.assertEqual('ERROR syncing with %s, '
+                         'path: %s, db: %s: Timeout (0.001s)'
+                         % (node, broker.path, broker.db_file),
+                         error_lines[0])
         self.assertFalse(error_lines[1:])
         self.assertEqual(0, daemon.stats['diff'])
         self.assertNotIn(
@@ -1912,7 +2029,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.rpc, replicate_hook=repl_hook, errors=None)
         db_replicator.ReplConnection = fake_repl_connection
         daemon = replicator.ContainerReplicator(
-            repl_conf, logger=debug_logger())
+            repl_conf, logger=self.logger)
         self._install_fake_rsync_file(daemon, rsync_calls)
         part, nodes = self._ring.get_nodes(from_broker.account,
                                            from_broker.container)
@@ -2264,9 +2381,18 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                          [call[0] for call in repl_calls])
         self.assertFalse(rsync_calls)
         lines = daemon.logger.get_lines_for_level('warning')
+        expected_tail = ", path: %s, db: %s" % (quote(local_broker.path),
+                                                local_broker.db_file)
         self.assertIn('unable to replicate shard ranges', lines[0])
+        self.assertTrue(
+            lines[0].endswith(expected_tail),
+            "expected tail %r in %r" % (expected_tail, lines[0]),
+        )
         self.assertIn('refusing to replicate objects', lines[1])
-        self.assertFalse(lines[2:])
+        self.assertTrue(
+            lines[1].endswith(expected_tail),
+            "expected tail %r in %r" % (expected_tail, lines[1]),
+        )
         # sync
         local_id = local_broker.get_info()['id']
         self.assertEqual(local_id, repl_calls[0][1][2])
@@ -2274,6 +2400,19 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             local_broker.account, local_broker.container, node_index=1)
         self.assertNotEqual(local_id, remote_broker.get_info()['id'])
         self.assertEqual([], remote_broker.get_shard_ranges())
+        lines = daemon.logger.get_lines_for_level('warning')
+        self.assertEqual(
+            'unable to replicate shard ranges to peer 10.0.0.1:1001/sdb; '
+            'peer may need upgrading, path: %s, db: %s'
+            % (quote(local_broker.path), quote(local_broker.db_file)),
+            lines[0])
+
+        self.assertEqual(
+            'able to shard -- refusing to replicate objects to peer '
+            '10.0.0.1:1001/sdb; have shard ranges and will wait for cleaving,'
+            ' path: %s, db: %s'
+            % (quote(local_broker.path), quote(local_broker.db_file)),
+            lines[1])
 
     def _check_replication_local_sharding_remote_presharding(self, repl_conf):
         local_context = self._setup_replication_test(0)
@@ -2423,6 +2562,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         # sanity check - in sync
         self._assert_local_sharded_in_sync(local_broker, local_id)
+
+        _, remote_node = self._get_broker_part_node(remote_broker)
+        node_str = '%(ip)s:%(port)s/%(device)s' % remote_node
+        local_broker = local_context['broker']
+        self.assertEqual([
+            f'synced 2 shard ranges to {node_str}, path: {local_broker.path}'
+            f', db: {local_broker.db_file}'],
+            self.logger.get_lines_for_level('debug'))
 
         remote_broker = self._get_broker('a', 'c', node_index=1)
         shard_db = make_db_file_path(remote_broker._db_file, epoch)
@@ -2841,6 +2988,25 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             daemon.find_local_handoff_for_part(0)
         expected_error_string = 'Cannot find local handoff; no local devices'
         self.assertEqual(str(dev_err.exception), expected_error_string)
+
+    def test_delete_db_logs_on_sync_store_error(self):
+        daemon = replicator.ContainerReplicator({}, logger=self.logger)
+        daemon.sync_store = mock.Mock()
+        broker = self._get_broker('a', 'c', node_index=0)
+
+        daemon.sync_store.remove_synced_container.side_effect = Exception(
+            'Failed to remove sync_store entry')
+
+        with mock.patch.object(db_replicator.Replicator, 'delete_db',
+                               return_value=True) as mock_delete_db:
+            delete_success = daemon.delete_db(broker)
+
+        lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['Failed to remove sync_store entry, path: a/c, db: %s: '
+             % broker.db_file], lines)
+        mock_delete_db.assert_called_once_with(broker)
+        self.assertTrue(delete_success)
 
 
 if __name__ == '__main__':
