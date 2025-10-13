@@ -444,17 +444,15 @@ class TestDBReplicator(unittest.TestCase):
         db_replicator.ring = FakeRing()
         self.delete_db_calls = []
         self._patchers = []
-        # recon cache path
-        self.recon_cache = mkdtemp()
-        rmtree(self.recon_cache, ignore_errors=True)
-        os.mkdir(self.recon_cache)
         self.logger = debug_logger('test-replicator')
         self.temp_dir = mkdtemp()
+        # recon cache path
+        self.recon_cache = os.path.join(self.temp_dir, 'cache')
+        os.mkdir(self.recon_cache)
 
     def tearDown(self):
         for patcher in self._patchers:
             patcher.stop()
-        rmtree(self.recon_cache, ignore_errors=True)
         rmtree(self.temp_dir, ignore_errors=True)
 
     def _patch(self, patching_fn, *args, **kwargs):
