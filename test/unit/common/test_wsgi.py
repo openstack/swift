@@ -64,6 +64,15 @@ def _fake_rings(tmpdir):
         policy.object_ring = None
 
 
+def _fake_swift_conf(tmpdir):
+    swift_config = dedent("""
+    [swift-hash]
+    swift_hash_path_prefix = arbitrary-nonempty-value
+    """)
+    with open(os.path.join(tmpdir, 'swift.conf'), 'w') as f:
+        f.write(swift_config)
+
+
 @patch_policies
 class TestWSGI(unittest.TestCase):
     """Tests for swift.common.wsgi"""
@@ -87,6 +96,7 @@ class TestWSGI(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             app, conf, logger, log_name = wsgi.init_request_processor(
                 conf_file, 'proxy-server')
         # verify pipeline is: catch_errors -> gatekeeper -> listing_formats ->
@@ -277,6 +287,7 @@ class TestWSGI(unittest.TestCase):
             """,
         }
         _fake_rings(tempdir)
+        _fake_swift_conf(tempdir)
         for filename, conf_body in conf_files.items():
             path = os.path.join(tempdir, filename + '.conf')
             with open(path, 'wt') as fd:
@@ -313,6 +324,7 @@ class TestWSGI(unittest.TestCase):
             """,
         }
         _fake_rings(tempdir)
+        _fake_swift_conf(tempdir)
         for filename, conf_body in conf_files.items():
             path = os.path.join(tempdir, filename + '.conf')
             with open(path, 'wt') as fd:
@@ -439,6 +451,7 @@ class TestWSGI(unittest.TestCase):
                 with open(os.path.join(conf_dir, 'swift.conf'), 'w') as f:
                     f.write('[DEFAULT]\nswift_dir = %s' % conf_root)
                 _fake_rings(conf_root)
+                _fake_swift_conf(conf_root)
                 app, conf, logger, log_name = wsgi.init_request_processor(
                     conf_dir, 'proxy-server')
         # verify pipeline is catch_errors -> proxy-server
@@ -634,6 +647,7 @@ class TestWSGI(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             with mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt:
                 conf = wsgi.appconfig(conf_file)
@@ -730,6 +744,7 @@ class TestWSGI(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
@@ -769,6 +784,7 @@ class TestWSGI(unittest.TestCase):
             with open(os.path.join(conf_dir, 'swift.conf'), 'w') as f:
                 f.write('[DEFAULT]\nswift_dir = %s' % conf_root)
             _fake_rings(conf_root)
+            _fake_swift_conf(conf_root)
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
@@ -820,6 +836,7 @@ class TestWSGI(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
@@ -1911,6 +1928,7 @@ class TestPipelineModification(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             with mock.patch(
                     'swift.proxy.server.Application.modify_wsgi_pipeline',
                     modify_func):
@@ -1975,6 +1993,7 @@ class TestPipelineModification(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             app = wsgi.loadapp(conf_file, global_conf={})
 
             self.assertEqual(self.pipeline_modules(app),
@@ -2041,6 +2060,7 @@ class TestPipelineModification(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             app = wsgi.loadapp(conf_file, global_conf={})
 
         self.assertEqual(self.pipeline_modules(app),
@@ -2074,6 +2094,7 @@ class TestPipelineModification(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             app = wsgi.loadapp(conf_file, global_conf={})
 
         self.assertEqual(self.pipeline_modules(app),
@@ -2238,6 +2259,7 @@ class TestPipelineModification(unittest.TestCase):
 
         with temptree(['proxy-server.conf']) as t:
             _fake_rings(t)
+            _fake_swift_conf(t)
             for version, pipeline, expected in to_test:
                 conf_file = os.path.join(t, 'proxy-server.conf')
                 with open(conf_file, 'w') as f:
@@ -2336,6 +2358,7 @@ class TestPipelineModification(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             with mock.patch.object(swift.proxy.server, 'required_filters',
                                    new_req_filters):
                 app = wsgi.loadapp(conf_file, global_conf={})
@@ -2377,6 +2400,7 @@ class TestPipelineModification(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
+            _fake_swift_conf(t)
             app = wsgi.loadapp(conf_file, global_conf={})
         return app
 
@@ -2447,6 +2471,7 @@ class TestPipelineModification(unittest.TestCase):
         with open(conf_path, 'w') as f:
             f.write(dedent(conf_body))
         _fake_rings(tempdir)
+        _fake_swift_conf(tempdir)
         account_ring_path = os.path.join(tempdir, 'account.ring.gz')
         container_ring_path = os.path.join(tempdir, 'container.ring.gz')
         object_ring_paths = {}

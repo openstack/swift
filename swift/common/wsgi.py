@@ -41,7 +41,8 @@ from swift.common.swob import Request, wsgi_unquote
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
-    reiterate, clean_up_daemon_hygiene, systemd_notify, NicerInterpolation
+    reiterate, clean_up_daemon_hygiene, systemd_notify, NicerInterpolation, \
+    set_swift_dir
 
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
@@ -1228,6 +1229,9 @@ def _initrp(conf_path, app_section, *args, **kwargs):
     except Exception as e:
         raise ConfigFileError("Error trying to load config from %s: %s" %
                               (conf_path, e))
+
+    if conf.get('swift_dir'):
+        set_swift_dir(conf['swift_dir'])
 
     validate_configuration()
 
