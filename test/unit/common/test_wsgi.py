@@ -1533,7 +1533,7 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
         for s in self.sockets:
             s.reset_mock()
 
-        with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
+        with mock.patch('swift.common.wsgi.shutdown_safe') as mock_wsgi:
             self.assertEqual([], list(self.strategy.new_worker_socks()))
 
         self.assertEqual([
@@ -1544,10 +1544,10 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
             for _ in range(3)
         ], [s.mock_calls for s in self.sockets[:3]])
         self.assertEqual({
-            ('shutdown_safe', (self.sockets[0],)),
-            ('shutdown_safe', (self.sockets[1],)),
-            ('shutdown_safe', (self.sockets[2],)),
-        }, {call[:2] for call in mock_greenio.mock_calls})
+            (self.sockets[0],),
+            (self.sockets[1],),
+            (self.sockets[2],),
+        }, {call[0] for call in mock_wsgi.call_args_list})
         self.assertEqual([
             [] for _ in range(3)
         ], [s.mock_calls for s in self.sockets[3:]])  # not closed
@@ -1672,13 +1672,13 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
             self.strategy.register_worker_start(s, i, pid)
             pid += 1
 
-        with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
+        with mock.patch('swift.common.wsgi.shutdown_safe') as mock_wsgi:
             self.strategy.shutdown_sockets()
 
         self.assertEqual([
-            mock.call.shutdown_safe(s)
+            mock.call(s)
             for s in self.sockets
-        ], mock_greenio.mock_calls)
+        ], mock_wsgi.mock_calls)
         self.assertEqual([
             [mock.call.close()]
             for _ in range(3)
@@ -1768,12 +1768,12 @@ class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
             self.strategy.register_worker_start(s, 'unused', pid)
             pid += 1
 
-        with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
+        with mock.patch('swift.common.wsgi.shutdown_safe') as mock_wsgi:
             self.strategy.shutdown_sockets()
         self.assertEqual([
-            mock.call.shutdown_safe(s)
+            mock.call(s)
             for s in sockets
-        ], mock_greenio.mock_calls)
+        ], mock_wsgi.mock_calls)
         self.assertEqual([
             [mock.call.close()] for _ in range(2)
         ], [s.mock_calls for s in sockets])

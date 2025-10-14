@@ -27,7 +27,7 @@ import time
 import warnings
 
 from swift.common.concurrency import (
-    eventlet, greenio, SwiftPool, sleep, wsgi, listen, Timeout, socket, ssl,
+    eventlet, SwiftPool, sleep, wsgi, listen, Timeout, socket, ssl,
     green_os
 )
 from paste.deploy import loadwsgi
@@ -42,7 +42,7 @@ from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
     reiterate, clean_up_daemon_hygiene, systemd_notify, NicerInterpolation, \
-    set_swift_dir
+    set_swift_dir, shutdown_safe
 
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
@@ -505,7 +505,7 @@ class StrategyBase(object):
         """
 
         for sock in self.iter_sockets():
-            greenio.shutdown_safe(sock)
+            shutdown_safe(sock)
             sock.close()
 
     def set_close_on_exec_on_listen_sockets(self):
@@ -762,7 +762,7 @@ class WorkersStrategy(StrategyBase):
         else:
             self.logger.error('Removing dead child %d from parent %d',
                               pid, os.getpid())
-            greenio.shutdown_safe(sock)
+            shutdown_safe(sock)
             sock.close()
 
     def iter_sockets(self):
@@ -880,7 +880,7 @@ class ServersPerPortStrategy(StrategyBase):
                 # that there should be no listen socket for that port, so we
                 # can close and forget them.
                 pid, sock = self.tracking_data[port][idx]
-                greenio.shutdown_safe(sock)
+                shutdown_safe(sock)
                 sock.close()
                 self.logger.notice(
                     'Closing unnecessary sock for port %d (child pid %d)',
@@ -934,7 +934,7 @@ class ServersPerPortStrategy(StrategyBase):
                     self.logger.error('Removing dead child %d from parent %d',
                                       pid, os.getpid())
                     port_data[idx] = (None, None)
-                    greenio.shutdown_safe(sock)
+                    shutdown_safe(sock)
                     sock.close()
                     return
 
@@ -1060,7 +1060,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
                 def shutdown_my_listen_sock(signum, *args):
-                    greenio.shutdown_safe(sock)
+                    shutdown_safe(sock)
 
                 signal.signal(signal.SIGHUP, shutdown_my_listen_sock)
                 signal.signal(signal.SIGUSR1, shutdown_my_listen_sock)

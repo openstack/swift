@@ -5535,3 +5535,29 @@ def get_ppid(pid):
                 raise RuntimeError('get_ppid can only be used on Linux')
             raise OSError(errno.ESRCH, 'No such process')
         raise
+
+
+# errnos that mean the socket is already disconnected or gone; shutting
+# down in that state is a harmless no-op, so we swallow them.
+_SHUTDOWN_ALREADY_CLOSED = frozenset(
+    (errno.ENOTCONN, errno.EBADF, errno.ENOTSOCK))
+
+
+def shutdown_safe(sock):
+    """Shut down ``sock`` before it is closed, tolerating the socket types
+    Swift may hold and peers that have already hung up.
+
+    A plain ``socket.socket`` and an ``ssl.SSLSocket`` both take a direction
+    argument to :meth:`shutdown`; a PyOpenSSL ``SSL.Connection`` takes none.
+    Rather than import PyOpenSSL just to type-check, we call the two-argument
+    form and retry without the argument when it is rejected.
+    """
+    try:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except TypeError:
+            # PyOpenSSL's SSL.Connection.shutdown() takes no argument.
+            sock.shutdown()
+    except OSError as err:
+        if err.errno not in _SHUTDOWN_ALREADY_CLOSED:
+            raise

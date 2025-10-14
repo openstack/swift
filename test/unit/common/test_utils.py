@@ -5839,6 +5839,36 @@ class TestGetPpid(unittest.TestCase):
         self.assertEqual(mock_open.mock_calls[0], mock.call('/proc/123/stat'))
 
 
+class TestShutdownSafe(unittest.TestCase):
+    def test_regular_socket(self):
+        sock = mock.MagicMock()
+        utils.shutdown_safe(sock)
+        sock.shutdown.assert_called_once_with(socket.SHUT_RDWR)
+
+    def test_pyopenssl_connection_takes_no_arg(self):
+        # SSL.Connection.shutdown() rejects the direction argument with a
+        # TypeError; we retry without it.
+        sock = mock.MagicMock()
+        sock.shutdown.side_effect = [TypeError(), None]
+        utils.shutdown_safe(sock)
+        self.assertEqual(
+            sock.shutdown.call_args_list,
+            [mock.call(socket.SHUT_RDWR), mock.call()])
+
+    def test_already_closed_errnos_are_swallowed(self):
+        for err in (errno.ENOTCONN, errno.EBADF, errno.ENOTSOCK):
+            sock = mock.MagicMock()
+            sock.shutdown.side_effect = OSError(err, 'already gone')
+            utils.shutdown_safe(sock)  # must not raise
+
+    def test_other_oserror_is_reraised(self):
+        sock = mock.MagicMock()
+        sock.shutdown.side_effect = OSError(errno.EPERM, 'nope')
+        with self.assertRaises(OSError) as caught:
+            utils.shutdown_safe(sock)
+        self.assertEqual(caught.exception.errno, errno.EPERM)
+
+
 class TestShardName(unittest.TestCase):
     def test(self):
         ts = NormalTimestamp.now()

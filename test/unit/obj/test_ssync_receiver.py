@@ -622,7 +622,7 @@ class TestReceiver(unittest.TestCase):
                 return self.mock_socket
 
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -658,7 +658,7 @@ class TestReceiver(unittest.TestCase):
                 return self.mock_socket
 
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -702,7 +702,7 @@ class TestReceiver(unittest.TestCase):
 
         self.controller.client_timeout = 0.01
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -744,7 +744,7 @@ class TestReceiver(unittest.TestCase):
 
         self.controller.client_timeout = 0.01
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -1432,7 +1432,7 @@ class TestReceiver(unittest.TestCase):
 
         self.controller.client_timeout = 0.01
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -1489,7 +1489,7 @@ class TestReceiver(unittest.TestCase):
         controller = FakeController(self.conf, logger=self.logger)
         controller.client_timeout = 0.01
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             resp = req.get_response(controller)
             resp_body_lines = self.body_lines(resp.body)
@@ -1563,7 +1563,7 @@ class TestReceiver(unittest.TestCase):
         controller = FakeController(self.conf, logger=self.logger)
         controller.client_timeout = 0.01
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             resp = req.get_response(controller)
             resp_body_lines = self.body_lines(resp.body)
@@ -1606,7 +1606,7 @@ class TestReceiver(unittest.TestCase):
 
         self.controller.client_timeout = 0.01
         with mock.patch.object(
-                ssync_receiver.eventlet.greenio, 'shutdown_safe') as \
+                ssync_receiver, 'shutdown_safe') as \
                 mock_shutdown_safe:
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -1646,7 +1646,7 @@ class TestReceiver(unittest.TestCase):
                 return self.mock_socket
 
         self.controller.client_timeout = 0.01
-        with mock.patch.object(ssync_receiver.eventlet.greenio,
+        with mock.patch.object(ssync_receiver,
                                'shutdown_safe') as mock_shutdown_safe, \
                 mock.patch.object(
                     self.controller, 'DELETE',

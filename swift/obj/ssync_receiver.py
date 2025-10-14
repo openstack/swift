@@ -21,7 +21,7 @@ from swift.common import http
 from swift.common import swob
 from swift.common import utils
 from swift.common import request_helpers
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, shutdown_safe
 
 
 class SsyncClientDisconnected(Exception):
@@ -346,7 +346,7 @@ class Receiver(object):
             # and the remote side will get a broken-pipe exception.
             try:
                 socket = self.request.environ['wsgi.input'].get_socket()
-                eventlet.greenio.shutdown_safe(socket)
+                shutdown_safe(socket)
                 socket.close()
             except Exception:
                 pass  # We're okay with the above failing.
