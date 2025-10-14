@@ -28,7 +28,6 @@ import json
 
 from unittest import mock
 from unittest.mock import patch, call
-from importlib import reload as reload_module
 
 from swift.common.db_replicator import BrokerAnnotatedLogger
 from swift.container.backend import DATADIR
@@ -46,11 +45,6 @@ from test.unit.common.test_db import ExampleBroker
 
 TEST_ACCOUNT_NAME = 'a c t'
 TEST_CONTAINER_NAME = 'c o n'
-
-
-def teardown_module():
-    "clean up my monkey patching"
-    reload_module(db_replicator)
 
 
 @contextmanager
@@ -2370,15 +2364,18 @@ class TestReplicatorSync(unittest.TestCase):
             self.root, self.datadir, self.backend, mount_check=False,
             logger=debug_logger())
         FakeReplConnection = attach_fake_replication_rpc(self.rpc)
-        self._orig_ReplConnection = db_replicator.ReplConnection
-        db_replicator.ReplConnection = FakeReplConnection
+        p = mock.patch.object(db_replicator, 'ReplConnection',
+                              FakeReplConnection)
+        p.start()
+        # it turns out this works very well, even if a test leaks a global
+        # patch this will restore the original db_replicator.ReplConnection
+        self.addCleanup(p.stop)
         self._orig_Ring = db_replicator.ring.Ring
         self._ring = unit.FakeRing()
         db_replicator.ring.Ring = lambda *args, **kwargs: self._get_ring()
         self.logger = debug_logger()
 
     def tearDown(self):
-        db_replicator.ReplConnection = self._orig_ReplConnection
         db_replicator.ring.Ring = self._orig_Ring
         rmtree(self.root)
 
