@@ -1334,7 +1334,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         expected = 'Failed to update sync_store, path: %s, db: %s: ' % (
             quote(broker.path), broker.db_file
         )
-        self.assertEqual(lines, [expected])
+        self.assertEqual([expected], lines)
 
     def test_update_sync_store(self):
         klass = 'swift.container.sync_store.ContainerSyncStore'

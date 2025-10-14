@@ -446,14 +446,16 @@ class TestDBReplicator(unittest.TestCase):
         self._patchers = []
         # recon cache path
         self.recon_cache = mkdtemp()
-        rmtree(self.recon_cache, ignore_errors=1)
+        rmtree(self.recon_cache, ignore_errors=True)
         os.mkdir(self.recon_cache)
         self.logger = debug_logger('test-replicator')
+        self.temp_dir = mkdtemp()
 
     def tearDown(self):
         for patcher in self._patchers:
             patcher.stop()
-        rmtree(self.recon_cache, ignore_errors=1)
+        rmtree(self.recon_cache, ignore_errors=True)
+        rmtree(self.temp_dir, ignore_errors=True)
 
     def _patch(self, patching_fn, *args, **kwargs):
         patcher = patching_fn(*args, **kwargs)
@@ -1299,62 +1301,58 @@ class TestDBReplicator(unittest.TestCase):
         replicator._zero_stats()
         replicator.extract_device = lambda _: 'some_device'
 
-        temp_dir = mkdtemp()
-        try:
-            temp_part_dir = os.path.join(temp_dir, '140')
-            os.mkdir(temp_part_dir)
-            temp_suf_dir = os.path.join(temp_part_dir, '16e')
-            os.mkdir(temp_suf_dir)
-            temp_hash_dir = os.path.join(temp_suf_dir,
-                                         '166e33924a08ede4204871468c11e16e')
-            os.mkdir(temp_hash_dir)
-            temp_file = NamedTemporaryFile(dir=temp_hash_dir, delete=False)
-            temp_hash_dir2 = os.path.join(temp_suf_dir,
-                                          '266e33924a08ede4204871468c11e16e')
-            os.mkdir(temp_hash_dir2)
-            temp_file2 = NamedTemporaryFile(dir=temp_hash_dir2, delete=False)
+        temp_part_dir = os.path.join(self.temp_dir, '140')
+        os.mkdir(temp_part_dir)
+        temp_suf_dir = os.path.join(temp_part_dir, '16e')
+        os.mkdir(temp_suf_dir)
+        temp_hash_dir = os.path.join(temp_suf_dir,
+                                     '166e33924a08ede4204871468c11e16e')
+        os.mkdir(temp_hash_dir)
+        temp_file = NamedTemporaryFile(dir=temp_hash_dir, delete=False)
+        temp_hash_dir2 = os.path.join(temp_suf_dir,
+                                      '266e33924a08ede4204871468c11e16e')
+        os.mkdir(temp_hash_dir2)
+        temp_file2 = NamedTemporaryFile(dir=temp_hash_dir2, delete=False)
 
-            # sanity-checks
-            self.assertTrue(os.path.exists(temp_dir))
-            self.assertTrue(os.path.exists(temp_part_dir))
-            self.assertTrue(os.path.exists(temp_suf_dir))
-            self.assertTrue(os.path.exists(temp_hash_dir))
-            self.assertTrue(os.path.exists(temp_file.name))
-            self.assertTrue(os.path.exists(temp_hash_dir2))
-            self.assertTrue(os.path.exists(temp_file2.name))
-            self.assertEqual(0, replicator.stats['remove'])
+        # sanity-checks
+        self.assertTrue(os.path.exists(self.temp_dir))
+        self.assertTrue(os.path.exists(temp_part_dir))
+        self.assertTrue(os.path.exists(temp_suf_dir))
+        self.assertTrue(os.path.exists(temp_hash_dir))
+        self.assertTrue(os.path.exists(temp_file.name))
+        self.assertTrue(os.path.exists(temp_hash_dir2))
+        self.assertTrue(os.path.exists(temp_file2.name))
+        self.assertEqual(0, replicator.stats['remove'])
 
-            temp_file.db_file = temp_file.name
-            replicator.delete_db(temp_file)
+        temp_file.db_file = temp_file.name
+        replicator.delete_db(temp_file)
 
-            self.assertTrue(os.path.exists(temp_dir))
-            self.assertTrue(os.path.exists(temp_part_dir))
-            self.assertTrue(os.path.exists(temp_suf_dir))
-            self.assertFalse(os.path.exists(temp_hash_dir))
-            self.assertFalse(os.path.exists(temp_file.name))
-            self.assertTrue(os.path.exists(temp_hash_dir2))
-            self.assertTrue(os.path.exists(temp_file2.name))
-            self.assertEqual(
-                [(('removes.some_device',), {})],
-                replicator.logger.statsd_client.calls['increment'])
-            self.assertEqual(1, replicator.stats['remove'])
+        self.assertTrue(os.path.exists(self.temp_dir))
+        self.assertTrue(os.path.exists(temp_part_dir))
+        self.assertTrue(os.path.exists(temp_suf_dir))
+        self.assertFalse(os.path.exists(temp_hash_dir))
+        self.assertFalse(os.path.exists(temp_file.name))
+        self.assertTrue(os.path.exists(temp_hash_dir2))
+        self.assertTrue(os.path.exists(temp_file2.name))
+        self.assertEqual(
+            [(('removes.some_device',), {})],
+            replicator.logger.statsd_client.calls['increment'])
+        self.assertEqual(1, replicator.stats['remove'])
 
-            temp_file2.db_file = temp_file2.name
-            replicator.delete_db(temp_file2)
+        temp_file2.db_file = temp_file2.name
+        replicator.delete_db(temp_file2)
 
-            self.assertTrue(os.path.exists(temp_dir))
-            self.assertFalse(os.path.exists(temp_part_dir))
-            self.assertFalse(os.path.exists(temp_suf_dir))
-            self.assertFalse(os.path.exists(temp_hash_dir))
-            self.assertFalse(os.path.exists(temp_file.name))
-            self.assertFalse(os.path.exists(temp_hash_dir2))
-            self.assertFalse(os.path.exists(temp_file2.name))
-            self.assertEqual(
-                [(('removes.some_device',), {})] * 2,
-                replicator.logger.statsd_client.calls['increment'])
-            self.assertEqual(2, replicator.stats['remove'])
-        finally:
-            rmtree(temp_dir)
+        self.assertTrue(os.path.exists(self.temp_dir))
+        self.assertFalse(os.path.exists(temp_part_dir))
+        self.assertFalse(os.path.exists(temp_suf_dir))
+        self.assertFalse(os.path.exists(temp_hash_dir))
+        self.assertFalse(os.path.exists(temp_file.name))
+        self.assertFalse(os.path.exists(temp_hash_dir2))
+        self.assertFalse(os.path.exists(temp_file2.name))
+        self.assertEqual(
+            [(('removes.some_device',), {})] * 2,
+            replicator.logger.statsd_client.calls['increment'])
+        self.assertEqual(2, replicator.stats['remove'])
 
     def test_extract_device(self):
         replicator = ConcreteReplicator({'devices': '/some/root'})
@@ -1481,45 +1479,40 @@ class TestDBReplicator(unittest.TestCase):
         replicator = ConcreteReplicator({}, logger=self.logger)
         replicator._zero_stats()
         db_replicator.lock_parent_directory = lock_parent_directory
+        temp_part_dir = os.path.join(self.temp_dir, '140')
+        os.mkdir(temp_part_dir)
+        suf_dir = os.path.join(temp_part_dir, '16e')
+        os.mkdir(suf_dir)
+        hash_prefix = '166e33924a08ede4204871468c11e16e'
+        hash_dir = os.path.join(suf_dir, hash_prefix)
+        os.mkdir(hash_dir)
+        object_file = os.path.join(hash_dir, hash_prefix + '.db')
+        with open(object_file, 'w'):
+            pass
 
-        temp_dir = mkdtemp()
-        try:
-            temp_part_dir = os.path.join(temp_dir, '140')
-            os.mkdir(temp_part_dir)
-            suf_dir = os.path.join(temp_part_dir, '16e')
-            os.mkdir(suf_dir)
-            hash_prefix = '166e33924a08ede4204871468c11e16e'
-            hash_dir = os.path.join(suf_dir, hash_prefix)
-            os.mkdir(hash_dir)
-            object_file = os.path.join(hash_dir, hash_prefix + '.db')
-            with open(object_file, 'w'):
-                pass
+        broker = FakeBroker(account='a', container='c')
+        broker.db_file = object_file
+        parent_dir = suf_dir
 
-            broker = FakeBroker(account='a', container='c')
-            broker.db_file = object_file
-            parent_dir = suf_dir
+        def rmdir_side_effect(path):
+            if path == parent_dir:
+                raise OSError(errno.EPERM, "Operation not permitted")
+            return os.rmdir(path)
 
-            def rmdir_side_effect(path):
-                if path == parent_dir:
-                    raise OSError(errno.EPERM, "Operation not permitted")
-                return os.rmdir(path)
+        with mock.patch('swift.common.db_replicator.os',
+                        wraps=os) as mock_os:
+            mock_os.rmdir.side_effect = rmdir_side_effect
+            result = replicator.delete_db(broker)
+        self.assertFalse(result)
+        self.assertFalse(os.path.exists(hash_dir))
+        self.assertFalse(os.path.exists(object_file))
 
-            with mock.patch('swift.common.db_replicator.os',
-                            new=mock.MagicMock(wraps=os)) as mock_os:
-                mock_os.rmdir.side_effect = rmdir_side_effect
-                result = replicator.delete_db(broker)
-            self.assertFalse(result)
-
-            lines = [line.rstrip(': ')
-                     for line in self.logger.get_lines_for_level('error')]
-            self.assertEqual(
-                ['ERROR while trying to clean up %s, path: %s, db: %s' %
-                 (parent_dir, db_replicator.quote(broker.path),
-                  broker.db_file)],
-                lines)
-
-        finally:
-            rmtree(temp_dir, ignore_errors=True)
+        lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['ERROR while trying to clean up %s, path: %s, db: %s: ' %
+             (parent_dir, db_replicator.quote(broker.path),
+              broker.db_file)],
+            lines)
 
     def test_rsync_then_merge_db_does_not_exist(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
@@ -1746,21 +1739,18 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(404, resp.status_int)
 
     def test_complete_rsync(self):
-        drive = mkdtemp()
+        drive = self.temp_dir
         args = ['old_file']
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
         os.mkdir('%s/tmp' % drive)
         old_file = '%s/tmp/old_file' % drive
         new_file = '%s/new_db_file' % drive
-        try:
-            fp = open(old_file, 'w')
-            fp.write('void')
-            fp.close
-            resp = rpc.complete_rsync(drive, new_file, args)
-            self.assertEqual(204, resp.status_int)
-        finally:
-            rmtree(drive)
+        fp = open(old_file, 'w')
+        fp.write('void')
+        fp.close
+        resp = rpc.complete_rsync(drive, new_file, args)
+        self.assertEqual(204, resp.status_int)
 
     @unit.with_tempdir
     def test_empty_suffix_and_hash_dirs_get_cleanedup(self, tempdir):
