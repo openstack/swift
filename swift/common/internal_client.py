@@ -296,7 +296,7 @@ class InternalClient(object):
 
     def _iter_items(
             self, path, marker='', end_marker='', prefix='',
-            acceptable_statuses=(2, HTTP_NOT_FOUND)):
+            acceptable_statuses=(2, HTTP_NOT_FOUND), headers=None):
         """
         Returns an iterator of items from a json listing.  Assumes listing has
         'name' key defined and uses markers.
@@ -327,7 +327,7 @@ class InternalClient(object):
                 (path, bytes_to_wsgi(quote(marker)),
                  bytes_to_wsgi(quote(end_marker)),
                  bytes_to_wsgi(quote(prefix))),
-                {}, acceptable_statuses)
+                headers or {}, acceptable_statuses)
             if not resp.status_int == 200:
                 if resp.status_int >= HTTP_MULTIPLE_CHOICES:
                     b''.join(resp.app_iter)
@@ -607,7 +607,7 @@ class InternalClient(object):
 
     def iter_objects(
             self, account, container, marker='', end_marker='', prefix='',
-            acceptable_statuses=(2, HTTP_NOT_FOUND)):
+            acceptable_statuses=(2, HTTP_NOT_FOUND), headers=None):
         """
         Returns an iterator of object dicts from a container.
 
@@ -628,7 +628,7 @@ class InternalClient(object):
 
         path = self.make_path(account, container)
         return self._iter_items(path, marker, end_marker, prefix,
-                                acceptable_statuses)
+                                acceptable_statuses, headers=headers)
 
     def set_container_metadata(
             self, account, container, metadata, metadata_prefix='',

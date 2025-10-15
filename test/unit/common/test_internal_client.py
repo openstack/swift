@@ -26,6 +26,7 @@ from itertools import zip_longest
 from urllib.parse import quote, parse_qsl
 from swift.common import exceptions, internal_client, request_helpers, swob
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.middleware.s3api.s3response import HTTPOk
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 from swift.common.middleware.gatekeeper import GatekeeperMiddleware
@@ -135,7 +136,7 @@ class SetMetadataInternalClient(internal_client.InternalClient):
 class IterInternalClient(internal_client.InternalClient):
     def __init__(
             self, test, path, marker, end_marker, prefix, acceptable_statuses,
-            items):
+            items, headers=None):
         self.test = test
         self.path = path
         self.marker = marker
@@ -143,15 +144,17 @@ class IterInternalClient(internal_client.InternalClient):
         self.prefix = prefix
         self.acceptable_statuses = acceptable_statuses
         self.items = items
+        self.headers = headers
 
     def _iter_items(
             self, path, marker='', end_marker='', prefix='',
-            acceptable_statuses=None):
+            acceptable_statuses=None, headers=None):
         self.test.assertEqual(self.path, path)
         self.test.assertEqual(self.marker, marker)
         self.test.assertEqual(self.end_marker, end_marker)
         self.test.assertEqual(self.prefix, prefix)
         self.test.assertEqual(self.acceptable_statuses, acceptable_statuses)
+        self.test.assertEqual(self.headers, headers)
         for item in self.items:
             yield item
 
@@ -990,47 +993,47 @@ class TestInternalClient(unittest.TestCase):
         c = InternalClient()
         self.assertRaises(ValueError, c.make_path, 'account', None, 'obj')
 
-    def test_iter_items(self):
-        class Response(object):
-            def __init__(self, status_int, body):
-                self.status_int = status_int
-                self.body = body
-
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self, test, responses):
-                self.test = test
-                self.responses = responses
-                self.make_request_called = 0
-
-            def make_request(
-                    self, method, path, headers, acceptable_statuses,
-                    body_file=None):
-                self.make_request_called += 1
-                return self.responses.pop(0)
-
+    def test_iter_items_empty(self):
         exp_items = []
-        responses = [Response(200, json.dumps([]).encode('ascii')), ]
         items = []
-        client = InternalClient(self, responses)
-        for item in client._iter_items('/'):
+        client, app = get_client_app()
+        app.register('GET', '/', HTTPOk, {}, json.dumps([]).encode('ascii'))
+        for item in client._iter_items('/', headers={'X-Backend-Foo': 'Bar'}):
             items.append(item)
         self.assertEqual(exp_items, items)
+        exp_headers = {'Host': 'localhost:80',
+                       'User-Agent': 'test',
+                       'X-Backend-Allow-Reserved-Names': 'true',
+                       'X-Backend-Foo': 'Bar'}
+        self.assertEqual([('GET', '/?format=json', exp_headers)],
+                         app.calls_with_headers)
 
+    def test_iter_items(self):
+        client, app = get_client_app()
         exp_items = []
-        responses = []
         for i in range(3):
             data = [
                 {'name': 'item%02d' % (2 * i)},
                 {'name': 'item%02d' % (2 * i + 1)}]
-            responses.append(Response(200, json.dumps(data).encode('ascii')))
+            app.register_next_response('GET', '/', HTTPOk, {},
+                                       json.dumps(data).encode('ascii'))
             exp_items.extend(data)
-        responses.append(Response(204, ''))
+        app.register_next_response('GET', '/', HTTPOk, {},
+                                   json.dumps([]).encode('ascii'))
 
         items = []
-        client = InternalClient(self, responses)
-        for item in client._iter_items('/'):
+        for item in client._iter_items('/', headers={'X-Backend-Foo': 'Bar'}):
             items.append(item)
         self.assertEqual(exp_items, items)
+        exp_headers = {'Host': 'localhost:80',
+                       'User-Agent': 'test',
+                       'X-Backend-Allow-Reserved-Names': 'true',
+                       'X-Backend-Foo': 'Bar'}
+        self.assertEqual([('GET', '/?format=json', exp_headers),
+                          ('GET', '/?format=json&marker=item01', exp_headers),
+                          ('GET', '/?format=json&marker=item03', exp_headers),
+                          ('GET', '/?format=json&marker=item05', exp_headers)],
+                         app.calls_with_headers)
 
     def test_iter_items_with_markers(self):
         class Response(object):
@@ -1492,13 +1495,15 @@ class TestInternalClient(unittest.TestCase):
         end_marker = 'some_end_marker'
         prefix = 'some_prefix'
         acceptable_statuses = 'some_status_list'
+        headers = {'X-Backend-Foo': 'Bar'}
         items = '0 1 2'.split()
         client = IterInternalClient(
-            self, path, marker, end_marker, prefix, acceptable_statuses, items)
+            self, path, marker, end_marker, prefix, acceptable_statuses, items,
+            headers=headers)
         ret_items = []
         for obj in client.iter_objects(
                 account, container, marker, end_marker, prefix,
-                acceptable_statuses):
+                acceptable_statuses, headers=headers):
             ret_items.append(obj)
         self.assertEqual(items, ret_items)
 
