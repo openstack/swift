@@ -391,10 +391,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             path = '/a/c/o_missing_%s' % next(missing_counter)
             broker.put_object(path, time.time(), 0, 'content-type', 'etag',
                               storage_policy_index=db.storage_policy_index)
-        test_db_replicator.FakeReplConnection = \
-            test_db_replicator.attach_fake_replication_rpc(
-                self.rpc, replicate_hook=put_more_objects)
-        db_replicator.ReplConnection = test_db_replicator.FakeReplConnection
+        FakeReplConnection = test_db_replicator.attach_fake_replication_rpc(
+            self.rpc, replicate_hook=put_more_objects)
         # and add one extra to local db to trigger merge_items
         put_more_objects('merge_items')
         # limit number of times we'll call merge_items
@@ -402,15 +400,18 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # replicate
         part, node = self._get_broker_part_node(remote_broker)
         info = broker.get_replication_info()
-        success = daemon._repl_to_node(node, broker, part, info)
+        with mock.patch.object(db_replicator, 'ReplConnection',
+                               FakeReplConnection):
+            success = daemon._repl_to_node(node, broker, part, info)
         self.assertFalse(success)
         # back off on the PUTs during replication...
         FakeReplConnection = test_db_replicator.attach_fake_replication_rpc(
             self.rpc, replicate_hook=None)
-        db_replicator.ReplConnection = FakeReplConnection
         # retry replication
         info = broker.get_replication_info()
-        success = daemon._repl_to_node(node, broker, part, info)
+        with mock.patch.object(db_replicator, 'ReplConnection',
+                               FakeReplConnection):
+            success = daemon._repl_to_node(node, broker, part, info)
         self.assertTrue(success)
         # row merge
         self.assertEqual(2, daemon.stats['diff'])
@@ -1837,12 +1838,13 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.rpc, errors={'merge_shard_ranges': [
                 FakeHTTPResponse(HTTPServerError())]},
             replicate_hook=replicate_hook)
-        db_replicator.ReplConnection = fake_repl_connection
         part, node = self._get_broker_part_node(remote_broker)
         info = broker.get_replication_info()
         daemon = replicator.ContainerReplicator({})
         daemon.logger = debug_logger()
-        success = daemon._repl_to_node(node, broker, part, info)
+        with mock.patch.object(db_replicator, 'ReplConnection',
+                               fake_repl_connection):
+            success = daemon._repl_to_node(node, broker, part, info)
         self.assertFalse(success)
         # broker only has its own shard range so expect objects to be sync'd
         self.assertEqual(
@@ -1876,13 +1878,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         fake_repl_connection = attach_fake_replication_rpc(
             self.rpc, replicate_hook=replicate_hook)
-        db_replicator.ReplConnection = fake_repl_connection
         part, node = self._get_broker_part_node(remote_broker)
         daemon = replicator.ContainerReplicator({'node_timeout': '0.001'})
         daemon.logger = debug_logger()
         daemon.db_logger.logger = daemon.logger
-        with mock.patch.object(daemon.ring, 'get_part_nodes',
-                               return_value=[node]), \
+        with mock.patch.object(db_replicator, 'ReplConnection',
+                               fake_repl_connection), \
+                mock.patch.object(daemon.ring, 'get_part_nodes',
+                                  return_value=[node]), \
                 mock.patch.object(daemon, '_post_replicate_hook'):
             success, _ = daemon._replicate_object(
                 part, broker.db_file, node['id'])
@@ -1917,11 +1920,12 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         replicate_hook = mock.MagicMock()
         fake_repl_connection = attach_fake_replication_rpc(
             self.rpc, replicate_hook=replicate_hook)
-        db_replicator.ReplConnection = fake_repl_connection
         part, node = self._get_broker_part_node(remote_broker)
         info = broker.get_replication_info()
         daemon = replicator.ContainerReplicator({})
-        success = daemon._repl_to_node(node, broker, part, info)
+        with mock.patch.object(db_replicator, 'ReplConnection',
+                               fake_repl_connection):
+            success = daemon._repl_to_node(node, broker, part, info)
         self.assertTrue(success)
         # NB: remote has no shard ranges, so no call to get_shard_ranges
         self.assertEqual(
@@ -1947,11 +1951,12 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.rpc, errors={'get_shard_ranges': [
                 FakeHTTPResponse(HTTPServerError())]},
             replicate_hook=replicate_hook)
-        db_replicator.ReplConnection = fake_repl_connection
         part, node = self._get_broker_part_node(remote_broker)
         info = broker.get_replication_info()
         daemon = replicator.ContainerReplicator({})
-        success = daemon._repl_to_node(node, broker, part, info)
+        with mock.patch.object(db_replicator, 'ReplConnection',
+                               fake_repl_connection):
+            success = daemon._repl_to_node(node, broker, part, info)
         self.assertTrue(success)
         # NB: remote had shard ranges, but there was... some sort of issue
         # in getting them locally, so no call to merge_shard_ranges
@@ -2027,7 +2032,6 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         fake_repl_connection = attach_fake_replication_rpc(
             self.rpc, replicate_hook=repl_hook, errors=None)
-        db_replicator.ReplConnection = fake_repl_connection
         daemon = replicator.ContainerReplicator(
             repl_conf, logger=self.logger)
         self._install_fake_rsync_file(daemon, rsync_calls)
@@ -2043,7 +2047,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         remote_node = find_node(remote_node_index)
         info = from_broker.get_replication_info()
-        success = daemon._repl_to_node(remote_node, from_broker, part, info)
+
+        with mock.patch.object(db_replicator, 'ReplConnection',
+                               fake_repl_connection):
+            success = daemon._repl_to_node(
+                remote_node, from_broker, part, info)
         self.assertEqual(expect_success, success)
         return daemon, repl_calls, rsync_calls
 
@@ -2997,15 +3005,15 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         daemon.sync_store.remove_synced_container.side_effect = Exception(
             'Failed to remove sync_store entry')
 
-        with mock.patch.object(db_replicator.Replicator, 'delete_db',
-                               return_value=True) as mock_delete_db:
-            delete_success = daemon.delete_db(broker)
+        delete_success = daemon.delete_db(broker)
 
         lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
             ['Failed to remove sync_store entry, path: a/c, db: %s: '
              % broker.db_file], lines)
-        mock_delete_db.assert_called_once_with(broker)
+        self.assertEqual(
+            [mock.call(broker)],
+            daemon.sync_store.remove_synced_container.call_args_list)
         self.assertTrue(delete_success)
 
 
