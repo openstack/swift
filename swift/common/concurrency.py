@@ -50,48 +50,53 @@ if USE_EVENTLET:
 del config_false_value
 
 
-import eventlet  # noqa: E402
-import eventlet.debug
-import eventlet.greenio
-import eventlet.greenthread
-import eventlet.hubs
-import eventlet.patcher
-import eventlet.queue
-import eventlet.semaphore
-import eventlet.wsgi
-from eventlet import GreenPile
-from eventlet import greenio, greenpool, hubs, patcher, queue, wsgi
-from eventlet import debug, listen, timeout, websocket
-from eventlet import greenthread
-from eventlet.green.http.client import CONTINUE, HTTPConnection, \
-    HTTPResponse, HTTPSConnection, ImproperConnectionState, _UNKNOWN
-from eventlet.greenthread import getcurrent
-import eventlet.green.profile as eprofile  # noqa: F401
-hub_exceptions = eventlet.debug.hub_exceptions
-hub_prevent_multiple_readers = eventlet.debug.hub_prevent_multiple_readers
-monkey_patch = eventlet.patcher.monkey_patch
-shutdown_safe = eventlet.greenio.shutdown_safe
-ChunkReadError = eventlet.wsgi.ChunkReadError
-
 if USE_EVENTLET:
+    import eventlet.green.profile as eprofile
+    from eventlet.green.http import client as green_http_client
+    import eventlet  # noqa: F401
+    import eventlet.debug
+    import eventlet.greenio
+    import eventlet.greenthread  # noqa: F401
+    import eventlet.hubs  # noqa: F401
+    import eventlet.patcher
+    import eventlet.queue  # noqa: F401
+    import eventlet.semaphore  # noqa: F401
+    import eventlet.wsgi
+
+    from eventlet import GreenPile
+    from eventlet import greenio, greenpool, hubs, patcher, queue, wsgi
+    from eventlet import debug, listen, timeout, websocket
+    from eventlet import greenthread
+
+    from eventlet.green.http.client import CONTINUE, HTTPConnection, \
+        HTTPResponse, HTTPSConnection, ImproperConnectionState, _UNKNOWN
+    from eventlet.greenthread import getcurrent, spawn as greenthread_spawn
+
+    hub_exceptions = eventlet.debug.hub_exceptions
+    hub_prevent_multiple_readers = eventlet.debug.hub_prevent_multiple_readers
+    monkey_patch = eventlet.patcher.monkey_patch
+    shutdown_safe = eventlet.greenio.shutdown_safe
+
+    from eventlet import Timeout as _Timeout
     from eventlet import sleep
     from eventlet import tpool
+    from eventlet import GreenPool as _GreenPool
+    from eventlet import GreenPile as SwiftPile
+    # Event is eventlet's send/ready/wait API (used by the greenthread
+    # Watchdog); ThreadingEvent is the set/wait/is_set threading API, green
+    # under eventlet, for callers wanting that API in both modes.
     from eventlet.event import Event
+    from eventlet.green.threading import Event as ThreadingEvent
     from eventlet.green import socket, ssl, subprocess
     from eventlet.green import os as green_os
     from eventlet.green import threading as green_threading
-    from eventlet.green.http import client as green_http_client
     from eventlet.green.urllib import request as urllib_request
     from eventlet.hubs import trampoline
     from eventlet.pools import Pool
     from eventlet.queue import Empty, LightQueue, Queue
     from eventlet.semaphore import Semaphore
     from eventlet.support.greenlets import GreenletExit
-
-    from eventlet import Timeout as _Timeout
-    from eventlet import GreenPool as _GreenPool
-    from eventlet import GreenPile as SwiftPile
-    from eventlet.green.threading import Event as ThreadingEvent
+    from eventlet.wsgi import ChunkReadError
 
     class SwiftPool(_GreenPool):
         # GreenPool already blocks spawn when full, so the threading-only
@@ -110,6 +115,14 @@ if USE_EVENTLET:
         # Bounded result queue for GreenAsyncPile: producers are greenthreads,
         # safely discarded if the pile is abandoned, so backpressure is fine.
         return LightQueue(size)
+
+    # Bases for SwiftHttpProtocol, which extends the eventlet WSGI server's
+    # HTTP protocol handler; eventlet_only() returns its argument here.
+    HttpProtocol = wsgi.HttpProtocol
+    HttpProtocolMessageClass = wsgi.HttpProtocol.MessageClass
+
+    def eventlet_only(obj):
+        return obj
 
     class Timeout(_Timeout):
         def __init__(self, *args, **kwargs):
@@ -159,11 +172,16 @@ if USE_EVENTLET:
 else:
     import http.client as green_http_client
     import subprocess
+    eprofile = None
     import os as green_os
     import socket
     import ssl
     import threading as green_threading
     import urllib.request as urllib_request
+    from http.client import (
+        CONTINUE, HTTPConnection, HTTPResponse, HTTPSConnection,
+        ImproperConnectionState, _UNKNOWN,
+    )
     from queue import Empty, Queue as _StdQueue
     from threading import Event, Event as ThreadingEvent, Semaphore
     from threading import Lock as CooperativeLock
@@ -191,11 +209,49 @@ else:
         # still caps concurrency.
         return LightQueue()
 
+    # Neutral bases so swift/common/http_protocol.py still imports; the
+    # SwiftHttpProtocol classes are eventlet-only (gunicorn serves in
+    # threading mode), so eventlet_only() exposes them as None.
+    HttpProtocol = object
+    HttpProtocolMessageClass = object
+
+    def eventlet_only(obj):
+        return None
+
+    # Stand-ins for eventlet-only symbols: set to None so imports still work at
+    # import time; callers must guard runtime use with USE_EVENTLET.
+    eventlet = None
+    GreenPile = None
+    debug = None
+    greenio = None
+    greenpool = None
+    greenthread = None
+    hubs = None
+    listen = None
+    patcher = None
+    queue = None
+    timeout = None
+    websocket = None
+    wsgi = None
+    getcurrent = None
+    greenthread_spawn = None
+
+    def _noop(*args, **kwargs):
+        pass
+
+    hub_exceptions = _noop
+    hub_prevent_multiple_readers = _noop
+    monkey_patch = _noop
+    shutdown_safe = _noop
+
     try:
         from greenlet import GreenletExit
     except ImportError:
         class GreenletExit(BaseException):
             pass
+
+    class ChunkReadError(ValueError):
+        pass
 
     class Timeout(BaseException):
         # Distinguishes "no timeout captured" from a captured None (a socket
@@ -717,6 +773,21 @@ else:
         select.select(rlist, wlist, [fd], timeout)
 
 
+def real_socket(sock):
+    # The underlying socket: eventlet wraps it (sock.fd); without eventlet the
+    # socket is itself.
+    if USE_EVENTLET:
+        return sock.fd
+    return sock
+
+
+def close_real_socket(sock):
+    if USE_EVENTLET:
+        sock._real_close()
+    else:
+        sock.close()
+
+
 def clear_connect_timeout(sock):
     # Once a backend connection is established (the connect was bounded by the
     # conn_timeout passed to http_connect), the socket must not keep that short
@@ -904,12 +975,28 @@ def report_worker_exception():
         traceback.print_exception(*sys.exc_info())
 
 
+def eventlet_monkey_patch():
+    if USE_EVENTLET:
+        eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
+                                      thread=True)
+
+
+def install_hub():
+    # Point eventlet at swift's preferred hub; no-op without eventlet.
+    if USE_EVENTLET:
+        from swift.common.utils import get_hub
+        eventlet.hubs.use_hub(get_hub())
+
+
 # flake8 raises a F401 without this
 __all__ = [
     'USE_EVENTLET',
     'reset_pool',
     'original',
     'make_pile_queue',
+    'HttpProtocol',
+    'HttpProtocolMessageClass',
+    'eventlet_only',
     'debug',
     'greenio',
     'greenthread',

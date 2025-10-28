@@ -28,14 +28,15 @@ import warnings
 
 from swift.common.concurrency import (
     eventlet, SwiftPool, sleep, wsgi, listen, Timeout, socket, ssl,
-    green_os
+    green_os, USE_EVENTLET
 )
 from paste.deploy import loadwsgi
 from io import BytesIO, StringIO
 
 from swift.common import utils, constraints
-from swift.common.http_protocol import SwiftHttpProtocol, \
-    SwiftHttpProxiedProtocol
+if USE_EVENTLET:
+    from swift.common.http_protocol import SwiftHttpProtocol, \
+        SwiftHttpProxiedProtocol
 from swift.common.storage_policy import BindPortsCache
 from swift.common.swob import Request, wsgi_unquote
 from swift.common.utils import capture_stdio, disable_fallocate, \
@@ -50,7 +51,8 @@ NOTIFY_FD_ENV_KEY = '__SWIFT_SERVER_NOTIFY_FD'
 CHILD_STATE_FD_ENV_KEY = '__SWIFT_SERVER_CHILD_STATE_FD'
 
 # Set maximum line size of message headers to be accepted.
-wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
+if USE_EVENTLET:
+    wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
 
 try:
     import multiprocessing

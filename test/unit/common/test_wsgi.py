@@ -24,7 +24,7 @@ import socket
 import struct
 import unittest
 import os
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import eventlet, USE_EVENTLET
 
 from collections import defaultdict
 from io import BytesIO
@@ -624,6 +624,7 @@ class TestWSGI(unittest.TestCase):
             wsgi.sleep = old_sleep
             wsgi.time = old_time
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server(self):
         config = """
         [DEFAULT]
@@ -676,6 +677,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(proto_class, wsgi.SwiftHttpProtocol)
         self.assertEqual('HTTP/1.0', proto_class.default_request_version)
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_proxied(self):
         config = """
         [DEFAULT]
@@ -727,6 +729,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(proto_class, wsgi.SwiftHttpProxiedProtocol)
         self.assertEqual('HTTP/1.0', proto_class.default_request_version)
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_with_latest_eventlet(self):
         config = """
         [DEFAULT]
@@ -764,6 +767,7 @@ class TestWSGI(unittest.TestCase):
                          kwargs['protocol'].default_request_version)
         self.assertIs(False, kwargs['keepalive'])
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_conf_dir(self):
         config_dir = {
             'proxy-server.conf.d/pipeline.conf': """
@@ -813,6 +817,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual('HTTP/1.0',
                          kwargs['protocol'].default_request_version)
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_debug(self):
         config = """
         [DEFAULT]
@@ -866,6 +871,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual('HTTP/1.0',
                          kwargs['protocol'].default_request_version)
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_constraints(self):
         config = """
         [DEFAULT]
@@ -1028,6 +1034,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(r.body, b'the body')
         self.assertEqual(r.environ['swift.source'], 'UT')
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_global_conf_callback(self):
         calls = defaultdict(lambda: 0)
 
@@ -1068,7 +1075,7 @@ class TestWSGI(unittest.TestCase):
                 mock.patch.object(wsgi, 'run_server', _run_server), \
                 mock.patch(
                     'swift.common.wsgi.systemd_notify') as mock_notify, \
-                mock.patch('swift.common.utils.eventlet') as _utils_evt:
+                mock.patch('swift.common.concurrency.eventlet') as _utils_evt:
             wsgi.run_wsgi('conf_file', 'app_section',
                           global_conf_callback=_global_conf_callback)
 
@@ -1082,6 +1089,7 @@ class TestWSGI(unittest.TestCase):
             mock.call('logger', "STOPPING=1"),
         ])
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_success(self):
         calls = defaultdict(int)
 
@@ -1105,7 +1113,7 @@ class TestWSGI(unittest.TestCase):
                 mock.patch.object(wsgi, 'run_server'), \
                 mock.patch(
                     'swift.common.wsgi.systemd_notify') as mock_notify, \
-                mock.patch('swift.common.utils.eventlet') as _utils_evt:
+                mock.patch('swift.common.concurrency.eventlet') as _utils_evt:
             rc = wsgi.run_wsgi('conf_file', 'app_section')
         self.assertEqual(calls['_initrp'], 1)
         self.assertEqual(calls['_loadapp'], 1)
@@ -1123,6 +1131,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual([mock.call()], _c_hyg.mock_calls)
         self.assertEqual(0, logging.logThreads)  # fixed in our monkey_patch
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_test_config(self):
         calls = defaultdict(int)
 
@@ -1143,7 +1152,7 @@ class TestWSGI(unittest.TestCase):
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
                 mock.patch.object(wsgi, 'run_server'), \
-                mock.patch('swift.common.utils.eventlet') as _utils_evt:
+                mock.patch('swift.common.concurrency.eventlet') as _utils_evt:
             rc = wsgi.run_wsgi('conf_file', 'app_section', test_config=True)
         self.assertEqual(calls['_initrp'], 1)
         self.assertEqual(calls['_loadapp'], 1)
@@ -1158,6 +1167,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual([], _c_hyg.mock_calls)
         self.assertEqual([], _get_socket.mock_calls)
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     @mock.patch('swift.common.wsgi.run_server')
     @mock.patch('swift.common.wsgi.WorkersStrategy')
     @mock.patch('swift.common.wsgi.ServersPerPortStrategy')
@@ -1223,6 +1233,7 @@ class TestWSGI(unittest.TestCase):
             ], mock_per_port.mock_calls)
             self.assertEqual([], mock_workers.mock_calls)
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_failure1(self):
         calls = defaultdict(lambda: 0)
 
@@ -1244,6 +1255,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(calls['_loadapp'], 0)
         self.assertEqual(rc, 1)
 
+    @unittest.skipUnless(USE_EVENTLET, 'run_server is eventlet-only')
     def test_run_server_bad_bind_port(self):
         def do_test(port):
             calls = defaultdict(lambda: 0)
@@ -1366,6 +1378,7 @@ class CommonTestMixin(object):
             mock.call(self.logger),
         ], mock_capture.mock_calls)
 
+    @unittest.skipUnless(USE_EVENTLET, 'lazy spawn_n is eventlet-only')
     def test_stale_pid_loading(self):
         class FakeTime(object):
             def __init__(self, step=10):

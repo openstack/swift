@@ -83,7 +83,7 @@ import os
 import sys
 import time
 
-from swift.common.concurrency import greenthread, SwiftPool, patcher, eprofile
+from swift.common.concurrency import greenthread, SwiftPool, original, eprofile
 import urllib
 
 from swift.common.utils import get_logger, config_true_value
@@ -109,7 +109,7 @@ PROFILE_EXEC_LAZY = """
 app_iter_ = self.app(environ, start_response)
 """
 
-thread = patcher.original('_thread')  # non-monkeypatched module needed
+thread = original('_thread')  # non-monkeypatched module needed
 
 
 # This monkey patch code fix the problem of eventlet profile tool

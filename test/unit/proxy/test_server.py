@@ -7045,7 +7045,10 @@ class TestReplicatedObjectController(
             exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
             fd.read(1)
-            sock.fd._real_close()
+            if hasattr(sock, 'fd'):
+                sock.fd._real_close()
+            else:
+                sock.close()
             # Make sure the GC is run again for pythons without reference
             # counting
             for i in range(4):
@@ -8636,7 +8639,10 @@ class BaseTestECObjectController(BaseTestObjectController):
 
                 # read most of the object, and disconnect
                 fd.read(10)
-                sock.fd._real_close()
+                if hasattr(sock, 'fd'):
+                    sock.fd._real_close()
+                else:
+                    sock.close()
                 self._sleep_enough(
                     lambda:
                     _test_servers[0].logger.get_lines_for_level('warning'))
@@ -9353,7 +9359,10 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
             finally:
                 # seriously - shut this mother down
                 if conn.sock:
-                    conn.sock.fd._real_close()
+                    if hasattr(conn.sock, 'fd'):
+                        conn.sock.fd._real_close()
+                    else:
+                        conn.sock.close()
             return resp, body
 
         # ensure container

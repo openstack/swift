@@ -14,7 +14,8 @@
 # limitations under the License.
 
 from swift.common.concurrency import (
-    wsgi, websocket, green_http_client as http_client
+    wsgi, websocket, green_http_client as http_client,
+    HttpProtocol, HttpProtocolMessageClass, eventlet_only
 )
 
 from swift.common.utils import generate_trans_id
@@ -22,14 +23,12 @@ from swift.common.http import HTTP_NO_CONTENT, HTTP_RESET_CONTENT, \
     HTTP_NOT_MODIFIED
 from html import escape
 
-import email._policybase
 
-# Starting in Python 3.14, non-ASCII header parsing got even more difficult.
-# See https://github.com/python/cpython/commit/c432d014
-email._policybase.validate_header_name = lambda name: None
-
-
-class SwiftHttpProtocol(wsgi.HttpProtocol):
+# HttpProtocol/HttpProtocolMessageClass come from concurrency: the eventlet
+# internals with eventlet, neutral object bases without. These classes are
+# eventlet-only, so eventlet_only() makes them None in threading mode
+# (applied at the end of this module).
+class SwiftHttpProtocol(HttpProtocol):
     default_request_version = "HTTP/1.0"
     reject_bad_requests = False
 
@@ -57,7 +56,7 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
             # versions the output from error is same as info anyway
             self.server.log.info('ERROR WSGI: ' + f, *a)
 
-    class MessageClass(wsgi.HttpProtocol.MessageClass):
+    class MessageClass(HttpProtocolMessageClass):
         """Subclass to see when the client didn't provide a Content-Type"""
         def get_default_type(self):
             """If the client didn't provide a content type, leave it blank."""
@@ -377,3 +376,9 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
                 environ['wsgi.url_scheme'] = 'https'
                 environ['HTTPS'] = 'on'
         return environ
+
+
+# Applied after both classes are defined so SwiftHttpProxiedProtocol
+# subclasses the real SwiftHttpProtocol, not the None sentinel.
+SwiftHttpProtocol = eventlet_only(SwiftHttpProtocol)
+SwiftHttpProxiedProtocol = eventlet_only(SwiftHttpProxiedProtocol)

@@ -27,6 +27,7 @@ BufferedHTTPResponse.
 """
 
 from swift.common import constraints
+import email._policybase
 import http.client
 import logging
 import time
@@ -34,15 +35,21 @@ import socket
 
 from swift.common.concurrency import (
     CONTINUE, HTTPConnection, HTTPResponse, HTTPSConnection, _UNKNOWN,
-    ImproperConnectionState, green_http_client, clear_connect_timeout
+    ImproperConnectionState, real_socket, close_real_socket,
+    green_http_client, USE_EVENTLET, clear_connect_timeout
 )
 from urllib.parse import quote, parse_qsl, urlencode
+
+# Starting in Python 3.14, non-ASCII header parsing got even more difficult.
+# See https://github.com/python/cpython/commit/c432d014
+email._policybase.validate_header_name = lambda name: None
 
 # Apparently http.server uses this to decide when/whether to send a 431.
 # Give it some slack, so the app is more likely to get the chance to reject
 # with a 400 instead.
 http.client._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
-green_http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
+if USE_EVENTLET:
+    green_http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
 
 
 class BufferedHTTPResponse(HTTPResponse):
@@ -60,8 +67,9 @@ class BufferedHTTPResponse(HTTPResponse):
             # HTTPResponse.close()
             self.fp = None
         else:
-            # sock.fd is a socket.socket, which should have a _real_close
-            self._real_socket = sock.fd
+            # eventlet wraps the socket; real_socket() returns the underlying
+            # socket.socket (which has _real_close).
+            self._real_socket = real_socket(sock)
             self.fp = sock.makefile('rb')
         self.debuglevel = debuglevel
         self.strict = strict
@@ -161,7 +169,7 @@ class BufferedHTTPResponse(HTTPResponse):
         if self._real_socket:
             # Hopefully this is equivalent to py2's _real_socket.close()?
             # TODO: verify that this does everything ^^^^ does for py2
-            self._real_socket._real_close()
+            close_real_socket(self._real_socket)
         self._real_socket = None
         self.close()
 

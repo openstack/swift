@@ -48,9 +48,12 @@ import stat
 
 from swift.common.concurrency import (
     eventlet, SwiftPool, sleep, Timeout, Event, socket, Semaphore, Empty,
-    socket_timeout_enter, report_worker_exception, CooperativeLock,
-    socket_timeout_exit, reset_pool, make_pile_queue
+    report_worker_exception, CooperativeLock, socket_timeout_exit,
+    make_pile_queue, socket_timeout_enter, reset_pool, original,
+    eventlet_monkey_patch
 )
+# Re-exported for callers that historically imported it from here (relinker).
+from swift.common.concurrency import install_hub  # noqa: F401
 try:
     import importlib.metadata
     pkg_resources = None
@@ -422,18 +425,6 @@ def backward(f, blocksize=4096):
             if rows and last_row:
                 yield last_row
     yield last_row
-
-
-def eventlet_monkey_patch():
-    """
-    Install the appropriate Eventlet monkey patches.
-    """
-    # NOTE(sileht):
-    #     monkey-patching thread is required by python-keystoneclient;
-    #     monkey-patching select is required by oslo.messaging pika driver
-    #         if thread is monkey-patched.
-    eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
-                                  thread=True)
 
 
 def monkey_patch():
@@ -1048,7 +1039,9 @@ def get_hub():
     to test if poll() is available on platform.
     """
     try:
-        select = eventlet.patcher.original('select')
+        # original() gives the un-monkeypatched select (patched select lacks
+        # poll()); without eventlet it's already the stdlib module.
+        select = original('select')
         if hasattr(select, "poll"):
             return "poll"
         return "selects"

@@ -30,7 +30,26 @@ import errno
 from textwrap import dedent
 
 from swift.common import daemon, utils
+from swift.common.concurrency import USE_EVENTLET
 from test.debug_logger import debug_logger
+
+
+@contextmanager
+def mock_daemon_eventlet():
+    """Patch the eventlet bits run_daemon() touches.
+
+    Without eventlet, run_daemon() does no hub/monkey-patch setup and
+    eventlet.debug is never imported, so there is nothing (and nothing
+    importable) to patch; yield None placeholders instead.
+    """
+    if USE_EVENTLET:
+        with mock.patch('swift.common.concurrency.eventlet') as evt, \
+                mock.patch('swift.common.daemon.hub_exceptions') as hub_exc:
+            # concurrency.eventlet covers monkey_patch and hubs.use_hub;
+            # hub_exceptions is daemon's binding.
+            yield evt, evt.hubs.use_hub, hub_exc
+    else:
+        yield None, None, None
 
 
 class MyDaemon(daemon.Daemon):
@@ -152,24 +171,23 @@ class TestRunDaemon(unittest.TestCase):
         logging.logThreads = 1  # reset to default
         sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
         with tmpfile(sample_conf) as conf_file, \
-                mock.patch('swift.common.utils.eventlet') as _utils_evt, \
-                mock.patch('eventlet.hubs.use_hub') as mock_use_hub, \
-                mock.patch('eventlet.debug') as _debug_evt:
+                mock_daemon_eventlet() as (_utils_evt, mock_use_hub,
+                                           _debug_evt):
             with mock.patch.dict('os.environ', {'TZ': ''}), \
                     mock.patch('time.tzset') as mock_tzset:
                 daemon.run_daemon(MyDaemon, conf_file)
                 self.assertTrue(MyDaemon.forever_called)
                 self.assertEqual(os.environ['TZ'], 'UTC+0')
                 self.assertEqual(mock_tzset.mock_calls, [mock.call()])
-                self.assertEqual(mock_use_hub.mock_calls,
-                                 [mock.call(utils.get_hub())])
+                if USE_EVENTLET:
+                    self.assertEqual(mock_use_hub.mock_calls,
+                                     [mock.call(utils.get_hub())])
             daemon.run_daemon(MyDaemon, conf_file, once=True)
-            _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
-                                                               socket=True,
-                                                               select=True,
-                                                               thread=True)
-            self.assertEqual(0, logging.logThreads)  # fixed in monkey_patch
-            _debug_evt.hub_exceptions.assert_called_with(False)
+            if USE_EVENTLET:
+                _utils_evt.patcher.monkey_patch.assert_called_with(
+                    all=False, socket=True, select=True, thread=True)
+                self.assertEqual(0, logging.logThreads)  # fixed in monkeypatch
+                _debug_evt.assert_called_with(False)
             self.assertEqual(MyDaemon.once_called, True)
 
             # test raise in daemon code
@@ -206,9 +224,7 @@ class TestRunDaemon(unittest.TestCase):
 
             sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
             with tmpfile(sample_conf) as conf_file, \
-                    mock.patch('swift.common.utils.eventlet'), \
-                    mock.patch('eventlet.hubs.use_hub'), \
-                    mock.patch('eventlet.debug'):
+                    mock_daemon_eventlet():
                 daemon.run_daemon(MyDaemon, conf_file)
                 self.assertFalse(MyDaemon.once_called)
                 self.assertTrue(MyDaemon.forever_called)
@@ -234,9 +250,7 @@ class TestRunDaemon(unittest.TestCase):
         contents = dedent(conf_body)
         with open(conf_path, 'w') as f:
             f.write(contents)
-        with mock.patch('swift.common.utils.eventlet'), \
-                mock.patch('eventlet.hubs.use_hub'), \
-                mock.patch('eventlet.debug'):
+        with mock_daemon_eventlet():
             d = daemon.run_daemon(MyDaemon, conf_path)
         # my-daemon section takes priority (!?)
         self.assertEqual('2', d.conf['client_timeout'])
@@ -258,9 +272,7 @@ class TestRunDaemon(unittest.TestCase):
         contents = dedent(conf_body)
         with open(conf_path, 'w') as f:
             f.write(contents)
-        with mock.patch('swift.common.utils.eventlet'), \
-                mock.patch('eventlet.hubs.use_hub'), \
-                mock.patch('eventlet.debug'):
+        with mock_daemon_eventlet():
             with self.assertRaises(
                     configparser.DuplicateOptionError) as ctx:
                 daemon.run_daemon(MyDaemon, tempdir)
@@ -289,9 +301,7 @@ class TestRunDaemon(unittest.TestCase):
             path = os.path.join(tempdir, filename + '.conf')
             with open(path, 'wt') as fd:
                 fd.write(dedent(conf_body))
-        with mock.patch('swift.common.utils.eventlet'), \
-                mock.patch('eventlet.hubs.use_hub'), \
-                mock.patch('eventlet.debug'):
+        with mock_daemon_eventlet():
             d = daemon.run_daemon(MyDaemon, tempdir)
         # my-daemon section takes priority (!?)
         self.assertEqual('2', d.conf['client_timeout'])
@@ -317,9 +327,7 @@ class TestRunDaemon(unittest.TestCase):
             path = os.path.join(tempdir, filename + '.conf')
             with open(path, 'wt') as fd:
                 fd.write(dedent(conf_body))
-        with mock.patch('swift.common.utils.eventlet'), \
-                mock.patch('eventlet.hubs.use_hub'), \
-                mock.patch('eventlet.debug'):
+        with mock_daemon_eventlet():
             with self.assertRaises(
                     configparser.DuplicateOptionError) as ctx:
                 daemon.run_daemon(MyDaemon, tempdir)

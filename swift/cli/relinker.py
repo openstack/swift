@@ -24,7 +24,7 @@ import os
 import time
 from collections import defaultdict
 
-from swift.common.concurrency import Timeout, hubs
+from swift.common.concurrency import Timeout, hubs, USE_EVENTLET
 
 from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
@@ -912,7 +912,8 @@ def main(args=None):
                              'removed. (default: false)')
 
     args = parser.parse_args(args)
-    hubs.use_hub(get_hub())
+    if USE_EVENTLET:
+        hubs.use_hub(get_hub())
     if args.conf_file:
         conf = readconf(args.conf_file, 'object-relinker')
         if args.debug:

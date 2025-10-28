@@ -26,7 +26,7 @@ import sys
 import time
 import fcntl
 from swift.common.concurrency import (
-    eventlet, green_http_client, green_threading as threading
+    eventlet, green_http_client, green_threading as threading, USE_EVENTLET
 )
 import datetime
 
@@ -97,7 +97,8 @@ class PipeMutex(object):
         #
         # It would be better to turn off multiple-reader detection for only
         # our calls to trampoline(), but eventlet does not support that.
-        eventlet.debug.hub_prevent_multiple_readers(False)
+        if USE_EVENTLET:
+            eventlet.debug.hub_prevent_multiple_readers(False)
 
     def acquire(self, blocking=True):
         """
@@ -111,7 +112,10 @@ class PipeMutex(object):
         times as it wants to, though it must then release it that many times
         too.
         """
-        current_greenthread_id = id(eventlet.greenthread.getcurrent())
+        if USE_EVENTLET:
+            current_greenthread_id = id(eventlet.greenthread.getcurrent())
+        else:
+            current_greenthread_id = threading.current_thread().ident
         if self.owner == current_greenthread_id:
             self.recursion_depth += 1
             return True
@@ -142,7 +146,10 @@ class PipeMutex(object):
         """
         Release the mutex.
         """
-        current_greenthread_id = id(eventlet.greenthread.getcurrent())
+        if USE_EVENTLET:
+            current_greenthread_id = id(eventlet.greenthread.getcurrent())
+        else:
+            current_greenthread_id = threading.current_thread().ident
         if self.owner != current_greenthread_id:
             raise RuntimeError("cannot release un-acquired lock")
 
@@ -212,7 +219,8 @@ class NoopMutex(object):
         #
         # It would be better to turn off multiple-reader detection for only
         # the logging socket fd, but eventlet does not support that.
-        eventlet.debug.hub_prevent_multiple_readers(False)
+        if USE_EVENTLET:
+            eventlet.debug.hub_prevent_multiple_readers(False)
 
     def acquire(self, blocking=True):
         pass
@@ -311,8 +319,9 @@ class SwiftLogAdapter(logging.LoggerAdapter, object):
         _junk, exc, _junk = sys.exc_info()
         call = self.error
         emsg = ''
-        if isinstance(exc, (http.client.BadStatusLine,
-                            green_http_client.BadStatusLine)):
+        bad_status_types = (http.client.BadStatusLine,
+                            green_http_client.BadStatusLine,)
+        if isinstance(exc, bad_status_types):
             # Use error(); not really exceptional
             emsg = repr(exc)
             # Note that on py3, we've seen a RemoteDisconnected error getting
