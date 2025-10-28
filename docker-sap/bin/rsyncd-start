@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# keep restarting until storage becomes available
+if [ ! -f /swift-drive-state/flag-ready ]; then
+    echo "waiting for /swift-drive-state/flag-ready" >&2
+    exit 1
+fi
+
+# create the marker file for the unmount-helper that marks when this service was started
+mkdir -p /swift-drive-state/service-startup-time
+MARKER="/swift-drive-state/service-startup-time/rsyncd"
+touch "${MARKER}"
+
+[ "$DEBUG_CONTAINER" = true ] && exec tail -f /dev/null
+bash /usr/bin/unmount-helper "${MARKER}" &
+/usr/bin/rsync --daemon --config=/swift-etc/rsyncd.conf --no-detach

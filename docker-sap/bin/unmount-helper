@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# no `set -e` (see below)
+set -uo pipefail
+
+# This script waits for messages from swift-drive-autopilot about broken
+# devices and unmounts them in the local mount namespace. The autopilot writes
+# to /run/swift-storage/state/unmount-propagation on the host FS, which maps to
+# /swift-drive-state/unmount-propagation in the container because of how our
+# hostPath mounts are set up.
+
+# The script expects a marker file as argument. The marker file's timestamp
+# indicates when the container was started, in order to only act on
+# unmount-propagation requests that were sent after this container's mount
+# namespace was assembled.
+if [ $# -ne 1 ]; then
+    echo "usage: $0 <marker-file>" >&2
+    exit 1
+fi
+MARKER_FILE="$1"
+
+while true; do
+    sleep 10
+    find /swift-drive-state/unmount-propagation -mindepth 1 -maxdepth 1 -type l -newer "${MARKER_FILE}" -printf '%f\n' | while read NAME; do
+        # this explicitly runs without `set -e` so that a failing umount does
+        # not kill the unmount-helper completely
+        if mount | grep -q "/srv/node/${NAME}"; then
+            umount "/srv/node/${NAME}"
+        fi
+    done
+done

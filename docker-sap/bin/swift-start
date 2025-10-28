@@ -1,0 +1,198 @@
+#!/bin/bash
+
+# acceptable values: proxy-server, object-auditor, container-sync, etc.
+# (basically any Swift executable without the "swift-" prefix)
+COMPONENT_NAME="$1"
+if [ -z "${COMPONENT_NAME}" ]; then
+    echo "$0: missing component name" >&2
+    exit 1
+fi
+
+# if this is a storage service, keep restarting until storage becomes available
+if [ -d /srv/node -a ! -f /swift-drive-state/flag-ready ]; then
+    echo "waiting for /swift-drive-state/flag-ready" >&2
+    exit 1
+fi
+
+# create the marker file for the unmount-helper that marks when this service was started
+mkdir -p /swift-drive-state/service-startup-time
+MARKER="/swift-drive-state/service-startup-time/$1"
+touch "${MARKER}"
+
+# on Ubuntu, python does not recognize the system certificate bundle
+export OS_CACERT=/etc/ssl/certs/ca-certificates.crt
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+# unset all proxy settings
+unset http_proxy https_proxy no_proxy
+
+# Function for replacing the special fromEnv password syntax with the actual
+# password from the exported environment variable.
+# Acceptable value: { fromEnv: ENV_VAR }
+function get_passwords_from_env {
+    perl -npE 's/{\s*fromEnv:\s*(\w+)\s*}/$ENV{$1}/' -i "${1}"
+}
+
+# function to copy shared configuration
+mkdir -p /etc/swift
+function get_swift_configs {
+    # copy configuration files as stated in arg list
+    for file in swift.conf "$@"; do
+        src=/swift-etc
+        if [ -r /swift-etc-cluster/${file} ]; then
+          # Cluster specific one have precedence
+          src=/swift-etc-cluster
+        fi
+        cp ${src}/${file} /etc/swift
+        get_passwords_from_env /etc/swift/${file}
+        chown swift:swift /etc/swift/${file}
+    done
+
+    # new setup (then-branches): copy binary rings from emptyDir volume filled by init container
+    # old setup (else-branches): unpack binary rings from configMap volume
+    # TODO: Remove the else-branches once all deployments are upgraded to the new setup.
+    if [ -r /swift-rings/account.ring.gz ]; then
+        cat < /swift-rings/account.ring.gz > /etc/swift/account.ring.gz
+    else
+        base64 -d /swift-rings/account/ring.b64 > /etc/swift/account.ring.gz
+    fi
+    if [ -r /swift-rings/container.ring.gz ]; then
+        cat < /swift-rings/container.ring.gz > /etc/swift/container.ring.gz
+    else
+        base64 -d /swift-rings/container/ring.b64 > /etc/swift/container.ring.gz
+    fi
+    if [ -r /swift-rings/object.ring.gz ]; then
+        cat < /swift-rings/object.ring.gz > /etc/swift/object.ring.gz
+    else
+        base64 -d /swift-rings/object/ring.b64 > /etc/swift/object.ring.gz
+    fi
+
+    chown swift:swift /etc/swift/*.ring.gz
+}
+
+function process_config {
+    case "$COMPONENT_NAME" in
+        proxy-server)
+            get_swift_configs proxy-server.conf dispersion.conf internal-client.conf
+            ;;
+        account-caretaker-*)
+            ;;
+        account-*)
+            get_swift_configs account-server.conf internal-client.conf
+            ;;
+        container-sync)
+            get_swift_configs container-server.conf internal-client-no-cache.conf container-sync-realms.conf
+            ;;
+        container-reconciler)
+            get_swift_configs container-reconciler.conf
+            ;;
+        container-sharder)
+            get_swift_configs container-server.conf internal-client-no-cache.conf
+            ;;
+        container-*)
+            get_swift_configs container-server.conf internal-client.conf
+            ;;
+        object-expirer)
+            get_swift_configs object-expirer.conf internal-client.conf
+            ;;
+        object-*)
+            get_swift_configs object-server.conf internal-client.conf
+            ;;
+        health-exporter)
+            get_swift_configs dispersion.conf
+            ;;
+        recon-cron)
+            get_swift_configs object-server.conf
+            ;;
+        drive-audit)
+            get_swift_configs drive-audit.conf
+            ;;
+    esac
+}
+
+# function to initialize syslog-stdout (default) or busybox-syslogd
+function start_rsyslog {
+    if hash syslog-stdout &>/dev/null; then
+        syslog-stdout &
+    else
+        /sbin/syslogd -O /proc/1/fd/1
+    fi
+}
+
+# function to run a cronjob
+# syntax: every <MINUTES> <COMMAND> [<ARG>...]
+function every {
+    # when job fails, exit to prompt a container restart
+    set -e
+    # remove interval from argument list
+    INTERVAL="$1"
+    shift
+    # main loop
+    while true; do
+        "$@"
+        sleep "${INTERVAL}"
+    done
+}
+
+# function to run a process under the Swift user/group
+function run_as_swift {
+    sudo -u swift -g swift --preserve-env "$@"
+}
+
+# we need to find where Swift is installed in our $PATH, because the $PATH variable is reset by sudo(1)
+SWIFT_BIN_PATH="$(dirname "$(which swift-proxy-server)")"
+
+function _start_application {
+    case "$COMPONENT_NAME" in
+        proxy-server)
+            start_rsyslog
+            run_as_swift "${SWIFT_BIN_PATH}/swift-proxy-server" /etc/swift/proxy-server.conf
+            ;;
+        account-caretaker-collect)
+            bash /usr/bin/unmount-helper "${MARKER}" &
+            every ${RUN_INTERVAL:-86400} "${SWIFT_BIN_PATH}/swift-account-caretaker" -c /caretaker-etc/config.yaml -l info collect
+            ;;
+        account-caretaker-mergify)
+            every ${RUN_INTERVAL:-86400} "${SWIFT_BIN_PATH}/swift-account-caretaker" -c /caretaker-etc/config.yaml -l info mergify --history=30
+            ;;
+        account-*)
+            start_rsyslog
+            bash /usr/bin/unmount-helper "${MARKER}" &
+            run_as_swift "${SWIFT_BIN_PATH}/swift-${COMPONENT_NAME}" /etc/swift/account-server.conf
+            ;;
+        container-reconciler)
+            start_rsyslog
+            bash /usr/bin/unmount-helper "${MARKER}" &
+            run_as_swift "${SWIFT_BIN_PATH}/swift-${COMPONENT_NAME}" /etc/swift/container-reconciler.conf
+            ;;
+        container-*)
+            start_rsyslog
+            bash /usr/bin/unmount-helper "${MARKER}" &
+            run_as_swift "${SWIFT_BIN_PATH}/swift-${COMPONENT_NAME}" /etc/swift/container-server.conf
+            ;;
+        object-expirer)
+            start_rsyslog
+            run_as_swift "${SWIFT_BIN_PATH}/swift-object-expirer" /etc/swift/object-expirer.conf
+            ;;
+        object-*)
+            start_rsyslog
+            bash /usr/bin/unmount-helper "${MARKER}" &
+            run_as_swift "${SWIFT_BIN_PATH}/swift-${COMPONENT_NAME}" /etc/swift/object-server.conf
+            ;;
+        health-exporter)
+            shift
+            /usr/bin/swift-health-exporter "$@"
+            ;;
+        recon-cron)
+            start_rsyslog
+            bash /usr/bin/unmount-helper "${MARKER}" &
+            mkdir -p /var/run/swift && chown swift:swift /var/run/swift
+            every 300 run_as_swift "${SWIFT_BIN_PATH}/swift-recon-cron" /etc/swift/object-server.conf
+            ;;
+    esac
+}
+
+process_config
+
+[ "$DEBUG_CONTAINER" = true ] && exec tail -f /dev/null
+_start_application "$@"

@@ -1,0 +1,23 @@
+diff --git keystonemiddleware/auth_token/_request.py keystonemiddleware/auth_token/_request.py
+index cba28bf..06cef3a 100644
+--- keystonemiddleware/auth_token/_request.py
++++ keystonemiddleware/auth_token/_request.py
+@@ -188,6 +188,18 @@ class _AuthTokenRequest(webob.Request):
+             self.headers.pop(self._SERVICE_CATALOG_HEADER, None)
+             return
+
++        # If X-Service-Catalog header is larger than 8KB, Swift will send
++        # 400 Header Line Too Long
++        # But keystonemiddleware has to be configured with
++        # include_service_catalog = true to trigger validation of Access Rules
++        # in Application Credentials
++        # https://bugs.launchpad.net/keystonemiddleware/+bug/1933356
++        # Although there is swift-constraints-max_header_size available, which
++        # seems to have no effect
++        # https://github.com/openstack/swift/blob/master/etc/swift.conf-sample
++        # So we skip the header here always
++        return
++
+         catalog = auth_ref.service_catalog.catalog
+         if auth_ref.version == 'v3':
+             catalog = _normalize_catalog(catalog)
