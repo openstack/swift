@@ -13,7 +13,7 @@ groupadd -g 1000 swift
 useradd -u 1000 -g swift -M -d /var/lib/swift -s /usr/sbin/nologin -c "swift user" swift
 install -d -m 0755 -o swift -g swift /etc/swift /var/log/swift /var/lib/swift /var/cache/swift
 
-RELEASE="2024.1"
+RELEASE="2024.2"
 # fetch upper-constraints.txt from openstack/requirements
 if [ "${BUILD_MODE}" = sap ]; then
   # Atm there are only upper-constraints from the previous release:
@@ -37,7 +37,7 @@ if [ "${BUILD_MODE}" = sap ]; then
 #
 #  jinja2 security patch update
 #  CVE-2024-22195
-  sed -i '/Jinja2===/c\Jinja2===3.1.4' /root/upper-constraints.txt
+  sed -i '/Jinja2===/c\Jinja2===3.1.6' /root/upper-constraints.txt
 #  # Check for vulnerability in https://dashboard.eu-de-1.cloud.sap/ccadmin/master/keppel/#/repo/ccloud/swift and tag ${RELEASE}-latest
 #  # and update upper-constraints accordingly
 #  #
@@ -47,8 +47,8 @@ if [ "${BUILD_MODE}" = sap ]; then
 #  # https://github.com/advisories/GHSA-5cpq-8wj7-hf2v
 #  https://avd.aquasec.com/nvd/cve-2024-26130
 # pyOpenSSL version need to change to support latest cryptography
-  sed -i '/pyOpenSSL===/c\pyOpenSSL===24.1.0' /root/upper-constraints.txt
-  sed -i '/cryptography===/c\cryptography===42.0.4' /root/upper-constraints.txt
+#  sed -i '/pyOpenSSL===/c\pyOpenSSL===24.1.0' /root/upper-constraints.txt
+  sed -i '/cryptography===/c\cryptography===44.0.1' /root/upper-constraints.txt
 #
 #  # pyopenssl 22.1.0 depends on cryptography<39 --> update pyopenssl
 #  sed -i '/pyOpenSSL===/c\pyOpenSSL===23.2.0' /root/upper-constraints.txt
@@ -61,11 +61,12 @@ if [ "${BUILD_MODE}" = sap ]; then
 #
 # urllib3 patch
 # https://avd.aquasec.com/nvd/cve-2023-43804
-  sed -i '/urllib3===/c\urllib3===1.26.19' /root/upper-constraints.txt
+  sed -i '/urllib3===/c\urllib3===2.5.0' /root/upper-constraints.txt
+  sed -i '/WebOb===/c\WebOb===1.8.8' /root/upper-constraints.txt
 #
 #  requests security patch update
 #  CVE-2023-32681
-  sed -i '/requests===/c\requests===2.32.0' /root/upper-constraints.txt
+  sed -i '/requests===/c\requests===2.32.4' /root/upper-constraints.txt
 
 #
 # setuptools patch
@@ -75,17 +76,17 @@ if [ "${BUILD_MODE}" = sap ]; then
 #
 # idna patch
 # CVE-2024-3651
-  sed -i '/idna===/c\idna===3.7' /root/upper-constraints.txt
+#  sed -i '/idna===/c\idna===3.7' /root/upper-constraints.txt
 
 #
 # dnspython patch
 # CVE-2023-29483
-  sed -i '/dnspython===/c\dnspython===2.6.1' /root/upper-constraints.txt
+#  sed -i '/dnspython===/c\dnspython===2.6.1' /root/upper-constraints.txt
 
 #
 # eventlet patch
 # CVE-2023-29483
-  sed -i '/eventlet===/c\eventlet===0.35.2' /root/upper-constraints.txt
+  sed -i '/eventlet===/c\eventlet===0.40.3' /root/upper-constraints.txt
 
 
 #  #############################
