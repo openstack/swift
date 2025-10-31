@@ -83,3 +83,4 @@ certifi===2020.4.5.1
 PyYAML===5.4.1
 requests===2.27.1
 urllib3===1.26.19
+pyperclip===1.9.0
