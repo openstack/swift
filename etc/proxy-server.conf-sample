@@ -785,17 +785,6 @@ auth_uri = http://keystonehost:5000/v3
 # Connect/read timeout (in seconds) to use when communicating with Keystone
 http_timeout = 10.0
 
-# Number of seconds to cache the S3 secret. By setting this to a positive
-# number, the S3 authorization validation checks can happen locally.
-# secret_cache_duration = 0
-
-# If S3 secret caching is enabled, Keystone auth credentials to be used to
-# validate S3 authorization must be provided here. The appropriate options
-# are the same as used in the authtoken middleware above. The values are
-# likely the same as used in the authtoken middleware.
-# Note that the Keystone auth credentials used by s3token will need to be
-# able to view all project credentials too.
-
 # SSL-related options
 # insecure = False
 # certfile =
@@ -804,12 +793,10 @@ http_timeout = 10.0
 # You can override the default log routing for this filter here:
 # log_name = s3token
 
-# Secrets may be cached to reduce latency for the client and load on Keystone.
-# Set this to some number of seconds greater than zero to enable caching.
-# secret_cache_duration = 0
-
-# Secret caching requires Keystone credentials similar to the authtoken middleware;
-# these credentials require access to view all project credentials.
+# Recent Keystone deployments require credentials similar to the authtoken
+# middleware; these credentials require access to the s3tokens endpoint.
+# Additionally, if secret caching is enabled, the credentials should have
+# access to view all project credentials.
 # auth_url = http://keystonehost:5000
 # auth_type = password
 # project_domain_id = default
@@ -817,6 +804,11 @@ http_timeout = 10.0
 # user_domain_id = default
 # username = swift
 # password = password
+
+# Secrets may be cached to reduce latency for the client and load on Keystone.
+# Set this to some number of seconds greater than zero to enable caching and
+# allow some S3 authorization validation checks to happen entirely in the proxy.
+# secret_cache_duration = 0
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
