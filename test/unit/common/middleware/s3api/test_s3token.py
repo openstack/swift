@@ -576,6 +576,9 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         cache.get.return_value = None
 
         keystone_client = MOCK_KEYSTONE.return_value
+        keystone_client.session.get_auth_headers.return_value = {
+            'X-Auth-Token': 'bearer token',
+        }
         keystone_client.ec2.get.return_value = mock.Mock(secret='secret')
 
         MOCK_REQUEST.return_value = FakeResponse({
@@ -602,6 +605,18 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         }
 
         self.assertTrue(MOCK_REQUEST.called)
+        self.assertEqual(MOCK_REQUEST.mock_calls, [
+            mock.call('http://example.com/s3tokens', headers={
+                'Content-Type': 'application/json',
+                'X-Auth-Token': 'bearer token',
+            }, data=json.dumps({
+                "credentials": {
+                    "access": "access",
+                    "token": "dG9rZW4=",
+                    "signature": "signature",
+                }
+            }), verify=None, timeout=10.0)
+        ])
         tenant = GOOD_RESPONSE_V2['access']['token']['tenant']
         expected_cache = (expected_headers, tenant, 'secret')
         cache.set.assert_called_once_with('s3secret/access', expected_cache,
