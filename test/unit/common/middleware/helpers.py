@@ -193,8 +193,9 @@ class FakeSwift(object):
     container_existence_skip_cache = 0.0
     account_existence_skip_cache = 0.0
 
-    def __init__(self, capture_unexpected_calls=True):
+    def __init__(self, capture_unexpected_calls=True, test_read_size=-1):
         self.capture_unexpected_calls = capture_unexpected_calls
+        self.read_size = test_read_size
         self._calls = []
         self._unclosed_req_keys = defaultdict(int)
         self._unread_req_paths = defaultdict(int)
@@ -325,7 +326,14 @@ class FakeSwift(object):
 
         if (cont and not obj and method == 'UPDATE') or (
                 obj and method == 'PUT'):
-            call.body = b''.join(iter(env['wsgi.input'].read, b''))
+            if self.read_size < 0:
+                call.body = b''.join(iter(env['wsgi.input'].read, b''))
+            else:
+                call.body = b''
+                buf = env['wsgi.input'].read(self.read_size)
+                while buf:
+                    call.body += buf
+                    buf = env['wsgi.input'].read(self.read_size)
 
         # simulate object PUT
         if method == 'PUT' and obj:
@@ -377,7 +385,7 @@ class FakeSwift(object):
             resolve_ignore_range_header(req, headers)
 
         # range requests ought to work, hence conditional_response=True
-        if isinstance(body, list):
+        if not isinstance(body, (bytes, str)):
             resp = resp_class(
                 req=req, headers=headers, app_iter=body,
                 conditional_response=req.method in ('GET', 'HEAD'),
