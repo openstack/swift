@@ -1385,7 +1385,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # validation in the following test.
 
         # NOTE: eventlet's PATH_INFO is unquoted
-        with patch('swift.common.middleware.s3api.s3request.'
+        with patch('swift.common.middleware.s3api.utils.'
                    'validate_bucket_name'):
             verify('27ba31df5dbc6e063d8f87d62eb07143'
                    'f7f271c5330a917840586ac1c85b6f6b',

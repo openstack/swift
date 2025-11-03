@@ -39,7 +39,6 @@ from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_TOO_MANY_REQUESTS, HTTP_RATE_LIMITED, is_success, \
     HTTP_CLIENT_CLOSED_REQUEST
 
-from swift.common.constraints import check_utf8
 from swift.proxy.controllers.base import get_container_info
 from swift.common.request_helpers import check_path_header
 
@@ -70,7 +69,9 @@ from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
-    validate_bucket_name, Config
+    parse_host, parse_path, Config
+from swift.common.middleware.s3api.exception import \
+    InvalidBucketNameParseError, InvalidURIParseError
 from swift.common.middleware.s3api.acl_utils import handle_acl_header
 
 
@@ -169,6 +170,15 @@ def _header_acl_property(resource):
 
     return property(getter, setter, deleter,
                     doc='Get and set the %s acl property' % resource)
+
+
+def _parse_path(req, bucket_in_host, dns_compliant_bucket_names):
+    try:
+        return parse_path(req, bucket_in_host, dns_compliant_bucket_names)
+    except InvalidURIParseError as err:
+        raise InvalidURI(err.uri)
+    except InvalidBucketNameParseError as err:
+        raise InvalidBucketName(err.bucket_name)
 
 
 class HashingInput(InputProxy):
@@ -1055,8 +1065,10 @@ class S3Request(swob.Request):
         self.location = self.conf.location
         self._timestamp = None
         self.access_key, self.signature = self._parse_auth_info()
-        self.bucket_in_host = self._parse_host()
-        self.container_name, self.object_name = self._parse_uri()
+        self.bucket_in_host = parse_host(self.environ,
+                                         self.conf.storage_domains)
+        self.container_name, self.object_name = _parse_path(
+            self, self.bucket_in_host, self.conf.dns_compliant_bucket_names)
         self._validate_headers()
         if isinstance(self, SigV4Mixin):
             # this is a deliberate but only partial shift away from the
@@ -1213,46 +1225,6 @@ class S3Request(swob.Request):
     @property
     def _is_x_amz_content_sha256_required(self):
         return False
-
-    def _parse_host(self):
-        if not self.conf.storage_domains:
-            return None
-
-        if 'HTTP_HOST' in self.environ:
-            given_domain = self.environ['HTTP_HOST']
-        elif 'SERVER_NAME' in self.environ:
-            given_domain = self.environ['SERVER_NAME']
-        else:
-            return None
-        port = ''
-        if ':' in given_domain:
-            given_domain, port = given_domain.rsplit(':', 1)
-
-        for storage_domain in self.conf.storage_domains:
-            if not storage_domain.startswith('.'):
-                storage_domain = '.' + storage_domain
-
-            if given_domain.endswith(storage_domain):
-                return given_domain[:-len(storage_domain)]
-
-        return None
-
-    def _parse_uri(self):
-        # NB: returns WSGI strings
-        if not check_utf8(swob.wsgi_to_str(self.environ['PATH_INFO'])):
-            raise InvalidURI(self.path)
-
-        if self.bucket_in_host:
-            obj = self.environ['PATH_INFO'][1:] or None
-            return self.bucket_in_host, obj
-
-        bucket, obj = self.split_path(0, 2, True)
-
-        if bucket and not validate_bucket_name(
-                bucket, self.conf.dns_compliant_bucket_names):
-            # Ignore GET service case
-            raise InvalidBucketName(bucket)
-        return bucket, obj
 
     def _parse_query_authentication(self):
         """
