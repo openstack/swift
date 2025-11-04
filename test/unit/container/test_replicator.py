@@ -3003,7 +3003,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker = self._get_broker('a', 'c', node_index=0)
 
         daemon.sync_store.remove_synced_container.side_effect = Exception(
-            'Failed to remove sync_store entry')
+            'kaboom')
 
         delete_success = daemon.delete_db(broker)
 
