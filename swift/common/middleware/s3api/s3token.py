@@ -177,7 +177,8 @@ class S3Token(object):
         else:
             self._verify = None
 
-        self._secret_cache_duration = int(conf.get('secret_cache_duration', 0))
+        self._secret_cache_duration = int(
+            conf.get('secret_cache_duration', 60))
         if self._secret_cache_duration < 0:
             raise ValueError('secret_cache_duration must be non-negative')
 
