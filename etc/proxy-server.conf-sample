@@ -711,6 +711,12 @@ http_timeout = 10.0
 # You can override the default log routing for this filter here:
 # log_name = s3token
 
+# Secrets may be cached to reduce latency for the client and load on Keystone.
+# This configures the duration that secrets may be cached; set to zero to
+# disable caching and prevent Swift from retrieving secrets from Keystone.
+# secret_cache_duration = 60
+# Note that caching is required to enable signed aws-chunked transfers.
+
 # Recent Keystone deployments require credentials similar to the authtoken
 # middleware; these credentials require access to the s3tokens endpoint.
 # Additionally, if secret caching is enabled, the credentials should have
