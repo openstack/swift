@@ -507,9 +507,10 @@ class FakeMemcache(object):
 del track
 
 
-class TestableMemcacheRing(memcached.MemcacheRing):
+class DebugMemcacheRing(memcached.MemcacheRing):
     """
-    Real MemcacheRing with injectable errors for testing concurrent scenarios.
+    Real MemcacheRing that captures calls before forwarding them to the super
+    class, and supports injectable errors for testing concurrent scenarios.
 
     This class wraps the actual MemcacheRing implementation while allowing
     controlled injection of connection errors. It preserves MemcacheRing's

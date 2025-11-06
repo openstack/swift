@@ -23,7 +23,7 @@ import itertools
 from swift.common.statsd_client import StatsdClient
 from test.debug_logger import debug_logger, FakeStatsdClient, \
     debug_labeled_statsd_client
-from test.unit import temptree, with_tempdir, TestableMemcacheRing, \
+from test.unit import temptree, with_tempdir, DebugMemcacheRing, \
     FakeIterable, BaseUnitTestCase, mock_normal_timestamp_now
 
 import contextlib
@@ -2838,7 +2838,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
             'statsd_emit_legacy': True,
         }
         self.statsd = debug_labeled_statsd_client(conf)
-        self.memcache = TestableMemcacheRing(
+        self.memcache = DebugMemcacheRing(
             ['1.2.3.4:11211'], logger=self.logger)
         self.infocache = {}
         self.cache_key = "test_key"
@@ -3093,7 +3093,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
             num_tokens_per_session = random.randint(1, 3)
             retries = 0
 
-            class CustomizedCache(TestableMemcacheRing):
+            class CustomizedCache(DebugMemcacheRing):
                 def get(self, key, raise_on_error=False):
                     nonlocal retries
                     retries += 1
@@ -3168,7 +3168,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         num_tokens_per_session = random.randint(1, 3)
         retries = 0
 
-        class CustomizedCache(TestableMemcacheRing):
+        class CustomizedCache(DebugMemcacheRing):
             def get(self, key, raise_on_error=False):
                 nonlocal retries
                 retries += 1
@@ -3230,7 +3230,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         # retries.
         retries = 0
 
-        class CustomizedCache(TestableMemcacheRing):
+        class CustomizedCache(DebugMemcacheRing):
             def get(self, key, raise_on_error=False):
                 nonlocal retries
                 retries += 1
@@ -3288,7 +3288,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
     def test_get_token_connection_error(self):
         # Test the request which couldn't acquire the token due to memcached
         # connection error.
-        self.memcache = TestableMemcacheRing(
+        self.memcache = DebugMemcacheRing(
             ['1.2.3.4:11211'], logger=self.logger, inject_incr_error=True)
         populator = self.MockCachePopulator(
             MockApp(self.logger, self.statsd),
@@ -3329,7 +3329,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         # Test the request which is able to acquire the token, but fails to set
         # the fetched backend data into memcached due to memcached connection
         # error.
-        self.memcache = TestableMemcacheRing(
+        self.memcache = DebugMemcacheRing(
             ['1.2.3.4:11211'], logger=self.logger, inject_set_error=True)
         populator = self.MockCachePopulator(
             MockApp(self.logger, self.statsd),
@@ -3370,7 +3370,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         # Test the request which couldn't acquire the token due to memcached
         # connection error, and then couldn't set the backend data into cache
         # due to memcached connection error too.
-        self.memcache = TestableMemcacheRing(
+        self.memcache = DebugMemcacheRing(
             ['1.2.3.4:11211'], logger=self.logger,
             inject_incr_error=True, inject_set_error=True)
         populator = self.MockCachePopulator(
@@ -3412,7 +3412,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         # Test the request which doesn't acquire the token, then keep sleeping
         # and trying to fetch data from the Memcached, but eventually all
         # retries exhausted with memcached connection errors.
-        self.memcache = TestableMemcacheRing(
+        self.memcache = DebugMemcacheRing(
             ['1.2.3.4:11211'], logger=self.logger, inject_get_error=True)
         # Simulate that there are three requests who have acquired the tokens.
         total_requests = self.memcache.incr(self.token_key, delta=3, time=10)
