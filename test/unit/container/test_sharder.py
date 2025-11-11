@@ -1412,6 +1412,31 @@ class TestSharder(BaseTestSharder):
                          [[o['name'] for o in objs] for objs, _, _ in yielded])
         self.assertEqual([orig_info] * 4, [info for _, _, info in yielded])
 
+    def test_fresh_db_id_has_device_suffix(self):
+        broker = self._make_broker()
+        objects = [
+            ('o%02d' % i, self.ts_encoded(), 10, 'text/plain', 'etag_a',
+             i % 2, 0) for i in range(30)]
+        for obj in objects:
+            broker.put_object(*obj)
+        broker.enable_sharding(Timestamp.now())
+        dest_ranges = [
+            ShardRange('shard/0', Timestamp.now(), upper='o09'),
+            ShardRange('shard/1', Timestamp.now(), lower='o09', upper='o19'),
+            ShardRange('shard/2', Timestamp.now(), lower='o19'),
+        ]
+        broker.merge_shard_ranges(dest_ranges)
+        self.assertTrue(broker.set_sharding_state())
+
+        # In sharding state let's confirm retiring and fresh dbs were
+        # generated correctly. They both should have the device "sda" as a
+        # a suffix, as it's in their path.
+        # First retiring broker
+        self.assertTrue(
+            broker.get_brokers()[0].get_info()['id'].endswith('sda'))
+        self.assertTrue(
+            broker.get_brokers()[1].get_info()['id'].endswith('sda'))
+
     def _check_cleave_root(self, conf=None):
         broker = self._make_broker()
         objects = [
