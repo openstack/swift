@@ -181,31 +181,45 @@ class S3Token(object):
         self._secret_cache_duration = int(conf.get('secret_cache_duration', 0))
         if self._secret_cache_duration < 0:
             raise ValueError('secret_cache_duration must be non-negative')
-        if self._secret_cache_duration:
-            try:
-                auth_plugin = keystone_loading.get_plugin_loader(
-                    conf.get('auth_type', 'password'))
-                available_auth_options = auth_plugin.get_options()
-                auth_options = {}
-                for option in available_auth_options:
-                    name = option.name.replace('-', '_')
-                    value = conf.get(name)
-                    if value:
-                        auth_options[name] = value
 
+        # Service authentication for s3tokens API calls
+        self.keystoneclient = None
+        try:
+            auth_plugin = keystone_loading.get_plugin_loader(
+                conf.get('auth_type', 'password'))
+            available_auth_options = auth_plugin.get_options()
+            auth_options = {}
+            for option in available_auth_options:
+                name = option.name.replace('-', '_')
+                value = conf.get(name)
+                if value:
+                    auth_options[name] = value
+
+            if not auth_options:
+                self._logger.warning(
+                    "No service auth configuration. "
+                    "s3tokens API calls will be unauthenticated. "
+                    "New versions of keystone require service auth.")
+            else:
                 auth = auth_plugin.load_from_options(**auth_options)
                 session = keystone_session.Session(auth=auth)
                 self.keystoneclient = keystone_client.Client(
                     session=session,
                     region_name=conf.get('region_name'))
-                self._logger.info("Caching s3tokens for %s seconds",
-                                  self._secret_cache_duration)
-            except Exception:
-                self._logger.warning("Unable to load keystone auth_plugin. "
-                                     "Secret caching will be unavailable.",
-                                     exc_info=True)
-                self.keystoneclient = None
-                self._secret_cache_duration = 0
+                self._logger.info(
+                    "Service authentication configured for s3tokens API")
+        except Exception:
+            self._logger.warning(
+                "Unable to load service auth configuration. "
+                "s3tokens API calls will be unauthenticated "
+                "and secret caching will be unavailable.",
+                exc_info=True)
+
+        if self._secret_cache_duration and self.keystoneclient:
+            self._logger.info("Caching s3tokens for %s seconds",
+                              self._secret_cache_duration)
+        else:
+            self._secret_cache_duration = 0
 
     def _deny_request(self, code):
         error_cls, message = {
@@ -225,6 +239,16 @@ class S3Token(object):
 
     def _json_request(self, creds_json):
         headers = {'Content-Type': 'application/json'}
+
+        # Add service authentication headers if configured
+        if self.keystoneclient:
+            try:
+                headers.update(
+                    self.keystoneclient.session.get_auth_headers())
+            except Exception:
+                self._logger.warning("Failed to get service token",
+                                     exc_info=True)
+
         try:
             response = requests.post(self._request_uri,
                                      headers=headers, data=creds_json,
